@@ -13,6 +13,7 @@ import xarray as xr
 
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
 )
@@ -198,16 +199,29 @@ def consolidate_poses(
 ) -> xr.DataArray:
     """Merge `pose` and `sweep_dim` dimensions into a single axis ordered by position.
 
-    For each `(pose, sweep_dim)` voxel, the position is computed using the sweep-dim
-    column and translation of the per-pose affine (other spatial dims are zero at voxel
-    centres along the sweep):
+    Per-`(pose, sweep_dim)` world positions come from whichever source describes
+    `da`'s per-pose geometry:
 
-    ```python
-    pos[p, i] = affine[p, :3, sweep_col] * sweep_mm[i] + affine[p, :3, 3]
-    ```
+    - If `da`'s primary voxel-to-world geometry is itself pose-dependent (a
+      `(npose, 4, 4)` affine stack — see
+      [VoxelToWorldIndex.is_pose_dependent][confusius._utils.geometry.VoxelToWorldIndex.is_pose_dependent]),
+      exact per-`(pose, sweep_dim)` world positions are read directly from `da`'s
+      own world coordinates. This is the case for SCAN data, where lab space (a
+      fixed scanner frame shared by every pose) is the canonical world frame — see
+      [`load_scan`][confusius.io.load_scan].
+    - Otherwise, positions are reconstructed from a separately stored `(npose, 4,
+      4)` affine stack in `da.attrs["affines"][affines_key]` (other spatial dims
+      are zero at voxel centres along the sweep):
 
-    where `sweep_col` is the column index of `sweep_dim` in the voxel dim ordering
-    `(k, j, i)` → affine columns `(z, y, x)`.
+      ```python
+      pos[p, i] = affine[p, :3, sweep_col] * sweep_mm[i] + affine[p, :3, 3]
+      ```
+
+      where `sweep_col` is the column index of `sweep_dim` in the voxel dim
+      ordering `(k, j, i)` → affine columns `(z, y, x)`. This covers, for example,
+      a stack of NIfTI DataArrays concatenated along a new `pose` dimension with
+      their `world_to_qform` affines stacked accordingly (no pose-dependent
+      primary geometry of their own).
 
     The primary sweep direction is found via singular value decomposition of all
     positions. Each voxel is projected onto that axis, the positions are checked for
@@ -228,21 +242,17 @@ def consolidate_poses(
     volume  = consolidate_poses(scan_4d)        # dims: (time, k, j, i)
     ```
 
-    The function also works on any DataArray that carries a `(npose, 4, 4)` affine stack
-    in `da.attrs["affines"][affines_key]` with columns ordered as `(z, y, x,
-    translation)`. The `sweep_dim` parameter selects which voxel dimension is being
-    swept across poses. For example, a stack of NIfTI DataArrays concatenated along a
-    new `pose` dimension with their `world_to_qform` affines stacked accordingly.
-
     Parameters
     ----------
     da : xarray.DataArray
-        DataArray with a `pose` dimension and a `(npose, 4, 4)` affine stack stored
-        in `da.attrs["affines"][affines_key]`. Typically produced by
+        DataArray with a `pose` dimension and per-pose geometry, either as
+        pose-dependent primary voxel-to-world geometry or as a `(npose, 4, 4)`
+        affine stack in `da.attrs["affines"][affines_key]`. Typically produced by
         [`load_scan`][confusius.io.load_scan] for `3Dscan` or `4Dscan` files.
     affines_key : str, default: "world_to_lab"
-        Key into `da.attrs["affines"]` that holds the `(npose, 4, 4)` affine stack.
-        Column order must be `(z, y, x, translation)`.
+        Key into `da.attrs["affines"]` that holds the `(npose, 4, 4)` affine stack,
+        used only when `da`'s primary geometry is not itself pose-dependent. Column
+        order must be `(z, y, x, translation)`.
     sweep_dim : str, default: "k"
         Name of the voxel dimension being swept across poses. Must be one of the
         spatial dimensions in `da.dims`. The column index in the affine is determined
@@ -265,9 +275,10 @@ def consolidate_poses(
     ------
     ValueError
         If `da` has no `pose` dimension, if `sweep_dim` is not one of the spatial
-        dimensions in `da.dims`, if the rotation block of the affine is not constant
-        across poses (non-translation sweep), or if the consolidated positions are not
-        regularly spaced within `rtol`.
+        dimensions in `da.dims`, if `da`'s primary geometry is not pose-dependent and
+        `affines_key` is missing from `da.attrs["affines"]`, if the rotation block of
+        the affine is not constant across poses (non-translation sweep), or if the
+        consolidated positions are not regularly spaced within `rtol`.
 
     Warns
     -----
@@ -301,42 +312,69 @@ def consolidate_poses(
     spatial_dims = voxel_dims
     output_spatial_dims = spatial_dims
     world_sweep_dim = voxel_to_world[sweep_dim]
-    sweep_mm = _reduce_world_coord_along_voxel_dim(
-        da.coords[world_sweep_dim],
-        sweep_dim,
-        [d for d in voxel_dims if d != sweep_dim],
-    )
+    other_voxel_dims = [d for d in voxel_dims if d != sweep_dim]
     sweep_coord_attrs = dict(da.coords[world_sweep_dim].attrs)
-
     sweep_col = spatial_dims.index(sweep_dim)
 
-    affine: npt.NDArray[np.float64] = np.asarray(
-        da.attrs["affines"][affines_key]
-    )  # (npose, 4, 4)
-    n_sweep = len(sweep_mm)
+    primary_affine = get_voxel_to_world_affine(da)
+    is_pose_dependent = primary_affine.ndim == 3
+
+    if is_pose_dependent:
+        # The primary geometry is itself a per-pose affine stack (e.g. SCAN data,
+        # where lab space is the canonical world frame): read exact per-(pose,
+        # sweep) world positions directly from da's own world coordinates rather
+        # than reconstructing them from a separately stored affine. This needs no
+        # assumption about a "local" pre-fold frame, unlike the affines_key path
+        # below.
+        affine = primary_affine  # (npose, 4, 4)
+        n_sweep = da.sizes[sweep_dim]
+        world_positions = []
+        for world_dim in world_dims:
+            coord = da.coords[world_dim]
+            if other_voxel_dims:
+                coord = coord.isel(dict.fromkeys(other_voxel_dims, 0))
+            world_positions.append(np.asarray(coord.values, dtype=np.float64))
+        # Each entry is (npose, n_sweep); stacked along a new last axis gives
+        # (npose, n_sweep, 3), matching the affines_key path's lab_pos shape.
+        lab_pos: npt.NDArray[np.float64] = np.stack(world_positions, axis=-1)
+    else:
+        if affines_key not in da.attrs.get("affines", {}):
+            raise ValueError(
+                f"DataArray has no pose-dependent primary geometry and no "
+                f"{affines_key!r} entry in da.attrs['affines']; cannot determine "
+                "per-pose positions."
+            )
+        affine = np.asarray(da.attrs["affines"][affines_key])  # (npose, 4, 4)
+        sweep_mm = _reduce_world_coord_along_voxel_dim(
+            da.coords[world_sweep_dim], sweep_dim, other_voxel_dims
+        )
+        n_sweep = len(sweep_mm)
+
+        # Lab position for each (pose, sweep_dim): only the sweep column of the
+        # affine contributes when we evaluate at the other spatial dims = 0 at
+        # voxel centres. Rotation is constant across poses (checked below); only
+        # the translation T changes.
+        r_sweep: npt.NDArray[np.float64] = affine[
+            :, :3, sweep_col
+        ]  # (npose, 3), sweep_dim direction in lab.
+        t: npt.NDArray[np.float64] = affine[
+            :, :3, 3
+        ]  # (npose, 3), per-pose translation in the affine/world-space units.
+        lab_pos = (
+            r_sweep[:, np.newaxis, :] * sweep_mm[np.newaxis, :, np.newaxis]
+            + t[:, np.newaxis, :]
+        )
 
     rotations: npt.NDArray[np.float64] = affine[:, :3, :3]  # (npose, 3, 3)
+    # (npose, 3), per-pose translation, used below (t_perp) regardless of branch.
+    t = affine[:, :3, 3]
     if not np.allclose(rotations, rotations[0], rtol=1e-6, atol=0):
         raise ValueError(
             f"Rotation block of affines[{affines_key!r}] is not constant across poses. "
             "consolidate_poses only supports pure translation sweeps."
         )
 
-    # Lab position for each (pose, sweep_dim): only the sweep column of the affine
-    # contributes when we evaluate at the other spatial dims = 0 at voxel centres.
-    # Rotation is constant across poses; only the translation T changes.
-    r_sweep: npt.NDArray[np.float64] = affine[
-        :, :3, sweep_col
-    ]  # (npose, 3), sweep_dim direction in lab.
-    t: npt.NDArray[np.float64] = affine[
-        :, :3, 3
-    ]  # (npose, 3), per-pose translation in the affine/world-space units.
-
     # Shape (npose, n_sweep, 3) -> (npose*n_sweep, 3).
-    lab_pos: npt.NDArray[np.float64] = (
-        r_sweep[:, np.newaxis, :] * sweep_mm[np.newaxis, :, np.newaxis]
-        + t[:, np.newaxis, :]
-    )
     lab_pos_flat = lab_pos.reshape(-1, 3)
 
     centered = lab_pos_flat - lab_pos_flat.mean(axis=0)

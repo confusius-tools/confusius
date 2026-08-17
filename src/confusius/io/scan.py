@@ -391,11 +391,17 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     return brain_to_confusius_lab
 
 
-def _add_world_to_brain(affines: dict[str, Any], bps_path: str | Path) -> None:
+def _add_world_to_brain(
+    affines: dict[str, Any],
+    bps_path: str | Path,
+    world_to_lab: npt.NDArray[np.float64] | None,
+) -> None:
     """Compose a `world_to_brain` affine from a BPS sidecar and store it in `affines`.
 
-    Requires `affines["world_to_lab"]` to be present. The composition matches both the
-    v1 and v2 loaders: `world_to_brain = inv(load_bps(bps_path)) @ world_to_lab`.
+    ConfUSIus world coordinates for SCAN data are already lab space (`world_to_lab`
+    is folded into the primary voxel-to-world affine at construction, see
+    `_build_world_to_lab`), so `world_to_brain` maps directly from world to brain:
+    `world_to_brain = inv(load_bps(bps_path))`.
 
     Parameters
     ----------
@@ -403,14 +409,31 @@ def _add_world_to_brain(affines: dict[str, Any], bps_path: str | Path) -> None:
         The DataArray's `affines` attribute; mutated in place to add `world_to_brain`.
     bps_path : str or pathlib.Path
         Path to the BPS file (`.bps`).
+    world_to_lab : numpy.ndarray, optional
+        The affine that was (or would have been) folded into the primary geometry at
+        construction. Only used to confirm lab space is actually this DataArray's
+        world frame; `None` means it could not be built (e.g. an implausible SCAN v2
+        6DOF probe-pose block), in which case composing `world_to_brain` is impossible
+        and a clear error is raised instead.
 
     Returns
     -------
     None
         `affines` is updated in place.
+
+    Raises
+    ------
+    ValueError
+        If `world_to_lab` is `None`.
     """
+    if world_to_lab is None:
+        raise ValueError(
+            "bps_path was given but no world_to_lab affine could be built for this "
+            "SCAN file (e.g. the 6DOF probe-pose block was missing or implausible), "
+            "so the BPS transform cannot be composed."
+        )
     brain_to_lab = load_bps(bps_path)
-    affines["world_to_brain"] = np.linalg.inv(brain_to_lab) @ affines["world_to_lab"]
+    affines["world_to_brain"] = np.linalg.inv(brain_to_lab)
 
 
 def load_scan(
@@ -500,15 +523,19 @@ def load_scan(
     subset is parsed from a structured block whose layout is anchor-validated against the
     depth origin; if that check fails, those fields are omitted rather than guessed.
 
-    The `world_to_lab` affine stored in `da.attrs["affines"]` maps ConfUSIus world
-    coordinates `(z, y, x)` to **ConfUSIus-ordered** Iconeus lab coordinates (mm). Apply
-    as `da.attrs["affines"]["world_to_lab"] @ np.array([z, y, x, 1.0])`. For
-    multi-pose files the shape is `(npose, 4, 4)`; index with `da.coords["pose"].values`
-    after `isel`.
+    ConfUSIus world coordinates `(z, y, x)` for SCAN data are **ConfUSIus-ordered
+    Iconeus lab coordinates** (mm): a fixed scanner frame shared by every pose, used
+    as the canonical world frame because it is the one frame that is physically
+    meaningful across poses. For multi-pose files, `da`'s voxel-to-world geometry is
+    itself pose-dependent (a `(npose, 4, 4)` affine stack, one per
+    `da.coords["pose"]` label — see
+    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]); world
+    selection therefore requires a scalar `pose`, e.g. `da.sel(pose=0, z=..., y=...,
+    x=...)` or `da.isel(pose=0)` first.
 
     If `bps_path` is provided, a `world_to_brain` affine is stored in
     `da.attrs["affines"]["world_to_brain"]` that maps ConfUSIus world coordinates
-    `(z, y, x)` to Iconeus' brain coordinates. Apply as
+    (already lab space, as above) to Iconeus' brain coordinates. Apply as
     `da.attrs["affines"]["world_to_brain"] @ np.array([z, y, x, 1.0])`.
 
     Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
@@ -538,15 +565,9 @@ def load_scan(
                 f"{type(error).__name__}: {error}"
             ) from error
 
+        world_to_lab = data_array.attrs.pop("_world_to_lab")
         if bps_path is not None:
-            affines = data_array.attrs["affines"]
-            if "world_to_lab" not in affines:
-                raise ValueError(
-                    "bps_path was given but no world_to_lab affine could be built "
-                    "for this SCAN v2 file (the 6DOF probe-pose block was missing or "
-                    "implausible), so the BPS transform cannot be composed."
-                )
-            _add_world_to_brain(affines, bps_path)
+            _add_world_to_brain(data_array.attrs["affines"], bps_path, world_to_lab)
         return data_array
 
     raise ValueError(
@@ -600,11 +621,17 @@ def _load_scan_v1(
             h5["/acqMetaData/probeToLab"][()], dtype=np.float64
         )
 
-        voxel_to_world = _build_voxel_to_confusius_world(voxels_to_probe)
+        local_voxel_to_world = _build_voxel_to_confusius_world(voxels_to_probe)
         world_to_lab = _build_world_to_lab(probe_to_lab)
+        # Lab space (a fixed scanner frame shared by every pose) is the canonical
+        # ConfUSIus world frame for SCAN data: fold world_to_lab into voxel_to_world
+        # rather than keeping it as a side transform, so multi-pose files get one
+        # physically meaningful voxel-to-world affine per pose instead of an
+        # arbitrary shared "local" frame plus a separate per-pose correction.
+        voxel_to_world = world_to_lab @ local_voxel_to_world
 
         attrs: dict[str, Any] = {
-            "affines": {"world_to_lab": world_to_lab},
+            "affines": {},
             "device_serial_number": _read_scan_str(h5, "/scanMetaData/Machine_SN"),
             "software_version": _read_scan_str(h5, "/scanMetaData/Neuroscan_version"),
             "iconeus_scan_mode": mode,
@@ -638,7 +665,7 @@ def _load_scan_v1(
 
         data_array.name = attrs["iconeus_scan"] or path.stem
         if bps_path is not None:
-            _add_world_to_brain(data_array.attrs["affines"], bps_path)
+            _add_world_to_brain(data_array.attrs["affines"], bps_path, world_to_lab)
     except Exception:
         h5.close()
         raise
@@ -1020,13 +1047,22 @@ def _load_scan_v2(
         pose = np.arange(npose)
 
     time_coord = _build_scan_v2_time_coord(meta, n_time_total)
-    voxel_to_world = _build_scan_v2_voxel_to_world(meta)
+    local_voxel_to_world = _build_scan_v2_voxel_to_world(meta)
     attrs = _build_scan_v2_attrs(header, npose, n_time_total)
     acquisition = _read_scan_v2_acquisition(header, n_time, meta["depth_start_mm"])
     world_to_lab = acquisition.pop("_world_to_lab", None)
     attrs.update(acquisition)
-    if world_to_lab is not None:
-        attrs["affines"]["world_to_lab"] = world_to_lab
+    # Lab space is the canonical ConfUSIus world frame for SCAN data (see the v1
+    # loader); v2 only ever recovers one 6DOF probe pose regardless of npose, so
+    # there is nothing to stack -- fold it into voxel_to_world directly, or leave
+    # voxel_to_world as the local frame if it could not be built.
+    voxel_to_world = (
+        world_to_lab @ local_voxel_to_world
+        if world_to_lab is not None
+        else local_voxel_to_world
+    )
+    # Exposed privately for load_scan's bps_path composition; popped before return.
+    attrs["_world_to_lab"] = world_to_lab
 
     data_array = create_fusi_dataarray(
         data_lazy,
@@ -1188,8 +1224,9 @@ def _read_scan_v2_acquisition(
     dict
         Acquisition attributes that could be recovered; fields whose block could not be
         validated are simply absent. When the block validates, a private
-        `_world_to_lab` key holds the pose-derived affine for the caller to move into
-        `attrs["affines"]`.
+        `_world_to_lab` key holds the pose-derived affine for the caller to fold into
+        `voxel_to_world` (the primary geometry) and use for `world_to_brain`
+        composition; `None` when it could not be built.
     """
     o = _SCAN_V2_OFFSETS
 
