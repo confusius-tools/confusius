@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
 
-def affine_to(
+def get_relative_affine(
     da: xr.DataArray,
     other: xr.DataArray,
     via: str,
@@ -434,7 +434,7 @@ class FUSIAffineAccessor:
         >>> np.allclose(a.fusi.affine.to(b, via="to_world"), np.eye(4))
         True
         """
-        return affine_to(self._obj, other, via)
+        return get_relative_affine(self._obj, other, via)
 
     def apply(
         self,

@@ -16,8 +16,11 @@ __all__ = [
     "create_fusi_dataarray",
     "create_iq_dataarray",
     "db_scale",
+    "get_relative_affine",
     "log_scale",
     "power_scale",
+    "reindex_voxels",
+    "reindex_voxels_like",
 ]
 
 from confusius.xarray.accessors import FUSIAccessor
@@ -36,6 +39,9 @@ _ATTR_TO_MODULE = {
     "log_scale": "confusius.xarray.scale",
     "power_scale": "confusius.xarray.scale",
     "apply_affine": "confusius.xarray.affine",
+    "get_relative_affine": "confusius.xarray.affine",
+    "reindex_voxels": "confusius.xarray.affine",
+    "reindex_voxels_like": "confusius.xarray.affine",
 }
 
 
@@ -53,7 +59,13 @@ def __dir__() -> list[str]:
 
 
 if TYPE_CHECKING:
-    from confusius.xarray.affine import FUSIAffineAccessor, apply_affine
+    from confusius.xarray.affine import (
+        FUSIAffineAccessor,
+        apply_affine,
+        get_relative_affine,
+        reindex_voxels,
+        reindex_voxels_like,
+    )
     from confusius.xarray.connectivity import FUSIConnectivityAccessor
     from confusius.xarray.create import create_fusi_dataarray, create_iq_dataarray
     from confusius.xarray.extract import FUSIExtractAccessor
