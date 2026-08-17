@@ -231,6 +231,53 @@ Or in BibTeX format:
 
 License: **[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)**.
 
+### Pereira et al. (2025)
+
+The [`fetch_pereira_2025`][confusius.datasets.fetch_pereira_2025] function provides a
+fUSI-BIDS re-export of this dataset. If you use it, please cite:
+
+> Pereira, M., Droguerre, M., Valdebenito, M., Vidal, L., Marcy, G., Benkeder, S.,
+> Marchal, P., Comte, J.-C., Pascual, O., Zimmer, L., & Vidal, B. (2025). Induction of
+> haemodynamic travelling waves by glial-related vasomotion in a rat model of
+> neuroinflammation: Implications for functional neuroimaging. *eBioMedicine*, 116,
+> 105777. https://doi.org/10.1016/j.ebiom.2025.105777
+
+```bibtex
+@article{pereira_induction_2025,
+  title = {Induction of haemodynamic travelling waves by glial-related vasomotion in a rat model of neuroinflammation: implications for functional neuroimaging},
+  volume = {116},
+  doi = {10.1016/j.ebiom.2025.105777},
+  journal = {eBioMedicine},
+  author = {Pereira, Mickaël and Droguerre, Marine and Valdebenito, Marco and Vidal, Louis and Marcy, Guillaume and Benkeder, Sarah and Marchal, Paul and Comte, Jean-Christophe and Pascual, Olivier and Zimmer, Luc and Vidal, Benjamin},
+  year = {2025},
+  pages = {105777},
+}
+```
+
+License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
+
+### Pepe, Mariani et al. (2026)
+
+The [`fetch_pepe_mariani_2026`][confusius.datasets.fetch_pepe_mariani_2026] function
+provides a fUSI-BIDS re-export of this dataset. If you use it, please cite:
+
+> Pepe, C., Mariani, J.-C., Urosevic, M., Gini, S., Stuefer, A., Ricci, F., Galbusera,
+> A., Iurilli, G., & Gozzi, A. (2026). Structural and dynamic embedding of the mouse
+> functional connectome revealed by functional ultrasound imaging (Fusi).
+> https://doi.org/10.64898/2026.02.05.704055
+
+```bibtex
+@misc{pepe_structural_2026,
+  title = {Structural and dynamic embedding of the mouse functional connectome revealed by functional ultrasound imaging ({Fusi})},
+  doi = {10.64898/2026.02.05.704055},
+  url = {http://biorxiv.org/lookup/doi/10.64898/2026.02.05.704055},
+  author = {Pepe, Chiara and Mariani, Jean-Charles and Urosevic, Mila and Gini, Silvia and Stuefer, Alexia and Ricci, Fabio and Galbusera, Alberto and Iurilli, Giuliano and Gozzi, Alessandro},
+  year = {2026},
+}
+```
+
+License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
+
 ### Khallaf et al. (2026)
 
 The [`fetch_khallaf_2026`][confusius.datasets.fetch_khallaf_2026]
