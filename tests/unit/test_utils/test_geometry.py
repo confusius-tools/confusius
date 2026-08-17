@@ -17,6 +17,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     get_voxel_to_world_direction_matrix,
     get_voxel_to_world_index_origin,
+    get_voxel_to_world_index_spacing,
     get_voxel_to_world_spacings_from_coords,
     has_axis_aligned_voxel_to_world_index,
     restore_voxel_to_world_index,
@@ -358,6 +359,39 @@ def test_origin_and_direction_require_scalar_pose() -> None:
     scalar = result.isel(pose=0)
     get_voxel_to_world_index_origin(scalar)
     get_voxel_to_world_direction_matrix(scalar)
+
+
+def test_spacing_matches_scalar_pose_for_non_unit_scale() -> None:
+    """Pose-dependent spacing agrees with a scalar-pose selection for real spacing.
+
+    Regression: `get_affine_axis_vectors` sliced a pose-stacked affine with
+    `affine[:-1, :-1]`, which for a 3D array trims the *pose* axis instead of the
+    homogeneous row/column, silently returning garbage scalings. Invisible with the
+    all-ones scale used by other pose-dependent fixtures in this file, since the
+    misindexed values happened to still norm to ~1.
+    """
+    pose_affines = np.stack(
+        [
+            np.diag([0.4, 0.1, 0.11, 1.0]),
+            np.array(
+                [
+                    [0.4, 0.0, 0.0, 100.0],
+                    [0.0, 0.1, 0.0, 0.0],
+                    [0.0, 0.0, 0.11, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+        ]
+    )
+    result = _pose_dependent_result(pose_affines=pose_affines)
+
+    spacing = get_voxel_to_world_index_spacing(result)
+    scalar_spacing = get_voxel_to_world_index_spacing(result.isel(pose=0))
+
+    assert spacing == scalar_spacing
+    assert spacing["k"] == pytest.approx(0.4)
+    assert spacing["j"] == pytest.approx(0.1)
+    assert spacing["i"] == pytest.approx(0.11)
 
 
 def test_pose_dependent_index_equality_compares_pose_labels_and_affines() -> None:

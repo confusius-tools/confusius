@@ -1786,8 +1786,12 @@ def get_affine_axis_vectors(
 
     Parameters
     ----------
-    voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel space to world space.
+    voxel_to_world : (N+1, N+1) numpy.ndarray or (npose, N+1, N+1) numpy.ndarray
+        Homogeneous affine mapping voxel space to world space, or a stack of one
+        such affine per pose. For a stack, the first pose's vectors are returned:
+        direction can differ per pose, but callers of this function only ever need
+        magnitudes (`get_affine_axis_scalings`), which the equal-spatial-scale
+        invariant guarantees are the same for every pose.
     voxel_dims : tuple[str, ...]
         Voxel-space dimension names in affine column order.
 
@@ -1797,6 +1801,8 @@ def get_affine_axis_vectors(
         World step vectors keyed by voxel-space dimension name.
     """
     affine = np.asarray(voxel_to_world, dtype=np.float64)
+    if affine.ndim == 3:
+        affine = affine[0]
     linear = affine[:-1, :-1]
     return {dim: linear[:, i].copy() for i, dim in enumerate(voxel_dims)}
 
