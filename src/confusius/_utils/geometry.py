@@ -18,7 +18,7 @@ dimension.
 
 from __future__ import annotations
 
-from collections.abc import Hashable, Mapping
+from collections.abc import Hashable, Iterable, Mapping, Sequence
 from typing import Any, Self, cast
 
 import numpy as np
@@ -628,22 +628,139 @@ class VoxelToWorldIndex(Index):
         other : xarray.Index
             Index to compare against.
         exclude : frozenset[Hashable], optional
-            Unused compatibility argument required by Xarray's index API.
+            Dimensions to ignore, as used by Xarray's alignment machinery when
+            checking whether indexes can be concatenated along one of them (e.g.
+            `xr.concat(..., dim="pose")` first aligns every other dimension while
+            excluding `"pose"` from the comparison). When `"pose"` is excluded and
+            either side is pose-dependent, pose labels and affine values are not
+            compared — only spatial geometry (voxel coordinates, fixed dims, world
+            coordinate names) must match.
 
         Returns
         -------
         bool
-            Whether the two indexes have equal affines and wrapped transforms.
+            Whether the two indexes have equal affines and wrapped transforms (or,
+            with `"pose"` excluded, equal spatial geometry only).
         """
+        if not isinstance(other, VoxelToWorldIndex):
+            return False
+        self_transform = self._index.transform
+        other_transform = other._index.transform
+        assert isinstance(self_transform, VoxelToWorldTransform)
+        assert isinstance(other_transform, VoxelToWorldTransform)
+        if exclude is not None and POSE_DIM in exclude:
+            return (
+                self_transform.world_coord_names == other_transform.world_coord_names
+                and self_transform._all_dims == other_transform._all_dims
+                and self_transform.fixed_voxel_coords
+                == other_transform.fixed_voxel_coords
+                and all(
+                    np.array_equal(
+                        self_transform.voxel_coords[dim],
+                        other_transform.voxel_coords[dim],
+                    )
+                    for dim in self_transform.dims
+                    if dim != POSE_DIM
+                )
+            )
         return (
-            isinstance(other, VoxelToWorldIndex)
-            and self.voxel_to_world.shape == other.voxel_to_world.shape
+            self.voxel_to_world.shape == other.voxel_to_world.shape
             and np.allclose(self.voxel_to_world, other.voxel_to_world)
             and bool(
                 cast(Index, self._index).equals(
                     cast(Index, other._index), exclude=exclude
                 )
             )
+        )
+
+    @classmethod
+    def concat(
+        cls,
+        indexes: Sequence[Index],
+        dim: Hashable,
+        positions: Iterable[Iterable[int]] | None = None,
+    ) -> Self:
+        """Concatenate pose-dependent indexes along `pose`.
+
+        Parameters
+        ----------
+        indexes : sequence[xarray.Index]
+            Indexes to concatenate, in `xarray.concat`'s array order. Each must
+            already be pose-dependent (own a stacked affine), and all must share
+            identical spatial geometry (voxel coordinates, fixed dims, world
+            coordinate names) — only the pose labels and affines differ.
+        dim : Hashable
+            Dimension being concatenated. Only `"pose"` is supported; concatenating
+            along any other dimension covered by this index (a native voxel
+            dimension) is not yet implemented.
+        positions : iterable[iterable[int]], optional
+            Unused compatibility argument required by Xarray's index API;
+            concatenation always follows `indexes`' order.
+
+        Returns
+        -------
+        VoxelToWorldIndex
+            Index with concatenated pose labels and affine stacks.
+
+        Raises
+        ------
+        ValueError
+            If `dim` is not `"pose"`, if any index is pose-independent, or if the
+            indexes' spatial geometry does not match.
+        """
+        if dim != POSE_DIM:
+            raise ValueError(
+                f"VoxelToWorldIndex only supports concat along {POSE_DIM!r}, got "
+                f"{dim!r}."
+            )
+        transforms: list[VoxelToWorldTransform] = []
+        for index in indexes:
+            assert isinstance(index, VoxelToWorldIndex)
+            transform = index._index.transform
+            assert isinstance(transform, VoxelToWorldTransform)
+            if transform.pose_coord is None:
+                raise ValueError(
+                    "Cannot concatenate pose-independent geometry along "
+                    f"{POSE_DIM!r}; every input must already be pose-dependent."
+                )
+            transforms.append(transform)
+        first = transforms[0]
+        for other in transforms[1:]:
+            if (
+                other.world_coord_names != first.world_coord_names
+                or other.dims != first.dims
+                or other._all_dims != first._all_dims
+                or other.fixed_voxel_coords != first.fixed_voxel_coords
+                or not all(
+                    np.array_equal(other.voxel_coords[dim], first.voxel_coords[dim])
+                    for dim in first.dims
+                    if dim != POSE_DIM
+                )
+            ):
+                raise ValueError(
+                    "Cannot concatenate VoxelToWorldIndex objects with different "
+                    f"spatial geometry along {POSE_DIM!r}."
+                )
+        new_pose_coord = np.concatenate(
+            [transform.pose_coord for transform in transforms]
+        )
+        new_affine = np.concatenate(
+            [transform.voxel_to_world for transform in transforms], axis=0
+        )
+        new_transform = VoxelToWorldTransform(
+            first.voxel_coords,
+            new_affine,
+            first.world_coord_names,
+            fixed_voxel_coords=first.fixed_voxel_coords,
+            all_dims=first._all_dims,
+            pose_coord=new_pose_coord,
+        )
+        first_index = indexes[0]
+        assert isinstance(first_index, VoxelToWorldIndex)
+        return cls(
+            CoordinateTransformIndex(new_transform),
+            new_affine,
+            world_coord_attrs=first_index.world_coord_attrs,
         )
 
 

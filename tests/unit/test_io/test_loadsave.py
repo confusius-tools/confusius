@@ -119,6 +119,38 @@ class TestSaveDispatch:
         save(da, path)
         npt.assert_array_equal(load(path).values, da.values)
 
+    def test_zarr_roundtrips_pose_dependent_geometry(self, tmp_path):
+        """A pose-stacked voxel-to-world affine survives a Zarr round trip."""
+        affine = np.stack(
+            [
+                np.eye(4),
+                np.array(
+                    [
+                        [1.0, 0.0, 0.0, 100.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+            ]
+        )
+        da = create_fusi_dataarray(
+            np.arange(2 * 2 * 3 * 4).reshape(2, 2, 3, 4),
+            dims=("pose", "k", "j", "i"),
+            voxel_to_world=affine,
+        )
+        path = tmp_path / "data.zarr"
+
+        save(da, path)
+        loaded = load(path)
+
+        assert loaded.dims == da.dims
+        npt.assert_array_equal(loaded.coords["pose"].values, da.coords["pose"].values)
+        npt.assert_allclose(loaded.coords["z"].values, da.coords["z"].values)
+        npt.assert_allclose(
+            get_voxel_to_world_affine(loaded), get_voxel_to_world_affine(da)
+        )
+
     def test_compound_zarr_extension(self, tmp_path, saveable_volume):
         """.source.zarr compound extension writes a readable store."""
         path = tmp_path / "data.source.zarr"

@@ -9,8 +9,10 @@ import xarray as xr
 
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
+from confusius._dims import POSE_DIM
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
 from confusius._utils.geometry import (
+    VoxelToWorldIndex,
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
@@ -152,7 +154,18 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
             for coord_name in world_coord_names
             if coord_name in data_array.coords
         }
-        data_array = data_array.drop_vars(world_coord_names)
+        # A pose-dependent VoxelToWorldIndex jointly owns `pose` alongside z/y/x, so
+        # dropping only the world coordinates would corrupt the index. Drop `pose`
+        # too, then reassign its values back as a plain coordinate: they're not
+        # re-derivable from the affine (unlike z/y/x) and must round-trip as-is.
+        drop_names = list(world_coord_names)
+        pose_values = None
+        if isinstance(data_array.xindexes.get(POSE_DIM), VoxelToWorldIndex):
+            pose_values = data_array.coords[POSE_DIM].values.copy()
+            drop_names.append(POSE_DIM)
+        data_array = data_array.drop_vars(drop_names)
+        if pose_values is not None:
+            data_array = data_array.assign_coords({POSE_DIM: (POSE_DIM, pose_values)})
         data_array.attrs = {
             **data_array.attrs,
             "voxel_to_world": voxel_to_world,

@@ -42,8 +42,9 @@ def _pose_dependent_result(
         )
     if pose_coord is None:
         pose_coord = np.array([0, 1])
+    npose = len(pose_coord)
     data = xr.DataArray(
-        np.arange(2 * 2 * 3 * 4).reshape(2, 2, 3, 4),
+        np.arange(npose * 2 * 3 * 4).reshape(npose, 2, 3, 4),
         dims=("pose", "k", "j", "i"),
         coords={
             "k": np.arange(2),
@@ -301,6 +302,47 @@ def test_restore_voxel_to_world_index_rebuilds_pose_dependent_geometry() -> None
 
     assert restored.coords["z"].dims == ("pose", "k", "j", "i")
     assert_array_equal(restored.coords["pose"].values, [0, 1])
+
+
+def test_pose_dependent_concat_merges_pose_labels_and_affines() -> None:
+    """`xr.concat` along `pose` merges pose labels and affine stacks in order."""
+    first = _pose_dependent_result()
+    second = _pose_dependent_result(
+        pose_affines=np.stack(
+            [
+                np.array(
+                    [
+                        [1.0, 0.0, 0.0, 200.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                )
+            ]
+        ),
+        pose_coord=np.array([2]),
+    )
+
+    combined = xr.concat([first, second], dim="pose")
+
+    assert_array_equal(combined.coords["pose"].values, [0, 1, 2])
+    assert_allclose(
+        combined.coords["z"].isel(pose=2, j=0, i=0).values, [200.0, 201.0]
+    )
+
+
+def test_pose_dependent_concat_rejects_mismatched_spatial_geometry() -> None:
+    """Concatenating along `pose` still rejects mismatched voxel-space geometry."""
+    first = _pose_dependent_result()
+    mismatched = _pose_dependent_result(
+        pose_affines=np.stack([np.diag([2.0, 2.0, 2.0, 1.0])]),
+        pose_coord=np.array([2]),
+    )
+
+    with pytest.raises(
+        ValueError, match="different spatial geometry|equal spatial scale"
+    ):
+        xr.concat([first, mismatched], dim="pose", join="exact")
 
 
 def test_pose_dependent_index_equality_compares_pose_labels_and_affines() -> None:
