@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._dims import CORE_DIMS, SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
+from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
 from confusius._utils.coordinates import get_probe_surface_origin
 from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
@@ -436,7 +436,11 @@ def create_fusi_dataarray(
     attrs : dict, optional
         DataArray attributes.
     voxel_to_world : numpy.typing.ArrayLike, optional
-        4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order.
+        4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order,
+        or an `(npose, 4, 4)` stack of one such affine per pose. A stack requires a
+        `pose` dimension in `dims` with a matching length, and is mutually exclusive
+        with `spacing`/`origin`/`direction` — per-pose geometry can only be supplied
+        this way, there is no parallel per-pose `spacing`/`origin`/`direction` API.
     world_coord_attrs : mapping[str, mapping[str, Any]], optional
         Attributes to merge onto the derived world coordinates, keyed by world
         coordinate name (`z`/`y`/`x`). Overrides the auto-computed `units`/`voxdim`
@@ -452,8 +456,10 @@ def create_fusi_dataarray(
     Raises
     ------
     ValueError
-        If `dims` uses world `z`/`y`/`x` names instead of native voxel names, or if
-        dimensions, coordinates, geometry, timing, or fUSI validation otherwise fail.
+        If `dims` uses world `z`/`y`/`x` names instead of native voxel names, if a
+        pose-stacked `voxel_to_world` is given without a matching `pose` dimension,
+        or if dimensions, coordinates, geometry, timing, or fUSI validation otherwise
+        fail.
     """
     dims = tuple(str(dim) for dim in dims)
     shape = np.shape(data)
@@ -526,19 +532,54 @@ def create_fusi_dataarray(
             volume_acquisition_duration=volume_acquisition_duration,
         )
 
-    resolved_voxel_to_world = _resolve_voxel_to_world(
-        spatial_sizes=spatial_sizes,
-        spacing=spacing,
-        origin=origin,
-        direction=direction,
-        voxel_to_world=voxel_to_world,
+    voxel_to_world_array = (
+        None if voxel_to_world is None else np.asarray(voxel_to_world, dtype=np.float64)
+    )
+    is_pose_stacked = (
+        voxel_to_world_array is not None and voxel_to_world_array.ndim == 3
+    )
+    if is_pose_stacked:
+        if spacing is not None or origin is not None or direction is not None:
+            raise ValueError(
+                "voxel_to_world is mutually exclusive with spacing, origin, and "
+                "direction."
+            )
+        if POSE_DIM not in dims:
+            raise ValueError(
+                "A pose-stacked voxel_to_world (one affine per pose) requires a "
+                f"{POSE_DIM!r} dimension in dims."
+            )
+        if voxel_to_world_array.shape[1:] != (4, 4):
+            raise ValueError(
+                "voxel_to_world must have shape (npose, 4, 4), got "
+                f"{voxel_to_world_array.shape}."
+            )
+        if not np.allclose(voxel_to_world_array[:, -1], [0.0, 0.0, 0.0, 1.0]):
+            raise ValueError("Each pose affine must be a homogeneous affine.")
+        pose_size = shape[dims.index(POSE_DIM)]
+        if voxel_to_world_array.shape[0] != pose_size:
+            raise ValueError(
+                f"voxel_to_world pose stack length {voxel_to_world_array.shape[0]} "
+                f"does not match the {POSE_DIM!r} dimension size {pose_size}."
+            )
+        resolved_voxel_to_world = voxel_to_world_array
+    else:
+        resolved_voxel_to_world = _resolve_voxel_to_world(
+            spatial_sizes=spatial_sizes,
+            spacing=spacing,
+            origin=origin,
+            direction=direction,
+            voxel_to_world=voxel_to_world,
+        )
+    representative_voxel_to_world = (
+        resolved_voxel_to_world[0] if is_pose_stacked else resolved_voxel_to_world
     )
     if voxdim is None:
         resolved_voxdim = tuple(
             _require_positive_finite(value, f"voxdim for dimension {dim!r}")
             for dim, value in zip(
                 SPATIAL_DIMS,
-                np.linalg.norm(resolved_voxel_to_world[:3, :3], axis=0),
+                np.linalg.norm(representative_voxel_to_world[:3, :3], axis=0),
                 strict=True,
             )
         )
@@ -573,11 +614,24 @@ def create_fusi_dataarray(
         if voxel in present_voxel_dims
     )
     present_indices = [VOXEL_DIMS.index(dim) for dim in present_voxel_dims]
-    index_affine = np.eye(len(present_voxel_dims) + 1, dtype=np.float64)
-    index_affine[:-1, :-1] = resolved_voxel_to_world[:3, :3][
-        np.ix_(present_indices, present_indices)
-    ]
-    index_affine[:-1, -1] = resolved_voxel_to_world[:3, -1][present_indices]
+    if is_pose_stacked:
+        npose = resolved_voxel_to_world.shape[0]
+        index_affine = np.stack(
+            [np.eye(len(present_voxel_dims) + 1, dtype=np.float64)] * npose
+        )
+        for pose_index in range(npose):
+            index_affine[pose_index, :-1, :-1] = resolved_voxel_to_world[
+                pose_index, :3, :3
+            ][np.ix_(present_indices, present_indices)]
+            index_affine[pose_index, :-1, -1] = resolved_voxel_to_world[
+                pose_index, :3, -1
+            ][present_indices]
+    else:
+        index_affine = np.eye(len(present_voxel_dims) + 1, dtype=np.float64)
+        index_affine[:-1, :-1] = resolved_voxel_to_world[:3, :3][
+            np.ix_(present_indices, present_indices)
+        ]
+        index_affine[:-1, -1] = resolved_voxel_to_world[:3, -1][present_indices]
 
     result = attach_voxel_to_world_index(
         result,

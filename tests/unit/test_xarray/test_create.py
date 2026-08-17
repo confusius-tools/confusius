@@ -167,6 +167,73 @@ def test_create_fusi_dataarray_accepts_voxel_to_world_affine():
     assert result.coords["x"].attrs["voxdim"] == pytest.approx(0.2)
 
 
+def test_create_fusi_dataarray_accepts_pose_stacked_voxel_to_world():
+    """A pose-stacked affine wires one voxel-to-world affine per pose."""
+    affine = np.stack(
+        [
+            np.eye(4),
+            np.array(
+                [
+                    [1.0, 0.0, 0.0, 100.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+        ]
+    )
+
+    result = create_fusi_dataarray(
+        np.zeros((2, 2, 3, 4)),
+        dims=("pose", "k", "j", "i"),
+        voxel_to_world=affine,
+    )
+
+    assert result.dims == ("pose", "k", "j", "i")
+    assert_allclose(result.coords["pose"].values, [0, 1])
+    assert_allclose(
+        result.coords["z"].isel(pose=1, j=0, i=0).values, [100.0, 101.0]
+    )
+    validate_fusi(result)
+
+
+def test_create_fusi_dataarray_pose_stacked_voxel_to_world_requires_pose_dim():
+    """A pose-stacked affine without a `pose` dim in `dims` raises clearly."""
+    affine = np.stack([np.eye(4), np.eye(4)])
+
+    with pytest.raises(ValueError, match="requires a 'pose' dimension"):
+        create_fusi_dataarray(
+            np.zeros((2, 3, 4)),
+            dims=("k", "j", "i"),
+            voxel_to_world=affine,
+        )
+
+
+def test_create_fusi_dataarray_pose_stacked_voxel_to_world_rejects_mixed_geometry():
+    """A pose-stacked affine is still mutually exclusive with spacing/origin/direction."""
+    affine = np.stack([np.eye(4), np.eye(4)])
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        create_fusi_dataarray(
+            np.zeros((2, 2, 3, 4)),
+            dims=("pose", "k", "j", "i"),
+            voxel_to_world=affine,
+            spacing=(1.0, 1.0, 1.0),
+        )
+
+
+def test_create_fusi_dataarray_pose_stacked_voxel_to_world_rejects_wrong_length():
+    """A pose stack length must match the `pose` dimension size."""
+    affine = np.stack([np.eye(4)])
+
+    with pytest.raises(ValueError, match="does not match the 'pose' dimension size"):
+        create_fusi_dataarray(
+            np.zeros((2, 2, 3, 4)),
+            dims=("pose", "k", "j", "i"),
+            voxel_to_world=affine,
+        )
+
+
 def test_create_fusi_dataarray_voxdim_overrides_metadata_only():
     """`voxdim` sets coordinate attrs without changing the affine."""
     result = create_fusi_dataarray(
