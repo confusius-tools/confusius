@@ -330,7 +330,7 @@ large-scale and local deformation at once.
 | **Metric** | Chooses the similarity criterion (`correlation` or `mattes_mi`). | `correlation` is a good default for power Doppler data; `mattes_mi` is more robust when intensity distributions differ. |
 | **Scale** | Applies optional intensity scaling before registration. | Useful for power Doppler data where large vessels are typically overbright compared to finer structures. |
 | **Initialization** | Sets the starting transform before optimization. | Use `center_geometry` or `center_moments` for coarse setup; reuse a saved/manual affine transform when you already have a good approximate alignment. |
-| **Learning rate** | Sets the optimizer step size. | Leave **Auto** enabled to let SimpleITK estimate it each iteration, or untick it to use a fixed value (default `1.0`). |
+| **Learning rate** | Sets the optimizer step size. | Leave **Auto** enabled to let SimpleITK estimate it each iteration, or untick it to use a fixed value (default `0.01`). |
 | **Iterations** | Maximum number of optimizer steps. | Increase it when alignment is still improving near the end of a run. |
 
 #### Advanced parameters
