@@ -5,14 +5,15 @@ icon: lucide/brain
 # Atlases
 
 A brain atlas ties every voxel of a reference volume to a named region. In ConfUSIus an
-atlas is a plain [`xarray.Dataset`][xarray.Dataset] with three data variables on a
-common `(z, y, x)` grid ([`reference`][confusius.atlas.AtlasAccessor.reference], the
-template volume; [`annotation`][confusius.atlas.AtlasAccessor.annotation], integer
-region labels; and [`hemispheres`][confusius.atlas.AtlasAccessor.hemispheres], 1 = left,
-2 = right), plus an [`.atlas`][confusius.atlas.AtlasAccessor] accessor that
-carries all atlas-aware operations. The structure hierarchy rides along in
-`Dataset.attrs["structures"]`, so a single object fully describes the atlas and its
-region tree.
+atlas is a plain [`xarray.Dataset`][xarray.Dataset] on a common [VoxelData
+grid](spatial-conventions.md#the-voxeldata-model) (`k`/`j`/`i` voxel dims, derived world
+`z`/`y`/`x` coordinates), with three data variables
+([`reference`][confusius.atlas.AtlasAccessor.reference], the template volume;
+[`annotation`][confusius.atlas.AtlasAccessor.annotation], integer region labels; and
+[`hemispheres`][confusius.atlas.AtlasAccessor.hemispheres], 1 = left, 2 = right), plus an
+[`.atlas`][confusius.atlas.AtlasAccessor] accessor that carries all atlas-aware
+operations. The structure hierarchy rides along in `Dataset.attrs["structures"]`, so a
+single object fully describes the atlas and its region tree.
 
 ## BrainGlobe Atlases
 
@@ -38,23 +39,30 @@ The returned object is the Dataset described above:
 
 ```pycon
 >>> atlas
-<xarray.Dataset> Size: 11MB
-Dimensions:      (z: 132, y: 80, x: 114)
+<xarray.Dataset> Size: 40MB
+Dimensions:      (k: 132, j: 80, i: 114)
 Coordinates:
-  * z            (z) float64 1kB 0.0 0.1 0.2 0.3 0.4 ... 12.8 12.9 13.0 13.1
-  * y            (y) float64 640B 0.0 0.1 0.2 0.3 0.4 ... 7.5 7.6 7.7 7.8 7.9
-  * x            (x) float64 912B 0.0 0.1 0.2 0.3 0.4 ... 11.0 11.1 11.2 11.3
+  * k            (k) int64 1kB 0 1 2 3 4 5 6 7 ... 125 126 127 128 129 130 131
+  * j            (j) int64 640B 0 1 2 3 4 5 6 7 8 ... 71 72 73 74 75 76 77 78 79
+  * i            (i) int64 912B 0 1 2 3 4 5 6 7 ... 107 108 109 110 111 112 113
+  * z            (k, j, i) float64 10MB 0.0 0.0 0.0 0.0 ... 13.1 13.1 13.1 13.1
+  * y            (k, j, i) float64 10MB 0.0 0.0 0.0 0.0 0.0 ... 7.9 7.9 7.9 7.9
+  * x            (k, j, i) float64 10MB 0.0 0.1 0.2 0.3 ... 11.0 11.1 11.2 11.3
 Data variables:
-    reference    (z, y, x) float32 5MB 0.0 0.0 0.0 0.0 0.0 ... 1.0 1.0 1.0 1.0
-    annotation   (z, y, x) int32 5MB 0 0 0 0 0 0 0 0 0 0 ... 0 0 0 0 0 0 0 0 0 0
-    hemispheres  (z, y, x) int8 1MB 2 2 2 2 2 2 2 2 2 2 ... 1 1 1 1 1 1 1 1 1 1
+    reference    (k, j, i) float32 5MB 0.0 0.0 0.0 0.0 0.0 ... 1.0 1.0 1.0 1.0
+    annotation   (k, j, i) int32 5MB 0 0 0 0 0 0 0 0 0 0 ... 0 0 0 0 0 0 0 0 0 0
+    hemispheres  (k, j, i) int8 1MB 2 2 2 2 2 2 2 2 2 2 ... 1 1 1 1 1 1 1 1 1 1
+Indexes:
+  ┌ z        VoxelToWorldIndex
+  │ y
+  └ x
 Attributes:
-    name:              allen_mouse
-    citation:          Wang et al 2020, https://doi.org/10.1016/j.cell.2020.0...
-    species:           Mus musculus
-    orientation:       asr
-    structures:        root (997) ...
-    world_to_base:  [[1. 0. 0. 0.] ...
+    name:           allen_mouse
+    citation:       Wang et al 2020, https://doi.org/10.1016/j.cell.2020.04.007
+    species:        Mus musculus
+    orientation:    asr
+    structures:     root (997)\n├── VS (73)\n│   ├── AQ (140)\n│   ├── V3 (12...
+    world_to_base:  [[1. 0. 0. 0.]\n [0. 1. 0. 0.]\n [0. 0. 1. 0.]\n [0. 0. 0...
 ```
 
 Coordinates are in millimeters, so an atlas plots and registers against fUSI recordings
@@ -103,7 +111,8 @@ region, including its full path from the root:
  'name': 'Hippocampal region',
  'structure_id_path': [997, 8, 567, 688, 695, 1089, 1080],
  'rgb_triplet': [126, 208, 75],
- 'mesh_filename': PosixPath('.../allen_mouse_100um_v1.2/meshes/1080.obj')}
+ 'mesh_filename': PosixPath('.../allen_mouse_100um_v1.2/meshes/1080.obj'),
+ 'mesh': None}
 ```
 
 [`ancestors`][confusius.atlas.AtlasAccessor.ancestors] returns the same path as tree
@@ -209,18 +218,25 @@ hierarchy. Pass one region or many, and optionally restrict each to a hemisphere
 
 ```pycon
 >>> atlas.atlas.get_masks(["VISp", "AUDp", "MOp"])
-<xarray.DataArray (mask: 3, z: 132, y: 80, x: 114)> Size: 14MB
+<xarray.DataArray 'annotation' (mask: 3, k: 132, j: 80, i: 114)> Size: 14MB
 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ... 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 Coordinates:
   * mask     (mask) <U4 48B 'VISp' 'AUDp' 'MOp'
-  * z        (z) float64 1kB 0.0 0.1 0.2 0.3 0.4 ... 12.7 12.8 12.9 13.0 13.1
-  * y        (y) float64 640B 0.0 0.1 0.2 0.3 0.4 0.5 ... 7.5 7.6 7.7 7.8 7.9
-  * x        (x) float64 912B 0.0 0.1 0.2 0.3 0.4 ... 10.9 11.0 11.1 11.2 11.3
+  * k        (k) int64 1kB 0 1 2 3 4 5 6 7 8 ... 124 125 126 127 128 129 130 131
+  * j        (j) int64 640B 0 1 2 3 4 5 6 7 8 9 ... 71 72 73 74 75 76 77 78 79
+  * i        (i) int64 912B 0 1 2 3 4 5 6 7 ... 106 107 108 109 110 111 112 113
+  * z        (k, j, i) float64 10MB 0.0 0.0 0.0 0.0 0.0 ... 13.1 13.1 13.1 13.1
+  * y        (k, j, i) float64 10MB 0.0 0.0 0.0 0.0 0.0 ... 7.9 7.9 7.9 7.9 7.9
+  * x        (k, j, i) float64 10MB 0.0 0.1 0.2 0.3 0.4 ... 11.0 11.1 11.2 11.3
+Indexes:
+  ┌ z        VoxelToWorldIndex
+  │ y
+  └ x
 Attributes:
     rgb_lookup:  {997: [255, 255, 255], 8: [191, 218, 227], 567: [176, 240, 2...
     roi_labels:  {997: 'root (root)', 8: 'Basic cell groups and regions (grey...
-    cmap:        <matplotlib.colors.ListedColormap object at 0x71ba5c798050>
-    norm:        <matplotlib.colors.BoundaryNorm object at 0x71ba5cb3f230>
+    cmap:        <matplotlib.colors.ListedColormap object at 0x7fa5782537d0>
+    norm:        <matplotlib.colors.BoundaryNorm object at 0x7fa5782dbcb0>
 
 >>> left_hip = atlas.atlas.get_masks("HIP", sides="left")
 >>> left_hip.mask
