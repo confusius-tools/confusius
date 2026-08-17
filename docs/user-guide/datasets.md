@@ -41,7 +41,7 @@ The fastest way to get started is to fetch a single subject from the Nunez-Eliza
 ...     / "fusi"
 ...     / "sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz"
 ... )
->>> pwd.dims
+>>> pwd
 <xarray.DataArray 'sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd' (
                                                                              time: 750,
                                                                              k: 1,
