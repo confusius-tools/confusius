@@ -186,11 +186,11 @@ def _normalize_spatial_kernel(
 def _get_volume_acquisition_duration(iq: xr.DataArray) -> float:
     """Return the input IQ volume acquisition duration in coordinate units.
 
-    `ensure_iq` (called by every public entry point before this helper runs) already
-    infers and fills `volume_acquisition_duration` on the `time` coordinate whenever
-    it can be — from `compound_sampling_frequency` or the representative `time` step
-    (see [ensure_time_acquisition_attrs][confusius.timing.ensure_time_acquisition_attrs])
-    — so this only needs to read it back.
+    `ensure_iq` (called by every public entry point before this helper runs) validates
+    `iq` against the VoxelData model, which requires `volume_acquisition_duration` on
+    the `time` coordinate whenever `time` is a dimension — as it always is for IQ data
+    (see [validate_fusi][confusius.validation.validate_fusi]) — so this only needs to
+    read it back.
 
     Parameters
     ----------
@@ -201,23 +201,8 @@ def _get_volume_acquisition_duration(iq: xr.DataArray) -> float:
     -------
     float
         Volume acquisition duration in the same units as the `time` coordinate.
-
-    Raises
-    ------
-    ValueError
-        If `volume_acquisition_duration` could not be inferred (a single `time` point
-        with no `compound_sampling_frequency`).
     """
-    duration = iq.coords["time"].attrs.get("volume_acquisition_duration")
-    if isinstance(duration, int | float) and duration > 0:
-        return float(duration)
-
-    raise ValueError(
-        "Cannot determine volume acquisition duration: neither "
-        "`volume_acquisition_duration` in the time coordinate attributes nor "
-        "`compound_sampling_frequency` in the DataArray attributes nor enough `time` "
-        "coordinate values are available."
-    )
+    return float(iq.coords["time"].attrs["volume_acquisition_duration"])
 
 
 def _get_filter_sampling_frequency(

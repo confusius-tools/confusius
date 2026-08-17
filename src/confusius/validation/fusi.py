@@ -482,7 +482,7 @@ def validate_fusi(
             raise ValueError(
                 "'time' coordinate is missing 'volume_acquisition_reference'."
             )
-        if data.sizes[TIME_DIM] > 1 and "volume_acquisition_duration" not in time_attrs:
+        if "volume_acquisition_duration" not in time_attrs:
             raise ValueError(
                 "'time' coordinate is missing 'volume_acquisition_duration'."
             )

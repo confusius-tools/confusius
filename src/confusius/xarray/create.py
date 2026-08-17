@@ -230,17 +230,12 @@ def _coordinate_dataarray(
     if explicit is not None:
         coord_values, attrs = explicit
         _validate_coordinate_shape(dim, coord_values, size)
-    elif dim in spacings and not (
-        dim == TIME_DIM and size == 1 and spacings[dim] is None
-    ):
+    elif dim in spacings:
         step = _require_spacing(dim, spacings[dim])
         origin = origins[dim]
         if origin is None:
             raise ValueError(f"Origin for dimension {dim!r} must be provided.")
         coord_values = origin + np.arange(size) * step
-        attrs = {}
-    elif dim == TIME_DIM and size == 1:
-        coord_values = np.array([origins[dim]])
         attrs = {}
     else:
         coord_values = np.arange(size)

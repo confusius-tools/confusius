@@ -2151,23 +2151,16 @@ class TestSaveNifti:
         loaded = load_nifti(output_path)
         np.testing.assert_allclose(loaded.coords["time"].values, [10.0])
 
-    def test_save_single_volume_without_duration_omits_frame_acquisition_duration(
+    def test_save_single_volume_without_duration_raises(
         self, tmp_path, sample_fusi_3dt
     ) -> None:
-        """A single time point without metadata does not invent a frame duration."""
+        """A single time point without duration metadata cannot be inferred and raises."""
         da = sample_fusi_3dt.isel(time=slice(0, 1)).copy()
         da.coords["time"].attrs.pop("volume_acquisition_duration", None)
 
         output_path = tmp_path / "single_volume_no_duration.nii.gz"
-        with pytest.warns(UserWarning, match="FrameAcquisitionDuration is REQUIRED"):
+        with pytest.raises(ValueError, match="missing 'volume_acquisition_duration'"):
             save_nifti(da, output_path)
-
-        sidecar_path = tmp_path / "single_volume_no_duration.json"
-        with open(sidecar_path) as f:
-            sidecar = json.load(f)
-
-        assert sidecar["VolumeTiming"] == [10.0]
-        assert "FrameAcquisitionDuration" not in sidecar
 
     def test_save_scalar_time_coordinate_without_time_dim(
         self, tmp_path, sample_fusi_3dt
@@ -2628,8 +2621,8 @@ class TestSaveNifti:
         ):
             save_nifti(da, output_path)
 
-    def test_save_2d_slice_time_without_frame_duration_warns(self, tmp_path) -> None:
-        """A single-volume 2D `slice_time` needs an explicit frame duration."""
+    def test_save_2d_slice_time_without_frame_duration_raises(self, tmp_path) -> None:
+        """A `time` dimension without a duration cannot be saved, even with `slice_time`."""
         da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((1, 4, 3, 2), dtype=np.float32),
@@ -2653,15 +2646,8 @@ class TestSaveNifti:
         )
 
         output_path = tmp_path / "slice_time_2d_no_duration.nii.gz"
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
+        with pytest.raises(ValueError, match="missing 'volume_acquisition_duration'"):
             save_nifti(da, output_path)
-
-        assert any(
-            "Cannot infer frame acquisition duration for a 2D `slice_time` coordinate"
-            in str(w.message)
-            for w in caught
-        )
 
     def test_save_invalid_time_reference_raises(self, tmp_path) -> None:
         """Saving rejects invalid `volume_acquisition_reference` values."""

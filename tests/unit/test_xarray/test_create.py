@@ -233,16 +233,29 @@ def test_create_fusi_dataarray_rejects_none_t0_with_dt():
         )
 
 
-def test_create_fusi_dataarray_defaults_singleton_time_to_t0():
-    """A singleton time dimension without `dt` or an explicit coordinate uses `t0`."""
+def test_create_fusi_dataarray_singleton_time_uses_t0_and_dt():
+    """A singleton time dimension uses `t0`, and still requires `dt`."""
     result = create_fusi_dataarray(
         np.zeros((1, 1, 2, 3)),
         dims=("time", "k", "j", "i"),
         t0=3.0,
+        dt=0.6,
         spacing=(0.4, 0.1, 0.2),
     )
 
     assert_allclose(result.coords["time"], [3.0])
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == 0.6
+
+
+def test_create_fusi_dataarray_singleton_time_requires_dt():
+    """A singleton time dimension without `dt` or an explicit coordinate raises."""
+    with pytest.raises(ValueError, match="Spacing for dimension 'time' is required"):
+        create_fusi_dataarray(
+            np.zeros((1, 1, 2, 3)),
+            dims=("time", "k", "j", "i"),
+            t0=3.0,
+            spacing=(0.4, 0.1, 0.2),
+        )
 
 
 def test_create_fusi_dataarray_rejects_wrong_length_spacing():

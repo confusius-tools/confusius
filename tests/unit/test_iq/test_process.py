@@ -896,9 +896,7 @@ class TestProcessIqToPowerDoppler:
         iq.coords["time"].attrs.pop("volume_acquisition_duration", None)
         iq.attrs.pop("compound_sampling_frequency", None)
 
-        with pytest.raises(
-            ValueError, match="Cannot determine volume acquisition duration"
-        ):
+        with pytest.raises(ValueError, match="missing 'volume_acquisition_duration'"):
             process_iq_to_bmode(iq, bmode_window_width=1, bmode_window_stride=1)
 
     def test_accessor_delegates_to_process_iq_to_power_doppler(
