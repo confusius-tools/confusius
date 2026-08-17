@@ -12,11 +12,7 @@ from napari.utils.colormaps import DirectLabelColormap, ensure_colormap
 from napari.utils.notifications import show_warning
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.coordinates import (
-    get_coordinate_origins,
-    get_coordinate_spacings_best_effort,
-)
-from confusius._utils.geometry import has_voxel_to_world_index
+from confusius._utils.coordinates import get_coordinate_spacings_best_effort
 
 
 def infer_layer_type(dtype: npt.DTypeLike) -> Literal["image", "labels"]:
@@ -81,22 +77,12 @@ def get_napari_scale_translate_units(
 ]:
     """Return napari layer geometry metadata for `data`.
 
-    `data` may or may not carry a voxel-to-world index here: this is meant to run
-    after `resample_to_axis_aligned_world_grid`, which resamples oblique
-    voxel-to-world data onto an axis-aligned world grid, keeping the index (napari's
-    `scale`/`translate` model can't represent oblique geometry, but an axis-aligned
-    grid needs no renaming to be representable); already axis-aligned input is
-    returned unchanged, index and all -- including *no* index, since
-    `resample_to_axis_aligned_world_grid` also passes through unindexed input
-    untouched. That case is genuinely reachable: `convert_dataarray_to_layer_data`
-    (one of this function's two real callers) is invoked from file readers, which can
-    hand back non-canonical data for foreign files (e.g. a Zarr store written outside
-    ConfUSIus, with plain `x`/`y`/`z` dims and no index). `plot_napari`, the other
-    caller, does separately require an index before reaching this point, but this
-    function must still support both, since it serves both callers. Both indexed and
-    plain-coordinate input are legitimate here, so spacing/origin are read via the
-    plain-coordinate helpers with a voxel-to-world-aware override, not via
-    `.fusi.spacing`/`.fusi.origin` (which require an index unconditionally).
+    `data` must carry a voxel-to-world index: both callers guarantee this before
+    reaching this point (`plot_napari` checks it explicitly;
+    `convert_dataarray_to_layer_data` only ever receives ConfUSIus-loaded or
+    ConfUSIus-constructed data). Spacing is read from `.fusi.spacing`, falling back to
+    the plain-coordinate best-effort median only for irregularly spaced coordinates
+    (`.fusi.spacing` returns `None` there).
 
     Parameters
     ----------
@@ -123,13 +109,12 @@ def get_napari_scale_translate_units(
     all_dims = [str(dim) for dim in data.dims]
 
     coordinate_spacing, non_uniform = get_coordinate_spacings_best_effort(data)
-    has_index = has_voxel_to_world_index(data)
-    fusi_spacing = data.fusi.spacing if has_index else {}
+    fusi_spacing = data.fusi.spacing
     spacing = {
         dim: fusi_spacing[dim] if fusi_spacing.get(dim) is not None else fallback
         for dim, fallback in coordinate_spacing.items()
     }
-    origin = data.fusi.origin if has_index else get_coordinate_origins(data)
+    origin = data.fusi.origin
     world_dim = {"k": "z", "j": "y", "i": "x"}
     scale: list[float] = []
     translate: list[float] = []
@@ -139,11 +124,7 @@ def get_napari_scale_translate_units(
         world_coord = data.coords.get(world_name)
         if world_coord is not None and world_coord.dims == (dim,):
             values = np.asarray(world_coord.values, dtype=float)
-            scale.append(
-                spacing.get(
-                    dim, np.float64(world_coord.attrs.get("voxdim", 1.0)).item()
-                )
-            )
+            scale.append(spacing[dim])
             translate.append(np.float64(values[0]).item())
             axis_labels.append(world_name)
         else:

@@ -27,6 +27,7 @@ from confusius._napari._sample import (
     open_awake_mouse_recording_sample,
     open_rat_registration_pair_sample,
 )
+from confusius.xarray import create_fusi_dataarray
 
 
 class _Dialog:
@@ -74,7 +75,7 @@ class _ScaleBar:
 
 class _Dims:
     def __init__(self):
-        self.axis_labels = ("0", "1")
+        self.axis_labels = ("0", "1", "2")
 
 
 class _Viewer:
@@ -155,10 +156,10 @@ def test_open_awake_mouse_sample_sets_default_gamma_and_shows_scale_bar(
         "confusius._napari._sample.napari.current_viewer", lambda: viewer
     )
 
-    da = xr.DataArray(
-        np.zeros((2, 3), dtype=np.float32),
-        dims=["z", "x"],
-        coords={"z": np.arange(2), "x": np.arange(3)},
+    da = create_fusi_dataarray(
+        np.zeros((1, 2, 3), dtype=np.float32),
+        dims=("k", "j", "i"),
+        spacing=(1.0, 1.0, 1.0),
     )
     monkeypatch.setattr(
         "confusius._napari._sample._load_sample_dataarray",
@@ -172,7 +173,7 @@ def test_open_awake_mouse_sample_sets_default_gamma_and_shows_scale_bar(
     assert viewer.scale_bar.visible is True
     # The sample's dims are pushed onto the viewer sliders (napari does not do
     # this for the sample path on its own).
-    assert viewer.dims.axis_labels == ("z", "x")
+    assert viewer.dims.axis_labels == ("z", "y", "x")
 
 
 def test_open_rat_registration_pair_loads_two_layers_with_qform(monkeypatch, tmp_path):
@@ -205,10 +206,10 @@ def test_open_rat_registration_pair_loads_two_layers_with_qform(monkeypatch, tmp
         },
     )
 
-    da = xr.DataArray(
-        np.zeros((2, 3), dtype=np.float32),
-        dims=["z", "x"],
-        coords={"z": np.arange(2), "x": np.arange(3)},
+    da = create_fusi_dataarray(
+        np.zeros((1, 2, 3), dtype=np.float32),
+        dims=("k", "j", "i"),
+        spacing=(1.0, 1.0, 1.0),
     )
     seen_affine_keys: list[str | None] = []
 
