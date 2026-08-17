@@ -77,7 +77,7 @@ dev = [
     "ruff>=0.16.0",
     "ty>=0.0.57,<0.1.0",
     "mike @ git+https://github.com/squidfunk/mike.git",
-    "zensical>=0.0.47",
+    "zensical>=0.0.55",
     "mkdocstrings[python]>=1.0.4",
     "pytest-qt>=4.5.0",
 ]
