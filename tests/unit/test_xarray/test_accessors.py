@@ -317,7 +317,7 @@ class TestReindexVoxels:
     def test_rebases_voxel_coords_to_dense_positions(self):
         """Voxel coordinates become 0, 1, ..., dim - 1 after reindexing."""
         data = _make_voxel_to_world_volume()
-        result = data.fusi.reindex_voxels()
+        result = data.fusi.affine.reindex_voxels()
         for dim in ("k", "j", "i"):
             np.testing.assert_array_equal(
                 result.coords[dim].values, np.arange(data.sizes[dim], dtype=float)
@@ -326,7 +326,7 @@ class TestReindexVoxels:
     def test_preserves_world_coordinates(self):
         """World (z/y/x) coordinates are unchanged by reindexing."""
         data = _make_voxel_to_world_volume()
-        result = data.fusi.reindex_voxels()
+        result = data.fusi.affine.reindex_voxels()
         for name in ("z", "y", "x"):
             np.testing.assert_allclose(
                 result.coords[name].values, data.coords[name].values
@@ -336,14 +336,14 @@ class TestReindexVoxels:
         """Array content is unchanged by reindexing."""
         data = _make_voxel_to_world_volume()
         data.values[:] = np.arange(data.size).reshape(data.shape)
-        result = data.fusi.reindex_voxels()
+        result = data.fusi.affine.reindex_voxels()
         np.testing.assert_array_equal(result.values, data.values)
 
     def test_affine_maps_dense_positions_to_world(self):
         """The rebuilt affine maps position (0, 0, 0) to the array's actual origin."""
         data = _make_voxel_to_world_volume()
         cropped = data.isel(k=slice(1, 2), j=slice(1, 3), i=slice(2, 4))
-        result = cropped.fusi.reindex_voxels()
+        result = cropped.fusi.affine.reindex_voxels()
         affine = get_voxel_to_world_affine(result)
         origin = affine @ np.array([0.0, 0.0, 0.0, 1.0])
         np.testing.assert_allclose(
@@ -366,9 +366,10 @@ class TestReindexVoxels:
             coords={"k": [0, 1], "j": [0, 1, 2], "i": [3, 2, 1, 0]},
         )
         data = attach_voxel_to_world_index(base, np.eye(4))
-        result = data.fusi.reindex_voxels()
+        result = data.fusi.affine.reindex_voxels()
         np.testing.assert_allclose(
-            result.coords["x"].isel(k=0, j=0).values, data.coords["x"].isel(k=0, j=0).values
+            result.coords["x"].isel(k=0, j=0).values,
+            data.coords["x"].isel(k=0, j=0).values,
         )
         np.testing.assert_array_equal(result.values, data.values)
 
@@ -376,7 +377,7 @@ class TestReindexVoxels:
         """A plain DataArray without voxel-to-world geometry raises ValueError."""
         data = xr.DataArray(np.zeros((2, 3)), dims=["j", "i"])
         with pytest.raises(ValueError, match="voxel-to-world index"):
-            data.fusi.reindex_voxels()
+            data.fusi.affine.reindex_voxels()
 
     def test_raises_when_spacing_undefined(self):
         """Irregular voxel-space coordinates without defined spacing raise ValueError."""
@@ -387,7 +388,7 @@ class TestReindexVoxels:
         )
         data = attach_voxel_to_world_index(base, np.eye(3))
         with pytest.raises(ValueError, match="spacing is undefined"):
-            data.fusi.reindex_voxels()
+            data.fusi.affine.reindex_voxels()
 
 
 class TestReindexVoxelsLike:
@@ -418,9 +419,9 @@ class TestReindexVoxelsLike:
     def test_relabels_onto_reference_voxel_coords(self):
         """Voxel coordinates and affine become reference's after reindexing."""
         reference = self._cropped_strided_reference()
-        data = reference.fusi.reindex_voxels()
+        data = reference.fusi.affine.reindex_voxels()
 
-        result = data.fusi.reindex_voxels_like(reference)
+        result = data.fusi.affine.reindex_voxels_like(reference)
 
         for dim in ("k", "j", "i"):
             np.testing.assert_array_equal(
@@ -433,9 +434,9 @@ class TestReindexVoxelsLike:
     def test_preserves_data_values_and_world_coordinates(self):
         """Array content and world coordinates are unchanged by reindexing."""
         reference = self._cropped_strided_reference()
-        data = reference.fusi.reindex_voxels()
+        data = reference.fusi.affine.reindex_voxels()
 
-        result = data.fusi.reindex_voxels_like(reference)
+        result = data.fusi.affine.reindex_voxels_like(reference)
 
         np.testing.assert_array_equal(result.values, data.values)
         for name in ("z", "y", "x"):
@@ -446,24 +447,24 @@ class TestReindexVoxelsLike:
     def test_preserves_reference_coord_attrs(self):
         """Reindexed world coordinates carry reference's attrs (e.g. units)."""
         reference = self._cropped_strided_reference()
-        data = reference.fusi.reindex_voxels()
+        data = reference.fusi.affine.reindex_voxels()
 
-        result = data.fusi.reindex_voxels_like(reference)
+        result = data.fusi.affine.reindex_voxels_like(reference)
 
         assert result.coords["z"].attrs["units"] == "mm"
 
     def test_raises_on_shape_mismatch(self):
         """Different voxel grid shapes cannot be reindexed onto each other."""
         reference = self._cropped_strided_reference()
-        data = reference.isel(i=slice(0, -1)).fusi.reindex_voxels()
+        data = reference.isel(i=slice(0, -1)).fusi.affine.reindex_voxels()
 
         with pytest.raises(ValueError, match="same voxel grid shape"):
-            data.fusi.reindex_voxels_like(reference)
+            data.fusi.affine.reindex_voxels_like(reference)
 
     def test_raises_when_not_physically_aligned(self):
         """Data occupying a different world grid than reference raises."""
         reference = self._cropped_strided_reference()
-        misaligned = reference.fusi.reindex_voxels().fusi.affine.apply(
+        misaligned = reference.fusi.affine.reindex_voxels().fusi.affine.apply(
             np.array(
                 [
                     [1.0, 0.0, 0.0, 100.0],
@@ -475,20 +476,20 @@ class TestReindexVoxelsLike:
         )
 
         with pytest.raises(ValueError, match="not aligned in world space"):
-            misaligned.fusi.reindex_voxels_like(reference)
+            misaligned.fusi.affine.reindex_voxels_like(reference)
 
     def test_raises_without_voxel_to_world_geometry(self):
         """Either side lacking voxel-to-world geometry raises ValueError."""
         reference = self._cropped_strided_reference()
-        data = reference.fusi.reindex_voxels()
+        data = reference.fusi.affine.reindex_voxels()
         plain = xr.DataArray(np.zeros((2, 4, 5)), dims=["k", "j", "i"])
 
         with pytest.raises(ValueError, match="data must have a voxel-to-world index"):
-            plain.fusi.reindex_voxels_like(reference)
+            plain.fusi.affine.reindex_voxels_like(reference)
         with pytest.raises(
             ValueError, match="reference must have a voxel-to-world index"
         ):
-            data.fusi.reindex_voxels_like(plain)
+            data.fusi.affine.reindex_voxels_like(plain)
 
     def test_raises_on_voxel_dim_mismatch(self):
         """Different voxel dimensions (e.g. 2D vs. 3D) cannot be reindexed."""
@@ -501,7 +502,7 @@ class TestReindexVoxelsLike:
         data_2d = attach_voxel_to_world_index(base_2d, np.eye(3))
 
         with pytest.raises(ValueError, match="same voxel dimensions"):
-            data_2d.fusi.reindex_voxels_like(reference)
+            data_2d.fusi.affine.reindex_voxels_like(reference)
 
 
 class TestAffineSetVoxelToWorldMethod:

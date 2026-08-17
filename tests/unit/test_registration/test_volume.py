@@ -10,7 +10,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius._utils.geometry import (
-    get_affine_orientation_matrix,
+    get_affine_direction_matrix,
     get_voxel_to_world_affine,
 )
 from confusius.registration._utils import (
@@ -61,7 +61,7 @@ def _resample_volume_grid_kwargs(data: xr.DataArray) -> dict:
         "output_shape": [int(data.sizes[dim]) for dim in VOXEL_DIMS],
         "output_spacing": spacing,
         "output_origin": [origin[name] for name in SPATIAL_DIMS],
-        "output_direction": get_affine_orientation_matrix(
+        "output_direction": get_affine_direction_matrix(
             get_voxel_to_world_affine(data)
         ),
     }

@@ -1277,7 +1277,7 @@ def get_voxel_to_world_index_spacing(data: xr.DataArray) -> dict[str, float | No
     )
 
 
-def get_voxel_to_world_orientation_matrix(
+def get_voxel_to_world_direction_matrix(
     data: xr.DataArray,
 ) -> npt.NDArray[np.float64]:
     """Return the world-space direction matrix of a VoxelData-compatible DataArray.
@@ -1304,7 +1304,7 @@ def get_voxel_to_world_orientation_matrix(
         Unit direction vectors in world-space row order and voxel-space column
         order.
     """
-    direction = get_affine_orientation_matrix(get_voxel_to_world_affine(data))
+    direction = get_affine_direction_matrix(get_voxel_to_world_affine(data))
     voxel_dims = get_voxel_to_world_spatial_dims(data)
     label_signs = [
         -1.0
@@ -1364,7 +1364,7 @@ def get_affine_axis_scalings(
     }
 
 
-def get_affine_orientation_matrix(
+def get_affine_direction_matrix(
     voxel_to_world: npt.ArrayLike,
 ) -> npt.NDArray[np.float64]:
     """Return unit world-space axis directions from a voxel-to-world affine.

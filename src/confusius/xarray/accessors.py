@@ -312,13 +312,13 @@ class FUSIAccessor:
             If `self` does not carry a voxel-to-world index.
         """
         from confusius._utils.geometry import (
-            get_voxel_to_world_orientation_matrix,
+            get_voxel_to_world_direction_matrix,
             has_voxel_to_world_index,
         )
 
         if not has_voxel_to_world_index(self._obj):
             raise ValueError("DataArray must have a voxel-to-world index.")
-        return get_voxel_to_world_orientation_matrix(self._obj)
+        return get_voxel_to_world_direction_matrix(self._obj)
 
     @property
     def affine(self) -> FUSIAffineAccessor:
@@ -344,78 +344,6 @@ class FUSIAccessor:
         from confusius.xarray.affine import FUSIAffineAccessor
 
         return FUSIAffineAccessor(self._obj)
-
-    def reindex_voxels(self) -> xr.DataArray:
-        """Rebase voxel coordinates to dense positions without moving world coordinates.
-
-        See
-        [reindex_voxels][confusius.xarray.affine.reindex_voxels]
-        for details.
-
-        Returns
-        -------
-        xarray.DataArray
-            DataArray with voxel coordinates rebased to `0, 1, ..., dim - 1` and an
-            updated `voxel_to_world` affine. World coordinates are unchanged.
-
-        Raises
-        ------
-        ValueError
-            If `self` lacks voxel-to-world geometry, or if world spacing is
-            undefined for any voxel dimension.
-
-        Examples
-        --------
-        >>> import numpy as np
-        >>> import confusius  # noqa: F401
-        >>> from confusius.xarray import create_fusi_dataarray
-        >>> base = create_fusi_dataarray(
-        ...     np.zeros((5, 5)), dims=("j", "i"), voxel_to_world=np.eye(4)
-        ... )
-        >>> data = base.isel(j=slice(2, 5), i=slice(1, 5))
-        >>> reindexed = data.fusi.reindex_voxels()
-        >>> reindexed.coords["j"].values
-        array([0., 1., 2.])
-        >>> float(reindexed.coords["y"].isel(j=0, i=0, k=0))
-        2.0
-        """
-        from confusius.xarray.affine import reindex_voxels
-
-        return reindex_voxels(self._obj)
-
-    def reindex_voxels_like(
-        self, reference: xr.DataArray, *, atol: float = 1e-6
-    ) -> xr.DataArray:
-        """Rebase voxel coordinates onto `reference`'s voxel labels.
-
-        See
-        [reindex_voxels_like][confusius.xarray.affine.reindex_voxels_like]
-        for details.
-
-        Parameters
-        ----------
-        reference : xarray.DataArray
-            DataArray whose voxel labels and affine `self` should adopt.
-        atol : float, default: 1e-6
-            Absolute tolerance, in `reference`'s physical units, for the
-            world-coordinate alignment check between `self` and `reference`.
-
-        Returns
-        -------
-        xarray.DataArray
-            `self` with voxel coordinates and `voxel_to_world` replaced by
-            `reference`'s. World coordinates are unchanged.
-
-        Raises
-        ------
-        ValueError
-            If `self` or `reference` lacks voxel-to-world geometry, if their voxel
-            dimensions or shapes differ, or if their world coordinates do not
-            match within `atol`.
-        """
-        from confusius.xarray.affine import reindex_voxels_like
-
-        return reindex_voxels_like(self._obj, reference, atol=atol)
 
     def save(self, path: str | Path, **kwargs: Any) -> None:
         """Save the DataArray to file, dispatching by extension.

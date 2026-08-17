@@ -11,7 +11,7 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_affine_axis_scalings,
     get_affine_axis_vectors,
-    get_affine_orientation_matrix,
+    get_affine_direction_matrix,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_index_origin,
@@ -160,7 +160,7 @@ def test_affine_geometry_helpers_extract_vectors_scalings_and_orientation() -> N
             [0.0, 0.0, 1.0],
         ]
     )
-    assert_allclose(get_affine_orientation_matrix(voxel_to_world), expected_orientation)
+    assert_allclose(get_affine_direction_matrix(voxel_to_world), expected_orientation)
 
 
 def test_get_world_spacings_singleton_axis_uses_affine_column_norm() -> None:
