@@ -80,10 +80,12 @@ fetchers and their full download sizes:
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
 ┃ Fetch function                   ┃     Size ┃ On disk ┃
 ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
-│ fetch_cybis_pereira_2026         │ 12.88 GB │    ✗    │
-│ fetch_khallaf_2026               │ 19.49 GB │    ✗    │
-│ fetch_landemard_2026             │ 42.04 GB │    ✗    │
 │ fetch_nunez_elizalde_2022        │ 6.983 GB │    ✗    │
+│ fetch_pereira_2025               │ 29.96 GB │    ✗    │
+│ fetch_cybis_pereira_2026         │ 12.88 GB │    ✗    │
+│ fetch_pepe_mariani_2026          │ 37.56 GB │    ✗    │
+│ fetch_landemard_2026             │ 42.04 GB │    ✗    │
+│ fetch_khallaf_2026               │ 19.49 GB │    ✗    │
 │ fetch_template_huang_2025        │ 16.34 MB │    ✗    │
 │ fetch_template_pepe_mariani_2026 │ 5.508 MB │    ✗    │
 └──────────────────────────────────┴──────────┴─────────┘
@@ -127,6 +129,31 @@ confusius datasets --list
         subjects=["CR017", "CR020"],
         tasks=["spontaneous"],
         acqs=["slice03"],
+    )
+    ```
+
+=== "Pereira 2025"
+
+    Functional ultrasound imaging data from a rat model of neuroinflammation, from
+    Pereira et al. (2025)[^pereira2025], re-exported to fUSI-BIDS format and hosted on
+    [OSF (pqa65)](https://osf.io/pqa65/). Total size: **~30 GB**.
+
+    Use [`fetch_pereira_2025`][confusius.datasets.fetch_pereira_2025] to download the
+    dataset. Three filters narrow the download:
+
+    | Filter     | BIDS entity / scope | Example             |
+    |------------|---------------------|---------------------|
+    | `subjects` | `sub-`              | `"r11582"`         |
+    | `sessions` | `ses-`              | `"awakebaseline"`  |
+    | `tasks`    | `task-`             | `"rest"`, `"stim"` |
+
+    ```python
+    from confusius.datasets import fetch_pereira_2025
+
+    bids_root = fetch_pereira_2025(
+        subjects="r11582",
+        sessions="awakebaseline",
+        tasks="rest",
     )
     ```
 
@@ -179,6 +206,33 @@ confusius datasets --list
         sessions="20220523",
         acqs="slice32",
     )
+    ```
+
+=== "Pepe Mariani 2026"
+
+    Transcranial mouse resting-state fUSI recordings and derivatives, from Pepe,
+    Mariani et al. (2026)[^pepe_mariani2026], re-exported to fUSI-BIDS format and
+    hosted on [OSF (7yhdc)](https://osf.io/7yhdc/). Total size: **~38 GB**.
+
+    Use [`fetch_pepe_mariani_2026`][confusius.datasets.fetch_pepe_mariani_2026] to
+    download the dataset. Five filters narrow the download:
+
+    | Filter      | BIDS entity / scope | Example                          |
+    |-------------|---------------------|----------------------------------|
+    | `datasets`  | dataset name        | `"registered"`, `"preprocessed"` |
+    | `subjects`  | `sub-`              | `"m01"`                         |
+    | `sessions`  | `ses-`              | `"rest"`                        |
+    | `acqs`      | `acq-`              | `"coronal"`                     |
+    | `datatypes` | datatype directory  | `"fusi"`, `"angio"`            |
+
+    The `datasets` filter accepts `"rawdata"`, `"registered"`, `"preprocessed"`, and
+    `"Params"`.
+
+    ```python
+    from confusius.datasets import fetch_pepe_mariani_2026
+
+    # Registered fUSI derivative only.
+    bids_root = fetch_pepe_mariani_2026(datasets="registered", datatypes="fusi")
     ```
 
 === "Landemard 2026"
@@ -396,6 +450,12 @@ parameters and return types.
     Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. (2026). Brainwide
     blood volume reflects opposing neural populations. *Nature*.
     <https://doi.org/10.1038/s41586-026-10350-9>
+
+[^pereira2025]:
+    Pereira, M. et al. (2025). Induction of haemodynamic travelling waves by
+    glial-related vasomotion in a rat model of neuroinflammation: Implications for
+    functional neuroimaging. *eBioMedicine*, 116, 105777.
+    <https://doi.org/10.1016/j.ebiom.2025.105777>
 
 [^khallaf2026]:
     Khallaf, M. A. et al. (2026). A queen odour mediates reproductive suppression in a

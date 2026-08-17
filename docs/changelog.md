@@ -40,12 +40,23 @@ Current development version for the next ConfUSIus release.
   `beamforming_sound_velocity` arguments
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
 
+### :bug: Fixes
+
+- `plot_composite` no longer produces a blank/NaN composite when either input has
+  been scaled with `.fusi.scale.db()`; the `-inf` values `db_scale` assigns to
+  zero-valued voxels are now excluded from the normalization bounds
+  ([#370](https://github.com/confusius-tools/confusius/pull/370)).
+
 ## 0.6.1
 
 Released 2026-08-07.
 
 ### :sparkles: Enhancements
 
+- Added [`fetch_pereira_2025`][confusius.datasets.fetch_pereira_2025] and
+  [`fetch_pepe_mariani_2026`][confusius.datasets.fetch_pepe_mariani_2026] for the new
+  OSF-hosted fUSI-BIDS re-exports
+  ([#361](https://github.com/confusius-tools/confusius/pull/361)).
 - `load_echoframe_dat` now returns a ConfUSIus-ordered `(time, z, y, x)` DataArray and
   defaults `meta_path` to the sibling `ScanParameters.mat` file
   ([#343](https://github.com/confusius-tools/confusius/pull/343)).
