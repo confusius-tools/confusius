@@ -351,7 +351,7 @@ Currently, three global helpers are available:
   This is the identity for axis-aligned data (the common case). For oblique data, the
   columns are the unit world-space directions of the voxel axes.
 
-### IQ Processing ([`.fusi.iq`][confusius.xarray.FUSIIQAccessor])
+### IQ Processing
 
 The [`.fusi.iq`][confusius.xarray.FUSIIQAccessor] accessor lets you access the
 [`process_iq_to_power_doppler`][confusius.iq.process_iq_to_power_doppler] and
@@ -383,7 +383,7 @@ velocity = iq.fusi.iq.process_to_axial_velocity(
 (pwd, velocity) = dask.compute(pwd, velocity)  # Compute both in a single pass.
 ```
 
-### Scaling ([`.fusi.scale`][confusius.xarray.FUSIScaleAccessor])
+### Scaling
 
 The [`.fusi.scale`][confusius.xarray.FUSIScaleAccessor] accessor provides common
 scaling transformations: decibel, natural log, and power scaling.
@@ -406,7 +406,7 @@ operations:
 pwd_db = pwd.where(pwd > 0).fusi.scale.db()
 ```
 
-### Registration ([`.fusi.register`][confusius.xarray.FUSIRegistrationAccessor])
+### Registration
 
 The [`.fusi.register`][confusius.xarray.FUSIRegistrationAccessor] accessor provides easy
 access to the [`register_volumewise`][confusius.registration.register_volumewise]
@@ -420,11 +420,15 @@ By default, rigid registration allows translation and rotation. Pass
 `transform="translation"` for translation-only correction. For rigid registration,
 set the first three `optimizer_weights` values to `0` to freeze rotation.
 
-### Affine Transforms ([`.fusi.affine`][confusius.xarray.FUSIAffineAccessor])
+### Affine Transforms
 
 The [`.fusi.affine`][confusius.xarray.FUSIAffineAccessor] accessor inspects and applies
 the voxel-to-world and world-to-reference affines described in [Spatial
-Conventions](spatial-conventions.md). Read the DataArray's
+Conventions](spatial-conventions.md).
+
+#### Reading and applying affines
+
+Read the DataArray's
 [`voxel_to_world`][confusius.xarray.FUSIAffineAccessor.voxel_to_world] affine, or
 apply a world-space affine to its coordinates with
 [`apply`][confusius.xarray.FUSIAffineAccessor.apply]—either a `(4, 4)` array directly,
@@ -450,6 +454,8 @@ affine by hand), use
 pwd = pwd.fusi.affine.set_voxel_to_world(new_voxel_to_world)
 ```
 
+#### Relating two DataArrays
+
 To compute the affine relating two DataArrays' world spaces through a named affine
 they both carry in `attrs["affines"]` (e.g. a shared `"world_to_lab"` key from two
 poses of the same acquisition), use
@@ -459,7 +465,48 @@ poses of the same acquisition), use
 moving_to_fixed = moving.fusi.affine.to(fixed, via="world_to_lab")
 ```
 
-### Signal Extraction ([`.fusi.extract`][confusius.xarray.FUSIExtractAccessor])
+#### Rebasing voxel coordinates to dense positions
+
+Cropping or striding a DataArray doesn't renumber its `k`/`j`/`i` coordinates—slicing
+`i=slice(3, 6)` keeps the labels `[3, 4, 5]`, not `[0, 1, 2]`:
+
+```pycon
+>>> cropped = pwd.isel(i=slice(3, 6))
+>>> cropped.coords["i"].values
+array([3, 4, 5])
+>>> cropped.coords["x"].isel(k=0, j=0).values
+array([3., 4., 5.])
+```
+
+That's correct as long as you keep indexing by *label*. But tools that assume dense,
+zero-based voxel indices (ITK, nilearn, ...) read array *position* 0 as voxel 0—which
+would silently place this cropped array at the wrong spot in world space.
+[`reindex_voxels`][confusius.xarray.FUSIAffineAccessor.reindex_voxels] relabels `k`/`j`/`i`
+back to `0, 1, ..., dim - 1` and adjusts the affine to compensate, so the world
+coordinates stay exactly the same:
+
+```pycon
+>>> dense = cropped.fusi.affine.reindex_voxels()
+>>> dense.coords["i"].values
+array([0, 1, 2])
+>>> dense.coords["x"].isel(k=0, j=0).values  # unchanged
+array([3., 4., 5.])
+```
+
+The reverse problem shows up when two DataArrays occupy the exact same world grid but
+carry different voxel labels—for example one was cropped from a larger array and the
+other was freshly built with dense labels. Since `.sel()`, arithmetic, and
+[`xarray.align`][xarray.align] all match by coordinate *label*, two such arrays won't
+align automatically despite describing the same physical space.
+[`reindex_voxels_like`][confusius.xarray.FUSIAffineAccessor.reindex_voxels_like] first
+verifies the two DataArrays already occupy the same world grid, then relabels one
+DataArray's voxel coordinates and affine to match the other's:
+
+```python
+aligned = data.fusi.affine.reindex_voxels_like(reference)
+```
+
+### Signal Extraction
 
 The [`.fusi.extract`][confusius.xarray.FUSIExtractAccessor] accessor provides access to
 signal extraction and reconstruction functions, making it easy to pass fUSI data to
@@ -486,21 +533,8 @@ the full spatial volume, use
 original mask:
 
 ```python
-# reconstructed has dims (time, k, j, i).
+# reconstructed is a VoxelData array.
 reconstructed = signals.fusi.extract.unmask(mask)
-```
-
-For decomposition workflows, use [`PCA`][confusius.decomposition.PCA] to keep component
-signals and component maps as DataArray objects:
-
-```python
-from confusius.decomposition import PCA
-
-pca = PCA(n_components=5, random_state=0)
-component_signals = pca.fit_transform(signals)  # (time, component)
-spatial_components = pca.maps_.fusi.extract.unmask(mask)
-
-# spatial_components has dims (component, k, j, i).
 ```
 
 #### Label-based extraction
@@ -525,7 +559,7 @@ region_signals = registered.fusi.extract.with_labels(label_map)
 region_signals = registered.fusi.extract.with_labels(label_map, reduction="sum")
 ```
 
-### Functional Connectivity ([`.fusi.connectivity`][confusius.xarray.FUSIConnectivityAccessor])
+### Functional Connectivity
 
 The [`.fusi.connectivity`][confusius.xarray.FUSIConnectivityAccessor] accessor fits
 seed-based correlation maps, wrapping
@@ -542,7 +576,7 @@ correlation_maps = mapper.maps_
 seed_signals = mapper.seed_signals_
 ```
 
-### Visualization ([`.fusi.plot`][confusius.xarray.FUSIPlotAccessor])
+### Visualization
 
 The [`.fusi.plot`][confusius.xarray.FUSIPlotAccessor] accessor provides easy access to
 visualization functions for quick data inspection and quality control.
@@ -559,11 +593,12 @@ Or to show standardized time series in a carpet plot, useful for quality control
 fig, ax = registered.fusi.plot.carpet(mask=mask)
 ```
 
-### Saving to Files ([`.fusi.save`][confusius.xarray.FUSIAccessor.save])
+### Saving
 
-Save to NIfTI or Zarr by extension. For NIfTI, an accompanying fUSI-BIDS JSON sidecar
-is always written alongside, storing converted metadata fields, custom attributes, and
-timing fields derived from the `time` coordinate when available:
+The [`.fusi.save`][confusius.xarray.FUSIAccessor.save] accessor allows saving a
+DataArray to NIfTI or Zarr. For NIfTI, an accompanying fUSI-BIDS JSON sidecar is always
+written alongside, storing converted metadata fields, custom attributes, and timing
+fields derived from the `time` coordinate when available:
 
 ```python
 # Creates sub-01_task-awake_pwd.nii.gz and sub-01_task-awake_pwd.json
