@@ -40,6 +40,13 @@ Current development version for the next ConfUSIus release.
   `beamforming_sound_velocity` arguments
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
 
+### :bug: Fixes
+
+- `plot_composite` no longer produces a blank/NaN composite when either input has
+  been scaled with `.fusi.scale.db()`; the `-inf` values `db_scale` assigns to
+  zero-valued voxels are now excluded from the normalization bounds
+  ([#370](https://github.com/confusius-tools/confusius/pull/370)).
+
 ## 0.6.1
 
 Released 2026-08-07.
