@@ -15,6 +15,7 @@ from confusius._utils.geometry import (
     get_affine_direction_matrix,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
+    get_voxel_to_world_direction_matrix,
     get_voxel_to_world_index_origin,
     get_voxel_to_world_spacings_from_coords,
     has_axis_aligned_voxel_to_world_index,
@@ -343,6 +344,20 @@ def test_pose_dependent_concat_rejects_mismatched_spatial_geometry() -> None:
         ValueError, match="different spatial geometry|equal spatial scale"
     ):
         xr.concat([first, mismatched], dim="pose", join="exact")
+
+
+def test_origin_and_direction_require_scalar_pose() -> None:
+    """Single-grid geometry accessors reject pose-dependent geometry clearly."""
+    result = _pose_dependent_result()
+
+    with pytest.raises(ValueError, match="requires pose-independent geometry"):
+        get_voxel_to_world_index_origin(result)
+    with pytest.raises(ValueError, match="requires pose-independent geometry"):
+        get_voxel_to_world_direction_matrix(result)
+
+    scalar = result.isel(pose=0)
+    get_voxel_to_world_index_origin(scalar)
+    get_voxel_to_world_direction_matrix(scalar)
 
 
 def test_pose_dependent_index_equality_compares_pose_labels_and_affines() -> None:

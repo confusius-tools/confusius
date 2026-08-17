@@ -772,6 +772,76 @@ class TestAffineApplyMethod:
         with pytest.raises(ValueError, match="voxel-to-world index"):
             da.fusi.affine.apply(np.eye(3))
 
+    def _make_pose_dependent_scan(self) -> xr.DataArray:
+        """Build a pose-dependent (2, 2, 3, 4) DataArray for `apply` broadcast tests."""
+        affine = np.stack(
+            [
+                np.eye(4),
+                np.array(
+                    [
+                        [1.0, 0.0, 0.0, 100.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+            ]
+        )
+        base = xr.DataArray(
+            np.zeros((2, 2, 3, 4)),
+            dims=("pose", "k", "j", "i"),
+            coords={
+                "pose": [0, 1],
+                "k": np.arange(2),
+                "j": np.arange(3),
+                "i": np.arange(4),
+            },
+        )
+        return attach_voxel_to_world_index(base, affine)
+
+    def test_single_affine_broadcasts_over_every_pose(self):
+        """A single (4, 4) world-space affine broadcasts over every pose."""
+        da = self._make_pose_dependent_scan()
+        shift = np.eye(4)
+        shift[:3, -1] = [5.0, 0.0, 0.0]
+
+        result = da.fusi.affine.apply(shift)
+
+        np.testing.assert_allclose(
+            result.coords["z"].isel(pose=0, j=0, i=0).values,
+            da.coords["z"].isel(pose=0, j=0, i=0).values + 5.0,
+        )
+        np.testing.assert_allclose(
+            result.coords["z"].isel(pose=1, j=0, i=0).values,
+            da.coords["z"].isel(pose=1, j=0, i=0).values + 5.0,
+        )
+
+    def test_pose_stacked_affine_applies_per_pose(self):
+        """A pose-stacked world-space affine applies a distinct transform per pose."""
+        da = self._make_pose_dependent_scan()
+        shift = np.eye(4)
+        shift[:3, -1] = [5.0, 0.0, 0.0]
+        stacked = np.stack([shift, np.eye(4)])
+
+        result = da.fusi.affine.apply(stacked)
+
+        np.testing.assert_allclose(
+            result.coords["z"].isel(pose=0, j=0, i=0).values,
+            da.coords["z"].isel(pose=0, j=0, i=0).values + 5.0,
+        )
+        np.testing.assert_allclose(
+            result.coords["z"].isel(pose=1, j=0, i=0).values,
+            da.coords["z"].isel(pose=1, j=0, i=0).values,
+        )
+
+    def test_pose_stacked_affine_wrong_pose_length_raises(self):
+        """A pose-stacked affine with a mismatched pose count raises ValueError."""
+        da = self._make_pose_dependent_scan()
+        wrong_length = np.stack([np.eye(4), np.eye(4), np.eye(4)])
+
+        with pytest.raises(ValueError, match="shape"):
+            da.fusi.affine.apply(wrong_length)
+
     def test_string_key_looks_up_stored_affine(self):
         """A string `affine` is resolved from `attrs["affines"]` before applying."""
         shift = np.eye(4)

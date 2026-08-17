@@ -11,12 +11,12 @@ from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.geometry import (
     VoxelToWorldIndex,
     get_affine_axis_scalings,
-    get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_index_spacing,
     get_voxel_to_world_spatial_dims,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
+    require_scalar_pose_affine,
     update_voxel_to_world_coord_attrs,
 )
 from confusius._utils.stack import find_stack_level
@@ -344,7 +344,9 @@ def resample_to_axis_aligned_world_grid(
         # matching voxel axis, falling back to the affine's per-one-voxel-unit
         # scale when the voxel-space sampling itself is irregular.
         voxel_dims = get_voxel_to_world_spatial_dims(data)
-        voxel_to_world_affine = get_voxel_to_world_affine(data)
+        voxel_to_world_affine = require_scalar_pose_affine(
+            data, "Resampling to an axis-aligned world grid for display"
+        )
         index_spacing = get_voxel_to_world_index_spacing(data)
         axis_scalings = get_affine_axis_scalings(voxel_to_world_affine, voxel_dims)
         world_dim_spacing = {

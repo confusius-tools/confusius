@@ -1432,6 +1432,19 @@ class TestSaveNifti:
         with pytest.raises(ValueError, match="must have shape"):
             save_nifti(da, tmp_path / "bad_affine.nii.gz")
 
+    def test_save_rejects_pose_dimension(self, tmp_path) -> None:
+        """A `pose` dimension is rejected; NIfTI has only one spatial qform/sform."""
+        da = _create_fusi_dataarray(
+            np.zeros((2, 2, 3, 4)),
+            dims=("pose", "k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+        )
+
+        with pytest.raises(ValueError, match="'pose'"):
+            save_nifti(da, tmp_path / "pose.nii.gz")
+
+        save_nifti(da.isel(pose=0), tmp_path / "single_pose.nii.gz")
+
     def test_save_2d_dataarray(self, tmp_path) -> None:
         """Saving 2D DataArray inserts only the missing spatial axis."""
         data = np.random.default_rng(0).random((6, 8)).astype(np.float32)

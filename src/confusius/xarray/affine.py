@@ -137,10 +137,25 @@ def apply_affine(
         raise ValueError("DataArray must have a voxel-to-world index.")
 
     voxel_to_world = get_voxel_to_world_affine(da)
-    if affine_array.shape != voxel_to_world.shape:
+    is_pose_stacked = voxel_to_world.ndim == 3
+    # A single (4, 4) world-space affine broadcasts over every pose (numpy's `@`
+    # already does this correctly: `affine_array @ voxel_to_world[p]` per pose); a
+    # pose-dependent affine_array must match the stack length exactly instead.
+    valid_shape = (
+        affine_array.shape == voxel_to_world.shape[1:]
+        or affine_array.shape == voxel_to_world.shape
+        if is_pose_stacked
+        else affine_array.shape == voxel_to_world.shape
+    )
+    if not valid_shape:
+        expected = (
+            f"{voxel_to_world.shape[1:]} or {voxel_to_world.shape}"
+            if is_pose_stacked
+            else f"{voxel_to_world.shape}"
+        )
         raise ValueError(
             "voxel-to-world data requires an affine with shape matching "
-            f"voxel_to_world {voxel_to_world.shape}, got {affine_array.shape}."
+            f"voxel_to_world ({expected}), got {affine_array.shape}."
         )
 
     stored = da.attrs.get("affines", {})

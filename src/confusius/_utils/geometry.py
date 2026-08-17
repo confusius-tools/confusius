@@ -1630,6 +1630,44 @@ def get_voxel_to_world_coord_names(data: xr.DataArray) -> tuple[str, ...]:
     return default_names
 
 
+def require_scalar_pose_affine(
+    data: xr.DataArray, context: str
+) -> npt.NDArray[np.float64]:
+    """Return `data`'s voxel-to-world affine, requiring pose-independent geometry.
+
+    Single-grid operations (origin/direction accessors, `reindex_voxels`,
+    registration, resampling, ...) cannot operate on a per-pose affine stack; this
+    gives them a clear, specific failure at entry instead of a confusing NumPy
+    broadcasting error partway through.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData-compatible DataArray.
+    context : str
+        Short description of the calling operation, used in the error message
+        (e.g. `"Computing the voxel-to-world origin"`).
+
+    Returns
+    -------
+    (W+1, M+1) numpy.ndarray
+        Voxel-to-world affine.
+
+    Raises
+    ------
+    ValueError
+        If `data` does not carry voxel-to-world geometry, or if it carries
+        pose-dependent geometry (a stacked affine).
+    """
+    affine = get_voxel_to_world_affine(data)
+    if affine.ndim == 3:
+        raise ValueError(
+            f"{context} requires pose-independent geometry; select a scalar pose "
+            "first, e.g. `data.isel(pose=0)`."
+        )
+    return affine
+
+
 def get_voxel_to_world_index_origin(data: xr.DataArray) -> dict[str, float]:
     """Return the world location of the first sampled voxel.
 
@@ -1642,6 +1680,12 @@ def get_voxel_to_world_index_origin(data: xr.DataArray) -> dict[str, float]:
     -------
     dict[str, float]
         World origin keyed by world coordinate name.
+
+    Raises
+    ------
+    ValueError
+        If `data` carries pose-dependent geometry (a stacked affine); select a
+        scalar pose first.
 
     Notes
     -----
@@ -1659,7 +1703,8 @@ def get_voxel_to_world_index_origin(data: xr.DataArray) -> dict[str, float]:
         + [1.0],
         dtype=np.float64,
     )
-    origin = get_voxel_to_world_affine(data) @ first_voxel
+    affine = require_scalar_pose_affine(data, "Computing the voxel-to-world origin")
+    origin = affine @ first_voxel
     return {
         name: np.float64(origin[i]).item() for i, name in enumerate(world_coord_names)
     }
@@ -1711,8 +1756,17 @@ def get_voxel_to_world_direction_matrix(
     (N, N) numpy.ndarray
         Unit direction vectors in world-space row order and voxel-space column
         order.
+
+    Raises
+    ------
+    ValueError
+        If `data` carries pose-dependent geometry (a stacked affine); select a
+        scalar pose first.
     """
-    direction = get_affine_direction_matrix(get_voxel_to_world_affine(data))
+    affine = require_scalar_pose_affine(
+        data, "Computing the voxel-to-world direction matrix"
+    )
+    direction = get_affine_direction_matrix(affine)
     voxel_dims = get_voxel_to_world_spatial_dims(data)
     label_signs = [
         -1.0

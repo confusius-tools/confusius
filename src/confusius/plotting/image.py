@@ -12,10 +12,10 @@ import xarray as xr
 from confusius._dims import VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
-    get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
     has_voxel_to_world_index,
+    require_scalar_pose_affine,
 )
 from confusius._utils.mask import select_masked_features
 from confusius._utils.plotting import blend_red_cyan, scale_min_max
@@ -128,7 +128,7 @@ def _validate_voxel_to_world_slice_mode(data: xr.DataArray, slice_mode: str) -> 
 
 def _get_voxel_to_world_dim_order(slice_da: xr.DataArray) -> tuple[str, ...]:
     """Return active voxel-space dimension order implied by the stored affine."""
-    affine = get_voxel_to_world_affine(slice_da)
+    affine = require_scalar_pose_affine(slice_da, "Voxel-to-world plotting")
     ndim = affine.shape[1] - 1
     dims = get_voxel_to_world_spatial_dims(slice_da)
     if len(dims) != ndim:
@@ -166,7 +166,7 @@ def _project_voxel_to_world_plane(
     y_centers : (H, W) numpy.ndarray
         In-plane y coordinates of cell centers.
     """
-    affine = get_voxel_to_world_affine(slice_da)
+    affine = require_scalar_pose_affine(slice_da, "Voxel-to-world plotting")
     dim_order = _get_voxel_to_world_dim_order(slice_da)
     linear = affine[:-1, :-1]
 

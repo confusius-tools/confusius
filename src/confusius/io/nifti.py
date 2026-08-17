@@ -2405,7 +2405,10 @@ def save_nifti(
     >>> da.attrs["affines"] = {"world_to_template": np.eye(4)}
     >>> cf.io.save_nifti(da, "output.nii.gz", sform="world_to_template")
     """
-    data_array = ensure_fusi(data_array)
+    # NIfTI exposes only one spatial qform/sform, so it cannot represent per-pose
+    # geometry (or even a shared affine ambiguously labeled per pose). Callers must
+    # select one pose first, e.g. `save_nifti(data.isel(pose=0), path)`.
+    data_array = ensure_fusi(data_array, allow_pose=False)
     path = Path(path)
     if not path.name.endswith(".nii") and not path.name.endswith(".nii.gz"):
         raise ValueError("Output file must have .nii or .nii.gz extension.")
