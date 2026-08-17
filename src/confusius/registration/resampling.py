@@ -8,10 +8,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
-from confusius._utils.geometry import (
-    get_affine_orientation_matrix,
-    get_voxel_to_world_affine,
-)
+from confusius._utils.geometry import get_voxel_to_world_orientation_matrix
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
     get_defined_spatial_spacing,
@@ -321,9 +318,7 @@ def resample_like(
     _, output_spacing = get_defined_spatial_spacing(reference)
     reference_origin = reference.fusi.origin
     output_origin = [reference_origin[name] for name in SPATIAL_DIMS]
-    output_direction = get_affine_orientation_matrix(
-        get_voxel_to_world_affine(reference)
-    )
+    output_direction = get_voxel_to_world_orientation_matrix(reference)
 
     result = resample_volume(
         moving,

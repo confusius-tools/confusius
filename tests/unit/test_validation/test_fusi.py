@@ -338,11 +338,28 @@ def test_validate_fusi_rejects_non_string_dimension_names() -> None:
         validate_fusi(bad)
 
 
-def test_validate_fusi_rejects_non_monotonic_core_coordinate() -> None:
-    """Core dimension coordinates must be strictly monotonic-increasing."""
+def test_validate_fusi_rejects_non_monotonic_voxel_coordinate() -> None:
+    """Voxel dim coordinates may run in either direction, but must be monotonic."""
     bad = _make_voxel_to_world_time_series().assign_coords(
         i=xr.DataArray([0.0, 2.0, 1.0, 3.0], dims=("i",))
     )
+
+    with pytest.raises(ValueError, match="must be strictly monotonic"):
+        validate_fusi(bad)
+
+
+def test_validate_fusi_accepts_descending_voxel_coordinate() -> None:
+    """A voxel dim coordinate may be strictly decreasing (e.g. a flipped axis)."""
+    flipped = _make_voxel_to_world_time_series().assign_coords(
+        i=xr.DataArray([3.0, 2.0, 1.0, 0.0], dims=("i",))
+    )
+
+    validate_fusi(flipped)
+
+
+def test_validate_fusi_rejects_descending_time_coordinate() -> None:
+    """`time`/`pose` coordinates must be strictly increasing, unlike voxel dims."""
+    bad = _make_voxel_to_world_time_series().isel(time=slice(None, None, -1))
 
     with pytest.raises(ValueError, match="must be strictly monotonic-increasing"):
         validate_fusi(bad)

@@ -84,7 +84,7 @@ def _validate_voxel_to_world_geometry(da: xr.DataArray) -> None:
 
 
 def _validate_dimension_coordinate(
-    da: xr.DataArray, dim: Hashable, *, require_numeric: bool
+    da: xr.DataArray, dim: Hashable, *, require_numeric: bool, require_ascending: bool
 ) -> None:
     """Validate a single dimension coordinate.
 
@@ -95,13 +95,19 @@ def _validate_dimension_coordinate(
     dim : hashable
         Dimension name whose matching coordinate is required.
     require_numeric : bool
-        Whether the coordinate must be numeric, finite, and strictly increasing.
+        Whether the coordinate must be numeric, finite, and strictly monotonic.
+    require_ascending : bool
+        Whether strict monotonicity must be increasing specifically. Ignored if
+        `require_numeric` is `False`. Voxel dims (`k`/`j`/`i`) may run in either
+        direction — the voxel-to-world affine, not coordinate direction, encodes
+        orientation, so a flipped axis (e.g. `da.isel(i=slice(None, None, -1))`) is
+        still valid VoxelData. `time`/`pose` must be increasing.
 
     Raises
     ------
     ValueError
         If the coordinate is missing, malformed, non-numeric, non-finite, or not
-        strictly increasing.
+        strictly monotonic (in the required direction, if any).
     """
     if dim not in da.coords:
         if dim in CORE_DIMS:
@@ -123,8 +129,16 @@ def _validate_dimension_coordinate(
     values = np.asarray(coord.values)
     if not np.all(np.isfinite(values)):
         raise ValueError(f"Coordinate {dim!r} contains non-finite numeric values.")
-    if values.size > 1 and not np.all(np.diff(values) > 0):
-        raise ValueError(f"Coordinate {dim!r} must be strictly monotonic-increasing.")
+    if values.size <= 1:
+        return
+    diffs = np.diff(values)
+    if require_ascending:
+        if not np.all(diffs > 0):
+            raise ValueError(
+                f"Coordinate {dim!r} must be strictly monotonic-increasing."
+            )
+    elif not (np.all(diffs > 0) or np.all(diffs < 0)):
+        raise ValueError(f"Coordinate {dim!r} must be strictly monotonic.")
 
 
 def _validate_core_dimension_names(da: xr.DataArray, allow_extra_dims: bool) -> None:
@@ -491,7 +505,12 @@ def validate_fusi(
         raise ValueError("DataArray must not have a 'pose' dimension.")
 
     for dim in data.dims:
-        _validate_dimension_coordinate(data, dim, require_numeric=dim in CORE_DIMS)
+        _validate_dimension_coordinate(
+            data,
+            dim,
+            require_numeric=dim in CORE_DIMS,
+            require_ascending=dim not in VOXEL_DIMS,
+        )
 
     if require_regular_spacing:
         _validate_regular_spacing(

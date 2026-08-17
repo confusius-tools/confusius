@@ -282,6 +282,34 @@ class TestOrigin:
             ),
         )
 
+    def test_voxel_to_world_direction_flags_descending_voxel_coordinate(self):
+        """A descending voxel coordinate (e.g. a flipped axis) negates its column.
+
+        The affine's own orientation says nothing about a specific array's voxel
+        coordinate direction, since it maps coordinate *values* to world space, not
+        dense array positions -- `.fusi.direction` must fold that sign in itself so
+        it's directly usable, paired with `.fusi.spacing` (a magnitude) and
+        `.fusi.origin`, as a dense-position `(origin, spacing, direction)` grid (the
+        convention SimpleITK and `reindex_voxels` both expect).
+        """
+        base = xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=["k", "j", "i"],
+            coords={"k": [0, 1], "j": [0, 1, 2], "i": [3, 2, 1, 0]},
+        )
+        data = attach_voxel_to_world_index(base, np.eye(4))
+
+        np.testing.assert_allclose(
+            data.fusi.direction,
+            np.array(
+                [
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, -1.0],
+                ]
+            ),
+        )
+
 
 class TestReindexVoxels:
     """Tests for fusi.reindex_voxels."""
@@ -322,6 +350,27 @@ class TestReindexVoxels:
             origin[:3],
             [cropped.fusi.origin[name] for name in ("z", "y", "x")],
         )
+
+    def test_preserves_world_coordinates_with_descending_voxel_dim(self):
+        """A flipped (descending) voxel dim reindexes to a negative-scale affine.
+
+        Regression test: rebuilding the affine from spacing (a magnitude) and the
+        affine's own orientation, without accounting for the array's own voxel
+        coordinate direction, silently produced the wrong world coordinates for a
+        descending dim (world position increased with array position instead of
+        decreasing).
+        """
+        base = xr.DataArray(
+            np.arange(2 * 3 * 4.0).reshape(2, 3, 4),
+            dims=["k", "j", "i"],
+            coords={"k": [0, 1], "j": [0, 1, 2], "i": [3, 2, 1, 0]},
+        )
+        data = attach_voxel_to_world_index(base, np.eye(4))
+        result = data.fusi.reindex_voxels()
+        np.testing.assert_allclose(
+            result.coords["x"].isel(k=0, j=0).values, data.coords["x"].isel(k=0, j=0).values
+        )
+        np.testing.assert_array_equal(result.values, data.values)
 
     def test_raises_without_voxel_to_world_geometry(self):
         """A plain DataArray without voxel-to-world geometry raises ValueError."""

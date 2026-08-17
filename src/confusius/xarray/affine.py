@@ -7,11 +7,11 @@ import xarray as xr
 
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
-    get_affine_orientation_matrix,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_index_origin,
     get_voxel_to_world_index_spacing,
+    get_voxel_to_world_orientation_matrix,
     get_voxel_to_world_spatial_dims,
     has_voxel_to_world_index,
 )
@@ -236,7 +236,10 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
             f"{missing_spacing!r}."
         )
     origin = get_voxel_to_world_index_origin(da)
-    direction = get_affine_orientation_matrix(get_voxel_to_world_affine(da))
+    # Already expressed in dense-position terms (accounts for a descending voxel
+    # coordinate, e.g. after `.isel(dim=slice(None, None, -1))`), matching how
+    # `spacing` (a magnitude) and dense array position combine below.
+    direction = get_voxel_to_world_orientation_matrix(da)
 
     ndim = len(voxel_dims)
     new_affine = np.eye(ndim + 1, dtype=np.float64)

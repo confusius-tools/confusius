@@ -1282,6 +1282,17 @@ def get_voxel_to_world_orientation_matrix(
 ) -> npt.NDArray[np.float64]:
     """Return the world-space direction matrix of a VoxelData-compatible DataArray.
 
+    The voxel-to-world affine maps voxel-space *coordinate values* to world space, so
+    its own orientation says nothing about whether `data`'s voxel coordinate for a
+    given dimension happens to run ascending or descending (e.g. after
+    `da.isel(dim=slice(None, None, -1))`) -- dense array position always counts up
+    from 0 regardless of the coordinate's own direction. This folds that sign in, so
+    the returned direction matrix is expressed in dense-position terms: paired with
+    [get_voxel_to_world_index_spacing][confusius._utils.geometry.get_voxel_to_world_index_spacing]
+    (a magnitude) and origin, it reconstructs a position-space affine that correctly
+    represents a flipped voxel dimension, as SimpleITK's own `(origin, spacing,
+    direction)` grid convention expects.
+
     Parameters
     ----------
     data : xarray.DataArray
@@ -1293,7 +1304,16 @@ def get_voxel_to_world_orientation_matrix(
         Unit direction vectors in world-space row order and voxel-space column
         order.
     """
-    return get_affine_orientation_matrix(get_voxel_to_world_affine(data))
+    direction = get_affine_orientation_matrix(get_voxel_to_world_affine(data))
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
+    label_signs = [
+        -1.0
+        if data.sizes[dim] > 1
+        and data.coords[dim].values[1] < data.coords[dim].values[0]
+        else 1.0
+        for dim in voxel_dims
+    ]
+    return direction * np.asarray(label_signs)
 
 
 def get_affine_axis_vectors(
