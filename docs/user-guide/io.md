@@ -61,7 +61,7 @@ well-suited for fUSI workflows:
       [ANTsPy](https://antspy.readthedocs.io/en/stable/), and
       [FSL](https://fsl.fmrib.ox.ac.uk/fsl/docs/), which have been used in some fUSI
       studies.
-    - **Derived acquisitions**: Power Doppler, velocity, and other processed signals.
+    - **Regular recordings**: Power Doppler, velocity, and other processed signals.
 
     Use NIfTI when you need to share data, ensure BIDS compliance, or integrate with
     existing neuroimaging analysis tools.
@@ -94,119 +94,16 @@ fUSI workflows involve two main categories of data:
     GB per acquisition session), and stored in system-specific layouts depending on the
     acquisition system (e.g., Iconeus, AUTC, EchoFrame).
 
-=== "Derived Acquisitions"
+=== "Power Doppler, velocity, etc."
 
-    Processed data products such as power Doppler, velocity, or other signals derived from
-    beamformed IQ data. These datasets are generally much smaller than the original IQ data
-    (often 10-100x smaller) and are frequently stored in standardized formats like NIfTI for 
-    interoperability and BIDS compliance. 
+    Processed data such as power Doppler, velocity, or other signals derived from
+    beamformed IQ data. These datasets are generally much smaller than the original IQ
+    data (often 10-100x smaller) and are frequently stored in standardized formats like
+    NIfTI for interoperability and BIDS compliance. 
 
-    !!! tip "Zarr for large derived datasets"
-        Large-scale derived acquisitions (e.g., long power Doppler recordings) can also
-        benefit from storage in Zarr for efficient processing.
-
-## Converting Beamformed IQ Data
-
-Beamformed IQ exports are often stored as large binary files together with acquisition
-metadata. The file structure from AUTC and EchoFrame systems is documented, allowing
-ConfUSIus to provide built-in conversion utilities that reorganize these datasets into
-Zarr for efficient processing.
-
-!!! question "Why not Iconeus RAW files?"
-    ConfUSIus cannot currently read Iconeus RAW beamformed IQ files because this
-    format is not documented publicly. If you need to process RAW files with
-    ConfUSIus, please contact Iconeus to request an export tool or format
-    documentation.
-
-=== "AUTC DATs"
-
-    This format consists of a series of binary `.dat` files (often split into parts),
-    where each file contains multiple acquisition blocks.
-
-    To convert a folder of AUTC DAT files to Zarr, use the
-    [`convert_autc_dats_to_zarr`][confusius.io.convert_autc_dats_to_zarr] function.
-
-    ```python
-    from confusius.io import convert_autc_dats_to_zarr
-
-    convert_autc_dats_to_zarr(
-        dats_root="path/to/data_folder",
-        output_path="sub-01_task-awake_iq.zarr",
-        # Optional: specify block start times, transmit frequency, axis coordinates, and
-        # other metadata via keyword arguments (see API for details).
-        block_times=block_times,
-        compound_sampling_frequency=500.0,
-        transmit_frequency=15.625e6,
-        beamforming_sound_velocity=1510.0,
-    )
-    ```
-
-    This will create a Zarr group containing:
-
-    - `iq`: Beamformed IQ data with native dimensions `(time, k, j, i)`.
-    - `time`, `k`, `j`, `i`: Native time and voxel-space dimension coordinates.
-    - `z`, `y`, `x`: World coordinates attached to the native voxel dimensions.
-    - Voxel sizes (`voxdim`) as per-coordinate attributes on `z`, `y`, and `x`.
-    - Metadata attributes (e.g., `transmit_frequency`, `plane_wave_angles`)
-      as provided via keyword arguments.
-
-=== "EchoFrame DAT"
-
-    This format consists of a binary `.dat` file containing the beamformed data and a
-    `.mat` file containing metadata (sequence parameters).
-
-    To convert EchoFrame data to Zarr, use the
-    [`convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr]
-    function.
-
-    ```python
-    from confusius.io import convert_echoframe_dat_to_zarr
-
-    convert_echoframe_dat_to_zarr(
-        dat_path="path/to/data.dat",
-        meta_path="path/to/metadata.mat",
-        output_path="sub-01_task-awake_iq.zarr",
-        # Optional: specify block start times. Other metadata (e.g., transmit frequency,
-        # axis coordinates) will be automatically extracted from the metadata file.
-        block_times=block_times,
-    )
-    ```
-
-    This will create a Zarr group containing:
-
-    - `iq`: Beamformed IQ data with native dimensions `(time, k, j, i)`.
-    - `time`, `k`, `j`, `i`: Native time and voxel-space dimension coordinates.
-    - `z`, `y`, `x`: World coordinates attached to the native voxel dimensions.
-    - Voxel sizes (`voxdim`) as per-coordinate attributes on `z`, `y`, and `x`.
-    - Metadata attributes (e.g., `transmit_frequency`, `plane_wave_angles`)
-      as extracted from the metadata file.
-
-### Other Systems
-
-For beamformed IQ data from a system other than AUTC or EchoFrame, load the complex
-array with the tool appropriate for your file format, then wrap it as an IQ DataArray
-with [`create_iq_dataarray`][confusius.xarray.create_iq_dataarray]:
-
-```python
-import confusius as cf
-from confusius.validation import validate_iq
-
-raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, k, j, i)
-
-iq = cf.create_iq_dataarray(
-    raw_iq,
-    dims=("time", "k", "j", "i"),
-    dt=1 / 500,
-    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
-    volume_acquisition_duration=1 / 500,
-    transmit_frequency=15.625e6,
-    beamforming_sound_velocity=1540.0,
-)
-validate_iq(iq, require_velocity_attrs=True)
-```
-
-See [Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for the
-required dimensions, metadata fields, and processing assumptions.
+    !!! tip "Zarr for large recordings"
+        Large-scale fUSI recordings (e.g., using matrix probes) can also benefit from
+        storage in Zarr for efficient processing.
 
 ## Loading Data
 
@@ -215,8 +112,9 @@ an operation requires it.
 
 !!! tip "Load into memory when it fits"
     Lazy loading is essential for datasets larger than available RAM, but it introduces
-    Dask scheduling overhead on every operation. If your data fits comfortably in memory
-    (leaving enough headroom for intermediate results), load it eagerly with
+    Dask scheduling overhead on every operation and can make things difficult if your
+    data chunking layout doesn't fit your operation. If your data fits comfortably in
+    memory (leaving enough headroom for intermediate results), load it eagerly with
     [`.compute()`][xarray.DataArray.compute] for better performance:
 
     ```python
@@ -276,8 +174,24 @@ Attributes:
 Notice that the data remains on disk (shown by `dask.array<...>`) until you explicitly
 compute operations on it.
 
-### Loading Iconeus SCAN Files
+### Loading EchoFrame DAT Files
 
+For one-time processing, load EchoFrame DAT files directly with
+[`load_echoframe_dat`][confusius.io.load_echoframe_dat]. This returns a lazy DataArray
+without duplicating the raw DAT data as Zarr.
+
+```python
+import confusius as cf
+
+iq = cf.io.load_echoframe_dat(
+    dat_path="path/to/data.dat", meta_path="path/to/metadata.mat"
+)
+```
+
+[Convert to Zarr](#converting-beamformed-iq-data) instead when you expect to process the
+same recording repeatedly.
+
+### Loading Iconeus SCAN Files
 
 Use [`load_scan`][confusius.io.load_scan] to load Iconeus `.scan` files as lazy Xarray
 DataArrays. Two on-disk formats are detected automatically: the HDF5-based SCAN v1
@@ -486,10 +400,10 @@ header when both are available.
 
 ### Loading Other Formats
 
-For unsupported derived fUSI formats, such as lab-specific MAT-files containing power
-Doppler or velocity data, load the array with the appropriate Python tool and use
-[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to attach dimensions,
-coordinates, and metadata:
+For unsupported formats, such as lab-specific MAT-files containing power Doppler or
+velocity data, load the array with the appropriate Python tool and use
+[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to attach
+dimensions, coordinates, and metadata:
 
 ```python
 import confusius as cf
@@ -509,6 +423,111 @@ power = cf.create_fusi_dataarray(
 See the [Create a fUSI DataArray from a MAT
 file](../examples/_built/io/create_fusi_dataarray_from_mat.md) example for a complete
 walkthrough, from a real lab-specific MAT file to motion correction and a task GLM.
+
+## Converting Beamformed IQ Data
+
+Beamformed IQ exports are often stored as large binary files together with acquisition
+metadata. The file structure from AUTC and EchoFrame systems is documented, allowing
+ConfUSIus to provide built-in conversion utilities that reorganize these datasets into
+Zarr for efficient processing.
+
+!!! question "Why doesn't ConfUSIus support Iconeus RAW files?"
+    ConfUSIus cannot currently read Iconeus beamformed IQ files because the Iconeus RAW
+    format is not documented publicly. If you need to process RAW files with ConfUSIus,
+    please contact Iconeus to request an export tool or format documentation.
+
+=== "AUTC DATs"
+
+    This format consists of a series of binary `.dat` files (often split into parts),
+    where each file contains multiple acquisition blocks.
+
+    To convert a folder of AUTC DAT files to Zarr, use the
+    [`convert_autc_dats_to_zarr`][confusius.io.convert_autc_dats_to_zarr] function.
+    ConfUSIus does not provide direct lazy loading for AUTC DAT acquisitions because
+    they are split across multiple binary files, which makes practical Dask parallel
+    processing difficult.
+
+    ```python
+    from confusius.io import convert_autc_dats_to_zarr
+
+    convert_autc_dats_to_zarr(
+        dats_root="path/to/data_folder",
+        output_path="sub-01_task-awake_iq.zarr",
+        # Optional: specify block start times, transmit frequency, axis coordinates, and
+        # other metadata via keyword arguments (see API for details).
+        block_times=block_times,
+        compound_sampling_frequency=500.0,
+        transmit_frequency=15.625e6,
+        beamforming_sound_velocity=1510.0,
+    )
+    ```
+
+    This will create a Zarr group containing:
+
+    - `iq`: Beamformed IQ data with native dimensions `(time, k, j, i)`.
+    - `time`, `k`, `j`, `i`: Native time and voxel-space dimension coordinates.
+    - `voxel_to_world` and `world_coord_attrs`: Attributes on `iq` used to restore the
+      `VoxelToWorldIndex` and derive `z`/`y`/`x` world coordinates.
+    - Metadata attributes (e.g., `transmit_frequency`, `plane_wave_angles`)
+      as provided via keyword arguments.
+
+=== "EchoFrame DAT"
+
+    This format consists of a binary `.dat` file containing the beamformed data and a
+    `.mat` file containing metadata (sequence parameters).
+
+    To convert EchoFrame data to Zarr, use
+    [`convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr].
+    Zarr is useful for long-term storage or repeated processing of the same recording.
+
+    ```python
+    from confusius.io import convert_echoframe_dat_to_zarr
+
+    convert_echoframe_dat_to_zarr(
+        dat_path="path/to/data.dat",
+        meta_path="path/to/metadata.mat",
+        output_path="sub-01_task-awake_iq.zarr",
+        # Optional: specify block start times. Other metadata (e.g., transmit frequency,
+        # axis coordinates) will be automatically extracted from the metadata file.
+        block_times=block_times,
+    )
+    ```
+
+    This will create a Zarr group containing:
+
+    - `iq`: Beamformed IQ data with native dimensions `(time, k, j, i)`.
+    - `time`, `k`, `j`, `i`: Native time and voxel-space dimension coordinates.
+    - `voxel_to_world` and `world_coord_attrs`: Attributes on `iq` used to restore the
+      `VoxelToWorldIndex` and derive `z`/`y`/`x` world coordinates.
+    - Metadata attributes (e.g., `transmit_frequency`, `plane_wave_angles`)
+      as extracted from the metadata file.
+
+### Other Systems
+
+For beamformed IQ data from a system other than AUTC or EchoFrame, load the complex
+array with the tool appropriate for your file format, then wrap it as an IQ DataArray
+with [`create_iq_dataarray`][confusius.xarray.create_iq_dataarray]:
+
+```python
+import confusius as cf
+from confusius.validation import validate_iq
+
+raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, k, j, i)
+
+iq = cf.create_iq_dataarray(
+    raw_iq,
+    dims=("time", "k", "j", "i"),
+    dt=1 / 500,
+    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
+    volume_acquisition_duration=1 / 500,
+    transmit_frequency=15.625e6,
+    beamforming_sound_velocity=1540.0,
+)
+validate_iq(iq, require_velocity_attrs=True)
+```
+
+See [Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for the
+required dimensions, metadata fields, and processing assumptions.
 
 ## Saving Data
 
@@ -573,6 +592,7 @@ Quick reference for converting between formats:
 | From | To | Function |
 |------|-----|----------|
 | AUTC DATs | Zarr | [`confusius.io.convert_autc_dats_to_zarr`][confusius.io.convert_autc_dats_to_zarr] |
+| EchoFrame DAT | Xarray DataArray | [`confusius.io.load_echoframe_dat`][confusius.io.load_echoframe_dat] |
 | EchoFrame DAT | Zarr | [`confusius.io.convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr] |
 | Iconeus SCAN | Xarray DataArray | [`confusius.load`][confusius.load] |
 | NIfTI | Xarray DataArray | [`confusius.load`][confusius.load] |
