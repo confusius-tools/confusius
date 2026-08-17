@@ -1091,9 +1091,11 @@ def attach_voxel_to_world_index(
     data : xarray.DataArray
         Input array that already carries 1D integer voxel-space coordinates on its
         native voxel dims (`k`/`j`/`i`).
-    voxel_to_world : (N+1, N+1) numpy.ndarray
+    voxel_to_world : (N+1, N+1) numpy.ndarray or (npose, N+1, N+1) numpy.ndarray
         Homogeneous affine mapping voxel-space coordinates to world-space
-        coordinates.
+        coordinates, or a stack of one such affine per pose. A stack requires `data`
+        to have a matching `pose` dimension with a 1D coordinate; a single affine
+        applies to every pose (or to no pose dimension at all).
     world_coord_attrs : mapping[str, mapping[str, Any]], optional
         Attributes to attach to the derived world coordinates, keyed by world
         coordinate name. `voxdim` and `units` are filled in with their defaults
@@ -1110,8 +1112,9 @@ def attach_voxel_to_world_index(
     Raises
     ------
     ValueError
-        If `data` has no native voxel dims (`k`/`j`/`i`), or if their coordinates are
-        not 1D dimension coordinates.
+        If `data` has no native voxel dims (`k`/`j`/`i`), if their coordinates are
+        not 1D dimension coordinates, or if a pose-stacked `voxel_to_world` is given
+        without a matching `pose` dimension/coordinate on `data`.
     TypeError
         If a voxel dimension's coordinate does not have integer dtype.
     """
@@ -1146,14 +1149,35 @@ def attach_voxel_to_world_index(
 
     voxel_to_world_array = np.asarray(voxel_to_world, dtype=np.float64)
 
+    pose_coord = None
+    drop_names = list(world_coord_names)
+    if voxel_to_world_array.ndim == 3:
+        if POSE_DIM not in data.dims:
+            raise ValueError(
+                "A stacked voxel_to_world affine (one per pose) requires data to "
+                f"have a {POSE_DIM!r} dimension."
+            )
+        if POSE_DIM not in data.coords or data.coords[POSE_DIM].dims != (POSE_DIM,):
+            raise ValueError(
+                f"{POSE_DIM!r} dimension must have a matching 1D coordinate."
+            )
+        if voxel_to_world_array.shape[0] != data.sizes[POSE_DIM]:
+            raise ValueError(
+                f"voxel_to_world pose stack length {voxel_to_world_array.shape[0]} "
+                f"does not match data's {POSE_DIM!r} size {data.sizes[POSE_DIM]}."
+            )
+        pose_coord = data.coords[POSE_DIM].values
+        drop_names.append(POSE_DIM)
+
     base = data.drop_vars(
-        [name for name in world_coord_names if name in data.coords], errors="ignore"
+        [name for name in drop_names if name in data.coords], errors="ignore"
     )
     index = VoxelToWorldIndex.from_affine(
         voxel_coords,
         voxel_to_world_array,
         world_coord_names=world_coord_names,
         world_coord_attrs=world_coord_attrs,
+        pose_coord=pose_coord,
     )
     result = base.assign_coords(xr.Coordinates.from_xindex(index))
 
@@ -1162,13 +1186,16 @@ def attach_voxel_to_world_index(
             if name in result.coords:
                 result.coords[name].attrs.update(dict(attrs))
 
+    representative_affine = (
+        voxel_to_world_array[0] if pose_coord is not None else voxel_to_world_array
+    )
     world_spacings = get_voxel_to_world_spacings_from_coords(
-        voxel_coords, voxel_to_world_array
+        voxel_coords, representative_affine
     )
     for i, (dim, name) in enumerate(zip(voxel_dims, world_coord_names, strict=True)):
         spacing = world_spacings[dim]
         if spacing is None:
-            spacing = np.linalg.norm(voxel_to_world_array[:-1, i])
+            spacing = np.linalg.norm(representative_affine[:-1, i])
         if name not in result.coords:
             continue
         if "voxdim" not in result.coords[name].attrs:

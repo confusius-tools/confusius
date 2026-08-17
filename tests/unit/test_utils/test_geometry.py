@@ -219,6 +219,90 @@ def test_has_axis_aligned_voxel_to_world_index_checks_every_pose() -> None:
     assert has_axis_aligned_voxel_to_world_index(oblique) is False
 
 
+def _pose_dependent_data() -> xr.DataArray:
+    """Build a plain (non-VoxelData) pose-stacked DataArray for attach tests."""
+    return xr.DataArray(
+        np.arange(2 * 2 * 3 * 4).reshape(2, 2, 3, 4),
+        dims=("pose", "k", "j", "i"),
+        coords={
+            "pose": [0, 1],
+            "k": np.arange(2),
+            "j": np.arange(3),
+            "i": np.arange(4),
+        },
+    )
+
+
+def test_attach_voxel_to_world_index_accepts_pose_stacked_affine() -> None:
+    """`attach_voxel_to_world_index` wires up a per-pose affine stack."""
+    data = _pose_dependent_data()
+    affine = np.stack(
+        [
+            np.eye(4),
+            np.array(
+                [
+                    [1.0, 0.0, 0.0, 100.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+        ]
+    )
+
+    result = attach_voxel_to_world_index(data, affine)
+
+    assert result.coords["z"].dims == ("pose", "k", "j", "i")
+    assert_array_equal(result.coords["pose"].values, [0, 1])
+    assert_allclose(result.coords["z"].isel(pose=1, j=0, i=0).values, [100.0, 101.0])
+    assert result.coords["z"].attrs["voxdim"] == 1.0
+    assert result.coords["z"].attrs["units"] == "mm"
+    assert get_voxel_to_world_affine(result).shape == (2, 4, 4)
+
+
+def test_attach_voxel_to_world_index_rejects_mismatched_pose_stack() -> None:
+    """A pose-stacked affine requires a matching `pose` dim/coord on `data`."""
+    no_pose = xr.DataArray(
+        np.zeros((2, 3, 4)),
+        dims=("k", "j", "i"),
+        coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
+    )
+    affine = np.stack([np.eye(4), np.eye(4)])
+
+    with pytest.raises(ValueError, match="have a 'pose' dimension"):
+        attach_voxel_to_world_index(no_pose, affine)
+
+    wrong_length = _pose_dependent_data()
+    with pytest.raises(ValueError, match="does not match data's 'pose' size"):
+        attach_voxel_to_world_index(wrong_length, np.stack([np.eye(4)]))
+
+
+def test_restore_voxel_to_world_index_rebuilds_pose_dependent_geometry() -> None:
+    """Restoring a fixed spatial dim keeps the pose stack intact."""
+    data = _pose_dependent_data()
+    affine = np.stack(
+        [
+            np.eye(4),
+            np.array(
+                [
+                    [1.0, 0.0, 0.0, 100.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+        ]
+    )
+    result = attach_voxel_to_world_index(data, affine)
+    fixed = result.isel(k=0)
+    expanded = fixed.expand_dims(k=[5])
+
+    restored = restore_voxel_to_world_index(expanded)
+
+    assert restored.coords["z"].dims == ("pose", "k", "j", "i")
+    assert_array_equal(restored.coords["pose"].values, [0, 1])
+
+
 def test_pose_dependent_index_equality_compares_pose_labels_and_affines() -> None:
     """Index equality accounts for pose labels and the affine stack."""
     left = _pose_dependent_result()
