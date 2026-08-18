@@ -7,13 +7,14 @@ icon: lucide/brackets
 ## Why Xarray?
 
 A typical fUSI recording is a 4D array indexed by time and native voxel dimensions (`i`,
-`j`, `k`). World coordinates corresponding to the voxel dimensions are (`x`, `y`, `z`).
-Storing this as a plain NumPy array means losing all of that structure: axes become
-anonymous integers, world coordinates must be tracked separately, and keeping them in
-sync with the data after slicing or averaging is error-prone. A custom wrapper class
-would address the labeling and coordinate tracking, but at the cost of needing a complex
-reimplementation of many array operations and losing access to the broader scientific
-Python ecosystem.
+`j`, `k`). Some experimental paradigms acquire data at multiple probe poses, adding a
+`pose` dimension and making the recording 5D. World coordinates corresponding to the
+voxel dimensions are (`x`, `y`, `z`). Storing this as a plain NumPy array means losing
+all of that structure: axes become anonymous integers, world coordinates must be tracked
+separately, and keeping them in sync with the data after slicing or averaging is
+error-prone. A custom wrapper class would address the labeling and coordinate tracking,
+but at the cost of needing a complex reimplementation of many array operations and
+losing access to the broader scientific Python ecosystem.
 
 [Xarray](https://xarray.dev/) solves this by wrapping arrays with named dimensions and
 world coordinates, while [maintaining compatibility](https://xarray.dev/#ecosystem)
@@ -189,6 +190,20 @@ first_50_volumes = pwd.isel(time=slice(0, 50))  # first 50 volumes, by position.
 shallow = pwd.sel(y=slice(0, 2.5))              # depth 0-2.5 mm, by coordinate.
 ```
 
+!!! warning "Multi-pose caveat"
+    For recordings with a `pose` dimension, world coordinates become pose-dependent.
+    Select a single pose before slicing in world space:
+
+    ```python
+    pose0 = pwd.sel(pose=0).sel(y=slice(0, 2.5))  # OK
+    shallow = pose0.sel(y=slice(0, 2.5))
+    ```
+
+    Likewise, pose-dependent `time` coordinates must be reduced to a single pose before
+    label-based time selection. `.sel(time=slice(...))` is not supported for
+    pose-dependent time, use `.isel(time=slice(...))` instead or select a single pose
+    first.
+
 Scalar indexing (e.g. `.isel(k=0)`) drops the indexed dimension but keeps its
 coordinate as a scalar:
 
@@ -214,14 +229,14 @@ have a NumPy, Dask, or array-like object and want to create a VoxelData
 array. This is useful when you have raw data from a custom acquisition system or a
 non-standard file format. The function will attach VoxelData dimensions, coordinates,
 and metadata. Dimensions can be supplied in any order; the result is canonicalized to
-native `(time, k, j, i)` order:
+native `(..., time, pose, k, j, i)` order:
 
 ```python
 import confusius as cf
 
 recording = cf.create_voxeldata(
-    raw_power,  # shape: (time, k, j, i)
-    dims=("time", "k", "j", "i"),
+    raw_power,  # shape: (i, j, k, time)
+    dims=("i", "j", "k", "time"),
     dt=0.6,  # seconds
     spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
     attrs={"description": "Power Doppler from my system"},
@@ -236,8 +251,8 @@ thickness in the missing dimension.
 
 ```python
 single_slice = cf.create_voxeldata(
-    raw_power,  # shape: (time, j, i)
-    dims=("time", "j", "i"),
+    raw_power,  # shape: (i, j, time)
+    dims=("i", "j", "time"),
     dt=0.6,
     spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
 )
@@ -246,11 +261,23 @@ single_slice = cf.create_voxeldata(
 Acquisition metadata that describes the whole recording belongs in the DataArray
 `attrs`. Coordinate metadata such as `units` is added automatically.
 
-For beamformed IQ data, use
-[`create_voxeldata`][confusius.xarray.create_voxeldata] instead. It use
-[`create_voxeldata`][confusius.xarray.create_voxeldata] under the hood, but
-also adds IQ-specific metadata such as `transmit_frequency` and
-`beamforming_sound_velocity`:
+For multi-pose data, `create_voxeldata` also accepts a `pose` dimension, a 2D `time`
+coordinate with shape `(time, pose)`, and a stacked `(npose, 4, 4)` `voxel_to_world`
+affine:
+
+```python
+multipose = cf.create_voxeldata(
+    raw_power,  # shape: (i, j, k, pose, time)
+    dims=("i", "j", "k", "pose", "time"),
+    time=pose_times,  # shape: (time, pose)
+    voxel_to_world=pose_affines,  # shape: (pose, 4, 4)
+)
+```
+
+See the [Multi-Pose Data guide](multipose.md) for a full example.
+
+For beamformed IQ data, use [`create_voxeldata`][confusius.xarray.create_voxeldata] the
+same way and put IQ-specific metadata in `attrs`:
 
 ```python
 iq = cf.create_voxeldata(
@@ -258,8 +285,10 @@ iq = cf.create_voxeldata(
     dims=("time", "j", "i"),
     dt=1 / 500,
     spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
-    transmit_frequency=15.625e6,
-    beamforming_sound_velocity=1540.0,
+    attrs={
+        "transmit_frequency": 15.625e6,
+        "beamforming_sound_velocity": 1540.0,
+    },
 )
 ```
 
@@ -336,7 +365,8 @@ Currently, three global helpers are available:
   ```
 
   This is typically used for computing the affine transformation corresponding to the
-  world coordinates of the DataArray, for example when saving to NIfTI.
+  world coordinates of the DataArray, for example when saving to NIfTI. For multi-pose
+  data, select a scalar pose first.
 
 - [`.fusi.direction`][confusius.xarray.FUSIAccessor.direction], which returns the
   world-space direction matrix for the spatial dimensions:
@@ -349,7 +379,8 @@ Currently, three global helpers are available:
   ```
 
   This is the identity for axis-aligned data (the common case). For oblique data, the
-  columns are the unit world-space directions of the voxel axes.
+  columns are the unit world-space directions of the voxel axes. For multi-pose data,
+  select a scalar pose first.
 
 ### IQ Processing
 
@@ -415,6 +446,9 @@ function for motion correction.
 ```python
 registered = pwd.fusi.register.volumewise(reference_time=0)
 ```
+
+Registration operates on a single spatial grid. For multi-pose data, select one pose
+first or consolidate poses before registering.
 
 By default, rigid registration allows translation and rotation. Pass
 `transform="translation"` for translation-only correction. For rigid registration,
@@ -598,7 +632,9 @@ fig, ax = registered.fusi.plot.carpet(mask=mask)
 The [`.fusi.save`][confusius.xarray.FUSIAccessor.save] accessor allows saving a
 DataArray to NIfTI or Zarr. For NIfTI, an accompanying fUSI-BIDS JSON sidecar is always
 written alongside, storing converted metadata fields, custom attributes, and timing
-fields derived from the `time` coordinate when available:
+fields derived from the `time` coordinate when available. Multi-pose data must be
+consolidated or split by pose first, since a single NIfTI file can only store one
+spatial affine:
 
 ```python
 # Creates sub-01_task-awake_pwd.nii.gz and sub-01_task-awake_pwd.json

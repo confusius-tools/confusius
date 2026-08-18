@@ -197,7 +197,7 @@ iq = cf.load("path/to/data.dat", meta_path="path/to/metadata.mat")
 ```
 
 When you expect to process the same recording repeatedly, [convert it to
-Zarr](#converting-beamformed-iq-data) instead for better performance.
+Zarr](#converting-beamformed-iq-data-to-zarr) instead for better performance.
 
 ### Loading Iconeus SCAN Files
 
