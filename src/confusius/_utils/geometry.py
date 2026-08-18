@@ -117,17 +117,32 @@ class VoxelToWorldIndex(Index):
     """Xarray index owning voxel-to-world geometry.
 
     Always wraps a single [VoxelToWorldTransform][confusius._utils.geometry.VoxelToWorldTransform]
-    covering all of a DataArray's voxel dimensions jointly — for both oblique and
-    axis-aligned affines. A single shared index (rather than one per axis) is what
-    keeps `.stack()` working: xarray skips an index from stack-index consideration
-    when it's associated with more than one coordinate name
-    (`xarray.core.indexes.IndexVariable.is_multi`), which is exactly what lets
-    `.stack(space=("k", "j", "i"))` fall through cleanly to `k`/`j`/`i`'s own plain
-    indexes instead of colliding with `z`/`y`/`x`'s. Splitting per axis (so each axis
-    could be dropped by a scalar `isel` independently of the others) breaks this,
-    since then each axis's index is associated with only one name and is no longer
-    skipped — this is not `.stack()`-compatible for *any* number of separate index
-    objects greater than one, so it isn't a viable design.
+    covering `z`/`y`/`x` jointly — for both oblique and axis-aligned affines. A single
+    shared index (rather than one per axis) is what keeps `.stack()` working: xarray
+    skips an index from stack-index consideration when it's associated with more than
+    one coordinate name (`xarray.core.indexes.IndexVariable.is_multi`), which is
+    exactly what lets `.stack(space=("k", "j", "i"))` fall through cleanly to
+    `k`/`j`/`i`'s own plain indexes instead of colliding with `z`/`y`/`x`'s.
+
+    For pose-dependent geometry, `pose` is deliberately *not* one of this index's
+    owned coordinate names, even though the wrapped transform still depends on
+    `pose`'s position to pick the right affine out of the stack (exactly like it
+    depends on `k`/`j`/`i`'s positions). `pose` instead gets its own plain,
+    independently indexed coordinate — the same treatment `k`/`j`/`i` already get.
+    Coupling `pose` to this joint index (as `z`/`y`/`x`/`k`/`j`/`i` are) previously
+    broke alignment after a scalar `.sel(pose=0)`: xarray's `_apply_indexes` blindly
+    re-associates every *old* coordinate name with the new index object, so `pose`
+    stayed registered against an index that no longer produced a `pose` variable,
+    and aligning against a genuinely pose-free array (e.g. an atlas mask) raised a
+    spurious `AlignmentError`. Splitting `pose` out sidesteps this: scalar `pose`
+    selection is now resolved by `pose`'s own plain index, which xarray already
+    knows how to correctly drop.
+
+    One consequence: a single combined `.sel(pose=0, z=..., y=..., x=...)` call is no
+    longer supported for pose-dependent geometry, because xarray resolves `pose` and
+    the world coordinates against two different indexes and this index never sees the
+    `pose` label. Reduce `pose` to a scalar first — `.isel(pose=0).sel(z=..., y=...,
+    x=...)` or `.sel(pose=0).sel(z=..., y=..., x=...)` — see `VoxelToWorldIndex.sel`.
 
     For axis-aligned affines specifically, `.sel()` additionally reimplements ordinary
     per-axis selection (slices, single labels, independent per-axis queries) directly
@@ -300,18 +315,10 @@ class VoxelToWorldIndex(Index):
         Returns
         -------
         dict[Hashable, xarray.Variable]
-            World coordinate variables, keyed by coordinate name. For pose-dependent
-            geometry, also includes a 1D `pose` dimension coordinate — the generic
-            transform-derived variable would otherwise broadcast `pose` labels over
-            every voxel dimension, since `CoordinateTransformIndex.create_variables`
-            has no notion of a coordinate depending on only one of the transform's
-            several dims.
+            World coordinate variables, keyed by coordinate name. Never includes
+            `pose`, which this index does not own -- see the class docstring.
         """
-        transform = self._index.transform
-        assert isinstance(transform, VoxelToWorldTransform)
         new_variables = dict(self._index.create_variables())
-        if transform.pose_coord is not None and POSE_DIM in new_variables:
-            new_variables[POSE_DIM] = Variable((POSE_DIM,), transform.pose_coord)
         for name, attrs in self.world_coord_attrs.items():
             if name in new_variables:
                 new_variables[name].attrs.update(attrs)
@@ -413,6 +420,13 @@ class VoxelToWorldIndex(Index):
         Oblique geometry delegates to `CoordinateTransformIndex.sel`, which only
         supports point-wise `nearest` queries providing all axes at once.
 
+        `pose` is a separate, independently indexed coordinate (see the class
+        docstring), so a combined one-call query like `.sel(pose=0, z=..., y=...,
+        x=...)` is not supported: xarray resolves `pose` and the world coordinates
+        against two different indexes, and this index never sees the `pose` label.
+        Reduce `pose` to a scalar first, e.g. `.isel(pose=0).sel(z=..., y=..., x=...)`
+        or `.sel(pose=0).sel(z=..., y=..., x=...)`.
+
         Parameters
         ----------
         labels : dict[Any, Any]
@@ -433,10 +447,8 @@ class VoxelToWorldIndex(Index):
         Raises
         ------
         ValueError
-            If `data` carries pose-dependent geometry and `labels` selects world
-            coordinates without also giving a scalar `pose` label.
-        KeyError
-            If a requested `pose` label is not one of this index's pose labels.
+            If `data` still carries pose-dependent (stacked) geometry and `labels`
+            selects world coordinates; reduce `pose` to a scalar first.
         """
         transform = self._index.transform
         assert isinstance(transform, VoxelToWorldTransform)
@@ -444,7 +456,15 @@ class VoxelToWorldIndex(Index):
             name: labels[name] for name in transform.world_coord_names if name in labels
         }
         if transform.pose_coord is not None:
-            return self._sel_pose_dependent(labels, coord_labels, method, tolerance)
+            if coord_labels:
+                raise ValueError(
+                    "Selecting world coordinates on pose-dependent geometry requires "
+                    "reducing `pose` to a scalar first, e.g. `.isel(pose=0).sel(z=..., "
+                    "y=..., x=...)` or `.sel(pose=0).sel(z=..., y=..., x=...)` -- a "
+                    "single combined `.sel(pose=0, z=..., y=..., x=...)` call is not "
+                    "supported."
+                )
+            return IndexSelResult({})
         if not coord_labels:
             return IndexSelResult({})
         if not _is_axis_aligned_affine(transform.voxel_to_world):
@@ -476,90 +496,6 @@ class VoxelToWorldIndex(Index):
                 voxel_label = (np.asarray(label) - offset) / scale
                 position = _reverse_lookup_positions(voxel_label, voxel_axis)
                 dim_indexers[dim] = np.rint(position).astype(int)
-        return IndexSelResult(dim_indexers)
-
-    def _sel_pose_dependent(
-        self,
-        labels: dict[Any, Any],
-        coord_labels: dict[Any, Any],
-        method,
-        tolerance,
-    ) -> IndexSelResult:
-        """Resolve a `.sel()` query against pose-dependent geometry.
-
-        Requires a scalar `pose` label, which is resolved first; the matching
-        affine is then selected and the remaining world-coordinate labels are
-        resolved against it exactly as for pose-independent geometry.
-
-        Parameters
-        ----------
-        labels : dict[Any, Any]
-            Full label mapping passed to `sel`, potentially including `pose`.
-        coord_labels : dict[Any, Any]
-            World-coordinate labels (excluding `pose`) extracted from `labels`.
-        method : Any
-            Forwarded to the pose-reduced index's `sel`.
-        tolerance : Any
-            Forwarded to the pose-reduced index's `sel`.
-
-        Returns
-        -------
-        xarray.core.indexing.IndexSelResult
-            Resolved indexers, including a scalar `pose` indexer.
-
-        Raises
-        ------
-        ValueError
-            If world coordinates are requested without a scalar `pose` label.
-        KeyError
-            If the requested `pose` label has no match.
-        """
-        transform = self._index.transform
-        assert isinstance(transform, VoxelToWorldTransform)
-        pose_label = labels.get(POSE_DIM)
-        if pose_label is None:
-            if coord_labels:
-                raise ValueError(
-                    "Selecting world coordinates on pose-dependent geometry requires "
-                    "a scalar `pose` label, e.g. `.sel(pose=0, z=..., y=..., "
-                    "x=...)`."
-                )
-            return IndexSelResult({})
-        if isinstance(pose_label, Variable):
-            if pose_label.ndim != 0:
-                raise ValueError(
-                    "Selecting world coordinates on pose-dependent geometry requires "
-                    "a scalar `pose` label, not a slice or array of labels."
-                )
-            pose_value = pose_label.values.item()
-        elif isinstance(pose_label, slice | list | tuple | np.ndarray):
-            raise ValueError(  # noqa: TRY004
-                "Selecting world coordinates on pose-dependent geometry requires a "
-                "scalar `pose` label, not a slice or array of labels."
-            )
-        else:
-            pose_value = pose_label
-        pose_coord = transform.pose_coord
-        assert pose_coord is not None
-        matches = np.nonzero(pose_coord == pose_value)[0]
-        if matches.size == 0:
-            raise KeyError(f"No pose labeled {pose_value!r}.")
-        pose_position = int(matches[0])
-        reduced_transform = VoxelToWorldTransform(
-            transform.voxel_coords,
-            transform.voxel_to_world[pose_position],
-            transform.world_coord_names,
-            fixed_voxel_coords=transform.fixed_voxel_coords,
-            all_dims=transform._all_dims,
-        )
-        reduced_index = type(self)(
-            CoordinateTransformIndex(reduced_transform),
-            transform.voxel_to_world[pose_position],
-            world_coord_attrs=self.world_coord_attrs,
-        )
-        result = reduced_index.sel(coord_labels, method=method, tolerance=tolerance)
-        dim_indexers = dict(result.dim_indexers)
-        dim_indexers[POSE_DIM] = pose_position
         return IndexSelResult(dim_indexers)
 
     def join(self, other: Index, how: str = "inner") -> Self:
@@ -925,7 +861,18 @@ class VoxelToWorldTransform(CoordinateTransform):
         coord_names = tuple(world_coord_names)
         if pose_coord_np is not None:
             dim_size = {POSE_DIM: pose_coord_np.size, **dim_size}
-            coord_names = (*coord_names, POSE_DIM)
+        # `pose` is deliberately never one of `coord_names`: it stays a plain,
+        # independently indexed dimension coordinate (like k/j/i), not owned by this
+        # transform's index. It still appears in `dim_size` above (and thus in
+        # `self.dims`) purely so `forward()` receives its position when computing
+        # z/y/x -- xarray's CoordinateTransform contract keeps "which dims a transform
+        # depends on" and "which coordinate names it owns" independent, exactly like
+        # k/j/i already work. Owning `pose` as a coordinate name here previously
+        # confused xarray's index bookkeeping: after a scalar `.sel(pose=0)`, xarray's
+        # `_apply_indexes` blindly re-associates every OLD coordinate name (including
+        # `pose`) with the new (pose-independent) index object, leaving a stale `pose
+        # -> index` entry that made alignment against genuinely pose-free arrays
+        # (e.g. an atlas mask) spuriously fail. See VoxelToWorldIndex's docstring.
 
         super().__init__(coord_names=coord_names, dim_size=dim_size)
         self.voxel_coords = voxel_coords_np
@@ -946,8 +893,7 @@ class VoxelToWorldTransform(CoordinateTransform):
         Returns
         -------
         dict[Hashable, Any]
-            World-space coordinate values keyed by `self.world_coord_names`, plus a
-            `pose` entry for pose-dependent geometry.
+            World-space coordinate values keyed by `self.world_coord_names`.
         """
         active_values = {
             dim: self.voxel_coords[dim][np.asarray(dim_positions[dim])]
@@ -976,11 +922,9 @@ class VoxelToWorldTransform(CoordinateTransform):
             selected_affines = self.voxel_to_world[pose_positions]
             transformed_flat = np.einsum("mij,jm->mi", selected_affines, stacked)
             transformed = transformed_flat.T.reshape((num_world + 1, *shape))
-            result: dict[Hashable, Any] = {
+            return {
                 name: transformed[i] for i, name in enumerate(self.world_coord_names)
             }
-            result[POSE_DIM] = self.pose_coord[pose_positions].reshape(shape)
-            return result
 
         transformed = (self.voxel_to_world @ stacked).reshape((num_world + 1, *shape))
         return {name: transformed[i] for i, name in enumerate(self.world_coord_names)}
@@ -1297,6 +1241,11 @@ def attach_voxel_to_world_index(
         pose_coord=pose_coord,
     )
     result = base.assign_coords(xr.Coordinates.from_xindex(index))
+    if pose_coord is not None:
+        # `pose` is not one of the VoxelToWorldIndex's owned coordinate names (see its
+        # docstring), so it needs reattaching as a plain coordinate here; xarray gives
+        # it its own default index automatically, exactly like k/j/i.
+        result = result.assign_coords({POSE_DIM: (POSE_DIM, pose_coord)})
 
     if world_coord_attrs is not None:
         for name, attrs in world_coord_attrs.items():

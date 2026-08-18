@@ -7,7 +7,6 @@ import xarray as xr
 
 from confusius._dims import POSE_DIM
 from confusius._utils.geometry import (
-    VoxelToWorldIndex,
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
@@ -176,18 +175,10 @@ def correct_slice_timings(
     out = da.copy(data=result.data)
     del out.coords[timing_coord_name]
     world_coord_names = tuple(get_voxel_to_world_coord_names(da))
-    # A pose-dependent VoxelToWorldIndex jointly owns `pose` alongside z/y/x, so
-    # dropping only the world coordinates would corrupt the index. Drop `pose`
-    # too when it's index-owned, then reassign its values back as a plain
-    # coordinate so attach_voxel_to_world_index below can rebuild the index.
-    drop_names = list(world_coord_names)
-    pose_values = None
-    if isinstance(out.xindexes.get(POSE_DIM), VoxelToWorldIndex):
-        pose_values = out.coords[POSE_DIM].values.copy()
-        drop_names.append(POSE_DIM)
-    out = out.drop_vars(drop_names, errors="ignore")
-    if pose_values is not None:
-        out = out.assign_coords({POSE_DIM: (POSE_DIM, pose_values)})
+    # `pose` is its own plain, independently indexed coordinate (not owned by the
+    # VoxelToWorldIndex -- see its docstring), so dropping the world coordinates here
+    # leaves it untouched.
+    out = out.drop_vars(world_coord_names, errors="ignore")
     out = attach_voxel_to_world_index(
         out,
         get_voxel_to_world_affine(da),

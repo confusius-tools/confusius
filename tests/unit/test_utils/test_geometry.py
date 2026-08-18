@@ -62,7 +62,11 @@ def _pose_dependent_result(
     index = VoxelToWorldIndex(
         CoordinateTransformIndex(transform), pose_affines, world_coord_attrs=None
     )
-    return data.assign_coords(xr.Coordinates.from_xindex(index))
+    result = data.assign_coords(xr.Coordinates.from_xindex(index))
+    # `pose` is not one of the index's owned coordinate names (see its docstring), so
+    # it needs attaching separately as a plain coordinate, exactly like
+    # attach_voxel_to_world_index does.
+    return result.assign_coords(pose=("pose", pose_coord))
 
 
 def test_pose_dependent_forward_gives_translated_world_coords_per_pose() -> None:
@@ -105,24 +109,37 @@ def test_pose_dependent_forward_supports_rotated_poses() -> None:
 
 
 def test_pose_dependent_sel_requires_scalar_pose_for_world_selection() -> None:
-    """World-coordinate selection without a scalar pose raises a guiding error."""
+    """World-coordinate selection without a prior scalar pose raises a guiding error.
+
+    `pose` is its own independently indexed coordinate (see `VoxelToWorldIndex`'s
+    docstring), so a single combined `.sel(pose=..., z=..., y=..., x=...)` call is
+    never supported for pose-dependent geometry, regardless of what `pose=` is set
+    to -- world-coordinate selection always requires `pose` reduced to a scalar in a
+    prior, separate call.
+    """
     result = _pose_dependent_result()
 
-    with pytest.raises(ValueError, match="requires a scalar `pose` label"):
+    with pytest.raises(ValueError, match="requires reducing `pose` to a scalar"):
         result.sel(z=0.0, y=0.0, x=0.0)
-    with pytest.raises(ValueError, match="requires a scalar `pose` label"):
+    with pytest.raises(ValueError, match="requires reducing `pose` to a scalar"):
         result.sel(pose=[0, 1], z=0.0, y=0.0, x=0.0)
-    with pytest.raises(ValueError, match="requires a scalar `pose` label"):
+    with pytest.raises(ValueError, match="requires reducing `pose` to a scalar"):
         result.sel(pose=slice(0, 2), z=0.0, y=0.0, x=0.0)
+    with pytest.raises(ValueError, match="requires reducing `pose` to a scalar"):
+        result.sel(pose=1, z=100.0, y=1.0, x=2.0, method="nearest")
 
 
 def test_pose_dependent_sel_resolves_pose_then_world_coords() -> None:
-    """A scalar pose label resolves the matching affine before spatial lookup."""
+    """A prior scalar pose selection resolves the matching affine for spatial lookup."""
     result = _pose_dependent_result()
 
-    selected = result.sel(pose=1, z=100.0, y=1.0, x=2.0, method="nearest")
+    selected = result.isel(pose=1).sel(z=100.0, y=1.0, x=2.0, method="nearest")
 
     assert selected.item() == result.isel(pose=1, k=0, j=1, i=2).item()
+
+    selected_via_sel = result.sel(pose=1).sel(z=100.0, y=1.0, x=2.0, method="nearest")
+
+    assert selected_via_sel.item() == result.isel(pose=1, k=0, j=1, i=2).item()
 
 
 def test_pose_dependent_scalar_isel_drops_pose_dependency() -> None:

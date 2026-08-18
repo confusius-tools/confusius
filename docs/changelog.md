@@ -12,6 +12,18 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- `pose` is now its own plain, independently indexed coordinate rather than being
+  jointly owned by the `z`/`y`/`x` `VoxelToWorldIndex`. This fixes a real
+  alignment bug: after a scalar `.sel(pose=idx)`/`.isel(pose=idx)`, xarray's
+  internal indexing bookkeeping left a stale `pose` index association behind,
+  which made aligning the result against genuinely pose-free arrays (masks,
+  atlases, registration targets) raise a spurious `AlignmentError` in functions
+  like `extract_with_mask`. One consequence: a single combined
+  `.sel(pose=0, z=..., y=..., x=...)` call is no longer supported for
+  pose-dependent geometry — reduce `pose` to a scalar first, e.g.
+  `.isel(pose=0).sel(z=..., y=..., x=...)`. `.isel()` is unaffected; combined
+  `.isel(pose=0, k=..., j=..., i=...)` still works in one call
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 - Multi-pose data acquired sequentially now carries a pose-dependent, `(time,
   pose)`-shaped `time` coordinate holding each pose's own real acquisition
   timestamps directly, replacing the old 1D `time` + `pose_time` sidecar

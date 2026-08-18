@@ -530,8 +530,8 @@ def load_scan(
     itself pose-dependent (a `(npose, 4, 4)` affine stack, one per
     `da.coords["pose"]` label — see
     [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]); world
-    selection therefore requires a scalar `pose`, e.g. `da.sel(pose=0, z=..., y=...,
-    x=...)` or `da.isel(pose=0)` first.
+    selection therefore requires reducing `pose` to a scalar first, e.g.
+    `da.isel(pose=0).sel(z=..., y=..., x=...)` or `da.isel(pose=0)`.
 
     If `bps_path` is provided, a `world_to_brain` affine is stored in
     `da.attrs["affines"]["world_to_brain"]` that maps ConfUSIus world coordinates
