@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import xarray as xr
 
-from confusius._dims import VOXEL_DIMS
+from confusius._dims import POSE_DIM, VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
@@ -83,9 +83,17 @@ def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
 
 
 def _has_plottable_voxel_to_world_index(data: xr.DataArray) -> bool:
-    """Return whether `data` carries voxel-to-world geometry metadata."""
+    """Return whether `data` carries voxel-to-world geometry metadata.
+
+    `pose` is allowed here (unlike most single-grid geometry helpers) so that
+    world-coordinate axis labels/ticks are used for `slice_mode="pose"` faceting;
+    functions that actually need one grid (e.g. resampling onto an axis-aligned
+    world grid) still require a scalar pose via
+    [require_scalar_pose_affine][confusius._utils.geometry.require_scalar_pose_affine],
+    raising clearly instead of silently doing the wrong thing.
+    """
     return has_voxel_to_world_index(data) and all(
-        str(dim) in {"time", "k", "j", "i"} for dim in data.dims
+        str(dim) in {"time", POSE_DIM, "k", "j", "i"} for dim in data.dims
     )
 
 
@@ -113,11 +121,13 @@ def _validate_voxel_to_world_slice_mode(data: xr.DataArray, slice_mode: str) -> 
         for dim in get_voxel_to_world_coord_names(data)
         if dim not in valid_slice_modes
     )
+    if POSE_DIM in data.dims:
+        valid_slice_modes += (POSE_DIM,)
     if slice_mode not in valid_slice_modes:
         raise ValueError(
-            "Voxel-to-world plotting supports only native voxel-plane slicing or "
-            f"world z/y/x slicing, got slice_mode={slice_mode!r}. Supported "
-            f"modes: {valid_slice_modes!r}."
+            "Voxel-to-world plotting supports only native voxel-plane slicing, "
+            "world z/y/x slicing, or pose slicing, got "
+            f"slice_mode={slice_mode!r}. Supported modes: {valid_slice_modes!r}."
         )
     spatial_dims = [dim for dim in data.dims if dim in {"k", "j", "i"}]
     if slice_mode in {"z", "y", "x"} and len(spatial_dims) != 3:

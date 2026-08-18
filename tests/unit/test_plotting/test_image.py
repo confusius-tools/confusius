@@ -17,6 +17,7 @@ from confusius.plotting import (
     plot_volume,
 )
 from confusius.plotting._utils import _materialize_axis_aligned_world_grid_for_display
+from confusius.xarray import create_fusi_dataarray
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
 
@@ -69,6 +70,52 @@ class TestPlotVolume:
                 slice_coords=[z_coord],
                 **{bad_arg: bad_value},
             )
+
+    def test_slice_mode_pose_facets_over_poses(self, matplotlib_pyplot):
+        """plot_volume facets over `pose` with world-coordinate axis labels.
+
+        Regression: `pose`-containing data was never recognized as "plottable
+        voxel-to-world" data, so slice_mode="pose" happened to work by accident
+        (the validation/labeling gate silently no-opped) but produced plain
+        voxel-index axis labels instead of world-coordinate ones.
+        """
+        npose = 3
+        affine = np.stack(
+            [
+                np.diag([0.2, 0.1, 0.05, 1.0]),
+                np.array(
+                    [
+                        [0.2, 0.0, 0.0, 1.0],
+                        [0.0, 0.1, 0.0, 0.0],
+                        [0.0, 0.0, 0.05, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+                np.array(
+                    [
+                        [0.2, 0.0, 0.0, 2.0],
+                        [0.0, 0.1, 0.0, 0.0],
+                        [0.0, 0.0, 0.05, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+            ]
+        )
+        data = create_fusi_dataarray(
+            np.random.default_rng(0).random((npose, 1, 6, 8)),
+            dims=("pose", "k", "j", "i"),
+            pose=np.arange(npose),
+            voxel_to_world=affine,
+        )
+
+        plotter = plot_volume(
+            data.isel(k=0), slice_mode="pose", show_colorbar=False
+        )
+
+        axes = _axes(plotter).ravel()
+        assert sum(len(ax.collections) for ax in axes) == npose
+        assert "mm" in axes[0].get_xlabel()
+        assert "mm" in axes[0].get_ylabel()
 
     def test_non_3d_data_raises(self):
         """plot_volume raises ValueError for 4D data with no unitary dimensions."""
