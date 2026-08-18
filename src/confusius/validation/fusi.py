@@ -561,7 +561,6 @@ def validate_fusi(
         _validate_canonical_core_dim_order(data)
 
     world_coords = get_voxel_to_world_coord_names(data)
-    _validate_required_coordinate_attrs(data, world_coords, "voxdim")
     _validate_required_coordinate_attrs(data, world_coords, "units")
     if TIME_DIM in data.dims:
         _validate_required_coordinate_attrs(data, (TIME_DIM,), "units")

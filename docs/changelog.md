@@ -130,6 +130,11 @@ Current development version for the next ConfUSIus release.
   canonical complex IQ DataArrays with explicit `transmit_frequency` and
   `beamforming_sound_velocity` arguments
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+- `plot_volume`/`plot_composite`/`plot_stat_map`/`VolumePlotter`/`.fusi.plot.napari`
+  now accept `resample_interpolation`/`resample_fill_value` to control how
+  oblique (non-axis-aligned) voxel-to-world data is resampled onto an
+  axis-aligned display grid
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 
 ### :bug: Fixes
 

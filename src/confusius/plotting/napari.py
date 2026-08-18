@@ -47,6 +47,8 @@ def plot_napari(
     dim_order: tuple[str, ...] | None = None,
     viewer: "Viewer | None" = None,
     layer_type: Literal["image", "labels"] = "image",
+    resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
+    resample_fill_value: float | None = None,
     **layer_kwargs,
 ) -> "tuple[Viewer, Image | Labels]":
     """Display fUSI data using the napari viewer.
@@ -71,6 +73,15 @@ def plot_napari(
     layer_type : {"image", "labels"}, default: "image"
         Type of layer to create. Use "image" for fUSI data and "labels" for
         ROI masks, segmentations, or other label data.
+    resample_interpolation : {"linear", "nearest", "bspline"}, optional
+        Interpolation method used when resampling oblique (non-axis-aligned)
+        voxel-to-world `data` onto an axis-aligned world grid for display. If not
+        provided, defaults to `"nearest"` for `layer_type="labels"` (blending
+        distinct integer labels together is never meaningful) and `"linear"`
+        otherwise.
+    resample_fill_value : float, optional
+        Value assigned to voxels outside `data`'s field of view after resampling
+        oblique data. If not provided, defaults to `data`'s own minimum value.
     **layer_kwargs
         Additional keyword arguments passed to the layer creation method
         (`napari.imshow` for images or `viewer.add_labels` for labels).
@@ -107,11 +118,11 @@ def plot_napari(
     with world coordinates and sets the scale bar unit if units are consistent across
     displayed axes.
 
-    For unitary dimensions (e.g., a single-slice elevation axis in 2D+t data), the
-    spacing cannot be inferred from coordinates. In that case, the function looks for a
-    `voxdim` attribute on the coordinate variable
-    (`data.coords[dim].attrs["voxdim"]`) and uses it as the spacing. If no such
-    attribute is found, unit spacing is assumed and a warning is emitted.
+    For unitary voxel dimensions (e.g., a single-slice elevation axis in 2D+t data),
+    the spacing cannot be inferred from consecutive coordinate differences. In that
+    case, `.fusi.spacing` derives it from the voxel-to-world affine column norm
+    instead. For unitary non-voxel dimensions with no affine to fall back on, unit
+    spacing is assumed and a warning is emitted.
 
     The first coordinate value of each displayed dimension is used as the `translate`
     parameter so that the image is positioned at its correct world origin. For
@@ -152,8 +163,13 @@ def plot_napari(
         raise ValueError("DataArray must have a voxel-to-world index.")
     data = ensure_time_acquisition_attrs(data)
 
+    resolved_interpolation = resample_interpolation or (
+        "nearest" if layer_type == "labels" else "linear"
+    )
     source_data = data
-    data = resample_to_axis_aligned_world_grid(data)
+    data = resample_to_axis_aligned_world_grid(
+        data, interpolation=resolved_interpolation, fill_value=resample_fill_value
+    )
 
     all_dims = list(data.dims)
     time_dim = "time" if "time" in all_dims else None

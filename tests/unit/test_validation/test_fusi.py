@@ -305,13 +305,17 @@ def test_validate_fusi_regular_spacing_all_skips_non_numeric_extra_dim() -> None
     )
 
 
-def test_validate_fusi_rejects_missing_spatial_voxdim() -> None:
-    """World spatial `voxdim` metadata is always required."""
-    bad = _make_voxel_to_world_time_series().copy(deep=True)
-    del bad.coords["z"].attrs["voxdim"]
+def test_validate_fusi_accepts_missing_spatial_voxdim() -> None:
+    """World spatial `voxdim` metadata is informational, never required.
 
-    with pytest.raises(ValueError, match="missing required 'voxdim' metadata"):
-        validate_fusi(bad)
+    Geometry (spacing, origin, direction) is always derivable from the
+    voxel-to-world affine itself; `voxdim` is a convenience attribute, not a
+    source of truth, so its absence must not fail validation.
+    """
+    data = _make_voxel_to_world_time_series().copy(deep=True)
+    del data.coords["z"].attrs["voxdim"]
+
+    validate_fusi(data)
 
 
 def test_validate_fusi_rejects_missing_time_units() -> None:

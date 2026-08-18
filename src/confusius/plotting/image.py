@@ -236,30 +236,56 @@ def _project_voxel_to_world_plane(
     return x_edges, y_edges, x_centers, y_centers
 
 
-def _resample_to_axis_aligned_world_grid(
+def _resample_to_axis_aligned_world_grid_keep_index(
     data: xr.DataArray,
     slice_mode: str,
     reference: xr.DataArray | None = None,
-) -> xr.DataArray:
-    """Resample voxel-to-world data onto an axis-aligned world grid for plotting."""
+    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    fill_value: float | None = None,
+) -> xr.DataArray | None:
+    """Resample voxel-to-world data onto an axis-aligned world grid, index intact.
+
+    Returns `None` when `data` doesn't need resampling for `slice_mode` (no
+    plottable index, or `slice_mode` isn't a spatial world axis) -- callers fall
+    back to `data` itself in that case.
+    """
     if not _has_plottable_voxel_to_world_index(data) or slice_mode not in {
         "z",
         "y",
         "x",
     }:
+        return None
+    world_dims = get_voxel_to_world_coord_names(data)
+    if slice_mode not in world_dims:
+        return None
+    return _shared_resample_to_axis_aligned_world_grid(
+        data, reference=reference, interpolation=interpolation, fill_value=fill_value
+    )
+
+
+def _resample_to_axis_aligned_world_grid(
+    data: xr.DataArray,
+    slice_mode: str,
+    reference: xr.DataArray | None = None,
+    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    fill_value: float | None = None,
+) -> xr.DataArray:
+    """Resample voxel-to-world data onto an axis-aligned world grid for plotting."""
+    resampled = _resample_to_axis_aligned_world_grid_keep_index(
+        data,
+        slice_mode,
+        reference=reference,
+        interpolation=interpolation,
+        fill_value=fill_value,
+    )
+    if resampled is None:
         converted = _materialize_axis_aligned_world_grid_for_display(data)
         return converted if slice_mode in converted.dims else data
 
-    world_dims = get_voxel_to_world_coord_names(data)
-    if slice_mode not in world_dims:
-        return data
-
-    # The shared resampler now keeps its output VoxelData-compatible (native voxel
+    # The shared resampler keeps its output VoxelData-compatible (native voxel
     # dims, still indexed) even for oblique input; this caller's own dim-name-based
-    # slicing
-    # (dim_row/dim_col/slice_mode comparisons against "z"/"y"/"x") needs the
+    # slicing (dim_row/dim_col/slice_mode comparisons against "z"/"y"/"x") needs the
     # world-renamed form, so materialize after resampling rather than before.
-    resampled = _shared_resample_to_axis_aligned_world_grid(data, reference=reference)
     return _materialize_axis_aligned_world_grid_for_display(resampled)
 
 
@@ -658,6 +684,18 @@ class VolumePlotter:
         upward.
     xincrease : bool, default: True
         Whether the x-axis increases to the right.
+    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolation method used when resampling oblique (non-axis-aligned)
+        voxel-to-world data onto an axis-aligned world grid for display. Applies to
+        [`add_volume`][confusius.plotting.VolumePlotter.add_volume]; mask data passed
+        to [`add_contours`][confusius.plotting.VolumePlotter.add_contours] always
+        resamples with `"nearest"` regardless of this setting, since blending
+        distinct integer labels together is never meaningful.
+    resample_fill_value : float, optional
+        Value assigned to voxels outside the source data's field of view after
+        resampling oblique data. If not provided, defaults to the source data's own
+        minimum value (see
+        [`resample_volume`][confusius.registration.resample_volume]).
 
     Attributes
     ----------
@@ -685,6 +723,8 @@ class VolumePlotter:
         fg_color: str | None = None,
         yincrease: bool = False,
         xincrease: bool = True,
+        resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+        resample_fill_value: float | None = None,
     ):
         self.slice_mode = slice_mode
         if axes is not None and not isinstance(axes, np.ndarray):
@@ -709,6 +749,8 @@ class VolumePlotter:
         self._axis_xlims: dict[int, tuple[float, float]] = {}
         self._axis_ylims: dict[int, tuple[float, float]] = {}
 
+        self._resample_interpolation = resample_interpolation
+        self._resample_fill_value = resample_fill_value
         self._hover_manager = _HoverManager()
         self._world_grid_reference: xr.DataArray | None = None
 
@@ -876,11 +918,24 @@ class VolumePlotter:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords."""
         data = coerce_complex_to_magnitude(data, caller=caller)
         _validate_voxel_to_world_slice_mode(data, self.slice_mode)
-        data = _resample_to_axis_aligned_world_grid(
+        resampled = _resample_to_axis_aligned_world_grid_keep_index(
             data,
             self.slice_mode,
             reference=self._world_grid_reference,
+            interpolation=self._resample_interpolation,
+            fill_value=self._resample_fill_value,
         )
+        if resampled is not None:
+            # Capture the reference before display materialization drops the
+            # VoxelToWorldIndex, so a later resample (e.g. add_contours' mask) can
+            # align to this exact grid via resample_like's affine-aware path
+            # instead of reconstructing spacing from a plain, index-less DataArray.
+            if self._world_grid_reference is None:
+                self._world_grid_reference = resampled
+            data = _materialize_axis_aligned_world_grid_for_display(resampled)
+        else:
+            converted = _materialize_axis_aligned_world_grid_for_display(data)
+            data = converted if self.slice_mode in converted.dims else data
         # A single-index selection (e.g. data.sel(z=6)) drops slice_mode to a scalar
         # coordinate; promote it back to a size-1 dimension so it plots like data.sel(z=[6]).
         if self.slice_mode not in data.dims and _is_scalar_coord(data, self.slice_mode):
@@ -1151,8 +1206,6 @@ class VolumePlotter:
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
         data = self._prepare_slice_inputs(data, caller="VolumePlotter.add_volume")
-        if self.slice_mode in {"z", "y", "x"} and self._world_grid_reference is None:
-            self._world_grid_reference = data
 
         display_dims = [str(d) for d in data.dims if d != self.slice_mode]
         dim_row, dim_col = display_dims[0], display_dims[1]
@@ -1741,8 +1794,14 @@ class VolumePlotter:
             return self
 
         _validate_voxel_to_world_slice_mode(mask, self.slice_mode)
+        # Always "nearest", regardless of self._resample_interpolation: mask/label
+        # data is a set of distinct integer regions, and blending them together
+        # (linear/bspline) would fabricate boundary values that match no real label.
         mask = _resample_to_axis_aligned_world_grid(
-            mask, self.slice_mode, reference=self._world_grid_reference
+            mask,
+            self.slice_mode,
+            reference=self._world_grid_reference,
+            interpolation="nearest",
         )
 
         # A single-index selection (e.g. mask.sel(z=6)) drops slice_mode to a scalar
@@ -2165,6 +2224,8 @@ def plot_volume(
     nrows: int | None = None,
     ncols: int | None = None,
     dpi: int | None = None,
+    resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    resample_fill_value: float | None = None,
 ) -> VolumePlotter:
     """Plot 2D slices of a volume using matplotlib.
 
@@ -2270,6 +2331,12 @@ def plot_volume(
         Mapping from integer label to display name. When provided (or when
         `data.attrs["roi_labels"]` is populated), hovering the cursor over a
         voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar.
+    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolation method used when resampling oblique (non-axis-aligned)
+        voxel-to-world `data` onto an axis-aligned world grid for display.
+    resample_fill_value : float, optional
+        Value assigned to voxels outside `data`'s field of view after resampling
+        oblique data. If not provided, defaults to `data`'s own minimum value.
 
     Returns
     -------
@@ -2333,6 +2400,8 @@ def plot_volume(
         fg_color=fg_color,
         yincrease=yincrease,
         xincrease=xincrease,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
     )
 
     return plotter.add_volume(
@@ -2387,6 +2456,8 @@ def plot_composite(
     nrows: int | None = None,
     ncols: int | None = None,
     dpi: int | None = None,
+    resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    resample_fill_value: float | None = None,
 ) -> VolumePlotter:
     """Plot a red/cyan composite of two volumes as a grid of 2D slice panels.
 
@@ -2482,6 +2553,15 @@ def plot_composite(
         Number of columns in the subplot grid. If not provided, computed automatically.
     dpi : int, optional
         Figure resolution in dots per inch. Ignored when `figure` is provided.
+    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolation method used when resampling oblique (non-axis-aligned)
+        voxel-to-world `data1`/`data2` onto an axis-aligned world grid for display.
+        Distinct from `resample_kwargs`, which controls resampling `data2` onto
+        `data1`'s grid for compositing.
+    resample_fill_value : float, optional
+        Value assigned to voxels outside `data1`/`data2`'s field of view after
+        display resampling. If not provided, defaults to each array's own minimum
+        value.
 
     Returns
     -------
@@ -2531,6 +2611,8 @@ def plot_composite(
         fg_color=fg_color,
         yincrease=yincrease,
         xincrease=xincrease,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
     )
 
     return plotter.add_composite(
@@ -2587,6 +2669,8 @@ def plot_stat_map(
     nrows: int | None = None,
     ncols: int | None = None,
     dpi: int | None = None,
+    resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    resample_fill_value: float | None = None,
 ) -> VolumePlotter:
     """Plot a statistical map, optionally over a background volume.
 
@@ -2729,6 +2813,14 @@ def plot_stat_map(
         Number of columns in the subplot grid. If not provided, computed automatically.
     dpi : int, optional
         Figure resolution in dots per inch. Ignored when `figure` is provided.
+    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolation method used when resampling oblique (non-axis-aligned)
+        voxel-to-world `stat_map`/`bg_volume` onto an axis-aligned world grid for
+        display. Applied to both, since they share one `VolumePlotter`.
+    resample_fill_value : float, optional
+        Value assigned to voxels outside `stat_map`/`bg_volume`'s field of view
+        after display resampling. If not provided, defaults to each array's own
+        minimum value.
 
     Returns
     -------
@@ -2798,6 +2890,8 @@ def plot_stat_map(
             nrows=nrows,
             ncols=ncols,
             dpi=dpi,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
             **(bg_kwargs or {}),
         )
     else:
@@ -2809,6 +2903,8 @@ def plot_stat_map(
             fg_color=fg_color,
             yincrease=yincrease,
             xincrease=xincrease,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
         )
 
     resolved_vmin, resolved_vmax, resolved_cmap = _resolve_stat_map_style(

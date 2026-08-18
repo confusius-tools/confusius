@@ -2,7 +2,7 @@
 
 import warnings
 from collections.abc import Hashable, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import xarray as xr
@@ -10,7 +10,10 @@ import xarray as xr
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.geometry import (
     VoxelToWorldIndex,
+    get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
+    get_voxel_to_world_index_spacing,
+    get_voxel_to_world_spatial_dims,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
     require_scalar_pose_affine,
@@ -261,6 +264,8 @@ def resample_to_axis_aligned_world_grid(
     data: xr.DataArray,
     *,
     reference: xr.DataArray | None = None,
+    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    fill_value: float | None = None,
 ) -> xr.DataArray:
     """Resample voxel-to-world data onto an axis-aligned world grid for display.
 
@@ -273,6 +278,13 @@ def resample_to_axis_aligned_world_grid(
         Axis-aligned world-grid DataArray to reuse as the resampling target.
         If not provided, a new plotting grid is synthesized from `data`'s world
         bounds and per-axis world spacing.
+    interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolation method used during resampling. Use `"nearest"` for label/mask
+        data, where blending distinct integer labels together is never meaningful.
+    fill_value : float, optional
+        Value assigned to voxels outside `data`'s field of view after resampling.
+        If not provided, defaults to `float(data.min())` (see
+        [`resample_volume`][confusius.registration.resample_volume]).
 
     Returns
     -------
@@ -308,9 +320,7 @@ def resample_to_axis_aligned_world_grid(
                     values = np.asarray(reference.coords[dim].values, dtype=np.float64)
                     origin.append(float(values[0]))
                     spacing.append(
-                        float(np.median(np.diff(values)))
-                        if values.size > 1
-                        else float(reference.coords[dim].attrs.get("voxdim", 1.0))
+                        float(np.median(np.diff(values))) if values.size > 1 else 1.0
                     )
                 else:
                     origin.append(0.0)
@@ -329,6 +339,8 @@ def resample_to_axis_aligned_world_grid(
             data,
             reference,
             np.eye(len(world_dims) + 1, dtype=np.float64),
+            interpolation=interpolation,
+            fill_value=fill_value,
         )
     else:
         # `data` is oblique here (axis-aligned data already returned above), so
@@ -336,24 +348,40 @@ def resample_to_axis_aligned_world_grid(
         # representative per-axis spacing therefore can't come from
         # `np.diff(values)` (which would default to differencing along the last
         # voxel axis, regardless of which world axis `dim` actually corresponds
-        # to). `voxdim` already carries exactly this value (validate_fusi requires
-        # it on every world coordinate unconditionally, and it's computed from the
-        # same affine at construction), so no separate affine-derived fallback is
-        # needed here. require_scalar_pose_affine is still called for its
-        # validation side effect: rejecting pose-stacked data before attempting to
-        # resample it onto one axis-aligned grid.
+        # to). require_scalar_pose_affine is still called for its validation side
+        # effect: rejecting pose-stacked data before attempting to resample it onto
+        # one axis-aligned grid.
         require_scalar_pose_affine(
             data, "Resampling to an axis-aligned world grid for display"
         )
 
+        # A voxel dim's own spacing is only a valid proxy for a world axis's
+        # resolution when the affine is close to diagonal. For a rotated/permuted
+        # affine (see design/multipose-voxel-to-world-index.md's "monomial
+        # affines" deferred item -- e.g. a probe swept along what is nominally the
+        # `k` voxel axis but physically lands mostly along world `x`), the world
+        # axis that needs fine spacing is fed by whichever voxel dim actually
+        # dominates that row of the affine, not the positionally-matching one.
+        # Pick that dominant voxel dim's spacing for each output world axis.
+        voxel_dims = get_voxel_to_world_spatial_dims(data)
+        voxel_spacing = get_voxel_to_world_index_spacing(data)
+        linear = get_voxel_to_world_affine(data)[:3, :3]
+
         spacing: list[float] = []
         origin: list[float] = []
         shape: list[int] = []
-        for dim in world_dims:
+        for row, dim in enumerate(world_dims):
             values = np.asarray(data.coords[dim].values, dtype=np.float64)
             lower = np.float64(np.min(values)).item()
             upper = np.float64(np.max(values)).item()
-            dim_spacing = np.float64(data.coords[dim].attrs["voxdim"]).item()
+            dominant_voxel_dim = voxel_dims[int(np.argmax(np.abs(linear[row])))]
+            dim_spacing = voxel_spacing[dominant_voxel_dim]
+            if dim_spacing is None:
+                raise ValueError(
+                    f"Cannot resample {dim!r} onto an axis-aligned world grid: "
+                    f"dominant voxel dimension {dominant_voxel_dim!r} has no "
+                    "well-defined spacing."
+                )
             origin.append(lower)
             spacing.append(dim_spacing)
             # A relative tolerance absorbs floating-point noise in `upper`/`lower`
@@ -371,6 +399,8 @@ def resample_to_axis_aligned_world_grid(
             output_shape=shape,
             output_spacing=spacing,
             output_origin=origin,
+            interpolation=interpolation,
+            fill_value=fill_value,
         )
 
     # `resample_volume`/`resample_like` always build VoxelData-compatible (voxel-dim,

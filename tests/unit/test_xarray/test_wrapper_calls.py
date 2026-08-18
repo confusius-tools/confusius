@@ -452,6 +452,8 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_fusi_3d, sample_roi_lab
             "dim_order": None,
             "viewer": None,
             "layer_type": "image",
+            "resample_interpolation": None,
+            "resample_fill_value": None,
         },
     )
 
@@ -471,6 +473,8 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_fusi_3d, sample_roi_lab
             "dim_order": ("y", "z", "x"),
             "viewer": viewer,
             "layer_type": "labels",
+            "resample_interpolation": None,
+            "resample_fill_value": None,
             "opacity": 0.4,
         },
     )
@@ -615,5 +619,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_fusi_3d, sample_roi_lab
             "nrows": 1,
             "ncols": 1,
             "dpi": 120,
+            "resample_interpolation": "linear",
+            "resample_fill_value": None,
         },
     )

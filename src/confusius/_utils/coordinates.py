@@ -400,7 +400,7 @@ def get_grid_info_from_dataarray(
     if missing_spacing:
         raise ValueError(
             f"{error_prefix} for dimensions {missing_spacing!r}. Provide regular "
-            "coordinates or `voxdim` metadata for singleton coordinates."
+            "(2+ point, uniformly sampled) coordinates for these dimensions."
         )
     return {
         "shape": [int(data.sizes[dim]) for dim in dims],

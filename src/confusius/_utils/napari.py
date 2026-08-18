@@ -187,7 +187,13 @@ def convert_dataarray_to_layer_data(
     # plot_napari's display convention, so a file dragged into napari and the same
     # data passed to plot_napari look identical.
     source_da = da
-    da = resample_to_axis_aligned_world_grid(da)
+    # Inferred from dtype, which resampling doesn't change, so it's safe to compute
+    # before resampling -- needed there to pick "nearest" interpolation for labels
+    # (blending distinct integer labels together is never meaningful).
+    layer_type = infer_layer_type(da.dtype)
+    da = resample_to_axis_aligned_world_grid(
+        da, interpolation="nearest" if layer_type == "labels" else "linear"
+    )
 
     scale, translate, axis_labels, all_units, non_uniform, spacing = (
         get_napari_scale_translate_units(da)
@@ -208,7 +214,6 @@ def convert_dataarray_to_layer_data(
     if any(u is not None for u in all_units):
         kwargs["units"] = all_units
 
-    layer_type = infer_layer_type(da.dtype)
     if layer_type == "labels":
         colormap = build_direct_label_colormap(da)
         if colormap is not None:

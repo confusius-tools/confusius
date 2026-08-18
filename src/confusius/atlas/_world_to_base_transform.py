@@ -390,14 +390,16 @@ def _drop_vertices_outside_grid(
         Faces whose three vertices all survived, reindexed into the new vertex array.
     """
     dims = list(get_voxel_to_world_coord_names(reference))
+    voxel_dims = list(get_voxel_to_world_spatial_dims(reference))
     spacing = reference.fusi.spacing
     inside = np.ones(len(vertices), dtype=bool)
-    for axis, dim in enumerate(dims):
+    for axis, (dim, voxel_dim) in enumerate(zip(dims, voxel_dims, strict=True)):
         coord = reference.coords[dim].values
         # Keep the same one-voxel margin the field interpolation is padded to, so a
         # vertex within `spacing` of a boundary (e.g. the anterior/posterior tips of the
-        # Allen brain) is retained rather than clipped.
-        coord_spacing = spacing.get(dim, reference.coords[dim].attrs.get("voxdim"))
+        # Allen brain) is retained rather than clipped. `fusi.spacing` is keyed by voxel
+        # dim (k/j/i), not world dim (z/y/x) -- look it up by the matching voxel dim.
+        coord_spacing = spacing.get(voxel_dim)
         margin = coord_spacing if coord_spacing is not None else 0.0
         inside &= (vertices[:, axis] >= coord.min() - margin) & (
             vertices[:, axis] <= coord.max() + margin
