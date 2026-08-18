@@ -89,7 +89,6 @@ CONFUSIUS_INTERNAL_FIELDS: Final[frozenset[str]] = frozenset(
         "qform_code",
         "affines",
         "units",
-        "voxdim",
         "long_name",
         "cmap",
         "bmode_integration_duration",

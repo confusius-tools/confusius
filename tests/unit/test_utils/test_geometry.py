@@ -289,7 +289,6 @@ def test_attach_voxel_to_world_index_accepts_pose_stacked_affine() -> None:
     assert result.coords["z"].dims == ("pose", "k", "j", "i")
     assert_array_equal(result.coords["pose"].values, [0, 1])
     assert_allclose(result.coords["z"].isel(pose=1, j=0, i=0).values, [100.0, 101.0])
-    assert result.coords["z"].attrs["voxdim"] == 1.0
     assert result.coords["z"].attrs["units"] == "mm"
     assert get_voxel_to_world_affine(result).shape == (2, 4, 4)
 

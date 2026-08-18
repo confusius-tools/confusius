@@ -41,7 +41,7 @@ consistently in code, docstrings, and docs:
 
 Use `confusius.validation.validate_fusi`/`ensure_fusi` to check any VoxelData array—by
 default it enforces the universal `k`/`j`/`i` + `VoxelToWorldIndex` structure above
-(dims, the index itself, `voxdim`/`units` coordinate attrs). Its optional flags
+(dims, the index itself, `units` coordinate attrs). Its optional flags
 (`require_time`, `require_unchunked_time`, ...) layer on stricter requirements and
 should only be enabled when needed.
 Use `confusius.xarray.create_fusi_dataarray` to build VoxelData regardless of what the

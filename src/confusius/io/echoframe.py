@@ -373,7 +373,7 @@ def load_echoframe_dat(
         meta["plane_wave_angles"].size / meta["pulse_repetition_frequency"]
     )
 
-    # TODO: we should compute the actual z-axis voxdim from the elevation beam width,
+    # TODO: we should compute the actual z-axis spacing from the elevation beam width,
     # but we're currently missing some information for that, such as the elevation
     # aperture and elevation focus.
     z_spacing = 0.4

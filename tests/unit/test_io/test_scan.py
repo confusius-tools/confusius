@@ -247,18 +247,6 @@ class TestLoadScan2D:
         for dim in ("x", "y", "z"):
             assert scan_2d.coords[dim].attrs.get("units") == "mm"
 
-    def test_spatial_coords_voxdim(self, scan_2d: xr.DataArray) -> None:
-        """Spatial coordinates carry voxdim attribute in mm."""
-        np.testing.assert_allclose(
-            scan_2d.coords["x"].attrs["voxdim"], 1e3 * _DX, rtol=1e-10
-        )
-        np.testing.assert_allclose(
-            scan_2d.coords["y"].attrs["voxdim"], 1e3 * _DZ, rtol=1e-10
-        )
-        np.testing.assert_allclose(
-            scan_2d.coords["z"].attrs["voxdim"], 1e3 * _DY, rtol=1e-10
-        )
-
     def test_x_coord_values(self, scan_2d: xr.DataArray) -> None:
         """x coordinate matches expected lateral positions in mm (MATLAB 1-indexed).
 

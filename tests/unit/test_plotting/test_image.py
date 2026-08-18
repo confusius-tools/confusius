@@ -9,7 +9,10 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
-from confusius._utils.geometry import attach_voxel_to_world_index
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+)
 from confusius.plotting import (
     VolumePlotter,
     plot_carpet,
@@ -715,11 +718,13 @@ class TestPlotVolume:
 
         result = _resample_to_axis_aligned_world_grid(data, "z")
 
-        for dim in ("z", "y", "x"):
+        input_affine = get_voxel_to_world_affine(data)
+        for col, dim in enumerate(("z", "y", "x")):
             spacing = float(
                 np.diff(np.asarray(result.coords[dim].values, dtype=float))[0]
             )
-            assert spacing == pytest.approx(float(data.coords[dim].attrs["voxdim"]))
+            expected_spacing = float(np.linalg.norm(input_affine[:3, col]))
+            assert spacing == pytest.approx(expected_spacing)
 
     def test_axis_aligned_voxel_to_world_world_slice_promotes_world_dims(self):
         """Axis-aligned geometry uses world dims directly for world slicing."""

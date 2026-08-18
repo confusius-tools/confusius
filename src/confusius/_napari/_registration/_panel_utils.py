@@ -175,7 +175,7 @@ def _reconstruct_layer_dataarray(layer: Layer) -> xr.DataArray:
         units[:n_leading],
         strict=False,
     ):
-        attrs: dict[str, Any] = {"voxdim": abs(spacing)}
+        attrs: dict[str, Any] = {}
         if unit is not None:
             attrs["units"] = unit
         coords[dim] = xr.DataArray(

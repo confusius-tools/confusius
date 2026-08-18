@@ -1143,9 +1143,9 @@ def attach_voxel_to_world_index(
     canonical affine input-space column order; each gets the matching fixed world
     coordinate name (`k`→`z`, `j`→`y`, `i`→`x`), so e.g. a `(k, i)` DataArray gets
     `z`/`x` world coordinates, not `z`/`y`. Each derived world coordinate always ends
-    up with `voxdim` (spacing along that axis) and `units` (`"mm"`, the project-wide
-    world-coordinate unit) attrs; `world_coord_attrs` can override either, and any
-    value left unset there is filled in with these defaults.
+    up with a `units` (`"mm"`, the project-wide world-coordinate unit) attr;
+    `world_coord_attrs` can override it, and any value left unset there is filled in
+    with this default.
 
     Parameters
     ----------
@@ -1159,9 +1159,8 @@ def attach_voxel_to_world_index(
         applies to every pose (or to no pose dimension at all).
     world_coord_attrs : mapping[str, mapping[str, Any]], optional
         Attributes to attach to the derived world coordinates, keyed by world
-        coordinate name. `voxdim` and `units` are filled in with their defaults
-        (computed spacing and `"mm"`) for any coordinate that doesn't specify them
-        here.
+        coordinate name. `units` is filled in with its default (`"mm"`) for any
+        coordinate that doesn't specify it here.
 
     Returns
     -------
@@ -1252,22 +1251,9 @@ def attach_voxel_to_world_index(
             if name in result.coords:
                 result.coords[name].attrs.update(dict(attrs))
 
-    representative_affine = (
-        voxel_to_world_array[0] if pose_coord is not None else voxel_to_world_array
-    )
-    world_spacings = get_voxel_to_world_spacings_from_coords(
-        voxel_coords, representative_affine
-    )
-    for i, (dim, name) in enumerate(zip(voxel_dims, world_coord_names, strict=True)):
-        spacing = world_spacings[dim]
-        if spacing is None:
-            spacing = np.linalg.norm(representative_affine[:-1, i])
+    for name in world_coord_names:
         # world_coord_names is exactly the set of names index just registered on
         # result via from_affine/create_variables, so name is always present here.
-        if "voxdim" not in result.coords[name].attrs:
-            voxdim = np.float64(spacing).item()
-            result.coords[name].attrs["voxdim"] = voxdim
-            index.world_coord_attrs.setdefault(name, {})["voxdim"] = voxdim
         if "units" not in result.coords[name].attrs:
             result.coords[name].attrs["units"] = "mm"
             index.world_coord_attrs.setdefault(name, {})["units"] = "mm"
@@ -1470,11 +1456,7 @@ def restore_voxel_to_world_index(data: xr.DataArray) -> xr.DataArray:
             continue
         world_coord_names = index.world_coord_names
         world_coord_attrs: dict[Hashable, Mapping[str, Any]] = {
-            name: {
-                key: value
-                for key, value in dict(data.coords[name].attrs).items()
-                if key != "voxdim"
-            }
+            name: dict(data.coords[name].attrs)
             for name in world_coord_names
             if name in data.coords
         }

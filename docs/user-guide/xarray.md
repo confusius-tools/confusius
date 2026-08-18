@@ -244,7 +244,7 @@ single_slice = cf.create_fusi_dataarray(
 ```
 
 Acquisition metadata that describes the whole recording belongs in the DataArray
-`attrs`. Coordinate metadata such as `units` and `voxdim` is added automatically.
+`attrs`. Coordinate metadata such as `units` is added automatically.
 
 For beamformed IQ data, use
 [`create_iq_dataarray`][confusius.xarray.create_iq_dataarray] instead. It use

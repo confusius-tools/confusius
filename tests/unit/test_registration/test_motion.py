@@ -45,9 +45,7 @@ def _rotation_affine_3d_first_axis(angle):
 
 def _with_singleton_dim(reference, dim):
     """Return `reference` with `dim` reduced to length 1 but preserved."""
-    reduced = reference.isel({dim: [0]})
-    reduced.coords[dim].attrs["voxdim"] = 1.0
-    return reduced
+    return reference.isel({dim: [0]})
 
 
 class TestValidateAffines:

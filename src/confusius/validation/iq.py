@@ -65,7 +65,7 @@ def validate_iq(iq: xr.DataArray, require_velocity_attrs: bool = False) -> None:
     TypeError
         If the IQ data is not complex-valued.
     """
-    # `ensure_fusi` (not `validate_fusi`) so metadata gaps (units, voxdim, timing
+    # `ensure_fusi` (not `validate_fusi`) so metadata gaps (units, timing
     # attrs) that a canonically-constructed DataArray would never have are filled in
     # rather than rejected, matching how any other caller of VoxelData is expected to
     # canonicalize first. The canonicalized copy is only used for these
@@ -102,23 +102,3 @@ def validate_iq(iq: xr.DataArray, require_velocity_attrs: bool = False) -> None:
                 "Axial velocity computation requires attributes: "
                 f"{_AXIAL_VELOCITY_REQUIRED_ATTRS}."
             )
-
-
-def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None:
-    """Validate IQ data with the legacy `require_attrs` keyword.
-
-    Parameters
-    ----------
-    iq : xarray.DataArray
-        Input DataArray to validate.
-    require_attrs : bool, default: False
-        Whether to validate velocity metadata attributes.
-
-    Raises
-    ------
-    ValueError
-        If IQ validation fails.
-    TypeError
-        If `iq` is not complex-valued.
-    """
-    validate_iq(iq, require_velocity_attrs=require_attrs)

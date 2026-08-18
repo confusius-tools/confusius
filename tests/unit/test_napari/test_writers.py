@@ -403,17 +403,6 @@ class TestDaFromNapariLayer:
         assert da["z"].attrs["units"] == "mm"
         assert da["x"].attrs["units"] == "mm"
 
-    def test_voxdim_stored_in_coord_attrs(self) -> None:
-        """voxdim is stored in coordinate attrs from scale magnitude."""
-        from confusius._napari._io._writers import _compute_dataarray_from_layer
-
-        data = np.zeros((4,))
-        da = _compute_dataarray_from_layer(
-            data,
-            {"axis_labels": ["z"], "scale": [0.2], "translate": [0.0]},
-        )
-        assert da["z"].attrs["voxdim"] == pytest.approx(0.2)
-
     def test_napari_generic_axis_labels_replaced_by_defaults(self) -> None:
         """Napari's 'axis -N' labels are replaced with ConfUSIus default dim names."""
         from confusius._napari._io._writers import _compute_dataarray_from_layer

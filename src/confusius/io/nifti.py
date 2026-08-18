@@ -389,8 +389,8 @@ def _create_spatial_coords_from_nifti(
         Primary voxel-to-world affine in ConfUSIus world `z`/`y`/`x` row and
         native voxel `k`/`j`/`i` column order.
     world_coord_attrs : dict[str, dict[str, Any]]
-        `units`/`voxdim` attributes keyed by world coordinate name (`"z"`,
-        `"y"`, `"x"`), for each spatial dim present in `dims`.
+        `units` attributes keyed by world coordinate name (`"z"`, `"y"`, `"x"`), for
+        each spatial dim present in `dims`.
     extra_attrs : dict[str, Any]
         Affine-derived DataArray attributes. Contains `"affines"` when a valid
         secondary affine is present; empty otherwise.
@@ -428,8 +428,6 @@ def _create_spatial_coords_from_nifti(
             if space_unit is not None:
                 coord_attrs["units"] = space_unit
             step = voxel_sizes.get(header_dim, 1.0)
-            if header_dim in voxel_sizes:
-                coord_attrs["voxdim"] = voxel_sizes[header_dim]
             world_coord_attrs[_VOXEL_TO_WORLD_NAME[voxel_dim]] = coord_attrs
             nifti_affine[col, col] = step
         voxel_to_world = nifti_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
@@ -480,7 +478,6 @@ def _create_spatial_coords_from_nifti(
         coord_attrs = {}
         if space_unit is not None:
             coord_attrs["units"] = space_unit
-        coord_attrs["voxdim"] = float(voxel_sizes.get(header_dim, 1.0))
         world_coord_attrs[_VOXEL_TO_WORLD_NAME[voxel_dim]] = coord_attrs
 
     return voxel_to_world, world_coord_attrs, extra_attrs
@@ -1151,10 +1148,6 @@ def load_nifti(
     The raw integer form codes are stored as `da.attrs["qform_code"]` and
     `da.attrs["sform_code"]` (only when > 0) so that a save/load roundtrip can
     reproduce the original NIfTI header codes.
-
-    Voxel dimensions are stored in their native header units as a `voxdim`
-    attribute on each spatial coordinate array, consistent with the `units`
-    attribute of that coordinate.
 
     Examples
     --------

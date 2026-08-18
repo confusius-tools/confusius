@@ -389,7 +389,6 @@ def create_fusi_dataarray(
     spacing: Sequence[float] | None = None,
     origin: Sequence[float] | None = None,
     direction: npt.ArrayLike | None = None,
-    voxdim: Sequence[float] | None = None,
     volume_acquisition_reference: VolumeAcquisitionReference = "start",
     volume_acquisition_duration: float | None = None,
     name: str | None = None,
@@ -397,18 +396,24 @@ def create_fusi_dataarray(
     voxel_to_world: npt.ArrayLike | None = None,
     world_coord_attrs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
-    """Build a VoxelData-compatible DataArray from a raw fUSI array.
+    """Build a VoxelData-compatible DataArray from a raw array.
 
     Parameters
     ----------
     data : numpy.typing.ArrayLike
-        Raw array whose rank matches `dims`.
+        Raw array.
     dims : sequence[str]
-        Input dimension names. Spatial dimensions must be native voxel names
-        (`k`/`j`/`i`). The returned DataArray uses native voxel dimensions in canonical
-        core order.
+        Input dimension names. Core dimensions are:
+
+        - `i`/`j`/`k`: native voxel dimensions,
+        - `pose`: probe pose dimension,
+        - `time`: time dimension.
+
+        Any other extra dimensions are allowed. The returned DataArray will have
+        dimensions reordered following the VoxelData model: `(extra_dims, time, pose, k,
+        j, i)`.
     time : numpy.typing.ArrayLike or xarray.DataArray, optional
-        Coordinate for the `time` dimension. A 2D `(n_time, npose)` array or
+        Floating coordinates for the `time` dimension. A 2D `(n_time, npose)` array or
         DataArray gives each pose its own real timestamps directly (poses acquired
         sequentially rather than simultaneously) rather than a single shared `time`
         axis: there is no single answer for "the" time of a `(pose, k, j, i)` voxel
@@ -420,7 +425,7 @@ def create_fusi_dataarray(
         selected; after that, `.set_xindex("time")` promotes the resulting 1D `time`
         back into a real, selectable index.
     pose : numpy.typing.ArrayLike or xarray.DataArray, optional
-        Coordinate for the `pose` dimension.
+        Integer coordinates for the `pose` dimension.
     extra_coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
         Coordinates for non-core dimensions only.
     dt : float, optional
@@ -434,9 +439,6 @@ def create_fusi_dataarray(
         used.
     direction : numpy.typing.ArrayLike, optional
         3x3 direction matrix in world `z/y/x` row and voxel `k/j/i` column order.
-    voxdim : sequence[float], optional
-        `voxdim` metadata in `z/y/x` order. If not provided, affine column norms are
-        used.
     volume_acquisition_reference : {"start", "center", "end"}, default: "start"
         Time reference stored on generated `time` coordinates.
     volume_acquisition_duration : float, optional
@@ -453,9 +455,8 @@ def create_fusi_dataarray(
         this way, there is no parallel per-pose `spacing`/`origin`/`direction` API.
     world_coord_attrs : mapping[str, mapping[str, Any]], optional
         Attributes to merge onto the derived world coordinates, keyed by world
-        coordinate name (`z`/`y`/`x`). Overrides the auto-computed `units`/`voxdim`
-        entries for any key present in the given mapping; other auto-computed entries
-        are kept.
+        coordinate name (`z`/`y`/`x`). Overrides the auto-computed `units` entry for
+        any key present in the given mapping; other auto-computed entries are kept.
 
     Returns
     -------
@@ -604,30 +605,12 @@ def create_fusi_dataarray(
             direction=direction,
             voxel_to_world=voxel_to_world,
         )
-    representative_voxel_to_world = (
-        resolved_voxel_to_world[0] if is_pose_stacked else resolved_voxel_to_world
-    )
-    if voxdim is None:
-        resolved_voxdim = tuple(
-            _require_positive_finite(value, f"voxdim for dimension {dim!r}")
-            for dim, value in zip(
-                SPATIAL_DIMS,
-                np.linalg.norm(representative_voxel_to_world[:3, :3], axis=0),
-                strict=True,
-            )
-        )
-    else:
-        resolved_voxdim = _validate_spatial_tuple(voxdim, name="voxdim")
-
     voxel_coords = {
         dim: xr.DataArray(np.arange(spatial_sizes[dim]), dims=(dim,))
         for dim in VOXEL_DIMS
         if dim in data_dims
     }
-    world_attrs = {
-        dim: {"units": _SPATIAL_UNITS, "voxdim": value}
-        for dim, value in zip(SPATIAL_DIMS, resolved_voxdim, strict=True)
-    }
+    world_attrs = {dim: {"units": _SPATIAL_UNITS} for dim in SPATIAL_DIMS}
 
     result = xr.DataArray(
         data_array,
@@ -711,7 +694,6 @@ def create_iq_dataarray(
     spacing: Sequence[float] | None = None,
     origin: Sequence[float] | None = None,
     direction: npt.ArrayLike | None = None,
-    voxdim: Sequence[float] | None = None,
     volume_acquisition_reference: VolumeAcquisitionReference = "start",
     volume_acquisition_duration: float | None = None,
     transmit_frequency: float | None = None,
@@ -746,8 +728,6 @@ def create_iq_dataarray(
         World origin in `z/y/x` order.
     direction : numpy.typing.ArrayLike, optional
         3x3 direction matrix in world `z/y/x` row and voxel `k/j/i` column order.
-    voxdim : sequence[float], optional
-        `voxdim` metadata in `z/y/x` order.
     volume_acquisition_reference : {"start", "center", "end"}, default: "start"
         Time reference stored on generated `time` coordinates.
     volume_acquisition_duration : float, optional
@@ -764,9 +744,8 @@ def create_iq_dataarray(
         4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order.
     world_coord_attrs : mapping[str, mapping[str, Any]], optional
         Attributes to merge onto the derived world coordinates, keyed by world
-        coordinate name (`z`/`y`/`x`). Overrides the auto-computed `units`/`voxdim`
-        entries for any key present in the given mapping; other auto-computed entries
-        are kept.
+        coordinate name (`z`/`y`/`x`). Overrides the auto-computed `units` entry for
+        any key present in the given mapping; other auto-computed entries are kept.
 
     Returns
     -------
@@ -802,7 +781,6 @@ def create_iq_dataarray(
         spacing=spacing,
         origin=origin,
         direction=direction,
-        voxdim=voxdim,
         volume_acquisition_reference=volume_acquisition_reference,
         volume_acquisition_duration=volume_acquisition_duration,
         name=name,

@@ -181,12 +181,8 @@ def apply_affine(
         new_attrs["affines"] = new_affines
 
     world_coord_names = get_voxel_to_world_coord_names(da)
-    # `voxdim` is excluded: it must be recomputed from the new affine (see #244), not
-    # carried over stale. `attach_voxel_to_world_index` already does that itself when
-    # `world_coord_attrs` doesn't set it explicitly.
     world_coord_attrs = {
-        name: {k: v for k, v in da.coords[name].attrs.items() if k != "voxdim"}
-        for name in world_coord_names
+        name: dict(da.coords[name].attrs) for name in world_coord_names
     }
     result = attach_voxel_to_world_index(
         da.assign_attrs(new_attrs),

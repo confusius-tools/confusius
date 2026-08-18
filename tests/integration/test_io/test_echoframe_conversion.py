@@ -95,13 +95,6 @@ class TestEchoFrameConversion:
                 get_world_coord_1d(iq_loaded, "y"), np.linspace(0, 0.3, 6)
             )
             assert iq_loaded.coords["y"].attrs["units"] == "mm"
-
-            # Verify voxdim is stored as per-coordinate attribute.
-            assert iq_loaded.coords["z"].attrs["voxdim"] == pytest.approx(0.4)
-            assert iq_loaded.coords["y"].attrs["voxdim"] == pytest.approx(0.06)
-            assert iq_loaded.coords["x"].attrs["voxdim"] == pytest.approx(
-                0.13333333333333333
-            )
             assert ds["iq"].attrs["transmit_frequency"] == 15.625e6
             assert ds["iq"].attrs["probe_number_of_elements"] == 128
             assert ds["iq"].attrs["probe_pitch"] == pytest.approx(0.3)

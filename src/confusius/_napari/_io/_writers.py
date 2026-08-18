@@ -97,7 +97,7 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
             result_dim = dim
             world_name = ""
 
-        attrs: dict[str, Any] = {"voxdim": abs(float(scale[axis]))}
+        attrs: dict[str, Any] = {}
         if units[axis] is not None:
             attrs["units"] = units[axis]
         axis_specs.append(

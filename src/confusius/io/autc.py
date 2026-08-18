@@ -766,12 +766,7 @@ def convert_autc_dats_to_zarr(
         make_attrs_zarr_safe(
             {
                 "voxel_to_world": voxel_to_world,
-                "world_coord_attrs": {
-                    name: {"units": "mm", "voxdim": dim_spacing}
-                    for name, dim_spacing in zip(
-                        SPATIAL_DIMS, resolved_spacing, strict=True
-                    )
-                },
+                "world_coord_attrs": {name: {"units": "mm"} for name in SPATIAL_DIMS},
             }
         )
     )

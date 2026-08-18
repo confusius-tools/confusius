@@ -1143,8 +1143,8 @@ class TestLoadNifti:
             da = load_nifti(nifti_path)
 
         # `create_fusi_dataarray` pads the missing spatial dim to a canonical
-        # singleton `k`, so `z` is present (with default units/voxdim) even
-        # though only 2 spatial dims were declared in the NIfTI header.
+        # singleton `k`, so `z` is present (with default units) even though only
+        # 2 spatial dims were declared in the NIfTI header.
         assert da.dims == ("k", "j", "i")
         assert da.sizes["k"] == 1
         assert "z" in da.coords
@@ -1863,12 +1863,7 @@ class TestSaveNifti:
     def test_save_negative_spatial_coord_roundtrips_via_signed_affine(
         self, tmp_path
     ) -> None:
-        """Regular negative spatial coords round-trip through the NIfTI affine.
-
-        `voxdim` itself is unsigned magnitude (matching `get_affine_axis_scalings`'s
-        convention used everywhere else with the voxel-to-world index) -- the sign
-        lives in the direction matrix / affine entries, not in `voxdim`.
-        """
+        """Regular negative spatial coords round-trip through the NIfTI affine."""
         da = create_fusi_dataarray(
             np.zeros((2, 3, 4), dtype=np.float32),
             dims=["z", "y", "x"],
@@ -1882,7 +1877,6 @@ class TestSaveNifti:
         np.testing.assert_array_equal(
             _world_coord_1d(loaded, "x"), np.array([0.0, -1.0, -2.0, -3.0])
         )
-        assert loaded.coords["x"].attrs["voxdim"] == pytest.approx(1.0)
 
     def test_save_non_uniform_coords_warns(self, tmp_path):
         """Saving a DataArray with non-uniform coordinate spacing emits a warning."""
@@ -3035,9 +3029,9 @@ class TestRoundtrip:
 
         Regression (#244): the scan has a singleton spatial axis, whose saved
         spacing cannot come from coordinate steps and falls back to the
-        `voxdim` coordinate attribute. `apply_affine` must rescale `voxdim`
-        along with the coordinates, otherwise the saved qform carries the
-        stale voxel size on that axis.
+        voxel-to-world affine. `apply_affine` must rescale that affine along with
+        the coordinates, otherwise the saved qform carries the stale voxel size
+        on that axis.
 
         Sform (primary here) has no named `attrs["affines"]` entry of its own, so
         after `apply_affine` moves the world frame into qform's space, sform is

@@ -67,7 +67,7 @@ class TestBuilder:
             assert coord.dims == ("k", "j", "i")
             other_dims = {d: 0 for d in coord.dims if d != voxel_dim}
             coord_1d = coord.isel(other_dims)
-            np.testing.assert_allclose(coord_1d.values[1], coord.attrs["voxdim"])
+            np.testing.assert_allclose(coord_1d.values[1] - coord_1d.values[0], 0.05)
 
     def test_hemispheres_is_data_var(self, atlas_ds: xr.Dataset) -> None:
         """hemispheres must be a data variable, not a coordinate.

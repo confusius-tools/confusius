@@ -11,10 +11,7 @@ from confusius.xarray import create_fusi_dataarray
 
 
 def _spatial_coord(values: np.ndarray | list[float], dim: str) -> xr.DataArray:
-    attrs = {"units": "mm"}
-    if len(values) == 1:
-        attrs["voxdim"] = 0.1
-    return xr.DataArray(values, dims=[dim], attrs=attrs)
+    return xr.DataArray(values, dims=[dim], attrs={"units": "mm"})
 
 
 def _make_consolidated_da(

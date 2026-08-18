@@ -93,13 +93,12 @@ has:
   and any number of extra non-spatial dims (PCA/ICA components, stacked masks, etc.);
 - a single **`VoxelToWorldIndex`** attached to `k`/`j`/`i`, which derives the world
   coordinates `z`/`y`/`x` from one voxel-to-world affine;
-- required metadata: `voxdim` and `units` on each world coordinate, plus—whenever
-  `time` is present—`units`, `volume_acquisition_reference`, and
-  `volume_acquisition_duration` on `time`:
+- required metadata: `units` on each world coordinate, plus—whenever `time` is
+  present—`units`, `volume_acquisition_reference`, and `volume_acquisition_duration`
+  on `time`:
 
 | Attribute | Lives on | Meaning |
 |---|---|---|
-| `voxdim` | `x`/`y`/`z` | Native voxel size along that axis (see [World Space](#world-space) below). |
 | `units` | `x`/`y`/`z`/`time` | Physical unit of the coordinate values (`"mm"` and `"s"` are typical). |
 | `volume_acquisition_reference` | `time` | Which point of the acquisition window each `time` value marks: `"start"`, `"center"`, or `"end"`. |
 | `volume_acquisition_duration` | `time` | Duration of one volume's acquisition, in the same units as `time`. |
@@ -198,23 +197,6 @@ Different loaders derive them in different ways:
 
 Hand-constructed DataArrays get whatever voxel-to-world affine the user provides via
 [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray].
-
-Each spatial coordinate also carries a `voxdim` attribute that records the native voxel
-size along that dimension:
-
-```python
-da.coords["y"].attrs["voxdim"]  # native axial voxel size.
-```
-
-This is set at load time alongside the world coordinates and is preserved through
-any Xarray operation that propagates coordinate attributes. It is particularly useful
-after downsampling: the coordinate values themselves reflect the new, coarser spacing,
-but `voxdim` retains the original acquisition resolution:
-
-```python
-da_down = da.isel(j=slice(None, None, 2), i=slice(None, None, 2))
-# da_down.coords["y"].attrs["voxdim"] still holds the native voxel size.
-```
 
 ### Reference Spaces
 

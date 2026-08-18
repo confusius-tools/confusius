@@ -1343,8 +1343,8 @@ class TestDisplacementField:
         with pytest.raises(ValueError, match="time dimension"):
             sample_displacement_field_like(transform, sample_fusi_2dt_registration)
 
-    def test_sample_displacement_field_like_singleton_dim_without_voxdim_raises(self):
-        """Thin references without `voxdim` are rejected during field sampling."""
+    def test_sample_displacement_field_like_singleton_dim_without_spacing_raises(self):
+        """Thin references without defined spacing are rejected during field sampling."""
         transform = xr.DataArray(
             np.zeros((3, 4, 4, 4)),
             dims=["component", "k", "j", "i"],
@@ -1561,7 +1561,7 @@ class TestDisplacementField:
 
         Regression test: `coords[dim].diff(dim)` is empty for a length-1 axis, so
         `.mean()` silently returns NaN. Field construction/consumption must fall back
-        to the `voxdim` coordinate attribute instead (via the `fusi` accessor), as
+        to the voxel-to-world affine instead (via the `fusi` accessor), as
         `resample_volume`'s own grid handling already does.
         """
         fixed = sample_fusi_2d_registration
@@ -1656,8 +1656,8 @@ class TestResampleLike:
                 np.eye(3),
             )
 
-    def test_singleton_reference_dim_without_voxdim_raises_helpful_error(self):
-        """Thin references without `voxdim` are rejected with a repair hint."""
+    def test_singleton_reference_dim_without_spacing_raises_helpful_error(self):
+        """Thin references without defined spacing are rejected with a repair hint."""
         reference = xr.DataArray(
             np.zeros((1, 8, 8), dtype=np.float32),
             dims=("k", "j", "i"),

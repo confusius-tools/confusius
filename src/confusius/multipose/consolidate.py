@@ -355,10 +355,7 @@ def consolidate_poses(
             else:
                 spacing = other_axis_scalings[voxel_dim]
             spacings.append(spacing)
-            world_attrs[world_dim] = {
-                **coord.attrs,
-                "voxdim": np.float64(spacing).item(),
-            }
+            world_attrs[world_dim] = dict(coord.attrs)
             result = result.assign_coords(
                 {voxel_dim: np.arange(result.sizes[voxel_dim])}
             )

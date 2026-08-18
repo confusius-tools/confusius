@@ -502,12 +502,10 @@ class AtlasAccessor:
         world_names = tuple(
             {"k": "z", "j": "y", "i": "x"}[dim] for dim in canonical_dims
         )
-        world_attrs = {}
-        for name, step in zip(world_names, canonical_spacing, strict=True):
-            world_attrs[name] = dict(
-                self.reference.coords.get(name, xr.Variable((), 0.0)).attrs
-            )
-            world_attrs[name]["voxdim"] = float(step)
+        world_attrs = {
+            name: dict(self.reference.coords.get(name, xr.Variable((), 0.0)).attrs)
+            for name in world_names
+        }
         reference = attach_voxel_to_world_index(
             reference, affine, world_coord_attrs=world_attrs
         )

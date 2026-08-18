@@ -40,7 +40,7 @@ def test_create_fusi_dataarray_builds_canonical_volume():
     assert_allclose(_world_coord_1d(result, "z"), [2.0])
     assert_allclose(_world_coord_1d(result, "y"), 0.05 + np.arange(8) * 0.1)
     assert_allclose(_world_coord_1d(result, "x"), 0.1 + np.arange(12) * 0.2)
-    assert result.coords["z"].attrs == {"units": "mm", "voxdim": 0.4}
+    assert result.coords["z"].attrs == {"units": "mm"}
     validate_fusi(result, require_time=True)
 
 
@@ -94,8 +94,8 @@ def test_create_fusi_dataarray_uses_default_probe_origins():
     assert_allclose(_world_coord_1d(result, "x"), [-0.3, -0.1, 0.1, 0.3])
 
 
-def test_create_fusi_dataarray_world_coord_attrs_overrides_units_only():
-    """world_coord_attrs overrides given keys, keeps auto-computed voxdim."""
+def test_create_fusi_dataarray_world_coord_attrs_overrides_units():
+    """world_coord_attrs overrides given keys, keeps auto-computed defaults for others."""
     result = create_fusi_dataarray(
         np.zeros((4, 8, 12)),
         dims=("k", "j", "i"),
@@ -105,7 +105,6 @@ def test_create_fusi_dataarray_world_coord_attrs_overrides_units_only():
     )
 
     assert result.coords["z"].attrs["units"] == "um"
-    assert result.coords["z"].attrs["voxdim"] == pytest.approx(0.4)
     assert result.coords["y"].attrs["units"] == "mm"
 
 
@@ -164,7 +163,6 @@ def test_create_fusi_dataarray_accepts_voxel_to_world_affine():
     )
 
     assert_allclose(result.fusi.affine.voxel_to_world, affine)
-    assert result.coords["x"].attrs["voxdim"] == pytest.approx(0.2)
 
 
 def test_create_fusi_dataarray_accepts_pose_stacked_voxel_to_world():
@@ -311,19 +309,6 @@ def test_create_fusi_dataarray_2d_time_rejects_wrong_pose_count():
             pose=np.arange(npose),
             voxel_to_world=affine,
         )
-
-
-def test_create_fusi_dataarray_voxdim_overrides_metadata_only():
-    """`voxdim` sets coordinate attrs without changing the affine."""
-    result = create_fusi_dataarray(
-        np.zeros((1, 2, 3)),
-        dims=("k", "j", "i"),
-        spacing=(0.4, 0.1, 0.2),
-        voxdim=(1.0, 1.0, 1.0),
-    )
-
-    assert result.coords["z"].attrs["voxdim"] == pytest.approx(1.0)
-    assert_allclose(result.fusi.affine.voxel_to_world[:3, :3], np.diag([0.4, 0.1, 0.2]))
 
 
 def test_create_fusi_dataarray_rejects_spatial_extra_coords():

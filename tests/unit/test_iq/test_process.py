@@ -571,8 +571,8 @@ class TestProcessIqToPowerDoppler:
             base,
             np.diag([0.1, 0.05, 1.0]),
             world_coord_attrs={
-                "y": {"units": "mm", "voxdim": 0.1},
-                "x": {"units": "mm", "voxdim": 0.05},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
             },
         )
         with pytest.raises(
@@ -605,9 +605,9 @@ class TestProcessIqToPowerDoppler:
             base,
             np.diag([0.1, 0.05, 0.05, 1.0]),
             world_coord_attrs={
-                "z": {"units": "mm", "voxdim": 0.1},
-                "y": {"units": "mm", "voxdim": 0.05},
-                "x": {"units": "mm", "voxdim": 0.05},
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
             },
         )
         with pytest.raises(TypeError, match="complex-valued"):
@@ -1296,8 +1296,8 @@ class TestProcessIqToBmode:
             base,
             np.diag([0.1, 0.05, 1.0]),
             world_coord_attrs={
-                "y": {"units": "mm", "voxdim": 0.1},
-                "x": {"units": "mm", "voxdim": 0.05},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
             },
         )
         with pytest.raises(
@@ -1330,9 +1330,9 @@ class TestProcessIqToBmode:
             base,
             np.diag([0.1, 0.05, 0.05, 1.0]),
             world_coord_attrs={
-                "z": {"units": "mm", "voxdim": 0.1},
-                "y": {"units": "mm", "voxdim": 0.05},
-                "x": {"units": "mm", "voxdim": 0.05},
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
             },
         )
         with pytest.raises(TypeError, match="complex-valued"):

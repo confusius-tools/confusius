@@ -203,9 +203,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     flip_z[0, 3] = da.z.max().item() + da.z.min().item()
     da.fusi.affine.apply(flip_z, inplace=True)
 
-    # 6. Convert the coordinates units to millimeter (nice to have). `apply` already
-    #    rescales `voxdim` from the new (mm-scaled) affine's column norms, so it must
-    #    not be scaled again here -- only the "units" label needs setting.
+    # 6. Convert the coordinates units to millimeter (nice to have).
     m_to_mm = np.eye(4)
     m_to_mm[:3, :3] *= 1e3
     da.fusi.affine.apply(m_to_mm, inplace=True)

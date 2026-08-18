@@ -126,10 +126,6 @@ class TestAUTCConversion:
             assert iq_loaded.coords["y"].attrs["units"] == "mm"
             assert iq_loaded.coords["x"].attrs["units"] == "mm"
 
-            # Verify voxdim is stored as per-coordinate attribute.
-            assert iq_loaded.coords["z"].attrs["voxdim"] == pytest.approx(0.4)
-            assert iq_loaded.coords["y"].attrs["voxdim"] == pytest.approx(4.0)
-            assert iq_loaded.coords["x"].attrs["voxdim"] == pytest.approx(20.0 / 3.0)
             assert ds["iq"].attrs["transmit_frequency"] == 3000000.0
             assert ds["iq"].attrs["probe_number_of_elements"] == 64
             assert ds["iq"].attrs["probe_pitch"] == 0.00025

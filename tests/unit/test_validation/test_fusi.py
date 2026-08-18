@@ -17,9 +17,9 @@ def _make_voxel_to_world_volume() -> xr.DataArray:
         np.zeros((2, 3, 4), dtype=np.float32),
         dims=("k", "j", "i"),
         coords={
-            "k": xr.DataArray([0, 1], dims=("k",), attrs={"voxdim": 1.0}),
-            "j": xr.DataArray([0, 2, 4], dims=("j",), attrs={"voxdim": 2.0}),
-            "i": xr.DataArray([0, 1, 2, 3], dims=("i",), attrs={"voxdim": 1.0}),
+            "k": xr.DataArray([0, 1], dims=("k",)),
+            "j": xr.DataArray([0, 2, 4], dims=("j",)),
+            "i": xr.DataArray([0, 1, 2, 3], dims=("i",)),
         },
     )
     return attach_voxel_to_world_index(
@@ -33,9 +33,9 @@ def _make_voxel_to_world_volume() -> xr.DataArray:
             ]
         ),
         world_coord_attrs={
-            "z": {"units": "mm", "voxdim": 2.0},
-            "y": {"units": "mm", "voxdim": 6.0},
-            "x": {"units": "mm", "voxdim": 4.0},
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
         },
     )
 
@@ -106,9 +106,9 @@ def test_validate_fusi_rejects_scalar_indexed_voxel_dim() -> None:
         np.zeros((2, 3, 4), dtype=np.float32),
         dims=("k", "j", "i"),
         coords={
-            "k": xr.DataArray([0, 1], dims=("k",), attrs={"voxdim": 1.0}),
-            "j": xr.DataArray([0, 1, 2], dims=("j",), attrs={"voxdim": 1.0}),
-            "i": xr.DataArray([0, 1, 2, 3], dims=("i",), attrs={"voxdim": 1.0}),
+            "k": xr.DataArray([0, 1], dims=("k",)),
+            "j": xr.DataArray([0, 1, 2], dims=("j",)),
+            "i": xr.DataArray([0, 1, 2, 3], dims=("i",)),
         },
     )
     oblique = np.array(
@@ -303,19 +303,6 @@ def test_validate_fusi_regular_spacing_all_skips_non_numeric_extra_dim() -> None
         require_regular_spacing=True,
         regular_spacing_dims="all",
     )
-
-
-def test_validate_fusi_accepts_missing_spatial_voxdim() -> None:
-    """World spatial `voxdim` metadata is informational, never required.
-
-    Geometry (spacing, origin, direction) is always derivable from the
-    voxel-to-world affine itself; `voxdim` is a convenience attribute, not a
-    source of truth, so its absence must not fail validation.
-    """
-    data = _make_voxel_to_world_time_series().copy(deep=True)
-    del data.coords["z"].attrs["voxdim"]
-
-    validate_fusi(data)
 
 
 def test_validate_fusi_rejects_missing_time_units() -> None:
@@ -539,7 +526,7 @@ def test_canonicalize_fusi_restores_scalar_indexed_voxel_dim() -> None:
     assert restored.dims == ("k", "j", "i")
     assert restored.sizes["j"] == 1
     np.testing.assert_array_equal(restored.coords["j"].values, [2.0])
-    assert restored.coords["j"].attrs == {"voxdim": 2.0}
+    assert restored.coords["j"].attrs == {}
 
 
 def test_canonicalize_fusi_rejects_non_scalar_coordinate_for_missing_dim() -> None:
@@ -554,8 +541,8 @@ def test_canonicalize_fusi_rejects_non_scalar_coordinate_for_missing_dim() -> No
         np.zeros((2, 4), dtype=np.float32),
         dims=("k", "i"),
         coords={
-            "k": xr.DataArray([0, 1], dims=("k",), attrs={"voxdim": 1.0}),
-            "i": xr.DataArray([0, 1, 2, 3], dims=("i",), attrs={"voxdim": 1.0}),
+            "k": xr.DataArray([0, 1], dims=("k",)),
+            "i": xr.DataArray([0, 1, 2, 3], dims=("i",)),
             "j": xr.DataArray([0, 1], dims=("k",)),
         },
     )

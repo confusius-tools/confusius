@@ -396,11 +396,16 @@ class TestLoadScanV2:
         assert scan_v2.coords["time"].attrs["units"] == "s"
         assert scan_v2.coords["time"].attrs["volume_acquisition_reference"] == "end"
 
-    def test_spatial_voxdim(self, scan_v2: xr.DataArray) -> None:
-        """Voxel dimensions come from the header spacings, in mm."""
-        np.testing.assert_allclose(scan_v2.coords["x"].attrs["voxdim"], _DX_M * 1e3)
-        np.testing.assert_allclose(scan_v2.coords["z"].attrs["voxdim"], _DY_M * 1e3)
-        np.testing.assert_allclose(scan_v2.coords["y"].attrs["voxdim"], _DZ_M * 1e3)
+    def test_elevation_spacing_from_header(self, scan_v2: xr.DataArray) -> None:
+        """Elevation (z, singleton) spacing comes from the header spacing, in mm.
+
+        The elevation axis has a single voxel, so its spacing can't be recovered
+        from coordinate steps -- it must come from the voxel-to-world affine
+        itself, matching the `y_voxel_m` header field.
+        """
+        affine = get_voxel_to_world_affine(scan_v2)
+        spacing_z = np.linalg.norm(affine[:3, 0])
+        np.testing.assert_allclose(spacing_z, _DY_M * 1e3)
 
     def test_lateral_coord_centered(self, scan_v2: xr.DataArray) -> None:
         """Lateral (x) coordinate is centered on zero with correct spacing."""

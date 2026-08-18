@@ -1106,7 +1106,6 @@ class TestTransforms:
             np.testing.assert_allclose(layer.scale, (0.4, 0.3, 0.3))
             assert tuple(str(u) for u in layer.units) == ("millimeter",) * 3
             result = layer.metadata["xarray"]
-            assert result.coords["z"].attrs["voxdim"] == pytest.approx(0.4)
             assert result.coords["y"].attrs["units"] == "mm"
 
     def test_apply_inverse_transform_uses_inverse_affine_and_input_grid(

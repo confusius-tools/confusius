@@ -345,7 +345,6 @@ class TestConsolidatePoses:
         npose = 3
         sizes = {"k": 2, "j": 4, "i": 3}
         intra_step = 0.2  # mm voxel pitch
-        voxel_size = 0.15
 
         _SWEEP_DIM_TO_COL = {"k": 0, "j": 1, "i": 2}
         sweep_col = _SWEEP_DIM_TO_COL[sweep_dim]
@@ -365,7 +364,6 @@ class TestConsolidatePoses:
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
             voxel_to_world=affines @ spacing_diag,
-            voxdim=(voxel_size, voxel_size, voxel_size),
         )
         da.coords[{"k": "z", "j": "y", "i": "x"}[sweep_dim]].attrs["units"] = sweep_unit
 
@@ -385,9 +383,6 @@ class TestConsolidatePoses:
             np.arange(npose * n_sweep) * intra_step,
         )
         assert result.coords[world_sweep_dim].attrs.get("units") == sweep_unit
-        assert result.coords[world_sweep_dim].attrs["voxdim"] == pytest.approx(
-            intra_step
-        )
 
         # Verify data values: for each pose p and local sweep index si, the
         # consolidated flat index is p*n_sweep + si (poses are sorted ascending).
@@ -422,17 +417,15 @@ class TestConsolidatePoses:
 
     def test_singleton_output_dim_derives_spacing_from_affine(self) -> None:
         """A non-swept output dim with a single voxel still gets its spacing from the
-        input affine column norm, not from a possibly stale `voxdim` attribute.
+        input affine column norm.
 
         With only one voxel along an output spatial dimension, there is no pair of
         consecutive positions from which to infer spacing via `numpy.diff`. The affine
         is ground truth regardless of axis length, so the output voxel-to-world index
-        construction must derive spacing from the affine column, ignoring any
-        independently supplied `voxdim` override.
+        construction must derive spacing from the affine column.
         """
         npose = 3
         intra_step = 0.2
-        voxel_size = 0.15
         data = np.random.default_rng(7).random((npose, 2, 1, 3))
         affines = np.stack([np.eye(4) for _ in range(npose)])
         for i in range(npose):
@@ -444,10 +437,11 @@ class TestConsolidatePoses:
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
             voxel_to_world=affines @ spacing_diag,
-            voxdim=(voxel_size, voxel_size, voxel_size),
         )
 
         result = consolidate_poses(da, sweep_dim="k")
 
         assert result.sizes["j"] == 1
-        assert result.coords["y"].attrs["voxdim"] == pytest.approx(intra_step)
+        output_affine = get_voxel_to_world_affine(result)
+        spacing_y = np.linalg.norm(output_affine[:3, 1])
+        assert spacing_y == pytest.approx(intra_step)

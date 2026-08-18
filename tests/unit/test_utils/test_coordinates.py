@@ -25,7 +25,7 @@ def test_axis_aligned_affine_builds_diag_and_translation():
 
 
 def test_get_grid_info_requires_singleton_spacing():
-    """Singleton dimensions need explicit `voxdim` metadata."""
+    """Singleton dimensions need explicit spacing metadata."""
     data = xr.DataArray(
         np.zeros((1, 3, 4)),
         dims=("z", "y", "x"),

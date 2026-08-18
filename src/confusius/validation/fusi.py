@@ -374,7 +374,7 @@ def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:
     """Fill in default `units` metadata on the world spatial coordinates.
 
     Every VoxelData-compatible DataArray carries `units` on its world (`z`/`y`/`x`)
-    coordinates. Both `voxdim` and `units` are already guaranteed there by
+    coordinates. `units` is already guaranteed there by
     [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
     itself for freshly-attached data, so this function is mainly a safety net for
     data whose index predates that default (e.g. hand-built `VoxelToWorldIndex`

@@ -907,19 +907,14 @@ def on_apply_transform_finished(
     )
 
     # resample_volume rebuilds output coordinates as bare arrays; re-attach the
-    # voxdim/units metadata recorded in the grid payload so downstream consumers
+    # units metadata recorded in the grid payload so downstream consumers
     # (e.g. plot_napari layer scale and units) see the same coordinate metadata
-    # as a register_volume result, including the spacing of singleton dims.
+    # as a register_volume result.
     grid = payload["output_grid"]
-    for dim, spacing, units in zip(
-        grid["dims"], grid["spacing"], grid["units"], strict=True
-    ):
-        if dim not in registered.coords:
+    for dim, units in zip(grid["dims"], grid["units"], strict=True):
+        if dim not in registered.coords or units is None:
             continue
-        coord_attrs = registered.coords[dim].attrs
-        coord_attrs["voxdim"] = abs(spacing)
-        if units is not None:
-            coord_attrs["units"] = units
+        registered.coords[dim].attrs["units"] = units
 
     name = panel._make_unique_layer_name(
         f"{payload['moving_layer_name']} → {payload['target_layer_name']}"
