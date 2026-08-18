@@ -881,6 +881,40 @@ class TestPlottingUtilsVoxelToWorldHelpers:
                 expected_spacing[voxel_dim]
             )
 
+    def test_resample_raises_when_dominant_voxel_dim_is_irregular(self):
+        """Resampling onto an axis-aligned world grid raises `ValueError` when the
+        voxel dimension dominating a world axis has irregularly spaced coordinates,
+        since no single spacing value can represent it on the output grid.
+        """
+        from confusius.plotting._utils import resample_to_axis_aligned_world_grid
+
+        data = xr.DataArray(
+            np.arange(3 * 3 * 4, dtype=float).reshape(3, 3, 4),
+            dims=["k", "j", "i"],
+            # `k` is irregularly spaced (0, 1, 3) and dominates world axis `z`.
+            coords={"k": [0, 1, 3], "j": [0, 1, 2], "i": [0, 1, 2, 3]},
+        )
+        # Sheared (oblique) affine so the fast axis-aligned path is not taken.
+        data = attach_voxel_to_world_index(
+            data,
+            np.array(
+                [
+                    [0.4, 0.0, 0.1, 10.0],
+                    [0.1, 0.3, 0.0, 20.0],
+                    [0.0, 0.05, 0.25, 30.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+            world_coord_attrs={
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
+            },
+        )
+
+        with pytest.raises(ValueError, match="no well-defined spacing"):
+            resample_to_axis_aligned_world_grid(data)
+
 
 class TestVolumePlotterAddVolume:
     """Tests for VolumePlotter.add_volume method."""

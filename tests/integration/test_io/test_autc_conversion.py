@@ -181,6 +181,31 @@ class TestAUTCConversion:
                 show_progress=False,
             )
 
+    def test_spacing_wrong_length_error(self, synthetic_autc_session, tmp_path):
+        """Raise `ValueError` when `spacing` does not have length 3."""
+        output_path = tmp_path / "output.zarr"
+
+        with pytest.raises(ValueError, match="spacing must have length 3"):
+            convert_autc_dats_to_zarr(
+                synthetic_autc_session,
+                output_path,
+                spacing=(0.4, 4.0),
+                show_progress=False,
+            )
+
+    def test_origin_wrong_length_error(self, synthetic_autc_session, tmp_path):
+        """Raise `ValueError` when `origin` does not have length 3."""
+        output_path = tmp_path / "output.zarr"
+
+        with pytest.raises(ValueError, match="origin must have length 3"):
+            convert_autc_dats_to_zarr(
+                synthetic_autc_session,
+                output_path,
+                spacing=(0.4, 4.0, 20.0 / 3.0),
+                origin=(0.0, 0.0),
+                show_progress=False,
+            )
+
     def test_zarr_kwargs_override_warning(
         self, synthetic_autc_session, tmp_path, caplog
     ):

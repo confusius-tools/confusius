@@ -19,14 +19,12 @@ from pydantic import ValidationError
 
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.coordinates import (
-    get_axis_aligned_affine,
     get_coordinate_spacing_info,
     get_representative_step,
 )
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_index_spacing,
-    has_voxel_to_world_index,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.bids import (
@@ -1572,10 +1570,7 @@ def _build_extra_dim_sidecar_metadata(data_array: xr.DataArray) -> dict[str, Any
         dimensions.
     """
     current_dims = tuple(str(dim) for dim in data_array.dims)
-    if has_voxel_to_world_index(data_array):
-        extras = [d for d in current_dims if d not in (*VOXEL_DIMS, "time")]
-    else:
-        _, extras = _split_nifti_dims(current_dims)
+    extras = [d for d in current_dims if d not in (*VOXEL_DIMS, "time")]
 
     extra_metadata: dict[str, Any] = {}
     for extra_index, dim_name in enumerate(extras):
@@ -1627,29 +1622,6 @@ def _coord_starts_at_zero_with_regular_spacing(
     return bool(np.allclose(numeric_coord_values, expected, rtol=1e-5, atol=0.0))
 
 
-def _split_nifti_dims(current_dims: tuple[str, ...]) -> tuple[list[str], list[str]]:
-    """Split DataArray dims into canonical and extra groups for NIfTI layout.
-
-    Canonical dims are those in `_NIFTI_DIM_ORDER[:4]`; extras are the remaining dims
-    in their original order.
-
-    Parameters
-    ----------
-    current_dims : tuple[str, ...]
-        DataArray dimension names in their current order.
-
-    Returns
-    -------
-    canonical_dims : list[str]
-        Canonical NIfTI dims in fixed order: `x`, `y`, `z`, `time`.
-    extra_dims : list[str]
-        Non-canonical dims, preserving their input order.
-    """
-    canonical_dims = list(_NIFTI_DIM_ORDER[:4])
-    extras = [d for d in current_dims if d not in canonical_dims]
-    return canonical_dims, extras
-
-
 def _prepare_data_for_nifti(
     data_array: xr.DataArray,
 ) -> tuple[np.ndarray, bool, list[str]]:
@@ -1685,11 +1657,8 @@ def _prepare_data_for_nifti(
     data = np.asarray(data_array)
     current_dims = tuple(str(dim) for dim in data_array.dims)
 
-    if has_voxel_to_world_index(data_array):
-        canonical_order = [*reversed(VOXEL_DIMS), "time"]
-        extras = [d for d in current_dims if d not in canonical_order]
-    else:
-        canonical_order, extras = _split_nifti_dims(current_dims)
+    canonical_order = [*reversed(VOXEL_DIMS), "time"]
+    extras = [d for d in current_dims if d not in canonical_order]
     if len(extras) > _MAX_NIFTI_EXTRA_DIMS:
         raise ValueError(
             f"Cannot save DataArray with {len(extras)} extra (non-spatial, "
@@ -1709,11 +1678,7 @@ def _prepare_data_for_nifti(
 
     data = np.transpose(data, target_order)
 
-    nifti_spatial_dims = (
-        tuple(reversed(VOXEL_DIMS))
-        if has_voxel_to_world_index(data_array)
-        else ("x", "y", "z")
-    )
+    nifti_spatial_dims = tuple(reversed(VOXEL_DIMS))
     for insert_pos, dim in enumerate(nifti_spatial_dims):
         if dim not in current_dims:
             data = np.expand_dims(data, axis=insert_pos)
@@ -1916,20 +1881,8 @@ def _resolve_nifti_xform_code(
 
 def _build_nifti_voxel_to_world_affine(
     data_array: xr.DataArray,
-    *,
-    spatial_spacings: list[float],
 ) -> npt.NDArray[np.floating]:
     """Build the NIfTI voxel-to-world affine for serialized grid geometry."""
-    if not has_voxel_to_world_index(data_array):
-        origin = np.array(
-            [
-                float(data_array.coords[dim][0]) if dim in data_array.coords else 0.0
-                for dim in ("x", "y", "z")
-            ]
-        )
-        spacings = np.array(spatial_spacings)
-        return get_axis_aligned_affine(origin, spacings)
-
     voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data_array.dims)
     voxel_indices = [VOXEL_DIMS.index(dim) for dim in voxel_dims]
 
@@ -1964,15 +1917,11 @@ def _build_nifti_voxel_to_world_affine(
 def _build_selected_nifti_affine(
     data_array: xr.DataArray,
     *,
-    spatial_spacings: list[float],
     stored_affines: dict[str, Any],
     affine_key: str | None,
 ) -> npt.NDArray[np.floating]:
     """Build a NIfTI header affine from voxel geometry plus an optional transform."""
-    voxel_to_world = _build_nifti_voxel_to_world_affine(
-        data_array,
-        spatial_spacings=spatial_spacings,
-    )
+    voxel_to_world = _build_nifti_voxel_to_world_affine(data_array)
     if affine_key is None:
         return voxel_to_world
 
@@ -1991,7 +1940,6 @@ def _nifti_affine_has_shear(
 def _prepare_nifti_xforms(
     data_array: xr.DataArray,
     *,
-    spatial_spacings: list[float],
     qform: str | None,
     sform: str | None,
     qform_code: int | None,
@@ -2010,8 +1958,6 @@ def _prepare_nifti_xforms(
     ----------
     data_array : xarray.DataArray
         Array being serialized.
-    spatial_spacings : list[float]
-        Spatial spacings for the NIfTI `x`, `y`, and `z` axes.
     qform : str, optional
         Explicit affine key to use for qform serialization.
     sform : str, optional
@@ -2067,7 +2013,6 @@ def _prepare_nifti_xforms(
         header_affines[form_name] = (
             _build_selected_nifti_affine(
                 data_array,
-                spatial_spacings=spatial_spacings,
                 stored_affines=stored_affines,
                 affine_key=resolved_key,
             )
@@ -2435,7 +2380,6 @@ def save_nifti(
         written_header_affine_keys,
     ) = _prepare_nifti_xforms(
         data_array,
-        spatial_spacings=spatial_spacings,
         qform=qform,
         sform=sform,
         qform_code=qform_code,

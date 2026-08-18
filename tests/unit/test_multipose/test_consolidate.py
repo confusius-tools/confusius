@@ -395,6 +395,77 @@ class TestConsolidatePoses:
         with pytest.raises(ValueError, match="no pose-dependent primary geometry"):
             consolidate_poses(da)
 
+    def test_single_pose_raises(self) -> None:
+        """consolidate_poses raises ValueError when there is only one pose.
+
+        The swept voxel dimension is detected from the per-pose translation's
+        dominant direction, which requires at least two poses to define.
+        """
+        data = np.random.default_rng(3).random((1, 2, 4, 3))
+        affine = np.eye(4)[np.newaxis, ...]
+
+        da = create_voxeldata(
+            data,
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(1),
+            voxel_to_world=affine,
+        )
+
+        with pytest.raises(
+            ValueError, match="Cannot detect the swept voxel dimension from a single"
+        ):
+            consolidate_poses(da)
+
+    def test_identical_pose_positions_raises(self) -> None:
+        """consolidate_poses raises ValueError when poses share the same world
+        position, so no sweep direction can be inferred.
+        """
+        npose = 3
+        data = np.random.default_rng(5).random((npose, 2, 4, 3))
+        # Every pose uses the exact same affine, including translation.
+        affines = np.stack([np.eye(4) for _ in range(npose)])
+
+        da = create_voxeldata(
+            data,
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
+            voxel_to_world=affines,
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="poses have identical world positions",
+        ):
+            consolidate_poses(da)
+
+    def test_degenerate_voxel_axis_raises(self) -> None:
+        """consolidate_poses raises ValueError when the primary voxel-to-world
+        geometry has a degenerate (zero-length) voxel axis, since the swept voxel
+        dimension can't be matched against a zero-length column of the rotation
+        block.
+        """
+        npose = 3
+        data = np.random.default_rng(13).random((npose, 2, 4, 3))
+        # A zero column for `k` makes the rotation block degenerate along one axis.
+        linear = np.diag([0.0, 0.2, 0.2])
+        affines = np.stack([np.eye(4) for _ in range(npose)])
+        for i in range(npose):
+            affines[i, :3, :3] = linear
+            affines[i, :3, 3][0] = i * 0.4
+
+        da = create_voxeldata(
+            data,
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
+            voxel_to_world=affines,
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="degenerate \\(zero-length\\) voxel axis",
+        ):
+            consolidate_poses(da)
+
     def test_singleton_output_dim_derives_spacing_from_affine(self) -> None:
         """A non-swept output dim with a single voxel still gets its spacing from the
         input affine column norm.
