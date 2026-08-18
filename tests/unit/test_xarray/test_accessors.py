@@ -11,7 +11,7 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
 )
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 def _make_voxel_to_world_volume() -> xr.DataArray:
@@ -284,7 +284,7 @@ class TestOrigin:
         matching_time = np.stack(
             [np.arange(n_time) * 2.4 + p * 0.6 for p in range(npose)], axis=1
         )
-        matching = create_fusi_dataarray(
+        matching = create_voxeldata(
             np.zeros((n_time, npose, 2, 3, 4)),
             dims=("time", "pose", "k", "j", "i"),
             time=matching_time,
@@ -297,7 +297,7 @@ class TestOrigin:
             [np.arange(n_time) * 2.4, np.arange(n_time) * 2.4, np.arange(n_time) * 3.0],
             axis=1,
         )
-        mismatched = create_fusi_dataarray(
+        mismatched = create_voxeldata(
             np.zeros((n_time, npose, 2, 3, 4)),
             dims=("time", "pose", "k", "j", "i"),
             time=mismatched_time,

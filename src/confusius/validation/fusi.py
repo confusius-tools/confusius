@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Hashable, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, SupportsFloat, SupportsIndex
 
 import numpy as np
 import xarray as xr
@@ -30,6 +30,40 @@ from confusius.validation.time_series import (
 
 RegularSpacingDims = Literal["space", "core", "all"] | str | Sequence[str]
 """Selector for dimensions that must satisfy regular-spacing checks."""
+
+_VELOCITY_ATTRS = ("transmit_frequency", "beamforming_sound_velocity")
+"""Attributes required for velocity estimation from IQ VoxelData."""
+
+
+def require_positive_finite(
+    value: str | SupportsFloat | SupportsIndex, name: str
+) -> float:
+    """Return a finite positive numeric value.
+
+    Parameters
+    ----------
+    value : str or typing.SupportsFloat or typing.SupportsIndex
+        Candidate value.
+    name : str
+        Name used in the validation error.
+
+    Returns
+    -------
+    float
+        Validated value.
+
+    Raises
+    ------
+    ValueError
+        If `value` is not numeric, finite, and positive.
+    """
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be positive and finite.") from exc
+    if not np.isfinite(result) or result <= 0:
+        raise ValueError(f"{name} must be positive and finite.")
+    return result
 
 
 def _get_spatial_dims(da: xr.DataArray) -> tuple[str, ...]:
@@ -316,7 +350,7 @@ def _validate_regular_spacing(
             )
 
 
-def canonicalize_fusi(data: xr.DataArray) -> xr.DataArray:
+def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
     """Return `data` with scalar voxel-space spatial coordinates restored as dims.
 
     Parameters
@@ -373,7 +407,7 @@ def canonicalize_fusi(data: xr.DataArray) -> xr.DataArray:
 def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:
     """Fill in default `units` metadata on the world spatial coordinates.
 
-    Every VoxelData-compatible DataArray carries `units` on its world (`z`/`y`/`x`)
+    Every VoxelData array carries `units` on its world (`z`/`y`/`x`)
     coordinates. `units` is already guaranteed there by
     [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
     itself for freshly-attached data, so this function is mainly a safety net for
@@ -415,7 +449,7 @@ def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:
     return result
 
 
-def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
+def ensure_voxeldata(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
     """Canonicalize and validate a DataArray following the VoxelData model.
 
     Parameters
@@ -424,12 +458,12 @@ def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
         DataArray to canonicalize and validate.
     **validate_kwargs : Any
         Keyword arguments forwarded to
-        [validate_fusi][confusius.validation.validate_fusi].
+        [validate_voxeldata][confusius.validation.validate_voxeldata].
 
     Returns
     -------
     xarray.DataArray
-        Canonicalized VoxelData-compatible DataArray.
+        Canonicalized VoxelData array.
 
     Raises
     ------
@@ -438,12 +472,12 @@ def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
     ValueError
         If canonicalization or validation fails.
     """
-    result = canonicalize_fusi(data)
-    validate_fusi(result, **validate_kwargs)
+    result = canonicalize_voxeldata(data)
+    validate_voxeldata(result, **validate_kwargs)
     return result
 
 
-def validate_fusi(
+def validate_voxeldata(
     data: xr.DataArray,
     *,
     require_time: bool = False,
@@ -456,12 +490,14 @@ def validate_fusi(
     regular_spacing_tolerance: float = 1e-2,
     regular_spacing_dims: RegularSpacingDims = "space",
     require_canonical_dim_order: bool = False,
+    require_velocity_attrs: bool = False,
+    require_dtype: Any | None = None,
 ) -> None:
     """Validate that a DataArray follows the VoxelData model.
 
     This is the general-purpose VoxelData checker: by default it enforces only the
     universal `k`/`j`/`i` + `VoxelToWorldIndex` structure required of any
-    VoxelData-compatible DataArray, so it is the right tool for any VoxelData array,
+    VoxelData array, so it is the right tool for any VoxelData array,
     not only fUSI recordings. The optional flags below layer on genuine
     fUSI-recording-specific requirements (e.g. acquisition timing) and should only be
     enabled for actual fUSI recordings.
@@ -469,7 +505,7 @@ def validate_fusi(
     Parameters
     ----------
     data : xarray.DataArray
-        DataArray to validate. It must be a VoxelData-compatible DataArray with native
+        DataArray to validate. It must be a VoxelData array with native
         voxel dimensions `k`, `j`, `i` and derived world coordinates `z`, `y`, `x`.
     require_time : bool, default: False
         Whether to require a `time` dimension with more than one timepoint, as in an
@@ -492,6 +528,12 @@ def validate_fusi(
         Dimensions that must satisfy regular-spacing checks.
     require_canonical_dim_order : bool, default: False
         Whether core dimensions must appear in canonical order.
+    require_velocity_attrs : bool, default: False
+        Whether to require and validate velocity-estimation attributes on the
+        DataArray.
+    require_dtype : Any, optional
+        NumPy dtype kind required for the DataArray values, passed to
+        `numpy.issubdtype`.
 
     Raises
     ------
@@ -515,11 +557,11 @@ def validate_fusi(
 
     if require_time or require_unchunked_time or require_uniform_time:
         validate_required_time_dimension(data)
-        validate_timepoint_count(data, "fUSI validation")
+        validate_timepoint_count(data, "VoxelData validation")
     if require_unchunked_time:
-        validate_unchunked_time(data, "fUSI validation")
+        validate_unchunked_time(data, "VoxelData validation")
     if require_uniform_time:
-        validate_uniform_time(data, "fUSI validation", uniformity_tolerance)
+        validate_uniform_time(data, "VoxelData validation", uniformity_tolerance)
 
     if TIME_DIM in data.dims and TIME_DIM in data.coords:
         time_attrs = data.coords[TIME_DIM].attrs
@@ -560,7 +602,22 @@ def validate_fusi(
     if require_canonical_dim_order:
         _validate_canonical_core_dim_order(data)
 
+    if require_dtype is not None and not np.issubdtype(data.dtype, require_dtype):
+        raise TypeError(
+            f"Expected data dtype compatible with {require_dtype}, got {data.dtype}."
+        )
+
     world_coords = get_voxel_to_world_coord_names(data)
     _validate_required_coordinate_attrs(data, world_coords, "units")
     if TIME_DIM in data.dims:
         _validate_required_coordinate_attrs(data, (TIME_DIM,), "units")
+
+    if require_velocity_attrs:
+        missing_attrs = sorted(set(_VELOCITY_ATTRS) - set(data.attrs))
+        if missing_attrs:
+            raise ValueError(
+                f"Missing required DataArray attributes: {missing_attrs}. "
+                f"Velocity estimation requires attributes: {_VELOCITY_ATTRS}."
+            )
+        for attr in _VELOCITY_ATTRS:
+            require_positive_finite(data.attrs[attr], attr)

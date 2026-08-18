@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 
 from confusius.validation import validate_bspline, validate_displacement_field
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 def _make_field(n_components: int, transform_type: str):
     """Build a minimal (component, k, j, i) transform DataArray."""
-    data = create_fusi_dataarray(
+    data = create_voxeldata(
         np.zeros((n_components, 2, 3, 4), dtype=np.float64),
         dims=("component", "k", "j", "i"),
         spacing=(1.0, 1.0, 1.0),

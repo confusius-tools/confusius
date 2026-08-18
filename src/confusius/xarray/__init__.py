@@ -13,8 +13,7 @@ __all__ = [
     "FUSIRegistrationAccessor",
     "FUSIScaleAccessor",
     "apply_affine",
-    "create_fusi_dataarray",
-    "create_iq_dataarray",
+    "create_voxeldata",
     "db_scale",
     "get_relative_affine",
     "log_scale",
@@ -27,8 +26,7 @@ from confusius.xarray.accessors import FUSIAccessor
 
 _ATTR_TO_MODULE = {
     "FUSIAffineAccessor": "confusius.xarray.affine",
-    "create_fusi_dataarray": "confusius.xarray.create",
-    "create_iq_dataarray": "confusius.xarray.create",
+    "create_voxeldata": "confusius.xarray.create",
     "FUSIConnectivityAccessor": "confusius.xarray.connectivity",
     "FUSIExtractAccessor": "confusius.xarray.extract",
     "FUSIIQAccessor": "confusius.xarray.iq",
@@ -67,7 +65,7 @@ if TYPE_CHECKING:
         reindex_voxels_like,
     )
     from confusius.xarray.connectivity import FUSIConnectivityAccessor
-    from confusius.xarray.create import create_fusi_dataarray, create_iq_dataarray
+    from confusius.xarray.create import create_voxeldata
     from confusius.xarray.extract import FUSIExtractAccessor
     from confusius.xarray.iq import FUSIIQAccessor
     from confusius.xarray.plotting import FUSIPlotAccessor

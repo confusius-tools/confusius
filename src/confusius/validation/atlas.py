@@ -96,8 +96,7 @@ def _validate_meshes_available(structures: "StructuresDict") -> None:
 def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
     """Validate that a Dataset is a well-formed atlas.
 
-    Companion to [`validate_fusi`][confusius.validation.validate_fusi]
-    and [`validate_iq`][confusius.validation.validate_iq]. Checks that
+    Companion to [`validate_voxeldata`][confusius.validation.validate_voxeldata]. Checks that
     `ds` matches the atlas schema produced by
     [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and consumed
     by the `.atlas` accessor:
@@ -172,7 +171,7 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
         if not has_voxel_to_world_index(ds[name]):
             raise ValueError(
                 f"Atlas variable '{name}' must carry a VoxelToWorldIndex; build it with "
-                "confusius.xarray.create_fusi_dataarray."
+                "confusius.xarray.create_voxeldata."
             )
 
     if not np.issubdtype(ds["reference"].dtype, np.floating):

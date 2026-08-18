@@ -1,7 +1,7 @@
 """First-level GLM for single-subject fUSI analysis.
 
 This module implements a sklearn-style estimator for fitting voxel-wise General Linear
-Models to fUSI time-series data stored as VoxelData-compatible DataArrays.
+Models to fUSI time-series data stored as VoxelData arrays.
 
 Portions of this file are derived from Nilearn, which is licensed under the BSD-3-Clause
 License. See `NOTICE` file for details.
@@ -31,7 +31,7 @@ from confusius.glm._utils import (
     select_contrast_map,
 )
 from confusius.spatial import smooth_volume
-from confusius.validation import ensure_fusi
+from confusius.validation import ensure_voxeldata
 from confusius.validation.coordinates import validate_matching_coordinates
 from confusius.validation.mask import validate_mask
 
@@ -48,7 +48,7 @@ def _flatten_spatial(
     Parameters
     ----------
     data : (time, ...) xarray.DataArray
-        VoxelData-compatible DataArray with a `time` dimension.
+        VoxelData array with a `time` dimension.
 
     Returns
     -------
@@ -69,7 +69,7 @@ def _flatten_spatial(
 class FirstLevelModel(BaseEstimator):
     """First-level GLM estimator for voxel-wise fUSI analysis.
 
-    Fits a General Linear Model to VoxelData-compatible DataArrays and computes statistical contrasts.
+    Fits a General Linear Model to VoxelData arrays and computes statistical contrasts.
     Supports multiple runs (fixed-effects combination) and autoregressive noise
     modelling.
 
@@ -207,7 +207,7 @@ class FirstLevelModel(BaseEstimator):
         Parameters
         ----------
         run_data : xarray.DataArray or list of xarray.DataArray
-            Single-run or multi-run VoxelData-compatible DataArray. Must have a `time`
+            Single-run or multi-run VoxelData array. Must have a `time`
             dimension; all other dimensions are treated as spatial (e.g.
             `(time, k, j, i)` or `(time, pose, k, j, i)`).
         events : pandas.DataFrame or list of pandas.DataFrame, optional
@@ -233,11 +233,13 @@ class FirstLevelModel(BaseEstimator):
         if isinstance(run_data, xr.DataArray):
             run_data = [run_data]
         run_data = [
-            ensure_fusi(run, require_time=True, require_unchunked_time=True)
+            ensure_voxeldata(run, require_time=True, require_unchunked_time=True)
             for run in run_data
         ]
         if self.mask is not None:
-            self.mask = ensure_fusi(self.mask, allow_pose=False, allow_extra_dims=False)
+            self.mask = ensure_voxeldata(
+                self.mask, allow_pose=False, allow_extra_dims=False
+            )
         n_runs = len(run_data)
 
         for run in run_data:

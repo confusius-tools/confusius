@@ -50,9 +50,9 @@ def _validate_register_volume_inputs(
     Parameters
     ----------
     moving : xarray.DataArray
-        Spatial-only VoxelData-compatible DataArray to register.
+        Spatial-only VoxelData array to register.
     fixed : xarray.DataArray
-        Spatial-only VoxelData-compatible DataArray used as the reference volume.
+        Spatial-only VoxelData array used as the reference volume.
     fixed_mask : xarray.DataArray or None
         Mask for fixed image. If provided, must have same dimensions as fixed.
     moving_mask : xarray.DataArray or None
@@ -97,16 +97,16 @@ def _validate_register_volume_inputs(
     # --- DataArray dims and ndim ---
     if "time" in fixed.dims or "time" in moving.dims:
         raise ValueError(
-            "register_volume expects spatial-only VoxelData-compatible DataArrays. "
+            "register_volume expects spatial-only VoxelData arrays. "
             "For volume-wise registration, use register_volumewise."
         )
 
-    from confusius.validation import ensure_fusi
+    from confusius.validation import ensure_voxeldata
 
-    moving = ensure_fusi(
+    moving = ensure_voxeldata(
         moving, require_time=False, allow_pose=False, allow_extra_dims=False
     )
-    fixed = ensure_fusi(
+    fixed = ensure_voxeldata(
         fixed, require_time=False, allow_pose=False, allow_extra_dims=False
     )
     validate_matching_spatial_units((("moving", moving), ("fixed", fixed)))

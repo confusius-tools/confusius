@@ -1,7 +1,7 @@
 """B-spline transform helpers for fUSI registration.
 
-Both transform representations in this module are VoxelData-compatible DataArrays
-(built with [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]) with an
+Both transform representations in this module are VoxelData arrays
+(built with [`create_voxeldata`][confusius.xarray.create_voxeldata]) with an
 extra leading `component` dimension:
 
 - **dims**: `("component", <spatial dims>)` — e.g. `("component", "k", "j", "i")`.
@@ -66,12 +66,12 @@ from confusius.registration._utils import (
 )
 from confusius.registration.affines import affine_to_sitk_linear_transform
 from confusius.validation import (
-    ensure_fusi,
+    ensure_voxeldata,
     validate_bspline,
     validate_displacement_field,
     validate_matching_spatial_units,
 )
-from confusius.xarray.create import create_fusi_dataarray
+from confusius.xarray.create import create_voxeldata
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
@@ -143,17 +143,17 @@ def sitk_bspline_to_dataarray(
     if pre_affine is not None:
         attrs["affines"] = {"bspline_initialization": np.asarray(pre_affine).tolist()}
 
-    # Direction and spacing compose the same way create_fusi_dataarray's own
+    # Direction and spacing compose the same way create_voxeldata's own
     # `direction` parameter does: each column of the (orthonormal) direction matrix
     # scaled by the corresponding axis spacing. Building the full affine directly (and
-    # passing it as voxel_to_world) rather than create_fusi_dataarray's separate
+    # passing it as voxel_to_world) rather than create_voxeldata's separate
     # spacing/origin/direction lets `spatial_dims` be in any order, not just canonical
     # z/y/x (see _sitk_displacement_field_to_dataarray, same convention).
     voxel_to_world = np.eye(ndim + 1, dtype=np.float64)
     voxel_to_world[:-1, :-1] = direction * spacing
     voxel_to_world[:-1, -1] = origin
 
-    return create_fusi_dataarray(
+    return create_voxeldata(
         coefficients,
         dims=("component", *spatial_dims),
         extra_coords={"component": np.array(spatial_dims, dtype=np.str_)},
@@ -392,7 +392,7 @@ def sample_displacement_field_like(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    reference = ensure_fusi(
+    reference = ensure_voxeldata(
         reference,
         require_time=False,
         allow_pose=False,
@@ -540,16 +540,16 @@ def _sitk_displacement_field_to_dataarray(
 
     ndim = len(dims)
     direction_matrix = np.asarray(direction, dtype=np.float64).reshape(ndim, ndim)
-    # Direction and spacing compose the same way create_fusi_dataarray's own
+    # Direction and spacing compose the same way create_voxeldata's own
     # `direction` parameter does: each column of the (orthonormal) direction matrix
     # scaled by the corresponding axis spacing. Building the full affine directly (and
-    # passing it as voxel_to_world) rather than create_fusi_dataarray's separate
+    # passing it as voxel_to_world) rather than create_voxeldata's separate
     # spacing/origin/direction lets `dims` be in any order, not just canonical z/y/x.
     voxel_to_world = np.eye(ndim + 1, dtype=np.float64)
     voxel_to_world[:-1, :-1] = direction_matrix * np.asarray(spacing, dtype=np.float64)
     voxel_to_world[:-1, -1] = origin
 
-    return create_fusi_dataarray(
+    return create_voxeldata(
         array,
         dims=("component", *dims),
         extra_coords={"component": np.array(dims, dtype=np.str_)},

@@ -132,7 +132,7 @@ class TestWriteNiftiWithDataArray:
 class TestWriteNiftiFromReconstruction:
     """Reconstructing from bare napari layer state (scale/translate/units) can never
     carry ConfUSIus-specific acquisition-timing attrs -- a plain napari layer has no
-    concept of them -- so the writer's own `ensure_fusi` call always has to default
+    concept of them -- so the writer's own `ensure_voxeldata` call always has to default
     them here, unlike the "carries the original DataArray" path above.
     """
 
@@ -261,7 +261,7 @@ class TestWriteZarrWithDataArray:
 
 class TestWriteZarrFromReconstruction:
     """See `TestWriteNiftiFromReconstruction`'s docstring: reconstructing from bare
-    napari layer state always makes the writer's `ensure_fusi` call default the
+    napari layer state always makes the writer's `ensure_voxeldata` call default the
     acquisition-timing attrs, since a plain napari layer has no concept of them.
     """
 

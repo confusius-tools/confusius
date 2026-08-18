@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def make_glm_test_dataarray():
                 dims=("time",),
                 attrs={"units": "s"},
             )
-        return create_fusi_dataarray(
+        return create_voxeldata(
             data,
             dims=dims,
             time=coord_time,
@@ -63,7 +63,7 @@ def make_glm_test_dataarray():
 def fusi_data(rng, frame_times):
     """Small `(time, k, j, i)` DataArray with mm spatial coordinates."""
     n_time = len(frame_times)
-    return create_fusi_dataarray(
+    return create_voxeldata(
         rng.standard_normal((n_time, 2, 3, 4)),
         dims=("time", "k", "j", "i"),
         time=frame_times,
@@ -76,7 +76,7 @@ def fusi_data(rng, frame_times):
 def fusi_data_2d(rng, frame_times):
     """Small `(time, j, i)` DataArray (no `k` axis)."""
     n_time = len(frame_times)
-    return create_fusi_dataarray(
+    return create_voxeldata(
         rng.standard_normal((n_time, 5, 6)),
         dims=("time", "j", "i"),
         time=frame_times,
@@ -91,7 +91,7 @@ def spatial_maps(rng):
     maps = []
     for _ in range(10):
         maps.append(
-            create_fusi_dataarray(
+            create_voxeldata(
                 rng.standard_normal((2, 3, 4)),
                 dims=("k", "j", "i"),
                 spacing=(0.5, 0.1, 0.1),
@@ -122,7 +122,7 @@ def spatial_maps_2d(rng):
     maps = []
     for _ in range(8):
         maps.append(
-            create_fusi_dataarray(
+            create_voxeldata(
                 rng.standard_normal((5, 6)),
                 dims=("j", "i"),
                 spacing=(1.0, 0.1, 0.1),

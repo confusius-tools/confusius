@@ -547,7 +547,7 @@ def convert_autc_dats_to_zarr(
         World position of voxel index 0 in `(k, j, i)` order, in millimeters in the
         probe-relative coordinate system (origin at the center of the probe face). If
         not provided, defaults to the same probe-centered/surface-referenced
-        convention as [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]:
+        convention as [`create_voxeldata`][confusius.xarray.create_voxeldata]:
         elevation and lateral centered on the probe, depth referenced to the probe
         surface.
     transmit_frequency : float, optional

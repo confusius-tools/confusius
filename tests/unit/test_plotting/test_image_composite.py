@@ -7,7 +7,7 @@ import xarray as xr
 
 from confusius.plotting import VolumePlotter, plot_composite
 from confusius.plotting._utils import _materialize_axis_aligned_world_grid_for_display
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
 
@@ -70,7 +70,7 @@ class TestAddCompositeResample:
 
     def test_resamples_data2_onto_data1_grid(self, sample_fusi_3d, matplotlib_pyplot):
         data1 = sample_fusi_3d
-        data2 = create_fusi_dataarray(
+        data2 = create_voxeldata(
             np.linspace(0, 1, 3 * 4 * 5).reshape(3, 4, 5),
             dims=["k", "j", "i"],
             spacing=(0.3, 0.2, 0.1),
@@ -157,7 +157,7 @@ class TestAddCompositeResampleKwargs:
         # Use data1's central x-slice only, forcing out-of-FOV voxels on resample.
         x = _world_coord_1d(sample_fusi_3d, "x")
         x_sub = x[len(x) // 4 : 3 * len(x) // 4]
-        data2 = create_fusi_dataarray(
+        data2 = create_voxeldata(
             np.full(
                 (sample_fusi_3d.sizes["k"], sample_fusi_3d.sizes["j"], len(x_sub)),
                 fill_value=5.0,
@@ -349,7 +349,7 @@ def _create_deterministic_composite_pair():
     # slices peak at 0.1, 0.3, and 0.05 respectively.
     base1 = rng.random(shape)
     per_slice_scale = np.array([0.1, 0.3, 1.0, 0.05])
-    data1 = create_fusi_dataarray(
+    data1 = create_voxeldata(
         base1 * per_slice_scale[:, None, None],
         dims=["k", "j", "i"],
         spacing=(0.1, 0.05, 0.05),
@@ -360,7 +360,7 @@ def _create_deterministic_composite_pair():
     # data2 spans roughly [0, 4] — about 4x data1's full-volume range — so the
     # shared scale compresses data1 noticeably while data2 stays bright.
     base2 = rng.random(shape)
-    data2 = create_fusi_dataarray(
+    data2 = create_voxeldata(
         base2 * 4.0,
         dims=["k", "j", "i"],
         spacing=(0.1, 0.05, 0.05),

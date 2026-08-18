@@ -558,7 +558,7 @@ class TestFirstLevelModelErrors:
             ("time", "k", "j", "i"),
             time=frame_times,
         )
-        # create_fusi_dataarray always canonicalizes to (k, j, i), so a mask missing
+        # create_voxeldata always canonicalizes to (k, j, i), so a mask missing
         # a spatial dim can no longer be built through it; build the mismatch (wrong
         # dim order) via attach_voxel_to_world_index directly instead, which
         # still carries real voxel-to-world geometry but doesn't reorder dims.

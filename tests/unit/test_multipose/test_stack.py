@@ -6,14 +6,14 @@ import xarray as xr
 
 from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius.multipose import stack_poses
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 def _make_pose(affine: np.ndarray, *, time: np.ndarray | None = None) -> xr.DataArray:
     """Build one single-pose VoxelData DataArray."""
     shape = (2, 3, 4) if time is None else (len(time), 2, 3, 4)
     dims = ("k", "j", "i") if time is None else ("time", "k", "j", "i")
-    return create_fusi_dataarray(
+    return create_voxeldata(
         np.zeros(shape),
         dims=dims,
         time=time,

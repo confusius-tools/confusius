@@ -311,7 +311,7 @@ class SecondLevelModel(BaseEstimator):
         second_level_input: list[xr.DataArray] | list[FirstLevelModel],
         first_level_contrast: str | npt.NDArray[np.floating] | None,
     ) -> list[xr.DataArray]:
-        """Resolve second_level_input to a list of VoxelData-compatible DataArrays.
+        """Resolve second_level_input to a list of VoxelData arrays.
 
         Parameters
         ----------
@@ -323,7 +323,7 @@ class SecondLevelModel(BaseEstimator):
         Returns
         -------
         list of xarray.DataArray
-            VoxelData-compatible contrast maps ready for fitting.
+            VoxelData arrays ready for fitting.
 
         Raises
         ------

@@ -4,7 +4,7 @@ An atlas world-to-base transform is a *pull* transform, following the same conve
 as `confusius.registration`: it maps a point in the atlas's world space back to its
 base (BrainGlobe OBJ) world space. Affine transforms are homogeneous `(4, 4)` matrices;
 nonlinear transforms are B-spline or dense displacement-field DataArrays -- the latter
-VoxelData-compatible DataArrays (voxel-to-world index, always axis-aligned) with an
+VoxelData arrays (voxel-to-world index, always axis-aligned) with an
 extra leading `component` dim, labeled by native voxel dim name (matching the convention
 `confusius.registration.bspline` uses): component `k`/`j`/`i` displaces along that
 axis's world direction.
@@ -24,7 +24,7 @@ from confusius._utils.geometry import (
     has_voxel_to_world_index,
 )
 from confusius.registration.bspline import sample_displacement_field_like
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 WorldToBaseTransform = npt.NDArray[np.float64] | xr.DataArray
 """Pull transform mapping the atlas's world coordinates back to base atlas space.
@@ -182,7 +182,7 @@ def _compose_world_to_base_transforms(
         len(dims), *new_reference.shape
     )
 
-    # A displacement field is a VoxelData-compatible DataArray (voxel-to-world index,
+    # A displacement field is a VoxelData array (voxel-to-world index,
     # always axis-aligned here) with an extra leading `component` dim, matching the
     # convention
     # `sample_displacement_field`/`_sitk_displacement_field_to_dataarray` already use:
@@ -194,7 +194,7 @@ def _compose_world_to_base_transforms(
     voxel_to_world = np.eye(len(dims) + 1, dtype=np.float64)
     voxel_to_world[:-1, :-1] = np.diag(grid_info["spacing"])
     voxel_to_world[:-1, -1] = grid_info["origin"]
-    return create_fusi_dataarray(
+    return create_voxeldata(
         displacement,
         dims=("component", *voxel_dims),
         extra_coords={"component": np.array(voxel_dims, dtype=np.str_)},
@@ -211,7 +211,7 @@ def _interpolate_displacement_field(
     Parameters
     ----------
     field : xarray.DataArray
-        Dense displacement field: VoxelData-compatible DataArray (voxel dims
+        Dense displacement field: VoxelData array (voxel dims
         `k`/`j`/`i` + a voxel-to-world index, always axis-aligned -- see
         [sample_displacement_field][confusius.registration.bspline.sample_displacement_field])
         with an extra leading `component` dimension.

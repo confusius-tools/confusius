@@ -384,7 +384,7 @@ for nii in sorted((bids_root / "sub-CR020").rglob("*_pwd.nii.gz")):
 ```
 
 See the [I/O guide](io.md) for loading NIfTI, Zarr, and Iconeus SCAN files into
-VoxelData-compatible DataArrays.
+VoxelData arrays.
 
 ### Refreshing the Dataset Index
 

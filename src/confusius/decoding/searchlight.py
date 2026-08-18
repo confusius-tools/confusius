@@ -1,4 +1,4 @@
-"""Searchlight decoding for VoxelData-compatible DataArrays.
+"""Searchlight decoding for VoxelData arrays.
 
 Portions of this module are inspired by `nilearn.decoding.searchlight`, which is
 licensed under the BSD-3-Clause License. See `NOTICE` for details.
@@ -37,7 +37,7 @@ from confusius._utils.geometry import get_voxel_to_world_coord_names
 from confusius._utils.io import is_h5py_backed
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask, unmask
-from confusius.validation import ensure_fusi, validate_mask
+from confusius.validation import ensure_voxeldata, validate_mask
 
 
 def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
@@ -367,7 +367,7 @@ class SearchLight(BaseEstimator):
 
     This estimator wraps scikit-learn while keeping xarray metadata:
 
-    - Input data must be a VoxelData-compatible DataArray with dims
+    - Input data must be a VoxelData array with dims
       `(time, k, j, i)` (a real `VoxelToWorldIndex`, no `pose` or extra dimensions).
     - The `time` dimension is the sample axis. It need not be temporally ordered. For
       trial-averaged data, rename the trial dimension with `.rename(trial="time")`.
@@ -451,10 +451,10 @@ class SearchLight(BaseEstimator):
     >>> import numpy as np
     >>> from sklearn.linear_model import Ridge
     >>> from confusius.decoding import SearchLight
-    >>> from confusius.xarray import create_fusi_dataarray
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> rng = np.random.default_rng(0)
-    >>> data = create_fusi_dataarray(
+    >>> data = create_voxeldata(
     ...     rng.standard_normal((40, 1, 5, 5)),
     ...     dims=("time", "k", "j", "i"),
     ...     dt=0.5,
@@ -501,7 +501,7 @@ class SearchLight(BaseEstimator):
         Parameters
         ----------
         X : (time, k, j, i) xarray.DataArray
-            VoxelData-compatible DataArray. The `time` dimension is the sample axis.
+            VoxelData array. The `time` dimension is the sample axis.
         y : (n_samples,) array-like or xarray.DataArray
             Targets aligned with `X`'s `time` axis.
         groups : (n_samples,) array-like, optional
@@ -516,7 +516,7 @@ class SearchLight(BaseEstimator):
         Raises
         ------
         ValueError
-            If `X` is h5py-backed, is not a VoxelData-compatible DataArray with dims
+            If `X` is h5py-backed, is not a VoxelData array with dims
             `(time, k, j, i)`, or lacks a `VoxelToWorldIndex`; if `radius` is negative; if `mask` or
             `process_mask` lacks a `VoxelToWorldIndex`; if `process_mask` is not a
             subset of `mask`; if `y` or `groups` do not align with `X`; or if the masked
@@ -539,7 +539,7 @@ class SearchLight(BaseEstimator):
                 "data first."
             )
 
-        X_ordered = ensure_fusi(
+        X_ordered = ensure_voxeldata(
             X,
             require_time=True,
             require_unchunked_time=True,

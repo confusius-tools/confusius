@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius.xarray import create_fusi_dataarray, create_iq_dataarray
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
@@ -62,7 +62,7 @@ def sample_iq_dataarray(rng):
     shape = (20, 4, 6, 8)
     data = rng.random(shape) + 1j * rng.random(shape)
 
-    return create_iq_dataarray(
+    return create_voxeldata(
         data,
         dims=("time", "k", "j", "i"),
         time=xr.DataArray(
@@ -87,7 +87,7 @@ def sample_iq_dataarray(rng):
 @pytest.fixture
 def mismatched_spatial_mask_xarray(sample_iq_dataarray, spatial_mask):
     """Boolean spatial mask with valid geometry but mismatched `k` coordinates."""
-    return create_fusi_dataarray(
+    return create_voxeldata(
         spatial_mask,
         dims=("k", "j", "i"),
         spacing=(0.1, 0.05, 0.05),

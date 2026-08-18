@@ -21,7 +21,7 @@ from confusius.io._utils import (
     restore_affines_in_attrs,
 )
 from confusius.io.utils import check_path
-from confusius.validation import ensure_fusi
+from confusius.validation import ensure_voxeldata
 
 
 def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.DataArray:
@@ -36,7 +36,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
       [`save`][confusius.io.save] (identified by `attrs["voxel_to_world"]`); for an
       arbitrary/foreign Zarr store, use [`xarray.open_zarr`][xarray.open_zarr] directly
       and build a VoxelData array yourself (e.g. via
-      [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]).
+      [`create_voxeldata`][confusius.xarray.create_voxeldata]).
 
     If `attrs["rgb_lookup"]` is present but `attrs["cmap"]`/`attrs["norm"]` are missing
     (as happens after a save/load round-trip, since matplotlib colormap/norm objects are
@@ -44,7 +44,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm] so
     atlas-derived masks and annotations keep their canonical colors after reload.
 
-    A Zarr-saved VoxelData-compatible DataArray stores `attrs["voxel_to_world"]`
+    A Zarr-saved VoxelData array stores `attrs["voxel_to_world"]`
     instead of dense `z`/`y`/`x` coordinate arrays (see
     [`save`][confusius.io.save]); this rebuilds the world coordinates and
     `VoxelToWorldIndex` from that affine.
@@ -62,7 +62,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     Returns
     -------
     xarray.DataArray
-        Loaded VoxelData-compatible DataArray.
+        Loaded VoxelData array.
 
     Raises
     ------
@@ -122,7 +122,7 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
     Parameters
     ----------
     data_array : xarray.DataArray
-        VoxelData-compatible DataArray to save.
+        VoxelData array to save.
     path : str or pathlib.Path
         Output path. The extension determines the format.
     **kwargs
@@ -140,10 +140,10 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         _nifti.save_nifti(data_array, path, **kwargs)
         return
     if name.endswith(".zarr"):
-        # ensure_fusi always returns a voxel-to-world-indexed DataArray (validate_fusi
+        # ensure_voxeldata always returns a voxel-to-world-indexed DataArray (validate_voxeldata
         # unconditionally requires the index), so this always stores geometry as
         # attrs["voxel_to_world"] rather than dense z/y/x coordinate arrays.
-        data_array = ensure_fusi(data_array)
+        data_array = ensure_voxeldata(data_array)
         data_array = data_array.copy(deep=False)
         voxel_to_world = get_voxel_to_world_affine(data_array)
         world_coord_names = get_voxel_to_world_coord_names(data_array)

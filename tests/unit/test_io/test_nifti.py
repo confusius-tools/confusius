@@ -15,13 +15,13 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
 )
 from confusius.io.nifti import load_nifti, save_nifti
-from confusius.xarray import create_fusi_dataarray as _create_fusi_dataarray
+from confusius.xarray import create_voxeldata as _create_voxeldata
 from confusius.xarray.affine import apply_affine
 
 _WORLD_TO_VOXEL_DIM = {"z": "k", "y": "j", "x": "i"}
 
 
-def create_fusi_dataarray(
+def create_voxeldata(
     data,
     dims,
     coords=None,
@@ -31,7 +31,7 @@ def create_fusi_dataarray(
 
     Accepts `dims` in either world (`z`/`y`/`x`) or native voxel (`k`/`j`/`i`) names
     for caller convenience -- this test-only wrapper remaps to voxel names before
-    calling the real `create_fusi_dataarray`, which requires them.
+    calling the real `create_voxeldata`, which requires them.
     """
     coords = dict(coords or {})
     time = coords.get("time")
@@ -64,7 +64,7 @@ def create_fusi_dataarray(
     kwargs.pop("canonical_order", None)
     voxel_dims = tuple(_WORLD_TO_VOXEL_DIM.get(dim, dim) for dim in dims)
     if "voxel_to_world" in kwargs:
-        return _create_fusi_dataarray(
+        return _create_voxeldata(
             data,
             dims=voxel_dims,
             time=time,
@@ -72,7 +72,7 @@ def create_fusi_dataarray(
             extra_coords=extra_coords,
             **kwargs,
         )
-    return _create_fusi_dataarray(
+    return _create_voxeldata(
         data,
         dims=voxel_dims,
         time=time,
@@ -165,7 +165,7 @@ class TestLoadNifti:
     def test_load_2d_nifti(self, nifti_2d_path: tuple[Path, np.ndarray]) -> None:
         """Loading 2D NIfTI pads the missing spatial dim to a canonical singleton `k`.
 
-        `create_fusi_dataarray` (the single construction path `load_nifti` now
+        `create_voxeldata` (the single construction path `load_nifti` now
         uses whenever 2 or 3 spatial dims are present) always builds the full
         canonical `k`/`j`/`i` array, so a genuinely 2D scan gains a size-1 `k`.
         """
@@ -415,7 +415,7 @@ class TestLoadNifti:
 
         ConfUSIus world coordinates are always mm; every canonical DataArray carries
         `units` on its world coordinates (see
-        [ensure_fusi][confusius.validation.ensure_fusi]), regardless of what a source
+        [ensure_voxeldata][confusius.validation.ensure_voxeldata]), regardless of what a source
         NIfTI file's header does or doesn't declare.
         """
         data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
@@ -650,7 +650,7 @@ class TestLoadNifti:
         with pytest.warns(UserWarning, match="cannot be inferred"):
             loaded = load_nifti(path)
 
-        # `create_fusi_dataarray` would otherwise backfill a missing duration from
+        # `create_voxeldata` would otherwise backfill a missing duration from
         # the time coordinate's own regular spacing (the repetition time) -- exactly
         # the guess just declined above as unsafe (the actual acquisition duration is
         # unknown, not equal to the repetition time). `load_nifti` strips that
@@ -1142,7 +1142,7 @@ class TestLoadNifti:
         with pytest.warns(UserWarning, match="sform_code and qform_code are 0"):
             da = load_nifti(nifti_path)
 
-        # `create_fusi_dataarray` pads the missing spatial dim to a canonical
+        # `create_voxeldata` pads the missing spatial dim to a canonical
         # singleton `k`, so `z` is present (with default units) even though only
         # 2 spatial dims were declared in the NIfTI header.
         assert da.dims == ("k", "j", "i")
@@ -1374,7 +1374,7 @@ class TestLoadNifti:
     ) -> None:
         """A genuinely 1D NIfTI (only `i`) is still a canonical, indexed array.
 
-        `load_nifti` always builds through `create_fusi_dataarray`, which pads
+        `load_nifti` always builds through `create_voxeldata`, which pads
         any missing `k`/`j`/`i` to a singleton -- every loaded array ends up
         indexed, regardless of how many spatial dims the file actually has.
         """
@@ -1434,7 +1434,7 @@ class TestSaveNifti:
 
     def test_save_rejects_pose_dimension(self, tmp_path) -> None:
         """A `pose` dimension is rejected; NIfTI has only one spatial qform/sform."""
-        da = _create_fusi_dataarray(
+        da = _create_voxeldata(
             np.zeros((2, 2, 3, 4)),
             dims=("pose", "k", "j", "i"),
             spacing=(1.0, 1.0, 1.0),
@@ -1448,7 +1448,7 @@ class TestSaveNifti:
     def test_save_2d_dataarray(self, tmp_path) -> None:
         """Saving 2D DataArray inserts only the missing spatial axis."""
         data = np.random.default_rng(0).random((6, 8)).astype(np.float32)
-        da = create_fusi_dataarray(data, dims=["y", "x"])
+        da = create_voxeldata(data, dims=["y", "x"])
 
         output_path = tmp_path / "output_2d.nii.gz"
         save_nifti(da, output_path)
@@ -1463,7 +1463,7 @@ class TestSaveNifti:
     def test_save_3d_dataarray(self, tmp_path):
         """Saving 3D DataArray keeps the payload 3D on disk."""
         data = np.random.default_rng(0).random((6, 8, 10)).astype(np.float32)
-        da = create_fusi_dataarray(data, dims=["z", "y", "x"])
+        da = create_voxeldata(data, dims=["z", "y", "x"])
 
         output_path = tmp_path / "output_3d.nii"
         save_nifti(da, output_path)
@@ -1479,7 +1479,7 @@ class TestSaveNifti:
     def test_save_4d_dataarray(self, tmp_path):
         """Saving 4D DataArray creates valid NIfTI file."""
         data = np.random.default_rng(0).random((4, 6, 8, 10)).astype(np.float32)
-        da = create_fusi_dataarray(data, dims=["time", "z", "y", "x"])
+        da = create_voxeldata(data, dims=["time", "z", "y", "x"])
 
         output_path = tmp_path / "output_4d.nii.gz"
         save_nifti(da, output_path)
@@ -1495,7 +1495,7 @@ class TestSaveNifti:
     def test_save_5d_dataarray_preserves_extra_dim_order(self, tmp_path) -> None:
         """Saving with an extra non-standard dim keeps it after `time` in NIfTI order."""
         data = np.arange(2 * 4 * 3 * 5 * 6, dtype=np.float32).reshape(2, 4, 3, 5, 6)
-        da = create_fusi_dataarray(data, dims=["channel", "time", "z", "y", "x"])
+        da = create_voxeldata(data, dims=["channel", "time", "z", "y", "x"])
 
         output_path = tmp_path / "output_5d.nii.gz"
         save_nifti(da, output_path)
@@ -1513,7 +1513,7 @@ class TestSaveNifti:
     def test_save_4d_no_time_writes_dim4_sidecar(self, tmp_path) -> None:
         """Saving a 4D non-time payload writes a 5D NIfTI with degenerate time and `ConfUSIusDim4Name`."""
         data = np.arange(3 * 4 * 5 * 6, dtype=np.float64).reshape(3, 4, 5, 6)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["component", "z", "y", "x"],
             coords={
@@ -1547,7 +1547,7 @@ class TestSaveNifti:
     ) -> None:
         """Missing spatial axes are inserted as singletons on save and preserved on load."""
         data = np.arange(3 * 4 * 6, dtype=np.float32).reshape(3, 4, 6)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["component", "z", "x"],
             coords={
@@ -1574,7 +1574,7 @@ class TestSaveNifti:
     def test_save_string_extra_coord_roundtrips_through_sidecar(self, tmp_path) -> None:
         """String-valued extra-dim coordinates roundtrip through the JSON sidecar."""
         data = np.zeros((3, 4, 6, 8), dtype=np.float32)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["component", "z", "y", "x"],
             coords={
@@ -1597,7 +1597,7 @@ class TestSaveNifti:
     def test_save_irregular_extra_coord_writes_dim_coordinates(self, tmp_path) -> None:
         """When the extra coord cannot be recovered from `pixdim`, the sidecar stores the values."""
         data = np.zeros((2, 4, 8, 10), dtype=np.float32)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["channel", "z", "y", "x"],
             coords={
@@ -1620,7 +1620,7 @@ class TestSaveNifti:
     def test_save_constant_extra_coord_writes_dim_coordinates(self, tmp_path) -> None:
         """A constant extra-dim coord has a zero step, so the sidecar stores the values."""
         data = np.zeros((3, 4, 6, 8), dtype=np.float32)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["component", "z", "y", "x"],
             coords={
@@ -1651,7 +1651,7 @@ class TestSaveNifti:
     def test_save_singleton_extra_coord_roundtrips(self, tmp_path) -> None:
         """A singleton extra-dim coord is treated as vacuously regular and roundtrips."""
         data = np.zeros((1, 4, 6, 8), dtype=np.float32)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["component", "z", "y", "x"],
             coords={
@@ -1678,7 +1678,7 @@ class TestSaveNifti:
         `load_nifti`.
         """
         data = np.zeros((0, 4, 6, 8), dtype=np.float32)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["component", "z", "y", "x"],
             coords={
@@ -1705,7 +1705,7 @@ class TestSaveNifti:
         self, tmp_path
     ) -> None:
         """Extra-dim coordinate attrs are preserved through the JSON sidecar."""
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             np.zeros((2, 4, 8, 10), dtype=np.float32),
             dims=["channel", "z", "y", "x"],
             coords={
@@ -1739,7 +1739,7 @@ class TestSaveNifti:
     def test_save_5d_with_time_writes_dim4_sidecar(self, tmp_path) -> None:
         """Saving a 5D payload with `time` writes `ConfUSIusDim4Name` (1st extra)."""
         data = np.arange(2 * 6 * 4 * 8 * 10, dtype=np.float32).reshape(2, 6, 4, 8, 10)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["channel", "time", "z", "y", "x"],
             coords={
@@ -1764,7 +1764,7 @@ class TestSaveNifti:
         self, tmp_path
     ) -> None:
         """Regular zero-based negative extra coords use signed `pixdim`, not sidecar values."""
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             np.zeros((3, 4, 8, 10), dtype=np.float32),
             dims=["channel", "z", "y", "x"],
             coords={
@@ -1794,7 +1794,7 @@ class TestSaveNifti:
     def test_save_too_many_extras_raises(self, tmp_path) -> None:
         """Saving more extra dims than NIfTI supports raises ValueError."""
         data = np.zeros((2, 2, 2, 2, 4, 8, 10), dtype=np.float32)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["a", "b", "c", "d", "z", "y", "x"],
             coords={
@@ -1814,7 +1814,7 @@ class TestSaveNifti:
     def test_save_three_extras_no_time_ok(self, tmp_path) -> None:
         """3 extras without `time` is allowed (uses NIfTI axes 4, 5, 6)."""
         data = np.zeros((2, 2, 2, 4, 8, 10), dtype=np.float32)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["a", "b", "c", "z", "y", "x"],
             coords={
@@ -1838,7 +1838,7 @@ class TestSaveNifti:
     def test_save_three_extras_with_time_ok(self, tmp_path) -> None:
         """3 extras with `time` fit NIfTI's 7-axis limit (uses NIfTI axes 4, 5, 6)."""
         data = np.zeros((2, 2, 2, 6, 4, 8, 10), dtype=np.float32)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["a", "b", "c", "time", "z", "y", "x"],
             coords={
@@ -1864,7 +1864,7 @@ class TestSaveNifti:
         self, tmp_path
     ) -> None:
         """Regular negative spatial coords round-trip through the NIfTI affine."""
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             np.zeros((2, 3, 4), dtype=np.float32),
             dims=["z", "y", "x"],
             voxel_to_world=np.diag([1.0, 1.0, -1.0, 1.0]),
@@ -1882,7 +1882,7 @@ class TestSaveNifti:
         """Saving a DataArray with non-uniform coordinate spacing emits a warning."""
         data = np.random.default_rng(0).random((4, 2, 3)).astype(np.float32)
         with pytest.raises(ValueError, match="Spacing for dimension 'z'"):
-            create_fusi_dataarray(
+            create_voxeldata(
                 data,
                 dims=["z", "y", "x"],
                 coords={
@@ -2104,7 +2104,7 @@ class TestSaveNifti:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             np.zeros((4, 3, 2), dtype=np.float32),
             dims=["z", "y", "x"],
             coords={
@@ -2239,7 +2239,7 @@ class TestSaveNifti:
     def test_save_regular_center_reference_converts_delay_to_onset(self, tmp_path):
         """Regular timings with center reference are written as onset-based BIDS timings."""
         time_values = np.array([0.5, 1.0, 1.5, 2.0])
-        original = create_fusi_dataarray(
+        original = create_voxeldata(
             np.random.default_rng(0).random((4, 2, 2, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={
@@ -2269,7 +2269,7 @@ class TestSaveNifti:
     ):
         """Irregular timings with end reference are written as onset-based VolumeTiming."""
         time_values = np.array([1.0, 2.5, 3.8, 5.6])
-        original = create_fusi_dataarray(
+        original = create_voxeldata(
             np.random.default_rng(0).random((4, 2, 2, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={
@@ -2702,7 +2702,7 @@ class TestSaveNifti:
         data = np.zeros((4, 3, 2), dtype=np.float32)
         selected_affine = np.diag([1.0, 1.0, 1.0, 1.0])
         different_affine = np.diag([9.0, 9.0, 9.0, 1.0])
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2728,7 +2728,7 @@ class TestSaveNifti:
         """When `qform` is omitted, `world_to_qform` is used if present."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
         world_to_qform = np.eye(4)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2757,7 +2757,7 @@ class TestSaveNifti:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2791,7 +2791,7 @@ class TestSaveNifti:
         """Providing `sform=` writes a sform with code=2 (ALIGNED_ANAT) by default."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
         world_to_sform = np.diag([2.0, 2.0, 2.0, 1.0])
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2811,7 +2811,7 @@ class TestSaveNifti:
         """sform_code= kwarg takes precedence over attrs['sform_code']."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
         world_to_sform = np.diag([1.0, 1.0, 1.0, 1.0])
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2833,7 +2833,7 @@ class TestSaveNifti:
     def test_explicit_qform_code_kwarg_overrides_attrs(self, tmp_path):
         """qform_code= kwarg takes precedence over attrs['qform_code']."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2853,7 +2853,7 @@ class TestSaveNifti:
         """qform_code and sform_code from attrs are written when no kwarg is given."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
         world_to_sform = np.diag([1.0, 1.0, 1.0, 1.0])
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2877,7 +2877,7 @@ class TestSaveNifti:
     def test_invalid_qform_key_raises(self, tmp_path):
         """Selecting a missing qform key raises a clear error."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2901,7 +2901,7 @@ class TestSaveNifti:
         written -- falling back to `voxel_to_world` directly with code=2
         (ALIGNED_ANAT), same as qform's own fallback."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2923,12 +2923,12 @@ class TestSaveNifti:
     ) -> None:
         """Saving a DataArray built without an explicit middle voxel dim inserts it as size 1.
 
-        `create_fusi_dataarray` canonicalizes `dims=("k", "i")` (missing `j`, unlike
+        `create_voxeldata` canonicalizes `dims=("k", "i")` (missing `j`, unlike
         `test_save_2d_dataarray`'s missing-leading-dim case) by inserting `j` as a
         singleton at construction time -- every canonical fUSI DataArray carries all
         three voxel dims, so `save_nifti` never sees a genuinely dim-less input.
         """
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             np.arange(4 * 6, dtype=np.float32).reshape(4, 6), dims=("k", "i")
         )
         assert da.sizes["j"] == 1
@@ -3081,7 +3081,7 @@ class TestRoundtrip:
         """Regular time coord roundtrips via RepetitionTime/DelayAfterTrigger."""
         time_values = np.array([0.5, 1.0, 1.5, 2.0])  # TR=0.5, delay=0.5
         rng = np.random.default_rng(0)
-        original = create_fusi_dataarray(
+        original = create_voxeldata(
             rng.random((4, 6, 4, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={"time": time_values},
@@ -3106,7 +3106,7 @@ class TestRoundtrip:
         """Regular time coord starting at 0 omits DelayAfterTrigger."""
         time_values = np.array([0.0, 0.5, 1.0, 1.5])  # TR=0.5, no delay
         rng = np.random.default_rng(0)
-        original = create_fusi_dataarray(
+        original = create_voxeldata(
             rng.random((4, 6, 4, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={"time": time_values},
@@ -3177,7 +3177,7 @@ class TestRoundtrip:
     def test_save_regular_timing_writes_delay_time_from_duration(self, tmp_path):
         """Regular timing exports dead time when TR exceeds acquisition duration."""
         rng = np.random.default_rng(0)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             rng.random((4, 4, 3, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={
@@ -3215,7 +3215,7 @@ class TestRoundtrip:
     def test_save_warns_when_time_reference_is_missing(self, tmp_path):
         """Saving warns when time reference metadata is absent and onset is assumed."""
         rng = np.random.default_rng(0)
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             rng.random((4, 4, 3, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={
@@ -3243,7 +3243,7 @@ class TestRoundtrip:
         """Irregular time coord roundtrips via VolumeTiming; pixdim[4] is 0."""
         time_values = np.array([0.0, 1.5, 2.8, 4.6])  # non-uniform spacing
         rng = np.random.default_rng(0)
-        original = create_fusi_dataarray(
+        original = create_voxeldata(
             rng.random((4, 6, 4, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={
@@ -3325,7 +3325,7 @@ class TestRoundtrip:
         )
 
         nifti_path = tmp_path / "approx_frame_duration.nii.gz"
-        # `ensure_fusi` (called at `save_nifti` entry) infers the missing
+        # `ensure_voxeldata` (called at `save_nifti` entry) infers the missing
         # `volume_acquisition_duration` from the median `time` spacing before
         # nifti.py's own equivalent fallback ever runs; the non-uniform-sampling
         # warning is unrelated and still fires normally.

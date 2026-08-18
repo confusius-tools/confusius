@@ -13,7 +13,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
 )
 from confusius.io.loadsave import load, save
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
@@ -134,7 +134,7 @@ class TestSaveDispatch:
                 ),
             ]
         )
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             np.arange(2 * 2 * 3 * 4).reshape(2, 2, 3, 4),
             dims=("pose", "k", "j", "i"),
             voxel_to_world=affine,
@@ -249,7 +249,7 @@ class TestLoadZarr:
     @pytest.fixture
     def single_var_zarr(self, tmp_path):
         """Zarr store with one variable, written via confusius.io.save()."""
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             np.zeros((4, 3, 2)),
             dims=("k", "j", "i"),
             spacing=(1.0, 1.0, 1.0),
@@ -264,13 +264,13 @@ class TestLoadZarr:
         """Zarr store with two variables, each canonical (attrs['voxel_to_world'] set
         the same way confusius.io.save() would, since save() only writes one variable
         per store)."""
-        power = create_fusi_dataarray(
+        power = create_voxeldata(
             np.ones((4, 3, 2)),
             dims=("k", "j", "i"),
             spacing=(1.0, 1.0, 1.0),
             name="power",
         )
-        iq = create_fusi_dataarray(
+        iq = create_voxeldata(
             np.zeros((4, 3, 2)),
             dims=("k", "j", "i"),
             spacing=(1.0, 1.0, 1.0),
@@ -325,7 +325,7 @@ class TestLoadRestoresAtlasCmapAndNorm:
     @pytest.fixture
     def atlas_like_zarr(self, tmp_path):
         """Zarr store mimicking an Atlas annotation: rgb_lookup present, no cmap/norm."""
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             np.array([[[0, 1], [2, 1]]], dtype=np.int32),
             dims=("k", "j", "i"),
             spacing=(1.0, 1.0, 1.0),

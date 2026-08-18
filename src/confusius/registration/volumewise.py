@@ -12,7 +12,7 @@ from confusius._utils.io import is_h5py_backed
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
-from confusius.validation import ensure_fusi
+from confusius.validation import ensure_voxeldata
 
 if TYPE_CHECKING:
     from threading import Event
@@ -50,7 +50,7 @@ def register_volumewise(
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData-compatible DataArray with a `time` dimension to register.
+        VoxelData array with a `time` dimension to register.
     reference_time : int, default: 0
         Index of the time point to use as registration target.
     n_jobs : int, default: -1
@@ -189,7 +189,7 @@ def register_volumewise(
         )
 
     data_moved = data.transpose("time", ...)
-    data_moved = ensure_fusi(
+    data_moved = ensure_voxeldata(
         data_moved,
         require_time=True,
         allow_pose=False,

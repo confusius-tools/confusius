@@ -207,11 +207,11 @@ spatial coordinates as singleton dimensions before validating the data. For exam
 resampling APIs. Dimension-generic operations such as smoothing preserve the indexed
 shape.
 
-## Creating VoxelData-compatible DataArrays from Raw Arrays
+## Creating VoxelData arrays from Raw Arrays
 
-Use [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] when you already
-have a NumPy, Dask, or array-like object and want to create a VoxelData-compatible
-DataArray. This is useful when you have raw data from a custom acquisition system or a
+Use [`create_voxeldata`][confusius.xarray.create_voxeldata] when you already
+have a NumPy, Dask, or array-like object and want to create a VoxelData
+array. This is useful when you have raw data from a custom acquisition system or a
 non-standard file format. The function will attach VoxelData dimensions, coordinates,
 and metadata. Dimensions can be supplied in any order; the result is canonicalized to
 native `(time, k, j, i)` order:
@@ -219,7 +219,7 @@ native `(time, k, j, i)` order:
 ```python
 import confusius as cf
 
-recording = cf.create_fusi_dataarray(
+recording = cf.create_voxeldata(
     raw_power,  # shape: (time, k, j, i)
     dims=("time", "k", "j", "i"),
     dt=0.6,  # seconds
@@ -235,7 +235,7 @@ for the missing dimension in `spacing`, since a fUSI slice still has a physical
 thickness in the missing dimension.
 
 ```python
-single_slice = cf.create_fusi_dataarray(
+single_slice = cf.create_voxeldata(
     raw_power,  # shape: (time, j, i)
     dims=("time", "j", "i"),
     dt=0.6,
@@ -247,13 +247,13 @@ Acquisition metadata that describes the whole recording belongs in the DataArray
 `attrs`. Coordinate metadata such as `units` is added automatically.
 
 For beamformed IQ data, use
-[`create_iq_dataarray`][confusius.xarray.create_iq_dataarray] instead. It use
-[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] under the hood, but
+[`create_voxeldata`][confusius.xarray.create_voxeldata] instead. It use
+[`create_voxeldata`][confusius.xarray.create_voxeldata] under the hood, but
 also adds IQ-specific metadata such as `transmit_frequency` and
 `beamforming_sound_velocity`:
 
 ```python
-iq = cf.create_iq_dataarray(
+iq = cf.create_voxeldata(
     raw_iq,  # shape: (time, j, i)
     dims=("time", "j", "i"),
     dt=1 / 500,
@@ -265,7 +265,7 @@ iq = cf.create_iq_dataarray(
 
 ## The `.fusi` Accessor
 
-Most of the functions you have seen so far (`cf.load`, `create_fusi_dataarray`, etc.)
+Most of the functions you have seen so far (`cf.load`, `create_voxeldata`, etc.)
 are module-level, imported explicitly from `confusius`. An **accessor** is Xarray's
 mechanism for attaching a custom namespace directly to a DataArray or Dataset instead,
 so related functionality is reachable straight off the data—for example,

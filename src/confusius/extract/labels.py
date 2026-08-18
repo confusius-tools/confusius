@@ -103,9 +103,9 @@ def extract_with_labels(
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData-compatible DataArray with native voxel dims `k`/`j`/`i` and a
+        VoxelData array with native voxel dims `k`/`j`/`i` and a
         `VoxelToWorldIndex`, plus any number of non-spatial dimensions (e.g.,
-        `time`, `pose`). See [`ensure_fusi`][confusius.validation.ensure_fusi].
+        `time`, `pose`). See [`ensure_voxeldata`][confusius.validation.ensure_voxeldata].
     labels : xarray.DataArray
         Integer label map sharing `data`'s voxel grid, in one of two formats:
 
@@ -139,7 +139,7 @@ def extract_with_labels(
     Raises
     ------
     ValueError
-        If `labels` or `data` isn't a VoxelData-compatible DataArray, if `labels`'s
+        If `labels` or `data` isn't a VoxelData array, if `labels`'s
         voxel grid doesn't match `data`'s, if `reduction` is not a valid option, or if
         `labels` contains no non-zero values.
     TypeError
@@ -155,16 +155,16 @@ def extract_with_labels(
     --------
     >>> import numpy as np
     >>> from confusius.extract import extract_with_labels
-    >>> from confusius.xarray import create_fusi_dataarray
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> # 3D+t data: (time, k, j, i)
-    >>> data = create_fusi_dataarray(
+    >>> data = create_voxeldata(
     ...     np.random.randn(100, 10, 20, 30),
     ...     dims=("time", "k", "j", "i"),
     ...     dt=0.5,
     ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> labels = create_fusi_dataarray(
+    >>> labels = create_voxeldata(
     ...     np.zeros((10, 20, 30), dtype=int),
     ...     dims=("k", "j", "i"),
     ...     spacing=(1.0, 1.0, 1.0),

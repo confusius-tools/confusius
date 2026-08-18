@@ -105,7 +105,7 @@ elevation slices per pose—translated across multiple regularly spaced position
 ### Other Systems
 
 For other fUSI systems, multi-pose data must be assembled manually: load or construct
-one VoxelData-compatible DataArray per pose, stack them along a new `pose` dimension,
+one VoxelData array per pose, stack them along a new `pose` dimension,
 and attach pose-dependent VoxelData geometry with a `(npose, 4, 4)` voxel-to-world
 affine stack.
 
@@ -139,7 +139,7 @@ poses were not acquired simultaneously.
 
 [`consolidate_poses`][confusius.multipose.consolidate_poses] merges the `pose` dimension
 and the sweep spatial dimension into a single axis with physically meaningful
-coordinates, producing a VoxelData-compatible DataArray.
+coordinates, producing a VoxelData array.
 [`consolidate_poses`][confusius.multipose.consolidate_poses] performs the following
 steps:
 
@@ -241,7 +241,7 @@ dimension.
 
 ### After Consolidation
 
-Once consolidated, a multi-pose VoxelData array is a VoxelData-compatible DataArray and can be
+Once consolidated, a multi-pose array is still a VoxelData array and can be
 saved to any format:
 
 ```python

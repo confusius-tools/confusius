@@ -39,7 +39,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
     `X` accepts two kinds of input, told apart via
     [`has_voxel_to_world_index`][confusius._utils.geometry.has_voxel_to_world_index]:
 
-    - A VoxelData-compatible DataArray (native voxel dims `k`/`j`/`i` and a
+    - A VoxelData array (native voxel dims `k`/`j`/`i` and a
       `VoxelToWorldIndex`). `mask` then selects voxels, and reconstruction
       (`inverse_transform`, `maps_`) restores the full `(k, j, i)` grid.
     - An already-extracted signals array, e.g. the `(time, region)` output of
@@ -75,7 +75,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input VoxelData-compatible DataArray or already-extracted signals array.
+            Input VoxelData array or already-extracted signals array.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
 
@@ -94,7 +94,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input VoxelData-compatible DataArray or already-extracted signals array.
+            Input VoxelData array or already-extracted signals array.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
         **fit_params : object
@@ -127,7 +127,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input VoxelData-compatible DataArray or already-extracted signals array with
+            Input VoxelData array or already-extracted signals array with
             the same spatial dimensions and sizes as the data used during fit.
 
         Returns
@@ -233,7 +233,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
     ) -> tuple[npt.NDArray[np.floating], tuple[str, ...], npt.NDArray[np.bool_]]:
         """Validate and stack time series data into a 2D feature matrix.
 
-        `X` may be a VoxelData-compatible DataArray (native voxel dims `k`/`j`/`i`
+        `X` may be a VoxelData array (native voxel dims `k`/`j`/`i`
         and a `VoxelToWorldIndex`) or an already-extracted signals array, e.g. the output
         of [`extract_with_labels`][confusius.extract.extract_with_labels] (`(time,
         region)`). [`select_masked_features`][confusius._utils.mask.select_masked_features]
@@ -242,7 +242,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: a VoxelData-compatible DataArray, or an already-extracted
+            Input data: a VoxelData array, or an already-extracted
             signals array.
         check_layout : bool
             Whether to check that the spatial dimensions and sizes match the fitted

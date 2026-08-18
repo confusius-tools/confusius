@@ -24,7 +24,7 @@ from confusius._utils.geometry import (
 from confusius._utils.stack import find_stack_level
 from confusius.io._utils import make_attrs_zarr_safe
 from confusius.io.utils import check_path
-from confusius.xarray.create import create_iq_dataarray
+from confusius.xarray.create import create_voxeldata
 
 
 class EchoFrameMetadata(TypedDict):
@@ -303,7 +303,7 @@ def load_echoframe_dat(
 ) -> xr.DataArray:
     """Load an EchoFrame DAT file as a lazy, ConfUSIus-ordered DataArray.
 
-    Beamformed IQ data is loaded as a VoxelData-compatible DataArray with voxel
+    Beamformed IQ data is loaded as a VoxelData array with voxel
     dimensions `(time, k, j, i)` and a voxel-to-world index deriving world coordinates
     `z`, `y`, `x`. Coordinates and acquisition metadata (e.g. `transmit_frequency`,
     `beamforming_sound_velocity`) are attached from the EchoFrame sequence parameter
@@ -329,7 +329,7 @@ def load_echoframe_dat(
     Returns
     -------
     xarray.DataArray
-        Lazy VoxelData-compatible DataArray with dimensions `(time, k, j, i)`, where
+        Lazy VoxelData array with dimensions `(time, k, j, i)`, where
         `k` is a singleton
         elevation dimension. Data is wrapped in a Dask array, chunked so that each
         chunk corresponds to one acquisition block's volumes; individual blocks
@@ -391,16 +391,16 @@ def load_echoframe_dat(
         "pulse_repetition_frequency": meta["pulse_repetition_frequency"],
         "beamforming_method": meta["beamforming_method"],
         "n_volumes_per_block": n_volumes_per_block,
+        "transmit_frequency": meta["transmit_frequency"],
+        "beamforming_sound_velocity": meta["beamforming_sound_velocity"],
     }
-    return create_iq_dataarray(
+    return create_voxeldata(
         iq,
         dims=(TIME_DIM, *VOXEL_DIMS),
         time=xr.DataArray(time_values, dims=["time"], attrs={"long_name": "Time"}),
         volume_acquisition_reference="start",
         volume_acquisition_duration=volume_acquisition_duration,
         voxel_to_world=voxel_to_world,
-        transmit_frequency=meta["transmit_frequency"],
-        beamforming_sound_velocity=meta["beamforming_sound_velocity"],
         attrs=attrs,
     )
 
@@ -500,8 +500,7 @@ def convert_echoframe_dat_to_zarr(
         ds = xr.open_zarr("output.zarr")
         iq = ds["iq"]
 
-    `iq` above carries plain `k`/`j`/`i` voxel dims, not a VoxelData-compatible
-    DataArray --
+    `iq` above carries plain `k`/`j`/`i` voxel dims, not a VoxelData array --
     [`xarray.open_zarr`][xarray.open_zarr] doesn't know how to rebuild a
     `VoxelToWorldIndex` from `attrs["voxel_to_world"]`. Load with
     [`confusius.io.load`][confusius.io.load] instead to get the world coordinates back:

@@ -17,7 +17,7 @@ concern — feel free to make breaking API changes when they improve the design.
 **VoxelData** is ConfUSIus's canonical `xarray.DataArray` model for spatially referenced
 voxel data. This includes fUSI recordings, brain atlas volumes, PCA/decomposition
 component maps, dense displacement fields, B-spline control-point grids, and anything
-else gridded in space. A VoxelData-compatible DataArray is **always**:
+else gridded in space. A VoxelData array is **always**:
 
 - Dims `(...extra, time, pose, k, j, i)` — `time`/`pose` are optional, extra
   non-spatial dims (PCA/ICA components, displacement `component`, atlas region
@@ -31,23 +31,26 @@ else gridded in space. A VoxelData-compatible DataArray is **always**:
 Every 3D spatial array in the codebase must be VoxelData. Use these terms
 consistently in code, docstrings, and docs:
 
-- **VoxelData-compatible DataArray**: formal docstring/API term for an
+- **VoxelData array**: preferred term in API docs, docstrings, and prose for an
   `xarray.DataArray` that satisfies the required VoxelData structure.
-- **VoxelData array**: prose shorthand when the context is already clear.
-- **DataArray following the VoxelData model**: explanatory intro text when
+- **DataArray following the VoxelData model**: optional explanatory intro text when
   defining or teaching the concept.
 - **VoxelData geometry**: specifically the affine/index/spatial coordinate semantics,
   not the whole array.
 
-Use `confusius.validation.validate_fusi`/`ensure_fusi` to check any VoxelData array—by
-default it enforces the universal `k`/`j`/`i` + `VoxelToWorldIndex` structure above
-(dims, the index itself, `units` coordinate attrs). Its optional flags
-(`require_time`, `require_unchunked_time`, ...) layer on stricter requirements and
-should only be enabled when needed.
-Use `confusius.xarray.create_fusi_dataarray` to build VoxelData regardless of what the
-array's content represents. `confusius._utils.geometry.attach_voxel_to_world_index`/
-`has_voxel_to_world_index` are private internals used by `create_fusi_dataarray`
-itself—reach for them directly only in rare cases (e.g. genuine I/O boundary code).
+Use `confusius.validation.validate_voxeldata`/`ensure_voxeldata` to check any
+VoxelData array—by default it enforces the universal `k`/`j`/`i` +
+`VoxelToWorldIndex` structure above (dims, the index itself, `units` coordinate attrs).
+Its optional flags (`require_time`, `require_unchunked_time`, `require_dtype`,
+`require_velocity_attrs`, ...) layer on stricter requirements and should only be
+enabled when needed.
+Use `confusius.xarray.create_voxeldata` to build VoxelData regardless of what the
+array's content represents, including IQ data. IQ-specific metadata such as
+`transmit_frequency` and `beamforming_sound_velocity` are plain DataArray attrs,
+validated with `require_velocity_attrs=True` when needed.
+`confusius._utils.geometry.attach_voxel_to_world_index`/`has_voxel_to_world_index` are
+private internals used by `create_voxeldata` itself—reach for them directly only in rare
+cases (e.g. genuine I/O boundary code).
 
 **There is no second supported data shape.** Do not add "plain z/y/x dims or k/j/i with
 an index" branches, or code that silently degrades to plain-coordinate handling when
@@ -119,7 +122,7 @@ src/confusius/
 ├── signal/         # Confound regression, censoring, detrending, filtering
 ├── spatial/        # Spatial smoothing
 ├── stats/          # Statistical thresholding
-├── validation/     # validate_fusi/ensure_fusi, mask/labels/atlas/time-series checks
+├── validation/     # validate_voxeldata/ensure_voxeldata, mask/labels/atlas/time-series checks
 ├── xarray/         # FUSIAccessor (`data.fusi.<accessor>.<method>()`), create/scale
 └── _utils/         # cross-module internal helpers (see below)
 ```

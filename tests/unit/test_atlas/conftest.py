@@ -9,7 +9,7 @@ import pytest
 import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture(scope="module")
@@ -111,21 +111,21 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
         20: [0, 255, 0],
     }
 
-    reference_da = create_fusi_dataarray(
+    reference_da = create_voxeldata(
         np.ones(shape, dtype=np.float32),
         dims=["k", "j", "i"],
         spacing=(resolution_mm, resolution_mm, resolution_mm),
         origin=(0.0, 0.0, 0.0),
         attrs={"cmap": "gray"},
     )
-    annotation_da = create_fusi_dataarray(
+    annotation_da = create_voxeldata(
         annotation_data,
         dims=["k", "j", "i"],
         spacing=(resolution_mm, resolution_mm, resolution_mm),
         origin=(0.0, 0.0, 0.0),
         attrs={"rgb_lookup": rgb_lookup},
     )
-    hemispheres_da = create_fusi_dataarray(
+    hemispheres_da = create_voxeldata(
         hemispheres_data,
         dims=["k", "j", "i"],
         spacing=(resolution_mm, resolution_mm, resolution_mm),

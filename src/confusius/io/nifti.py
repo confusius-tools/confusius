@@ -1,7 +1,7 @@
 """Utilities for loading and saving NIfTI files.
 
 This module provides functions to load NIfTI neuroimaging files as lazy
-VoxelData-compatible DataArrays using nibabel's proxy arrays and Dask for out-of-core
+VoxelData arrays using nibabel's proxy arrays and Dask for out-of-core
 processing. Following the VoxelData model, data is stored with native voxel dimensions
 `(..., time, k, j, i)` and VoxelToWorldIndex-derived world coordinates `z`, `y`, `x`.
 """
@@ -45,8 +45,8 @@ from confusius.timing import (
     convert_time_reference,
     convert_time_units,
 )
-from confusius.validation import ensure_fusi
-from confusius.xarray.create import create_fusi_dataarray
+from confusius.validation import ensure_voxeldata
+from confusius.xarray.create import create_voxeldata
 
 if TYPE_CHECKING:
     import nibabel as nib
@@ -60,7 +60,7 @@ _NIFTI_DIM_ORDER = ("i", "j", "k", "time", "dim4", "dim5", "dim6")
 Maps ConfUSIus dimension names to their NIfTI axis order. NIfTI axes 0/1/2 (the
 standard spatial axis slots) are named with the native voxel dims `i`/`j`/`k`
 directly -- `load_nifti` never names a raw axis `x`/`y`/`z`; naming world
-coordinates is `create_fusi_dataarray`'s job, not the NIfTI loader's.
+coordinates is `create_voxeldata`'s job, not the NIfTI loader's.
 """
 
 _NIFTI_TO_CONFUSIUS_SPACE_UNITS: dict[str, str] = {
@@ -360,7 +360,7 @@ def _create_spatial_coords_from_nifti(
 
     Selects the primary affine (sform preferred over qform when both are valid)
     and derives the full voxel-to-world affine plus per-axis metadata, ready to
-    pass straight to `create_fusi_dataarray` as `voxel_to_world=`/
+    pass straight to `create_voxeldata` as `voxel_to_world=`/
     `world_coord_attrs=`. When a valid affine is available, `voxel_to_world`
     carries it exactly (any rotation/shear included) -- no axis-aligned-only
     decomposition. The world coordinate frame is defined by the primary
@@ -452,7 +452,7 @@ def _create_spatial_coords_from_nifti(
     # residual to store for the primary form (unlike an independent-1D-coordinate
     # model, which could only absorb an axis-aligned translation and zoom). A
     # missing spatial dim (e.g. a genuinely 2D scan) needs no special handling
-    # either: `create_fusi_dataarray` drops that affine column itself, which is
+    # either: `create_voxeldata` drops that affine column itself, which is
     # exactly equivalent to evaluating the affine at voxel-index 0 along that
     # axis (index 0 zeroes out that column's contribution).
     #
@@ -654,7 +654,7 @@ def _create_temporal_coords_from_nifti(
                     "`time.attrs['volume_acquisition_duration']` cannot be inferred.",
                     stacklevel=find_stack_level(),
                 )
-                # `create_fusi_dataarray` backfills a missing duration from the time
+                # `create_voxeldata` backfills a missing duration from the time
                 # coordinate's own regular spacing (the repetition time) -- exactly
                 # the guess just declined above as unsafe. This private marker tells
                 # `load_nifti` to strip that backfilled value again after
@@ -1065,7 +1065,7 @@ def load_nifti(
     *,
     coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
 ) -> xr.DataArray:
-    """Load a NIfTI file as a lazy VoxelData-compatible DataArray.
+    """Load a NIfTI file as a lazy VoxelData array.
 
     Loads NIfTI files using nibabel's proxy arrays for memory-efficient access, wrapping
     the data in Dask arrays for chunked, parallel processing. The data is transposed to
@@ -1107,7 +1107,7 @@ def load_nifti(
     Returns
     -------
     xarray.DataArray
-        Lazy VoxelData-compatible DataArray with voxel-space dimensions in ConfUSIus
+        Lazy VoxelData array with voxel-space dimensions in ConfUSIus
         order (`k`, `j`, `i` plus optional `time`) and world coordinates `z`, `y`,
         `x`. Data is wrapped
         in a Dask array for out-of-core computation.
@@ -1219,11 +1219,11 @@ def load_nifti(
     has_extra_dims = any(dim not in VOXEL_DIMS and dim != "time" for dim in nifti_dims)
     has_explicit_time_metadata = any(key in attrs for key in _TEMPORAL_METADATA_KEYS)
 
-    # `time_coord` feeds `create_fusi_dataarray`'s `time=` parameter and is only
+    # `time_coord` feeds `create_voxeldata`'s `time=` parameter and is only
     # meaningful when `time` is a real dimension; `scalar_time_coord` and
     # `slice_time_coord` are non-dimension coordinates attached after the fact
     # (a scalar `time` has no dimension of its own, and `slice_time` is not one
-    # of `create_fusi_dataarray`'s recognized coordinates).
+    # of `create_voxeldata`'s recognized coordinates).
     time_coord: xr.DataArray | None = None
     scalar_time_coord: xr.DataArray | None = None
     slice_time_coord: xr.DataArray | None = None
@@ -1242,11 +1242,11 @@ def load_nifti(
 
     nifti_name = path.with_suffix("").stem if path.suffix == ".gz" else path.stem
 
-    # Build the canonical array in one `create_fusi_dataarray` call, regardless of
+    # Build the canonical array in one `create_voxeldata` call, regardless of
     # how many spatial dims are actually present -- it pads any missing k/j/i to a
     # singleton itself, so every loaded array ends up indexed, never a bare
     # DataArray. The singleton-squeeze must happen first, directly on the Dask array
-    # and dims bookkeeping, since `create_fusi_dataarray` validates immediately on
+    # and dims bookkeeping, since `create_voxeldata` validates immediately on
     # construction and cannot accept a synthetic singleton `time` axis.
     create_dims = list(nifti_dims[::-1])
     create_data = dask_arr
@@ -1261,7 +1261,7 @@ def load_nifti(
         create_dims.pop(time_axis)
         time_coord = None
 
-    data_array = create_fusi_dataarray(
+    data_array = create_voxeldata(
         create_data,
         dims=create_dims,
         time=time_coord,
@@ -1731,15 +1731,15 @@ def _prepare_data_for_nifti(
 def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
     """Return signed spatial spacings for NIfTI header serialization.
 
-    `data_array` is always a VoxelData-compatible DataArray here: `save_nifti`
+    `data_array` is always a VoxelData array here: `save_nifti`
     (the only caller)
-    calls `ensure_fusi` before reaching this point, so spacing always comes from the
+    calls `ensure_voxeldata` before reaching this point, so spacing always comes from the
     `VoxelToWorldIndex` -- there is no plain-coordinate fallback to consider.
 
     Parameters
     ----------
     data_array : xarray.DataArray
-        VoxelData-compatible DataArray being serialized.
+        VoxelData array being serialized.
 
     Returns
     -------
@@ -2336,7 +2336,7 @@ def save_nifti(
     qform_code: int | None = None,
     sform_code: int | None = None,
 ) -> None:
-    """Save a VoxelData-compatible DataArray to NIfTI format.
+    """Save a VoxelData array to NIfTI format.
 
     Saves the DataArray to a NIfTI file and always writes a BIDS-style JSON sidecar
     alongside it. The data is transposed to NIfTI convention `(x, y, z, time)` before
@@ -2345,7 +2345,7 @@ def save_nifti(
     Parameters
     ----------
     data_array : xarray.DataArray
-        VoxelData-compatible DataArray to save.
+        VoxelData array to save.
     path : str or pathlib.Path
         Output path for the NIfTI file, with `.nii` or `.nii.gz` extension. If
         `.nii.gz` is used, the file will be saved in compressed format.
@@ -2391,7 +2391,7 @@ def save_nifti(
     --------
     >>> import confusius as cf
     >>> import numpy as np
-    >>> da = cf.xarray.create_fusi_dataarray(
+    >>> da = cf.xarray.create_voxeldata(
     ...     np.random.rand(10, 1, 32, 64),
     ...     dims=("time", "k", "j", "i"),
     ...     dt=0.5,
@@ -2404,7 +2404,7 @@ def save_nifti(
     # NIfTI exposes only one spatial qform/sform, so it cannot represent per-pose
     # geometry (or even a shared affine ambiguously labeled per pose). Callers must
     # select one pose first, e.g. `save_nifti(data.isel(pose=0), path)`.
-    data_array = ensure_fusi(data_array, allow_pose=False)
+    data_array = ensure_voxeldata(data_array, allow_pose=False)
     path = Path(path)
     if not path.name.endswith(".nii") and not path.name.endswith(".nii.gz"):
         raise ValueError("Output file must have .nii or .nii.gz extension.")

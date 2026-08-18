@@ -103,15 +103,15 @@ has:
 | `volume_acquisition_reference` | `time` | Which point of the acquisition window each `time` value marks: `"start"`, `"center"`, or `"end"`. |
 | `volume_acquisition_duration` | `time` | Duration of one volume's acquisition, in the same units as `time`. |
 
-[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] and
-[`create_iq_dataarray`][confusius.xarray.create_iq_dataarray] build a
-VoxelData-compatible DataArray satisfying all of this from raw data, and
-[`validate_fusi`][confusius.validation.validate_fusi] checks an existing DataArray
-against it. [`ensure_fusi`][confusius.validation.ensure_fusi] additionally fixes small
+[`create_voxeldata`][confusius.xarray.create_voxeldata] and
+[`create_voxeldata`][confusius.xarray.create_voxeldata] build a
+VoxelData array satisfying all of this from raw data, and
+[`validate_voxeldata`][confusius.validation.validate_voxeldata] checks an existing DataArray
+against it. [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] additionally fixes small
 deviations with sensible defaults first—for example filling in missing `time`
 metadata, or restoring a voxel dimension collapsed to a scalar coordinate by a prior
-`.isel()`—before validating. ConfUSIus functions that expect a VoxelData-compatible
-DataArray call `ensure_fusi` on their input.
+`.isel()`—before validating. ConfUSIus functions that expect a VoxelData
+array call `ensure_voxeldata` on their input.
 
 See [Working with Xarray](xarray.md) for the accessor API this backs
 (`.fusi.affine.voxel_to_world`, `.fusi.spacing`, `.fusi.direction`, ...).
@@ -146,7 +146,7 @@ Xarray.
 The world space is derived from voxel space by the DataArray's `VoxelToWorldIndex` and
 exposed as the coordinates `x`, `y`, `z`. The unit of the coordinates is stored in the
 `units` attribute of each coordinate array; millimeters are the usual default for fUSI
-recordings (e.g. [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]'s
+recordings (e.g. [`create_voxeldata`][confusius.xarray.create_voxeldata]'s
 default).
 
 !!! warning "Units are not enforced"
@@ -196,7 +196,7 @@ Different loaders derive them in different ways:
     Pass `coordinate_affine="sform"`/`"qform"` to force one explicitly.
 
 Hand-constructed DataArrays get whatever voxel-to-world affine the user provides via
-[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray].
+[`create_voxeldata`][confusius.xarray.create_voxeldata].
 
 ### Reference Spaces
 

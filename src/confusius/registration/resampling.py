@@ -19,9 +19,9 @@ from confusius.registration.bspline import (
     _dataarray_to_sitk_bspline,
     _dataarray_to_sitk_displacement_field,
 )
-from confusius.validation import ensure_fusi, validate_matching_spatial_units
+from confusius.validation import ensure_voxeldata, validate_matching_spatial_units
 from confusius.xarray.affine import reindex_voxels_like
-from confusius.xarray.create import create_fusi_dataarray
+from confusius.xarray.create import create_voxeldata
 
 
 def resample_volume(
@@ -56,7 +56,7 @@ def resample_volume(
     Parameters
     ----------
     moving : xarray.DataArray
-        VoxelData-compatible DataArray to resample. May be spatial-only or have a
+        VoxelData array to resample. May be spatial-only or have a
         `time` dimension (single-slice recordings use a singleton `k` axis). If a time
         dimension is present, the same transform is applied to all time points.
     transform : (4, 4) numpy.ndarray or xarray.DataArray
@@ -102,7 +102,7 @@ def resample_volume(
     Returns
     -------
     xarray.DataArray
-        VoxelData-compatible DataArray resampled onto the requested grid, with
+        VoxelData array resampled onto the requested grid, with
         `moving`'s attributes. If the input had a time dimension, the output will also
         have a time dimension.
 
@@ -115,7 +115,7 @@ def resample_volume(
     """
     import SimpleITK as sitk
 
-    moving = ensure_fusi(
+    moving = ensure_voxeldata(
         moving,
         require_time=False,
         allow_pose=False,
@@ -204,7 +204,7 @@ def resample_volume(
     voxel_to_world_arr[:ndim, ndim] = output_origin
 
     attrs = moving.attrs.copy()
-    result = create_fusi_dataarray(
+    result = create_voxeldata(
         registered_arr,
         dims=("time", *VOXEL_DIMS) if has_time else VOXEL_DIMS,
         time=moving.coords["time"] if has_time else None,
@@ -239,11 +239,11 @@ def resample_like(
     Parameters
     ----------
     moving : xarray.DataArray
-        VoxelData-compatible DataArray to resample. May be spatial-only or have a
+        VoxelData array to resample. May be spatial-only or have a
         `time` dimension (single-slice recordings use a singleton `k` axis). If a time
         dimension is present, the same transform is applied to all time points.
     reference : xarray.DataArray
-        VoxelData-compatible DataArray defining the output grid. Must be spatial-only
+        VoxelData array defining the output grid. Must be spatial-only
         with dimensions `k`, `j`, `i` (no time dimension). When spatial coordinate
         `units` metadata is present on both `moving` and `reference`, they must match.
     transform : (4, 4) numpy.ndarray or xarray.DataArray
@@ -296,13 +296,13 @@ def resample_like(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    moving = ensure_fusi(
+    moving = ensure_voxeldata(
         moving,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
     )
-    reference = ensure_fusi(
+    reference = ensure_voxeldata(
         reference,
         require_time=False,
         allow_pose=False,

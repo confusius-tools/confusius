@@ -27,14 +27,14 @@ from confusius.registration.bspline import (
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.resampling import resample_like, resample_volume
 from confusius.registration.volume import register_volume
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 def _make_voxel_to_world_2d() -> xr.DataArray:
     """Create a small singleton-k voxel-to-world test image."""
     yy, xx = np.mgrid[-1.0:1.0:32j, -1.0:1.0:40j]
     values = np.exp(-((xx - 0.2) ** 2 + (yy + 0.1) ** 2) / 0.15).astype(np.float32)
-    return create_fusi_dataarray(
+    return create_voxeldata(
         values[np.newaxis],
         dims=("k", "j", "i"),
         voxel_to_world=np.array(
@@ -84,7 +84,7 @@ def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
         values = np.asarray(data.coords[dim].values, dtype=np.float64)
         origin.append(float(values[0]))
         spacing.append(float(values[1] - values[0]) if values.size > 1 else 1.0)
-    return create_fusi_dataarray(
+    return create_voxeldata(
         data.values,
         dims=tuple(str(dim) for dim in data.dims),
         time=data.coords.get("time"),
@@ -99,7 +99,7 @@ def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
 
 def _make_voxel_to_world_3d_slab() -> xr.DataArray:
     """Create a small 3D voxel-to-world slab with a singleton slice dimension."""
-    return create_fusi_dataarray(
+    return create_voxeldata(
         np.zeros((1, 5, 6), dtype=np.float32),
         dims=("k", "j", "i"),
         voxel_to_world=np.array(
@@ -116,7 +116,7 @@ def _make_voxel_to_world_3d_slab() -> xr.DataArray:
 
 def _make_voxel_to_world_3d_slab_flipped_normal() -> xr.DataArray:
     """Voxel-to-world slab like `_make_voxel_to_world_3d_slab` with the k-axis normal flipped."""
-    return create_fusi_dataarray(
+    return create_voxeldata(
         np.zeros((1, 5, 6), dtype=np.float32),
         dims=("k", "j", "i"),
         voxel_to_world=np.array(
@@ -361,7 +361,7 @@ class TestSimpleITKGeometry:
 
     def test_undefined_voxel_to_world_spacing_raises_repair_hint(self):
         """An irregularly spaced voxel-to-world coordinate raises a repair error."""
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             np.zeros((1, 4, 5)),
             dims=("k", "j", "i"),
             voxel_to_world=np.eye(4),
@@ -420,7 +420,7 @@ class TestRegisterVolumeOutput:
         """
         img = np.zeros((1, 20, 40), dtype=np.float32)
         img[:, 6:14, 10:30] = 100.0
-        da = create_fusi_dataarray(img, dims=("k", "j", "i"), spacing=(1.0, 0.5, 0.1))
+        da = create_voxeldata(img, dims=("k", "j", "i"), spacing=(1.0, 0.5, 0.1))
         _, bspline_tx, _ = register_volume(
             da,
             da,
@@ -1030,7 +1030,7 @@ class TestInitialization:
 
     def test_plane_initializer_rejects_extra_dims(self):
         """Plane initialization only accepts spatial-only canonical DataArrays."""
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             np.zeros((2, 1, 5, 6), dtype=np.float32),
             dims=("component", "k", "j", "i"),
             extra_coords={"component": ["a", "b"]},

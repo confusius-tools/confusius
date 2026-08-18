@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, SupportsFloat, SupportsIndex
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -13,44 +13,13 @@ from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, TIME_DIM, VOXEL_D
 from confusius._utils.coordinates import get_probe_surface_origin
 from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
-from confusius.validation import validate_fusi, validate_iq
+from confusius.validation.fusi import require_positive_finite, validate_voxeldata
 
 _SPATIAL_UNITS = "mm"
 """Physical units attached to the `z`, `y`, and `x` coordinates."""
 
 _TIME_UNITS = "s"
 """Physical units attached to the `time` coordinate."""
-
-
-def _require_positive_finite(
-    value: str | SupportsFloat | SupportsIndex, name: str
-) -> float:
-    """Return a finite positive numeric value.
-
-    Parameters
-    ----------
-    value : str or typing.SupportsFloat or typing.SupportsIndex
-        Candidate value.
-    name : str
-        Name used in the validation error.
-
-    Returns
-    -------
-    float
-        Validated value.
-
-    Raises
-    ------
-    ValueError
-        If `value` is not numeric, finite, and positive.
-    """
-    try:
-        result = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be positive and finite.") from exc
-    if not np.isfinite(result) or result <= 0:
-        raise ValueError(f"{name} must be positive and finite.")
-    return result
 
 
 def _require_spacing(dim: str, spacing: float | None) -> float:
@@ -79,7 +48,7 @@ def _require_spacing(dim: str, spacing: float | None) -> float:
             f"Spacing for dimension {dim!r} is required. Provide {hint} or an "
             f"explicit {dim!r} coordinate with enough information to infer spacing."
         )
-    return _require_positive_finite(spacing, f"Spacing for dimension {dim!r}")
+    return require_positive_finite(spacing, f"Spacing for dimension {dim!r}")
 
 
 def _regular_step(values: np.ndarray) -> float | None:
@@ -256,7 +225,7 @@ def _coordinate_dataarray(
             )
         duration = attrs.get("volume_acquisition_duration", volume_acquisition_duration)
         if duration is not None:
-            attrs["volume_acquisition_duration"] = _require_positive_finite(
+            attrs["volume_acquisition_duration"] = require_positive_finite(
                 duration, "volume_acquisition_duration"
             )
         elif step is not None:
@@ -294,9 +263,9 @@ def _validate_spatial_tuple(
         raise ValueError(f"{name} must have length 3 in z/y/x order.")
     z, y, x = values
     return (
-        _require_positive_finite(z, name),
-        _require_positive_finite(y, name),
-        _require_positive_finite(x, name),
+        require_positive_finite(z, name),
+        require_positive_finite(y, name),
+        require_positive_finite(x, name),
     )
 
 
@@ -377,7 +346,7 @@ def _resolve_voxel_to_world(
     return affine
 
 
-def create_fusi_dataarray(
+def create_voxeldata(
     data: npt.ArrayLike,
     *,
     dims: Sequence[str],
@@ -396,7 +365,7 @@ def create_fusi_dataarray(
     voxel_to_world: npt.ArrayLike | None = None,
     world_coord_attrs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
-    """Build a VoxelData-compatible DataArray from a raw array.
+    """Build a VoxelData array from a raw array.
 
     Parameters
     ----------
@@ -461,7 +430,7 @@ def create_fusi_dataarray(
     Returns
     -------
     xarray.DataArray
-        VoxelData-compatible DataArray with native voxel dimensions and world
+        VoxelData array with native voxel dimensions and world
         coordinates.
 
     Raises
@@ -469,7 +438,7 @@ def create_fusi_dataarray(
     ValueError
         If `dims` uses world `z`/`y`/`x` names instead of native voxel names, if a
         pose-stacked `voxel_to_world` is given without a matching `pose` dimension,
-        or if dimensions, coordinates, geometry, timing, or fUSI validation otherwise
+        or if dimensions, coordinates, geometry, timing, or VoxelData validation otherwise
         fail.
     """
     dims = tuple(str(dim) for dim in dims)
@@ -669,7 +638,7 @@ def create_fusi_dataarray(
         and result.sizes[dim] > 1
         and not (dim == TIME_DIM and time is not None)
     )
-    validate_fusi(
+    validate_voxeldata(
         result,
         require_regular_spacing=True,
         regular_spacing_dims=regular_spacing_dims,
@@ -679,114 +648,4 @@ def create_fusi_dataarray(
         result = result.drop_vars(TIME_DIM).assign_coords(
             {TIME_DIM: ((TIME_DIM, POSE_DIM), per_pose_time, per_pose_time_attrs)}
         )
-    return result
-
-
-def create_iq_dataarray(
-    data: npt.ArrayLike,
-    *,
-    dims: Sequence[str],
-    time: npt.ArrayLike | xr.DataArray | None = None,
-    pose: npt.ArrayLike | xr.DataArray | None = None,
-    extra_coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
-    dt: float | None = None,
-    t0: float = 0.0,
-    spacing: Sequence[float] | None = None,
-    origin: Sequence[float] | None = None,
-    direction: npt.ArrayLike | None = None,
-    volume_acquisition_reference: VolumeAcquisitionReference = "start",
-    volume_acquisition_duration: float | None = None,
-    transmit_frequency: float | None = None,
-    beamforming_sound_velocity: float | None = None,
-    name: str | None = "iq",
-    attrs: dict[str, Any] | None = None,
-    voxel_to_world: npt.ArrayLike | None = None,
-    world_coord_attrs: Mapping[str, Mapping[str, Any]] | None = None,
-) -> xr.DataArray:
-    """Build a VoxelData-compatible DataArray from a raw complex IQ array.
-
-    Parameters
-    ----------
-    data : numpy.typing.ArrayLike
-        Raw complex IQ array whose rank matches `dims`.
-    dims : sequence[str]
-        Input dimension names. Spatial dimensions must be native voxel names
-        (`k`/`j`/`i`).
-    time : numpy.typing.ArrayLike or xarray.DataArray, optional
-        Coordinate for the `time` dimension.
-    pose : numpy.typing.ArrayLike or xarray.DataArray, optional
-        Coordinate for the `pose` dimension.
-    extra_coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
-        Coordinates for non-core dimensions only.
-    dt : float, optional
-        Time spacing in seconds, used when `time` is not provided.
-    t0 : float, default: 0.0
-        First time coordinate value when `dt` is used.
-    spacing : sequence[float], optional
-        World spacing in `z/y/x` order. Mutually exclusive with `voxel_to_world`.
-    origin : sequence[float], optional
-        World origin in `z/y/x` order.
-    direction : numpy.typing.ArrayLike, optional
-        3x3 direction matrix in world `z/y/x` row and voxel `k/j/i` column order.
-    volume_acquisition_reference : {"start", "center", "end"}, default: "start"
-        Time reference stored on generated `time` coordinates.
-    volume_acquisition_duration : float, optional
-        Acquisition duration stored on generated `time` coordinates.
-    transmit_frequency : float, optional
-        Ultrasound transmit frequency in hertz.
-    beamforming_sound_velocity : float, optional
-        Speed of sound assumed during beamforming, in metres per second.
-    name : str, default: "iq"
-        DataArray name.
-    attrs : dict, optional
-        DataArray attributes.
-    voxel_to_world : numpy.typing.ArrayLike, optional
-        4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order.
-    world_coord_attrs : mapping[str, mapping[str, Any]], optional
-        Attributes to merge onto the derived world coordinates, keyed by world
-        coordinate name (`z`/`y`/`x`). Overrides the auto-computed `units` entry for
-        any key present in the given mapping; other auto-computed entries are kept.
-
-    Returns
-    -------
-    xarray.DataArray
-        VoxelData-compatible DataArray with native voxel dimensions and world
-        coordinates.
-
-    Raises
-    ------
-    TypeError
-        If `data` is not complex-valued.
-    ValueError
-        If coordinate construction or IQ validation fails.
-    """
-    attrs = {} if attrs is None else dict(attrs)
-    if transmit_frequency is not None:
-        attrs["transmit_frequency"] = _require_positive_finite(
-            transmit_frequency, "transmit_frequency"
-        )
-    if beamforming_sound_velocity is not None:
-        attrs["beamforming_sound_velocity"] = _require_positive_finite(
-            beamforming_sound_velocity, "beamforming_sound_velocity"
-        )
-
-    result = create_fusi_dataarray(
-        data,
-        dims=dims,
-        time=time,
-        pose=pose,
-        extra_coords=extra_coords,
-        dt=dt,
-        t0=t0,
-        spacing=spacing,
-        origin=origin,
-        direction=direction,
-        volume_acquisition_reference=volume_acquisition_reference,
-        volume_acquisition_duration=volume_acquisition_duration,
-        name=name,
-        attrs=attrs,
-        voxel_to_world=voxel_to_world,
-        world_coord_attrs=world_coord_attrs,
-    )
-    validate_iq(result)
     return result

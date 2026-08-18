@@ -11,7 +11,7 @@ from confusius._napari._events._store import EventStore
 from confusius._napari._signals._plotter import SignalPlotter
 from confusius._napari._time_overlay import _TimeOverlay
 from confusius.plotting import plot_napari
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 def _make_4d_da(rng, time_attrs=None):
@@ -30,7 +30,7 @@ def _make_4d_da(rng, time_attrs=None):
         "volume_acquisition_reference": "start",
         "volume_acquisition_duration": 1.0,
     }
-    return create_fusi_dataarray(
+    return create_voxeldata(
         data,
         dims=("time", "k", "j", "i"),
         time=xr.DataArray(

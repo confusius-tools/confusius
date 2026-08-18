@@ -231,10 +231,10 @@ def get_representative_time_step(
 def ensure_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
     """Fill in default metadata attrs on `data`'s `time` coordinate.
 
-    Every VoxelData-compatible DataArray with a `time` dimension carries
+    Every VoxelData array with a `time` dimension carries
     `volume_acquisition_reference`, `volume_acquisition_duration`, and `units` on its
     `time` coordinate. Data built without going through
-    [create_fusi_dataarray][confusius.xarray.create_fusi_dataarray] or an I/O loader
+    [create_voxeldata][confusius.xarray.create_voxeldata] or an I/O loader
     (e.g. a `time` coordinate assembled by hand) may still be missing them; this fills
     in `"start"` and `"s"`, respectively. `volume_acquisition_duration` is inferred, in
     priority order, from `data.attrs["compound_sampling_frequency"]` (the scanner's own
@@ -245,7 +245,7 @@ def ensure_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData-compatible DataArray to fill in.
+        VoxelData array to fill in.
 
     Returns
     -------

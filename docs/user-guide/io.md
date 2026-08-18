@@ -16,19 +16,19 @@ ConfUSIus uses [Xarray](https://docs.xarray.dev/) as its core data structure for
 representing multi-dimensional fUSI data. Xarray provides several advantages over raw
 NumPy arrays:
 
-- **Named dimensions**: Access data using meaningful names (e.g., `i`, `j`, `k`, `time`)
-  instead of remembering axis indices.
+- **Named dimensions**: Access data using meaningful names (e.g., `i`, `j`, `k`, `pose`,
+  `time`) instead of remembering axis indices.
 - **Coordinates**: Associate time and world coordinates with the native dimensions
   (e.g., `x`, `y`, and `z` in millimeters).
 - **Metadata storage**: Keep acquisition parameters, units, and other metadata alongside
   your data.
 - **Unified API**: Use the same operations regardless of the underlying storage format.
 
-Every loader in this guide returns **VoxelData** arrays: a DataArray with trailing
+Every loader in this guide returns **VoxelData arrays**: DataArrays with trailing
 `k`/`j`/`i` voxel dimensions backed by a `VoxelToWorldIndex`, which derives world
-coordinates `z`/`y`/`x` (in millimeters) from a single voxel-to-world affine. World
-coordinates are never stored directly—they're always this index's output. See [Spatial
-Conventions](spatial-conventions.md) for details on the coordinate model.
+coordinates `z`/`y`/`x` (in millimeters) from voxel-to-world affine transformations.
+World coordinates are never stored directly—they're always this index's output. See
+[Spatial Conventions](spatial-conventions.md) for details on the coordinate model.
 
 ### Xarray-Compatible Formats
 
@@ -42,7 +42,7 @@ Xarray can read and write data from multiple storage formats, including:
 
 Additionally, ConfUSIus provides utilities to read and write
 [**NIfTI**](https://nifti.nimh.nih.gov/) files (the standard neuroimaging format for
-BIDS) as VoxelData-compatible DataArrays, automatically reading and writing matching fUSI-BIDS JSON
+BIDS) as VoxelData arrays, automatically reading and writing matching fUSI-BIDS JSON
 sidecars when present.
 
 ### Recommended Formats for fUSI
@@ -107,6 +107,12 @@ fUSI workflows involve two main categories of data:
 
 ## Loading Data
 
+The universal [`confusius.load`][confusius.load] function allows loading VoxelData
+arrays from multiple formats, including NIfTI, Zarr, and Iconeus SCAN files. It
+automatically detects the file format and dispatches to the appropriate loader
+([`load_nifti`][confusius.io.load_nifti], [`load_zarr`][confusius.io.load_zarr],
+[`load_scan`][confusius.io.load_scan], etc.).
+
 All ConfUSIus loaders return **lazy** DataArrays backed by Dask—data stays on disk until
 an operation requires it.
 
@@ -123,7 +129,10 @@ an operation requires it.
 
 ### Loading Zarr Files
 
-Once your data is in Zarr format, load it with [`confusius.load`][confusius.load]:
+Xarray treats Zarr stores as multi-variable datasets. ConfUSIus'
+[`load`][confusius.load] returns the first variable as a DataArray by default. If the
+Zarr store contains multiple variables, you can specify which one to load with the
+`variable` argument.
 
 ```pycon
 >>> import confusius as cf
@@ -171,9 +180,6 @@ Attributes:
     ds = xr.open_zarr("sub-01_task-awake_iq.zarr")
     ```
 
-Notice that the data remains on disk (shown by `dask.array<...>`) until you explicitly
-compute operations on it.
-
 ### Loading EchoFrame DAT Files
 
 For one-time processing, load EchoFrame DAT files directly with
@@ -193,9 +199,9 @@ same recording repeatedly.
 
 ### Loading Iconeus SCAN Files
 
-Use [`load_scan`][confusius.io.load_scan] to load Iconeus `.scan` files as lazy Xarray
-DataArrays. Two on-disk formats are detected automatically: the HDF5-based SCAN v1
-format and the newer binary SCAN v2 format.
+Use [`load`][confusius.load] to load Iconeus `.scan` files as lazy Xarray DataArrays.
+Two on-disk formats are detected automatically: the HDF5-based SCAN v1 format and the
+newer binary SCAN v2 format.
 
 #### SCAN v1 (HDF5 format)
 
@@ -225,8 +231,31 @@ seconds.
     ```pycon
     >>> import confusius as cf
     >>> da = cf.load("sub-01_acq-anat_pwd.source.scan")
-    >>> da.dims
-    ('pose', 'k', 'j', 'i')
+    >>> da
+    <xarray.DataArray 'Angio_M6_424_1212' (pose: 10, k: 4, j: 92, i: 118)> Size: 3MB
+    dask.array<transpose, shape=(10, 4, 92, 118), dtype=float64, chunksize=(10, 4, 92, 118), chunktype=numpy.ndarray>
+    Coordinates:
+      * pose     (pose) int64 80B 0 1 2 3 4 5 6 7 8 9
+      * k        (k) int64 32B 0 1 2 3
+      * j        (j) int64 736B 0 1 2 3 4 5 6 7 8 9 ... 83 84 85 86 87 88 89 90 91
+      * i        (i) int64 944B 0 1 2 3 4 5 6 7 ... 110 111 112 113 114 115 116 117
+      * z        (pose, k, j, i) float64 3MB 4.538 4.429 4.319 ... -8.445 -8.555
+      * y        (pose, k, j, i) float64 3MB 21.2 21.2 21.2 ... 30.17 30.17 30.17
+      * x        (pose, k, j, i) float64 3MB -1.868 -1.871 -1.874 ... 5.962 5.959
+    Indexes:
+      ┌ z        VoxelToWorldIndex
+      │ y
+      └ x
+    Attributes:
+        affines:               {}
+        device_serial_number:  ASAO0821
+        software_version:      IcoScan v.1.9.0
+        iconeus_scan_mode:     3Dscan
+        iconeus_subject:       Mouse01
+        iconeus_session:       Session01
+        iconeus_scan:          sub-01_acq-anat_pwd
+        iconeus_project:       Project01
+        iconeus_date:          2025-12-12 12:18:19
     ```
 
     The `pose` dimension indexes each probe position in the multi-pose acquisition.
@@ -239,7 +268,31 @@ seconds.
     >>> import confusius as cf
     >>> da = cf.load("sub-01_task-awake_pwd.source.scan")
     >>> da.dims
-    ('time', 'pose', 'k', 'j', 'i')
+    <xarray.DataArray 'sub-01_task-awake_pwd' (time: 500, pose: 4, k: 4, j: 92, i: 103)> Size: 606MB
+    dask.array<transpose, shape=(500, 4, 4, 92, 103), dtype=float64, chunksize=(110, 4, 4, 92, 103), chunktype=numpy.ndarray>
+    Coordinates:
+        time     (time, pose) float64 16kB 0.4 2.2 1.0 ... 1.199e+03 1.199e+03
+      * pose     (pose) int64 32B 0 1 2 3
+      * k        (k) int64 32B 0 1 2 3
+      * j        (j) int64 736B 0 1 2 3 4 5 6 7 8 9 ... 83 84 85 86 87 88 89 90 91
+      * i        (i) int64 824B 0 1 2 3 4 5 6 7 8 ... 94 95 96 97 98 99 100 101 102
+      * z        (pose, k, j, i) float64 1MB -0.19 -0.3 -0.41 ... -11.3 -11.41
+      * y        (pose, k, j, i) float64 1MB 20.3 20.3 20.3 ... 29.27 29.27 29.27
+      * x        (pose, k, j, i) float64 1MB -3.851 -3.851 -3.851 ... 4.024 4.024
+    Indexes:
+      ┌ z        VoxelToWorldIndex
+      │ y
+      └ x
+    Attributes:
+        affines:               {}
+        device_serial_number:  ASAO0207
+        software_version:      IcoScan version 1.0.0
+        iconeus_scan_mode:     4Dscan
+        iconeus_subject:       mouse2_Anesthetized
+        iconeus_session:       20211022
+        iconeus_scan:          sub-01_task-awake_pwd
+        iconeus_project:       FC
+        iconeus_date:          2021-10-22 14:14:12
     ```
 
     The `time` coordinate is pose-dependent, shaped `(time, pose)`, holding each
@@ -271,8 +324,8 @@ Provenance metadata from the file is stored in `da.attrs`: `scan_mode`, `subject
 
 #### SCAN v2 (binary format)
 
-`load_scan` also opens the newer binary SCAN v2 format, detected automatically (no extra
-arguments needed).
+[`load`][confusius.load] also opens the newer binary SCAN v2 format, detected automatically (no
+extra arguments needed).
 
 !!! warning "Experimental"
     SCAN v2 metadata were reverse-engineered from a few example files. The data, timing,
@@ -339,9 +392,8 @@ is.
 
 #### Converting SCAN Data to NIfTI
 
-Since [`load_scan`][confusius.io.load_scan] returns a VoxelData-compatible DataArray with
-VoxelData dimensions and coordinates, you can save it directly to NIfTI using
-[`save_nifti`][confusius.io.save_nifti] or the Xarray accessor.
+Since [`load`][confusius.load] returns a VoxelData array, you can save it directly to
+NIfTI using [`save`][confusius.save] or the Xarray accessor.
 
 For **2Dscan** data, save it directly:
 
@@ -380,7 +432,7 @@ saving, or save each pose separately if you want to retain the multi-pose struct
 
 ### Loading NIfTI Files
 
-Use [`confusius.load`][confusius.load] to load NIfTI files as lazy VoxelData-compatible DataArrays:
+Use [`confusius.load`][confusius.load] to load NIfTI files as lazy VoxelData arrays:
 
 ```pycon
 >>> import confusius as cf
@@ -401,7 +453,7 @@ header when both are available.
 
 For unsupported formats, such as lab-specific MAT-files containing power Doppler or
 velocity data, load the array with the appropriate Python tool and use
-[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to attach
+[`create_voxeldata`][confusius.xarray.create_voxeldata] to attach
 dimensions, coordinates, and metadata:
 
 ```python
@@ -410,7 +462,7 @@ import confusius as cf
 # Replace this with scipy.io.loadmat, h5py, mat73, or your lab's loader.
 raw_power = load_my_mat_file("path/to/power_doppler.mat")  # source array, (i, j, time)
 
-power = cf.create_fusi_dataarray(
+power = cf.create_voxeldata(
     raw_power,
     dims=("i", "j", "time"),  # missing k is added as a singleton voxel dimension
     dt=1 / 2.5,  # 2.5 Hz frame rate
@@ -419,8 +471,8 @@ power = cf.create_fusi_dataarray(
 )
 ```
 
-See the [Create a VoxelData-compatible DataArray from a MAT
-file](../examples/_built/io/create_fusi_dataarray_from_mat.md) example for a complete
+See the [Create a VoxelData array from a MAT
+file](../examples/_built/io/create_voxeldata_from_mat.md) example for a complete
 walkthrough, from a real lab-specific MAT file to motion correction and a task GLM.
 
 ## Converting Beamformed IQ Data
@@ -505,15 +557,15 @@ Zarr for efficient processing.
 
 For beamformed IQ data from a system other than AUTC or EchoFrame, load the complex
 array with the tool appropriate for your file format, then wrap it as an IQ DataArray
-with [`create_iq_dataarray`][confusius.xarray.create_iq_dataarray]:
+with [`create_voxeldata`][confusius.xarray.create_voxeldata]:
 
 ```python
 import confusius as cf
-from confusius.validation import validate_iq
+from confusius.validation import validate_voxeldata
 
 raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, k, j, i)
 
-iq = cf.create_iq_dataarray(
+iq = cf.create_voxeldata(
     raw_iq,
     dims=("time", "k", "j", "i"),
     dt=1 / 500,
@@ -522,7 +574,7 @@ iq = cf.create_iq_dataarray(
     transmit_frequency=15.625e6,
     beamforming_sound_velocity=1540.0,
 )
-validate_iq(iq, require_velocity_attrs=True)
+validate_voxeldata(iq, require_velocity_attrs=True)
 ```
 
 See [Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for the
@@ -570,7 +622,7 @@ choose which ones are written into the NIfTI header:
 ```python
 import confusius as cf
 
-cf.save_nifti(
+cf.save(
     data_array,
     "output.nii.gz",
     qform="world_to_scanner",
@@ -578,11 +630,10 @@ cf.save_nifti(
 )
 ```
 
-When `qform` and/or `sform` are omitted, [`save_nifti`][confusius.io.save_nifti]
-falls back to `"world_to_qform"` and `"world_to_sform"` if those keys exist in
-`attrs["affines"]`. Any affine actually written into the NIfTI `qform` or `sform`
-header is omitted from the `ConfUSIusAffines` JSON sidecar field so it is not stored
-twice.
+When `qform` and/or `sform` are omitted, [`save`][confusius.save] falls back to
+`"world_to_qform"` and `"world_to_sform"` if those keys exist in `attrs["affines"]`. Any
+affine actually written into the NIfTI `qform` or `sform` header is omitted from the
+`ConfUSIusAffines` JSON sidecar field so it is not stored twice.
 
 ## Format Conversion Reference
 
@@ -591,10 +642,10 @@ Quick reference for converting between formats:
 | From | To | Function |
 |------|-----|----------|
 | AUTC DATs | Zarr | [`confusius.io.convert_autc_dats_to_zarr`][confusius.io.convert_autc_dats_to_zarr] |
-| EchoFrame DAT | VoxelData-compatible DataArray | [`confusius.io.load_echoframe_dat`][confusius.io.load_echoframe_dat] |
+| EchoFrame DAT | VoxelData array | [`confusius.io.load_echoframe_dat`][confusius.io.load_echoframe_dat] |
 | EchoFrame DAT | Zarr | [`confusius.io.convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr] |
-| Iconeus SCAN | VoxelData-compatible DataArray | [`confusius.load`][confusius.load] |
-| NIfTI | VoxelData-compatible DataArray | [`confusius.load`][confusius.load] |
-| Zarr | VoxelData-compatible DataArray or Dataset | [`confusius.load`][confusius.load] / [`xarray.open_zarr`][xarray.open_zarr] (Dataset) |
-| VoxelData-compatible DataArray | NIfTI | [`confusius.save`][confusius.save] / [`.fusi.save`][confusius.xarray.FUSIAccessor.save] |
-| VoxelData-compatible DataArray | Zarr | [`confusius.save`][confusius.save] / [`.fusi.save`][confusius.xarray.FUSIAccessor.save] / [`.to_zarr`][xarray.DataArray.to_zarr] |
+| Iconeus SCAN | VoxelData array | [`confusius.load`][confusius.load] |
+| NIfTI | VoxelData array | [`confusius.load`][confusius.load] |
+| Zarr | VoxelData array or Dataset | [`confusius.load`][confusius.load] / [`xarray.open_zarr`][xarray.open_zarr] (Dataset) |
+| VoxelData array | NIfTI | [`confusius.save`][confusius.save] / [`.fusi.save`][confusius.xarray.FUSIAccessor.save] |
+| VoxelData array | Zarr | [`confusius.save`][confusius.save] / [`.fusi.save`][confusius.xarray.FUSIAccessor.save] / [`.to_zarr`][xarray.DataArray.to_zarr] |

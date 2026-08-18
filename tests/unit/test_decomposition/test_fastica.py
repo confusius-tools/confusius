@@ -14,7 +14,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
 )
 from confusius.decomposition import FastICA
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 class _FasticaTestKwargs(TypedDict):
@@ -38,7 +38,7 @@ FASTICA_TEST_KWARGS: _FasticaTestKwargs = {
 def sample_fusi_3dt():
     """Stable 3D+t fUSI input for FastICA convergence tests."""
     rng = np.random.default_rng(42)
-    return create_fusi_dataarray(
+    return create_voxeldata(
         rng.random((10, 4, 6, 8)),
         name="power_doppler",
         dims=("time", "k", "j", "i"),

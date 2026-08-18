@@ -8,7 +8,7 @@ import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
 from confusius.validation import validate_atlas
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 def _make_atlas(
@@ -32,7 +32,7 @@ def _make_atlas(
     ]
 
     def mk(data: np.ndarray) -> xr.DataArray:
-        return create_fusi_dataarray(
+        return create_voxeldata(
             data, dims=["k", "j", "i"], spacing=(1.0, 1.0, 1.0), origin=(0.0, 0.0, 0.0)
         )
 

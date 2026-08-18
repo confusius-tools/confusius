@@ -56,8 +56,8 @@ def unmask(
     -------
     xarray.DataArray
         Reconstructed DataArray with shape `(..., *mask.dims)`, where spatial
-        dimensions and coordinates come from the mask. For a VoxelData-compatible
-        DataArray mask (native voxel dims `k`/`j`/`i` with a `VoxelToWorldIndex`),
+        dimensions and coordinates come from the mask. For a VoxelData
+        array mask (native voxel dims `k`/`j`/`i` with a `VoxelToWorldIndex`),
         the derived world `z`/`y`/`x` coordinates are restored on the result as well.
 
     Raises
@@ -70,16 +70,16 @@ def unmask(
     --------
     >>> import numpy as np
     >>> from confusius.extract import extract_with_mask, unmask
-    >>> from confusius.xarray import create_fusi_dataarray
+    >>> from confusius.xarray import create_voxeldata
     >>> from sklearn.cluster import KMeans
     >>>
-    >>> data = create_fusi_dataarray(
+    >>> data = create_voxeldata(
     ...     np.random.rand(10, 4, 5, 6),
     ...     dims=("time", "k", "j", "i"),
     ...     dt=0.5,
     ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> mask = create_fusi_dataarray(
+    >>> mask = create_voxeldata(
     ...     np.random.rand(4, 5, 6) > 0.5, dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
     ... )
     >>>

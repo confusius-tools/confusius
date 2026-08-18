@@ -503,5 +503,5 @@ def labels_from_layer(
     )
     # Reattach the voxel-to-world index from `data` rather than copying its derived
     # z/y/x coordinate values (see comment above `coords`), so `label_map` stays
-    # VoxelData-compatible.
+    # a VoxelData array.
     return attach_voxel_to_world_index(label_map, get_voxel_to_world_affine(data))

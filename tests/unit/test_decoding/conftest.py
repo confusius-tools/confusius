@@ -3,7 +3,7 @@
 import pytest
 import xarray as xr
 
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def decoding_volume(rng):
         Random canonical `(time, k, j, i)` volume with a real `VoxelToWorldIndex`.
     """
     n_time = 40
-    return create_fusi_dataarray(
+    return create_voxeldata(
         rng.standard_normal((n_time, 2, 5, 6)),
         name="power_doppler",
         dims=("time", "k", "j", "i"),

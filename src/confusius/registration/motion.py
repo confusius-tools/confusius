@@ -219,7 +219,7 @@ def compute_framewise_displacement(
     Raises
     ------
     ValueError
-        If `reference` contains a `time` dimension, fails fUSI validation, or if
+        If `reference` contains a `time` dimension, fails VoxelData validation, or if
         `affines` is empty or contains an array that is not a `(4, 4)` homogeneous 3D
         affine.
     TypeError
@@ -232,14 +232,14 @@ def compute_framewise_displacement(
         Spurious but systematic correlations in functional connectivity MRI networks
         arise from subject motion. Neuroimage 59, 2142-2154
     """
-    from confusius.validation import ensure_fusi
+    from confusius.validation import ensure_voxeldata
 
     if "time" in reference.dims:
         raise ValueError(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    reference = ensure_fusi(
+    reference = ensure_voxeldata(
         reference,
         require_time=False,
         allow_pose=False,
@@ -307,7 +307,7 @@ def create_motion_dataframe(
     affines : list[numpy.ndarray]
         List of affine matrices from registration.
     reference : xarray.DataArray
-        Spatial-only VoxelData-compatible DataArray defining the world grid for
+        Spatial-only VoxelData array defining the world grid for
         framewise displacement computation.
     mask : numpy.ndarray, optional
         Boolean mask for FD computation.
@@ -334,7 +334,7 @@ def create_motion_dataframe(
     Raises
     ------
     ValueError
-        If `reference` contains a `time` dimension, fails fUSI validation, or if
+        If `reference` contains a `time` dimension, fails VoxelData validation, or if
         `affines` is empty or contains an array that is not a `(4, 4)` homogeneous 3D
         affine.
     TypeError
@@ -342,7 +342,7 @@ def create_motion_dataframe(
     """
     import pandas as pd
 
-    from confusius.validation import ensure_fusi
+    from confusius.validation import ensure_voxeldata
 
     if "time" in reference.dims:
         raise ValueError(
@@ -352,7 +352,7 @@ def create_motion_dataframe(
     # Canonicalize once so a scalar-indexed reference (e.g. `.isel(z=0)`) has its
     # singleton spatial dim restored before compute_framewise_displacement and
     # _get_motion_parameter_columns both consult reference.dims.
-    reference = ensure_fusi(
+    reference = ensure_voxeldata(
         reference,
         require_time=False,
         allow_pose=False,

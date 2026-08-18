@@ -29,7 +29,7 @@ from confusius._utils.geometry import (
 from confusius.io import load as load_dataarray
 from confusius.io import save as save_dataarray
 from confusius.validation import validate_bspline
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
     from collections.abc import Hashable, Mapping
@@ -318,7 +318,7 @@ def _deserialize_bspline_dataarray(payload: BSplineDataArrayPayload) -> xr.DataA
         "Mapping[Hashable, Mapping[str, Any]]", attrs.pop("world_coord_attrs")
     )
 
-    transform = create_fusi_dataarray(
+    transform = create_voxeldata(
         np.asarray(payload["data"], dtype=float),
         dims=("component", *spatial_dims),
         extra_coords={"component": component},
@@ -393,7 +393,7 @@ def _normalize_loaded_bspline_transform(transform: xr.DataArray) -> xr.DataArray
             for world_name in get_voxel_to_world_coord_names(normalized)
             if world_name in normalized.coords
         }
-        normalized = create_fusi_dataarray(
+        normalized = create_voxeldata(
             values,
             dims=("component", *component_values),
             extra_coords={"component": normalized.coords["component"].values},
@@ -714,7 +714,7 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
         # carry the control-point grid's own geometry reliably; recover it from the
         # recorded output/input grid instead, rebuilding the voxel-to-world index
         # (rather than assigning raw coordinate arrays) to keep `transform`
-        # VoxelData-compatible.
+        # a VoxelData array.
         spatial_dims = [str(dim) for dim in transform.dims[1:]]
         order = [grid["dims"].index(dim) for dim in spatial_dims]
         direction = np.asarray(transform.fusi.direction, dtype=np.float64)
@@ -728,7 +728,7 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
             for world_name in get_voxel_to_world_coord_names(transform)
             if world_name in transform.coords
         }
-        transform = create_fusi_dataarray(
+        transform = create_voxeldata(
             transform.values,
             dims=("component", *spatial_dims),
             extra_coords={"component": transform.coords["component"].values},

@@ -27,7 +27,7 @@ from confusius._napari._sample import (
     open_awake_mouse_recording_sample,
     open_rat_registration_pair_sample,
 )
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 class _Dialog:
@@ -156,7 +156,7 @@ def test_open_awake_mouse_sample_sets_default_gamma_and_shows_scale_bar(
         "confusius._napari._sample.napari.current_viewer", lambda: viewer
     )
 
-    da = create_fusi_dataarray(
+    da = create_voxeldata(
         np.zeros((1, 2, 3), dtype=np.float32),
         dims=("k", "j", "i"),
         spacing=(1.0, 1.0, 1.0),
@@ -206,7 +206,7 @@ def test_open_rat_registration_pair_loads_two_layers_with_qform(monkeypatch, tmp
         },
     )
 
-    da = create_fusi_dataarray(
+    da = create_voxeldata(
         np.zeros((1, 2, 3), dtype=np.float32),
         dims=("k", "j", "i"),
         spacing=(1.0, 1.0, 1.0),

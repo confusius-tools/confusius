@@ -12,7 +12,7 @@ import pytest
 import xarray as xr
 
 from confusius.plotting import plot_napari
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -66,7 +66,7 @@ class TestCurrentTimeWorld:
     def test_consistent_with_video_layer(self, rng, viewer, qc_panel):
         """World coordinate is correct even when a video layer is also loaded."""
         time_coords = np.array([0.0, 0.5, 1.0, 1.5, 2.0])
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             rng.random((5, 4, 6, 8)).astype(np.float32),
             dims=("time", "k", "j", "i"),
             time=xr.DataArray(time_coords, dims=["time"], attrs={"units": "s"}),

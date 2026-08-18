@@ -39,7 +39,7 @@ from confusius.registration import (
     resample_like,
     resample_volume,
 )
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
@@ -88,7 +88,7 @@ def _FakeDiagnostics(
 def _make_bspline_transform() -> xr.DataArray:
     # fUSI DataArrays always carry all three spatial dims (k singleton for 2D data),
     # matching what sitk_bspline_to_dataarray produces in practice.
-    return create_fusi_dataarray(
+    return create_voxeldata(
         np.arange(3 * 1 * 3 * 4, dtype=float).reshape(3, 1, 3, 4),
         dims=("component", "k", "j", "i"),
         extra_coords={"component": np.array(["k", "j", "i"], dtype=np.str_)},
@@ -311,10 +311,10 @@ class TestOperationMode:
     def test_scale_preprocessing_resets_gamma_for_previews(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = create_fusi_dataarray(
+        moving_data = create_voxeldata(
             np.ones((4, 6), dtype=np.float32), dims=("j", "i"), spacing=(1.0, 0.2, 0.1)
         )
-        fixed = create_fusi_dataarray(
+        fixed = create_voxeldata(
             2 * np.ones((4, 6), dtype=np.float32),
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
@@ -354,12 +354,12 @@ class TestOperationMode:
     def test_create_volume_progress_plotter_preserves_camera_view(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = create_fusi_dataarray(
+        moving_data = create_voxeldata(
             np.ones((5, 4, 6), dtype=np.float32),
             dims=("k", "j", "i"),
             spacing=(0.3, 0.2, 0.1),
         )
-        fixed = create_fusi_dataarray(
+        fixed = create_voxeldata(
             2 * np.ones((5, 4, 6), dtype=np.float32),
             dims=("k", "j", "i"),
             spacing=(0.3, 0.2, 0.1),
@@ -495,7 +495,7 @@ class TestRunRegistration:
         # Swap k/j in the direction matrix: still a valid affine, but off-diagonal,
         # so `_is_axis_aligned_affine` treats it as oblique.
         direction = np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-        moving = create_fusi_dataarray(
+        moving = create_voxeldata(
             np.zeros((4, 6, 8), dtype=np.float32),
             dims=("k", "j", "i"),
             spacing=(0.3, 0.2, 0.1),
@@ -940,7 +940,7 @@ class TestTransforms:
         )
 
     def test_bspline_payload_missing_voxel_to_world_index_is_rejected(self):
-        reference = create_fusi_dataarray(
+        reference = create_voxeldata(
             np.ones((3, 4), dtype=np.float32), dims=("j", "i"), spacing=(1.0, 0.2, 0.1)
         )
         # A B-spline control-point grid must be a canonical, voxel-to-world-index-backed
@@ -1009,7 +1009,7 @@ class TestTransforms:
     def test_apply_transform_uses_bspline_payload(
         self, viewer, registration_panel, monkeypatch
     ):
-        moving = create_fusi_dataarray(
+        moving = create_voxeldata(
             np.arange(12, dtype=np.float32).reshape(3, 4),
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
@@ -1039,7 +1039,7 @@ class TestTransforms:
         _install_immediate_thread_worker(monkeypatch)
 
         output_grid = get_output_grid_from_payload(payload)
-        expected = create_fusi_dataarray(
+        expected = create_voxeldata(
             np.full(output_grid["shape"], 7.0, dtype=np.float32),
             dims=("k", "j", "i"),
             spacing=output_grid["spacing"],
@@ -1067,7 +1067,7 @@ class TestTransforms:
     def test_apply_transform_layers_keep_grid_units_and_singleton_spacing(
         self, viewer, registration_panel, monkeypatch
     ):
-        target = create_fusi_dataarray(
+        target = create_voxeldata(
             np.zeros((1, 5, 7), dtype=np.float32),
             dims=("k", "j", "i"),
             spacing=(0.4, 0.3, 0.3),
@@ -1111,7 +1111,7 @@ class TestTransforms:
     def test_apply_inverse_transform_uses_inverse_affine_and_input_grid(
         self, viewer, registration_panel, monkeypatch
     ):
-        source = create_fusi_dataarray(
+        source = create_voxeldata(
             np.zeros((2, 20, 20), dtype=np.float32),
             dims=("k", "j", "i"),
             spacing=(0.3, 0.2, 0.1),
@@ -1174,12 +1174,12 @@ class TestTransforms:
     def test_apply_inverse_transform_uses_approximate_inverse_bspline_and_input_grid(
         self, viewer, registration_panel, monkeypatch
     ):
-        source = create_fusi_dataarray(
+        source = create_voxeldata(
             np.arange(12, dtype=np.float32).reshape(3, 4),
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
         )
-        target = create_fusi_dataarray(
+        target = create_voxeldata(
             np.arange(30, dtype=np.float32).reshape(5, 6),
             dims=("j", "i"),
             spacing=(1.0, 0.3, 0.15),
@@ -1229,7 +1229,7 @@ class TestTransforms:
             },
             attrs={"type": "displacement_field_transform"},
         )
-        expected = create_fusi_dataarray(
+        expected = create_voxeldata(
             np.full(input_grid["shape"], 9.0, dtype=np.float32),
             dims=("k", "j", "i"),
             spacing=input_grid["spacing"],
@@ -1298,7 +1298,7 @@ class TestVolumewiseProgress:
     def test_setup_updates_progress_bar_and_output_layer(
         self, viewer, registration_panel
     ):
-        moving = create_fusi_dataarray(
+        moving = create_voxeldata(
             np.linspace(-2.0, 3.0, 3 * 4 * 6, dtype=np.float32).reshape(3, 4, 6),
             dims=("time", "j", "i"),
             time=np.arange(3, dtype=float),
@@ -1326,7 +1326,7 @@ class TestVolumewiseProgress:
             np.full(moving.shape, float(moving.min()), dtype=np.float32),
         )
 
-        frame = create_fusi_dataarray(
+        frame = create_voxeldata(
             np.ones((4, 6), dtype=np.float32),
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
@@ -1344,7 +1344,7 @@ class TestFinishedCallbacks:
     def test_volume_result_adds_new_layer_with_transform_metadata(
         self, viewer, registration_panel
     ):
-        fixed = create_fusi_dataarray(
+        fixed = create_voxeldata(
             np.ones((4, 6), dtype=np.float32),
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
@@ -1388,7 +1388,7 @@ class TestFinishedCallbacks:
     def test_volume_result_adds_bspline_transform_metadata(
         self, viewer, registration_panel
     ):
-        fixed = create_fusi_dataarray(
+        fixed = create_voxeldata(
             np.ones((3, 4), dtype=np.float32),
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
@@ -1427,7 +1427,7 @@ class TestFinishedCallbacks:
     def test_volume_result_replaces_preview_layer(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = create_fusi_dataarray(
+        moving_data = create_voxeldata(
             np.zeros((4, 6), dtype=np.float32),
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
@@ -1436,7 +1436,7 @@ class TestFinishedCallbacks:
         moving = real_viewer.add_image(
             np.zeros((4, 6), dtype=np.float32), name="moving"
         )
-        fixed = create_fusi_dataarray(
+        fixed = create_voxeldata(
             np.ones((4, 6), dtype=np.float32),
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
@@ -1493,7 +1493,7 @@ class TestFinishedCallbacks:
     def test_create_volume_progress_plotter_applies_initial_transform_to_preview_layers(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = create_fusi_dataarray(
+        moving_data = create_voxeldata(
             np.arange(24, dtype=np.float32).reshape(1, 4, 6),
             dims=("k", "j", "i"),
             spacing=(0.2, 0.2, 0.1),
@@ -1537,7 +1537,7 @@ class TestFinishedCallbacks:
     def test_progress_layer_data_updates_on_iteration(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = create_fusi_dataarray(
+        moving_data = create_voxeldata(
             np.zeros((4, 6), dtype=np.float32),
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
@@ -1546,7 +1546,7 @@ class TestFinishedCallbacks:
         moving = real_viewer.add_image(
             np.zeros((4, 6), dtype=np.float32), name="moving"
         )
-        fixed = create_fusi_dataarray(
+        fixed = create_voxeldata(
             np.zeros((4, 6), dtype=np.float32),
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
@@ -1584,7 +1584,7 @@ class TestFinishedCallbacks:
         assert "Registered (rigid)" not in {layer.name for layer in real_viewer.layers}
 
     def test_volumewise_result_adds_registered_layer(self, viewer, registration_panel):
-        moving = create_fusi_dataarray(
+        moving = create_voxeldata(
             np.zeros((3, 4, 6), dtype=np.float32),
             dims=("time", "j", "i"),
             time=np.arange(3, dtype=float),
@@ -1634,7 +1634,7 @@ class TestFinishedCallbacks:
         )
 
     def test_unique_transform_and_result_names(self, viewer, registration_panel):
-        fixed = create_fusi_dataarray(
+        fixed = create_voxeldata(
             np.ones((4, 6), dtype=np.float32),
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),

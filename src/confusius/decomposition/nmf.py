@@ -120,7 +120,7 @@ class NMF(_BaseFUSIDecomposer):
 
     mask : xarray.DataArray, optional
         Boolean mask selecting which elements to include during fitting and
-        projection: voxels, for VoxelData-compatible DataArray input, or features, for an
+        projection: voxels, for VoxelData array input, or features, for an
         already-extracted signals input (e.g.
         [`extract_with_labels`][confusius.extract.extract_with_labels] output). Must
         match the non-`time` dimensions of the input data in the same order.
@@ -177,14 +177,14 @@ class NMF(_BaseFUSIDecomposer):
 
     >>> import numpy as np
     >>> from confusius.decomposition import NMF
-    >>> from confusius.xarray import create_fusi_dataarray
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> rng = np.random.default_rng(0)
     >>> k = 5
     >>> n_t, n_z, n_y, n_x = 200, 4, 6, 8
     >>> temporal = rng.random((n_t, k))
     >>> spatial = rng.random((k, n_z * n_y * n_x))
-    >>> data = create_fusi_dataarray(
+    >>> data = create_voxeldata(
     ...     (10.0 * (temporal @ spatial) + 1.0).reshape(n_t, n_z, n_y, n_x),
     ...     dims=("time", "k", "j", "i"),
     ...     dt=0.1,
@@ -252,12 +252,12 @@ class NMF(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "NMF":
-        """Fit NMF on a VoxelData-compatible DataArray or signals array.
+        """Fit NMF on a VoxelData array or signals array.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: a VoxelData-compatible DataArray, or an already-extracted
+            Input data: a VoxelData array, or an already-extracted
             signals array (see class docstring). Must be non-negative.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.

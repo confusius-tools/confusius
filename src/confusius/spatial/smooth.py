@@ -6,7 +6,7 @@ import numpy as np
 import scipy.ndimage
 import xarray as xr
 
-from confusius.validation import ensure_fusi
+from confusius.validation import ensure_voxeldata
 
 _FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 """FWM to Gaussian sigma conversion factor."""
@@ -46,7 +46,7 @@ def smooth_volume(
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData-compatible DataArray to smooth. Can have any number of dimensions,
+        VoxelData array to smooth. Can have any number of dimensions,
         including a `time` dimension.
 
         !!! warning "Chunking along smoothed dimensions is not supported"
@@ -102,8 +102,8 @@ def smooth_volume(
     >>> import xarray as xr
     >>> import numpy as np
     >>> import confusius  # noqa: F401
-    >>> from confusius.xarray import create_fusi_dataarray
-    >>> data = create_fusi_dataarray(
+    >>> from confusius.xarray import create_voxeldata
+    >>> data = create_voxeldata(
     ...     np.random.randn(5, 10, 1, 20),
     ...     dims=("time", "k", "j", "i"),
     ...     dt=0.2,
@@ -123,7 +123,7 @@ def smooth_volume(
 
     >>> smoothed = smooth_volume(data, fwhm=0.3, ensure_finite=True)
     """
-    data = ensure_fusi(data)
+    data = ensure_voxeldata(data)
 
     all_dims = [str(d) for d in data.dims]
 

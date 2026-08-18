@@ -14,7 +14,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
 )
 from confusius.decomposition import NMF
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 def _make_mask(
@@ -63,7 +63,7 @@ def nmf_3dt_volume():
     W = local_rng.random((n_t, k))
     H = local_rng.random((k, n_z * n_y * n_x))
     data = (10.0 * (W @ H) + 1.0).reshape(n_t, n_z, n_y, n_x)
-    return create_fusi_dataarray(
+    return create_voxeldata(
         data,
         name="power_doppler",
         dims=("time", "k", "j", "i"),

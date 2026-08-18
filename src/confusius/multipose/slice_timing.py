@@ -13,7 +13,7 @@ from confusius._utils.geometry import (
 )
 from confusius._utils.timing import interpolate_timeseries
 from confusius.multipose._utils import build_consolidated_time_coordinate
-from confusius.validation import ensure_fusi
+from confusius.validation import ensure_voxeldata
 
 
 def correct_slice_timings(
@@ -64,7 +64,7 @@ def correct_slice_timings(
     Parameters
     ----------
     da : xarray.DataArray
-        VoxelData-compatible DataArray with a `slice_time` coordinate, or a
+        VoxelData array with a `slice_time` coordinate, or a
         pose-dependent `(time, pose)`-shaped `time` coordinate, with dims
         `(time, <sweep_dim>)`.
     method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}, default: "linear"
@@ -89,7 +89,7 @@ def correct_slice_timings(
     Returns
     -------
     xarray.DataArray
-        New VoxelData-compatible DataArray with the same dims as the input, resampled so every sweep
+        New VoxelData array with the same dims as the input, resampled so every sweep
         position appears simultaneous. For already-consolidated input, `time` is
         unchanged and `slice_time` is dropped (avoiding accidental
         double-correction). For pose-dependent input, `time` becomes a genuine 1D
@@ -111,7 +111,7 @@ def correct_slice_timings(
     """
     if "time" not in da.dims:
         raise ValueError("DataArray must have a 'time' dimension.")
-    da = ensure_fusi(da, require_time=True, require_unchunked_time=True)
+    da = ensure_voxeldata(da, require_time=True, require_unchunked_time=True)
 
     time_coord = da.coords["time"]
     is_pose_dependent_time = time_coord.dims == ("time", POSE_DIM)

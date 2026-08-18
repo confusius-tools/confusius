@@ -11,7 +11,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
 )
-from confusius.validation import ensure_fusi
+from confusius.validation import ensure_voxeldata
 
 
 def stack_poses(
@@ -36,9 +36,9 @@ def stack_poses(
     Parameters
     ----------
     poses : sequence[xarray.DataArray]
-        VoxelData-compatible DataArrays to stack, one per pose, in pose order. Each
+        VoxelData arrays to stack, one per pose, in pose order. Each
         must have no existing `pose` dimension (see
-        [ensure_fusi][confusius.validation.ensure_fusi]'s `allow_pose` parameter).
+        [ensure_voxeldata][confusius.validation.ensure_voxeldata]'s `allow_pose` parameter).
         Voxel dimensions, shape, voxel-space (`k`/`j`/`i`) coordinate values, and any
         non-core dimensions must otherwise agree across poses, exactly as required to
         merge non-concatenated variables in any `xr.concat` call.
@@ -79,7 +79,7 @@ def stack_poses(
             f"for {len(poses)} poses."
         )
 
-    poses = [ensure_fusi(p, allow_pose=False) for p in poses]
+    poses = [ensure_voxeldata(p, allow_pose=False) for p in poses]
     pose_labels = list(range(len(poses))) if pose is None else list(pose)
     has_time = TIME_DIM in poses[0].dims
 

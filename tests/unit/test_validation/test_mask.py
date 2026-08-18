@@ -5,7 +5,7 @@ import pytest
 from numpy.testing import assert_array_equal
 
 from confusius.validation import validate_mask
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 def _data_and_mask(values):
@@ -24,13 +24,13 @@ def _data_and_mask(values):
         A `(k, j, i)` mask wrapping `values`.
     """
     values = np.asarray(values).reshape(1, 1, -1)
-    data = create_fusi_dataarray(
+    data = create_voxeldata(
         np.zeros((3, *values.shape)),
         dims=("time", "k", "j", "i"),
         dt=1.0,
         spacing=(1.0, 1.0, 1.0),
     )
-    mask = create_fusi_dataarray(values, dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0))
+    mask = create_voxeldata(values, dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0))
     return data, mask
 
 

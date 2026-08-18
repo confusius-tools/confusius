@@ -109,7 +109,7 @@ class PCA(_BaseFUSIDecomposer):
           time.
     mask : xarray.DataArray, optional
         Boolean mask selecting which elements to include during fitting and
-        projection: voxels, for VoxelData-compatible DataArray input, or features, for an
+        projection: voxels, for VoxelData array input, or features, for an
         already-extracted signals input (e.g.
         [`extract_with_labels`][confusius.extract.extract_with_labels] output). Must
         match the non-`time` dimensions of the input data in the same order.
@@ -169,10 +169,10 @@ class PCA(_BaseFUSIDecomposer):
 
     >>> import numpy as np
     >>> from confusius.decomposition import PCA
-    >>> from confusius.xarray import create_fusi_dataarray
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> rng = np.random.default_rng(0)
-    >>> data = create_fusi_dataarray(
+    >>> data = create_voxeldata(
     ...     rng.standard_normal((200, 5, 10, 20)),
     ...     dims=("time", "k", "j", "i"),
     ...     dt=0.1,
@@ -232,12 +232,12 @@ class PCA(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "PCA":
-        """Fit PCA on a VoxelData-compatible DataArray or signals array.
+        """Fit PCA on a VoxelData array or signals array.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: a VoxelData-compatible DataArray, or an already-extracted
+            Input data: a VoxelData array, or an already-extracted
             signals array (see class docstring).
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.

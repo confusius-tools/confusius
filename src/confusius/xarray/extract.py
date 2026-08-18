@@ -15,23 +15,23 @@ class FUSIExtractAccessor:
     Parameters
     ----------
     xarray_obj : xarray.DataArray
-        DataArray to wrap. Extraction methods expect a VoxelData-compatible DataArray;
+        DataArray to wrap. Extraction methods expect a VoxelData array;
         `unmask` expects an already-extracted signals array.
 
     Examples
     --------
     >>> import numpy as np
-    >>> from confusius.xarray import create_fusi_dataarray
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> # 3D+t data: (time, k, j, i), native voxel dims with world z/y/x derived
     >>> # from the attached VoxelToWorldIndex.
-    >>> data = create_fusi_dataarray(
+    >>> data = create_voxeldata(
     ...     np.random.randn(100, 10, 20, 30),
     ...     dims=("time", "k", "j", "i"),
     ...     dt=1.0,
     ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> mask = create_fusi_dataarray(
+    >>> mask = create_voxeldata(
     ...     np.random.rand(10, 20, 30) > 0.5,
     ...     dims=("k", "j", "i"),
     ...     spacing=(1.0, 1.0, 1.0),
@@ -182,7 +182,7 @@ class FUSIExtractAccessor:
         Parameters
         ----------
         mask : xarray.DataArray
-            Boolean VoxelData-compatible mask array used for the original extraction.
+            Boolean VoxelData mask array used for the original extraction.
             Provides native voxel dimensions and VoxelData geometry for reconstruction.
         fill_value : float, default: 0.0
             Value to fill in non-masked voxels.
@@ -190,7 +190,7 @@ class FUSIExtractAccessor:
         Returns
         -------
         xarray.DataArray
-            Reconstructed VoxelData-compatible DataArray with shape `(..., k, j, i)`
+            Reconstructed VoxelData array with shape `(..., k, j, i)`
             where native voxel dimensions and VoxelData geometry come from the mask.
 
         Examples

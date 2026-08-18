@@ -134,7 +134,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
         )
         da = cf.load(pwd_path)
 
-    # 1. Relabel the k/j axes (no data copy needed): `create_fusi_dataarray` accepts
+    # 1. Relabel the k/j axes (no data copy needed): `create_voxeldata` accepts
     # `dims` in any order -- it builds world coordinates from whichever dim is
     # *named* k/j/i, independent of its world axis position, and transposes to
     # canonical order internally. So swapping the k/j *labels* on the still-raw
@@ -153,7 +153,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     permute_kj[[0, 1]] = permute_kj[[1, 0]]
     swapped_voxel_to_world = da.fusi.affine.voxel_to_world @ permute_kj
 
-    da = cf.create_fusi_dataarray(
+    da = cf.create_voxeldata(
         da.values,
         dims=relabeled_dims,
         time=da.time,

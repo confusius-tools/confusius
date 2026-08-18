@@ -11,7 +11,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
 )
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 def _canonical(data, dims):
@@ -30,7 +30,7 @@ def _canonical(data, dims):
         Canonical DataArray with a `VoxelToWorldIndex` on its `k`/`j`/`i` dims.
     """
     dt = 1.0 if "time" in dims else None
-    return create_fusi_dataarray(data, dims=dims, spacing=(1.0, 1.0, 1.0), dt=dt)
+    return create_voxeldata(data, dims=dims, spacing=(1.0, 1.0, 1.0), dt=dt)
 
 
 def _labels_like(data, dims, reference):

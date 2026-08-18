@@ -9,7 +9,7 @@ import xarray as xr
 from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius.io.scan import load_scan
 from confusius.multipose import consolidate_poses
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 _NPOSE = 3
 _SIZE_Y = 1
@@ -85,7 +85,7 @@ class TestConsolidatePoses:
             affines[p, 0, 3] = p * inter_step
 
         data = np.random.default_rng(5).random((4, npose, n_sweep, 4, 3))
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["time", "pose", "k", "j", "i"],
             time=xr.DataArray(
@@ -301,7 +301,7 @@ class TestConsolidatePoses:
         for p in range(npose):
             translations[p, 0, 3] = p * inter_step  # along k (sweep_dim default)
 
-        da_primary = create_fusi_dataarray(
+        da_primary = create_voxeldata(
             data,
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
@@ -310,7 +310,7 @@ class TestConsolidatePoses:
         # Primary geometry here is trivially pose-dependent (identical spacing per
         # pose, no translation): the real per-pose translation lives only in the
         # secondary "my_affine" entry.
-        da_secondary = create_fusi_dataarray(
+        da_secondary = create_voxeldata(
             data,
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
@@ -359,7 +359,7 @@ class TestConsolidatePoses:
             affines[i, :3, 3][sweep_col] = i * inter_step
         spacing_diag = np.diag([intra_step, intra_step, intra_step, 1.0])
 
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
@@ -405,7 +405,7 @@ class TestConsolidatePoses:
         """
         npose = 3
         data = np.random.default_rng(11).random((npose, 2, 4, 3))
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
@@ -432,7 +432,7 @@ class TestConsolidatePoses:
             affines[i, :3, 3][0] = i * 2 * intra_step
         spacing_diag = np.diag([intra_step, intra_step, intra_step, 1.0])
 
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),

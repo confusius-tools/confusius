@@ -20,7 +20,7 @@ from confusius.plotting import (
     plot_volume,
 )
 from confusius.plotting._utils import _materialize_axis_aligned_world_grid_for_display
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
 
@@ -104,7 +104,7 @@ class TestPlotVolume:
                 ),
             ]
         )
-        data = create_fusi_dataarray(
+        data = create_voxeldata(
             np.random.default_rng(0).random((npose, 1, 6, 8)),
             dims=("pose", "k", "j", "i"),
             pose=np.arange(npose),
@@ -152,7 +152,7 @@ class TestPlotVolume:
                 ),
             ]
         )
-        data = create_fusi_dataarray(
+        data = create_voxeldata(
             np.random.default_rng(0).random((npose, 1, 6, 8)),
             dims=("pose", "k", "j", "i"),
             pose=np.arange(npose),

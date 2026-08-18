@@ -9,7 +9,7 @@ from numpy.testing import assert_allclose
 
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volumewise import register_volumewise
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 class _FakeVolumewiseProgressReporter:
@@ -248,7 +248,7 @@ class TestRegisterVolumewise:
         # Shift frame 1 by rolling (simulates translation).
         frames[1] = np.roll(np.roll(frames[1], shift_y, axis=1), shift_x, axis=2)
 
-        data = create_fusi_dataarray(
+        data = create_voxeldata(
             np.stack(frames, axis=0),
             dims=("time", "k", "j", "i"),
             time=np.arange(n_frames) * 0.1,
@@ -325,7 +325,7 @@ class TestRegisterVolumewise:
     def test_singleton_dimension_handling(self, sample_fusi_2d_registration):
         """Singleton spatial dimensions are handled correctly."""
         # Create data with a singleton k dimension (2D slice in 3D array).
-        data = create_fusi_dataarray(
+        data = create_voxeldata(
             sample_fusi_2d_registration.values[np.newaxis, :, :, :].repeat(3, axis=0),
             dims=("time", "k", "j", "i"),
             time=np.arange(3) * 0.1,
@@ -346,7 +346,7 @@ class TestRegisterVolumewise:
     def test_output_dimension_order_matches_input(self, sample_fusi_2d_registration):
         """Output dimension order matches input regardless of internal transposition."""
         # Create data with non-standard dimension order.
-        data = create_fusi_dataarray(
+        data = create_voxeldata(
             np.stack([sample_fusi_2d_registration.values] * 3, axis=0),
             dims=("time", "k", "j", "i"),
             time=np.arange(3) * 0.1,

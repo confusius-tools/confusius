@@ -205,9 +205,9 @@ class TestComputeFramewiseDisplacement:
         would not exercise this: its transposed shape happens to equal its
         original shape, so the fast path would still match.
         """
-        from confusius.xarray import create_fusi_dataarray
+        from confusius.xarray import create_voxeldata
 
-        reference = create_fusi_dataarray(
+        reference = create_voxeldata(
             np.zeros((2, 3, 4), dtype=np.float32),
             dims=("k", "j", "i"),
             spacing=(1.0, 1.0, 1.0),

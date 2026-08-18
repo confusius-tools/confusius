@@ -3,7 +3,7 @@
 import xarray as xr
 
 from confusius._utils.geometry import get_voxel_to_world_spatial_dims
-from confusius.validation.fusi import validate_fusi
+from confusius.validation.fusi import validate_voxeldata
 
 
 def validate_bspline(da: xr.DataArray) -> None:
@@ -18,7 +18,7 @@ def validate_bspline(da: xr.DataArray) -> None:
     ------
     ValueError
         If `da.attrs["transform_type"] != "bspline_transform"`, required attrs are
-        missing, or `da` is not a VoxelData-compatible DataArray.
+        missing, or `da` is not a VoxelData array.
     """
     transform_type = da.attrs.get("transform_type", da.attrs.get("type"))
     if transform_type != "bspline_transform":
@@ -36,7 +36,7 @@ def validate_bspline(da: xr.DataArray) -> None:
             f"B-spline transform DataArray must have 'component' as its first "
             f"dimension; got {da.dims[0]!r}."
         )
-    validate_fusi(
+    validate_voxeldata(
         da,
         require_time=False,
         allow_pose=False,
@@ -63,8 +63,7 @@ def validate_displacement_field(da: xr.DataArray) -> None:
     ------
     ValueError
         If `da.attrs["type"] != "displacement_field_transform"`, `da` does not have
-        `"component"` as its first dimension, or `da` is not a VoxelData-compatible
-        DataArray.
+        `"component"` as its first dimension, or `da` is not a VoxelData array.
     """
     if da.attrs.get("type") != "displacement_field_transform":
         raise ValueError(
@@ -76,7 +75,7 @@ def validate_displacement_field(da: xr.DataArray) -> None:
             f"Displacement field DataArray must have 'component' as its first "
             f"dimension; got {da.dims[0]!r}."
         )
-    validate_fusi(
+    validate_voxeldata(
         da,
         require_time=False,
         allow_pose=False,

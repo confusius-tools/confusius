@@ -7,7 +7,7 @@ from scipy.interpolate import interp1d
 
 from confusius.multipose import correct_slice_timings
 from confusius.multipose._utils import build_consolidated_time_coordinate
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 def _spatial_coord(values: np.ndarray | list[float], dim: str) -> xr.DataArray:
@@ -54,7 +54,7 @@ def _make_consolidated_da(
     for t in range(ntime):
         slice_time_vals[t, :] = time_vals[t] + slice_offsets
 
-    result = create_fusi_dataarray(
+    result = create_voxeldata(
         data,
         dims=("time", "k", "j", "i"),
         time=time_coord,
@@ -177,7 +177,7 @@ class TestCorrectSliceTiming:
             data[:, s, 0, 0] = np.sin(2 * np.pi * freq * acq_times)
             slice_time_vals[:, s] = acq_times
 
-        da = create_fusi_dataarray(
+        da = create_voxeldata(
             data,
             dims=("time", "k", "j", "i"),
             time=xr.DataArray(
@@ -300,7 +300,7 @@ class TestCorrectSliceTiming:
             base_time_coord, pose_time_vals, timing_attrs
         )
 
-        da_unconsolidated = create_fusi_dataarray(
+        da_unconsolidated = create_voxeldata(
             data[:, :, None],
             dims=("time", "pose", "k", "j", "i"),
             time=xr.DataArray(
@@ -311,7 +311,7 @@ class TestCorrectSliceTiming:
             origin=(0.0, 0.0, 0.0),
         )
 
-        da_consolidated = create_fusi_dataarray(
+        da_consolidated = create_voxeldata(
             data,
             dims=("time", "k", "j", "i"),
             time=time_coord,

@@ -24,8 +24,8 @@ from confusius.iq.process import (
     process_iq_to_bmode,
     process_iq_to_power_doppler,
 )
-from confusius.validation import ensure_fusi
-from confusius.xarray import create_iq_dataarray
+from confusius.validation import ensure_voxeldata
+from confusius.xarray import create_voxeldata
 
 
 class _ProcessedTimingKwargs(TypedDict):
@@ -47,7 +47,7 @@ class TestComputeProcessedVolumeTimes:
         volume_acquisition_reference: str = "start",
     ) -> xr.DataArray:
         time_values = np.asarray(time_values, dtype=np.float64)
-        return create_iq_dataarray(
+        return create_voxeldata(
             np.ones((time_values.size, 1, 1, 1), dtype=np.complex128),
             dims=("time", "k", "j", "i"),
             time=xr.DataArray(
@@ -610,7 +610,7 @@ class TestProcessIqToPowerDoppler:
                 "x": {"units": "mm"},
             },
         )
-        with pytest.raises(TypeError, match="complex-valued"):
+        with pytest.raises(TypeError, match="Expected data dtype compatible"):
             process_iq_to_power_doppler(iq)
 
     def test_output_has_correct_attributes(self, sample_iq_dataarray):
@@ -933,7 +933,7 @@ class TestProcessIqToPowerDoppler:
             get_voxel_to_world_affine(result),
             get_voxel_to_world_affine(sample_iq_dataarray),
         )
-        ensure_fusi(result)
+        ensure_voxeldata(result)
 
 
 class TestProcessIqToAxialVelocity:
@@ -1119,7 +1119,7 @@ class TestProcessIqToAxialVelocity:
             get_voxel_to_world_affine(result),
             get_voxel_to_world_affine(sample_iq_dataarray),
         )
-        ensure_fusi(result)
+        ensure_voxeldata(result)
 
 
 class TestDataArrayClutterMask:
@@ -1335,7 +1335,7 @@ class TestProcessIqToBmode:
                 "x": {"units": "mm"},
             },
         )
-        with pytest.raises(TypeError, match="complex-valued"):
+        with pytest.raises(TypeError, match="Expected data dtype compatible"):
             process_iq_to_bmode(iq)
 
     def test_output_has_correct_attributes(self, sample_iq_dataarray):
@@ -1410,4 +1410,4 @@ class TestProcessIqToBmode:
             get_voxel_to_world_affine(result),
             get_voxel_to_world_affine(sample_iq_dataarray),
         )
-        ensure_fusi(result)
+        ensure_voxeldata(result)

@@ -282,7 +282,7 @@ def _resample_to_axis_aligned_world_grid(
         converted = _materialize_axis_aligned_world_grid_for_display(data)
         return converted if slice_mode in converted.dims else data
 
-    # The shared resampler keeps its output VoxelData-compatible (native voxel
+    # The shared resampler keeps its output as a VoxelData array (native voxel
     # dims, still indexed) even for oblique input; this caller's own dim-name-based
     # slicing (dim_row/dim_col/slice_mode comparisons against "z"/"y"/"x") needs the
     # world-renamed form, so materialize after resampling rather than before.
@@ -2953,8 +2953,8 @@ def _prepare_carpet_data(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array with a `"time"` dimension and coordinate: a VoxelData-compatible
-        DataArray, or an already-extracted signals array.
+        Input data array with a `"time"` dimension and coordinate: a VoxelData
+        array, or an already-extracted signals array.
     mask : xarray.DataArray, optional
         Boolean mask to select elements. Defaults to all non-zero elements.
     detrend_order : int, optional
@@ -3148,7 +3148,7 @@ def plot_carpet(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array with a `time` dimension: a VoxelData-compatible DataArray, or
+        Input data array with a `time` dimension: a VoxelData array, or
         an already-extracted signals array (e.g.
         [`extract_with_labels`][confusius.extract.extract_with_labels] output).
     mask : xarray.DataArray, optional

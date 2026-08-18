@@ -17,7 +17,7 @@ from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius.io import load_atlas, save_atlas
 from confusius.io.atlas import structures_from_json, structures_to_json
 from confusius.validation import validate_atlas
-from confusius.xarray import create_fusi_dataarray
+from confusius.xarray import create_voxeldata
 
 
 def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
@@ -27,7 +27,7 @@ def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
     voxel_to_world = np.eye(len(dims) + 1, dtype=np.float64)
     voxel_to_world[:-1, :-1] = np.diag(grid_info["spacing"])
     voxel_to_world[:-1, -1] = grid_info["origin"]
-    return create_fusi_dataarray(
+    return create_voxeldata(
         data,
         dims=("component", *dims),
         extra_coords={"component": np.array(dims, dtype=np.str_)},

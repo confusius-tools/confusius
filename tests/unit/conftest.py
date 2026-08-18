@@ -10,7 +10,7 @@ import pytest
 import xarray as xr
 
 from confusius.io.scan import load_scan
-from confusius.xarray import create_fusi_dataarray, create_iq_dataarray
+from confusius.xarray import create_voxeldata
 
 _SCAN_RNG = np.random.default_rng(42)
 
@@ -568,7 +568,7 @@ def singleton_registration_volume():
     """Small singleton-slice (k, j, i) volume for registration progress tests."""
     arr = np.zeros((1, 16, 16), dtype=np.float32)
     arr[0, 6:10, 6:10] = 1.0
-    return create_fusi_dataarray(
+    return create_voxeldata(
         arr,
         dims=("k", "j", "i"),
         spacing=(0.1, 0.1, 0.1),
@@ -586,7 +586,7 @@ def sample_fusi_3d(rng):
     """
     shape = (4, 6, 8)
     data = rng.random(shape)
-    return create_fusi_dataarray(
+    return create_voxeldata(
         data,
         name="power_doppler",
         dims=("k", "j", "i"),
@@ -606,7 +606,7 @@ def sample_fusi_3dt(rng):
     """
     shape = (10, 4, 6, 8)
     data = rng.random(shape)
-    return create_fusi_dataarray(
+    return create_voxeldata(
         data,
         name="power_doppler",
         dims=("time", "k", "j", "i"),
@@ -640,7 +640,7 @@ def sample_fusi_3d_oblique():
             [0.0, 0.0, 0.0, 1.0],
         ]
     )
-    return create_fusi_dataarray(
+    return create_voxeldata(
         np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
         dims=("k", "j", "i"),
         voxel_to_world=voxel_to_world,
@@ -656,7 +656,7 @@ def sample_iq_3dt(rng):
     """
     shape = (10, 4, 6, 8)
     data = rng.random(shape) + 1j * rng.random(shape)
-    return create_iq_dataarray(
+    return create_voxeldata(
         data,
         name="iq",
         dims=("time", "k", "j", "i"),
@@ -721,7 +721,7 @@ def sample_roi_labels():
     values[1, 2:4, 3:5] = 7  # somatosensory.
     values[2, 4:6, 5:8] = 42  # visual.
 
-    return create_fusi_dataarray(
+    return create_voxeldata(
         values,
         name="roi_labels",
         dims=("k", "j", "i"),

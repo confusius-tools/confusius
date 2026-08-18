@@ -16,7 +16,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
 )
-from confusius.validation import ensure_fusi
+from confusius.validation import ensure_voxeldata
 
 if TYPE_CHECKING:
     from threading import Event
@@ -65,7 +65,7 @@ def get_defined_spatial_spacing(da: xr.DataArray) -> tuple[list[str], list[float
     ValueError
         If any spatial spacing is undefined.
     """
-    da = ensure_fusi(
+    da = ensure_voxeldata(
         da,
         require_time=False,
         allow_pose=False,
@@ -184,19 +184,19 @@ def build_voxel_to_world_plane_initial_transform(
     Raises
     ------
     ValueError
-        If either input is not VoxelData-compatible with a time-free, pose-free,
-        3D voxel-to-world grid (see `confusius.validation.ensure_fusi`).
+        If either input is not a VoxelData array with a time-free, pose-free,
+        3D voxel-to-world grid (see `confusius.validation.ensure_voxeldata`).
     """
-    # ensure_fusi (allow_extra_dims=False) already guarantees spatial_dims ==
+    # ensure_voxeldata (allow_extra_dims=False) already guarantees spatial_dims ==
     # VOXEL_DIMS for both inputs, so fixed/moving spatial dims can never actually
     # differ here -- no separate dims-match check needed.
-    fixed = ensure_fusi(
+    fixed = ensure_voxeldata(
         fixed,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
     )
-    moving = ensure_fusi(
+    moving = ensure_voxeldata(
         moving,
         require_time=False,
         allow_pose=False,
@@ -342,7 +342,7 @@ def abort_on_sigint(
 
 
 def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
-    """Convert a VoxelData-compatible DataArray to a SimpleITK image.
+    """Convert a VoxelData array to a SimpleITK image.
 
     Uses the transpose convention: `da.values.T` is passed to `GetImageFromArray`,
     so that the first DataArray axis maps to SimpleITK's world x-axis. For data
@@ -352,8 +352,8 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     Parameters
     ----------
     da : xarray.DataArray
-        VoxelData-compatible DataArray, optionally with a `time` dimension. It is
-        canonicalized with [ensure_fusi][confusius.validation.ensure_fusi]; spacing,
+        VoxelData array, optionally with a `time` dimension. It is
+        canonicalized with [ensure_voxeldata][confusius.validation.ensure_voxeldata]; spacing,
         origin, and direction are derived from its voxel-to-world index.
 
     Returns
@@ -366,12 +366,12 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     Raises
     ------
     ValueError
-        If `da` is not a VoxelData-compatible DataArray.
+        If `da` is not a VoxelData array.
     """
     import SimpleITK as sitk
 
     try:
-        da = ensure_fusi(
+        da = ensure_voxeldata(
             da,
             require_time=False,
             allow_pose=False,
@@ -380,7 +380,7 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     except ValueError as exc:
         raise ValueError(
             "Cannot convert DataArray to a SimpleITK image because it is not "
-            "VoxelData-compatible. Attach voxel-to-world geometry with "
+            "a VoxelData array. Attach voxel-to-world geometry with "
             "da.fusi.affine.set_voxel_to_world(...) before calling "
             "dataarray_to_sitk_image."
         ) from exc

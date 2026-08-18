@@ -1,4 +1,4 @@
-"""Pattern decoding for VoxelData-compatible DataArrays.
+"""Pattern decoding for VoxelData arrays.
 
 This package provides decoders in the spirit of
 [`nilearn.decoding`](https://nilearn.github.io/dev/decoding/):

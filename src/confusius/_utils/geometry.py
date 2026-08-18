@@ -212,7 +212,7 @@ class VoxelToWorldIndex(Index):
         The dimension was removed as an array dimension (e.g. by `.isel(k=0)`) but
         its contribution to the world coordinates is still tracked exactly, so it
         can later be reinstated by
-        [canonicalize_fusi][confusius.validation.canonicalize_fusi].
+        [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata].
 
         Returns
         -------
@@ -720,7 +720,7 @@ class VoxelToWorldTransform(CoordinateTransform):
     it always covers `all_dims`, the full original set of voxel dimensions — so a
     fixed dimension's contribution to the world coordinates stays exact, and a
     fixed dimension can later be reinstated (e.g. by
-    [canonicalize_fusi][confusius.validation.canonicalize_fusi]) without any loss of
+    [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata]) without any loss of
     precision.
 
     Parameters
@@ -1137,7 +1137,7 @@ def attach_voxel_to_world_index(
     *,
     world_coord_attrs: Mapping[Any, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
-    """Attach world coordinates to a DataArray, making it VoxelData-compatible.
+    """Attach world coordinates to a DataArray, making it a VoxelData array.
 
     Voxel dimensions are the native voxel names (`k`/`j`/`i`) present on `data`, in
     canonical affine input-space column order; each gets the matching fixed world
@@ -1388,7 +1388,7 @@ def get_voxel_to_world_affine(data: xr.DataArray) -> npt.NDArray[np.float64]:
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData-compatible DataArray.
+        VoxelData array.
 
     Returns
     -------
@@ -1486,7 +1486,7 @@ def has_axis_aligned_voxel_to_world_index(data: xr.DataArray) -> bool:
 
 
 def has_voxel_to_world_index(data: xr.DataArray) -> bool:
-    """Return whether a DataArray is VoxelData-compatible.
+    """Return whether a DataArray is a VoxelData array.
 
     Parameters
     ----------
@@ -1509,7 +1509,7 @@ def has_voxel_to_world_index(data: xr.DataArray) -> bool:
 
 
 def get_voxel_to_world_spatial_dims(data: xr.DataArray) -> tuple[str, ...]:
-    """Return voxel-space dimensions present on a VoxelData-compatible DataArray.
+    """Return voxel-space dimensions present on a VoxelData array.
 
     Parameters
     ----------
@@ -1574,7 +1574,7 @@ def require_scalar_pose_affine(
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData-compatible DataArray.
+        VoxelData array.
     context : str
         Short description of the calling operation, used in the error message
         (e.g. `"Computing the voxel-to-world origin"`).
@@ -1605,7 +1605,7 @@ def get_voxel_to_world_index_origin(data: xr.DataArray) -> dict[str, float]:
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData-compatible DataArray.
+        VoxelData array.
 
     Returns
     -------
@@ -1642,12 +1642,12 @@ def get_voxel_to_world_index_origin(data: xr.DataArray) -> dict[str, float]:
 
 
 def get_voxel_to_world_index_spacing(data: xr.DataArray) -> dict[str, float | None]:
-    """Return world spacing per voxel-space axis for a VoxelData-compatible DataArray.
+    """Return world spacing per voxel-space axis for a VoxelData array.
 
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData-compatible DataArray.
+        VoxelData array.
 
     Returns
     -------
@@ -1664,7 +1664,7 @@ def get_voxel_to_world_index_spacing(data: xr.DataArray) -> dict[str, float | No
 def get_voxel_to_world_direction_matrix(
     data: xr.DataArray,
 ) -> npt.NDArray[np.float64]:
-    """Return the world-space direction matrix of a VoxelData-compatible DataArray.
+    """Return the world-space direction matrix of a VoxelData array.
 
     The voxel-to-world affine maps voxel-space *coordinate values* to world space, so
     its own orientation says nothing about whether `data`'s voxel coordinate for a
@@ -1680,7 +1680,7 @@ def get_voxel_to_world_direction_matrix(
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData-compatible DataArray.
+        VoxelData array.
 
     Returns
     -------

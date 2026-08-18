@@ -15,9 +15,9 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData-compatible DataArray with native voxel dims `k`/`j`/`i` and a
+        VoxelData array with native voxel dims `k`/`j`/`i` and a
         `VoxelToWorldIndex`, plus any number of non-spatial dimensions (e.g.,
-        `time`, `pose`). See [`ensure_fusi`][confusius.validation.ensure_fusi].
+        `time`, `pose`). See [`ensure_voxeldata`][confusius.validation.ensure_voxeldata].
     mask : xarray.DataArray
         Mask defining which voxels to extract, sharing `data`'s voxel grid. Must have
         boolean dtype, or integer dtype with exactly one non-zero value (0 =
@@ -43,7 +43,7 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     Raises
     ------
     ValueError
-        If `mask` or `data` isn't a VoxelData-compatible DataArray, or if `mask`'s
+        If `mask` or `data` isn't a VoxelData array, or if `mask`'s
         voxel grid doesn't match `data`'s.
     TypeError
         If `mask` is not boolean dtype (or a single-label integer dtype).
@@ -52,16 +52,16 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     --------
     >>> import numpy as np
     >>> from confusius.extract import extract_with_mask
-    >>> from confusius.xarray import create_fusi_dataarray
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> # 3D+t data: (time, k, j, i)
-    >>> data = create_fusi_dataarray(
+    >>> data = create_voxeldata(
     ...     np.random.randn(100, 10, 20, 30),
     ...     dims=("time", "k", "j", "i"),
     ...     dt=0.5,
     ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> mask = create_fusi_dataarray(
+    >>> mask = create_voxeldata(
     ...     np.random.rand(10, 20, 30) > 0.5,
     ...     dims=("k", "j", "i"),
     ...     spacing=(1.0, 1.0, 1.0),
@@ -71,7 +71,7 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     ('time', 'space')
     >>>
     >>> # 3D+t data with extra dim: (time, pose, k, j, i)
-    >>> pose_data = create_fusi_dataarray(
+    >>> pose_data = create_voxeldata(
     ...     np.random.randn(100, 5, 10, 20, 30),
     ...     dims=("time", "pose", "k", "j", "i"),
     ...     dt=0.5,

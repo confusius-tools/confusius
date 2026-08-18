@@ -88,10 +88,10 @@ operations efficient.
 
 Beyond the VoxelData requirements, axial velocity estimation also requires the
 `transmit_frequency` and `beamforming_sound_velocity` DataArray attributes.
-[`create_iq_dataarray`][confusius.xarray.create_iq_dataarray] accepts both as optional
+[`create_voxeldata`][confusius.xarray.create_voxeldata] accepts both as optional
 arguments, and [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity]
 checks for their presence internally via
-[`validate_iq`][confusius.validation.validate_iq].
+[`validate_voxeldata`][confusius.validation.validate_voxeldata].
 
 Here is what a valid IQ DataArray looks like once loaded:
 

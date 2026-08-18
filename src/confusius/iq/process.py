@@ -27,11 +27,7 @@ from confusius.timing import (
     convert_time_reference,
     get_representative_time_step,
 )
-from confusius.validation import (
-    ensure_fusi,
-    ensure_iq,
-    validate_mask,
-)
+from confusius.validation import ensure_voxeldata, validate_mask
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -465,9 +461,9 @@ def compute_processed_volume_timings(
     >>> import numpy as np
     >>> import xarray as xr
     >>> from confusius.iq import compute_processed_volume_timings
-    >>> from confusius.xarray import create_fusi_dataarray
+    >>> from confusius.xarray import create_voxeldata
     >>> # 100 volumes at 10 Hz, volume_duration = 0.1 s
-    >>> iq = create_fusi_dataarray(
+    >>> iq = create_voxeldata(
     ...     np.ones((100, 1, 1, 1), dtype=np.complex128),
     ...     dims=("time", "k", "j", "i"),
     ...     time=xr.DataArray(
@@ -495,7 +491,13 @@ def compute_processed_volume_timings(
     >>> output_durations
     array([2.5, 2.5, 2.5, 2.5])
     """
-    iq = ensure_iq(iq)
+    iq = ensure_voxeldata(
+        iq,
+        allow_pose=False,
+        allow_extra_dims=False,
+        require_canonical_dim_order=True,
+        require_dtype=np.complexfloating,
+    )
 
     iq_time_reference = iq.time.volume_acquisition_reference
     if processed_time_reference is None:
@@ -1202,7 +1204,7 @@ def process_iq_to_power_doppler(
     Parameters
     ----------
     iq : xarray.DataArray
-        VoxelData-compatible DataArray containing complex beamformed IQ data with
+        VoxelData array containing complex beamformed IQ data with
         dimensions `(time, k, j, i)`, where `time` is the temporal dimension and
         `(k, j, i)` are native voxel spatial dimensions.
     clutter_window_width : int, optional
@@ -1243,7 +1245,7 @@ def process_iq_to_power_doppler(
     Returns
     -------
     (clutter_windows * doppler_windows, k, j, i) xarray.DataArray
-        Power Doppler volumes as a VoxelData-compatible DataArray with updated time
+        Power Doppler volumes as a VoxelData array with updated time
         coordinates and `iq`'s voxel-to-world geometry carried over, where
         `clutter_windows` is the number of clutter filter sliding windows and
         `doppler_windows` is the number of power Doppler sliding windows per clutter
@@ -1292,11 +1294,17 @@ def process_iq_to_power_doppler(
     import dask.array as da
     from dask.array import Array
 
-    iq = ensure_iq(iq)
+    iq = ensure_voxeldata(
+        iq,
+        allow_pose=False,
+        allow_extra_dims=False,
+        require_canonical_dim_order=True,
+        require_dtype=np.complexfloating,
+    )
 
     clutter_mask_array = None
     if clutter_mask is not None:
-        clutter_mask = ensure_fusi(
+        clutter_mask = ensure_voxeldata(
             clutter_mask, allow_pose=False, allow_extra_dims=False
         )
         clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
@@ -1405,7 +1413,7 @@ def process_iq_to_bmode(
     Parameters
     ----------
     iq : xarray.DataArray
-        VoxelData-compatible DataArray containing complex beamformed IQ data with
+        VoxelData array containing complex beamformed IQ data with
         dimensions `(time, k, j, i)`, where `time` is the temporal dimension and
         `(k, j, i)` are native voxel spatial dimensions.
     bmode_window_width : int, optional
@@ -1418,14 +1426,20 @@ def process_iq_to_bmode(
     Returns
     -------
     (windows, k, j, i) xarray.DataArray
-        B-mode volumes as a VoxelData-compatible DataArray with updated time
+        B-mode volumes as a VoxelData array with updated time
         coordinates and `iq`'s voxel-to-world geometry carried over, where `windows`
         is the number of sliding windows.
     """
     import dask.array as da
     from dask.array import Array
 
-    iq = ensure_iq(iq)
+    iq = ensure_voxeldata(
+        iq,
+        allow_pose=False,
+        allow_extra_dims=False,
+        require_canonical_dim_order=True,
+        require_dtype=np.complexfloating,
+    )
 
     dask_iq: Array = iq.data
     if not isinstance(dask_iq, Array):
@@ -1515,7 +1529,7 @@ def process_iq_to_axial_velocity(
     Parameters
     ----------
     iq : xarray.DataArray
-        VoxelData-compatible DataArray containing complex beamformed IQ data with
+        VoxelData array containing complex beamformed IQ data with
         dimensions `(time, k, j, i)`, where `time` is the temporal dimension and
         `(k, j, i)` are native voxel spatial dimensions. The DataArray must have the
         following attributes:
@@ -1569,7 +1583,7 @@ def process_iq_to_axial_velocity(
     Returns
     -------
     (clutter_windows * velocity_windows, k, j, i) xarray.DataArray
-        Axial velocity volumes as a VoxelData-compatible DataArray with updated time
+        Axial velocity volumes as a VoxelData array with updated time
         coordinates and `iq`'s voxel-to-world geometry carried over, where
         `clutter_windows` is the number of clutter filter sliding windows and
         `velocity_windows` is the number of velocity sliding windows per clutter
@@ -1619,11 +1633,18 @@ def process_iq_to_axial_velocity(
     import dask.array as da
     from dask.array import Array
 
-    iq = ensure_iq(iq, require_velocity_attrs=True)
+    iq = ensure_voxeldata(
+        iq,
+        allow_pose=False,
+        allow_extra_dims=False,
+        require_canonical_dim_order=True,
+        require_velocity_attrs=True,
+        require_dtype=np.complexfloating,
+    )
 
     clutter_mask_array = None
     if clutter_mask is not None:
-        clutter_mask = ensure_fusi(
+        clutter_mask = ensure_voxeldata(
             clutter_mask, allow_pose=False, allow_extra_dims=False
         )
         clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")

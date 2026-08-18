@@ -20,7 +20,7 @@ from confusius._utils.geometry import (
 )
 from confusius._utils.stack import find_stack_level
 from confusius.multipose._utils import build_consolidated_time_coordinate
-from confusius.validation import ensure_fusi
+from confusius.validation import ensure_voxeldata
 
 
 def _consolidate_linked_affines(
@@ -159,7 +159,7 @@ def consolidate_poses(
     UserWarning
         If the sweep is not purely 1D (secondary/primary singular value ratio > 0.01).
     """
-    da = ensure_fusi(da)
+    da = ensure_voxeldata(da)
 
     # Determine spatial dimensions (non-time, non-pose) and their column indices.
     spatial_dims = [d for d in da.dims if d not in ("time", "pose")]
@@ -172,7 +172,7 @@ def consolidate_poses(
     if "pose" not in da.dims:
         raise ValueError("DataArray has no 'pose' dimension.")
 
-    # ensure_fusi above guarantees da carries a VoxelToWorldIndex, so the voxel dims
+    # ensure_voxeldata above guarantees da carries a VoxelToWorldIndex, so the voxel dims
     # (and their derived world coordinates) are always available here.
     voxel_dims = list(get_voxel_to_world_spatial_dims(da))
     world_dims = list(get_voxel_to_world_coord_names(da))

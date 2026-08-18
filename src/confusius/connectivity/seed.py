@@ -13,7 +13,7 @@ from confusius.extract import extract_with_mask, unmask
 from confusius.extract.labels import extract_with_labels
 from confusius.signal import clean
 from confusius.validation import (
-    ensure_fusi,
+    ensure_voxeldata,
     validate_labels,
     validate_mask,
     validate_time_series,
@@ -75,7 +75,7 @@ class SeedBasedMaps(BaseEstimator):
     """Seed-based functional connectivity maps from fUSI data.
 
     Computes voxel-wise Pearson correlation maps between one or more seed region signals
-    and every voxel in a VoxelData-compatible DataArray.
+    and every voxel in a VoxelData array.
 
     Two ways to supply the seed signal are supported:
 
@@ -161,17 +161,17 @@ class SeedBasedMaps(BaseEstimator):
     >>> import numpy as np
     >>> import xarray as xr
     >>> from confusius.connectivity import SeedBasedMaps
-    >>> from confusius.xarray import create_fusi_dataarray
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> rng = np.random.default_rng(0)
-    >>> data = create_fusi_dataarray(
+    >>> data = create_voxeldata(
     ...     rng.standard_normal((200, 1, 10, 20)),
     ...     dims=("time", "k", "j", "i"),
     ...     dt=0.1,
     ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>>
-    >>> labels = create_fusi_dataarray(
+    >>> labels = create_voxeldata(
     ...     np.zeros((1, 10, 20), dtype=int),
     ...     dims=("k", "j", "i"),
     ...     spacing=(1.0, 1.0, 1.0),
@@ -188,7 +188,7 @@ class SeedBasedMaps(BaseEstimator):
     array([1, 2])
     >>>
     >>> # Single seed from a boolean mask converted to integer.
-    >>> mask = create_fusi_dataarray(
+    >>> mask = create_voxeldata(
     ...     np.zeros((1, 10, 20), dtype=bool),
     ...     dims=("k", "j", "i"),
     ...     spacing=(1.0, 1.0, 1.0),
@@ -237,7 +237,7 @@ class SeedBasedMaps(BaseEstimator):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            VoxelData-compatible DataArray to estimate seed-based maps from. Must have
+            VoxelData array to estimate seed-based maps from. Must have
             a `time` dimension. The spatial dimensions must be compatible with `seed_masks` when
             using mask-based seeding.
 
@@ -275,10 +275,10 @@ class SeedBasedMaps(BaseEstimator):
                 "but both were given."
             )
 
-        X = ensure_fusi(X, require_time=True)
+        X = ensure_voxeldata(X, require_time=True)
 
         if self.seed_masks is not None:
-            self.seed_masks = ensure_fusi(self.seed_masks, allow_pose=False)
+            self.seed_masks = ensure_voxeldata(self.seed_masks, allow_pose=False)
             self.seed_masks = validate_labels(self.seed_masks, X, "seed_masks")
         else:
             # self.seed_signals is not None, guaranteed by the mutual-exclusivity check
@@ -287,7 +287,9 @@ class SeedBasedMaps(BaseEstimator):
             _validate_seed_signals(self.seed_signals, X)
 
         if self.mask is not None:
-            self.mask = ensure_fusi(self.mask, allow_pose=False, allow_extra_dims=False)
+            self.mask = ensure_voxeldata(
+                self.mask, allow_pose=False, allow_extra_dims=False
+            )
             validate_mask(self.mask, X, "mask")
 
         if self.mask is not None:
