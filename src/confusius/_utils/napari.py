@@ -144,10 +144,12 @@ def get_napari_scale_translate_units(
     units: list[str | None] = []
     for dim in all_dims:
         world_name = world_dim.get(dim, dim)
+        # world_name only ever differs from dim for k/j/i, and .fusi.spacing above
+        # already requires a real VoxelToWorldIndex covering every present voxel
+        # dim -- so a voxel dim's world coordinate is never missing while the dim
+        # itself has one; the two checks can't diverge.
         if world_name in data.coords:
             units.append(data.coords[world_name].attrs.get("units"))
-        elif dim in data.coords:
-            units.append(data.coords[dim].attrs.get("units"))
         else:
             units.append(None)
     return scale, translate, axis_labels, units, non_uniform, spacing

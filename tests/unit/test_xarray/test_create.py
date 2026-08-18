@@ -209,6 +209,31 @@ def test_create_fusi_dataarray_pose_stacked_voxel_to_world_requires_pose_dim():
         )
 
 
+def test_create_fusi_dataarray_pose_stacked_voxel_to_world_rejects_wrong_shape():
+    """A pose-stacked affine whose per-pose blocks aren't (4, 4) raises clearly."""
+    affine = np.stack([np.eye(3), np.eye(3)])
+
+    with pytest.raises(ValueError, match="must have shape \\(npose, 4, 4\\)"):
+        create_fusi_dataarray(
+            np.zeros((2, 2, 3, 4)),
+            dims=("pose", "k", "j", "i"),
+            voxel_to_world=affine,
+        )
+
+
+def test_create_fusi_dataarray_pose_stacked_voxel_to_world_rejects_non_homogeneous():
+    """A pose-stacked affine whose last row isn't [0, 0, 0, 1] raises clearly."""
+    affine = np.stack([np.eye(4), np.eye(4)])
+    affine[1, -1] = [0.0, 0.0, 0.0, 2.0]  # pose 1's last row is not homogeneous.
+
+    with pytest.raises(ValueError, match="must be a homogeneous affine"):
+        create_fusi_dataarray(
+            np.zeros((2, 2, 3, 4)),
+            dims=("pose", "k", "j", "i"),
+            voxel_to_world=affine,
+        )
+
+
 def test_create_fusi_dataarray_pose_stacked_voxel_to_world_rejects_mixed_geometry():
     """A pose-stacked affine is still mutually exclusive with spacing/origin/direction."""
     affine = np.stack([np.eye(4), np.eye(4)])

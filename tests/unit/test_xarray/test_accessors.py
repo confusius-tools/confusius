@@ -306,6 +306,13 @@ class TestOrigin:
         )
         assert mismatched.fusi.spacing["time"] is None
 
+    def test_direction_without_index_raises(self):
+        """`.fusi.direction` raises clearly without a voxel-to-world index."""
+        data = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
+
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            _ = data.fusi.direction
+
     def test_voxel_to_world_direction_returns_orientation_matrix(self):
         """Voxel-to-world direction is the normalized affine linear part."""
         data = _make_voxel_to_world_volume()

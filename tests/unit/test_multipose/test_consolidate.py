@@ -67,6 +67,45 @@ class TestConsolidatePoses:
             "volume_acquisition_duration"
         ] == pytest.approx(0.3)
 
+    def test_consolidates_plain_1d_time_shared_across_poses(self) -> None:
+        """A plain 1D `time` coordinate (identical across poses) consolidates as-is.
+
+        Pose-dependent primary geometry doesn't require a pose-dependent `time`
+        coordinate too (see stack_poses's "shared time stays 1D" behavior) -- when
+        every pose shares the same timestamps, `time` stays a plain 1D coordinate,
+        and consolidation must use it directly rather than the (time, pose) path.
+        """
+        npose = 3
+        n_sweep = 2
+        intra_step = 0.2
+        inter_step = n_sweep * intra_step
+        time_values = np.arange(4) * 0.5
+        affines = np.stack([np.eye(4) for _ in range(npose)])
+        for p in range(npose):
+            affines[p, 0, 3] = p * inter_step
+
+        data = np.random.default_rng(5).random((4, npose, n_sweep, 4, 3))
+        da = create_fusi_dataarray(
+            data,
+            dims=["time", "pose", "k", "j", "i"],
+            time=xr.DataArray(
+                time_values,
+                dims=["time"],
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": 0.5,
+                },
+            ),
+            pose=np.arange(npose),
+            voxel_to_world=affines @ np.diag([intra_step, intra_step, intra_step, 1.0]),
+        )
+
+        result = consolidate_poses(da)
+
+        np.testing.assert_array_equal(result.coords["time"].values, time_values)
+        assert "slice_time" not in result.coords
+
     def test_4dscan_slice_time_values(self, scan_4d: xr.DataArray) -> None:
         """4Dscan consolidation keeps absolute per-slice timestamps on (time, k)."""
         result = consolidate_poses(scan_4d)
@@ -381,13 +420,15 @@ class TestConsolidatePoses:
         with pytest.raises(ValueError, match="no pose-dependent primary geometry"):
             consolidate_poses(da)
 
-    def test_singleton_output_dim_falls_back_to_voxdim_attr(self) -> None:
-        """A non-swept output dim with a single voxel keeps its original voxdim.
+    def test_singleton_output_dim_derives_spacing_from_affine(self) -> None:
+        """A non-swept output dim with a single voxel still gets its spacing from the
+        input affine column norm, not from a possibly stale `voxdim` attribute.
 
         With only one voxel along an output spatial dimension, there is no pair of
-        consecutive positions from which to infer spacing via `numpy.diff`, so
-        the output voxel-to-world index construction must fall back to the coordinate's own
-        `voxdim` attribute instead.
+        consecutive positions from which to infer spacing via `numpy.diff`. The affine
+        is ground truth regardless of axis length, so the output voxel-to-world index
+        construction must derive spacing from the affine column, ignoring any
+        independently supplied `voxdim` override.
         """
         npose = 3
         intra_step = 0.2
@@ -409,4 +450,4 @@ class TestConsolidatePoses:
         result = consolidate_poses(da, sweep_dim="k")
 
         assert result.sizes["j"] == 1
-        assert result.coords["y"].attrs["voxdim"] == pytest.approx(voxel_size)
+        assert result.coords["y"].attrs["voxdim"] == pytest.approx(intra_step)

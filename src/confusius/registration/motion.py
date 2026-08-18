@@ -253,18 +253,15 @@ def compute_framewise_displacement(
 
     from confusius._utils.geometry import get_voxel_to_world_coord_names
 
+    # World coordinates derived by VoxelToWorldIndex are always dense,
+    # reference.shape-matching arrays regardless of axis-alignment (unlike the
+    # pre-CTI-migration representation, where axis-aligned world coordinates were
+    # 1D per-axis and needed a meshgrid expansion here).
     spatial_names = get_voxel_to_world_coord_names(reference)
     coord_arrays = [
         np.asarray(reference.coords[name].values, dtype=float) for name in spatial_names
     ]
-    if (
-        len({array.shape for array in coord_arrays}) == 1
-        and coord_arrays[0].shape == reference.shape
-    ):
-        points = np.stack([array.ravel() for array in coord_arrays], axis=1)
-    else:
-        grids = np.meshgrid(*coord_arrays, indexing="ij")
-        points = np.stack([grid.ravel() for grid in grids], axis=1)
+    points = np.stack([array.ravel() for array in coord_arrays], axis=1)
 
     if mask is not None:
         points = points[mask.ravel()]

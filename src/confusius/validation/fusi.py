@@ -122,9 +122,11 @@ def _validate_dimension_coordinate(
         # confusius.multipose.stack_poses. There is no single answer for "the" time
         # of a (pose, k, j, i) voxel any more than there is a single answer for its
         # z/y/x position, so this validates every pose's own column independently
-        # instead of requiring one shared 1D dimension coordinate.
-        if not require_numeric:
-            return
+        # instead of requiring one shared 1D dimension coordinate. This branch is
+        # only entered for dim == TIME_DIM, which is always in CORE_DIMS, so
+        # require_numeric is always True here (the single call site sets it to
+        # `dim in CORE_DIMS`) -- unlike the generic 1D path below, which is also
+        # reached for non-core extra dims where require_numeric can be False.
         if not np.issubdtype(coord.dtype, np.number):
             raise ValueError(f"Coordinate {dim!r} must be numeric.")
         values = np.asarray(coord.values)
@@ -133,15 +135,14 @@ def _validate_dimension_coordinate(
         if values.shape[0] <= 1:
             return
         diffs = np.diff(values, axis=0)
-        if require_ascending:
-            if not np.all(diffs > 0):
-                raise ValueError(
-                    f"Coordinate {dim!r} must be strictly monotonic-increasing for "
-                    "every pose."
-                )
-        elif not (np.all(diffs > 0) or np.all(diffs < 0)):
+        # require_ascending is likewise always True here (the single call site sets
+        # it to `dim not in VOXEL_DIMS`, and TIME_DIM is never a voxel dim), so only
+        # the strictly-increasing direction is ever required for a pose-dependent
+        # time coordinate.
+        if not np.all(diffs > 0):
             raise ValueError(
-                f"Coordinate {dim!r} must be strictly monotonic for every pose."
+                f"Coordinate {dim!r} must be strictly monotonic-increasing for "
+                "every pose."
             )
         return
 

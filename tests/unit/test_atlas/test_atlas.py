@@ -37,7 +37,7 @@ def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
 
 
 def _with_world_to_base_transform(
-    atlas_ds: xr.Dataset, transform: xr.DataArray
+    atlas_ds: xr.Dataset, transform: xr.DataArray | np.ndarray
 ) -> xr.Dataset:
     """Return a copy of `atlas_ds` carrying `transform` as its world_to_base transform."""
     ds = atlas_ds.copy()
@@ -781,6 +781,95 @@ class TestTransformComposition:
         expected = base.copy()
         expected[:, 2] -= 0.01
         np.testing.assert_allclose(warped, expected, atol=1e-6)
+
+    def test_compose_stored_bspline_transform_samples_field(
+        self, atlas_ds: xr.Dataset, monkeypatch
+    ) -> None:
+        """Composing a new affine onto a stored bspline transform samples it.
+
+        Unlike `test_bspline_transform_samples_field` (which sets the bspline
+        transform directly, only exercising `_apply_world_to_base_transform`'s own
+        bspline branch at `get_mesh` time), resampling an atlas whose *stored*
+        transform is a bspline_transform by a genuinely new (non-identity) affine
+        routes through `_compose_world_to_base_transforms` -> `_transform_points`,
+        which has its own equivalent bspline branch for the old transform side.
+        """
+        reference = atlas_ds.atlas.reference
+        data = np.zeros((3, *reference.shape))
+        data[2] = 0.01
+        field = _field_on_grid(reference, data)
+        monkeypatch.setattr(
+            "confusius.atlas._world_to_base_transform.sample_displacement_field_like",
+            lambda transform, ref: field,
+        )
+        bspline = xr.DataArray(
+            np.zeros((2, 2, 2, 3)),
+            dims=["cz", "cy", "cx", "comp"],
+            attrs={"type": "bspline_transform"},
+        )
+        ds = _with_world_to_base_transform(atlas_ds, bspline)
+        affine = np.eye(4)
+        affine[2, 3] = 0.02
+
+        composed = ds.atlas.resample_like(reference, affine)
+
+        assert isinstance(composed.attrs["world_to_base"], xr.DataArray)
+
+    def test_compose_rejects_wrong_shape_stored_affine(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """A malformed stored world_to_base affine (e.g. from a foreign/corrupted
+        Zarr store, never passed through `resample_like`'s own validation) is
+        rejected at composition time rather than propagated silently."""
+        ds = _with_world_to_base_transform(atlas_ds, np.eye(3))
+        reference = atlas_ds.atlas.reference
+        # A DataArray new_transform (not an ndarray) forces the full point-based
+        # composition path, which is what actually validates the old transform's
+        # shape; an all-ndarray composition would instead crash on `@` itself.
+        new_transform = _field_on_grid(reference, np.zeros((3, *reference.shape)))
+
+        with pytest.raises(ValueError, match="shape \\(4, 4\\)"):
+            ds.atlas.resample_like(reference, new_transform)
+
+    def test_compose_rejects_stored_field_without_voxel_to_world_index(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """A stored displacement field with no voxel-to-world index is rejected.
+
+        `_interpolate_displacement_field` requires a real index to derive its
+        world-space sampling grid; a plain, non-indexed field DataArray (e.g. from
+        a foreign/corrupted store) must raise clearly instead of failing deep in
+        `.fusi.spacing`/`.fusi.origin`.
+        """
+        reference = atlas_ds.atlas.reference
+        bad_field = xr.DataArray(
+            np.zeros((3, *reference.shape)),
+            dims=["component", *reference.dims],
+            attrs={"type": "displacement_field_transform"},
+        )
+        ds = _with_world_to_base_transform(atlas_ds, bad_field)
+        new_transform = _field_on_grid(reference, np.zeros((3, *reference.shape)))
+
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            ds.atlas.resample_like(reference, new_transform)
+
+    def test_compose_rejects_unsupported_stored_transform_type_attr(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """A malformed stored DataArray transform (bad attrs['type']) is rejected
+        at composition time rather than propagated silently."""
+        reference = atlas_ds.atlas.reference
+        bad = xr.DataArray(
+            np.zeros((3, *reference.shape)),
+            dims=["comp", *reference.dims],
+            attrs={"type": "not_a_real_transform_type"},
+        )
+        ds = _with_world_to_base_transform(atlas_ds, bad)
+        affine = np.eye(4)
+        affine[2, 3] = 0.02  # non-identity: composition can't short-circuit on it.
+
+        with pytest.raises(ValueError, match="attrs\\['type'\\]"):
+            ds.atlas.resample_like(reference, affine)
 
 
 class TestGroupbyIntegration:

@@ -184,9 +184,12 @@ def build_voxel_to_world_plane_initial_transform(
     Raises
     ------
     ValueError
-        If either input is not a 3D voxel-to-world slab with exactly one singleton
-        spatial dimension.
+        If either input is not VoxelData-compatible with a time-free, pose-free,
+        3D voxel-to-world grid (see `confusius.validation.ensure_fusi`).
     """
+    # ensure_fusi (allow_extra_dims=False) already guarantees spatial_dims ==
+    # VOXEL_DIMS for both inputs, so fixed/moving spatial dims can never actually
+    # differ here -- no separate dims-match check needed.
     fixed = ensure_fusi(
         fixed,
         require_time=False,
@@ -199,14 +202,6 @@ def build_voxel_to_world_plane_initial_transform(
         allow_pose=False,
         allow_extra_dims=False,
     )
-
-    fixed_dims = get_voxel_to_world_spatial_dims(fixed)
-    moving_dims = get_voxel_to_world_spatial_dims(moving)
-    if fixed_dims != moving_dims or len(fixed_dims) != 3:
-        raise ValueError(
-            "Voxel-to-world plane initialization requires matching 3D voxel-to-world "
-            f"dimensions, got fixed={fixed_dims!r} and moving={moving_dims!r}."
-        )
 
     fixed_normal = _get_voxel_to_world_slice_normal(fixed)
     moving_normal = _get_voxel_to_world_slice_normal(moving)

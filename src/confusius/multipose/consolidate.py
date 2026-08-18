@@ -13,6 +13,7 @@ import xarray as xr
 
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
+    get_affine_axis_scalings,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
@@ -327,6 +328,15 @@ def consolidate_poses(
         str(voxel_to_world.get(dim, dim)) for dim in output_spatial_dims
     )
 
+    # Non-sweep axes keep their pre-consolidation affine columns untouched, so their
+    # true world spacing is that column's Euclidean norm (get_affine_axis_scalings) --
+    # the affine is ground truth regardless of axis length, unlike diffing a single
+    # named world coordinate. For an oblique geometry (e.g. SCAN data where a voxel
+    # axis is not aligned with its "own" named world axis), diffing only that one
+    # coordinate component picks up a near-zero cross term instead of the axis's real
+    # magnitude, and a singleton axis has no diff to take at all.
+    other_axis_scalings = get_affine_axis_scalings(affine[0], tuple(spatial_dims))
+
     def _attach_output_cti(result: xr.DataArray) -> xr.DataArray:
         world_attrs: dict[str, dict[str, Any]] = {}
         origins: list[float] = []
@@ -337,10 +347,13 @@ def consolidate_poses(
             coord = result.coords[voxel_dim]
             values = np.asarray(coord.values, dtype=np.float64)
             origins.append(float(values[0]))
-            if values.size == 1:
-                spacing = float(coord.attrs.get("voxdim", 1.0))
+            if voxel_dim == sweep_dim:
+                # mean_spacing is the SVD-projected, pose-merged spacing -- finer
+                # than any single pre-consolidation affine column, and well-defined
+                # even when the consolidated axis ends up with a single sample.
+                spacing = mean_spacing
             else:
-                spacing = float(np.median(np.diff(values)))
+                spacing = other_axis_scalings[voxel_dim]
             spacings.append(spacing)
             world_attrs[world_dim] = {
                 **coord.attrs,

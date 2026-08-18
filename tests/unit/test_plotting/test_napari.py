@@ -194,6 +194,13 @@ class TestPlotNapari:
         with pytest.raises(ValueError, match="Unknown layer_type"):
             plot_napari(sample_fusi_3d, layer_type="bogus")  # ty: ignore[invalid-argument-type]
 
+    def test_without_voxel_to_world_index_raises(self) -> None:
+        """plot_napari raises clearly without a voxel-to-world index."""
+        data = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
+
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            plot_napari(data)
+
     def test_non_uniform_spatial_coords_warn(self, sample_fusi_3d, make_napari_viewer):
         data = attach_voxel_to_world_index(
             sample_fusi_3d.assign_coords(j=[2, 3, 5, 6, 7, 9]),
@@ -344,6 +351,13 @@ class TestPlotNapari:
 
 class TestDrawNapariLabels:
     """Tests for draw_napari_labels."""
+
+    def test_without_voxel_to_world_index_raises(self) -> None:
+        """draw_napari_labels raises clearly without a voxel-to-world index."""
+        data = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
+
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            draw_napari_labels(data)
 
     def test_labels_scale_translate_match_image(
         self, sample_fusi_3d, make_napari_viewer

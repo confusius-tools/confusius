@@ -127,13 +127,24 @@ def _compose_world_to_base_transforms(
         when both inputs are affine, otherwise a dense displacement field on
         `new_reference`'s grid.
     """
-    if isinstance(old_transform, np.ndarray) and np.allclose(old_transform, np.eye(4)):
+    # Shape-check before np.allclose: a malformed (non-(4, 4)) affine must be
+    # rejected by _validate_world_to_base_transform below with a clear error, not
+    # crash here with an opaque numpy broadcast error.
+    if (
+        isinstance(old_transform, np.ndarray)
+        and old_transform.shape == (4, 4)
+        and np.allclose(old_transform, np.eye(4))
+    ):
         return (
             new_transform.copy(deep=False)
             if isinstance(new_transform, xr.DataArray)
             else new_transform.copy()
         )
-    if isinstance(new_transform, np.ndarray) and np.allclose(new_transform, np.eye(4)):
+    if (
+        isinstance(new_transform, np.ndarray)
+        and new_transform.shape == (4, 4)
+        and np.allclose(new_transform, np.eye(4))
+    ):
         return (
             old_transform.copy(deep=False)
             if isinstance(old_transform, xr.DataArray)

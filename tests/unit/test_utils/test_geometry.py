@@ -21,6 +21,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_spacings_from_coords,
     has_axis_aligned_voxel_to_world_index,
     restore_voxel_to_world_index,
+    update_voxel_to_world_coord_attrs,
 )
 
 
@@ -295,6 +296,40 @@ def test_attach_voxel_to_world_index_rejects_mismatched_pose_stack() -> None:
     wrong_length = _pose_dependent_data()
     with pytest.raises(ValueError, match="does not match data's 'pose' size"):
         attach_voxel_to_world_index(wrong_length, np.stack([np.eye(4)]))
+
+
+def test_attach_voxel_to_world_index_rejects_non_integer_voxel_coord() -> None:
+    """A native voxel dim coordinate must have integer dtype."""
+    data = xr.DataArray(
+        np.zeros((2, 3, 4)),
+        dims=("k", "j", "i"),
+        coords={
+            "k": np.arange(2, dtype=np.float64),  # not integer.
+            "j": np.arange(3),
+            "i": np.arange(4),
+        },
+    )
+
+    with pytest.raises(TypeError, match="must have integer dtype"):
+        attach_voxel_to_world_index(data, np.eye(4))
+
+
+def test_attach_voxel_to_world_index_rejects_pose_dim_without_1d_coordinate() -> None:
+    """A pose-stacked affine requires `pose` to be a genuine 1D coordinate.
+
+    Distinct from `test_attach_voxel_to_world_index_rejects_mismatched_pose_stack`
+    (missing `pose` dimension entirely, or a length mismatch): here `pose` is a
+    dimension but has no matching coordinate at all.
+    """
+    data = xr.DataArray(
+        np.zeros((2, 2, 3, 4)),
+        dims=("pose", "k", "j", "i"),
+        coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
+    )
+    affine = np.stack([np.eye(4), np.eye(4)])
+
+    with pytest.raises(ValueError, match="must have a matching 1D coordinate"):
+        attach_voxel_to_world_index(data, affine)
 
 
 def test_restore_voxel_to_world_index_rebuilds_pose_dependent_geometry() -> None:
@@ -959,6 +994,217 @@ def test_get_voxel_to_world_world_coord_names_falls_back_to_plain_coords() -> No
     )
 
     assert get_voxel_to_world_coord_names(plain) == ("z", "y", "x")
+
+
+def test_is_pose_dependent_true_for_stacked_affine() -> None:
+    """`is_pose_dependent` is True while a per-pose affine stack is active."""
+    result = _pose_dependent_result()
+
+    index = result.xindexes["z"]
+    assert isinstance(index, VoxelToWorldIndex)
+    assert index.is_pose_dependent
+
+
+def test_is_pose_dependent_false_after_scalar_pose_selection() -> None:
+    """`is_pose_dependent` is False once `pose` has been reduced to a scalar."""
+    result = _pose_dependent_result()
+
+    fixed = result.isel(pose=0)
+
+    index = fixed.xindexes["z"]
+    assert isinstance(index, VoxelToWorldIndex)
+    assert not index.is_pose_dependent
+
+
+def test_join_returns_self_for_equal_index() -> None:
+    """`join` returns this index unchanged when `other` represents the same grid."""
+    da = attach_voxel_to_world_index(
+        xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=("k", "j", "i"),
+            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
+        ),
+        np.eye(4),
+    )
+
+    index = da.xindexes["z"]
+    other = da.copy(deep=True).xindexes["z"]
+
+    assert index.join(other) is index
+
+
+def test_reindex_like_returns_empty_indexers_for_equal_index() -> None:
+    """`reindex_like` returns no positional indexers for an equal grid."""
+    da = attach_voxel_to_world_index(
+        xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=("k", "j", "i"),
+            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
+        ),
+        np.eye(4),
+    )
+
+    index = da.xindexes["z"]
+    other = da.copy(deep=True).xindexes["z"]
+
+    assert index.reindex_like(other) == {}
+
+
+def test_equals_returns_false_for_non_voxel_to_world_index() -> None:
+    """`equals` returns False when compared against a different Index type."""
+    da = attach_voxel_to_world_index(
+        xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=("k", "j", "i"),
+            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
+        ),
+        np.eye(4),
+    )
+
+    assert da.xindexes["z"].equals(da.xindexes["k"]) is False
+
+
+def test_sel_returns_empty_result_when_no_world_labels_given() -> None:
+    """`sel({})` on pose-dependent geometry resolves to no indexers, not an error."""
+    result = _pose_dependent_result()
+
+    index = result.xindexes["z"]
+
+    assert index.sel({}).dim_indexers == {}
+
+
+def test_reverse_rejects_pose_dependent_transform_directly() -> None:
+    """`VoxelToWorldTransform.reverse` raises for pose-dependent geometry directly.
+
+    `VoxelToWorldIndex.sel` already guards this before ever calling `reverse`, but
+    `reverse` documents (and must enforce) the same precondition independently.
+    """
+    transform = VoxelToWorldTransform(
+        {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)},
+        np.stack([np.eye(4), np.eye(4)]),
+        pose_coord=np.array([0, 1]),
+    )
+
+    with pytest.raises(ValueError, match="pose-independent"):
+        transform.reverse({"z": 0.0, "y": 0.0, "x": 0.0})
+
+
+def test_isel_pose_indexer_ignored_when_pose_independent() -> None:
+    """A `pose` indexer is a no-op on an already pose-independent transform."""
+    transform = VoxelToWorldTransform(
+        {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(4)
+    )
+
+    result = transform.isel({"pose": 0, "k": 0})
+
+    assert result is not None
+    assert result.pose_coord is None
+    assert "k" not in result.voxel_coords
+
+
+def test_isel_pose_multidim_variable_indexer_returns_none() -> None:
+    """A multi-dimensional `pose` Variable indexer is unsupported and returns None."""
+    transform = VoxelToWorldTransform(
+        {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)},
+        np.stack([np.eye(4), np.eye(4)]),
+        pose_coord=np.array([0, 1]),
+    )
+
+    result = transform.isel(
+        {"pose": xr.Variable(("a", "b"), np.zeros((2, 2), dtype=int))}
+    )
+
+    assert result is None
+
+
+def test_isel_pose_unsupported_indexer_type_returns_none() -> None:
+    """An unsupported `pose` indexer type (not Variable/list/tuple/slice/array)
+    returns None."""
+    transform = VoxelToWorldTransform(
+        {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)},
+        np.stack([np.eye(4), np.eye(4)]),
+        pose_coord=np.array([0, 1]),
+    )
+
+    result = transform.isel({"pose": object()})
+
+    assert result is None
+
+
+def test_isel_pose_fancy_index_yielding_non_1d_returns_none() -> None:
+    """A `pose` fancy index producing a non-1D result returns None."""
+    transform = VoxelToWorldTransform(
+        {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)},
+        np.stack([np.eye(4), np.eye(4)]),
+        pose_coord=np.array([0, 1]),
+    )
+
+    result = transform.isel({"pose": np.zeros((2, 2), dtype=int)})
+
+    assert result is None
+
+
+def test_concat_rejects_non_pose_dim() -> None:
+    """`VoxelToWorldIndex.concat` only supports concatenating along `pose`."""
+    da = attach_voxel_to_world_index(
+        xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=("k", "j", "i"),
+            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
+        ),
+        np.eye(4),
+    )
+    index = da.xindexes["z"]
+
+    with pytest.raises(ValueError, match="only supports concat along 'pose'"):
+        VoxelToWorldIndex.concat([index, index], dim="k")
+
+
+def test_concat_rejects_pose_independent_inputs() -> None:
+    """`VoxelToWorldIndex.concat` requires every input to already be pose-dependent."""
+    da = attach_voxel_to_world_index(
+        xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=("k", "j", "i"),
+            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
+        ),
+        np.eye(4),
+    )
+    index = da.xindexes["z"]
+
+    with pytest.raises(ValueError, match="every input must already be pose-dependent"):
+        VoxelToWorldIndex.concat([index, index], dim="pose")
+
+
+def test_concat_rejects_mismatched_spatial_geometry_directly() -> None:
+    """`VoxelToWorldIndex.concat` rejects mismatched fixed voxel coordinates.
+
+    Called directly (not through `xr.concat`) so a mismatch that isn't already
+    caught by xarray's own alignment step is exercised.
+    """
+    first = _pose_dependent_result()
+    second = _pose_dependent_result().isel(k=0)  # fixes k, unlike first.
+
+    with pytest.raises(ValueError, match="different spatial geometry"):
+        VoxelToWorldIndex.concat(
+            [first.xindexes["z"], second.xindexes["z"]], dim="pose"
+        )
+
+
+def test_update_voxel_to_world_coord_attrs_ignores_unknown_names() -> None:
+    """Unknown coordinate names in `attrs_by_name` are silently skipped."""
+    da = attach_voxel_to_world_index(
+        xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=("k", "j", "i"),
+            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
+        ),
+        np.eye(4),
+    )
+
+    result = update_voxel_to_world_coord_attrs(da, {"not_a_coord": {"units": "mm"}})
+
+    assert "not_a_coord" not in result.coords
 
 
 def test_get_voxel_to_world_world_coord_names_defaults_when_coords_are_incomplete() -> (

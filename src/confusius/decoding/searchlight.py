@@ -33,10 +33,7 @@ from sklearn.model_selection import (
 )
 
 from confusius._dims import VOXEL_DIMS
-from confusius._utils.geometry import (
-    get_voxel_to_world_coord_names,
-    has_voxel_to_world_index,
-)
+from confusius._utils.geometry import get_voxel_to_world_coord_names
 from confusius._utils.io import is_h5py_backed
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask, unmask
@@ -58,35 +55,17 @@ def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
         `(n_masked, n_dims)` array of world coordinates, in the order given by
         `get_voxel_to_world_coord_names(mask)`.
 
-    Raises
-    ------
-    ValueError
-        If `mask` lacks a `VoxelToWorldIndex`, or if a world coordinate is missing or
-        non-numeric. SearchLight measures its radius in world coordinate units, so a
-        missing index or coordinate would silently make the radius mean voxel indices
-        instead, which is anisotropic.
+    Notes
+    -----
+    SearchLight measures `radius` in world coordinate units, so this relies on
+    `mask` carrying a real `VoxelToWorldIndex` (numeric `z`/`y`/`x` by
+    construction) -- callers must validate that themselves (e.g. via
+    `validate_mask`) before reaching this function; a mask without a real index
+    would otherwise silently make `radius` mean voxel indices instead, which is
+    anisotropic.
     """
-    if not has_voxel_to_world_index(mask):
-        raise ValueError(
-            "mask must carry a VoxelToWorldIndex. SearchLight measures `radius` in "
-            "world coordinate units; a mask without a real index would silently make "
-            "the radius mean voxel indices instead, which is anisotropic."
-        )
-
     dims = tuple(str(dim) for dim in mask.dims)
     coord_names = get_voxel_to_world_coord_names(mask)
-    invalid = [
-        name
-        for name in coord_names
-        if name not in mask.coords
-        or not np.issubdtype(mask.coords[name].dtype, np.number)
-    ]
-    if invalid:
-        raise ValueError(
-            f"Mask coordinates {invalid} lack a numeric coordinate. SearchLight "
-            "measures `radius` in coordinate units, so every spatial dimension "
-            "must carry one."
-        )
     coord_arrays = [
         np.broadcast_to(
             np.asarray(mask.coords[name].transpose(*dims).values, dtype=np.float64),

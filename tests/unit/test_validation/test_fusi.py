@@ -8,6 +8,7 @@ import xarray as xr
 
 from confusius._utils.geometry import VoxelToWorldIndex, attach_voxel_to_world_index
 from confusius.validation import canonicalize_fusi, validate_fusi
+from confusius.xarray import create_fusi_dataarray
 
 
 def _make_voxel_to_world_volume() -> xr.DataArray:
@@ -288,6 +289,22 @@ def test_validate_fusi_regular_spacing_core_checks_time_when_present() -> None:
         )
 
 
+def test_validate_fusi_regular_spacing_all_skips_non_numeric_extra_dim() -> None:
+    """`all` mode skips a non-numeric extra dim coordinate instead of rejecting it.
+
+    Regular-spacing checks only make sense for numeric coordinates; a string-labeled
+    extra dim (e.g. a region name) has nothing to check for uniformity.
+    """
+    data = _make_voxel_to_world_time_series().expand_dims(region=["roi"])
+    data = data.assign_coords(region=("region", np.array(["roi"], dtype=object)))
+
+    validate_fusi(
+        data,
+        require_regular_spacing=True,
+        regular_spacing_dims="all",
+    )
+
+
 def test_validate_fusi_rejects_missing_spatial_voxdim() -> None:
     """World spatial `voxdim` metadata is always required."""
     bad = _make_voxel_to_world_time_series().copy(deep=True)
@@ -317,6 +334,24 @@ def test_validate_fusi_rejects_invalid_volume_acquisition_reference() -> None:
         validate_fusi(bad)
 
 
+def test_validate_fusi_rejects_missing_volume_acquisition_reference() -> None:
+    """`time` coordinate `volume_acquisition_reference` metadata is required."""
+    bad = _make_voxel_to_world_time_series().copy(deep=True)
+    del bad.coords["time"].attrs["volume_acquisition_reference"]
+
+    with pytest.raises(ValueError, match="missing 'volume_acquisition_reference'"):
+        validate_fusi(bad)
+
+
+def test_validate_fusi_rejects_missing_volume_acquisition_duration() -> None:
+    """`time` coordinate `volume_acquisition_duration` metadata is required."""
+    bad = _make_voxel_to_world_time_series().copy(deep=True)
+    del bad.coords["time"].attrs["volume_acquisition_duration"]
+
+    with pytest.raises(ValueError, match="missing 'volume_acquisition_duration'"):
+        validate_fusi(bad)
+
+
 def test_validate_fusi_rejects_missing_spatial_units() -> None:
     """World spatial `units` metadata is always required."""
     bad = _make_voxel_to_world_time_series().copy(deep=True)
@@ -324,6 +359,24 @@ def test_validate_fusi_rejects_missing_spatial_units() -> None:
 
     with pytest.raises(ValueError, match="missing required 'units' metadata"):
         validate_fusi(bad)
+
+
+def test_canonicalize_fusi_defaults_missing_spatial_units_with_warning() -> None:
+    """canonicalize_fusi defaults missing world coordinate `units` to `mm`.
+
+    Unlike `validate_fusi` (strict, rejects missing `units`), `canonicalize_fusi`
+    heals data whose index predates the `units="mm"` default that
+    `attach_voxel_to_world_index` now applies at construction (e.g. a hand-built
+    `VoxelToWorldIndex`).
+    """
+    bad = _make_voxel_to_world_volume().copy(deep=True)
+    del bad.coords["x"].attrs["units"]
+    assert "units" not in bad.coords["x"].attrs
+
+    with pytest.warns(UserWarning, match="missing 'units'; defaulting to 'mm'"):
+        result = canonicalize_fusi(bad)
+
+    assert result.coords["x"].attrs["units"] == "mm"
 
 
 def test_validate_fusi_rejects_non_finite_numeric_coordinate() -> None:
@@ -382,6 +435,86 @@ def test_validate_fusi_rejects_non_dimension_coordinate() -> None:
     bad = data.assign_coords(i=xr.DataArray(np.arange(data.sizes["j"]), dims=("j",)))
 
     with pytest.raises(ValueError, match="must be a 1D dimension coordinate"):
+        validate_fusi(bad)
+
+
+def _make_pose_dependent_time_volume() -> xr.DataArray:
+    """Create a small pose-dependent VoxelData volume with a (time, pose) time coord."""
+    npose = 2
+    time_values = xr.DataArray(
+        np.stack(
+            [np.arange(3, dtype=float) * 0.5, np.arange(3, dtype=float) * 0.5 + 0.1],
+            axis=-1,
+        ),
+        dims=("time", "pose"),
+        attrs={
+            "units": "s",
+            "volume_acquisition_reference": "start",
+            "volume_acquisition_duration": 0.5,
+        },
+    )
+    return create_fusi_dataarray(
+        np.zeros((3, npose, 2, 3, 4), dtype=np.float32),
+        dims=("time", "pose", "k", "j", "i"),
+        time=time_values,
+        pose=np.arange(npose),
+        spacing=(2.0, 3.0, 4.0),
+    )
+
+
+def test_validate_fusi_accepts_pose_dependent_time() -> None:
+    """A valid (time, pose)-shaped time coordinate passes validation."""
+    validate_fusi(_make_pose_dependent_time_volume())
+
+
+def test_validate_fusi_rejects_non_numeric_pose_dependent_time() -> None:
+    """A non-numeric (time, pose) time coordinate is rejected."""
+    data = _make_pose_dependent_time_volume()
+    bad_time = xr.DataArray(
+        data.coords["time"].values.astype(str),
+        dims=("time", "pose"),
+        attrs=dict(data.coords["time"].attrs),
+    )
+    bad = data.drop_vars("time").assign_coords(time=bad_time)
+
+    with pytest.raises(ValueError, match="must be numeric"):
+        validate_fusi(bad)
+
+
+def test_validate_fusi_rejects_non_finite_pose_dependent_time() -> None:
+    """A (time, pose) time coordinate with a NaN is rejected."""
+    data = _make_pose_dependent_time_volume()
+    values = data.coords["time"].values.copy()
+    values[0, 0] = np.nan
+    bad = data.drop_vars("time").assign_coords(
+        time=xr.DataArray(
+            values, dims=("time", "pose"), attrs=dict(data.coords["time"].attrs)
+        )
+    )
+
+    with pytest.raises(ValueError, match="non-finite"):
+        validate_fusi(bad)
+
+
+def test_validate_fusi_accepts_single_timepoint_pose_dependent_time() -> None:
+    """A single-timepoint (time, pose) time coordinate has nothing to check."""
+    data = _make_pose_dependent_time_volume().isel(time=[0])
+
+    validate_fusi(data)
+
+
+def test_validate_fusi_rejects_non_ascending_pose_dependent_time() -> None:
+    """A pose whose timestamps aren't strictly increasing is rejected."""
+    data = _make_pose_dependent_time_volume()
+    values = data.coords["time"].values.copy()
+    values[:, 0] = values[::-1, 0]  # reverse pose 0's timestamps.
+    bad = data.drop_vars("time").assign_coords(
+        time=xr.DataArray(
+            values, dims=("time", "pose"), attrs=dict(data.coords["time"].attrs)
+        )
+    )
+
+    with pytest.raises(ValueError, match="strictly monotonic-increasing"):
         validate_fusi(bad)
 
 

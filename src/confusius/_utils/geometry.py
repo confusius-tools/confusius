@@ -1262,8 +1262,8 @@ def attach_voxel_to_world_index(
         spacing = world_spacings[dim]
         if spacing is None:
             spacing = np.linalg.norm(representative_affine[:-1, i])
-        if name not in result.coords:
-            continue
+        # world_coord_names is exactly the set of names index just registered on
+        # result via from_affine/create_variables, so name is always present here.
         if "voxdim" not in result.coords[name].attrs:
             voxdim = np.float64(spacing).item()
             result.coords[name].attrs["voxdim"] = voxdim
