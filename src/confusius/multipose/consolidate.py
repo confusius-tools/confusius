@@ -5,6 +5,7 @@ single volumes by merging the pose dimension into a spatial dimension.
 """
 
 import warnings
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -76,12 +77,75 @@ def _consolidate_linked_affines(
     return new_affines
 
 
+def _detect_sweep_dim(
+    t: npt.NDArray[np.float64],
+    rotation: npt.NDArray[np.float64],
+    voxel_dims: Sequence[str],
+) -> str:
+    """Infer which voxel dimension is swept across poses from world-space geometry.
+
+    The per-pose translation `t` isolates pure pose-stepping, independent of any
+    voxel dimension (unlike diffing world positions along a candidate voxel
+    dimension, which conflates pose-stepping with intra-pose stepping along that
+    same dimension). Its dominant direction, found via SVD to stay robust to more
+    than two poses, is dotted against each (normalized) column of the shared
+    rotation block -- each column is the world-space direction of a unit step along
+    the corresponding voxel dimension -- and the best-aligned voxel dimension is
+    returned.
+
+    Parameters
+    ----------
+    t : (npose, 3) numpy.ndarray
+        Per-pose translation (world origin), read from the primary voxel-to-world
+        affine stack.
+    rotation : (3, 3) numpy.ndarray
+        Shared rotation block of the primary voxel-to-world affine (constant across
+        poses).
+    voxel_dims : sequence[str]
+        Voxel dimension names, in the same column order as `rotation`.
+
+    Returns
+    -------
+    str
+        Name of the voxel dimension best aligned with the pose-translation
+        direction. A genuinely ambiguous choice (e.g. a raster sweep stepping along
+        two voxel axes at once) is not flagged here: no single voxel dimension can
+        span such a sweep at all, so [`consolidate_poses`][confusius.multipose.consolidate_poses]'s
+        own regularity check rejects it downstream regardless of which dimension is
+        picked.
+
+    Raises
+    ------
+    ValueError
+        If fewer than two poses are given, if poses share the same world position,
+        or if the voxel-to-world geometry has a degenerate voxel axis.
+    """
+    if t.shape[0] < 2:
+        raise ValueError("Cannot detect the swept voxel dimension from a single pose.")
+    centered = t - t.mean(axis=0)
+    _, sv, vt = np.linalg.svd(centered, full_matrices=False)
+    if sv[0] == 0:
+        raise ValueError(
+            "Cannot detect the swept voxel dimension: poses have identical world "
+            "positions."
+        )
+    pose_axis = vt[0]
+
+    col_norms = np.linalg.norm(rotation, axis=0)
+    if np.any(col_norms == 0):
+        raise ValueError(
+            "Cannot detect the swept voxel dimension: primary voxel-to-world "
+            "geometry has a degenerate (zero-length) voxel axis."
+        )
+    alignments = np.abs(pose_axis @ rotation) / col_norms
+    return voxel_dims[int(np.argmax(alignments))]
+
+
 def consolidate_poses(
     da: xr.DataArray,
-    sweep_dim: str = "k",
     rtol: float = 0.01,
 ) -> xr.DataArray:
-    """Merge `pose` and `sweep_dim` dimensions into a single axis ordered by position.
+    """Merge the `pose` dimension into the swept voxel dimension, ordered by position.
 
     Per-`(pose, sweep_dim)` world positions are read directly from `da`'s own world
     coordinates, which requires `da`'s primary voxel-to-world geometry to itself be
@@ -98,10 +162,13 @@ def consolidate_poses(
     [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply], e.g.
     `da.fusi.affine.apply("world_to_qform")`, before calling this function.
 
-    The primary sweep direction is found via singular value decomposition of all
-    positions. Each voxel is projected onto that axis, the positions are checked for
-    regularity, then the data is reindexed in ascending order along the consolidated
-    sweep axis.
+    The swept voxel dimension is detected from `da`'s own geometry: the per-pose
+    translation's dominant direction (via SVD) is matched against each voxel
+    dimension's world-space direction, and the best-aligned dimension is used. The
+    primary sweep direction is then found via singular value decomposition of all
+    positions along that dimension. Each voxel is projected onto that axis, the
+    positions are checked for regularity, then the data is reindexed in ascending
+    order along the consolidated sweep axis.
 
     This function is primarily intended for consolidating multi-pose fUSI volumes
     acquired with an Iconeus system using a purely translational probe sweep. In that
@@ -124,35 +191,31 @@ def consolidate_poses(
         voxel-to-world geometry. Typically produced by
         [`load_scan`][confusius.io.load_scan] for `3Dscan` or `4Dscan` files, or by
         [`stack_poses`][confusius.multipose.stack_poses].
-    sweep_dim : str, default: "k"
-        Name of the voxel dimension being swept across poses. Must be one of the
-        spatial dimensions in `da.dims`. The column index in the affine is determined
-        by the voxel dimension order (`"k"` → column 0, `"j"` → column 1,
-        `"i"` → column 2).
     rtol : float, default: 0.01
         Relative tolerance for the regularity check (fraction of mean spacing).
 
     Returns
     -------
     xarray.DataArray
-        VoxelData array with `pose` merged into `sweep_dim`, sorted by world
-        position. The consolidated `sweep_dim` coordinate holds the projection of
-        each voxel's world position onto the sweep axis, expressed in the same
-        units as the input `sweep_dim` coordinate. For inputs whose `time`
-        coordinate is itself
+        VoxelData array with `pose` merged into the swept voxel dimension, sorted by
+        world position. The consolidated coordinate holds the projection of each
+        voxel's world position onto the sweep axis, expressed in the same units as
+        the input coordinate. For inputs whose `time` coordinate is itself
         pose-dependent (`(time, pose)`-shaped -- see
         [stack_poses][confusius.multipose.stack_poses]), a consolidated `slice_time`
-        with dims `("time", sweep_dim)` is included: each slice inherits the
+        with dims `("time", <sweep_dim>)` is included: each slice inherits the
         timestamp of the pose it came from.
 
     Raises
     ------
     ValueError
-        If `da` has no `pose` dimension, if `sweep_dim` is not one of the spatial
-        dimensions in `da.dims`, if `da`'s primary geometry is not pose-dependent, if
-        the rotation block of the affine is not constant across poses
-        (non-translation sweep), or if the consolidated positions are not regularly
-        spaced within `rtol`.
+        If `da` has no `pose` dimension, if `da`'s primary geometry is not
+        pose-dependent, if the rotation block of the affine is not constant across
+        poses (non-translation sweep), if the swept voxel dimension cannot be
+        detected (fewer than two poses, identical pose positions, or a degenerate
+        voxel axis), or if the consolidated positions are not regularly spaced
+        within `rtol` -- which also rejects a sweep that steps along more than one
+        voxel axis at once, since no single voxel dimension can span it.
 
     Warns
     -----
@@ -160,14 +223,6 @@ def consolidate_poses(
         If the sweep is not purely 1D (secondary/primary singular value ratio > 0.01).
     """
     da = ensure_voxeldata(da)
-
-    # Determine spatial dimensions (non-time, non-pose) and their column indices.
-    spatial_dims = [d for d in da.dims if d not in ("time", "pose")]
-    if sweep_dim not in spatial_dims:
-        raise ValueError(
-            f"sweep_dim must be one of the spatial dimensions {spatial_dims!r}; "
-            f"got {sweep_dim!r}."
-        )
 
     if "pose" not in da.dims:
         raise ValueError("DataArray has no 'pose' dimension.")
@@ -177,18 +232,6 @@ def consolidate_poses(
     voxel_dims = list(get_voxel_to_world_spatial_dims(da))
     world_dims = list(get_voxel_to_world_coord_names(da))
     voxel_to_world = dict(zip(voxel_dims, world_dims, strict=True))
-    if sweep_dim not in voxel_dims:
-        raise ValueError(
-            f"sweep_dim must be one of the spatial dimensions {voxel_dims!r}; "
-            f"got {sweep_dim!r}."
-        )
-    sweep_data_dim = sweep_dim
-    spatial_dims = voxel_dims
-    output_spatial_dims = spatial_dims
-    world_sweep_dim = voxel_to_world[sweep_dim]
-    other_voxel_dims = [d for d in voxel_dims if d != sweep_dim]
-    sweep_coord_attrs = dict(da.coords[world_sweep_dim].attrs)
-    sweep_col = spatial_dims.index(sweep_dim)
 
     affine = get_voxel_to_world_affine(da)  # (npose, 4, 4) when pose-dependent.
     if affine.ndim != 3:
@@ -199,6 +242,23 @@ def consolidate_poses(
             "lives in a secondary, named affine in da.attrs['affines'], rebase onto "
             "it first with da.fusi.affine.apply(<key>)."
         )
+
+    rotations: npt.NDArray[np.float64] = affine[:, :3, :3]  # (npose, 3, 3)
+    t: npt.NDArray[np.float64] = affine[:, :3, 3]  # (npose, 3), per-pose translation.
+    if not np.allclose(rotations, rotations[0], rtol=1e-6, atol=0):
+        raise ValueError(
+            "Rotation block of the primary voxel-to-world geometry is not constant "
+            "across poses. consolidate_poses only supports pure translation sweeps."
+        )
+
+    sweep_dim = _detect_sweep_dim(t, rotations[0], voxel_dims)
+    sweep_data_dim = sweep_dim
+    spatial_dims = voxel_dims
+    output_spatial_dims = spatial_dims
+    world_sweep_dim = voxel_to_world[sweep_dim]
+    other_voxel_dims = [d for d in voxel_dims if d != sweep_dim]
+    sweep_coord_attrs = dict(da.coords[world_sweep_dim].attrs)
+    sweep_col = spatial_dims.index(sweep_dim)
 
     # Read exact per-(pose, sweep) world positions directly from da's own world
     # coordinates rather than reconstructing them from a separately stored affine.
@@ -212,14 +272,6 @@ def consolidate_poses(
     # Each entry is (npose, n_sweep); stacked along a new last axis gives
     # (npose, n_sweep, 3).
     lab_pos: npt.NDArray[np.float64] = np.stack(world_positions, axis=-1)
-
-    rotations: npt.NDArray[np.float64] = affine[:, :3, :3]  # (npose, 3, 3)
-    t: npt.NDArray[np.float64] = affine[:, :3, 3]  # (npose, 3), per-pose translation.
-    if not np.allclose(rotations, rotations[0], rtol=1e-6, atol=0):
-        raise ValueError(
-            "Rotation block of the primary voxel-to-world geometry is not constant "
-            "across poses. consolidate_poses only supports pure translation sweeps."
-        )
 
     # Shape (npose, n_sweep, 3) -> (npose*n_sweep, 3).
     lab_pos_flat = lab_pos.reshape(-1, 3)

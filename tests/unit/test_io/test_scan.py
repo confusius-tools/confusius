@@ -60,11 +60,14 @@ _PROBE_TO_LAB_SINGLE[:3, 3] = [0.001, 0.002, 0.003]
 
 _PROBE_TO_LAB_MULTI = np.stack(
     [
+        # Kept in sync with conftest.py's _SCAN_PROBE_TO_LAB_MULTI (row 1 lands on
+        # ConfUSIus's k/elevation axis after the world/probe permutation).
         np.eye(4, dtype=np.float64)
-        + np.array([[0, 0, 0, i * 0.001], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
+        + np.array([[0, 0, 0, 0], [0, 0, 0, i * 0.001], [0, 0, 0, 0], [0, 0, 0, 0]])
         for i in range(_NPOSE)
     ]
 )
+
 
 def _world_to_lab_single_translation() -> np.ndarray:
     """Return `_PROBE_TO_LAB_SINGLE`'s folded translation, in ConfUSIus (z, y, x) mm.

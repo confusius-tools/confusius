@@ -78,6 +78,13 @@ Current development version for the next ConfUSIus release.
   [`create_voxeldata`][confusius.xarray.create_voxeldata] to add singleton
   axes and coordinate metadata from raw 2D or 2D+t arrays
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+- Removed [`consolidate_poses`][confusius.multipose.consolidate_poses]'s
+  `sweep_dim` parameter. The swept voxel dimension is now always auto-detected
+  from the per-pose voxel-to-world geometry (the pose-translation direction
+  matched against each voxel dimension's world-space direction); a sweep that
+  isn't cleanly aligned with a single voxel dimension can never form the
+  regular grid consolidation requires, so no override was needed
+  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
 
 ### :sparkles: Enhancements
 

@@ -39,9 +39,7 @@ class TestConsolidatePoses:
         R_normalized = R / np.linalg.norm(R, axis=0, keepdims=True)
         # R_normalized^T @ R_normalized should be the identity for an orthogonal
         # (axis-aligned or rotated) frame.
-        np.testing.assert_allclose(
-            R_normalized.T @ R_normalized, np.eye(3), atol=1e-10
-        )
+        np.testing.assert_allclose(R_normalized.T @ R_normalized, np.eye(3), atol=1e-10)
 
     def test_no_spurious_world_to_lab_in_attrs(self, scan_3d: xr.DataArray) -> None:
         """Consolidation doesn't inject a world_to_lab attrs entry that never existed.
@@ -214,9 +212,7 @@ class TestConsolidatePoses:
         unlinked[1, :3, 3] += np.array([0.5, 0.0, 0.0])
         scan_3d.attrs["affines"]["world_to_unlinked"] = unlinked
 
-        with pytest.raises(
-            ValueError, match="not a constant left-link of the primary"
-        ):
+        with pytest.raises(ValueError, match="not a constant left-link of the primary"):
             consolidate_poses(scan_3d)
 
     def test_static_affine_passed_through(self, scan_3d: xr.DataArray) -> None:
@@ -247,12 +243,15 @@ class TestConsolidatePoses:
         """consolidate_poses warns when the sweep has a significant secondary component.
 
         The 2D sweep fixture also produces irregular spacings after projection onto the
-        diagonal axis, so a ValueError follows the warning. Both are expected here.
+        diagonal axis, so a ValueError follows the warning. Both are expected here,
+        regardless of which voxel axis auto-detection picks (equally aligned with `k`
+        and `i` here): a sweep that steps along two voxel axes at once can never form
+        a regular grid along either single one.
         """
         da = load_scan(scan_3d_2d_sweep_path)
         with (
             pytest.warns(UserWarning, match="not purely 1D"),
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="not regularly spaced"),
         ):
             consolidate_poses(da)
 
@@ -261,24 +260,6 @@ class TestConsolidatePoses:
         da = load_scan(scan_3d_varying_rotation_path)
         with pytest.raises(ValueError, match="not constant across poses"):
             consolidate_poses(da)
-
-    def test_invalid_sweep_dim_raises(self, scan_3d: xr.DataArray) -> None:
-        """consolidate_poses raises ValueError for an unrecognised sweep_dim."""
-        with pytest.raises(ValueError, match="sweep_dim must be one of"):
-            consolidate_poses(scan_3d, sweep_dim="w")
-
-    def test_sweep_dim_outside_voxel_dims_raises(self, scan_3d: xr.DataArray) -> None:
-        """consolidate_poses rejects a sweep_dim that is a real dim but not a voxel dim.
-
-        `scan_3d` has a voxel-to-world index over `k`/`j`/`i`. Adding an extra
-        dimension `w` makes it pass the initial "is sweep_dim one of da's non-time/
-        non-pose dims" check (since `w` is such a dim), but `w` is absent from the
-        voxel-to-world geometry's own voxel dims, so consolidate_poses must reject it
-        with a message naming only the true voxel dims.
-        """
-        da = scan_3d.expand_dims({"w": 2})
-        with pytest.raises(ValueError, match="got 'w'"):
-            consolidate_poses(da, sweep_dim="w")
 
     def test_secondary_affine_rebase_before_consolidate(self) -> None:
         """Consolidating around a secondary affine requires rebasing onto it first.
@@ -299,7 +280,7 @@ class TestConsolidatePoses:
         spacing_diag = np.diag([intra_step, intra_step, intra_step, 1.0])
         translations = np.stack([np.eye(4) for _ in range(npose)])
         for p in range(npose):
-            translations[p, 0, 3] = p * inter_step  # along k (sweep_dim default)
+            translations[p, 0, 3] = p * inter_step  # along k, auto-detected
 
         da_primary = create_voxeldata(
             data,
@@ -319,9 +300,7 @@ class TestConsolidatePoses:
         )
 
         result_primary = consolidate_poses(da_primary)
-        result_rebased = consolidate_poses(
-            da_secondary.fusi.affine.apply("my_affine")
-        )
+        result_rebased = consolidate_poses(da_secondary.fusi.affine.apply("my_affine"))
         np.testing.assert_array_equal(result_primary.values, result_rebased.values)
         np.testing.assert_array_equal(
             result_primary.coords["k"].values, result_rebased.coords["k"].values
@@ -332,10 +311,11 @@ class TestConsolidatePoses:
         [("k", "um"), ("j", "mm"), ("i", "m")],
     )
     def test_consolidates_all_sweep_dims(self, sweep_dim: str, sweep_unit: str) -> None:
-        """consolidate_poses correctly merges poses for any spatial sweep dimension.
+        """consolidate_poses auto-detects and merges poses for any sweep dimension.
 
         This test constructs a DataArray whose affine translates along the requested
-        sweep column and verifies that:
+        sweep column (so auto-detection should pick it up unprompted) and verifies
+        that:
 
         - the output dims are `(sweep_dim, <other1>, <other2>)` with no `pose`;
         - the consolidated coordinate is the expected regular grid with propagated units;
@@ -367,7 +347,7 @@ class TestConsolidatePoses:
         )
         da.coords[{"k": "z", "j": "y", "i": "x"}[sweep_dim]].attrs["units"] = sweep_unit
 
-        result = consolidate_poses(da, sweep_dim=sweep_dim)
+        result = consolidate_poses(da)
 
         other_dims = [d for d in ["k", "j", "i"] if d != sweep_dim]
         assert result.dims == tuple([sweep_dim] + other_dims)
@@ -439,7 +419,7 @@ class TestConsolidatePoses:
             voxel_to_world=affines @ spacing_diag,
         )
 
-        result = consolidate_poses(da, sweep_dim="k")
+        result = consolidate_poses(da)
 
         assert result.sizes["j"] == 1
         output_affine = get_voxel_to_world_affine(result)

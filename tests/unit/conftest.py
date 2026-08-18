@@ -43,8 +43,11 @@ _SCAN_PROBE_TO_LAB_SINGLE[:3, 3] = [0.001, 0.002, 0.003]
 
 _SCAN_PROBE_TO_LAB_MULTI = np.stack(
     [
+        # Translation lives in row 1: through the world/probe permutation this
+        # lands on ConfUSIus's k (elevation) axis, matching a real translational
+        # probe sweep -- see consolidate_poses's sweep_dim auto-detection.
         np.eye(4, dtype=np.float64)
-        + np.array([[0, 0, 0, i * 0.001], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
+        + np.array([[0, 0, 0, 0], [0, 0, 0, i * 0.001], [0, 0, 0, 0], [0, 0, 0, 0]])
         for i in range(_SCAN_NPOSE)
     ]
 )
@@ -61,8 +64,10 @@ _SCAN_PROBE_TO_LAB_ROTATED = np.array(
 
 _SCAN_PROBE_TO_LAB_IRREGULAR = np.stack(
     [
+        # Row 1, like _SCAN_PROBE_TO_LAB_MULTI: lands on k (elevation) after the
+        # world/probe permutation.
         np.eye(4, dtype=np.float64)
-        + np.array([[0, 0, 0, t], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
+        + np.array([[0, 0, 0, 0], [0, 0, 0, t], [0, 0, 0, 0], [0, 0, 0, 0]])
         for t in [0.0, 0.001, 0.005]
     ]
 )

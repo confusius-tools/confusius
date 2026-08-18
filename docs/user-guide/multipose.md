@@ -77,7 +77,7 @@ per pose—translated across multiple regularly spaced positions:
 ```pycon
 >>> from confusius.io import load_scan
 >>> pwd = load_scan("sub-01_task-awake_pwd.scan")
->>> fus
+>>> pwd
 <xarray.DataArray 'scan_data' (time: 409, pose: 4, k: 4, j: 92, i: 118)> Size: 568MB
 dask.array<transpose, shape=(409, 4, 4, 92, 118), dtype=float64, chunksize=(106, 4, 4, 92, 106), chunktype=numpy.ndarray>
 Coordinates:
@@ -165,7 +165,7 @@ Operations that resolve *positions* or *timestamps*, however, need a scalar `pos
 first, per [The Multi-Pose Data Model](#the-multi-pose-data-model) above:
 
 ```python
-pose0 = pwd.sel(pose=0) 
+pose0 = pwd.sel(pose=0)
 shallow = pose0.sel(z=slice(0, 2.5))       # world-coordinate selection now works.
 subset = pose0.sel(time=slice(10, 60))     # time is now 1D, .sel(time=...) works too.
 ```
@@ -202,18 +202,21 @@ coordinates, producing a VoxelData array with a single, non-pose-dependent
 voxel-to-world affine. [`consolidate_poses`][confusius.multipose.consolidate_poses]
 performs the following steps:
 
-1. Read the per-pose affines to compute the world position of every `(pose, sweep_dim)`
-   voxel.
-2. Find the primary sweep direction via SVD of all voxel positions.
-3. Project each voxel onto that axis and check that the resulting positions form a
-   regular grid.
-4. Reindex the data in ascending position order, replacing `pose` and `sweep_dim` with
-   a single consolidated coordinate in world space.
+1. Detect the swept voxel dimension (`sweep_dim`) from the per-pose affines: match
+   the pose-translation direction against each voxel dimension's world-space
+   direction, and take the best-aligned one.
+2. Read the per-pose affines to compute the world position of every `(pose,
+   sweep_dim)` voxel.
+3. Find the precise sweep direction via SVD of all these voxel positions, and
+   project each voxel onto that axis.
+4. Check that the resulting positions form a regular grid.
+5. Reindex the data in ascending position order, replacing `pose` and `sweep_dim`
+   with a single consolidated coordinate in world space.
 
 ```pycon
 >>> import confusius as cf
 >>> pwd = cf.load("sub-01_task-awake_pwd.scan")
->>> volume = cf.multipose.consolidate_poses(fus)
+>>> volume = cf.multipose.consolidate_poses(pwd)
 >>> volume
 <xarray.DataArray 'scan_data' (time: 409, k: 16, j: 92, i: 118)> Size: 568MB
 array([...])
@@ -244,11 +247,6 @@ of the pose it came from.
 
 After consolidation, the per-pose affine stack is reduced to a single `(4, 4)` matrix
 representing the consolidated volume's orientation in world space.
-
-### Parameters
-
-Adjust **`sweep_dim`** (default: `"k"`) if your probe sweep is along a different voxel
-dimension.
 
 !!! warning "Regularity requirement"
     [`consolidate_poses`][confusius.multipose.consolidate_poses] will raise a
