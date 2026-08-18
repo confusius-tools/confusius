@@ -375,7 +375,7 @@ da.fusi.save("sub-01_task-awake_pwd.nii.gz")
 
 For **3Dscan** and **4Dscan** data, consolidate the poses into a single volume before
 saving, or save each pose separately if you want to retain the multi-pose structure. See
-the [Multi-Pose Data guide](multi-pose-data.md) for details on working with multi-pose
+the [Multi-Pose Data guide](multipose.md) for details on working with multi-pose
 acquisitions.
 
 === "Consolidation"
