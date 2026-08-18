@@ -62,6 +62,12 @@ confusius = "confusius._napari:napari.yaml"
 requires = ["uv-build>=0.9.5,<0.12.0"]
 build-backend = "uv_build"
 
+[tool.uv.sources]
+# TODO: pin xarray to a released version once it ships the fix for
+# CoordinateTransformIndexingAdapter.shape ignoring a transposed `_dims`
+# (breaks VoxelToWorldIndex-backed z/y/x coords after `.transpose()`).
+xarray = { git = "https://github.com/pydata/xarray.git", rev = "c2998a75ef32f6cf4d62cd946f2200ca953550d9" }
+
 [dependency-groups]
 dev = [
     "codespell>=2.3.0",

@@ -42,8 +42,19 @@ def _validate_spatial_alignment(
     data = ensure_voxeldata(data, allow_extra_dims=True)
     spatial_da = ensure_voxeldata(spatial_da, allow_extra_dims=True)
 
+    # `xr.align` groups indexes to compare by (coordinate name, dims order) before ever
+    # calling `Index.equals()`, so two VoxelData arrays sharing the same
+    # VoxelToWorldIndex grid but a differently-transposed k/j/i order fall into separate
+    # groups and raise a spurious `AlignmentError`, even though the grids genuinely
+    # match. Aligning on a shared dim order sidesteps that grouping, without changing
+    # what's returned.
+    common_dims = [dim for dim in data.dims if dim in spatial_da.dims]
     try:
-        xr.align(spatial_da, data, join="exact")
+        xr.align(
+            spatial_da.transpose(*common_dims, ...),
+            data.transpose(*common_dims, ...),
+            join="exact",
+        )
     except xr.AlignmentError as error:
         raise ValueError(f"{name} does not share data's voxel grid: {error}") from error
 
