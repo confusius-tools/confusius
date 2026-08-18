@@ -336,9 +336,9 @@ class TestLoadScan2D:
         """2Dscan has no pose coordinate."""
         assert "pose" not in scan_2d.coords
 
-    def test_no_pose_time_coord(self, scan_2d: xr.DataArray) -> None:
-        """2Dscan has no pose_time coordinate."""
-        assert "pose_time" not in scan_2d.coords
+    def test_time_coord_not_pose_dependent(self, scan_2d: xr.DataArray) -> None:
+        """2Dscan has a plain 1D time coordinate (no pose dim)."""
+        assert scan_2d.coords["time"].dims == ("time",)
 
     def test_linear_probe_z_singleton(self, scan_2d: xr.DataArray) -> None:
         """2Dscan with linear probe (sizeY=1) has a singleton k dimension."""
@@ -448,13 +448,13 @@ class TestLoadScan4D:
         """4Dscan returns a lazy Dask-backed DataArray."""
         assert isinstance(scan_4d.data, dask_array.Array)
 
-    def test_time_coord(self, scan_4d: xr.DataArray) -> None:
-        """4Dscan time coordinate is 1D, length nscanRepeat, units seconds."""
-        assert "time" in scan_4d.coords
-        assert scan_4d.coords["time"].dims == ("time",)
-        assert len(scan_4d.coords["time"]) == _T
-        assert scan_4d.coords["time"].attrs.get("units") == "s"
-        assert scan_4d.coords["time"].attrs.get("volume_acquisition_reference") == "end"
+    def test_time_coord_pose_dependent(self, scan_4d: xr.DataArray) -> None:
+        """4Dscan time coordinate is (time, pose)-shaped, units seconds."""
+        time_coord = scan_4d.coords["time"]
+        assert time_coord.dims == ("time", "pose")
+        assert time_coord.shape == (_T, _NPOSE)
+        assert time_coord.attrs.get("units") == "s"
+        assert time_coord.attrs.get("volume_acquisition_reference") == "end"
 
     def test_time_coord_duration_inferred_from_first_timestamp(
         self, scan_4d_offset_path: Path
@@ -466,72 +466,32 @@ class TestLoadScan4D:
             "volume_acquisition_duration"
         ] == pytest.approx(0.4)
 
-    def test_time_coord_latest_per_block(self, scan_4d: xr.DataArray) -> None:
-        """4Dscan time coordinate equals latest (end-referenced) timestamp per block."""
+    def test_time_coord_values(self, scan_4d: xr.DataArray) -> None:
+        """4Dscan time coordinate matches the reshaped raw time array."""
         time_flat = _end_referenced_times(_T * _NPOSE, _POSE_DURATION).reshape(
             _T * _NPOSE, 1
         )
-        time_mat = time_flat.reshape(_T, _NPOSE)
-        expected = time_mat.max(axis=1)
-        np.testing.assert_allclose(scan_4d.coords["time"].values, expected, rtol=1e-10)
+        expected = time_flat.reshape(_T, _NPOSE)
+        np.testing.assert_allclose(
+            scan_4d.coords["time"].values, expected, rtol=1e-10
+        )
 
     def test_pose_coord(self, scan_4d: xr.DataArray) -> None:
         """4Dscan has integer pose coordinate from 0 to npose-1."""
         assert "pose" in scan_4d.coords
         np.testing.assert_array_equal(scan_4d.coords["pose"].values, np.arange(_NPOSE))
 
-    def test_pose_time_coord_present(self, scan_4d: xr.DataArray) -> None:
-        """4Dscan has a pose_time non-dimension coordinate."""
-        assert "pose_time" in scan_4d.coords
-
-    def test_pose_time_coord_shape(self, scan_4d: xr.DataArray) -> None:
-        """pose_time has dims (time, pose) with shape (nscanRepeat, npose)."""
-        pt = scan_4d.coords["pose_time"]
-        assert pt.dims == ("time", "pose")
-        assert pt.shape == (_T, _NPOSE)
-
-    def test_pose_time_coord_units(self, scan_4d: xr.DataArray) -> None:
-        """pose_time has units='s'."""
-        assert scan_4d.coords["pose_time"].attrs.get("units") == "s"
-        assert (
-            scan_4d.coords["pose_time"].attrs.get("volume_acquisition_reference")
-            == "end"
-        )
-
-    def test_pose_time_duration_inferred_from_first_timestamp(
-        self, scan_4d_offset_path: Path
-    ) -> None:
-        """pose_time carries the same inferred timing metadata as time."""
-        scan_4d = load_scan(scan_4d_offset_path)
-
-        assert (
-            scan_4d.coords["pose_time"].attrs["volume_acquisition_reference"] == "end"
-        )
-        assert scan_4d.coords["pose_time"].attrs[
-            "volume_acquisition_duration"
-        ] == pytest.approx(0.4)
-
-    def test_pose_time_coord_values(self, scan_4d: xr.DataArray) -> None:
-        """pose_time values match the reshaped raw time array."""
-        time_flat = _end_referenced_times(_T * _NPOSE, _POSE_DURATION).reshape(
-            _T * _NPOSE, 1
-        )
-        expected = time_flat.reshape(_T, _NPOSE)
-        np.testing.assert_allclose(
-            scan_4d.coords["pose_time"].values, expected, rtol=1e-10
-        )
-
-    def test_pose_time_isel_time(self, scan_4d: xr.DataArray) -> None:
-        """isel on time slices pose_time correctly to shape (pose,)."""
+    def test_time_isel_time(self, scan_4d: xr.DataArray) -> None:
+        """isel on time slices time correctly to shape (pose,)."""
         sliced = scan_4d.isel(time=0)
-        assert sliced.coords["pose_time"].dims == ("pose",)
-        assert sliced.coords["pose_time"].shape == (_NPOSE,)
+        assert sliced.coords["time"].dims == ("pose",)
+        assert sliced.coords["time"].shape == (_NPOSE,)
 
-    def test_pose_time_isel_pose(self, scan_4d: xr.DataArray) -> None:
-        """isel on pose slices pose_time correctly to shape (time,)."""
+    def test_time_isel_pose(self, scan_4d: xr.DataArray) -> None:
+        """isel on pose slices time correctly to shape (time,)."""
         sliced = scan_4d.isel(pose=0)
-        assert sliced.coords["pose_time"].dims == ("time",)
-        assert sliced.coords["pose_time"].shape == (_T,)
+        assert sliced.coords["time"].dims == ("time",)
+        assert sliced.coords["time"].shape == (_T,)
 
     def test_world_to_lab_shape(self, scan_4d: xr.DataArray) -> None:
         """The primary voxel-to-world affine has shape (npose, 4, 4) for 4Dscan."""

@@ -11,6 +11,7 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
 )
+from confusius.xarray import create_fusi_dataarray
 
 
 def _make_voxel_to_world_volume() -> xr.DataArray:
@@ -266,6 +267,44 @@ class TestOrigin:
             "j": pytest.approx(2.0 * np.sqrt(10.0)),
             "i": pytest.approx(4.0),
         }
+
+    def test_2d_time_spacing_checked_across_poses(self):
+        """A 2D (time, pose) `time` coordinate's spacing must hold for every pose.
+
+        Regression: naively reducing other dims to index 0 before computing steps
+        would silently report only pose 0's own time spacing, without checking that
+        it actually holds for the other poses too -- unlike equal spatial scale
+        across poses, which is an enforced construction-time invariant, not an
+        unchecked assumption.
+        """
+        npose = 3
+        n_time = 5
+        affine = np.stack([np.eye(4) for _ in range(npose)])
+
+        matching_time = np.stack(
+            [np.arange(n_time) * 2.4 + p * 0.6 for p in range(npose)], axis=1
+        )
+        matching = create_fusi_dataarray(
+            np.zeros((n_time, npose, 2, 3, 4)),
+            dims=("time", "pose", "k", "j", "i"),
+            time=matching_time,
+            pose=np.arange(npose),
+            voxel_to_world=affine,
+        )
+        assert matching.fusi.spacing["time"] == pytest.approx(2.4)
+
+        mismatched_time = np.stack(
+            [np.arange(n_time) * 2.4, np.arange(n_time) * 2.4, np.arange(n_time) * 3.0],
+            axis=1,
+        )
+        mismatched = create_fusi_dataarray(
+            np.zeros((n_time, npose, 2, 3, 4)),
+            dims=("time", "pose", "k", "j", "i"),
+            time=mismatched_time,
+            pose=np.arange(npose),
+            voxel_to_world=affine,
+        )
+        assert mismatched.fusi.spacing["time"] is None
 
     def test_voxel_to_world_direction_returns_orientation_matrix(self):
         """Voxel-to-world direction is the normalized affine linear part."""

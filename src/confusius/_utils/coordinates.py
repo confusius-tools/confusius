@@ -127,7 +127,18 @@ def get_coordinate_spacing_info(
     ):
         return CoordinateSpacingInfo(value=None, median=None, warn_msg=None)
 
-    if len(coord) < 2:
+    # A coordinate named after its dim is not necessarily 1D (e.g. a pose-dependent
+    # array's "time" coordinate can be genuinely (time, pose)-shaped, holding each
+    # pose's own real timestamps -- see confusius.multipose.stack_poses). Compute the
+    # step along `dim` independently for every combination of the other dims'
+    # values (flattened into columns) rather than trusting just one slice: an
+    # answer this function reports as "the" spacing for `dim` must actually hold
+    # for all of them, the same way equal spatial scale across poses is an
+    # enforced invariant for voxel-to-world affines, not an assumption.
+    other_dims = [d for d in coord.dims if d != dim]
+    dim_axis = coord.dims.index(dim)
+
+    if coord.shape[dim_axis] < 2:
         return CoordinateSpacingInfo(
             value=None,
             median=None,
@@ -137,19 +148,38 @@ def get_coordinate_spacing_info(
             ),
         )
 
-    representative_step, is_approximate = get_representative_step(
-        coord.values, uniformity_tolerance=uniformity_tolerance
-    )
+    values = np.moveaxis(coord.values, dim_axis, 0).reshape(coord.shape[dim_axis], -1)
 
-    if not is_approximate:
-        return CoordinateSpacingInfo(
-            value=representative_step, median=representative_step, warn_msg=None
+    steps: list[float] = []
+    for column in range(values.shape[1]):
+        step, is_approximate = get_representative_step(
+            values[:, column], uniformity_tolerance=uniformity_tolerance
         )
-    return CoordinateSpacingInfo(
-        value=None,
-        median=representative_step,
-        warn_msg=f"Coordinate '{dim}' has non-uniform sampling; spacing is undefined.",
-    )
+        assert step is not None  # values.shape[0] >= 2, checked above.
+        if is_approximate:
+            return CoordinateSpacingInfo(
+                value=None,
+                median=float(np.median(steps + [step])),
+                warn_msg=(
+                    f"Coordinate '{dim}' has non-uniform sampling; spacing is "
+                    "undefined."
+                ),
+            )
+        steps.append(step)
+
+    if other_dims and not np.allclose(
+        steps, steps[0], rtol=uniformity_tolerance, atol=0.0
+    ):
+        return CoordinateSpacingInfo(
+            value=None,
+            median=float(np.median(steps)),
+            warn_msg=(
+                f"Coordinate '{dim}' spacing along '{dim}' differs across "
+                f"{other_dims!r}; spacing is undefined."
+            ),
+        )
+
+    return CoordinateSpacingInfo(value=steps[0], median=steps[0], warn_msg=None)
 
 
 def get_coordinate_spacings(

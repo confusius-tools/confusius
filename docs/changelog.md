@@ -12,6 +12,15 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Multi-pose data acquired sequentially now carries a pose-dependent, `(time,
+  pose)`-shaped `time` coordinate holding each pose's own real acquisition
+  timestamps directly, replacing the old 1D `time` + `pose_time` sidecar
+  coordinate convention. `load_scan`'s `4Dscan` mode and
+  [`stack_poses`][confusius.multipose.stack_poses] (new — assembles independently
+  loaded single-pose grids into one pose-dependent DataArray) both produce this
+  shape; [`consolidate_poses`][confusius.multipose.consolidate_poses] and
+  [`correct_slice_timings`][confusius.multipose.correct_slice_timings] consume it
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 - Renamed `validate_fusi_dataarray` to `validate_fusi`, `validate_iq_dataarray`
   to `validate_iq`, `validate_bspline_dataarray` to `validate_bspline`, and
   `validate_atlas_dataset` to `validate_atlas`; renamed the IQ validator option

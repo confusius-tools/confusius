@@ -1,5 +1,5 @@
 # %% [markdown]
-# # Load a multi-pose recording from the Pepe, Mariani 2026 dataset
+# # Load multi-pose recordings
 #
 # This example shows how to assemble a multi-pose fUSI recording that was not acquired
 # through an Iconeus SCAN file, by loading each pose as a separate NIfTI file and
@@ -26,12 +26,9 @@ import re
 from pathlib import Path
 
 import matplotlib as mpl
-import matplotlib.pyplot as plt
-import numpy as np
 import xarray as xr
 
 import confusius as cf
-from confusius._utils.geometry import get_voxel_to_world_affine
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
@@ -85,33 +82,17 @@ for path, chunk in zip(chunk_paths, chunks, strict=True):
 # %% [markdown]
 # ## Stack the poses into one pose-dependent DataArray
 #
-# [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] accepts an
-# `(npose, 4, 4)` `voxel_to_world` stack — one affine per pose — alongside a `pose`
-# dimension in `dims`. We stack each chunk's raw array along a new `pose` axis and each
-# chunk's own affine into that stack; the resulting DataArray carries one physically
-# meaningful voxel-to-world affine per pose, rather than approximating every pose with a
-# single shared grid.
-#
-# Poses were also acquired sequentially rather than simultaneously, so each chunk's
-# `time` coordinate is offset from the others by a fraction of the repetition time. We
-# keep the first chunk's `time` as the array's main (regularly sampled) time axis and
-# attach the real per-pose timestamps as a `pose_time` coordinate, mirroring how
-# [`load_scan`][confusius.io.load_scan] handles `4Dscan` files.
+# [`stack_poses`][confusius.multipose.stack_poses] concatenates independently loaded
+# single-pose grids into one DataArray with a `pose` dimension, one voxel-to-world
+# affine per pose. Poses were also acquired sequentially rather than simultaneously, so
+# each chunk's `time` coordinate is offset from the others by a fraction of the
+# repetition time; when per-pose timestamps differ, `stack_poses` keeps them as a
+# pose-dependent `(time, pose)`-shaped `time` coordinate rather than collapsing them
+# into one shared time axis.
 
 # %%
-voxel_to_world = np.stack([get_voxel_to_world_affine(chunk) for chunk in chunks])
-data = np.stack([chunk.values for chunk in chunks], axis=1)  # (time, pose, k, j, i)
-pose_time = np.stack([chunk.coords["time"].values for chunk in chunks], axis=1)
-
-multipose = cf.xarray.create_fusi_dataarray(
-    data,
-    dims=("time", "pose", "k", "j", "i"),
-    time=chunks[0].coords["time"],
-    pose=np.arange(npose),
-    voxel_to_world=voxel_to_world,
-    name="pwd",
-).assign_coords(pose_time=(("time", "pose"), pose_time))
-
+multipose = cf.multipose.stack_poses(chunks)
+multipose.name = "pwd"
 multipose
 
 # %% [markdown]
@@ -134,32 +115,21 @@ print("pose 3 origin:", multipose.isel(pose=3).fusi.origin)
 # %% [markdown]
 # ## Visualize each pose
 #
-# We plot the temporal mean of each pose side by side. Because each pose has its own
-# affine, the `z` (elevation) position shown in each panel's title is genuinely that
-# pose's physical location, not an arbitrary index.
+# We plot the temporal mean of each pose side by side with
+# [`plot_volume`][confusius.plotting.plot_volume]'s `slice_mode="pose"`. Because each
+# pose has its own affine, the `k` (elevation) position labeled on each panel is
+# genuinely that pose's physical location, not an arbitrary index.
 
 # %% tags=["thumbnail"]
-mean_db = multipose.mean("time").fusi.scale.db()
+mean_db = multipose.mean("time").fusi.scale.db().isel(k=0)
 
-fig, axes = plt.subplots(1, npose, figsize=(4 * npose, 4), facecolor=bg_color)
-for pose, ax in zip(range(npose), axes, strict=True):
-    pose_slice = mean_db.isel(pose=pose, k=0)
-    z = mean_db.isel(pose=pose).fusi.origin["z"]
-    ax.imshow(
-        pose_slice.values,
-        cmap="gray",
-        origin="lower",
-        extent=[
-            float(pose_slice.coords["x"].min()),
-            float(pose_slice.coords["x"].max()),
-            float(pose_slice.coords["y"].min()),
-            float(pose_slice.coords["y"].max()),
-        ],
-    )
-    ax.set_title(f"Pose {pose} (z = {z:.2f} mm)")
-    ax.set_xlabel("x (mm)")
-ax = axes[0]
-_ = ax.set_ylabel("y (mm)")
+plotter = cf.plotting.plot_volume(
+    mean_db,
+    slice_mode="pose",
+    cmap="gray",
+    cbar_label="Power Doppler (dB)",
+    bg_color=bg_color,
+)
 
 # %% [markdown]
 # ## Consolidate into a single volume

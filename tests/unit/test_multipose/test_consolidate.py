@@ -58,7 +58,7 @@ class TestConsolidatePoses:
         assert result.coords["slice_time"].dims == ("time", "k")
         assert result.coords["slice_time"].shape == (_T, _NPOSE * _SIZE_Y)
         assert result.coords["slice_time"].attrs.get("units") == "s"
-        orig_pt = scan_4d.coords["pose_time"].values  # (T, npose)
+        orig_pt = scan_4d.coords["time"].values  # (T, npose)
         # Recover which original pose each consolidated z-slice came from, reading
         # exact per-(pose, k) world positions directly from scan_4d's own
         # (already lab-space) world coordinates -- (pose, k, j, i)-shaped since
@@ -85,17 +85,8 @@ class TestConsolidatePoses:
         self, scan_4d: xr.DataArray
     ) -> None:
         """Known per-pose duration lets consolidation derive full-volume timing."""
-        scan_4d = scan_4d.assign_coords(
+        scan_4d = scan_4d.drop_vars("time").assign_coords(
             time=xr.DataArray(
-                [0.4, 2.2, 4.0, 5.8, 7.6],
-                dims=("time",),
-                attrs={
-                    "units": "s",
-                    "volume_acquisition_reference": "end",
-                    "volume_acquisition_duration": 0.4,
-                },
-            ),
-            pose_time=xr.DataArray(
                 [
                     [0.4, 1.0, 1.6],
                     [2.2, 2.8, 3.4],

@@ -115,6 +115,36 @@ def _validate_dimension_coordinate(
         return
 
     coord = da.coords[dim]
+    if dim == TIME_DIM and POSE_DIM in da.dims and coord.dims == (TIME_DIM, POSE_DIM):
+        # A pose-dependent array's "time" coordinate may be genuinely
+        # (time, pose)-shaped, holding each pose's own real timestamp directly
+        # (poses acquired sequentially rather than simultaneously) -- see
+        # confusius.multipose.stack_poses. There is no single answer for "the" time
+        # of a (pose, k, j, i) voxel any more than there is a single answer for its
+        # z/y/x position, so this validates every pose's own column independently
+        # instead of requiring one shared 1D dimension coordinate.
+        if not require_numeric:
+            return
+        if not np.issubdtype(coord.dtype, np.number):
+            raise ValueError(f"Coordinate {dim!r} must be numeric.")
+        values = np.asarray(coord.values)
+        if not np.all(np.isfinite(values)):
+            raise ValueError(f"Coordinate {dim!r} contains non-finite numeric values.")
+        if values.shape[0] <= 1:
+            return
+        diffs = np.diff(values, axis=0)
+        if require_ascending:
+            if not np.all(diffs > 0):
+                raise ValueError(
+                    f"Coordinate {dim!r} must be strictly monotonic-increasing for "
+                    "every pose."
+                )
+        elif not (np.all(diffs > 0) or np.all(diffs < 0)):
+            raise ValueError(
+                f"Coordinate {dim!r} must be strictly monotonic for every pose."
+            )
+        return
+
     if coord.dims != (dim,):
         raise ValueError(
             f"Coordinate {dim!r} must be a 1D dimension coordinate with dims "

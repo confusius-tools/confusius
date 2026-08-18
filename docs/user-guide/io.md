@@ -242,9 +242,8 @@ seconds.
     ('time', 'pose', 'k', 'j', 'i')
     ```
 
-    In addition to the `time` coordinate (earliest timestamp per block), a
-    `pose_time` non-dimension coordinate of shape `(time, pose)` stores the exact
-    per-pose acquisition timestamps.
+    The `time` coordinate is pose-dependent, shaped `(time, pose)`, holding each
+    pose's own exact acquisition timestamp directly.
 
 The DataArray is loaded **lazily**: data remains on disk until explicitly computed.
 SCAN files stay open while the Dask graph remains non-computed, so keep the DataArray in

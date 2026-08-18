@@ -2,6 +2,7 @@
 
 from typing import Literal
 
+import numpy as np
 import xarray as xr
 
 from confusius._dims import POSE_DIM
@@ -12,6 +13,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
 )
 from confusius._utils.timing import interpolate_timeseries
+from confusius.multipose._utils import build_consolidated_time_coordinate
 from confusius.validation import ensure_fusi
 
 
@@ -44,8 +46,14 @@ def correct_slice_timings(
     - Consolidated data: dims `(time, <sweep_dim>, ...)` with a `slice_time` coordinate
       with dims `(time, <sweep_dim>)`, typically produced by
       [`consolidate_poses`][confusius.multipose.consolidate_poses].
-    - Unconsolidated data: dims `(time, pose, ...)` with a `pose_time` coordinate with
-      dims `(time, pose)`.
+    - Unconsolidated data: dims `(time, pose, ...)` with a pose-dependent
+      `(time, pose)`-shaped `time` coordinate (see
+      [stack_poses][confusius.multipose.stack_poses]), holding each pose's own real
+      timestamp directly. The result's `time` becomes a genuine 1D coordinate,
+      computed the same way [`consolidate_poses`][confusius.multipose.consolidate_poses]
+      derives its whole-array `time` from per-pose timestamps -- after correction,
+      every pose really is simultaneous, so there is no more reason for `time` to
+      stay pose-dependent.
 
     The sweep dimension is inferred from the second dim of whichever timing coordinate
     is present.
@@ -57,8 +65,8 @@ def correct_slice_timings(
     Parameters
     ----------
     da : xarray.DataArray
-        DataArray with a `slice_time` or `pose_time` coordinate whose dims are
-        `(time, <sweep_dim>)`.
+        DataArray with a `slice_time` coordinate, or a pose-dependent
+        `(time, pose)`-shaped `time` coordinate, with dims `(time, <sweep_dim>)`.
     method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}, default: "linear"
         Interpolation method passed to `scipy.interpolate.interp1d`:
 
@@ -81,17 +89,20 @@ def correct_slice_timings(
     Returns
     -------
     xarray.DataArray
-        New DataArray with the same dims and coordinates as the input, but with each
-        position's time series resampled to `da.coords["time"].values`. The timing
-        coordinate (`slice_time` or `pose_time`) is dropped to avoid accidental
-        double-correction.
+        New DataArray with the same dims as the input, resampled so every sweep
+        position appears simultaneous. For already-consolidated input, `time` is
+        unchanged and `slice_time` is dropped (avoiding accidental
+        double-correction). For pose-dependent input, `time` becomes a genuine 1D
+        coordinate (see [stack_poses][confusius.multipose.stack_poses] for what it
+        was before correction).
 
     Raises
     ------
     ValueError
-        If `da` has no `time` dimension or only one time point, if neither `slice_time`
-        nor `pose_time` coordinate is present, if the timing coordinate does not have
-        dims `(time, <sweep_dim>)`, or if the `time` dimension is chunked.
+        If `da` has no `time` dimension or only one time point, if `da` has neither a
+        `slice_time` coordinate nor a pose-dependent `time` coordinate, if the timing
+        coordinate does not have dims `(time, <sweep_dim>)`, or if the `time`
+        dimension is chunked.
 
     Warns
     -----
@@ -102,24 +113,42 @@ def correct_slice_timings(
         raise ValueError("DataArray must have a 'time' dimension.")
     da = ensure_fusi(da, require_time=True, require_unchunked_time=True)
 
-    timing_coord_name = next(
-        (name for name in ("slice_time", "pose_time") if name in da.coords),
-        None,
-    )
-    if timing_coord_name is None:
+    time_coord = da.coords["time"]
+    is_pose_dependent_time = time_coord.dims == ("time", POSE_DIM)
+
+    if "slice_time" in da.coords:
+        timing_coord_name = "slice_time"
+        timing_coord = da.coords["slice_time"]
+        target_time_coord = time_coord
+    elif is_pose_dependent_time:
+        # "time" is itself the per-pose timing source (see
+        # confusius.multipose.stack_poses); the target to resample onto is the
+        # whole-array time this array would have if every pose were simultaneous,
+        # computed the same way consolidate_poses derives its own "time".
+        timing_coord_name = "time"
+        timing_coord = time_coord
+        base_time_coord = xr.DataArray(
+            np.asarray(time_coord.isel(pose=0).values),
+            dims=["time"],
+            attrs=dict(time_coord.attrs),
+        )
+        target_time_coord = build_consolidated_time_coordinate(
+            base_time_coord, np.asarray(time_coord.values), dict(time_coord.attrs)
+        )
+    else:
         raise ValueError(
-            "DataArray has neither 'slice_time' nor 'pose_time' coordinate. "
-            "Slice timing correction requires per-pose or per-slice acquisition timestamps."
+            "DataArray has neither a 'slice_time' coordinate nor a pose-dependent "
+            "(time, pose)-shaped 'time' coordinate. Slice timing correction requires "
+            "per-pose or per-slice acquisition timestamps."
         )
 
-    timing_coord = da.coords[timing_coord_name]
     if len(timing_coord.dims) != 2 or timing_coord.dims[0] != "time":
         raise ValueError(
             f"{timing_coord_name!r} coordinate must have dims ('time', <sweep_dim>), "
             f"got {timing_coord.dims!r}."
         )
 
-    target_times = da.coords["time"].values
+    target_times = target_time_coord.values
 
     # apply_ufunc vectorizes over all dims except "time" (the core dim), calling
     # interpolate_timeseries once per (sweep_pos, *other_dims) element.
@@ -159,10 +188,13 @@ def correct_slice_timings(
     out = out.drop_vars(drop_names, errors="ignore")
     if pose_values is not None:
         out = out.assign_coords({POSE_DIM: (POSE_DIM, pose_values)})
-    return attach_voxel_to_world_index(
+    out = attach_voxel_to_world_index(
         out,
         get_voxel_to_world_affine(da),
         world_coord_attrs={
             name: dict(da.coords[name].attrs) for name in world_coord_names
         },
     )
+    if timing_coord_name == "time":
+        out = out.assign_coords(time=target_time_coord)
+    return out

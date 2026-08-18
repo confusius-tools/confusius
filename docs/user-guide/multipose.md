@@ -82,9 +82,8 @@ elevation slices per pose—translated across multiple regularly spaced position
     <xarray.DataArray 'scan_data' (time: 750, pose: 4, z: 4, y: 72, x: 64)> Size: 442MB
     dask.array<transpose, shape=(750, 4, 4, 72, 64), dtype=float64, chunksize=(227, 4, 4, 72, 64), chunktype=numpy.ndarray>
     Coordinates:
-      * time       (time) float64 6kB 0.4 2.8 5.2 ... 1.793e+03 1.796e+03 1.798e+03
+        time       (time, pose) float64 24kB 0.4 2.2 1.0 ... 1.799e+03 1.799e+03
       * pose       (pose) int64 32B 0 1 2 3
-        pose_time  (time, pose) float64 24kB 0.4 2.2 1.0 ... 1.799e+03 1.799e+03
       * z          (z) float64 32B 0.0 2.1 4.2 6.3
       * y          (y) float64 576B 2.0 2.099 2.197 2.296 ... 8.801 8.899 8.998
       * x          (x) float64 512B -3.465 -3.355 -3.245 ... 3.245 3.355 3.465
@@ -113,14 +112,16 @@ coordinates to a common world space and record how each pose is positioned in th
 For Iconeus SCAN files, [`load_scan`][confusius.io.load_scan] automatically stores a
 `world_to_lab` affine of shape `(npose, 4, 4)`—one matrix per pose.
 
-## The `pose_time` Coordinate
+## Pose-Dependent Timing
 
 When poses are acquired sequentially, each pose is captured at a slightly different
-time. The `pose_time` non-dimension coordinate of shape `(time, pose)` records the exact
-per-pose acquisition timestamp:
+time. Unconsolidated multi-pose data therefore has a pose-dependent `time` coordinate,
+shaped `(time, pose)` and holding each pose's own acquisition timestamp directly (mirroring
+how `z`/`y`/`x` require a scalar `pose` selection before they resolve to a single position):
 
 ```python
-fus.coords["pose_time"]  # (time, pose) in seconds.
+fus.coords["time"]  # (time, pose) in seconds.
+fus.isel(pose=0).set_xindex("time")  # promote back to a selectable 1D time index.
 ```
 
 This is important for slice timing correction, which accounts for the fact that different
@@ -176,7 +177,7 @@ steps:
     Coordinates:
       * time       (time) float64 6kB 0.4 2.8 5.2 ... 1.793e+03 1.796e+03 1.798e+03
       * z          (z) float64 128B -21.38 -20.86 -20.33 ... -14.56 -14.03 -13.51
-        pose_time  (time, z) float64 96kB 0.4 2.2 1.0 ... 1.799e+03 1.799e+03
+        slice_time (time, z) float64 96kB 0.4 2.2 1.0 ... 1.799e+03 1.799e+03
       * y          (y) float64 576B 2.0 2.099 2.197 2.296 ... 8.801 8.899 8.998
       * x          (x) float64 512B -3.465 -3.355 -3.245 ... 3.245 3.355 3.465
     Attributes:
@@ -185,8 +186,9 @@ steps:
         ...
     ```
 
-    4 poses × 4 slices = 16 consolidated z positions. The `pose_time` coordinate is
-    preserved with dims `(time, z)`: each slice retains the timestamp of the pose it
+    4 poses × 4 slices = 16 consolidated z positions. The pose-dependent `time`
+    coordinate is reduced to a single whole-volume `time` and a `slice_time`
+    coordinate with dims `(time, z)`: each slice retains the timestamp of the pose it
     came from.
 
 After consolidation, the per-pose affine stack is reduced to a single `(4, 4)` matrix

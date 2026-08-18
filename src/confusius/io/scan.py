@@ -487,8 +487,8 @@ def load_scan(
         - v2 multi-pose → `(time, pose, k, j, i)`.
 
         World coordinates `z`, `y`, `x` are in millimeters. The `time` coordinate is in
-        seconds. For v1 `4Dscan`, a `pose_time` non-dimension coordinate of shape
-        `(time, pose)` stores the actual per-pose acquisition timestamps.
+        seconds. For v1 `4Dscan`, `time` is pose-dependent (`(time, pose)`-shaped),
+        holding each pose's own acquisition timestamps directly.
 
     Raises
     ------
@@ -729,18 +729,14 @@ def _load_4dscan(
         .squeeze()
         .reshape(n_time, npose)
     )
-    block_time = time_raw.max(axis=1)
     time_attrs = _scan_time_attrs(float(time_raw.min()))
-    result = create_fusi_dataarray(
+    return create_fusi_dataarray(
         data_lazy,
         dims=("time", "pose", "k", "j", "i"),
-        time=xr.DataArray(block_time, dims=["time"], attrs=time_attrs),
+        time=xr.DataArray(time_raw, dims=["time", "pose"], attrs=time_attrs),
         pose=np.arange(npose),
         voxel_to_world=voxel_to_world,
         attrs=attrs,
-    )
-    return result.assign_coords(
-        pose_time=xr.DataArray(time_raw, dims=["time", "pose"], attrs=time_attrs)
     )
 
 

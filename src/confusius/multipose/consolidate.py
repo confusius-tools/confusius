@@ -18,7 +18,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_spatial_dims,
 )
 from confusius._utils.stack import find_stack_level
-from confusius.timing import convert_time_reference
+from confusius.multipose._utils import build_consolidated_time_coordinate
 from confusius.validation import ensure_fusi
 
 
@@ -50,86 +50,6 @@ def _reduce_world_coord_along_voxel_dim(
     if other_voxel_dims:
         coord = coord.isel(dict.fromkeys(other_voxel_dims, 0))
     return np.asarray(coord.values, dtype=np.float64)
-
-
-def _build_consolidated_time_coordinate(
-    time_coord: xr.DataArray,
-    slice_time_values: npt.NDArray[np.floating],
-    slice_time_attrs: dict[str, Any],
-) -> xr.DataArray:
-    """Build consolidated volume timings from per-slice timing metadata.
-
-    Parameters
-    ----------
-    time_coord : xarray.DataArray
-        Original volume-level time coordinate.
-    slice_time_values : numpy.ndarray
-        Consolidated per-slice timestamps with dims `(time, sweep_dim)`.
-    slice_time_attrs : dict[str, Any]
-        Attributes carried by the consolidated `slice_time` coordinate.
-
-    Returns
-    -------
-    xarray.DataArray
-        Replacement `time` coordinate for the consolidated volume. If per-slice timing
-        metadata are insufficient to infer a whole-volume duration, the original
-        `time_coord` is returned unchanged.
-
-    Warns
-    -----
-    UserWarning
-        If per-slice timing metadata do not include a usable
-        `volume_acquisition_duration`. In that case, the original `time` coordinate is
-        kept unchanged.
-    UserWarning
-        If inferred consolidated volume durations vary across time points. In that case,
-        the returned coordinate omits `volume_acquisition_duration`.
-    """
-    slice_duration = slice_time_attrs.get("volume_acquisition_duration")
-    if not isinstance(slice_duration, int | float) or slice_duration <= 0:
-        warnings.warn(
-            "Cannot infer consolidated volume timing from `slice_time` because "
-            "`volume_acquisition_duration` is missing or non-positive. Keeping the "
-            "original `time` coordinate.",
-            stacklevel=find_stack_level(),
-        )
-        return time_coord
-
-    slice_reference = slice_time_attrs.get(
-        "volume_acquisition_reference",
-        time_coord.attrs.get("volume_acquisition_reference", "start"),
-    )
-    volume_reference = time_coord.attrs.get(
-        "volume_acquisition_reference", slice_reference
-    )
-    slice_onsets = convert_time_reference(
-        slice_time_values,
-        float(slice_duration),
-        from_reference=slice_reference,
-        to_reference="start",
-    )
-    volume_onsets = slice_onsets.min(axis=1)
-    volume_durations = slice_onsets.max(axis=1) - volume_onsets + float(slice_duration)
-    volume_times = convert_time_reference(
-        volume_onsets,
-        volume_durations,
-        from_reference="start",
-        to_reference=volume_reference,
-    )
-
-    time_attrs = dict(time_coord.attrs)
-    time_attrs["volume_acquisition_reference"] = volume_reference
-    if np.allclose(volume_durations, volume_durations[0], rtol=1e-5, atol=0):
-        time_attrs["volume_acquisition_duration"] = float(volume_durations[0])
-    else:
-        time_attrs.pop("volume_acquisition_duration", None)
-        warnings.warn(
-            "Consolidated volume acquisition durations vary across time points. "
-            "Omitting `time.attrs['volume_acquisition_duration']`.",
-            stacklevel=find_stack_level(),
-        )
-
-    return xr.DataArray(volume_times, dims=["time"], attrs=time_attrs)
 
 
 def _consolidate_linked_affines(
@@ -267,9 +187,11 @@ def consolidate_poses(
         DataArray with `pose` merged into `sweep_dim`, sorted by world position. The
         consolidated `sweep_dim` coordinate holds the projection of each voxel's
         world position onto the sweep axis, expressed in the same units as the input
-        `sweep_dim` coordinate. For inputs that carry a `pose_time`
-        coordinate, a consolidated `slice_time` with dims `("time", sweep_dim)` is
-        included: each slice inherits the timestamp of the pose it came from.
+        `sweep_dim` coordinate. For inputs whose `time` coordinate is itself
+        pose-dependent (`(time, pose)`-shaped -- see
+        [stack_poses][confusius.multipose.stack_poses]), a consolidated `slice_time`
+        with dims `("time", sweep_dim)` is included: each slice inherits the
+        timestamp of the pose it came from.
 
     Raises
     ------
@@ -524,38 +446,36 @@ def consolidate_poses(
     ).data
 
     if "time" in da.dims:
-        coords: dict[str, Any] = {"time": da.coords["time"]}
-        # Propagate per-slice timestamps if present: each consolidated slice inherits the
-        # timestamp of the pose it came from. The consolidated slice_time keeps the same
-        # acquisition reference metadata as the original pose_time coordinate.
-        if "pose_time" in da.coords:
-            slice_time_attrs = {
-                **da.coords["pose_time"].attrs,
-                "volume_acquisition_reference": da.coords["pose_time"].attrs.get(
-                    "volume_acquisition_reference",
-                    da.coords["time"].attrs.get(
-                        "volume_acquisition_reference",
-                        "start",
-                    ),
-                ),
-            }
-            if "volume_acquisition_duration" not in slice_time_attrs:
-                slice_duration = da.coords["time"].attrs.get(
-                    "volume_acquisition_duration"
-                )
-                if isinstance(slice_duration, int | float) and slice_duration > 0:
-                    slice_time_attrs["volume_acquisition_duration"] = float(
-                        slice_duration
-                    )
+        time_coord = da.coords["time"]
+        is_pose_dependent_time = time_coord.dims == ("time", "pose")
 
-            slice_time_values = np.asarray(da.coords["pose_time"].values)[:, pose_idx]
+        if is_pose_dependent_time:
+            # "time" is genuinely (time, pose)-shaped (see
+            # confusius.multipose.stack_poses / confusius.io.load_scan's 4Dscan
+            # output), holding each pose's own real timestamp directly. Build a 1D
+            # base coordinate (pose 0's own column) to inherit units/reference
+            # attrs from when building the consolidated "time" below.
+            base_time_coord = xr.DataArray(
+                np.asarray(time_coord.isel(pose=0).values),
+                dims=["time"],
+                attrs=dict(time_coord.attrs),
+            )
+        else:
+            base_time_coord = time_coord
+
+        coords: dict[str, Any] = {"time": base_time_coord}
+        # Propagate per-slice timestamps: each consolidated slice inherits the
+        # timestamp of the pose it came from.
+        if is_pose_dependent_time:
+            slice_time_attrs = dict(time_coord.attrs)
+            slice_time_values = np.asarray(time_coord.values)[:, pose_idx]
             coords["slice_time"] = xr.DataArray(
                 slice_time_values,
                 dims=["time", sweep_dim],
                 attrs=slice_time_attrs,
             )
-            coords["time"] = _build_consolidated_time_coordinate(
-                da.coords["time"],
+            coords["time"] = build_consolidated_time_coordinate(
+                base_time_coord,
                 slice_time_values,
                 slice_time_attrs,
             )

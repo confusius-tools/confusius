@@ -408,7 +408,17 @@ def create_fusi_dataarray(
         (`k`/`j`/`i`). The returned DataArray uses native voxel dimensions in canonical
         core order.
     time : numpy.typing.ArrayLike or xarray.DataArray, optional
-        Coordinate for the `time` dimension.
+        Coordinate for the `time` dimension. A 2D `(n_time, npose)` array or
+        DataArray gives each pose its own real timestamps directly (poses acquired
+        sequentially rather than simultaneously) rather than a single shared `time`
+        axis: there is no single answer for "the" time of a `(pose, k, j, i)` voxel
+        any more than there is a single answer for its `z`/`y`/`x` position, so
+        `time` requires a scalar `pose` selection first, exactly like world
+        coordinates already do. Requires a `pose` dimension in `dims` with a
+        matching length. A 2D `time` is not itself an index (xarray dimension
+        coordinates must be 1D), so `.sel(time=...)` is unavailable until a pose is
+        selected; after that, `.set_xindex("time")` promotes the resulting 1D `time`
+        back into a real, selectable index.
     pose : numpy.typing.ArrayLike or xarray.DataArray, optional
         Coordinate for the `pose` dimension.
     extra_coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
@@ -490,6 +500,29 @@ def create_fusi_dataarray(
         raise ValueError(
             "time and volume_acquisition_duration require a 'time' dimension."
         )
+
+    per_pose_time: npt.NDArray[np.float64] | None = None
+    per_pose_time_attrs: dict[str, Any] = {}
+    if time is not None:
+        time_array = time.values if isinstance(time, xr.DataArray) else np.asarray(time)
+        if time_array.ndim == 2:
+            if POSE_DIM not in dims:
+                raise ValueError(
+                    "A 2D time array (one column per pose) requires a 'pose' "
+                    "dimension in dims."
+                )
+            pose_size = shape[dims.index(POSE_DIM)]
+            if time_array.shape[1] != pose_size:
+                raise ValueError(
+                    f"time has {time_array.shape[1]} pose columns, but the 'pose' "
+                    f"dimension size is {pose_size}."
+                )
+            per_pose_time = np.asarray(time_array, dtype=np.float64)
+            per_pose_time_attrs = (
+                dict(time.attrs) if isinstance(time, xr.DataArray) else {}
+            )
+            # 1D placeholder: satisfies construction below, replaced at the end.
+            time = time_array[:, 0]
 
     forbidden_extra = set(CORE_DIMS) | set(SPATIAL_DIMS)
     overlap = sorted(forbidden_extra & set(extra_coords))
@@ -659,6 +692,10 @@ def create_fusi_dataarray(
         regular_spacing_dims=regular_spacing_dims,
         require_canonical_dim_order=True,
     )
+    if per_pose_time is not None:
+        result = result.drop_vars(TIME_DIM).assign_coords(
+            {TIME_DIM: ((TIME_DIM, POSE_DIM), per_pose_time, per_pose_time_attrs)}
+        )
     return result
 
 

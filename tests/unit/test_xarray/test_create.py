@@ -234,6 +234,60 @@ def test_create_fusi_dataarray_pose_stacked_voxel_to_world_rejects_wrong_length(
         )
 
 
+def test_create_fusi_dataarray_accepts_2d_per_pose_time():
+    """A 2D (n_time, npose) time array gives each pose its own real timestamps."""
+    npose = 3
+    n_time = 4
+    time_2d = np.stack(
+        [np.arange(n_time) * 2.4 + p * 0.6 for p in range(npose)], axis=1
+    )
+    affine = np.stack([np.eye(4) for _ in range(npose)])
+
+    result = create_fusi_dataarray(
+        np.zeros((n_time, npose, 2, 3, 4)),
+        dims=("time", "pose", "k", "j", "i"),
+        time=xr.DataArray(time_2d, attrs={"units": "s"}),
+        pose=np.arange(npose),
+        voxel_to_world=affine,
+    )
+
+    assert result.coords["time"].dims == ("time", "pose")
+    assert_allclose(result.coords["time"].values, time_2d)
+    assert result.coords["time"].attrs["units"] == "s"
+    assert "time" not in result.xindexes
+    # spacing along "time" specifically (not the cross-pose 0.6 offset).
+    assert result.fusi.spacing["time"] == pytest.approx(2.4)
+
+
+def test_create_fusi_dataarray_2d_time_requires_pose_dim():
+    """A 2D time array without a `pose` dim in `dims` raises clearly."""
+    time_2d = np.zeros((4, 2))
+
+    with pytest.raises(ValueError, match="requires a 'pose' dimension"):
+        create_fusi_dataarray(
+            np.zeros((4, 2, 3, 4)),
+            dims=("time", "k", "j", "i"),
+            time=time_2d,
+            spacing=(1.0, 1.0, 1.0),
+        )
+
+
+def test_create_fusi_dataarray_2d_time_rejects_wrong_pose_count():
+    """A 2D time array's pose column count must match the `pose` dimension size."""
+    npose = 3
+    time_2d = np.zeros((4, 2))
+    affine = np.stack([np.eye(4) for _ in range(npose)])
+
+    with pytest.raises(ValueError, match="pose columns"):
+        create_fusi_dataarray(
+            np.zeros((4, npose, 2, 3, 4)),
+            dims=("time", "pose", "k", "j", "i"),
+            time=time_2d,
+            pose=np.arange(npose),
+            voxel_to_world=affine,
+        )
+
+
 def test_create_fusi_dataarray_voxdim_overrides_metadata_only():
     """`voxdim` sets coordinate attrs without changing the affine."""
     result = create_fusi_dataarray(
