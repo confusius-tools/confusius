@@ -542,7 +542,7 @@ def _resolve_cmap(
 
 def _build_axis_label(da: xr.DataArray, dim: str) -> str:
     """Return axis label for `dim`, including units when available."""
-    if _has_plottable_voxel_to_world_index(da):
+    if dim != POSE_DIM and _has_plottable_voxel_to_world_index(da):
         return f"{dim} in-plane (mm)"
 
     label = dim

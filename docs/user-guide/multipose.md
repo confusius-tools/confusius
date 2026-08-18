@@ -196,23 +196,25 @@ representing the consolidated volume's orientation in world space.
 
 ### Parameters
 
-[`consolidate_poses`][confusius.multipose.consolidate_poses] accepts two parameters that
-may need adjusting depending on your setup:
-
-- **`sweep_dim`** (default: `"z"`): the spatial dimension being swept across poses.
-  Change this if your sweep is along a different axis.
-- **`affines_key`** (default: `"world_to_lab"`): the key into `da.attrs["affines"]`
-  that holds the per-pose affine stack. Change this if your affines are stored under a
-  different key.
+[`consolidate_poses`][confusius.multipose.consolidate_poses] always reads per-pose
+positions from `da`'s primary voxel-to-world geometry, which must therefore itself be
+pose-dependent (a `(npose, 4, 4)` affine stack — see
+[VoxelToWorldIndex.is_pose_dependent][confusius._utils.geometry.VoxelToWorldIndex.is_pose_dependent]).
+If you instead want to consolidate around a different, secondary affine linked in
+`da.attrs["affines"]` (e.g. `world_to_brain` alongside a `world_to_lab`-equivalent
+primary), rebase onto it first with
+[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply]:
 
 ```python
-# Example: sweeping along x using affines stored under a custom key.
+# Example: sweeping along x, consolidating around a secondary affine.
 volume = cf.multipose.consolidate_poses(
-    da,
+    da.fusi.affine.apply("world_to_scanner"),
     sweep_dim="x",
-    affines_key="world_to_scanner",
 )
 ```
+
+Adjust **`sweep_dim`** (default: `"k"`) if your sweep is along a different voxel
+dimension.
 
 !!! warning "Regularity requirement"
     [`consolidate_poses`][confusius.multipose.consolidate_poses] will raise a

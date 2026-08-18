@@ -33,6 +33,13 @@ Current development version for the next ConfUSIus release.
   shape; [`consolidate_poses`][confusius.multipose.consolidate_poses] and
   [`correct_slice_timings`][confusius.multipose.correct_slice_timings] consume it
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- [`consolidate_poses`][confusius.multipose.consolidate_poses] dropped its
+  `affines_key` parameter and now always reads per-pose positions from `da`'s
+  primary voxel-to-world geometry, which must therefore itself be pose-dependent.
+  To consolidate around a different, secondary affine linked in
+  `da.attrs["affines"]` instead, rebase onto it first with
+  [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply]
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 - Renamed `validate_fusi_dataarray` to `validate_fusi`, `validate_iq_dataarray`
   to `validate_iq`, `validate_bspline_dataarray` to `validate_bspline`, and
   `validate_atlas_dataset` to `validate_atlas`; renamed the IQ validator option

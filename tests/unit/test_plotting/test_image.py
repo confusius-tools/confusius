@@ -117,6 +117,53 @@ class TestPlotVolume:
         assert "mm" in axes[0].get_xlabel()
         assert "mm" in axes[0].get_ylabel()
 
+    def test_slice_mode_voxel_dim_labels_pose_axis_without_units(
+        self, matplotlib_pyplot
+    ):
+        """Faceting over a voxel dim labels the `pose` axis plainly, without "mm".
+
+        Regression: `pose` isn't a world-space axis (it has no `units`), but
+        `_build_axis_label` labeled *any* axis "(mm)" whenever the array carried
+        plottable voxel-to-world geometry at all, regardless of which dim was
+        actually being labeled.
+        """
+        npose = 3
+        affine = np.stack(
+            [
+                np.diag([0.2, 0.1, 0.05, 1.0]),
+                np.array(
+                    [
+                        [0.2, 0.0, 0.0, 1.0],
+                        [0.0, 0.1, 0.0, 0.0],
+                        [0.0, 0.0, 0.05, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+                np.array(
+                    [
+                        [0.2, 0.0, 0.0, 2.0],
+                        [0.0, 0.1, 0.0, 0.0],
+                        [0.0, 0.0, 0.05, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+            ]
+        )
+        data = create_fusi_dataarray(
+            np.random.default_rng(0).random((npose, 1, 6, 8)),
+            dims=("pose", "k", "j", "i"),
+            pose=np.arange(npose),
+            voxel_to_world=affine,
+        )
+
+        plotter = plot_volume(
+            data.isel(k=0), slice_mode="i", show_colorbar=False
+        )
+
+        axes = _axes(plotter).ravel()
+        assert "mm" in axes[0].get_xlabel()
+        assert axes[0].get_ylabel() == "pose"
+
     def test_non_3d_data_raises(self):
         """plot_volume raises ValueError for 4D data with no unitary dimensions."""
         data = xr.DataArray(

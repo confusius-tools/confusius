@@ -72,12 +72,14 @@ print(f"{npose} poses, each shaped {chunks[0].dims} = {chunks[0].shape}")
 
 # %% [markdown]
 # Each chunk's own origin confirms the poses sit at different physical positions along
-# elevation (`z`), stepped by about 1 mm — this is the per-pose geometry we want to
-# preserve, not collapse into one shared affine.
+# elevation (`z`), stepped by about 1 mm, and were acquired with slightly offset start
+# times — this is the per-pose geometry we want to preserve, not collapse into one
+# shared affine. `y`/`x` origins don't vary across chunks, so we only show `z`/`time`.
 
 # %%
-for path, chunk in zip(chunk_paths, chunks, strict=True):
-    print(path.stem, "origin:", chunk.fusi.origin)
+origins = [chunk.fusi.origin for chunk in chunks]
+print("z origins:", tuple(origin["z"] for origin in origins))
+print("time origins:", tuple(origin["time"] for origin in origins))
 
 # %% [markdown]
 # ## Stack the poses into one pose-dependent DataArray
@@ -92,33 +94,44 @@ for path, chunk in zip(chunk_paths, chunks, strict=True):
 
 # %%
 multipose = cf.multipose.stack_poses(chunks)
-multipose.name = "pwd"
-multipose
 
 # %% [markdown]
 # ## Pose-transparent vs. pose-specific geometry
 #
 # Some geometry queries are well-defined without picking a pose: voxel spacing must be
-# identical across poses (a ConfUSIus invariant, since a stacked affine with differing
-# scale is rejected at construction), so [`.fusi.spacing`][confusius.xarray.FUSIAccessor.spacing]
-# works directly on the multi-pose array.
+# identical across poses (a stacked affine with differing scale is rejected at
+# construction), so [`.fusi.spacing`][confusius.xarray.FUSIAccessor.spacing] works
+# directly on the multi-pose array.
 #
-# Origin and direction, however, are inherently single-grid concepts — there is no one
-# answer for "the origin" of a stack of differently-positioned grids — so they require
+# Origin and direction, however, are inherently single-grid concepts—there is no one
+# answer for "the origin" of a stack of differently-positioned grids—so they require
 # selecting a scalar pose first.
+#
+# !!! warning "World-coordinate `.sel()` requires a scalar pose"
+#     `.sel(z=..., y=..., x=...)` raises `ValueError` on pose-dependent data unless
+#     `pose` was already reduced to a scalar, e.g. `.isel(pose=0).sel(z=..., y=...,
+#     x=...)`. Resolving a world coordinate to a voxel means picking one pose's
+#     affine first; ConfUSIus never resamples poses onto a shared grid implicitly.
 
 # %%
+pose0_origin = multipose.isel(pose=0).fusi.origin
+pose3_origin = multipose.isel(pose=3).fusi.origin
 print("spacing (pose-transparent):", multipose.fusi.spacing)
-print("pose 0 origin:", multipose.isel(pose=0).fusi.origin)
-print("pose 3 origin:", multipose.isel(pose=3).fusi.origin)
+print("z origins (pose 0, 3):", (pose0_origin["z"], pose3_origin["z"]))
+print("time origins (pose 0, 3):", (pose0_origin["time"], pose3_origin["time"]))
 
 # %% [markdown]
 # ## Visualize each pose
 #
 # We plot the temporal mean of each pose side by side with
-# [`plot_volume`][confusius.plotting.plot_volume]'s `slice_mode="pose"`. Because each
-# pose has its own affine, the `k` (elevation) position labeled on each panel is
-# genuinely that pose's physical location, not an arbitrary index.
+# [`plot_volume`][confusius.plotting.plot_volume]'s `slice_mode="pose"`, which labels
+# each panel by its `pose` value.
+#
+# !!! warning "World-coordinate slice modes require a scalar pose"
+#     For the same reason as `.sel`, `plot_volume(..., slice_mode="z")` (or `"y"`/`"x"`)
+#     also raises `ValueError` on pose-dependent data. Slicing along a native voxel dim
+#     (`slice_mode="k"`/`"j"`/`"i"`, as below) or along `pose` itself works fine, since
+#     neither requires picking one affine.
 
 # %% tags=["thumbnail"]
 mean_db = multipose.mean("time").fusi.scale.db().isel(k=0)
@@ -126,7 +139,6 @@ mean_db = multipose.mean("time").fusi.scale.db().isel(k=0)
 plotter = cf.plotting.plot_volume(
     mean_db,
     slice_mode="pose",
-    cmap="gray",
     cbar_label="Power Doppler (dB)",
     bg_color=bg_color,
 )

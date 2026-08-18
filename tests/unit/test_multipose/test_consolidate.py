@@ -27,13 +27,31 @@ class TestConsolidatePoses:
     def test_world_to_lab_consolidated_rotation_orthogonal(
         self, scan_3d: xr.DataArray
     ) -> None:
-        """Consolidated affine is 4x4 with an orthogonal rotation block."""
+        """Consolidated affine is 4x4 with an orthogonal rotation block.
+
+        Normalized to unit-length axes first: the affine itself also carries
+        per-axis voxel scale, so its raw columns aren't orthonormal.
+        """
         result = consolidate_poses(scan_3d)
-        A = np.asarray(result.attrs["affines"]["world_to_lab"])
+        A = get_voxel_to_world_affine(result)
         assert A.shape == (4, 4)
         R = A[:3, :3]
-        # R^T @ R should be the identity for an orthogonal matrix.
-        np.testing.assert_allclose(R.T @ R, np.eye(3), atol=1e-10)
+        R_normalized = R / np.linalg.norm(R, axis=0, keepdims=True)
+        # R_normalized^T @ R_normalized should be the identity for an orthogonal
+        # (axis-aligned or rotated) frame.
+        np.testing.assert_allclose(
+            R_normalized.T @ R_normalized, np.eye(3), atol=1e-10
+        )
+
+    def test_no_spurious_world_to_lab_in_attrs(self, scan_3d: xr.DataArray) -> None:
+        """Consolidation doesn't inject a world_to_lab attrs entry that never existed.
+
+        Primary geometry for SCAN data is index-based (VoxelToWorldIndex), so
+        `attrs["affines"]` starts empty; consolidation must not fabricate one.
+        """
+        assert "world_to_lab" not in scan_3d.attrs.get("affines", {})
+        result = consolidate_poses(scan_3d)
+        assert "world_to_lab" not in result.attrs.get("affines", {})
 
     def test_4dscan_updates_time_coord_from_pose_timing(
         self, scan_4d: xr.DataArray
@@ -158,7 +176,7 @@ class TestConsolidatePoses:
         scan_3d.attrs["affines"]["world_to_unlinked"] = unlinked
 
         with pytest.raises(
-            ValueError, match="not a constant left-link of 'world_to_lab'"
+            ValueError, match="not a constant left-link of the primary"
         ):
             consolidate_poses(scan_3d)
 
@@ -223,37 +241,51 @@ class TestConsolidatePoses:
         with pytest.raises(ValueError, match="got 'w'"):
             consolidate_poses(da, sweep_dim="w")
 
-    def test_custom_affines_key(self) -> None:
-        """consolidate_poses uses the affines_key argument to select the affine.
+    def test_secondary_affine_rebase_before_consolidate(self) -> None:
+        """Consolidating around a secondary affine requires rebasing onto it first.
 
-        Uses data with pose-independent primary geometry (e.g. a stack of NIfTI
-        arrays concatenated along a new pose dimension) so that consolidate_poses
-        must fall back to reading the per-pose stack from attrs["affines"] --
-        pose-dependent primary geometry (like migrated SCAN data) always takes
-        priority over affines_key, since it is the authoritative source.
+        consolidate_poses always reads positions from primary (index-based)
+        geometry. To consolidate around a different, secondary named affine
+        linked in attrs["affines"] (e.g. "world_to_brain" alongside a primary
+        "world_to_lab"-equivalent index) rather than the current primary,
+        `.fusi.affine.apply(<key>)` rebases the primary index onto it first,
+        giving the same consolidated result as data whose primary geometry was
+        that affine from the start.
         """
         npose = 3
         n_sweep = 2
         intra_step = 0.2
         inter_step = n_sweep * intra_step  # poses tile without gaps
         data = np.random.default_rng(3).random((npose, n_sweep, 4, 3))
-        affines = np.stack([np.eye(4) for _ in range(npose)])
+        spacing_diag = np.diag([intra_step, intra_step, intra_step, 1.0])
+        translations = np.stack([np.eye(4) for _ in range(npose)])
         for p in range(npose):
-            affines[p, 0, 3] = p * inter_step  # translate along k (sweep_dim default)
+            translations[p, 0, 3] = p * inter_step  # along k (sweep_dim default)
 
-        da = create_fusi_dataarray(
+        da_primary = create_fusi_dataarray(
             data,
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
-            spacing=(0.2, 0.2, 0.2),
-            attrs={"affines": {"world_to_lab": affines, "my_affine": affines}},
+            voxel_to_world=translations @ spacing_diag,
+        )
+        # Primary geometry here is trivially pose-dependent (identical spacing per
+        # pose, no translation): the real per-pose translation lives only in the
+        # secondary "my_affine" entry.
+        da_secondary = create_fusi_dataarray(
+            data,
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
+            voxel_to_world=np.stack([spacing_diag] * npose),
+            attrs={"affines": {"my_affine": translations}},
         )
 
-        result_default = consolidate_poses(da)
-        result_custom = consolidate_poses(da, affines_key="my_affine")
-        np.testing.assert_array_equal(result_default.values, result_custom.values)
+        result_primary = consolidate_poses(da_primary)
+        result_rebased = consolidate_poses(
+            da_secondary.fusi.affine.apply("my_affine")
+        )
+        np.testing.assert_array_equal(result_primary.values, result_rebased.values)
         np.testing.assert_array_equal(
-            result_default.coords["k"].values, result_custom.coords["k"].values
+            result_primary.coords["k"].values, result_rebased.coords["k"].values
         )
 
     @pytest.mark.parametrize(
@@ -287,15 +319,14 @@ class TestConsolidatePoses:
         affines = np.stack([np.eye(4) for _ in range(npose)])
         for i in range(npose):
             affines[i, :3, 3][sweep_col] = i * inter_step
+        spacing_diag = np.diag([intra_step, intra_step, intra_step, 1.0])
 
         da = create_fusi_dataarray(
             data,
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
-            spacing=(intra_step, intra_step, intra_step),
-            origin=(0.0, 0.0, 0.0),
+            voxel_to_world=affines @ spacing_diag,
             voxdim=(voxel_size, voxel_size, voxel_size),
-            attrs={"affines": {"world_to_lab": affines}},
         )
         da.coords[{"k": "z", "j": "y", "i": "x"}[sweep_dim]].attrs["units"] = sweep_unit
 
@@ -332,57 +363,23 @@ class TestConsolidatePoses:
                 expected = data[idx_tuple]
                 np.testing.assert_array_equal(result.values[flat_idx], expected)
 
-    def test_pose_dependent_primary_geometry_matches_affines_key_path(self) -> None:
-        """Reading positions from primary pose-dependent geometry matches attrs.
+    def test_non_pose_dependent_primary_geometry_raises(self) -> None:
+        """consolidate_poses raises ValueError when primary geometry isn't pose-dependent.
 
-        Builds the exact same translation-only pose sweep two ways -- once via a
-        pose-dependent primary voxel_to_world stack (no attrs["affines"] entry),
-        once via the legacy attrs["affines"]["world_to_lab"] path -- and checks
-        both give identical consolidated output. This is the numerical guarantee
-        that reading per-(pose, sweep) positions directly from da's own world
-        coordinates (used when primary geometry is pose-dependent) is equivalent
-        to reconstructing them from a separately stored affine.
+        A `pose` dimension alone isn't enough; the primary `voxel_to_world` affine
+        must itself be a per-pose stack (not shared identically across poses).
         """
         npose = 3
-        sizes = {"k": 2, "j": 4, "i": 3}
-        intra_step = 0.2
-        sweep_col = 0  # sweep_dim="k"
-        n_sweep = sizes["k"]
-        inter_step = n_sweep * intra_step
-
-        rng = np.random.default_rng(11)
-        data = rng.random((npose, sizes["k"], sizes["j"], sizes["i"]))
-
-        affines = np.stack([np.eye(4) for _ in range(npose)])
-        for p in range(npose):
-            affines[p, :3, 3][sweep_col] = p * inter_step
-
-        local_voxel_to_world = np.eye(4)
-        local_voxel_to_world[:3, :3] = np.diag([intra_step, intra_step, intra_step])
-        pose_voxel_to_world = affines @ local_voxel_to_world
-
-        primary = create_fusi_dataarray(
+        data = np.random.default_rng(11).random((npose, 2, 4, 3))
+        da = create_fusi_dataarray(
             data,
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
-            voxel_to_world=pose_voxel_to_world,
-        )
-        attrs_based = create_fusi_dataarray(
-            data,
-            dims=["pose", "k", "j", "i"],
-            pose=np.arange(npose),
-            voxel_to_world=local_voxel_to_world,
-            attrs={"affines": {"world_to_lab": affines}},
+            spacing=(0.2, 0.2, 0.2),
         )
 
-        result_primary = consolidate_poses(primary)
-        result_attrs = consolidate_poses(attrs_based)
-
-        np.testing.assert_array_equal(result_primary.values, result_attrs.values)
-        np.testing.assert_allclose(
-            result_primary.coords["z"].values, result_attrs.coords["z"].values
-        )
-        assert "pose" not in result_primary.dims
+        with pytest.raises(ValueError, match="no pose-dependent primary geometry"):
+            consolidate_poses(da)
 
     def test_singleton_output_dim_falls_back_to_voxdim_attr(self) -> None:
         """A non-swept output dim with a single voxel keeps its original voxdim.
@@ -399,15 +396,14 @@ class TestConsolidatePoses:
         affines = np.stack([np.eye(4) for _ in range(npose)])
         for i in range(npose):
             affines[i, :3, 3][0] = i * 2 * intra_step
+        spacing_diag = np.diag([intra_step, intra_step, intra_step, 1.0])
 
         da = create_fusi_dataarray(
             data,
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
-            spacing=(intra_step, intra_step, intra_step),
-            origin=(0.0, 0.0, 0.0),
+            voxel_to_world=affines @ spacing_diag,
             voxdim=(voxel_size, voxel_size, voxel_size),
-            attrs={"affines": {"world_to_lab": affines}},
         )
 
         result = consolidate_poses(da, sweep_dim="k")
