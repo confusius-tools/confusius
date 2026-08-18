@@ -354,7 +354,7 @@ def create_voxeldata(
     pose: npt.ArrayLike | xr.DataArray | None = None,
     extra_coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
     dt: float | None = None,
-    t0: float = 0.0,
+    t0: float | npt.ArrayLike = 0.0,
     spacing: Sequence[float] | None = None,
     origin: Sequence[float] | None = None,
     direction: npt.ArrayLike | None = None,
@@ -398,9 +398,12 @@ def create_voxeldata(
     extra_coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
         Coordinates for non-core dimensions only.
     dt : float, optional
-        Time spacing in seconds, used when `time` is not provided.
-    t0 : float, default: 0.0
-        First time coordinate value when `dt` is used.
+        Time spacing in seconds, used when `time` is not provided. For multi-pose
+        arrays, `dt` is shared across poses.
+    t0 : float or numpy.typing.ArrayLike, default: 0.0
+        First time coordinate value when `dt` is used. For multi-pose arrays, a 1D
+        `t0` with one value per pose generates a pose-dependent `(time, pose)` time
+        coordinate using the shared `dt`.
     spacing : sequence[float], optional
         World spacing in `z/y/x` order. Mutually exclusive with `voxel_to_world`.
     origin : sequence[float], optional
@@ -493,6 +496,39 @@ def create_voxeldata(
             )
             # 1D placeholder: satisfies construction below, replaced at the end.
             time = time_array[:, 0]
+    elif TIME_DIM in dims:
+        t0_array = np.asarray(t0)
+        if t0_array.ndim > 0:
+            if POSE_DIM not in dims:
+                raise ValueError(
+                    "A 1D t0 array (one value per pose) requires a 'pose' "
+                    "dimension in dims."
+                )
+            if t0_array.ndim != 1:
+                raise ValueError(
+                    f"t0 must be scalar or 1D, got shape {t0_array.shape}."
+                )
+            pose_size = shape[dims.index(POSE_DIM)]
+            if t0_array.size != pose_size:
+                raise ValueError(
+                    f"t0 has length {t0_array.size}, but the 'pose' dimension size "
+                    f"is {pose_size}."
+                )
+            time_size = shape[dims.index(TIME_DIM)]
+            dt_value = _require_spacing(TIME_DIM, dt)
+            t0_values = np.asarray(t0_array, dtype=np.float64)
+            if not np.all(np.isfinite(t0_values)):
+                raise ValueError("t0 must contain finite values.")
+            per_pose_time = (
+                t0_values[None, :]
+                + np.arange(time_size, dtype=np.float64)[:, None] * dt_value
+            )
+            per_pose_time_attrs = {
+                "units": _TIME_UNITS,
+                "volume_acquisition_reference": volume_acquisition_reference,
+                "volume_acquisition_duration": dt_value,
+            }
+            time = per_pose_time[:, 0]
 
     forbidden_extra = set(CORE_DIMS) | set(SPATIAL_DIMS)
     overlap = sorted(forbidden_extra & set(extra_coords))
@@ -519,9 +555,15 @@ def create_voxeldata(
     if pose is not None:
         coord_inputs["pose"] = pose
 
+    scalar_t0: float | None
+    if t0 is None or np.asarray(t0).ndim > 0:
+        scalar_t0 = None
+    else:
+        scalar_t0 = float(np.asarray(t0).item())
+
     data_coords: dict[str, xr.DataArray] = {}
     spacings = {TIME_DIM: dt}
-    origins = {TIME_DIM: t0}
+    origins = {TIME_DIM: scalar_t0}
     for dim, size in zip(data_dims, data_array.shape, strict=True):
         if dim in VOXEL_DIMS:
             continue

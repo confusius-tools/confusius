@@ -261,20 +261,25 @@ single_slice = cf.create_voxeldata(
 Acquisition metadata that describes the whole recording belongs in the DataArray
 `attrs`. Coordinate metadata such as `units` is added automatically.
 
-For multi-pose data, `create_voxeldata` also accepts a `pose` dimension, a 2D `time`
-coordinate with shape `(time, pose)`, and a stacked `(npose, 4, 4)` `voxel_to_world`
-affine:
+### Multi-Pose Data
+
+For multi-pose data, `create_voxeldata` also accepts a `pose` dimension, a 2D `(time,
+pose)` time coordinate, a tuple `t0` time origin, and a stacked `(npose, 4, 4)`
+`voxel_to_world` affine:
 
 ```python
 multipose = cf.create_voxeldata(
-    raw_power,  # shape: (i, j, k, pose, time)
+    raw_power,
     dims=("i", "j", "k", "pose", "time"),
-    time=pose_times,  # shape: (time, pose)
-    voxel_to_world=pose_affines,  # shape: (pose, 4, 4)
+    dt=2.4,
+    t0=[0.0, 0.6, 1.2, 1.8],
+    voxel_to_world=pose_affines,
 )
 ```
 
 See the [Multi-Pose Data guide](multipose.md) for a full example.
+
+### Beamformed IQ Data
 
 For beamformed IQ data, use [`create_voxeldata`][confusius.xarray.create_voxeldata] the
 same way and put IQ-specific metadata in `attrs`:

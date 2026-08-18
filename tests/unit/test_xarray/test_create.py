@@ -269,6 +269,66 @@ def test_create_voxeldata_accepts_2d_per_pose_time():
     assert result.fusi.spacing["time"] == pytest.approx(2.4)
 
 
+def test_create_voxeldata_accepts_per_pose_t0_with_shared_dt():
+    """A 1D `t0` array generates pose-dependent `(time, pose)` timestamps."""
+    npose = 3
+    n_time = 4
+    t0 = np.array([0.0, 0.6, 1.2])
+    affine = np.stack([np.eye(4) for _ in range(npose)])
+
+    result = create_voxeldata(
+        np.zeros((n_time, npose, 2, 3, 4)),
+        dims=("time", "pose", "k", "j", "i"),
+        dt=2.4,
+        t0=t0,
+        pose=np.arange(npose),
+        voxel_to_world=affine,
+    )
+
+    expected = np.arange(n_time)[:, None] * 2.4 + t0[None, :]
+    assert result.coords["time"].dims == ("time", "pose")
+    assert_allclose(result.coords["time"].values, expected)
+    assert result.coords["time"].attrs["units"] == "s"
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == 2.4
+    assert "time" not in result.xindexes
+    assert result.fusi.spacing["time"] == pytest.approx(2.4)
+
+
+def test_create_voxeldata_per_pose_t0_requires_pose_dim():
+    """A 1D `t0` array without a `pose` dim in `dims` raises clearly."""
+    with pytest.raises(ValueError, match="requires a 'pose' dimension"):
+        create_voxeldata(
+            np.zeros((4, 2, 3, 4)),
+            dims=("time", "k", "j", "i"),
+            dt=2.4,
+            t0=np.array([0.0, 0.6]),
+            spacing=(1.0, 1.0, 1.0),
+        )
+
+
+def test_create_voxeldata_per_pose_t0_requires_matching_pose_count():
+    """A 1D `t0` array length must match the `pose` dimension size."""
+    with pytest.raises(ValueError, match="t0 has length 2"):
+        create_voxeldata(
+            np.zeros((4, 3, 2, 3, 4)),
+            dims=("time", "pose", "k", "j", "i"),
+            dt=2.4,
+            t0=np.array([0.0, 0.6]),
+            spacing=(1.0, 1.0, 1.0),
+        )
+
+
+def test_create_voxeldata_per_pose_t0_requires_dt():
+    """A 1D `t0` array still needs a shared `dt` to build `time`."""
+    with pytest.raises(ValueError, match="Spacing for dimension 'time' is required"):
+        create_voxeldata(
+            np.zeros((4, 2, 2, 3, 4)),
+            dims=("time", "pose", "k", "j", "i"),
+            t0=np.array([0.0, 0.6]),
+            spacing=(1.0, 1.0, 1.0),
+        )
+
+
 def test_create_voxeldata_2d_time_requires_pose_dim():
     """A 2D time array without a `pose` dim in `dims` raises clearly."""
     time_2d = np.zeros((4, 2))
