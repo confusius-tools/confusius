@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 import xarray as xr
 
+import confusius.io.echoframe as _echoframe
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
@@ -31,6 +32,10 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
 
     - **NIfTI** (`.nii`, `.nii.gz`): loaded via [`load_nifti`][confusius.io.load_nifti].
     - **SCAN** (`.scan`): loaded via [`load_scan`][confusius.io.load_scan].
+    - **EchoFrame DAT** (`.dat`): loaded via
+      [`load_echoframe_dat`][confusius.io.load_echoframe_dat]. If no metadata path is
+      provided, [`load_echoframe_dat`][confusius.io.load_echoframe_dat] looks for
+      `ScanParameters.mat` next to the DAT file.
     - **Zarr** (`.zarr`): opened via [`xarray.open_zarr`][xarray.open_zarr] and a single
       variable is extracted. Must be a store previously written by
       [`save`][confusius.io.save] (identified by `attrs["voxel_to_world"]`); for an
@@ -77,6 +82,8 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         data_array = _nifti.load_nifti(path, **kwargs)
     elif name.endswith(".scan"):
         data_array = _scan.load_scan(path, **kwargs)
+    elif name.endswith(".dat"):
+        data_array = _echoframe.load_echoframe_dat(path, **kwargs)
     elif name.endswith(".zarr"):
         ds = xr.open_zarr(path, **kwargs)
         data_array = (
@@ -98,7 +105,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     else:
         raise ValueError(
             f"Unsupported file extension in {name!r}. Supported"
-            " extensions are: .nii, .nii.gz, .scan, .zarr."
+            " extensions are: .nii, .nii.gz, .scan, .dat, .zarr."
         )
 
     restore_atlas_cmap_and_norm(data_array)

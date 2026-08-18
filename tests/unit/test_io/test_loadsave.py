@@ -70,6 +70,28 @@ class TestLoadDispatch:
         mock.assert_called_once_with(path.resolve())
         assert result is mock_da
 
+    def test_dat_dispatches_to_load_echoframe_dat(self, tmp_path):
+        """.dat extension calls load_echoframe_dat."""
+        path = tmp_path / "data.dat"
+        mock_da = MagicMock(spec=xr.DataArray)
+        with patch(
+            "confusius.io.echoframe.load_echoframe_dat", return_value=mock_da
+        ) as mock:
+            result = load(path)
+        mock.assert_called_once_with(path.resolve())
+        assert result is mock_da
+
+    def test_compound_dat_extension(self, tmp_path):
+        """.source.dat compound extension calls load_echoframe_dat."""
+        path = tmp_path / "data.source.dat"
+        mock_da = MagicMock(spec=xr.DataArray)
+        with patch(
+            "confusius.io.echoframe.load_echoframe_dat", return_value=mock_da
+        ) as mock:
+            result = load(path)
+        mock.assert_called_once_with(path.resolve())
+        assert result is mock_da
+
     def test_kwargs_forwarded_to_loader(self, tmp_path):
         """Extra kwargs are forwarded to the underlying loader."""
         path = tmp_path / "data.nii.gz"
@@ -77,6 +99,16 @@ class TestLoadDispatch:
         with patch("confusius.io.nifti.load_nifti", return_value=mock_da) as mock:
             load(path, chunks=None)
         mock.assert_called_once_with(path.resolve(), chunks=None)
+
+    def test_kwargs_forwarded_to_echoframe_loader(self, tmp_path):
+        """Extra kwargs are forwarded to the EchoFrame loader."""
+        path = tmp_path / "data.dat"
+        mock_da = MagicMock(spec=xr.DataArray)
+        with patch(
+            "confusius.io.echoframe.load_echoframe_dat", return_value=mock_da
+        ) as mock:
+            load(path, meta_path="ScanParameters.mat")
+        mock.assert_called_once_with(path.resolve(), meta_path="ScanParameters.mat")
 
     def test_unsupported_extension_raises(self, tmp_path):
         """Unsupported extension raises ValueError."""
