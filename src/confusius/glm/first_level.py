@@ -40,32 +40,6 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-def _flatten_spatial(
-    data: xr.DataArray,
-) -> tuple[npt.NDArray[np.float64], tuple[str, ...], tuple[int, ...]]:
-    """Flatten spatial dimensions of a DataArray for regression.
-
-    Parameters
-    ----------
-    data : (time, ...) xarray.DataArray
-        VoxelData array with a `time` dimension.
-
-    Returns
-    -------
-    flat : (n_timepoints, n_voxels) numpy.ndarray
-        Flattened 2D array.
-    spatial_dims : tuple of str
-        Names of the spatial dimensions.
-    spatial_shape : tuple of int
-        Original shape of the spatial dimensions.
-
-    """
-    spatial_dims = tuple(str(d) for d in data.dims if d != "time")
-    spatial_shape = tuple(data.sizes[d] for d in spatial_dims)
-    values = data.stack(voxels=spatial_dims).transpose("time", "voxels").values
-    return values, spatial_dims, spatial_shape
-
-
 class FirstLevelModel(BaseEstimator):
     """First-level GLM estimator for voxel-wise fUSI analysis.
 
@@ -237,9 +211,7 @@ class FirstLevelModel(BaseEstimator):
             for run in run_data
         ]
         if self.mask is not None:
-            self.mask = ensure_voxeldata(
-                self.mask, allow_pose=False, allow_extra_dims=False
-            )
+            self.mask = ensure_voxeldata(self.mask, allow_extra_dims=False)
         n_runs = len(run_data)
 
         for run in run_data:
@@ -248,21 +220,21 @@ class FirstLevelModel(BaseEstimator):
 
         if n_runs > 1:
             ref_run = run_data[0]
-            # Compare ordered tuples so a transposed run (same dim sizes but different
-            # axis order) is rejected: `_flatten_spatial` stacks voxels in each run's
-            # own dim order, so a permutation would silently mix voxel locations during
+            # extract_with_mask stacks by mask dim name (xr.align is label-based, not
+            # positional), so per-run axis order doesn't matter -- only the set of
+            # spatial dims and their sizes needs to match across runs for
             # fixed-effects combination.
-            ref_spatial = tuple(
+            ref_spatial = frozenset(
                 (str(d), int(ref_run.sizes[d])) for d in ref_run.dims if d != "time"
             )
             for i, run in enumerate(run_data[1:], start=1):
-                spatial = tuple(
+                spatial = frozenset(
                     (str(d), int(run.sizes[d])) for d in run.dims if d != "time"
                 )
                 if spatial != ref_spatial:
                     raise ValueError(
-                        f"All runs must have the same spatial dimensions in the "
-                        f"same order. Run 0 has {ref_spatial}, run {i} has {spatial}."
+                        f"All runs must have the same spatial dimensions. "
+                        f"Run 0 has {ref_spatial}, run {i} has {spatial}."
                     )
                 # Validate every spatial dim where at least one side carries a coord.
                 # validate_matching_coordinates raises if the coord is missing from one
@@ -309,20 +281,21 @@ class FirstLevelModel(BaseEstimator):
         # mask to source spatial dims/coords/geometry from. When the user didn't
         # provide one, fall back to an all-True mask covering every voxel, so the
         # masked and unmasked paths share one code path.
-        self._effective_mask_: xr.DataArray = (
-            self.mask
-            if self.mask is not None
-            else xr.ones_like(run_data[0].isel(time=0, drop=True), dtype=bool)
-        )
+        if self.mask is not None:
+            self._effective_mask_: xr.DataArray = self.mask
+        else:
+            mask_template = run_data[0].isel(time=0, drop=True)
+            self._effective_mask_ = ensure_voxeldata(
+                mask_template.copy(data=np.ones(mask_template.shape, dtype=bool)),
+                allow_extra_dims=False,
+            )
 
         for run_index in range(n_runs):
             run = run_data[run_index]
             if self.smoothing_fwhm is not None:
                 run = smooth_volume(run, self.smoothing_fwhm)
-            data_2d, _, _ = _flatten_spatial(run)
-            if self.mask is not None:
-                masked = extract_with_mask(run, self.mask)
-                data_2d = masked.transpose("time", "space").values
+            masked = extract_with_mask(run, self._effective_mask_)
+            data_2d = masked.transpose("time", "space").values
 
             dm = design_matrices_list[run_index]
             design_array = dm.to_numpy()

@@ -61,7 +61,7 @@ def make_glm_test_dataarray():
 
 @pytest.fixture
 def fusi_data(rng, frame_times):
-    """Small `(time, k, j, i)` DataArray with mm spatial coordinates."""
+    """Small `(time, k, j, i)` VoxelData array."""
     n_time = len(frame_times)
     return create_voxeldata(
         rng.standard_normal((n_time, 2, 3, 4)),
@@ -74,7 +74,7 @@ def fusi_data(rng, frame_times):
 
 @pytest.fixture
 def fusi_data_2d(rng, frame_times):
-    """Small `(time, j, i)` DataArray (no `k` axis)."""
+    """Small `(time, 1, j, i)` VoxelData array."""
     n_time = len(frame_times)
     return create_voxeldata(
         rng.standard_normal((n_time, 5, 6)),
@@ -82,6 +82,25 @@ def fusi_data_2d(rng, frame_times):
         time=frame_times,
         spacing=(1.0, 0.1, 0.1),
         origin=(0.0, 0.0, 0.0),
+    )
+
+
+@pytest.fixture
+def fusi_data_pose(rng, frame_times):
+    """Small `(time, pose, k, j, i)` DataArray with two poses.
+
+    Spatial shape matches `fusi_data`; poses share the same voxel-to-world
+    affine, so results should match fitting each pose slice independently.
+    """
+    n_time = len(frame_times)
+    n_pose = 2
+    affine = np.stack([np.eye(4) for _ in range(n_pose)])
+    return create_voxeldata(
+        rng.standard_normal((n_time, n_pose, 2, 3, 4)),
+        dims=("time", "pose", "k", "j", "i"),
+        time=frame_times,
+        pose=np.arange(n_pose),
+        voxel_to_world=affine,
     )
 
 

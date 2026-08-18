@@ -134,6 +134,11 @@ Current development version for the next ConfUSIus release.
   been scaled with `.fusi.scale.db()`; the `-inf` values `db_scale` assigns to
   zero-valued voxels are now excluded from the normalization bounds
   ([#370](https://github.com/confusius-tools/confusius/pull/370)).
+- `FirstLevelModel.fit` no longer errors on multi-pose data. Its implicit
+  all-True mask (used when no `mask` is passed) now covers `pose` when the
+  input has it, instead of collapsing to a single pose; the explicit-`mask`
+  path no longer rejects a `pose`-carrying mask either
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 
 ## 0.6.1
 

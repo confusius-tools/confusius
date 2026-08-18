@@ -9,7 +9,6 @@ from numpy.testing import assert_allclose
 from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.glm import FirstLevelModel, make_first_level_design_matrix
 from confusius.glm._models import OLSModel
-from confusius.glm.first_level import _flatten_spatial
 from confusius.spatial import smooth_volume
 
 # -----------------------------------------------------------------------------
@@ -372,7 +371,8 @@ class TestFirstLevelModelReference:
         dm = make_first_level_design_matrix(
             frame_times, events=events, drift_model="cosine"
         )
-        flat, _, _ = _flatten_spatial(fusi_data)
+        spatial_dims = tuple(str(d) for d in fusi_data.dims if d != "time")
+        flat = fusi_data.stack(space=spatial_dims).transpose("time", "space").values
         ols = OLSModel(dm.to_numpy(dtype=np.float64))
         results = ols.fit(flat)
 
@@ -390,6 +390,25 @@ class TestFirstLevelModelReference:
         z_manual = contrast.zscore.reshape(2, 3, 4)
 
         assert_allclose(z_map_auto.values, z_manual, rtol=1e-10)
+
+    def test_multipose_matches_per_pose_fit(self, fusi_data_pose, events):
+        """Fitting `(time, pose, k, j, i)` data matches fitting each pose slice
+        independently and stacking the results.
+
+        Guards the fallback all-True mask and the explicit-mask path both
+        correctly carry `pose` through `extract_with_mask`/`unmask`, instead
+        of silently collapsing to a single pose or erroring.
+        """
+        model = FirstLevelModel(noise_model="ols")
+        model.fit(fusi_data_pose, events=events)
+        z_pose = model.compute_contrast("A - B")
+        assert z_pose.dims == ("pose", "k", "j", "i")
+
+        for pose in range(fusi_data_pose.sizes["pose"]):
+            single_pose_model = FirstLevelModel(noise_model="ols")
+            single_pose_model.fit(fusi_data_pose.isel(pose=pose), events=events)
+            z_single = single_pose_model.compute_contrast("A - B")
+            assert_allclose(z_pose.isel(pose=pose).values, z_single.values)
 
 
 # -----------------------------------------------------------------------------
@@ -499,15 +518,16 @@ class TestFirstLevelModelErrors:
         with pytest.raises(ValueError, match="spatial dimensions"):
             model.fit([data1, data2], events=[events, events])
 
-    def test_spatial_axis_order_mismatch_raises(
+    def test_transposed_run_aligns_by_label(
         self, rng, frame_times, events, make_glm_test_dataarray
     ):
-        """Multi-run fit rejects runs that share spatial sizes but in
-        different axis orders.
+        """A run with a different (but internally consistent) spatial axis
+        order is accepted and produces the same result as an untransposed run.
 
-        `_flatten_spatial` stacks voxels in each run's own dim order, so
-        accepting transposed runs would silently mix voxel locations during
-        fixed-effects combination.
+        `extract_with_mask` stacks voxels by dimension/coordinate name
+        (`xr.align` is label-based, not positional), so a per-run axis-order
+        permutation doesn't mix up voxel locations during fixed-effects
+        combination.
         """
         data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
@@ -515,9 +535,16 @@ class TestFirstLevelModelErrors:
             time=frame_times,
         )
         data2 = data1.transpose("time", "j", "k", "i")
-        model = FirstLevelModel(noise_model="ols")
-        with pytest.raises(ValueError, match="same order"):
-            model.fit([data1, data2], events=[events, events])
+
+        model_transposed = FirstLevelModel(noise_model="ols")
+        model_transposed.fit([data1, data2], events=[events, events])
+        z_transposed = model_transposed.compute_contrast("A - B")
+
+        model_ref = FirstLevelModel(noise_model="ols")
+        model_ref.fit([data1, data1], events=[events, events])
+        z_ref = model_ref.compute_contrast("A - B")
+
+        np.testing.assert_allclose(z_transposed.values, z_ref.values)
 
     def test_spatial_coord_mismatch_raises(
         self, rng, frame_times, events, make_glm_test_dataarray
@@ -552,7 +579,7 @@ class TestFirstLevelModelErrors:
     def test_mask_must_cover_all_non_time_dims(
         self, frame_times, events, make_glm_test_dataarray
     ):
-        """Mask must span all non-time dims in GLM voxel order."""
+        """Mask must span all non-time dims in the run's own dim order."""
         data = make_glm_test_dataarray(
             np.zeros((len(frame_times), 2, 3, 4)),
             ("time", "k", "j", "i"),
