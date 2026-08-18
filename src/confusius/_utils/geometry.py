@@ -459,10 +459,9 @@ class VoxelToWorldIndex(Index):
             if coord_labels:
                 raise ValueError(
                     "Selecting world coordinates on pose-dependent geometry requires "
-                    "reducing `pose` to a scalar first, e.g. `.isel(pose=0).sel(z=..., "
-                    "y=..., x=...)` or `.sel(pose=0).sel(z=..., y=..., x=...)` -- a "
-                    "single combined `.sel(pose=0, z=..., y=..., x=...)` call is not "
-                    "supported."
+                    "reducing `pose` to a scalar first, e.g. `.sel(pose=0).sel(z=..., "
+                    "y=..., x=...)`. A single combined "
+                    "`.sel(pose=0, z=..., y=..., x=...)` call is not supported."
                 )
             return IndexSelResult({})
         if not coord_labels:
