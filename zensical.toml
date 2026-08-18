@@ -72,9 +72,7 @@ nav = [
         { "Getting Started" = [
             { "ConfUSIus and Xarray 101" = "examples/_built/io/confusius_xarray_101.md" },
             { "Create a fUSI DataArray from a MAT file" = "examples/_built/io/create_fusi_dataarray_from_mat.md" },
-        ]},
-        { "Multi-Pose Imaging" = [
-            { "Load a multi-pose recording from the Pepe, Mariani 2026 dataset" = "examples/_built/multipose/load_multipose_pepe_mariani.md" },
+            { "Load multi-pose recordings" = "examples/_built/io/load_multipose_recordings.md" },
         ]},
         { "Registration" = [
             { "Registration of two sessions from the same subject" = "examples/_built/registration/register_volume_same_subject.md" },
