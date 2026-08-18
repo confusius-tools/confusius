@@ -25,6 +25,23 @@ from confusius._utils.geometry import (
 )
 
 
+def _simple_voxel_to_world_result() -> xr.DataArray:
+    """Build a minimal pose-independent, identity-affine (k, j, i) DataArray.
+
+    Shared by tests that only need *some* real VoxelToWorldIndex and don't care
+    about its specific geometry (join/reindex_like/equals/concat-rejection/
+    update_voxel_to_world_coord_attrs edge cases).
+    """
+    return attach_voxel_to_world_index(
+        xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=("k", "j", "i"),
+            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
+        ),
+        np.eye(4),
+    )
+
+
 def _pose_dependent_result(
     pose_affines: np.ndarray | None = None, pose_coord: np.ndarray | None = None
 ) -> xr.DataArray:
@@ -1018,14 +1035,7 @@ def test_is_pose_dependent_false_after_scalar_pose_selection() -> None:
 
 def test_join_returns_self_for_equal_index() -> None:
     """`join` returns this index unchanged when `other` represents the same grid."""
-    da = attach_voxel_to_world_index(
-        xr.DataArray(
-            np.zeros((2, 3, 4)),
-            dims=("k", "j", "i"),
-            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
-        ),
-        np.eye(4),
-    )
+    da = _simple_voxel_to_world_result()
 
     index = da.xindexes["z"]
     other = da.copy(deep=True).xindexes["z"]
@@ -1035,14 +1045,7 @@ def test_join_returns_self_for_equal_index() -> None:
 
 def test_reindex_like_returns_empty_indexers_for_equal_index() -> None:
     """`reindex_like` returns no positional indexers for an equal grid."""
-    da = attach_voxel_to_world_index(
-        xr.DataArray(
-            np.zeros((2, 3, 4)),
-            dims=("k", "j", "i"),
-            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
-        ),
-        np.eye(4),
-    )
+    da = _simple_voxel_to_world_result()
 
     index = da.xindexes["z"]
     other = da.copy(deep=True).xindexes["z"]
@@ -1052,14 +1055,7 @@ def test_reindex_like_returns_empty_indexers_for_equal_index() -> None:
 
 def test_equals_returns_false_for_non_voxel_to_world_index() -> None:
     """`equals` returns False when compared against a different Index type."""
-    da = attach_voxel_to_world_index(
-        xr.DataArray(
-            np.zeros((2, 3, 4)),
-            dims=("k", "j", "i"),
-            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
-        ),
-        np.eye(4),
-    )
+    da = _simple_voxel_to_world_result()
 
     assert da.xindexes["z"].equals(da.xindexes["k"]) is False
 
@@ -1146,14 +1142,7 @@ def test_isel_pose_fancy_index_yielding_non_1d_returns_none() -> None:
 
 def test_concat_rejects_non_pose_dim() -> None:
     """`VoxelToWorldIndex.concat` only supports concatenating along `pose`."""
-    da = attach_voxel_to_world_index(
-        xr.DataArray(
-            np.zeros((2, 3, 4)),
-            dims=("k", "j", "i"),
-            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
-        ),
-        np.eye(4),
-    )
+    da = _simple_voxel_to_world_result()
     index = da.xindexes["z"]
 
     with pytest.raises(ValueError, match="only supports concat along 'pose'"):
@@ -1162,14 +1151,7 @@ def test_concat_rejects_non_pose_dim() -> None:
 
 def test_concat_rejects_pose_independent_inputs() -> None:
     """`VoxelToWorldIndex.concat` requires every input to already be pose-dependent."""
-    da = attach_voxel_to_world_index(
-        xr.DataArray(
-            np.zeros((2, 3, 4)),
-            dims=("k", "j", "i"),
-            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
-        ),
-        np.eye(4),
-    )
+    da = _simple_voxel_to_world_result()
     index = da.xindexes["z"]
 
     with pytest.raises(ValueError, match="every input must already be pose-dependent"):
@@ -1193,14 +1175,7 @@ def test_concat_rejects_mismatched_spatial_geometry_directly() -> None:
 
 def test_update_voxel_to_world_coord_attrs_ignores_unknown_names() -> None:
     """Unknown coordinate names in `attrs_by_name` are silently skipped."""
-    da = attach_voxel_to_world_index(
-        xr.DataArray(
-            np.zeros((2, 3, 4)),
-            dims=("k", "j", "i"),
-            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
-        ),
-        np.eye(4),
-    )
+    da = _simple_voxel_to_world_result()
 
     result = update_voxel_to_world_coord_attrs(da, {"not_a_coord": {"units": "mm"}})
 
