@@ -23,6 +23,7 @@ from confusius._utils.geometry import (
     restore_voxel_to_world_index,
     update_voxel_to_world_coord_attrs,
 )
+from confusius.xarray import create_fusi_dataarray
 
 
 def _simple_voxel_to_world_result() -> xr.DataArray:
@@ -32,13 +33,8 @@ def _simple_voxel_to_world_result() -> xr.DataArray:
     about its specific geometry (join/reindex_like/equals/concat-rejection/
     update_voxel_to_world_coord_attrs edge cases).
     """
-    return attach_voxel_to_world_index(
-        xr.DataArray(
-            np.zeros((2, 3, 4)),
-            dims=("k", "j", "i"),
-            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
-        ),
-        np.eye(4),
+    return create_fusi_dataarray(
+        np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
     )
 
 
