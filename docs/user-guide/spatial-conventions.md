@@ -9,10 +9,15 @@ ConfUSIus works with three kinds of coordinate systems:
 - the **voxel space**, linked to the underlying array storage and indexed by the integer
   dimension coordinates `i`/`j`/`k` (in dimension order `(k, j, i)`—see [Dimension
   Ordering](#dimension-ordering-time-pose-k-j-i) below),
-- the **world space**, derived from voxel space through a single affine and exposed as
-  the coordinates `x`/`y`/`z` on every DataArray,
+- the **world space**, derived from voxel space through the DataArray's voxel-to-world
+  geometry and exposed as the coordinates `x`/`y`/`z`,
 - and any number of **reference spaces** (atlas, scanner, etc.) linked to the world
   space through affine transforms stored in `attrs["affines"]`.
+
+For most recordings, one voxel-to-world affine defines one world grid for the whole
+DataArray. Multi-pose acquisitions are the main exception: they carry one affine per
+`pose`, so `x`/`y`/`z` become pose-dependent coordinates and a scalar `pose` selection is
+required before selecting by world coordinate.
 
 Understanding these spaces and the axis-ordering convention used throughout ConfUSIus
 makes it much easier to reason about visualization, registration, and downstream
@@ -57,7 +62,9 @@ Every ConfUSIus DataArray that represents a fUSI recording uses the dimension or
     conventions like `(i, j, k, time)`. Thankfully, Xarray makes dimension ordering
     largely transparent in practice: you can always refer to dimensions by name and in
     any order (e.g. `data.mean("time")`, `data.sel(x=4.54, y=-2.48, z=0.0)`) rather than
-    by axis index, so you won't have to remember the order of the dimensions.
+    by axis index, so you won't have to remember the order of the dimensions. For
+    multi-pose arrays, select a scalar `pose` first before slicing in world space, e.g.
+    `data.isel(pose=0).sel(x=4.54, y=-2.48, z=0.0)`.
 
 This ordering is motivated by several considerations.
 
@@ -92,7 +99,8 @@ has:
   optionally preceded by `pose` (integer coordinates), `time` (floating coordinates),
   and any number of extra non-spatial dims (PCA/ICA components, stacked masks, etc.);
 - a single **`VoxelToWorldIndex`** attached to `k`/`j`/`i`, which derives the world
-  coordinates `z`/`y`/`x` from one voxel-to-world affine;
+  coordinates `z`/`y`/`x` from either one voxel-to-world affine shared by the whole
+  DataArray or a stacked affine with one entry per `pose`;
 - required metadata: `units` on each world coordinate, plus—whenever `time` is
   present—`units`, `volume_acquisition_reference`, and `volume_acquisition_duration`
   on `time`:
@@ -103,9 +111,13 @@ has:
 | `volume_acquisition_reference` | `time` | Which point of the acquisition window each `time` value marks: `"start"`, `"center"`, or `"end"`. |
 | `volume_acquisition_duration` | `time` | Duration of one volume's acquisition, in the same units as `time`. |
 
-[`create_voxeldata`][confusius.xarray.create_voxeldata] and
-[`create_voxeldata`][confusius.xarray.create_voxeldata] build a
-VoxelData array satisfying all of this from raw data, and
+A pose-dependent array may also carry a 2D `time` coordinate with shape `(time, pose)`,
+recording each pose's own acquisition timestamps directly. Like pose-dependent world
+coordinates, this requires selecting a scalar `pose` before label-based selection on
+`time`.
+
+[`create_voxeldata`][confusius.xarray.create_voxeldata] builds a VoxelData array
+satisfying all of this from raw data, and
 [`validate_voxeldata`][confusius.validation.validate_voxeldata] checks an existing DataArray
 against it. [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] additionally fixes small
 deviations with sensible defaults first—for example filling in missing `time`
@@ -144,10 +156,12 @@ Xarray.
 ### World Space
 
 The world space is derived from voxel space by the DataArray's `VoxelToWorldIndex` and
-exposed as the coordinates `x`, `y`, `z`. The unit of the coordinates is stored in the
-`units` attribute of each coordinate array; millimeters are the usual default for fUSI
-recordings (e.g. [`create_voxeldata`][confusius.xarray.create_voxeldata]'s
-default).
+exposed as the coordinates `x`, `y`, `z`. For ordinary single-pose data these
+coordinates have spatial shape `(k, j, i)`. For multi-pose data they are
+pose-dependent with shape `(pose, k, j, i)`, so selecting in world space requires a
+scalar `pose` first. The unit of the coordinates is stored in the `units` attribute of
+each coordinate array; millimeters are the usual default for fUSI recordings (e.g.
+[`create_voxeldata`][confusius.xarray.create_voxeldata]'s default).
 
 !!! warning "Units are not enforced"
     ConfUSIus does not check or convert between units across its APIs—`units` is
@@ -211,8 +225,10 @@ reaching it currently takes an affine.
 [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] can turn any one of
 them into the world space itself (see [Switching World
 Spaces](#switching-world-spaces)). Each reference space is stored in `attrs["affines"]`
-as a `(4, 4)` homogeneous affine matrix in `(z, y, x)` convention that maps a
-world-space point to the corresponding point in the reference space.
+as a homogeneous affine matrix in `(z, y, x)` convention that maps a world-space point
+to the corresponding point in the reference space. Most are plain `(4, 4)` matrices;
+for multi-pose data they may also be stacked `(pose, 4, 4)` affines with one entry per
+pose.
 
 Several loaders populate `da.attrs["affines"]` automatically:
 
@@ -245,7 +261,9 @@ transform explicitly but does not store automatically in `attrs["affines"]`.
 To switch a DataArray's world space to one of its reference spaces, apply the affine
 that relates them: [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply]
 takes a `(4, 4)` affine (or a key into `attrs["affines"]`) and re-expresses the
-DataArray's world coordinates in that space, which becomes the new world space.
+DataArray's world coordinates in that space, which becomes the new world space. For
+multi-pose data, applying a single affine broadcasts it over every pose, while a
+stacked affine is applied pose-by-pose.
 
 Take the `sform`/`qform` example from [Reference Spaces](#reference-spaces). A NIfTI
 file with `sform_code > 0` anchors its world space to the `sform` space, and the
