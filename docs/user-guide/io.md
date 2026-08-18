@@ -616,7 +616,9 @@ be automatically created in fUSI-BIDS style. Spatial coordinates and units are e
 in the NIfTI header itself; the sidecar stores converted metadata fields, custom
 attributes, and timing metadata such as `RepetitionTime`, `DelayAfterTrigger`, or
 `VolumeTiming`. When possible, `RepetitionTime` is inferred directly from the `time`
-coordinate so the sidecar stays consistent with the data being saved.
+coordinate so the sidecar stays consistent with the data being saved. Multi-pose data
+cannot be written directly to a single NIfTI file; save it to Zarr, consolidate poses
+first, or save one pose per file instead.
 
 If `data_array.attrs["affines"]` contains named world-to-reference affines, you can
 choose which ones are written into the NIfTI header:

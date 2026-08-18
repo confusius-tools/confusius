@@ -54,6 +54,10 @@ any error is reported in the napari notification bar.
    `.nii` / `.nii.gz` for NIfTI and `.zarr` for Zarr.
 4. Click **Save**. A notification confirms success.
 
+!!! warning "Multi-pose data"
+    Saving multi-pose data from the plugin is not yet supported. Use the Python API to
+    consolidate poses first or select a single pose before saving.
+
 Three save modes are applied automatically depending on what is available:
 
 | Mode | When applied |
@@ -297,6 +301,10 @@ The Registration Panel runs the ConfUSIus registration workflows directly from n
 Use **Between scans** for registering different recordings, or **Within-scan** for
 volume-wise motion correction within a single recording. The panel supports modifying
 registration parameters, live preview, and saving/loading/applying computed transforms.
+
+!!! warning "Multi-pose data"
+    Registration of multi-pose data from the plugin is not yet supported. Use the
+    Python API to consolidate poses first or select a single pose before registering.
 
 ### Between scans
 
