@@ -25,7 +25,7 @@ from confusius.validation import ensure_fusi
 
 
 def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.DataArray:
-    """Load VoxelData from file, dispatching by extension.
+    """Load a VoxelData array from file, dispatching by extension.
 
     Supported formats:
 
@@ -35,7 +35,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
       variable is extracted. Must be a store previously written by
       [`save`][confusius.io.save] (identified by `attrs["voxel_to_world"]`); for an
       arbitrary/foreign Zarr store, use [`xarray.open_zarr`][xarray.open_zarr] directly
-      and build VoxelData yourself (e.g. via
+      and build a VoxelData array yourself (e.g. via
       [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]).
 
     If `attrs["rgb_lookup"]` is present but `attrs["cmap"]`/`attrs["norm"]` are missing
@@ -44,8 +44,8 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm] so
     atlas-derived masks and annotations keep their canonical colors after reload.
 
-    A Zarr-saved VoxelData DataArray stores `attrs["voxel_to_world"]` instead of
-    dense `z`/`y`/`x` coordinate arrays (see
+    A Zarr-saved VoxelData-compatible DataArray stores `attrs["voxel_to_world"]`
+    instead of dense `z`/`y`/`x` coordinate arrays (see
     [`save`][confusius.io.save]); this rebuilds the world coordinates and
     `VoxelToWorldIndex` from that affine.
 
@@ -62,7 +62,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     Returns
     -------
     xarray.DataArray
-        The loaded data.
+        Loaded VoxelData-compatible DataArray.
 
     Raises
     ------
@@ -107,7 +107,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
 
 
 def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
-    """Save VoxelData to file, dispatching by extension.
+    """Save a VoxelData array to file, dispatching by extension.
 
     Supported formats:
 
@@ -122,7 +122,7 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
     Parameters
     ----------
     data_array : xarray.DataArray
-        DataArray to save.
+        VoxelData-compatible DataArray to save.
     path : str or pathlib.Path
         Output path. The extension determines the format.
     **kwargs

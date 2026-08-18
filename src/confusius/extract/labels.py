@@ -94,7 +94,7 @@ def extract_with_labels(
     labels: xr.DataArray,
     reduction: Literal["mean", "sum", "median", "min", "max", "var", "std"] = "mean",
 ) -> xr.DataArray:
-    """Extract region-aggregated signals from VoxelData using an integer label map.
+    """Extract region-aggregated signals from a VoxelData array.
 
     For each unique non-zero label in `labels`, applies `reduction` across all voxels
     belonging to that region. The native voxel dimensions (`k`/`j`/`i`) are collapsed
@@ -103,10 +103,9 @@ def extract_with_labels(
     Parameters
     ----------
     data : xarray.DataArray
-        Input array. Must be VoxelData (native voxel dims `k`/`j`/`i` and a
-        `VoxelToWorldIndex`), plus any number of non-spatial
-        dimensions (e.g., `time`, `pose`). See
-        [`ensure_fusi`][confusius.validation.ensure_fusi].
+        VoxelData-compatible DataArray with native voxel dims `k`/`j`/`i` and a
+        `VoxelToWorldIndex`, plus any number of non-spatial dimensions (e.g.,
+        `time`, `pose`). See [`ensure_fusi`][confusius.validation.ensure_fusi].
     labels : xarray.DataArray
         Integer label map sharing `data`'s voxel grid, in one of two formats:
 
@@ -140,7 +139,7 @@ def extract_with_labels(
     Raises
     ------
     ValueError
-        If `labels` or `data` isn't VoxelData-compatible, if `labels`'s
+        If `labels` or `data` isn't a VoxelData-compatible DataArray, if `labels`'s
         voxel grid doesn't match `data`'s, if `reduction` is not a valid option, or if
         `labels` contains no non-zero values.
     TypeError

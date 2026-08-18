@@ -1,4 +1,4 @@
-"""Reconstruction of VoxelData from N-D signals using masks."""
+"""Reconstruction of VoxelData arrays from N-D signals using masks."""
 
 import numpy as np
 import xarray as xr
@@ -19,7 +19,7 @@ def unmask(
     attrs: dict | None = None,
     fill_value: float = 0.0,
 ) -> xr.DataArray:
-    """Reconstruct VoxelData from N-D signals using a mask.
+    """Reconstruct a VoxelData array from N-D signals using a mask.
 
     Parameters
     ----------
@@ -56,9 +56,9 @@ def unmask(
     -------
     xarray.DataArray
         Reconstructed DataArray with shape `(..., *mask.dims)`, where spatial
-        dimensions and coordinates come from the mask. For a VoxelData-compatible mask
-        (native voxel dims `k`/`j`/`i` with a `VoxelToWorldIndex`), the derived world
-        `z`/`y`/`x` coordinates are restored on the result as well.
+        dimensions and coordinates come from the mask. For a VoxelData-compatible
+        DataArray mask (native voxel dims `k`/`j`/`i` with a `VoxelToWorldIndex`),
+        the derived world `z`/`y`/`x` coordinates are restored on the result as well.
 
     Raises
     ------

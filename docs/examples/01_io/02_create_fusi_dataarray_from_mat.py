@@ -1,14 +1,14 @@
 # %% [markdown]
-# # Create a fUSI DataArray from a MAT file
+# # Create a VoxelData-compatible DataArray from a MAT file
 #
 # This example downloads a power Doppler MAT file from the public dataset accompanying
 # [Rabut *et al.* (2024)](https://doi.org/10.1126/scitranslmed.adj3143)[^1] and wraps it
-# in a ConfUSIus [DataArray][xarray.DataArray] with
+# in a VoxelData-compatible [DataArray][xarray.DataArray] with
 # [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray].
 #
 # Since MAT files can contain any custom data, ConfUSIus cannot read them directly. The
 # point of this example is to show the shortest path from a lab-specific MAT file array
-# plus metadata to the standard ConfUSIus DataArray representation. This example then
+# plus metadata to a VoxelData-compatible DataArray. This example then
 # reproduces figure 4D from Rabut *et al.* (2024) using a simple general linear model.
 
 # %%

@@ -1,4 +1,4 @@
-"""Principal component decomposition for `(time, ...)` VoxelData."""
+"""Principal component decomposition for VoxelData arrays or signals."""
 
 from typing import Literal
 
@@ -11,7 +11,7 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class PCA(_BaseFUSIDecomposer):
-    """Principal component analysis (PCA) for VoxelData.
+    """Principal component analysis (PCA) for VoxelData arrays or signals.
 
     Linear dimensionality reduction using singular value decomposition (SVD) of the data
     to project it to a lower dimensional space. The input data is centered but not
@@ -109,7 +109,7 @@ class PCA(_BaseFUSIDecomposer):
           time.
     mask : xarray.DataArray, optional
         Boolean mask selecting which elements to include during fitting and
-        projection: voxels, for VoxelData input, or features, for an
+        projection: voxels, for VoxelData-compatible DataArray input, or features, for an
         already-extracted signals input (e.g.
         [`extract_with_labels`][confusius.extract.extract_with_labels] output). Must
         match the non-`time` dimensions of the input data in the same order.
@@ -165,7 +165,7 @@ class PCA(_BaseFUSIDecomposer):
 
     Examples
     --------
-    Fitting on VoxelData:
+    Fitting on a VoxelData array:
 
     >>> import numpy as np
     >>> from confusius.decomposition import PCA
@@ -232,12 +232,12 @@ class PCA(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "PCA":
-        """Fit PCA on `(time, ...)` VoxelData.
+        """Fit PCA on a VoxelData-compatible DataArray or signals array.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: VoxelData, or an already-extracted
+            Input data: a VoxelData-compatible DataArray, or an already-extracted
             signals array (see class docstring).
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.

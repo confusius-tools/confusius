@@ -111,8 +111,8 @@ VoxelData-compatible DataArray satisfying all of this from raw data, and
 against it. [`ensure_fusi`][confusius.validation.ensure_fusi] additionally fixes small
 deviations with sensible defaults first—for example filling in missing `time`
 metadata, or restoring a voxel dimension collapsed to a scalar coordinate by a prior
-`.isel()`—before validating. ConfUSIus functions that expect a spatial DataArray call
-`ensure_fusi` on their input.
+`.isel()`—before validating. ConfUSIus functions that expect a VoxelData-compatible
+DataArray call `ensure_fusi` on their input.
 
 See [Working with Xarray](xarray.md) for the accessor API this backs
 (`.fusi.affine.voxel_to_world`, `.fusi.spacing`, `.fusi.direction`, ...).

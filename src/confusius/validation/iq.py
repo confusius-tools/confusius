@@ -17,12 +17,12 @@ _AXIAL_VELOCITY_REQUIRED_ATTRS = (
 
 
 def ensure_iq(iq: xr.DataArray, require_velocity_attrs: bool = False) -> xr.DataArray:
-    """Return `iq` as a canonical validated IQ DataArray.
+    """Return `iq` as a validated VoxelData-compatible DataArray.
 
     Parameters
     ----------
     iq : xarray.DataArray
-        Input DataArray to canonicalize and validate as IQ data.
+        VoxelData-compatible DataArray to canonicalize and validate as IQ data.
     require_velocity_attrs : bool, default: False
         Whether to validate that all attributes required for velocity estimation are
         present in the DataArray attributes.
@@ -30,7 +30,7 @@ def ensure_iq(iq: xr.DataArray, require_velocity_attrs: bool = False) -> xr.Data
     Returns
     -------
     xarray.DataArray
-        Canonical IQ DataArray with dimensions `(time, k, j, i)`.
+        VoxelData-compatible DataArray with dimensions `(time, k, j, i)`.
 
     Raises
     ------
@@ -51,8 +51,9 @@ def validate_iq(iq: xr.DataArray, require_velocity_attrs: bool = False) -> None:
     Parameters
     ----------
     iq : xarray.DataArray
-        Input DataArray to validate. Must have dimensions `(time, k, j, i)`, world
-        `z/y/x` coordinates, and the required structure and attributes.
+        VoxelData-compatible DataArray to validate. Must have dimensions
+        `(time, k, j, i)`, world `z`/`y`/`x` coordinates, and the required structure
+        and attributes.
     require_velocity_attrs : bool, default: False
         Whether to validate that all attributes required for velocity estimation are
         present in the DataArray attributes.

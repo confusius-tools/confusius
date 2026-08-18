@@ -54,16 +54,16 @@ def _validate_block_and_clutter_mask(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
-    clutter_mask : (z, y, x) numpy.ndarray, optional
+        `(k, j, i)` are spatial dimensions.
+    clutter_mask : (k, j, i) numpy.ndarray, optional
         Boolean spatial mask. If provided, only voxels where mask is `True` are
         included in the masked signals. Otherwise, all voxels are included.
 
     Returns
     -------
-    signals : (time, z * y * x) numpy.ndarray
+    signals : (time, k * j * i) numpy.ndarray
         Reshaped IQ data where all spatial dimensions are flattened into the second
         axis.
     masked_signals : (time, mask.sum()) numpy.ndarray
@@ -73,7 +73,7 @@ def _validate_block_and_clutter_mask(
     ------
     ValueError
         If `block` is not 4D, or if `clutter_mask` shape doesn't match spatial
-        dimensions `(z, y, x)` of `block`.
+        dimensions `(k, j, i)` of `block`.
     """
     if block.ndim != 4:
         raise ValueError(f"'block' must be 4D, got {block.ndim}D")
@@ -208,9 +208,9 @@ def clutter_filter_svd_from_indices(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     mask : (z, y x) numpy.ndarray, optional
         Boolean mask. SVD is computed only from masked voxels. If not provided, all
         voxels are used.
@@ -228,7 +228,7 @@ def clutter_filter_svd_from_indices(
 
     Returns
     -------
-    (time, z, y, x) numpy.ndarray
+    (time, k, j, i) numpy.ndarray
         Filtered IQ data.
 
     Raises
@@ -367,10 +367,10 @@ def clutter_filter_svd_from_energy(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
-    mask : (z, y, x) numpy.ndarray, optional
+        `(k, j, i)` are spatial dimensions.
+    mask : (k, j, i) numpy.ndarray, optional
         Boolean mask. SVD is computed only from masked voxels. If not provided, all
         voxels are used.
     low_cutoff : int or float, optional
@@ -384,7 +384,7 @@ def clutter_filter_svd_from_energy(
 
     Returns
     -------
-    (time, z, y, x) numpy.ndarray
+    (time, k, j, i) numpy.ndarray
         Filtered IQ data.
 
     Raises
@@ -466,10 +466,10 @@ def clutter_filter_svd_from_cumulative_energy(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
-    mask : (z, y, x) numpy.ndarray, optional
+        `(k, j, i)` are spatial dimensions.
+    mask : (k, j, i) numpy.ndarray, optional
         Boolean mask. SVD is computed only from masked voxels. If not provided, all
         voxels are used.
     low_cutoff : int or float, optional
@@ -484,7 +484,7 @@ def clutter_filter_svd_from_cumulative_energy(
 
     Returns
     -------
-    (time, z, y, x) numpy.ndarray
+    (time, k, j, i) numpy.ndarray
         Filtered IQ data.
 
     Raises
@@ -568,16 +568,16 @@ def clutter_filter_sosfiltfilt(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     sos : (sections, 6) numpy.ndarray
         Second-order sections filter coefficients, typically obtained from SciPy
         functions like `scipy.signal.butter`, `scipy.signal.cheby1`, etc.
 
     Returns
     -------
-    (time, z, y, x) numpy.ndarray
+    (time, k, j, i) numpy.ndarray
         Filtered IQ data.
 
     Raises
@@ -614,9 +614,9 @@ def clutter_filter_butterworth(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     fs : float
         Sampling frequency in hertz.
     low_cutoff : float, optional
@@ -631,7 +631,7 @@ def clutter_filter_butterworth(
 
     Returns
     -------
-    (time, z, y, x) numpy.ndarray
+    (time, k, j, i) numpy.ndarray
         Filtered IQ data.
 
     Raises

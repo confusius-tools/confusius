@@ -22,9 +22,9 @@ def _validate_spatial_alignment(
     Parameters
     ----------
     spatial_da : xarray.DataArray
-        Spatial DataArray to validate (mask or labels).
+        VoxelData-compatible DataArray to validate (mask or labels).
     data : xarray.DataArray
-        Reference data array.
+        Reference VoxelData-compatible DataArray.
     name : str
         Label used for `spatial_da` in error messages.
 
@@ -36,7 +36,7 @@ def _validate_spatial_alignment(
     Raises
     ------
     ValueError
-        If `spatial_da` or `data` isn't VoxelData-compatible, or if their
+        If `spatial_da` or `data` isn't a VoxelData-compatible DataArray, or if their
         voxel-space coordinates or `voxel_to_world` affines don't match.
     """
     data = ensure_fusi(data, allow_extra_dims=True)
@@ -94,8 +94,8 @@ def validate_mask(
 
     Both `mask` and `data` are canonicalized via
     [`ensure_fusi`][confusius.validation.ensure_fusi], so each must be (or become,
-    after restoring any scalar-reduced voxel dims) VoxelData-compatible, carrying a
-    `VoxelToWorldIndex` on native voxel dims `k`/`j`/`i`.
+    after restoring any scalar-reduced voxel dims) VoxelData-compatible DataArrays,
+    carrying a `VoxelToWorldIndex` on native voxel dims `k`/`j`/`i`.
 
     Parameters
     ----------
@@ -104,7 +104,7 @@ def validate_mask(
         non-zero value (0 = background, one region id = foreground). The latter format
         is produced by [`get_masks`][confusius.atlas.AtlasAccessor.get_masks].
     data : xarray.DataArray
-        Data array to validate mask against.
+        VoxelData-compatible DataArray to validate mask against.
     mask_name : str, default: "mask"
         Name of the mask parameter (used in error messages).
     require_exact_dims : bool, default: False
@@ -127,7 +127,7 @@ def validate_mask(
     TypeError
         If `mask` is not a boolean or single-label integer DataArray.
     ValueError
-        If `mask` or `data` isn't VoxelData-compatible, if `mask`'s voxel
+        If `mask` or `data` isn't a VoxelData-compatible DataArray, if `mask`'s voxel
         grid doesn't match `data`'s, or if `require_exact_dims` is set and `mask`'s
         dimensions don't match `data`'s.
     """
@@ -165,8 +165,8 @@ def validate_labels(
 
     Both `labels` and `data` are canonicalized via
     [`ensure_fusi`][confusius.validation.ensure_fusi], so each must be (or become,
-    after restoring any scalar-reduced voxel dims) VoxelData-compatible, carrying a
-    `VoxelToWorldIndex` on native voxel dims `k`/`j`/`i`.
+    after restoring any scalar-reduced voxel dims) VoxelData-compatible DataArrays,
+    carrying a `VoxelToWorldIndex` on native voxel dims `k`/`j`/`i`.
 
     Parameters
     ----------
@@ -183,7 +183,7 @@ def validate_labels(
           output holds the `mask` coordinate values (e.g., region label).
 
     data : xarray.DataArray
-        Data array to validate labels against.
+        VoxelData-compatible DataArray to validate labels against.
     labels_name : str, default: "labels"
         Name of the labels parameter (used in error messages).
 
@@ -197,7 +197,7 @@ def validate_labels(
     TypeError
         If `labels` is not an integer dtype DataArray.
     ValueError
-        If `labels` or `data` isn't VoxelData-compatible, or if `labels`'s
+        If `labels` or `data` isn't a VoxelData-compatible DataArray, or if `labels`'s
         voxel grid doesn't match `data`'s.
     """
     if not isinstance(labels, xr.DataArray):

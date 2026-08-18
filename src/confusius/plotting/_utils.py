@@ -198,7 +198,7 @@ def _materialize_axis_aligned_world_grid_for_display(
     Parameters
     ----------
     data : xarray.DataArray
-        Axis-aligned VoxelData.
+        Axis-aligned VoxelData-compatible DataArray.
 
     Returns
     -------
@@ -270,7 +270,8 @@ def resample_to_axis_aligned_world_grid(
     Parameters
     ----------
     data : xarray.DataArray
-        Three-dimensional or three-dimensional-plus-time VoxelData.
+        Three-dimensional or three-dimensional-plus-time DataArray. VoxelData-compatible
+        inputs are resampled using their voxel-to-world index.
     reference : xarray.DataArray, optional
         Axis-aligned world-grid DataArray to reuse as the resampling target.
         If not provided, a new plotting grid is synthesized from `data`'s world
@@ -279,9 +280,8 @@ def resample_to_axis_aligned_world_grid(
     Returns
     -------
     xarray.DataArray
-        Axis-aligned world-grid DataArray (still VoxelData-compatible: native voxel
-        dims with a voxel-to-world index) when `data` has voxel-to-world geometry;
-        otherwise the original input.
+        Axis-aligned world-grid VoxelData-compatible DataArray when `data` has
+        voxel-to-world geometry; otherwise the original input.
     """
     if not has_voxel_to_world_index(data) or has_axis_aligned_voxel_to_world_index(
         data

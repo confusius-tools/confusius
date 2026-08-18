@@ -50,7 +50,7 @@ def register_volumewise(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data to register.
+        VoxelData-compatible DataArray with a `time` dimension to register.
     reference_time : int, default: 0
         Index of the time point to use as registration target.
     n_jobs : int, default: -1

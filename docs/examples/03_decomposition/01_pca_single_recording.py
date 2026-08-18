@@ -95,7 +95,7 @@ data_std = cf.signal.standardize(data)
 # %% [markdown]
 # In ConfUSIus, the [`PCA`][confusius.decomposition.PCA] model wraps the familiar
 # scikit-learn [`PCA`][sklearn.decomposition.PCA] model while preserving the
-# fUSI DataArray metadata and coordinates. [`PCA`][confusius.decomposition.PCA] expects
+# VoxelData array metadata and coordinates. [`PCA`][confusius.decomposition.PCA] expects
 # the same arguments as the scikit-learn model, such as
 # [`n_components`][confusius.decomposition.PCA] for the number of
 # principal components to compute, and

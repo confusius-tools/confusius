@@ -28,8 +28,16 @@ else gridded in space. A VoxelData-compatible DataArray is **always**:
   lazily derives world coordinates `z`/`y`/`x` from a single voxel-to-world affine.
   World coordinates are never stored directly—always this index's output.
 
-Every 3D spatial array in the codebase must be VoxelData. Use "VoxelData-compatible" /
-"the VoxelData model" in code, docstrings, and docs.
+Every 3D spatial array in the codebase must be VoxelData. Use these terms
+consistently in code, docstrings, and docs:
+
+- **VoxelData-compatible DataArray**: formal docstring/API term for an
+  `xarray.DataArray` that satisfies the required VoxelData structure.
+- **VoxelData array**: prose shorthand when the context is already clear.
+- **DataArray following the VoxelData model**: explanatory intro text when
+  defining or teaching the concept.
+- **VoxelData geometry**: specifically the affine/index/spatial coordinate semantics,
+  not the whole array.
 
 Use `confusius.validation.validate_fusi`/`ensure_fusi` to check any VoxelData array—by
 default it enforces the universal `k`/`j`/`i` + `VoxelToWorldIndex` structure above

@@ -231,7 +231,7 @@ def get_representative_time_step(
 def ensure_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
     """Fill in default metadata attrs on `data`'s `time` coordinate.
 
-    Every ConfUSIus fUSI DataArray with a `time` dimension carries
+    Every VoxelData-compatible DataArray with a `time` dimension carries
     `volume_acquisition_reference`, `volume_acquisition_duration`, and `units` on its
     `time` coordinate. Data built without going through
     [create_fusi_dataarray][confusius.xarray.create_fusi_dataarray] or an I/O loader
@@ -245,7 +245,7 @@ def ensure_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
     Parameters
     ----------
     data : xarray.DataArray
-        DataArray to fill in.
+        VoxelData-compatible DataArray to fill in.
 
     Returns
     -------

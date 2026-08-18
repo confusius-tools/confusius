@@ -1,4 +1,4 @@
-"""Pattern decoding for fUSI DataArrays.
+"""Pattern decoding for VoxelData-compatible DataArrays.
 
 This package provides decoders in the spirit of
 [`nilearn.decoding`](https://nilearn.github.io/dev/decoding/):

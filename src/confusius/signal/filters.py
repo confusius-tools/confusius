@@ -150,8 +150,8 @@ def filter_butterworth(
     ----------
     signals : (time, ...) xarray.DataArray
         Array to filter. Must have a `time` dimension. Can be any shape, e.g.,
-        extracted signals `(time, space)`, full 3D+t imaging data `(time, z, y,
-        x)`, or regional signals `(time, region)`.
+        extracted signals `(time, space)`, VoxelData-compatible 3D+t imaging
+        data `(time, k, j, i)`, or regional signals `(time, region)`.
 
         !!! warning "Chunking along time is not supported"
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
@@ -279,8 +279,8 @@ def filter_cosine(
     ----------
     signals : (time, ...) xarray.DataArray
         Array to filter. Must have a `time` dimension. Can be any shape, e.g.,
-        extracted signals `(time, space)`, full 3D+t imaging data `(time, z, y,
-        x)`, or regional signals `(time, region)`.
+        extracted signals `(time, space)`, VoxelData-compatible 3D+t imaging
+        data `(time, k, j, i)`, or regional signals `(time, region)`.
 
         !!! warning "Chunking along time is not supported"
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:

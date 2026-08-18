@@ -95,7 +95,7 @@ data_nmf = xr.concat(
 # ## Fit temporal NMF
 #
 # [`NMF`][confusius.decomposition.NMF] wraps the familiar scikit-learn
-# [`NMF`][sklearn.decomposition.NMF] estimator while preserving fUSI DataArray metadata
+# [`NMF`][sklearn.decomposition.NMF] estimator while preserving VoxelData array metadata
 # and coordinates. With `mode="temporal"` (the default), it fits on `(time, voxels)`
 # and returns:
 #

@@ -104,6 +104,13 @@ first_50_volumes
 # meaningful than index-based slicing because the bounds are expressed directly in
 # physical units (e.g., millimeters) rather than in terms of array indices, which may
 # not be as intuitive to interpret.
+#
+# !!! warning "World-coordinate `.sel` requires an axis-aligned recording"
+#     `.sel` works because this recording's voxel-to-world affine is axis-aligned (no
+#     rotation or shear), so a range of `y`/`x` values maps onto a rectangular block of
+#     `j`/`i` indices. When the affine is oblique, a range of world coordinates no
+#     longer picks out an axis-aligned block of voxels, so `.sel` cannot be used for ROI
+#     selection. Instead, index into `k`/`j`/`i` directly or resample the recording.
 
 # %%
 roi = data.sel(y=slice(3.5, 7.5), x=slice(-2.0, 2.0))

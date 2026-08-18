@@ -1,7 +1,7 @@
 """First-level GLM for single-subject fUSI analysis.
 
 This module implements a sklearn-style estimator for fitting voxel-wise General Linear
-Models to fUSI time-series data stored as xarray DataArrays.
+Models to fUSI time-series data stored as VoxelData-compatible DataArrays.
 
 Portions of this file are derived from Nilearn, which is licensed under the BSD-3-Clause
 License. See `NOTICE` file for details.
@@ -48,7 +48,7 @@ def _flatten_spatial(
     Parameters
     ----------
     data : (time, ...) xarray.DataArray
-        Input fUSI data.
+        VoxelData-compatible DataArray with a `time` dimension.
 
     Returns
     -------
@@ -69,7 +69,7 @@ def _flatten_spatial(
 class FirstLevelModel(BaseEstimator):
     """First-level GLM estimator for voxel-wise fUSI analysis.
 
-    Fits a General Linear Model to fUSI DataArrays and computes statistical contrasts.
+    Fits a General Linear Model to VoxelData-compatible DataArrays and computes statistical contrasts.
     Supports multiple runs (fixed-effects combination) and autoregressive noise
     modelling.
 
@@ -207,9 +207,9 @@ class FirstLevelModel(BaseEstimator):
         Parameters
         ----------
         run_data : xarray.DataArray or list of xarray.DataArray
-            Single-run or multi-run fUSI data. Must have a `time` dimension; all other
-            dimensions are treated as spatial (e.g. `(time, z, y, x)` or `(time, pose,
-            z, y, x)`).
+            Single-run or multi-run VoxelData-compatible DataArray. Must have a `time`
+            dimension; all other dimensions are treated as spatial (e.g.
+            `(time, k, j, i)` or `(time, pose, k, j, i)`).
         events : pandas.DataFrame or list of pandas.DataFrame, optional
             Events table(s) with `onset`, `duration`, and `trial_type` columns. Onsets
             are in the same world time units as the `time` coordinate of `run_data`.

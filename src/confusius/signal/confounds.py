@@ -212,8 +212,8 @@ def regress_confounds(
     ----------
     signals : (time, ...) xarray.DataArray
         Signals to clean. Must have a `time` dimension. Can be any shape,
-        e.g., extracted signals `(time, space)`, full 3D+t imaging data
-        `(time, z, y, x)`, or regional signals `(time, region)`.
+        e.g., extracted signals `(time, space)`, VoxelData-compatible 3D+t
+        imaging data `(time, k, j, i)`, or regional signals `(time, region)`.
 
         !!! warning "Chunking along time is not supported"
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
@@ -401,7 +401,7 @@ def compute_compcor_confounds(
     signals : (time, ...) xarray.DataArray
         Signals from which to extract components. Must have a `time` dimension.
         For extracted signals, shape is typically `(time, space)`. For full
-        imaging data, shape is typically `(time, z, y, x)`.
+        VoxelData-compatible imaging data, shape is typically `(time, k, j, i)`.
 
         !!! warning "Chunking along time is not supported"
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:

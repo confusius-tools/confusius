@@ -441,7 +441,7 @@ def load_scan(
     bps_path: str | Path | None = None,
     chunks: int | tuple[int, ...] | str | None = "auto",
 ) -> xr.DataArray:
-    """Load an Iconeus SCAN file as a lazy Xarray DataArray.
+    """Load an Iconeus SCAN file as a lazy VoxelData-compatible DataArray.
 
     SCAN files (`.scan`) come in two on-disk formats, both handled here:
 
@@ -478,7 +478,7 @@ def load_scan(
     Returns
     -------
     xarray.DataArray
-        Lazy DataArray with dimensions and coordinates:
+        Lazy VoxelData-compatible DataArray with dimensions and coordinates:
 
         - v1 `2Dscan` → `(time, k, j, i)`.
         - v1 `3Dscan` → `(pose, k, j, i)`.
@@ -582,7 +582,7 @@ def _load_scan_v1(
     bps_path: str | Path | None,
     chunks: int | tuple[int, ...] | str | None,
 ) -> xr.DataArray:
-    """Load an HDF5-based Iconeus SCAN (v1) file as a lazy DataArray.
+    """Load an HDF5-based Iconeus SCAN (v1) file as a lazy VoxelData-compatible DataArray.
 
     Parameters
     ----------
@@ -597,7 +597,8 @@ def _load_scan_v1(
     Returns
     -------
     xarray.DataArray
-        Lazy DataArray whose dims depend on the file's `acquisitionMode`. See
+        Lazy VoxelData-compatible DataArray whose dims depend on the file's
+        `acquisitionMode`. See
         `load_scan` for the full contract.
 
     Raises
@@ -679,7 +680,7 @@ def _load_2dscan(
     attrs: dict[str, Any],
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build VoxelData for `2Dscan` mode."""
+    """Build a VoxelData array for `2Dscan` mode."""
     data_lazy = _swap_depth_elevation_axes(raw_lazy)
     time: npt.NDArray[np.float64] = np.array(
         h5["/acqMetaData/time"][()], dtype=np.float64
@@ -700,7 +701,7 @@ def _load_3dscan(
     npose: int,
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build VoxelData for `3Dscan` mode."""
+    """Build a VoxelData array for `3Dscan` mode."""
     sq = da.squeeze(raw_lazy, axis=1)
     data_lazy = _swap_depth_elevation_axes(sq)
     return create_fusi_dataarray(
@@ -720,7 +721,7 @@ def _load_4dscan(
     nblock_repeat: int,
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build VoxelData for `4Dscan` mode."""
+    """Build a VoxelData array for `4Dscan` mode."""
     n_time = raw_lazy.shape[0] * nblock_repeat
     sq = _fold_block_repeat_into_time(raw_lazy, npose, nblock_repeat)
     data_lazy = _swap_depth_elevation_axes(sq)
@@ -950,7 +951,7 @@ def _load_scan_v2(
     path: Path,
     chunks: int | tuple[int, ...] | str | None,
 ) -> xr.DataArray:
-    """Load a binary Iconeus SCAN v2 file as a lazy DataArray (experimental).
+    """Load a binary Iconeus SCAN v2 file as a lazy VoxelData-compatible DataArray.
 
     The v2 format is a flat binary file: a variable-length header followed by a
     little-endian `float64` power-Doppler payload. Field offsets were reverse-engineered
@@ -981,7 +982,8 @@ def _load_scan_v2(
     Returns
     -------
     xarray.DataArray
-        Lazy DataArray with dims `(time, k, j, i)` or `(time, pose, k, j, i)` and
+        Lazy VoxelData-compatible DataArray with dims `(time, k, j, i)` or
+        `(time, pose, k, j, i)` and
         world coordinates derived from a `VoxelToWorldIndex` affine (depth origin
         from the header when found; lateral/elevation centered on zero — see
         `load_scan` Notes).

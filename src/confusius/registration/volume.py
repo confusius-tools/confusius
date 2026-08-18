@@ -50,9 +50,9 @@ def _validate_register_volume_inputs(
     Parameters
     ----------
     moving : xarray.DataArray
-        Volume to register.
+        Spatial-only VoxelData-compatible DataArray to register.
     fixed : xarray.DataArray
-        Reference volume.
+        Spatial-only VoxelData-compatible DataArray used as the reference volume.
     fixed_mask : xarray.DataArray or None
         Mask for fixed image. If provided, must have same dimensions as fixed.
     moving_mask : xarray.DataArray or None
@@ -97,7 +97,7 @@ def _validate_register_volume_inputs(
     # --- DataArray dims and ndim ---
     if "time" in fixed.dims or "time" in moving.dims:
         raise ValueError(
-            "register_volume expects spatial-only DataArrays. "
+            "register_volume expects spatial-only VoxelData-compatible DataArrays. "
             "For volume-wise registration, use register_volumewise."
         )
 

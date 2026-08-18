@@ -18,7 +18,7 @@ def validate_bspline(da: xr.DataArray) -> None:
     ------
     ValueError
         If `da.attrs["transform_type"] != "bspline_transform"`, required attrs are
-        missing, or `da` is not a canonical ConfUSIus voxel-grid DataArray.
+        missing, or `da` is not a VoxelData-compatible DataArray.
     """
     transform_type = da.attrs.get("transform_type", da.attrs.get("type"))
     if transform_type != "bspline_transform":
@@ -63,8 +63,8 @@ def validate_displacement_field(da: xr.DataArray) -> None:
     ------
     ValueError
         If `da.attrs["type"] != "displacement_field_transform"`, `da` does not have
-        `"component"` as its first dimension, or `da` is not a canonical ConfUSIus
-        voxel-grid DataArray.
+        `"component"` as its first dimension, or `da` is not a VoxelData-compatible
+        DataArray.
     """
     if da.attrs.get("type") != "displacement_field_transform":
         raise ValueError(

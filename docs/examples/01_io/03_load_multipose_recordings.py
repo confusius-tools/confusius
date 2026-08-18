@@ -3,8 +3,8 @@
 #
 # This example shows how to assemble a multi-pose fUSI recording that was not acquired
 # through an Iconeus SCAN file, by loading each pose as a separate NIfTI file and
-# stacking them into a single [VoxelData][confusius._utils.geometry.VoxelToWorldIndex]
-# DataArray with pose-dependent voxel-to-world geometry.
+# stacking them into a single VoxelData array with pose-dependent voxel-to-world
+# geometry.
 #
 # The [Pepe, Mariani et al. (2026)
 # dataset][confusius.datasets.fetch_pepe_mariani_2026] contains transcranial mouse

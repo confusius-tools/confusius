@@ -1,4 +1,4 @@
-"""Searchlight decoding for canonical `(time, k, j, i)` fUSI DataArrays.
+"""Searchlight decoding for VoxelData-compatible DataArrays.
 
 Portions of this module are inspired by `nilearn.decoding.searchlight`, which is
 licensed under the BSD-3-Clause License. See `NOTICE` for details.
@@ -388,8 +388,8 @@ class SearchLight(BaseEstimator):
 
     This estimator wraps scikit-learn while keeping xarray metadata:
 
-    - Input data must be a canonical `(time, k, j, i)` fUSI DataArray (a real
-      `VoxelToWorldIndex`, no `pose` or extra dimensions).
+    - Input data must be a VoxelData-compatible DataArray with dims
+      `(time, k, j, i)` (a real `VoxelToWorldIndex`, no `pose` or extra dimensions).
     - The `time` dimension is the sample axis. It need not be temporally ordered. For
       trial-averaged data, rename the trial dimension with `.rename(trial="time")`.
     - `scores_` is returned in the spatial geometry of `process_mask`.
@@ -522,7 +522,7 @@ class SearchLight(BaseEstimator):
         Parameters
         ----------
         X : (time, k, j, i) xarray.DataArray
-            Canonical fUSI data. The `time` dimension is the sample axis.
+            VoxelData-compatible DataArray. The `time` dimension is the sample axis.
         y : (n_samples,) array-like or xarray.DataArray
             Targets aligned with `X`'s `time` axis.
         groups : (n_samples,) array-like, optional
@@ -537,8 +537,8 @@ class SearchLight(BaseEstimator):
         Raises
         ------
         ValueError
-            If `X` is h5py-backed, is not a canonical `(time, k, j, i)` fUSI DataArray,
-            or lacks a `VoxelToWorldIndex`; if `radius` is negative; if `mask` or
+            If `X` is h5py-backed, is not a VoxelData-compatible DataArray with dims
+            `(time, k, j, i)`, or lacks a `VoxelToWorldIndex`; if `radius` is negative; if `mask` or
             `process_mask` lacks a `VoxelToWorldIndex`; if `process_mask` is not a
             subset of `mask`; if `y` or `groups` do not align with `X`; or if the masked
             data contains non-finite values.

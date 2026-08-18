@@ -21,7 +21,7 @@ class FUSIRegistrationAccessor:
     Parameters
     ----------
     xarray_obj : xarray.DataArray
-        The DataArray to wrap.
+        The VoxelData-compatible DataArray to wrap.
 
     Examples
     --------

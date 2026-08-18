@@ -1,4 +1,4 @@
-"""Assembling independently loaded single-pose grids into one pose-dependent DataArray."""
+"""Assembling single-pose VoxelData arrays into one pose-dependent DataArray."""
 
 from collections.abc import Hashable, Sequence
 

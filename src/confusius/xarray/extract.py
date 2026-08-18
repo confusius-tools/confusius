@@ -8,13 +8,15 @@ import xarray as xr
 class FUSIExtractAccessor:
     """Xarray accessor for signal extraction operations.
 
-    Provides convenient methods for extracting signals from N-D fUSI data by flattening
-    spatial dimensions, and reconstructing N-D volumes from processed signals.
+    Provides convenient methods for extracting signals from VoxelData arrays by
+    flattening spatial dimensions, and reconstructing VoxelData arrays from processed
+    signals.
 
     Parameters
     ----------
     xarray_obj : xarray.DataArray
-        The DataArray to wrap.
+        DataArray to wrap. Extraction methods expect a VoxelData-compatible DataArray;
+        `unmask` expects an already-extracted signals array.
 
     Examples
     --------
@@ -174,22 +176,22 @@ class FUSIExtractAccessor:
         """Reconstruct N-D volume from masked signals.
 
         Reconstructs the full spatial volume from a DataArray of signals, which must
-        have a `voxels` dimension. This is a convenience wrapper around
+        have a `space` dimension. This is a convenience wrapper around
         `confusius.extract.unmask()`.
 
         Parameters
         ----------
         mask : xarray.DataArray
-            Boolean mask used for the original extraction. Provides spatial dimensions
-            and coordinates for reconstruction.
+            Boolean VoxelData-compatible mask array used for the original extraction.
+            Provides native voxel dimensions and VoxelData geometry for reconstruction.
         fill_value : float, default: 0.0
             Value to fill in non-masked voxels.
 
         Returns
         -------
         xarray.DataArray
-            Reconstructed DataArray with shape `(..., k, j, i)` where spatial
-            dimensions and coordinates come from the mask.
+            Reconstructed VoxelData-compatible DataArray with shape `(..., k, j, i)`
+            where native voxel dimensions and VoxelData geometry come from the mask.
 
         Examples
         --------

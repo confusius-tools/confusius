@@ -1,6 +1,6 @@
 """B-spline transform helpers for fUSI registration.
 
-Both transform representations in this module are canonical ConfUSIus DataArrays
+Both transform representations in this module are VoxelData-compatible DataArrays
 (built with [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]) with an
 extra leading `component` dimension:
 

@@ -42,7 +42,7 @@ Xarray can read and write data from multiple storage formats, including:
 
 Additionally, ConfUSIus provides utilities to read and write
 [**NIfTI**](https://nifti.nimh.nih.gov/) files (the standard neuroimaging format for
-BIDS) as Xarray DataArrays, automatically reading and writing matching fUSI-BIDS JSON
+BIDS) as VoxelData-compatible DataArrays, automatically reading and writing matching fUSI-BIDS JSON
 sidecars when present.
 
 ### Recommended Formats for fUSI
@@ -339,8 +339,8 @@ is.
 
 #### Converting SCAN Data to NIfTI
 
-Since [`load_scan`][confusius.io.load_scan] returns a standard Xarray DataArray with
-ConfUSIus-compatible dimensions and coordinates, you can save it directly to NIfTI using
+Since [`load_scan`][confusius.io.load_scan] returns a VoxelData-compatible DataArray with
+VoxelData dimensions and coordinates, you can save it directly to NIfTI using
 [`save_nifti`][confusius.io.save_nifti] or the Xarray accessor.
 
 For **2Dscan** data, save it directly:
@@ -380,7 +380,7 @@ saving, or save each pose separately if you want to retain the multi-pose struct
 
 ### Loading NIfTI Files
 
-Use [`confusius.load`][confusius.load] to load NIfTI files as lazy Xarray DataArrays:
+Use [`confusius.load`][confusius.load] to load NIfTI files as lazy VoxelData-compatible DataArrays:
 
 ```pycon
 >>> import confusius as cf
@@ -419,7 +419,7 @@ power = cf.create_fusi_dataarray(
 )
 ```
 
-See the [Create a fUSI DataArray from a MAT
+See the [Create a VoxelData-compatible DataArray from a MAT
 file](../examples/_built/io/create_fusi_dataarray_from_mat.md) example for a complete
 walkthrough, from a real lab-specific MAT file to motion correction and a task GLM.
 
@@ -591,10 +591,10 @@ Quick reference for converting between formats:
 | From | To | Function |
 |------|-----|----------|
 | AUTC DATs | Zarr | [`confusius.io.convert_autc_dats_to_zarr`][confusius.io.convert_autc_dats_to_zarr] |
-| EchoFrame DAT | Xarray DataArray | [`confusius.io.load_echoframe_dat`][confusius.io.load_echoframe_dat] |
+| EchoFrame DAT | VoxelData-compatible DataArray | [`confusius.io.load_echoframe_dat`][confusius.io.load_echoframe_dat] |
 | EchoFrame DAT | Zarr | [`confusius.io.convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr] |
-| Iconeus SCAN | Xarray DataArray | [`confusius.load`][confusius.load] |
-| NIfTI | Xarray DataArray | [`confusius.load`][confusius.load] |
-| Zarr | Xarray DataArray | [`confusius.load`][confusius.load] / [`xarray.open_zarr`][xarray.open_zarr] (Dataset) |
-| Xarray DataArray | NIfTI | [`confusius.save`][confusius.save] / [`.fusi.save`][confusius.xarray.FUSIAccessor.save] |
-| Xarray DataArray | Zarr | [`confusius.save`][confusius.save] / [`.fusi.save`][confusius.xarray.FUSIAccessor.save] / [`.to_zarr`][xarray.DataArray.to_zarr] |
+| Iconeus SCAN | VoxelData-compatible DataArray | [`confusius.load`][confusius.load] |
+| NIfTI | VoxelData-compatible DataArray | [`confusius.load`][confusius.load] |
+| Zarr | VoxelData-compatible DataArray or Dataset | [`confusius.load`][confusius.load] / [`xarray.open_zarr`][xarray.open_zarr] (Dataset) |
+| VoxelData-compatible DataArray | NIfTI | [`confusius.save`][confusius.save] / [`.fusi.save`][confusius.xarray.FUSIAccessor.save] |
+| VoxelData-compatible DataArray | Zarr | [`confusius.save`][confusius.save] / [`.fusi.save`][confusius.xarray.FUSIAccessor.save] / [`.to_zarr`][xarray.DataArray.to_zarr] |

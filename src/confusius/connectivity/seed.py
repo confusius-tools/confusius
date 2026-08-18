@@ -75,7 +75,7 @@ class SeedBasedMaps(BaseEstimator):
     """Seed-based functional connectivity maps from fUSI data.
 
     Computes voxel-wise Pearson correlation maps between one or more seed region signals
-    and every voxel in a fUSI DataArray.
+    and every voxel in a VoxelData-compatible DataArray.
 
     Two ways to supply the seed signal are supported:
 
@@ -99,11 +99,11 @@ class SeedBasedMaps(BaseEstimator):
         Integer label maps defining the seed region(s). Two formats are accepted (same
         as [`extract_with_labels`][confusius.extract.extract_with_labels]):
 
-        - **Flat label map**: spatial dims only, e.g. `(z, y, x)`.
+        - **Flat label map**: spatial dims only, e.g. `(k, j, i)`.
           Background voxels are `0`; each unique non-zero integer is a
           separate seed region.
         - **Stacked mask format**: leading `mask` dim followed by spatial
-          dims, e.g. `(mask, z, y, x)`.  Each layer has values in `{0,
+          dims, e.g. `(mask, k, j, i)`.  Each layer has values in `{0,
           region_id}` and regions may overlap.
 
         A boolean mask can be used by converting it first: `mask.astype(int)`. Mutually
@@ -237,8 +237,8 @@ class SeedBasedMaps(BaseEstimator):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            A fUSI DataArray to estimate seed-based maps from.  Must have a `time`
-            dimension.  The spatial dimensions must be compatible with `seed_masks` when
+            VoxelData-compatible DataArray to estimate seed-based maps from. Must have
+            a `time` dimension. The spatial dimensions must be compatible with `seed_masks` when
             using mask-based seeding.
 
             !!! warning "Chunking along time"

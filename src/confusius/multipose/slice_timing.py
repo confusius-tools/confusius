@@ -64,8 +64,9 @@ def correct_slice_timings(
     Parameters
     ----------
     da : xarray.DataArray
-        DataArray with a `slice_time` coordinate, or a pose-dependent
-        `(time, pose)`-shaped `time` coordinate, with dims `(time, <sweep_dim>)`.
+        VoxelData-compatible DataArray with a `slice_time` coordinate, or a
+        pose-dependent `(time, pose)`-shaped `time` coordinate, with dims
+        `(time, <sweep_dim>)`.
     method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}, default: "linear"
         Interpolation method passed to `scipy.interpolate.interp1d`:
 
@@ -88,7 +89,7 @@ def correct_slice_timings(
     Returns
     -------
     xarray.DataArray
-        New DataArray with the same dims as the input, resampled so every sweep
+        New VoxelData-compatible DataArray with the same dims as the input, resampled so every sweep
         position appears simultaneous. For already-consolidated input, `time` is
         unchanged and `slice_time` is dropped (avoiding accidental
         double-correction). For pose-dependent input, `time` becomes a genuine 1D

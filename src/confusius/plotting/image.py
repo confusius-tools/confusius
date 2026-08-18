@@ -1631,12 +1631,12 @@ class VolumePlotter:
         mask : xarray.DataArray
             Integer label map in one of two formats:
 
-            - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+            - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
               labeled `0`; each unique non-zero integer identifies a distinct,
               non-overlapping region. The `region` coordinate of the output holds the
               integer label values.
             - **Stacked mask format**: Has a leading `mask` dimension followed by
-              spatial dims, e.g. `(mask, z, y, x)`. Each layer has values in `{0,
+              spatial dims, e.g. `(mask, k, j, i)`. Each layer has values in `{0,
               region_id}` and regions may overlap. The `region` coordinate of the
               output holds the `mask` coordinate values (e.g., region label).
 
@@ -2017,12 +2017,12 @@ def plot_contours(
     mask : xarray.DataArray
         Integer label map in one of two formats:
 
-        - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+        - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
           labeled `0`; each unique non-zero integer identifies a distinct,
           non-overlapping region. The `regions` coordinate of the output holds the
           integer label values.
         - **Stacked mask format**: Has a leading `masks` dimension followed by
-          spatial dims, e.g. `(masks, z, y, x)`. Each layer has values in `{0,
+          spatial dims, e.g. `(masks, k, j, i)`. Each layer has values in `{0,
           region_id}` and regions may overlap. The `regions` coordinate of the
           output holds the `masks` coordinate values (e.g., region label).
 
@@ -2857,8 +2857,8 @@ def _prepare_carpet_data(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array with a `"time"` dimension and coordinate: VoxelData, or an
-        already-extracted signals array.
+        Input data array with a `"time"` dimension and coordinate: a VoxelData-compatible
+        DataArray, or an already-extracted signals array.
     mask : xarray.DataArray, optional
         Boolean mask to select elements. Defaults to all non-zero elements.
     detrend_order : int, optional
@@ -3052,8 +3052,8 @@ def plot_carpet(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array with a `time` dimension: VoxelData, or an already-extracted
-        signals array (e.g.
+        Input data array with a `time` dimension: a VoxelData-compatible DataArray, or
+        an already-extracted signals array (e.g.
         [`extract_with_labels`][confusius.extract.extract_with_labels] output).
     mask : xarray.DataArray, optional
         Boolean mask with the same non-`time` dimensions and coordinates as `data`.

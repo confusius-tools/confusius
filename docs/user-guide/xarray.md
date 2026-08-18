@@ -207,14 +207,14 @@ spatial coordinates as singleton dimensions before validating the data. For exam
 resampling APIs. Dimension-generic operations such as smoothing preserve the indexed
 shape.
 
-## Creating fUSI DataArrays from Raw Arrays
+## Creating VoxelData-compatible DataArrays from Raw Arrays
 
 Use [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] when you already
-have a NumPy, Dask, or array-like object and want to create a ConfUSIus-compatible
+have a NumPy, Dask, or array-like object and want to create a VoxelData-compatible
 DataArray. This is useful when you have raw data from a custom acquisition system or a
-non-standard file format. The function will attach ConfUSIus-compatible dimensions,
-coordinates, and metadata. Dimensions can be supplied in any order; the result is
-canonicalized to native `(time, k, j, i)` order:
+non-standard file format. The function will attach VoxelData dimensions, coordinates,
+and metadata. Dimensions can be supplied in any order; the result is canonicalized to
+native `(time, k, j, i)` order:
 
 ```python
 import confusius as cf

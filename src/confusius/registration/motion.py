@@ -310,8 +310,8 @@ def create_motion_dataframe(
     affines : list[numpy.ndarray]
         List of affine matrices from registration.
     reference : xarray.DataArray
-        Spatial DataArray defining the world grid for framewise displacement
-        computation.
+        Spatial-only VoxelData-compatible DataArray defining the world grid for
+        framewise displacement computation.
     mask : numpy.ndarray, optional
         Boolean mask for FD computation.
     time_coords : numpy.ndarray, optional

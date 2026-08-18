@@ -1,4 +1,4 @@
-"""Non-negative matrix factorization for `(time, ...)` VoxelData."""
+"""Non-negative matrix factorization for VoxelData arrays or signals."""
 
 from typing import Literal
 
@@ -11,7 +11,7 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class NMF(_BaseFUSIDecomposer):
-    r"""Non-negative matrix factorization (NMF) for VoxelData.
+    r"""Non-negative matrix factorization (NMF) for VoxelData arrays or signals.
 
     Find two non-negative matrices, i.e. matrices with all non-negative elements,
     (`W`, `H`) whose product approximates the non-negative matrix `X`. This
@@ -120,7 +120,7 @@ class NMF(_BaseFUSIDecomposer):
 
     mask : xarray.DataArray, optional
         Boolean mask selecting which elements to include during fitting and
-        projection: voxels, for VoxelData input, or features, for an
+        projection: voxels, for VoxelData-compatible DataArray input, or features, for an
         already-extracted signals input (e.g.
         [`extract_with_labels`][confusius.extract.extract_with_labels] output). Must
         match the non-`time` dimensions of the input data in the same order.
@@ -173,7 +173,7 @@ class NMF(_BaseFUSIDecomposer):
 
     Examples
     --------
-    On VoxelData:
+    On a VoxelData array:
 
     >>> import numpy as np
     >>> from confusius.decomposition import NMF
@@ -252,12 +252,12 @@ class NMF(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "NMF":
-        """Fit NMF on `(time, ...)` VoxelData.
+        """Fit NMF on a VoxelData-compatible DataArray or signals array.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: VoxelData, or an already-extracted
+            Input data: a VoxelData-compatible DataArray, or an already-extracted
             signals array (see class docstring). Must be non-negative.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.

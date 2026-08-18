@@ -1,4 +1,4 @@
-"""FastICA decomposition for `(time, ...)` VoxelData."""
+"""FastICA decomposition for VoxelData arrays or signals."""
 
 from collections.abc import Callable
 from typing import Any, Literal
@@ -12,7 +12,7 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class FastICA(_BaseFUSIDecomposer):
-    """Fast independent component analysis (ICA) for VoxelData.
+    """Fast independent component analysis (ICA) for VoxelData arrays or signals.
 
     The FastICA algorithm is based on Hyvarinen *et al.* (2000).
 
@@ -100,7 +100,7 @@ class FastICA(_BaseFUSIDecomposer):
         an int for reproducible results across multiple function calls.
     mask : xarray.DataArray, optional
         Boolean mask selecting which elements to include during fitting and
-        projection: voxels, for VoxelData input, or features, for an
+        projection: voxels, for VoxelData-compatible DataArray input, or features, for an
         already-extracted signals input (e.g.
         [`extract_with_labels`][confusius.extract.extract_with_labels] output). Must
         match the non-`time` dimensions of the input data in the same order.
@@ -141,7 +141,7 @@ class FastICA(_BaseFUSIDecomposer):
 
     Examples
     --------
-    Spatial ICA (default, matches FSL MELODIC), on VoxelData:
+    Spatial ICA (default, matches FSL MELODIC), on a VoxelData array:
 
     >>> import numpy as np
     >>> from confusius.decomposition import FastICA
@@ -210,12 +210,12 @@ class FastICA(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "FastICA":
-        """Fit FastICA on `(time, ...)` VoxelData.
+        """Fit FastICA on a VoxelData-compatible DataArray or signals array.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: VoxelData, or an already-extracted
+            Input data: a VoxelData-compatible DataArray, or an already-extracted
             signals array (see class docstring).
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.

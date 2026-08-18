@@ -1,8 +1,9 @@
 """Utilities for loading and saving NIfTI files.
 
-This module provides functions to load NIfTI neuroimaging files as lazy Xarray
-DataArrays using nibabel's proxy arrays and Dask for out-of-core processing. Following
-ConfUSIus conventions, data is stored with dimensions `(time, z, y, x)`.
+This module provides functions to load NIfTI neuroimaging files as lazy
+VoxelData-compatible DataArrays using nibabel's proxy arrays and Dask for out-of-core
+processing. Following the VoxelData model, data is stored with native voxel dimensions
+`(..., time, k, j, i)` and VoxelToWorldIndex-derived world coordinates `z`, `y`, `x`.
 """
 
 import json
@@ -1067,7 +1068,7 @@ def load_nifti(
     *,
     coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
 ) -> xr.DataArray:
-    """Load a NIfTI file as a lazy Xarray DataArray.
+    """Load a NIfTI file as a lazy VoxelData-compatible DataArray.
 
     Loads NIfTI files using nibabel's proxy arrays for memory-efficient access, wrapping
     the data in Dask arrays for chunked, parallel processing. The data is transposed to
@@ -1109,8 +1110,9 @@ def load_nifti(
     Returns
     -------
     xarray.DataArray
-        Lazy DataArray with voxel-space dimensions in ConfUSIus order (`k`, `j`, `i`
-        plus optional `time`) and world coordinates `z`, `y`, `x`. Data is wrapped
+        Lazy VoxelData-compatible DataArray with voxel-space dimensions in ConfUSIus
+        order (`k`, `j`, `i` plus optional `time`) and world coordinates `z`, `y`,
+        `x`. Data is wrapped
         in a Dask array for out-of-core computation.
 
     Notes
@@ -1736,14 +1738,15 @@ def _prepare_data_for_nifti(
 def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
     """Return signed spatial spacings for NIfTI header serialization.
 
-    `data_array` is always canonical VoxelData here: `save_nifti` (the only caller)
+    `data_array` is always a VoxelData-compatible DataArray here: `save_nifti`
+    (the only caller)
     calls `ensure_fusi` before reaching this point, so spacing always comes from the
     `VoxelToWorldIndex` -- there is no plain-coordinate fallback to consider.
 
     Parameters
     ----------
     data_array : xarray.DataArray
-        Array being serialized. Must be VoxelData.
+        VoxelData-compatible DataArray being serialized.
 
     Returns
     -------
@@ -2340,7 +2343,7 @@ def save_nifti(
     qform_code: int | None = None,
     sform_code: int | None = None,
 ) -> None:
-    """Save an Xarray DataArray to NIfTI format.
+    """Save a VoxelData-compatible DataArray to NIfTI format.
 
     Saves the DataArray to a NIfTI file and always writes a BIDS-style JSON sidecar
     alongside it. The data is transposed to NIfTI convention `(x, y, z, time)` before
@@ -2349,7 +2352,7 @@ def save_nifti(
     Parameters
     ----------
     data_array : xarray.DataArray
-        DataArray to save.
+        VoxelData-compatible DataArray to save.
     path : str or pathlib.Path
         Output path for the NIfTI file, with `.nii` or `.nii.gz` extension. If
         `.nii.gz` is used, the file will be saved in compressed format.

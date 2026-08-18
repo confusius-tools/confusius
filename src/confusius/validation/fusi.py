@@ -415,7 +415,7 @@ def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:
 
 
 def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
-    """Canonicalize and validate a DataArray against the ConfUSIus VoxelData model.
+    """Canonicalize and validate a DataArray following the VoxelData model.
 
     Parameters
     ----------
@@ -428,7 +428,7 @@ def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
     Returns
     -------
     xarray.DataArray
-        Canonicalized DataArray that passed VoxelData validation.
+        Canonicalized VoxelData-compatible DataArray.
 
     Raises
     ------
@@ -456,7 +456,7 @@ def validate_fusi(
     regular_spacing_dims: RegularSpacingDims = "space",
     require_canonical_dim_order: bool = False,
 ) -> None:
-    """Validate that a DataArray follows the ConfUSIus VoxelData model.
+    """Validate that a DataArray follows the VoxelData model.
 
     This is the general-purpose VoxelData checker: by default it enforces only the
     universal `k`/`j`/`i` + `VoxelToWorldIndex` structure required of any
@@ -468,8 +468,8 @@ def validate_fusi(
     Parameters
     ----------
     data : xarray.DataArray
-        DataArray to validate. It must use native voxel dimensions `k`, `j`, `i` and
-        world coordinates `z`, `y`, `x`.
+        DataArray to validate. It must be a VoxelData-compatible DataArray with native
+        voxel dimensions `k`, `j`, `i` and derived world coordinates `z`, `y`, `x`.
     require_time : bool, default: False
         Whether to require a `time` dimension with more than one timepoint, as in an
         actual fUSI recording.

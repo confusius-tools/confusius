@@ -48,8 +48,9 @@ class AtlasAccessor:
     Parameters
     ----------
     ds : xarray.Dataset
-        Atlas Dataset with `reference`, `annotation`, and `hemispheres` data variables on
-        a common voxel-to-world `(k, j, i)` grid, and the atlas metadata in `attrs`.
+        Atlas Dataset with `reference`, `annotation`, and `hemispheres` data variables as
+        VoxelData-compatible DataArrays on a common `k`/`j`/`i` grid, and the atlas
+        metadata in `attrs`.
     """
 
     def __init__(self, ds: xr.Dataset) -> None:
@@ -60,18 +61,18 @@ class AtlasAccessor:
 
     @property
     def reference(self) -> xr.DataArray:
-        """Reference template DataArray.
+        """Reference template VoxelData-compatible DataArray.
 
         Returns
         -------
         xarray.DataArray
-            The reference template DataArray.
+            The reference template VoxelData-compatible DataArray.
         """
         return self._ds["reference"]
 
     @property
     def annotation(self) -> xr.DataArray:
-        """Region annotations DataArray.
+        """Region annotations VoxelData-compatible DataArray.
 
         `attrs["rgb_lookup"]` carries a `{id: [r, g, b]}` dict used for colormap
         construction.
@@ -79,18 +80,18 @@ class AtlasAccessor:
         Returns
         -------
         xarray.DataArray
-            The region annotation DataArray with integer labels.
+            The region annotation VoxelData-compatible DataArray with integer labels.
         """
         return self._ds["annotation"]
 
     @property
     def hemispheres(self) -> xr.DataArray:
-        """Hemisphere map DataArray (1 = left, 2 = right).
+        """Hemisphere map VoxelData-compatible DataArray (1 = left, 2 = right).
 
         Returns
         -------
         xarray.DataArray
-            The hemisphere map data variable.
+            The hemisphere map VoxelData-compatible DataArray.
         """
         return self._ds["hemispheres"]
 
@@ -244,8 +245,9 @@ class AtlasAccessor:
         Returns
         -------
         xarray.DataArray
-            Integer DataArray with dims `["mask", *annotation.dims]`. The `mask`
-            coordinate holds the region acronym for each layer, suffixed with `_L`/`_R`
+            Integer VoxelData-compatible DataArray with dims
+            `["mask", *annotation.dims]`. The `mask` coordinate holds the region acronym
+            for each layer, suffixed with `_L`/`_R`
             when the corresponding `side` is `"left"`/`"right"` (left/right requests for
             the same region would otherwise share an acronym).
 
@@ -351,7 +353,8 @@ class AtlasAccessor:
         Parameters
         ----------
         reference : xarray.DataArray
-            Target grid. Must be 2D or 3D and must not have a `time` dimension.
+            VoxelData-compatible DataArray defining the target grid. Must be 2D or 3D
+            and must not have a `time` dimension.
         transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
             Pull/inverse transform returned by `register_volume`, mapping `reference`
             world coordinates to atlas world coordinates.
@@ -631,8 +634,9 @@ def get_atlas_masks(
     Returns
     -------
     xarray.DataArray
-        Integer DataArray with dims `["mask", *annotation.dims]`. The `mask` coordinate
-        holds the region acronym for each layer, suffixed with `_L`/`_R` when the
+        Integer VoxelData-compatible DataArray with dims `["mask", *annotation.dims]`.
+        The `mask` coordinate holds the region acronym for each layer, suffixed with
+        `_L`/`_R` when the
         corresponding `side` is `"left"`/`"right"` (left/right requests for the same
         region would otherwise share an acronym).
 

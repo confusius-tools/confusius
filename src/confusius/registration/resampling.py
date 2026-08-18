@@ -56,9 +56,9 @@ def resample_volume(
     Parameters
     ----------
     moving : xarray.DataArray
-        3D spatial DataArray to resample, or a 3D+t DataArray with a time dimension
-        (single-slice recordings use a singleton `k` axis). If a time dimension is
-        present, the same transform is applied to all time points.
+        VoxelData-compatible DataArray to resample. May be spatial-only or have a
+        `time` dimension (single-slice recordings use a singleton `k` axis). If a time
+        dimension is present, the same transform is applied to all time points.
     transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
         [`register_volume`][confusius.registration.register_volume].
@@ -102,9 +102,9 @@ def resample_volume(
     Returns
     -------
     xarray.DataArray
-        VoxelData-compatible fUSI DataArray resampled onto the requested grid, with
-        `moving`'s attributes. If the input had a time dimension, the output will
-        also have a time dimension.
+        VoxelData-compatible DataArray resampled onto the requested grid, with
+        `moving`'s attributes. If the input had a time dimension, the output will also
+        have a time dimension.
 
     Raises
     ------
@@ -239,13 +239,13 @@ def resample_like(
     Parameters
     ----------
     moving : xarray.DataArray
-        3D spatial DataArray to resample, or a 3D+t DataArray with a time dimension
-        (single-slice recordings use a singleton `k` axis). If a time dimension is
-        present, the same transform is applied to all time points.
+        VoxelData-compatible DataArray to resample. May be spatial-only or have a
+        `time` dimension (single-slice recordings use a singleton `k` axis). If a time
+        dimension is present, the same transform is applied to all time points.
     reference : xarray.DataArray
-        DataArray defining the output grid. Must be a 3D spatial volume with dimensions
-        `k`, `j`, `i` (no time dimension). When spatial coordinate `units` metadata is
-        present on both `moving` and `reference`, they must match.
+        VoxelData-compatible DataArray defining the output grid. Must be spatial-only
+        with dimensions `k`, `j`, `i` (no time dimension). When spatial coordinate
+        `units` metadata is present on both `moving` and `reference`, they must match.
     transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
         [`register_volume`][confusius.registration.register_volume]. Maps points from

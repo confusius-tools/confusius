@@ -51,7 +51,7 @@ ConfUSIus provides a comprehensive toolkit designed specifically for fUSI data:
 
 === "Data I/O"
     - Convert AUTC and EchoFrame beamformed IQ data to Zarr for efficient processing.
-    - Load Zarr, NIfTI, and Iconeus SCAN files as labeled Xarray DataArrays.
+    - Load Zarr, NIfTI, and Iconeus SCAN files as labeled VoxelData-compatible DataArrays.
     - Load and save NIfTI files with automatic fUSI-BIDS JSON sidecar handling.
     - Save DataArrays to Zarr for chunked, large-scale processing.
 

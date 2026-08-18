@@ -39,9 +39,9 @@ acquisition modes are supported by ConfUSIus:
 
 | Mode | Dimensions | Typical use |
 |------|------------|-------------|
-| `2Dscan` | `(time, z, y, x)` | Single-pose fUSI time-series |
-| `3Dscan` | `(pose, z, y, x)` | Multi-pose anatomical volume |
-| `4Dscan` | `(time, pose, z, y, x)` | Multi-pose fUSI time-series (3D+t fUSI) |
+| `2Dscan` | `(time, k, j, i)` | Single-pose fUSI time-series |
+| `3Dscan` | `(pose, k, j, i)` | Multi-pose anatomical volume |
+| `4Dscan` | `(time, pose, k, j, i)` | Multi-pose fUSI time-series (3D+t fUSI) |
 
 Use [`load_scan`][confusius.io.load_scan] to load SCAN files. This page focuses on
 **3Dscan** and **4Dscan**. See the [I/O guide](io.md#loading-iconeus-scan-files) for a
@@ -57,13 +57,16 @@ elevation slices per pose—translated across multiple regularly spaced position
     >>> from confusius.io import load_scan
     >>> anat = load_scan("sub-01_acq-anat_pwd.scan")
     >>> anat
-    <xarray.DataArray 'scan_data' (pose: 15, z: 4, y: 72, x: 64)> Size: 2MB
+    <xarray.DataArray 'scan_data' (pose: 15, k: 4, j: 72, i: 64)> Size: 2MB
     dask.array<transpose, shape=(15, 4, 72, 64), dtype=float64, chunksize=(15, 4, 72, 64), chunktype=numpy.ndarray>
     Coordinates:
       * pose     (pose) int64 120B 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14
-      * z        (z) float64 32B 0.0 2.1 4.2 6.3
-      * y        (y) float64 576B 2.0 2.099 2.197 2.296 ... 8.702 8.801 8.899 8.998
-      * x        (x) float64 512B -3.465 -3.355 -3.245 -3.135 ... 3.245 3.455 3.465
+      * k        (k) int64 32B 0 1 2 3
+      * j        (j) int64 576B 0 1 2 3 ... 68 69 70 71
+      * i        (i) int64 512B 0 1 2 3 ... 60 61 62 63
+        z        (pose, k, j, i) float64 ...
+        y        (pose, k, j, i) float64 ...
+        x        (pose, k, j, i) float64 ...
     Attributes:
         affines:            {'world_to_lab': ...}  # shape (15, 4, 4)
         scan_mode:          3Dscan
@@ -79,14 +82,17 @@ elevation slices per pose—translated across multiple regularly spaced position
     >>> from confusius.io import load_scan
     >>> fus = load_scan("sub-01_task-awake_pwd.scan")
     >>> fus
-    <xarray.DataArray 'scan_data' (time: 750, pose: 4, z: 4, y: 72, x: 64)> Size: 442MB
+    <xarray.DataArray 'scan_data' (time: 750, pose: 4, k: 4, j: 72, i: 64)> Size: 442MB
     dask.array<transpose, shape=(750, 4, 4, 72, 64), dtype=float64, chunksize=(227, 4, 4, 72, 64), chunktype=numpy.ndarray>
     Coordinates:
         time       (time, pose) float64 24kB 0.4 2.2 1.0 ... 1.799e+03 1.799e+03
       * pose       (pose) int64 32B 0 1 2 3
-      * z          (z) float64 32B 0.0 2.1 4.2 6.3
-      * y          (y) float64 576B 2.0 2.099 2.197 2.296 ... 8.801 8.899 8.998
-      * x          (x) float64 512B -3.465 -3.355 -3.245 ... 3.245 3.355 3.465
+      * k          (k) int64 32B 0 1 2 3
+      * j          (j) int64 576B 0 1 2 3 ... 68 69 70 71
+      * i          (i) int64 512B 0 1 2 3 ... 60 61 62 63
+        z          (pose, k, j, i) float64 ...
+        y          (pose, k, j, i) float64 ...
+        x          (pose, k, j, i) float64 ...
     Attributes:
         affines:            {'world_to_lab': ...}  # shape (4, 4, 4)
         scan_mode:          4Dscan
@@ -99,18 +105,20 @@ elevation slices per pose—translated across multiple regularly spaced position
 ### Other Systems
 
 For other fUSI systems, multi-pose data must be assembled manually: load or construct
-one DataArray per pose, stack them along a new `pose` dimension, and populate
-`da.attrs["affines"]` with a `(npose, 4, 4)` array of per-pose affines.
+one VoxelData-compatible DataArray per pose, stack them along a new `pose` dimension,
+and attach pose-dependent VoxelData geometry with a `(npose, 4, 4)` voxel-to-world
+affine stack.
 
 ## World Coordinates and Affines
 
-Spatial coordinates in a multi-pose DataArray are **pose-relative**: the `z` coordinate
-(or whichever dimension is being swept) is defined in the probe frame and is the same for
-every pose. The per-pose affines stored in `da.attrs["affines"]` map these probe-relative
-coordinates to a common world space and record how each pose is positioned in that space.
+Native voxel dimensions in a multi-pose VoxelData array remain `k`, `j`, and `i`.
+Their derived world coordinates `z`, `y`, and `x` are pose-dependent: selecting a
+single `pose` resolves each voxel to a position in the common world space. This
+pose-dependent mapping lives in the `VoxelToWorldIndex`, not in separate spatial
+dimensions.
 
-For Iconeus SCAN files, [`load_scan`][confusius.io.load_scan] automatically stores a
-`world_to_lab` affine of shape `(npose, 4, 4)`—one matrix per pose.
+For Iconeus SCAN files, [`load_scan`][confusius.io.load_scan] automatically attaches
+pose-dependent VoxelData geometry with one voxel-to-world affine per pose.
 
 ## Pose-Dependent Timing
 
@@ -131,7 +139,7 @@ poses were not acquired simultaneously.
 
 [`consolidate_poses`][confusius.multipose.consolidate_poses] merges the `pose` dimension
 and the sweep spatial dimension into a single axis with physically meaningful
-coordinates, producing a standard ConfUSIus DataArray.
+coordinates, producing a VoxelData-compatible DataArray.
 [`consolidate_poses`][confusius.multipose.consolidate_poses] performs the following
 steps:
 
@@ -150,12 +158,15 @@ steps:
     >>> anat = cf.load("sub-01_acq-anat_pwd.scan")
     >>> volume = cf.multipose.consolidate_poses(anat)
     >>> volume
-    <xarray.DataArray 'scan_data' (z: 60, y: 72, x: 64)> Size: 2MB
+    <xarray.DataArray 'scan_data' (k: 60, j: 72, i: 64)> Size: 2MB
     array([...])
     Coordinates:
-      * z        (z) float64 480B -21.38 -21.24 -21.1 -20.96 ... -13.4 -13.26 -13.12
-      * y        (y) float64 576B 2.0 2.099 2.197 2.296 ... 8.702 8.801 8.899 8.998
-      * x        (x) float64 512B -3.465 -3.355 -3.245 -3.135 ... 3.245 3.355 3.465
+      * k        (k) int64 480B 0 1 2 3 ... 56 57 58 59
+      * j        (j) int64 576B 0 1 2 3 ... 68 69 70 71
+      * i        (i) int64 512B 0 1 2 3 ... 60 61 62 63
+        z        (k, j, i) float64 ...
+        y        (k, j, i) float64 ...
+        x        (k, j, i) float64 ...
     Attributes:
         affines:            {'world_to_lab': ...}  # shape (4, 4)
         scan_mode:          3Dscan
@@ -172,14 +183,17 @@ steps:
     >>> fus = cf.load("sub-01_task-awake_pwd.scan")
     >>> volume = cf.multipose.consolidate_poses(fus)
     >>> volume
-    <xarray.DataArray 'scan_data' (time: 750, z: 16, y: 72, x: 64)> Size: 442MB
+    <xarray.DataArray 'scan_data' (time: 750, k: 16, j: 72, i: 64)> Size: 442MB
     array([...])
     Coordinates:
       * time       (time) float64 6kB 0.4 2.8 5.2 ... 1.793e+03 1.796e+03 1.798e+03
-      * z          (z) float64 128B -21.38 -20.86 -20.33 ... -14.56 -14.03 -13.51
-        slice_time (time, z) float64 96kB 0.4 2.2 1.0 ... 1.799e+03 1.799e+03
-      * y          (y) float64 576B 2.0 2.099 2.197 2.296 ... 8.801 8.899 8.998
-      * x          (x) float64 512B -3.465 -3.355 -3.245 ... 3.245 3.355 3.465
+      * k          (k) int64 128B 0 1 2 3 ... 12 13 14 15
+        slice_time (time, k) float64 96kB 0.4 2.2 1.0 ... 1.799e+03 1.799e+03
+      * j          (j) int64 576B 0 1 2 3 ... 68 69 70 71
+      * i          (i) int64 512B 0 1 2 3 ... 60 61 62 63
+        z          (k, j, i) float64 ...
+        y          (k, j, i) float64 ...
+        x          (k, j, i) float64 ...
     Attributes:
         affines:            {'world_to_lab': ...}  # shape (4, 4)
         scan_mode:          4Dscan
@@ -188,7 +202,7 @@ steps:
 
     4 poses × 4 slices = 16 consolidated z positions. The pose-dependent `time`
     coordinate is reduced to a single whole-volume `time` and a `slice_time`
-    coordinate with dims `(time, z)`: each slice retains the timestamp of the pose it
+    coordinate with dims `(time, k)`: each slice retains the timestamp of the pose it
     came from.
 
 After consolidation, the per-pose affine stack is reduced to a single `(4, 4)` matrix
@@ -206,10 +220,10 @@ primary), rebase onto it first with
 [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply]:
 
 ```python
-# Example: sweeping along x, consolidating around a secondary affine.
+# Example: sweeping along native voxel dimension i, consolidating around a secondary affine.
 volume = cf.multipose.consolidate_poses(
     da.fusi.affine.apply("world_to_scanner"),
-    sweep_dim="x",
+    sweep_dim="i",
 )
 ```
 
@@ -227,7 +241,7 @@ dimension.
 
 ### After Consolidation
 
-Once consolidated, a multi-pose DataArray is a standard ConfUSIus DataArray and can be
+Once consolidated, a multi-pose VoxelData array is a VoxelData-compatible DataArray and can be
 saved to any format:
 
 ```python

@@ -137,19 +137,19 @@ def _normalize_spatial_kernel(
     spatial_kernel: int | tuple[int, int, int] | list[int],
     spatial_shape: tuple[int, int, int] | None = None,
 ) -> tuple[int, int, int]:
-    """Return a validated `(z, y, x)` median-filter kernel.
+    """Return a validated `(k, j, i)` median-filter kernel.
 
     Parameters
     ----------
     spatial_kernel : int or tuple[int, int, int] or list[int]
-        Median-filter kernel size as a scalar or explicit `(z, y, x)` sizes.
+        Median-filter kernel size as a scalar or explicit `(k, j, i)` sizes.
     spatial_shape : tuple[int, int, int], optional
         Spatial data shape used to clip each kernel axis to the available size.
 
     Returns
     -------
     tuple[int, int, int]
-        Validated odd kernel sizes for `(z, y, x)`.
+        Validated odd kernel sizes for `(k, j, i)`.
 
     Raises
     ------
@@ -585,16 +585,16 @@ def process_iq_block_with_clutter_filter(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Array of complex IQ data.
     process_block_func : callable
         Function used to process a set of IQ volumes into a single volume.
-        `process_block_func` must accept a `(time, z, y, x)` array of complex IQ
-        data as first argument and return a `(z, y, x)` array corresponding to the
+        `process_block_func` must accept a `(time, k, j, i)` array of complex IQ
+        data as first argument and return a `(k, j, i)` array corresponding to the
         processed volume. `process_block_func` may accept additional arguments
         provided via `kwargs`, but must ignore any extra keyword arguments. Note that
         `fs` will be passed to `process_block_func`.
-    clutter_mask : (z, y, x) numpy.ndarray, optional
+    clutter_mask : (k, j, i) numpy.ndarray, optional
         Boolean mask to define clutter regions. Only used by SVD-based clutter filters
         to compute clutter vectors from masked voxels. If not provided, all voxels are
         used.
@@ -739,9 +739,9 @@ def compute_power_doppler_volume(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     filter_method : {"svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"}, \
             default: "svd_indices"
         Clutter filtering method to apply before power Doppler computation.
@@ -751,7 +751,7 @@ def compute_power_doppler_volume(
         - `"svd_cumulative_energy"`: Adaptive SVD filter using cumulative energies.
         - `"butterworth"`: Butterworth frequency-domain filter.
 
-    clutter_mask : (z, y, x) numpy.ndarray, optional
+    clutter_mask : (k, j, i) numpy.ndarray, optional
         Boolean mask to define clutter regions. Only used by SVD-based clutter filters
         to compute clutter vectors from masked voxels. If not provided, all voxels are
         used.
@@ -777,7 +777,7 @@ def compute_power_doppler_volume(
     -------
     (windows, z, y, x) numpy.ndarray
         Power Doppler volumes, where `windows` is the number of temporal sliding
-        windows and `(z, y, x)` are spatial dimensions.
+        windows and `(k, j, i)` are spatial dimensions.
     """
 
     def process_block_func(block: npt.NDArray, **_: Any) -> npt.NDArray:
@@ -785,14 +785,14 @@ def compute_power_doppler_volume(
 
         Parameters
         ----------
-        block : (time, z, y, x) numpy.ndarray
+        block : (time, k, j, i) numpy.ndarray
             Complex IQ data.
         **_
             Additional unused keyword arguments (absorbed and ignored).
 
         Returns
         -------
-        (z, y, x) numpy.ndarray
+        (k, j, i) numpy.ndarray
             Power Doppler volume.
         """
         return np.mean(np.abs(block) ** 2, axis=0)
@@ -823,9 +823,9 @@ def compute_bmode_volume(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     **_
         Additional unused keyword arguments (absorbed and ignored).
 
@@ -863,9 +863,9 @@ def compute_axial_velocity_volume(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     fs : float
         Volume sampling frequency in hertz.
     filter_method : {"svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"}, \
@@ -877,7 +877,7 @@ def compute_axial_velocity_volume(
         - `"svd_cumulative_energy"`: Adaptive SVD filter using cumulative energies
         - `"butterworth"`: Butterworth frequency-domain filter
 
-    clutter_mask : (z, y, x) numpy.ndarray, optional
+    clutter_mask : (k, j, i) numpy.ndarray, optional
         Boolean mask to define clutter regions. Only used by SVD-based clutter filters
         to compute clutter vectors from masked voxels. If not provided, all voxels are
         used.
@@ -901,7 +901,7 @@ def compute_axial_velocity_volume(
     spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
         Size of the median filter kernel applied spatially to denoise. A scalar uses
         the same kernel size on all spatial axes; a length-3 sequence specifies
-        `(z, y, x)` sizes directly. Values must be positive. Any even sizes are
+        `(k, j, i)` sizes directly. Values must be positive. Any even sizes are
         rounded up to the next odd size. If all sizes are `1`, no spatial filtering is
         applied.
     transmit_frequency : float, default: 15.625e6
@@ -913,7 +913,7 @@ def compute_axial_velocity_volume(
     -------
     (windows, z, y, x) numpy.ndarray
         Axial velocity volumes, where `windows` is the number of temporal sliding
-        windows and `(z, y, x)` are spatial dimensions. Velocity values are in meters
+        windows and `(k, j, i)` are spatial dimensions. Velocity values are in meters
         per second.
 
     Notes
@@ -935,12 +935,12 @@ def compute_axial_velocity_volume(
 
         Parameters
         ----------
-        block : (time, z, y, x) numpy.ndarray
+        block : (time, k, j, i) numpy.ndarray
             Complex IQ data.
         spatial_kernel : int or tuple[int, int, int] or list[int]
             Size of the median filter kernel applied spatially to denoise. A scalar
             uses the same size on all spatial axes; a length-3 sequence specifies
-            `(z, y, x)` sizes directly.
+            `(k, j, i)` sizes directly.
         lag : int
             Temporal lag in volumes for autocorrelation computation.
         fs : float
@@ -954,7 +954,7 @@ def compute_axial_velocity_volume(
 
         Returns
         -------
-        (z, y, x) numpy.ndarray
+        (k, j, i) numpy.ndarray
             Axial velocity volume in meters per second.
         """
         autocorrelation = cast("npt.NDArray", block[lag:] * np.conj(block[:-lag]))
@@ -1015,7 +1015,7 @@ def process_iq_blocks(
 
     Parameters
     ----------
-    iq : (time, z, y, x) dask.array.Array
+    iq : (time, k, j, i) dask.array.Array
         Dask array of complex IQ data.
     process_func : callable
         Function to apply to each temporal window. It must accept a `(window_volumes,
@@ -1202,9 +1202,9 @@ def process_iq_to_power_doppler(
     Parameters
     ----------
     iq : xarray.DataArray
-        Xarray DataArray containing complex beamformed IQ data with dimensions
-        `(time, k, j, i)`, where `time` is the temporal dimension and `(k, j, i)` are
-        native voxel spatial dimensions.
+        VoxelData-compatible DataArray containing complex beamformed IQ data with
+        dimensions `(time, k, j, i)`, where `time` is the temporal dimension and
+        `(k, j, i)` are native voxel spatial dimensions.
     clutter_window_width : int, optional
         Width of the sliding temporal window for clutter filtering, in volumes. If not
         provided, uses the chunk size of the IQ data along the temporal dimension.
@@ -1243,10 +1243,11 @@ def process_iq_to_power_doppler(
     Returns
     -------
     (clutter_windows * doppler_windows, k, j, i) xarray.DataArray
-        Power Doppler volumes as an Xarray DataArray with updated time coordinates and
-        `iq`'s voxel-to-world geometry carried over, where `clutter_windows` is the
-        number of clutter filter sliding windows and `doppler_windows` is the number
-        of power Doppler sliding windows per clutter window.
+        Power Doppler volumes as a VoxelData-compatible DataArray with updated time
+        coordinates and `iq`'s voxel-to-world geometry carried over, where
+        `clutter_windows` is the number of clutter filter sliding windows and
+        `doppler_windows` is the number of power Doppler sliding windows per clutter
+        window.
 
     Notes
     -----
@@ -1404,9 +1405,9 @@ def process_iq_to_bmode(
     Parameters
     ----------
     iq : xarray.DataArray
-        Xarray DataArray containing complex beamformed IQ data with dimensions
-        `(time, k, j, i)`, where `time` is the temporal dimension and `(k, j, i)` are
-        native voxel spatial dimensions.
+        VoxelData-compatible DataArray containing complex beamformed IQ data with
+        dimensions `(time, k, j, i)`, where `time` is the temporal dimension and
+        `(k, j, i)` are native voxel spatial dimensions.
     bmode_window_width : int, optional
         Width of the sliding temporal window for B-mode integration, in volumes. If not
         provided, uses the chunk size of the IQ data along the temporal dimension.
@@ -1417,9 +1418,9 @@ def process_iq_to_bmode(
     Returns
     -------
     (windows, k, j, i) xarray.DataArray
-        B-mode volumes as an Xarray DataArray with updated time coordinates and `iq`'s
-        voxel-to-world geometry carried over, where `windows` is the number of sliding
-        windows.
+        B-mode volumes as a VoxelData-compatible DataArray with updated time
+        coordinates and `iq`'s voxel-to-world geometry carried over, where `windows`
+        is the number of sliding windows.
     """
     import dask.array as da
     from dask.array import Array
@@ -1514,9 +1515,9 @@ def process_iq_to_axial_velocity(
     Parameters
     ----------
     iq : xarray.DataArray
-        Xarray DataArray containing complex beamformed IQ data with dimensions
-        `(time, k, j, i)`, where `time` is the temporal dimension and `(k, j, i)` are
-        native voxel spatial dimensions. The DataArray must have the
+        VoxelData-compatible DataArray containing complex beamformed IQ data with
+        dimensions `(time, k, j, i)`, where `time` is the temporal dimension and
+        `(k, j, i)` are native voxel spatial dimensions. The DataArray must have the
         following attributes:
 
         - `transmit_frequency`: Ultrasound transmit frequency in hertz.
@@ -1561,17 +1562,18 @@ def process_iq_to_axial_velocity(
     spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
         Size of the median filter kernel applied spatially to denoise. A scalar uses
         the same kernel size on all spatial axes; a length-3 sequence specifies
-        `(z, y, x)` sizes directly. Values must be positive. Any even sizes are
+        `(k, j, i)` sizes directly. Values must be positive. Any even sizes are
         rounded up to the next odd size. If all sizes are `1`, no spatial filtering is
         applied.
 
     Returns
     -------
     (clutter_windows * velocity_windows, k, j, i) xarray.DataArray
-        Axial velocity volumes as an Xarray DataArray with updated time coordinates
-        and `iq`'s voxel-to-world geometry carried over, where `clutter_windows` is the
-        number of clutter filter sliding windows and `velocity_windows` is the number
-        of velocity sliding windows per clutter window.
+        Axial velocity volumes as a VoxelData-compatible DataArray with updated time
+        coordinates and `iq`'s voxel-to-world geometry carried over, where
+        `clutter_windows` is the number of clutter filter sliding windows and
+        `velocity_windows` is the number of velocity sliding windows per clutter
+        window.
         Velocity values are in meters per second.
 
     Notes

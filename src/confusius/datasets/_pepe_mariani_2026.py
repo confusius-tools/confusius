@@ -65,7 +65,7 @@ def fetch_template_pepe_mariani_2026(
     """Fetch the Pepe, Mariani et al. (2026) mouse fUSI template.
 
     Downloads the template from OSF on first call, caches it locally, and returns the
-    loaded NIfTI as an Xarray DataArray.
+    loaded NIfTI as a VoxelData-compatible DataArray.
 
     Parameters
     ----------

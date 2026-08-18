@@ -347,7 +347,7 @@ def abort_on_sigint(
 
 
 def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
-    """Convert a spatial or spatiotemporal DataArray to a SimpleITK image.
+    """Convert a VoxelData-compatible DataArray to a SimpleITK image.
 
     Uses the transpose convention: `da.values.T` is passed to `GetImageFromArray`,
     so that the first DataArray axis maps to SimpleITK's world x-axis. For data
@@ -357,7 +357,7 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     Parameters
     ----------
     da : xarray.DataArray
-        Spatial DataArray, or a spatial DataArray with a time dimension. It is
+        VoxelData-compatible DataArray, optionally with a `time` dimension. It is
         canonicalized with [ensure_fusi][confusius.validation.ensure_fusi]; spacing,
         origin, and direction are derived from its voxel-to-world index.
 
@@ -371,7 +371,7 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     Raises
     ------
     ValueError
-        If `da` is not VoxelData-compatible.
+        If `da` is not a VoxelData-compatible DataArray.
     """
     import SimpleITK as sitk
 

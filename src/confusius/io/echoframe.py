@@ -303,9 +303,9 @@ def load_echoframe_dat(
 ) -> xr.DataArray:
     """Load an EchoFrame DAT file as a lazy, ConfUSIus-ordered DataArray.
 
-    Beamformed IQ data is loaded as VoxelData with voxel dimensions
-    `(time, k, j, i)` and a voxel-to-world index deriving world coordinates `z`, `y`,
-    `x`. Coordinates and acquisition metadata (e.g. `transmit_frequency`,
+    Beamformed IQ data is loaded as a VoxelData-compatible DataArray with voxel
+    dimensions `(time, k, j, i)` and a voxel-to-world index deriving world coordinates
+    `z`, `y`, `x`. Coordinates and acquisition metadata (e.g. `transmit_frequency`,
     `beamforming_sound_velocity`) are attached from the EchoFrame sequence parameter
     file. The `time` coordinate is computed from frame indices and the compound
     sampling frequency; callers with acquisition timestamps for each block should
@@ -329,7 +329,8 @@ def load_echoframe_dat(
     Returns
     -------
     xarray.DataArray
-        Lazy DataArray with dimensions `(time, k, j, i)`, where `k` is a singleton
+        Lazy VoxelData-compatible DataArray with dimensions `(time, k, j, i)`, where
+        `k` is a singleton
         elevation dimension. Data is wrapped in a Dask array, chunked so that each
         chunk corresponds to one acquisition block's volumes; individual blocks
         remain accessible via `data.isel(time=slice(i * n, (i + 1) * n))`, where `n`
@@ -499,7 +500,8 @@ def convert_echoframe_dat_to_zarr(
         ds = xr.open_zarr("output.zarr")
         iq = ds["iq"]
 
-    `iq` above carries plain `k`/`j`/`i` voxel dims, not VoxelData --
+    `iq` above carries plain `k`/`j`/`i` voxel dims, not a VoxelData-compatible
+    DataArray --
     [`xarray.open_zarr`][xarray.open_zarr] doesn't know how to rebuild a
     `VoxelToWorldIndex` from `attrs["voxel_to_world"]`. Load with
     [`confusius.io.load`][confusius.io.load] instead to get the world coordinates back:
