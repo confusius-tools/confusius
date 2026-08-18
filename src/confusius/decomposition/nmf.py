@@ -110,10 +110,10 @@ class NMF(_BaseFUSIDecomposer):
     mode : {"temporal", "spatial"}, default: "temporal"
         Whether to fit NMF along temporal or spatial orientation:
 
-        - `"temporal"`: fit on `(time, voxels)`. The transformed data `W` are
+        - `"temporal"`: fit on `(time, space)`. The transformed data `W` are
           non-negative temporal time courses and the components matrix `H` reshapes to
           spatial maps.
-        - `"spatial"`: fit on `(voxels, time)`. In the underlying sklearn fit, `W` lives
+        - `"spatial"`: fit on `(space, time)`. In the underlying sklearn fit, `W` lives
           on voxels and `H` lives on timepoints because the data matrix is transposed.
           This wrapper still exposes `maps_` as spatial maps and `transform` as `(time,
           component)` signals.
@@ -154,9 +154,9 @@ class NMF(_BaseFUSIDecomposer):
     because the data matrix is transposed.
 
     In `"spatial"` mode, the estimator is still fitted with `sklearn.decomposition.NMF`,
-    but on the transposed data matrix `(voxels, time)`. The wrapper then computes
-    `(time, component)` signals by projecting the original `(time, voxel)` matrix onto
-    the fitted spatial maps, so that `transform` and `inverse_transform` keep the same
+    but on the transposed data matrix `(space, time)`. The wrapper then computes `(time,
+    component)` signals by projecting the original `(time, voxel)` matrix onto the
+    fitted spatial maps, so that `transform` and `inverse_transform` keep the same
     public API in both modes.
 
     References

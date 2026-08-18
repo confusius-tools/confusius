@@ -48,10 +48,10 @@ class FastICA(_BaseFUSIDecomposer):
     mode : {"spatial", "temporal"}, default: "spatial"
         Whether to find spatially or temporally independent components:
 
-        - `"spatial"`: fit on `(voxels, time)`. The independent components are
+        - `"spatial"`: fit on `(space, time)`. The independent components are
           spatial maps; the projected time courses are their temporal mixing weights.
           Matches FSL MELODIC's default for single-subject data.
-        - `"temporal"`: fit on `(time, voxels)`. The independent components are time
+        - `"temporal"`: fit on `(time, space)`. The independent components are time
           courses; the spatial maps are their voxel-wise mixing weights.
 
     algorithm : {"parallel", "deflation"}, default: "parallel"

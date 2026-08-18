@@ -2971,7 +2971,7 @@ def _prepare_carpet_data(
     Returns
     -------
     dict
-        Keys: `signals` (DataArray with shape `(time, voxels)`), `vmin` (float),
+        Keys: `signals` (DataArray with shape `(time, space)`), `vmin` (float),
         `vmax` (float), `xlabel` (str), `time_coord` (DataArray | None).
     """
     if np.iscomplexobj(data):

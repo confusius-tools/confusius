@@ -96,7 +96,7 @@ data_nmf = xr.concat(
 #
 # [`NMF`][confusius.decomposition.NMF] wraps the familiar scikit-learn
 # [`NMF`][sklearn.decomposition.NMF] estimator while preserving VoxelData array metadata
-# and coordinates. With `mode="temporal"` (the default), it fits on `(time, voxels)`
+# and coordinates. With `mode="temporal"` (the default), it fits on `(time, space)`
 # and returns:
 #
 # - [`maps_`][confusius.decomposition.NMF]: non-negative spatial maps. Because we split
@@ -178,7 +178,7 @@ _ = fig.suptitle(
 # ## Spatial NMF
 #
 # [`NMF`][confusius.decomposition.NMF] also accepts `mode="spatial"`, which transposes
-# the data to `(voxels, time)` before fitting. The output convention is identical to
+# the data to `(space, time)` before fitting. The output convention is identical to
 # temporal mode — [`maps_`][confusius.decomposition.NMF] still holds the non-negative
 # spatial maps (here with `pos`/`neg` channels) and
 # [`fit_transform`][confusius.decomposition.NMF.fit_transform] returns their

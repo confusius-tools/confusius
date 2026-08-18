@@ -43,8 +43,7 @@ def detrend(signals: xr.DataArray, order: int = 1) -> xr.DataArray:
     ----------
     signals : (time, ...) xarray.DataArray
         Array to detrend. Must have a `time` dimension. Can be any shape, e.g.,
-        extracted signals `(time, space)`, a VoxelData array `(time, k, j, i)`,
-        or regional signals `(time, region)`.
+        extracted signals `(time, space)` or VoxelData array `(time, k, j, i)`.
 
         !!! warning "Chunking along time is not supported"
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:

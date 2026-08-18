@@ -102,7 +102,7 @@ data_std = cf.signal.standardize(data)
 # [`random_state`][confusius.decomposition.PCA] for reproducibility
 # (see the API documentation for more details).
 #
-# By default, PCA uses `mode="temporal"` (fit on `(time, voxels)`). A
+# By default, PCA uses `mode="temporal"` (fit on `(time, space)`). A
 # `mode="spatial"` option is also available, analogous to spatial ICA.
 #
 # Here, we fit a PCA model with all available components.
@@ -194,7 +194,7 @@ _ = fig.suptitle("Temporal PCA maps and time courses (first 6 components)", font
 # %% [markdown]
 # ## Spatial PCA (`mode="spatial"`)
 #
-# Spatial PCA transposes the matrix to `(voxels, time)` before decomposition. In this
+# Spatial PCA transposes the matrix to `(space, time)` before decomposition. In this
 # orientation, variance maximization is performed across voxels, yielding orthogonal
 # spatial maps as principal components.
 

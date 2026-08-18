@@ -101,7 +101,7 @@ data_std = cf.signal.standardize(data)
 
 # %% [markdown]
 # With `mode="temporal"`, [FastICA][confusius.decomposition.FastICA] operates on the
-# same `(time, voxels)` orientation as [PCA][confusius.decomposition.PCA]. The
+# same `(time, space)` orientation as [PCA][confusius.decomposition.PCA]. The
 # algorithm finds `n_components` time courses that are as statistically independent and
 # non-Gaussian as possible. The [`maps_`][confusius.decomposition.FastICA] attribute
 # stores the corresponding spatial mixing weights (the voxel-space directions along
@@ -163,10 +163,10 @@ _ = fig.suptitle(
 # ## Spatial ICA
 #
 # Spatial ICA (`mode="spatial"`, the default) treats spatial voxels as signals and time
-# points as instances by transposing data to `(voxels, time)` before fitting. It is the
+# points as instances by transposing data to `(space, time)` before fitting. It is the
 # conventional resting-state choice because the spatial dimension is usually much larger
-# than the temporal one, making decomposition better conditioned. In practice, spatial ICA
-# is effective at identifying spatially localized fluctuations and often better at
+# than the temporal one, making decomposition better conditioned. In practice, spatial
+# ICA is effective at identifying spatially localized fluctuations and often better at
 # reducing whole-brain motion-related structure.
 
 # %%

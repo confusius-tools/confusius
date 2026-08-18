@@ -678,7 +678,7 @@ def sample_iq_3dt(rng):
 
 @pytest.fixture
 def sample_timeseries(rng):
-    """Factory fixture for 2D time-series data (time, voxels).
+    """Factory fixture for 2D time-series data (time, space).
 
     Creates DataArray with proper time coordinates.
     """

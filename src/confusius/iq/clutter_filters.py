@@ -107,7 +107,7 @@ def _compute_gram_eigendecomposition(
 
     Parameters
     ----------
-    signals : (time, voxels) numpy.ndarray
+    signals : (time, space) numpy.ndarray
         Beamformed IQ signals.
     ascending : bool, default: False
         Whether results should be sorted in ascending order of eigenvalues (lowest
@@ -116,9 +116,9 @@ def _compute_gram_eigendecomposition(
 
     Returns
     -------
-    eigenvalues : (min(time, voxels),) numpy.ndarray
+    eigenvalues : (min(time, space),) numpy.ndarray
         Eigenvalues of the Gram matrix, sorted according to `ascending`.
-    eigenvectors : (min(time, voxels), min(time, voxels)) numpy.ndarray
+    eigenvectors : (min(time, space), min(time, space)) numpy.ndarray
         Eigenvectors of the Gram matrix, sorted according to `ascending`.
 
     Notes
@@ -163,14 +163,14 @@ def _apply_clutter_filter(
 
     Parameters
     ----------
-    signals : (time, voxels) numpy.ndarray
+    signals : (time, space) numpy.ndarray
         IQ signals to filter.
     clutter_vectors : (time, components) numpy.ndarray
         Clutter vectors to remove.
 
     Returns
     -------
-    (time, voxels) numpy.ndarray
+    (time, space) numpy.ndarray
         Filtered signals with clutter components removed.
     """
     if clutter_vectors.size > 0:

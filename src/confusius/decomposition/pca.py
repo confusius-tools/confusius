@@ -101,10 +101,10 @@ class PCA(_BaseFUSIDecomposer):
     mode : {"temporal", "spatial"}, default: "temporal"
         Whether to fit PCA along temporal or spatial orientation:
 
-        - `"temporal"`: fit on `(time, voxels)`. The principal axes are
+        - `"temporal"`: fit on `(time, space)`. The principal axes are
           spatial maps; the projected components are temporal time courses that capture
           dominant variance across voxels.
-        - `"spatial"`: fit on `(voxels, time)`. The principal axes are time courses; the
+        - `"spatial"`: fit on `(space, time)`. The principal axes are time courses; the
           projected components are spatial maps that capture dominant variance across
           time.
     mask : xarray.DataArray, optional
