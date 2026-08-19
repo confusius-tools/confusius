@@ -350,19 +350,19 @@ def create_voxeldata(
     data: npt.ArrayLike,
     *,
     dims: Sequence[str],
+    extra_coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
     time: npt.ArrayLike | xr.DataArray | None = None,
     pose: npt.ArrayLike | xr.DataArray | None = None,
-    extra_coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
     dt: float | None = None,
     t0: float | npt.ArrayLike = 0.0,
+    volume_acquisition_reference: VolumeAcquisitionReference = "start",
+    volume_acquisition_duration: float | None = None,
     spacing: Sequence[float] | None = None,
     origin: Sequence[float] | None = None,
     direction: npt.ArrayLike | None = None,
-    volume_acquisition_reference: VolumeAcquisitionReference = "start",
-    volume_acquisition_duration: float | None = None,
+    voxel_to_world: npt.ArrayLike | None = None,
     name: str | None = None,
     attrs: dict[str, Any] | None = None,
-    voxel_to_world: npt.ArrayLike | None = None,
     world_coord_attrs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
     """Build a VoxelData array from a raw array.
@@ -381,6 +381,8 @@ def create_voxeldata(
         Any other extra dimensions are allowed. The returned DataArray will have
         dimensions reordered following the VoxelData model: `(extra_dims, time, pose, k,
         j, i)`.
+    extra_coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
+        Coordinates for non-core dimensions only.
     time : numpy.typing.ArrayLike or xarray.DataArray, optional
         Floating coordinates for the `time` dimension. A 2D `(n_time, npose)` array or
         DataArray gives each pose its own real timestamps directly (poses acquired
@@ -395,8 +397,6 @@ def create_voxeldata(
         back into a real, selectable index.
     pose : numpy.typing.ArrayLike or xarray.DataArray, optional
         Integer coordinates for the `pose` dimension.
-    extra_coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
-        Coordinates for non-core dimensions only.
     dt : float, optional
         Time spacing in seconds, used when `time` is not provided. For multi-pose
         arrays, `dt` is shared across poses.
@@ -404,6 +404,10 @@ def create_voxeldata(
         First time coordinate value when `dt` is used. For multi-pose arrays, a 1D
         `t0` with one value per pose generates a pose-dependent `(time, pose)` time
         coordinate using the shared `dt`.
+    volume_acquisition_reference : {"start", "center", "end"}, default: "start"
+        Time reference stored on generated `time` coordinates.
+    volume_acquisition_duration : float, optional
+        Acquisition duration stored on generated `time` coordinates.
     spacing : sequence[float], optional
         World spacing in `z/y/x` order. Mutually exclusive with `voxel_to_world`.
     origin : sequence[float], optional
@@ -411,20 +415,16 @@ def create_voxeldata(
         used.
     direction : numpy.typing.ArrayLike, optional
         3x3 direction matrix in world `z/y/x` row and voxel `k/j/i` column order.
-    volume_acquisition_reference : {"start", "center", "end"}, default: "start"
-        Time reference stored on generated `time` coordinates.
-    volume_acquisition_duration : float, optional
-        Acquisition duration stored on generated `time` coordinates.
-    name : str, optional
-        DataArray name.
-    attrs : dict, optional
-        DataArray attributes.
     voxel_to_world : numpy.typing.ArrayLike, optional
         4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order,
         or an `(npose, 4, 4)` stack of one such affine per pose. A stack requires a
         `pose` dimension in `dims` with a matching length, and is mutually exclusive
         with `spacing`/`origin`/`direction` — per-pose geometry can only be supplied
         this way, there is no parallel per-pose `spacing`/`origin`/`direction` API.
+    name : str, optional
+        DataArray name.
+    attrs : dict, optional
+        DataArray attributes.
     world_coord_attrs : mapping[str, mapping[str, Any]], optional
         Attributes to merge onto the derived world coordinates, keyed by world
         coordinate name (`z`/`y`/`x`). Overrides the auto-computed `units` entry for
