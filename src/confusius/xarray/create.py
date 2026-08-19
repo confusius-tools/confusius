@@ -258,7 +258,7 @@ def _validate_spatial_tuple(
         and finite.
     """
     if values is None:
-        raise ValueError(f"{name} must be provided.")
+        raise ValueError(f"{name} or voxel_to_world must be provided.")
     if len(values) != len(SPATIAL_DIMS):
         raise ValueError(f"{name} must have length 3 in z/y/x order.")
     z, y, x = values

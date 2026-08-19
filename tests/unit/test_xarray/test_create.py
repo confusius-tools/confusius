@@ -382,7 +382,7 @@ def test_create_voxeldata_rejects_mixed_geometry_inputs():
 
 def test_create_voxeldata_rejects_missing_geometry():
     """Spatial geometry is mandatory."""
-    with pytest.raises(ValueError, match="spacing must be provided"):
+    with pytest.raises(ValueError, match="spacing or voxel_to_world must be provided"):
         create_voxeldata(np.zeros((2, 3)), dims=("j", "i"))
 
 
