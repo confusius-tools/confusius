@@ -10,8 +10,8 @@ import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.atlas._structures import _build_rgb_lookup
+from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
     from brainglobe_atlasapi import BrainGlobeAtlas
@@ -36,11 +36,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     """
     metadata = atlas.metadata
     resolution_mm = [r * 1e-3 for r in metadata["resolution"]]
-    shape = metadata["shape"]
 
-    voxel_coords = {
-        dim: xr.Variable(dim, np.arange(shape[i])) for i, dim in enumerate(VOXEL_DIMS)
-    }
     voxel_to_world = np.eye(4, dtype=np.float64)
     voxel_to_world[:-1, :-1] = np.diag(resolution_mm)
     world_coord_attrs = {name: {"units": "mm"} for name in SPATIAL_DIMS}
@@ -52,46 +48,35 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
         for sid, info in atlas.structures.items()
     }
 
-    def _with_world_coords(data: xr.DataArray) -> xr.DataArray:
-        return attach_voxel_to_world_index(
-            data, voxel_to_world, world_coord_attrs=world_coord_attrs
+    def _build(data: np.ndarray, attrs: dict[str, object]) -> xr.DataArray:
+        return create_voxeldata(
+            data,
+            dims=VOXEL_DIMS,
+            voxel_to_world=voxel_to_world,
+            attrs=attrs,
+            world_coord_attrs=world_coord_attrs,
         )
 
-    reference = _with_world_coords(
-        xr.DataArray(
-            atlas.reference.astype(np.float32),
-            dims=VOXEL_DIMS,
-            coords=voxel_coords,
-            attrs={"cmap": "gray"},
-        )
-    )
+    reference = _build(atlas.reference.astype(np.float32), {"cmap": "gray"})
 
-    annotation = _with_world_coords(
-        xr.DataArray(
-            atlas.annotation.astype(np.int32),
-            dims=VOXEL_DIMS,
-            coords=voxel_coords,
-            attrs={
-                "rgb_lookup": rgb_lookup,
-                "roi_labels": roi_labels,
-                "cmap": cmap,
-                "norm": norm,
-            },
-        )
+    annotation = _build(
+        atlas.annotation.astype(np.int32),
+        {
+            "rgb_lookup": rgb_lookup,
+            "roi_labels": roi_labels,
+            "cmap": cmap,
+            "norm": norm,
+        },
     )
 
     world_to_base = np.eye(4)
 
-    hemispheres = _with_world_coords(
-        xr.DataArray(
-            atlas.hemispheres.astype(np.int8),
-            dims=VOXEL_DIMS,
-            coords=voxel_coords,
-            attrs={
-                "left": int(getattr(atlas, "left_hemisphere_value", 1)),
-                "right": int(getattr(atlas, "right_hemisphere_value", 2)),
-            },
-        )
+    hemispheres = _build(
+        atlas.hemispheres.astype(np.int8),
+        {
+            "left": int(getattr(atlas, "left_hemisphere_value", 1)),
+            "right": int(getattr(atlas, "right_hemisphere_value", 2)),
+        },
     )
 
     return xr.Dataset(
