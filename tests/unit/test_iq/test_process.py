@@ -104,11 +104,31 @@ class TestComputeProcessedVolumeTimes:
         assert_allclose(result, [0.45])
         assert_allclose(durations, [1.0])
 
+    def test_single_timepoint_raises(self):
+        """A single-timepoint `time` dimension raises ValueError.
+
+        Regression test: `ensure_voxeldata` dropped the `require_time=True`
+        guard the old `ensure_iq` used to pass, so a single-timepoint IQ array
+        used to silently pass validation instead of raising here.
+        """
+        iq = self._make_iq([0.0], volume_acquisition_duration=0.002)
+
+        with pytest.raises(ValueError, match="more than 1 timepoint"):
+            compute_processed_volume_timings(
+                iq,
+                clutter_window_width=1,
+                clutter_window_stride=1,
+                inner_window_width=1,
+                inner_window_stride=1,
+            )
+
     def test_single_frame_center(self):
         """Single-frame window: center is onset + volume_duration / 2."""
         # Verifies the bin model: a single frame at t=0 with duration 2 ms has
-        # its center at 1 ms, not 0 ms (which the old discrete midpoint gave).
-        iq = self._make_iq([0.0], volume_acquisition_duration=0.002)
+        # its center at 1 ms, not 0 ms (which the old discrete midpoint gave). A
+        # second, far-away timepoint keeps `iq` a valid (>1 timepoint) VoxelData
+        # array without affecting the first window's own timing.
+        iq = self._make_iq([0.0, 100.0], volume_acquisition_duration=0.002)
         result, durations = compute_processed_volume_timings(
             iq,
             clutter_window_width=1,
@@ -117,8 +137,8 @@ class TestComputeProcessedVolumeTimes:
             inner_window_stride=1,
             processed_time_reference="center",
         )
-        assert_allclose(result, [0.001])
-        assert_allclose(durations, [0.002])
+        assert_allclose(result[0], 0.001)
+        assert_allclose(durations[0], 0.002)
 
     def test_multiple_windows_values(self):
         """Multiple windows produce correct timestamps."""
@@ -613,6 +633,16 @@ class TestProcessIqToPowerDoppler:
         with pytest.raises(TypeError, match="Expected data dtype compatible"):
             process_iq_to_power_doppler(iq)
 
+    def test_single_timepoint_raises(self, sample_iq_dataarray):
+        """A single-timepoint `time` dimension raises ValueError.
+
+        Regression test: `ensure_voxeldata` dropped the `require_time=True`
+        guard the old `ensure_iq` used to pass, so a single-timepoint IQ array
+        used to silently pass validation instead of raising here.
+        """
+        with pytest.raises(ValueError, match="more than 1 timepoint"):
+            process_iq_to_power_doppler(sample_iq_dataarray.isel(time=[0]))
+
     def test_output_has_correct_attributes(self, sample_iq_dataarray):
         """Output DataArray has expected attributes."""
         result = process_iq_to_power_doppler(
@@ -790,19 +820,6 @@ class TestProcessIqToPowerDoppler:
                 doppler_window_stride=1,
             )
 
-    def test_single_time_point_has_volume_acquisition_duration(
-        self, sample_iq_dataarray
-    ) -> None:
-        """Single-volume inputs still emit volume_acquisition_duration on the time coordinate."""
-        iq = sample_iq_dataarray.isel(time=slice(0, 1))
-
-        result = process_iq_to_bmode(iq, bmode_window_width=1, bmode_window_stride=1)
-
-        assert result.coords["time"].attrs[
-            "volume_acquisition_duration"
-        ] == pytest.approx(1.0 / iq.attrs["compound_sampling_frequency"])
-        assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
-
     def test_duration_falls_back_to_compound_sampling_frequency_with_warning(
         self, sample_iq_dataarray
     ) -> None:
@@ -864,17 +881,6 @@ class TestProcessIqToPowerDoppler:
         assert result.coords["time"].attrs[
             "volume_acquisition_duration"
         ] == pytest.approx(np.median(np.diff(iq.coords["time"].values)))
-
-    def test_single_time_point_without_duration_metadata_raises(
-        self, sample_iq_dataarray
-    ) -> None:
-        """A single time point without duration provenance cannot infer acquisition duration."""
-        iq = sample_iq_dataarray.isel(time=slice(0, 1)).copy()
-        iq.coords["time"].attrs.pop("volume_acquisition_duration", None)
-        iq.attrs.pop("compound_sampling_frequency", None)
-
-        with pytest.raises(ValueError, match="missing 'volume_acquisition_duration'"):
-            process_iq_to_bmode(iq, bmode_window_width=1, bmode_window_stride=1)
 
     def test_accessor_delegates_to_process_iq_to_power_doppler(
         self, sample_iq_dataarray
@@ -946,6 +952,16 @@ class TestProcessIqToAxialVelocity:
 
         with pytest.raises(ValueError, match="Missing required DataArray attributes"):
             process_iq_to_axial_velocity(sample_iq_dataarray)
+
+    def test_single_timepoint_raises(self, sample_iq_dataarray):
+        """A single-timepoint `time` dimension raises ValueError.
+
+        Regression test: `ensure_voxeldata` dropped the `require_time=True`
+        guard the old `ensure_iq` used to pass, so a single-timepoint IQ array
+        used to silently pass validation instead of raising here.
+        """
+        with pytest.raises(ValueError, match="more than 1 timepoint"):
+            process_iq_to_axial_velocity(sample_iq_dataarray.isel(time=[0]))
 
     def test_output_has_correct_attributes(self, sample_iq_dataarray):
         """Output DataArray has expected attributes."""
@@ -1337,6 +1353,16 @@ class TestProcessIqToBmode:
         )
         with pytest.raises(TypeError, match="Expected data dtype compatible"):
             process_iq_to_bmode(iq)
+
+    def test_single_timepoint_raises(self, sample_iq_dataarray):
+        """A single-timepoint `time` dimension raises ValueError.
+
+        Regression test: `ensure_voxeldata` dropped the `require_time=True`
+        guard the old `ensure_iq` used to pass, so a single-timepoint IQ array
+        used to silently pass validation instead of raising here.
+        """
+        with pytest.raises(ValueError, match="more than 1 timepoint"):
+            process_iq_to_bmode(sample_iq_dataarray.isel(time=[0]))
 
     def test_output_has_correct_attributes(self, sample_iq_dataarray):
         """Output DataArray has expected attributes."""

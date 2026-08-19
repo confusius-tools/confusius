@@ -15,6 +15,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_spatial_dims,
 )
 from confusius._utils.stack import find_stack_level
+from confusius.iq._utils import ensure_iq_voxeldata
 from confusius.iq.clutter_filters import (
     clutter_filter_butterworth,
     clutter_filter_svd_from_cumulative_energy,
@@ -491,13 +492,7 @@ def compute_processed_volume_timings(
     >>> output_durations
     array([2.5, 2.5, 2.5, 2.5])
     """
-    iq = ensure_voxeldata(
-        iq,
-        allow_pose=False,
-        allow_extra_dims=False,
-        require_canonical_dim_order=True,
-        require_dtype=np.complexfloating,
-    )
+    iq = ensure_iq_voxeldata(iq)
 
     iq_time_reference = iq.time.volume_acquisition_reference
     if processed_time_reference is None:
@@ -1294,13 +1289,7 @@ def process_iq_to_power_doppler(
     import dask.array as da
     from dask.array import Array
 
-    iq = ensure_voxeldata(
-        iq,
-        allow_pose=False,
-        allow_extra_dims=False,
-        require_canonical_dim_order=True,
-        require_dtype=np.complexfloating,
-    )
+    iq = ensure_iq_voxeldata(iq)
 
     clutter_mask_array = None
     if clutter_mask is not None:
@@ -1433,13 +1422,7 @@ def process_iq_to_bmode(
     import dask.array as da
     from dask.array import Array
 
-    iq = ensure_voxeldata(
-        iq,
-        allow_pose=False,
-        allow_extra_dims=False,
-        require_canonical_dim_order=True,
-        require_dtype=np.complexfloating,
-    )
+    iq = ensure_iq_voxeldata(iq)
 
     dask_iq: Array = iq.data
     if not isinstance(dask_iq, Array):
@@ -1633,14 +1616,7 @@ def process_iq_to_axial_velocity(
     import dask.array as da
     from dask.array import Array
 
-    iq = ensure_voxeldata(
-        iq,
-        allow_pose=False,
-        allow_extra_dims=False,
-        require_canonical_dim_order=True,
-        require_velocity_attrs=True,
-        require_dtype=np.complexfloating,
-    )
+    iq = ensure_iq_voxeldata(iq, require_velocity_attrs=True)
 
     clutter_mask_array = None
     if clutter_mask is not None:

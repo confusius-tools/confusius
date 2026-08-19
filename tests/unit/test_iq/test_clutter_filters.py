@@ -381,6 +381,18 @@ class TestComputeSvdCumulativeEnergyThreshold:
         )
         assert isinstance(result, da.Array)
 
+    def test_single_timepoint_raises(self, sample_iq_dataarray):
+        """A single-timepoint `time` dimension raises ValueError.
+
+        Regression test: `ensure_voxeldata` dropped the `require_time=True`
+        guard the old `ensure_iq` used to pass, so a single-timepoint IQ array
+        used to silently pass validation instead of raising here.
+        """
+        with pytest.raises(ValueError, match="more than 1 timepoint"):
+            compute_svd_cumulative_energy_threshold(
+                sample_iq_dataarray.isel(time=slice(0, 1)), singular_value_index=1
+            )
+
     def test_singular_value_index_zero_raises(self, sample_iq_dataarray):
         """singular_value_index=0 raises ValueError."""
         with pytest.raises(ValueError, match="singular_value_index"):

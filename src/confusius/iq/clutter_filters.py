@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import numpy.typing as npt
 
+from confusius.iq._utils import ensure_iq_voxeldata
 from confusius.validation import ensure_voxeldata, validate_mask
 
 if TYPE_CHECKING:
@@ -765,13 +766,7 @@ def compute_svd_cumulative_energy_threshold(
     # Deferred to avoid circular import: clutter_filters <- process <- clutter_filters.
     from confusius.iq.process import process_iq_blocks
 
-    iq = ensure_voxeldata(
-        iq,
-        allow_pose=False,
-        allow_extra_dims=False,
-        require_canonical_dim_order=True,
-        require_dtype=np.complexfloating,
-    )
+    iq = ensure_iq_voxeldata(iq)
 
     mask_array: npt.NDArray[np.bool_] | None = None
     if clutter_mask is not None:
