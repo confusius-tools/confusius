@@ -647,18 +647,14 @@ def _create_temporal_coords_from_nifti(
             if volume_duration > 0:
                 time_attrs["volume_acquisition_duration"] = volume_duration
             elif delay_time > 0:
+                # `create_voxeldata` backfills a missing duration from the time
+                # coordinate's own regular spacing (the repetition time).
                 warnings.warn(
                     "DelayTime is greater than or equal to RepetitionTime, so "
-                    "`time.attrs['volume_acquisition_duration']` cannot be inferred.",
+                    "`time.attrs['volume_acquisition_duration']` cannot be inferred. "
+                    "Using median temporal spacing instead.",
                     stacklevel=find_stack_level(),
                 )
-                # `create_voxeldata` backfills a missing duration from the time
-                # coordinate's own regular spacing (the repetition time) -- exactly
-                # the guess just declined above as unsafe. This private marker tells
-                # `load_nifti` to strip that backfilled value again after
-                # construction, rather than silently keeping a value known to be
-                # wrong.
-                time_attrs["_duration_uninferable"] = True
         time_values = delay + sampling_period_sidecar * np.arange(n_time)
     elif time_values is None and sampling_period_nifti is not None:
         if volume_timing_length_mismatch:
@@ -1269,10 +1265,6 @@ def load_nifti(
         attrs=attrs,
         name=nifti_name,
     )
-    if "time" in data_array.coords and data_array.coords["time"].attrs.pop(
-        "_duration_uninferable", False
-    ):
-        data_array.coords["time"].attrs.pop("volume_acquisition_duration", None)
     if scalar_time_coord is not None:
         data_array = data_array.assign_coords(time=scalar_time_coord)
     if slice_time_coord is not None:

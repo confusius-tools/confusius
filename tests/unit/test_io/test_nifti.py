@@ -650,13 +650,11 @@ class TestLoadNifti:
         with pytest.warns(UserWarning, match="cannot be inferred"):
             loaded = load_nifti(path)
 
-        # `create_voxeldata` would otherwise backfill a missing duration from
-        # the time coordinate's own regular spacing (the repetition time) -- exactly
-        # the guess just declined above as unsafe (the actual acquisition duration is
-        # unknown, not equal to the repetition time). `load_nifti` strips that
-        # backfilled value back out, so it must stay absent.
-        assert "volume_acquisition_duration" not in loaded.coords["time"].attrs
-        assert "_duration_uninferable" not in loaded.coords["time"].attrs
+        # The actual acquisition duration is unknown (`DelayTime` >= `RepetitionTime`
+        # makes it non-positive), so `create_voxeldata` backfills a best-effort
+        # duration from the time coordinate's own regular spacing (the repetition
+        # time) -- the warning above is the only guard against that guess.
+        assert loaded.coords["time"].attrs["volume_acquisition_duration"] == 1.0
 
     def test_load_nifti_scalar_time_reverse_slice_direction_reverses_slice_order(
         self, tmp_path: Path
