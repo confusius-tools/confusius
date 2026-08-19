@@ -236,10 +236,7 @@ def ensure_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
     `time` coordinate. Data built without going through
     [create_voxeldata][confusius.xarray.create_voxeldata] or an I/O loader
     (e.g. a `time` coordinate assembled by hand) may still be missing them; this fills
-    in `"start"` and `"s"`, respectively. `volume_acquisition_duration` is inferred, in
-    priority order, from `data.attrs["compound_sampling_frequency"]` (the scanner's own
-    reported per-volume acquisition rate, set by I/O loaders such as AUTC and
-    EchoFrame — more authoritative than derived timestamp spacing) and otherwise from
+    in `"start"` and `"s"`, respectively. `volume_acquisition_duration` is inferred from
     the representative `time` step.
 
     Parameters
@@ -253,8 +250,8 @@ def ensure_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
         `data` unchanged when it has no `time` dimension or its time coordinate already
         carries all three attrs. Otherwise a copy with `volume_acquisition_reference`
         defaulted to `"start"`, `units` defaulted to `"s"`, and
-        `volume_acquisition_duration` defaulted per the priority order above, when it
-        can be inferred.
+        `volume_acquisition_duration` defaulted from the representative `time` step,
+        when it can be inferred.
 
     Warns
     -----
@@ -281,23 +278,10 @@ def ensure_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
         new_attrs["units"] = "s"
         defaulted.append("units")
     if "volume_acquisition_duration" not in new_attrs:
-        compound_sampling_frequency = data.attrs.get("compound_sampling_frequency")
-        if isinstance(compound_sampling_frequency, int | float) and (
-            compound_sampling_frequency > 0
-        ):
-            # Read the resolved `units` from `new_attrs` (possibly just defaulted
-            # above), not `data`, to avoid `get_time_coord_to_seconds_factor` warning
-            # about the coordinate's original, possibly-still-missing `units`.
-            new_attrs["volume_acquisition_duration"] = 1.0 / (
-                float(compound_sampling_frequency)
-                * _get_time_unit_to_seconds_factor(new_attrs["units"])
-            )
+        duration, _ = get_representative_time_step(data)
+        if duration is not None and duration > 0:
+            new_attrs["volume_acquisition_duration"] = duration
             defaulted.append("volume_acquisition_duration")
-        else:
-            duration, _ = get_representative_time_step(data)
-            if duration is not None and duration > 0:
-                new_attrs["volume_acquisition_duration"] = duration
-                defaulted.append("volume_acquisition_duration")
     if defaulted:
         defaults_used = {key: new_attrs[key] for key in defaulted}
         warnings.warn(
