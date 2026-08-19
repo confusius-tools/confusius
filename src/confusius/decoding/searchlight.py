@@ -367,8 +367,8 @@ class SearchLight(BaseEstimator):
 
     This estimator wraps scikit-learn while keeping xarray metadata:
 
-    - Input data must be a VoxelData array with dims
-      `(time, k, j, i)` (a real `VoxelToWorldIndex`, no `pose` or extra dimensions).
+    - Input data must be a VoxelData array with dims `(time, k, j, i)`—no `pose` or
+      extra dimensions.
     - The `time` dimension is the sample axis. It need not be temporally ordered. For
       trial-averaged data, rename the trial dimension with `.rename(trial="time")`.
     - `scores_` is returned in the spatial geometry of `process_mask`.
@@ -379,19 +379,19 @@ class SearchLight(BaseEstimator):
         Estimator or [`Pipeline`][sklearn.pipeline.Pipeline].
     mask : xarray.DataArray, optional
         Boolean spatial mask selecting the voxels that may act as *features*. If not
-        provided, every voxel of the input data is used as a feature voxel. Must carry
-        a `VoxelToWorldIndex` matching `X`'s grid, because `radius` is measured in
-        world coordinates.
+        provided, every voxel of the input data is used as a feature voxel. Must be a
+        VoxelData array on `X`'s grid, because `radius` is measured in world
+        coordinates.
     radius : float, default: 1.0
         Neighborhood radius, in the units of the data's spatial coordinates. Check
         `X.coords[dim].attrs.get("units")` if unsure. Radii are measured in world
         coordinates rather than voxel indices, so anisotropic voxels behave correctly.
     process_mask : xarray.DataArray, optional
         Boolean mask selecting the voxels that act as neighborhood *centers*. Must be
-        a subset of `mask`, and carry a `VoxelToWorldIndex` matching `X`'s grid. If not
-        provided, a score is computed at every `mask` voxel. Use it to restrict the
-        searchlight to a region of interest while still drawing features from the
-        surrounding tissue.
+        a subset of `mask`, and a VoxelData array on `X`'s grid. If not provided, a
+        score is computed at every `mask` voxel. Use it to restrict the searchlight to
+        a region of interest while still drawing features from the surrounding
+        tissue.
     cv : int or sklearn.model_selection.BaseCrossValidator, default: 5
         Cross-validation strategy. An integer builds a
         [`KFold`][sklearn.model_selection.KFold] for regressors, whose folds are
@@ -516,11 +516,11 @@ class SearchLight(BaseEstimator):
         Raises
         ------
         ValueError
-            If `X` is h5py-backed, is not a VoxelData array with dims
-            `(time, k, j, i)`, or lacks a `VoxelToWorldIndex`; if `radius` is negative; if `mask` or
-            `process_mask` lacks a `VoxelToWorldIndex`; if `process_mask` is not a
-            subset of `mask`; if `y` or `groups` do not align with `X`; or if the masked
-            data contains non-finite values.
+            If `X` is h5py-backed or is not a VoxelData array with exactly dims
+            `(time, k, j, i)`; if `radius` is negative; if `mask` or `process_mask` is
+            not a VoxelData array; if `process_mask` is not a subset of `mask`; if `y`
+            or `groups` do not align with `X`; or if the masked data contains
+            non-finite values.
 
         Warns
         -----
