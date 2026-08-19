@@ -36,11 +36,10 @@ def create_slice_time_coordinate_from_bids(
     slice_timing : (n_slices,) array-like
         Array of slice acquisition times relative to the onset of each volume.
     slice_encoding_direction : {"i", "j", "k", "i-", "j-", "k-"}
-        Direction of slice acquisition: `"i"` → `i`, `"j"` → `j`, `"k"` → `k`. A
-        trailing `-` indicates that `slice_timing` is defined in reverse order (the
-        first entry corresponds to the slice with the largest index). The values are
-        reversed internally so the stored coordinate is always aligned with natural
-        slice index order.
+        Direction of slice acquisition. A trailing `-` indicates that `slice_timing` is
+        defined in reverse order (the first entry corresponds to the slice with the
+        largest index). The values are reversed internally so the stored coordinate is
+        always aligned with natural slice index order.
     units : str
         Units of the slice timing values.
 

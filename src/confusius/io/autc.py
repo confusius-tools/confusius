@@ -486,13 +486,13 @@ def convert_autc_dats_to_zarr(
     dats_root: str | Path,
     output_path: str | Path,
     spacing: Sequence[float],
+    origin: Sequence[float] | None = None,
     dats_pattern: str = "bf*part*.dat",
     frames_per_chunk: int | None = None,
     chunks_per_shard: int | None = None,
     batch_size: int = 100,
     overwrite: bool = False,
     zarr_kwargs: dict[str, Any] | None = None,
-    origin: Sequence[float] | None = None,
     transmit_frequency: float | None = None,
     probe_n_elements: int | None = None,
     probe_pitch: float | None = None,
@@ -528,6 +528,13 @@ def convert_autc_dats_to_zarr(
         millimeters. AUTC's own file data carries no physical calibration for any
         axis (see the Notes section for the elevation placeholder), so this must
         always be supplied explicitly.
+    origin : sequence[float], optional
+        World position of voxel index 0 in `(k, j, i)` order, in millimeters in the
+        probe-relative coordinate system (origin at the center of the probe face). If
+        not provided, defaults to the same probe-centered/surface-referenced
+        convention as [`create_voxeldata`][confusius.xarray.create_voxeldata]:
+        elevation and lateral centered on the probe, depth referenced to the probe
+        surface.
     dats_pattern : str, default: "bf*part*.dat"
         Glob pattern used to search for AUTC DAT files inside `dats_root`.
     frames_per_chunk : int, optional
@@ -543,13 +550,6 @@ def convert_autc_dats_to_zarr(
     zarr_kwargs : dict, optional
         Additional keyword arguments to pass to `zarr.create_array` for the main data
         array.
-    origin : sequence[float], optional
-        World position of voxel index 0 in `(k, j, i)` order, in millimeters in the
-        probe-relative coordinate system (origin at the center of the probe face). If
-        not provided, defaults to the same probe-centered/surface-referenced
-        convention as [`create_voxeldata`][confusius.xarray.create_voxeldata]:
-        elevation and lateral centered on the probe, depth referenced to the probe
-        surface.
     transmit_frequency : float, optional
         Central frequency of the ultrasound probe in hertz.
     probe_n_elements : int, optional

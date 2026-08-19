@@ -15,9 +15,9 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData array with native voxel dims `k`/`j`/`i` and a
-        `VoxelToWorldIndex`, plus any number of non-spatial dimensions (e.g.,
-        `time`, `pose`). See [`ensure_voxeldata`][confusius.validation.ensure_voxeldata].
+        VoxelData array with native voxel dims `k`/`j`/`i` and a `VoxelToWorldIndex`,
+        plus any number of non-spatial dimensions (e.g., `time`, `pose`). See
+        [`ensure_voxeldata`][confusius.validation.ensure_voxeldata].
     mask : xarray.DataArray
         Mask defining which voxels to extract, sharing `data`'s voxel grid. Must have
         boolean dtype, or integer dtype with exactly one non-zero value (0 =
