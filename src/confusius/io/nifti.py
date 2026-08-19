@@ -1712,7 +1712,8 @@ def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
         Signed spatial spacings for the NIfTI `x`, `y`, and `z` axes.
     """
     voxel_spacings = get_voxel_to_world_index_spacing(data_array)
-    return [float(voxel_spacings.get(dim) or 1.0) for dim in reversed(VOXEL_DIMS)]
+    spacings = [voxel_spacings.get(dim) for dim in reversed(VOXEL_DIMS)]
+    return [1.0 if spacing is None else float(spacing) for spacing in spacings]
 
 
 def _build_nifti_timing_metadata(
