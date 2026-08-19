@@ -75,7 +75,7 @@ print(run_label)
 print(f"Data shape: {doppler.shape}")
 
 # %% [markdown]
-# ## Wrap the raw array with [`create_voxeldata`][cf.create_voxeldata]
+# ## Wrap the raw array with [`create_voxeldata`][cf.xarray.create_voxeldata]
 #
 # The MATLAB array is `(time, i, j)` natively: 128 lateral positions matching the probe
 # pitch, and 240 depth samples. ConfUSIus adds the missing singleton `k` axis and
