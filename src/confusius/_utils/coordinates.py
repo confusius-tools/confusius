@@ -2,7 +2,7 @@
 
 import warnings
 from collections.abc import Mapping, Sequence
-from typing import TypedDict, cast
+from typing import TypedDict
 
 import numpy as np
 import numpy.typing as npt
@@ -305,6 +305,47 @@ def get_coordinate_origins(data: xr.DataArray) -> dict[str, float]:
     return result
 
 
+def get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
+    """Return `data.fusi.origin`, re-keyed by dimension name for voxel-to-world data.
+
+    `data.fusi.origin` keys voxel-to-world spatial dims by their world coordinate
+    name (e.g. `"z"`), not by the native voxel dimension name (e.g. `"k"`) used
+    elsewhere (e.g. `data.fusi.spacing`, `data.dims`). This aligns the two
+    conventions, keeping any non-spatial dims (e.g. `time`) as `data.fusi.origin`
+    already keys them.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array.
+
+    Returns
+    -------
+    dict[str, float]
+        Origin keyed by `data`'s own dimension names.
+
+    Raises
+    ------
+    ValueError
+        If `data` does not carry a voxel-to-world index.
+    """
+    from confusius._utils.geometry import (
+        get_voxel_to_world_coord_names,
+        get_voxel_to_world_spatial_dims,
+    )
+
+    origin = data.fusi.origin
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
+    world_names = get_voxel_to_world_coord_names(data)
+    return {
+        **origin,
+        **{
+            voxel_dim: origin[world_name]
+            for voxel_dim, world_name in zip(voxel_dims, world_names, strict=True)
+        },
+    }
+
+
 class GridKwargs(TypedDict):
     """Output grid specification for SimpleITK-based resampling.
 
@@ -324,24 +365,23 @@ def get_grid_info_from_dataarray(
     *,
     error_prefix: str = "Cannot build grid kwargs because spacing is undefined",
 ) -> GridKwargs:
-    """Return the resampling grid specification extracted from a DataArray.
+    """Return the resampling grid specification extracted from a VoxelData array.
 
-    Bundles the `shape`, `spacing`, `origin`, and `dims` that a DataArray defines into
-    the keyword arguments expected by SimpleITK-based resampling helpers such as
-    [`resample_volume`][confusius.registration.resample_volume] and
-    [`sample_displacement_field`][confusius.registration.sample_displacement_field].
-    Spacing comes from
-    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]
-    and origin from
-    [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins],
-    both computed over all of `data`'s dimensions so that their warning behaviour is
-    preserved. Each requested dimension must have defined spacing; a singleton
-    non-spatial dimension has no defined spacing.
+    Bundles the `shape`, `spacing`, `origin`, and `dims` that a VoxelData array
+    defines into one `dims`-ordered specification, reconciling
+    [`data.fusi.spacing`][confusius.xarray.accessors.FUSIAccessor.spacing] (keyed by
+    native voxel dimension name) with
+    [`data.fusi.origin`][confusius.xarray.accessors.FUSIAccessor.origin] (keyed by
+    world coordinate name for spatial dimensions, dimension name otherwise) into a
+    single triple per dimension. Non-spatial origins fall back to
+    [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins].
+    Each requested dimension must have defined spacing; a singleton non-spatial
+    dimension has no defined spacing.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Spatial reference DataArray.
+        VoxelData array.
     dims : sequence[str], optional
         Dimensions to extract, in the desired output order. Must be a subset of
         `data`'s dimensions. If not provided, all of `data`'s dimensions are used.
@@ -358,44 +398,16 @@ def get_grid_info_from_dataarray(
     Raises
     ------
     ValueError
-        If spacing is undefined for any requested dimension.
+        If `data` is not a valid VoxelData array, or if spacing is undefined for any
+        requested dimension.
     """
+    from confusius.validation.fusi import ensure_voxeldata
+
+    data = ensure_voxeldata(data)
     dims = [str(dim) for dim in data.dims] if dims is None else list(dims)
 
-    from confusius._utils.geometry import (
-        get_voxel_to_world_coord_names,
-        get_voxel_to_world_index_origin,
-        get_voxel_to_world_spatial_dims,
-        has_voxel_to_world_index,
-    )
-
-    if has_voxel_to_world_index(data):
-        spacings = data.fusi.spacing
-        origin = get_voxel_to_world_index_origin(data)
-        coord_origins = get_coordinate_origins(data)
-        world_names = get_voxel_to_world_coord_names(data)
-        voxel_dims = get_voxel_to_world_spatial_dims(data)
-        origins = [
-            origin[world_names[voxel_dims.index(dim)]]
-            if dim in voxel_dims
-            else coord_origins[dim]
-            for dim in dims
-        ]
-        missing_spacing = [dim for dim in dims if spacings[dim] is None]
-        if missing_spacing:
-            raise ValueError(
-                f"{error_prefix} for dimensions {missing_spacing!r}. Provide regular "
-                "(2+ point, uniformly sampled) coordinates for these dimensions."
-            )
-        return {
-            "shape": [int(data.sizes[dim]) for dim in dims],
-            "spacing": [float(spacings[dim]) for dim in dims],
-            "origin": [float(value) for value in origins],
-            "dims": dims,
-        }
-
-    spacings = get_coordinate_spacings(data)
-    origins = get_coordinate_origins(data)
+    spacings = data.fusi.spacing
+    origin = get_dim_keyed_origin(data)
     missing_spacing = [dim for dim in dims if spacings[dim] is None]
     if missing_spacing:
         raise ValueError(
@@ -404,8 +416,8 @@ def get_grid_info_from_dataarray(
         )
     return {
         "shape": [int(data.sizes[dim]) for dim in dims],
-        "spacing": [cast(float, spacings[dim]) for dim in dims],
-        "origin": [origins[dim] for dim in dims],
+        "spacing": [float(spacings[dim]) for dim in dims],
+        "origin": [float(origin[dim]) for dim in dims],
         "dims": dims,
     }
 

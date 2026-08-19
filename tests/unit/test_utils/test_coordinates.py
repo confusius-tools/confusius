@@ -8,6 +8,7 @@ from confusius._utils.coordinates import (
     get_axis_aligned_affine,
     get_grid_info_from_dataarray,
 )
+from confusius.xarray import create_voxeldata
 
 
 def test_axis_aligned_affine_builds_diag_and_translation():
@@ -25,28 +26,37 @@ def test_axis_aligned_affine_builds_diag_and_translation():
 
 
 def test_get_grid_info_requires_singleton_spacing():
-    """Singleton dimensions need explicit spacing metadata."""
-    data = xr.DataArray(
-        np.zeros((1, 3, 4)),
-        dims=("z", "y", "x"),
-        coords={"z": [0.0], "y": [0.0, 0.2, 0.4], "x": [0.0, 0.1, 0.2, 0.3]},
+    """Singleton non-spatial dimensions need explicit spacing metadata."""
+    data = create_voxeldata(
+        np.zeros((1, 2, 3, 4)),
+        dims=("component", "k", "j", "i"),
+        extra_coords={"component": [0]},
+        spacing=(0.1, 0.2, 0.3),
+        origin=(0.0, 0.0, 0.0),
     )
 
-    with pytest.warns(UserWarning, match="spacing is undefined"):
-        with pytest.raises(ValueError, match="spacing is undefined.*z"):
-            get_grid_info_from_dataarray(data)
+    with pytest.raises(ValueError, match="spacing is undefined.*component"):
+        get_grid_info_from_dataarray(data)
+
+
+def test_get_grid_info_rejects_non_voxeldata():
+    """A DataArray without a voxel-to-world index is not a valid grid source."""
+    data = xr.DataArray(
+        np.zeros((3, 4)), dims=("j", "i"), coords={"j": np.arange(3), "i": np.arange(4)}
+    )
+
+    with pytest.raises(ValueError):
+        get_grid_info_from_dataarray(data)
 
 
 def test_get_grid_info_requires_regular_spacing_for_voxel_to_world_dataarray():
     """Irregular voxel-space coordinates on voxel-to-world data raise, like plain data."""
-    import confusius  # noqa: F401
-
-    data = xr.DataArray(
-        np.zeros((3, 4)),
-        dims=["j", "i"],
-        coords={"j": np.arange(3), "i": np.arange(4)},
+    data = create_voxeldata(
+        np.zeros((1, 3, 4)),
+        dims=("k", "j", "i"),
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
     )
-    data = data.fusi.affine.set_voxel_to_world(np.eye(3))
     data = data.assign_coords(j=[0.0, 1.0, 3.5])
 
     with pytest.raises(ValueError, match="spacing is undefined.*j"):

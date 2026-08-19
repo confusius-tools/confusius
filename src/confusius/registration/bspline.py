@@ -55,10 +55,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import VOXEL_DIMS
-from confusius._utils.geometry import (
-    get_voxel_to_world_coord_names,
-    get_voxel_to_world_spatial_dims,
-)
+from confusius._utils.coordinates import get_dim_keyed_origin
 from confusius.registration._utils import (
     expand_thin_dims,
     get_defined_spatial_spacing,
@@ -198,7 +195,7 @@ def _dataarray_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
     # sitk axis i corresponds directly to DataArray dim i (see sitk_bspline_to_dataarray,
     # which builds the index with the same convention).
     spacing_dict = da.fusi.spacing
-    origin_dict = _get_dim_keyed_origin(da)
+    origin_dict = get_dim_keyed_origin(da)
     spacing_sitk = [float(spacing_dict[dim]) for dim in spatial_dims]
     origin_sitk = [float(origin_dict[dim]) for dim in spatial_dims]
     node_counts_sitk = [da.sizes[dim] for dim in spatial_dims]
@@ -403,7 +400,7 @@ def sample_displacement_field_like(
     )
 
     dims, spacing = get_defined_spatial_spacing(reference)
-    origin_dict = _get_dim_keyed_origin(reference)
+    origin_dict = get_dim_keyed_origin(reference)
     return sample_displacement_field(
         transform,
         shape=[int(reference.sizes[dim]) for dim in dims],
@@ -492,7 +489,7 @@ def invert_displacement_field(
 
     field_grid = field.isel(component=0, drop=True)
     _, spacing = get_defined_spatial_spacing(field_grid)
-    origin = [_get_dim_keyed_origin(field_grid)[d] for d in dims]
+    origin = [get_dim_keyed_origin(field_grid)[d] for d in dims]
     direction = np.asarray(field_grid.fusi.direction, dtype=np.float64)
     return _sitk_displacement_field_to_dataarray(
         inverted_expanded, shape, spacing, origin, dims, direction.tolist()
@@ -558,36 +555,6 @@ def _sitk_displacement_field_to_dataarray(
     )
 
 
-def _get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
-    """Return `.fusi.origin`, re-keyed by dimension name for voxel-to-world data.
-
-    `.fusi.origin` keys voxel-to-world spatial dims by their world coordinate name
-    (e.g. `"z"`), not by the native voxel dimension name (e.g. `"k"`) used elsewhere
-    (e.g. `.fusi.spacing`, `data.dims`). This aligns the two conventions, keeping any
-    non-spatial dims (e.g. `time`) as `.fusi.origin` already keys them.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        DataArray to inspect.
-
-    Returns
-    -------
-    dict[str, float]
-        Origin keyed by `data`'s own dimension names.
-    """
-    origin = data.fusi.origin
-    voxel_dims = get_voxel_to_world_spatial_dims(data)
-    world_names = get_voxel_to_world_coord_names(data)
-    return {
-        **origin,
-        **{
-            voxel_dim: origin[world_name]
-            for voxel_dim, world_name in zip(voxel_dims, world_names, strict=True)
-        },
-    }
-
-
 def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     """Reconstruct a SimpleITK vector displacement field image from a DataArray.
 
@@ -614,7 +581,7 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
 
     field_grid = da.isel(component=0, drop=True)
     spatial_dims, spacing = get_defined_spatial_spacing(field_grid)
-    origin = [_get_dim_keyed_origin(field_grid)[dim] for dim in spatial_dims]
+    origin = [get_dim_keyed_origin(field_grid)[dim] for dim in spatial_dims]
     direction = np.asarray(field_grid.fusi.direction, dtype=np.float64)
 
     # .T maps the first DataArray axis to SimpleITK's world x-axis, matching the
