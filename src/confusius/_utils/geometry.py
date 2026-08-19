@@ -501,13 +501,17 @@ class VoxelToWorldIndex(Index):
                 position = _reverse_lookup_positions(voxel_label, voxel_axis)
                 # `np.interp` clamps out-of-domain queries to the boundary sample
                 # instead of raising, so the domain check must run on `voxel_label`
-                # itself rather than on the already-clamped `position`.
+                # itself rather than on the already-clamped `position`. `atol`
+                # absorbs float roundoff from the `(label - offset) / scale`
+                # division, e.g. an exact grid point landing a ULP outside its
+                # own axis's bounds.
+                atol = 1e-8
                 valid = ~np.isnan(position) & (
-                    (voxel_label >= np.min(voxel_axis))
-                    & (voxel_label <= np.max(voxel_axis))
+                    (voxel_label >= np.min(voxel_axis) - atol)
+                    & (voxel_label <= np.max(voxel_axis) + atol)
                 )
                 if method != "nearest":
-                    valid &= np.isclose(position, np.rint(position), atol=1e-8)
+                    valid &= np.isclose(position, np.rint(position), atol=atol)
                 if not np.all(valid):
                     raise KeyError(
                         f"World coordinate {name}={label!r} not found along "
