@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, TypeGuard
 
 import numpy as np
 import xarray as xr
+from scipy.spatial.transform import Rotation
 
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
@@ -98,45 +99,10 @@ def _rotation_matrix_aligning_vectors(
         Proper rotation matrix satisfying `R @ source == target` up to numerical
         precision.
     """
-    source = np.asarray(source, dtype=np.float64)
-    target = np.asarray(target, dtype=np.float64)
-    source = source / np.linalg.norm(source)
-    target = target / np.linalg.norm(target)
-
-    cross = np.cross(source, target)
-    sin_theta = np.linalg.norm(cross)
-    cos_theta = float(np.dot(source, target))
-
-    if np.isclose(sin_theta, 0.0):
-        if cos_theta > 0.0:
-            return np.eye(source.size, dtype=np.float64)
-
-        helper = np.eye(source.size, dtype=np.float64)[np.argmin(np.abs(source))]
-        axis = np.cross(source, helper)
-        axis /= np.linalg.norm(axis)
-        skew = np.array(
-            [
-                [0.0, -axis[2], axis[1]],
-                [axis[2], 0.0, -axis[0]],
-                [-axis[1], axis[0], 0.0],
-            ],
-            dtype=np.float64,
-        )
-        return np.eye(source.size, dtype=np.float64) + 2.0 * (skew @ skew)
-
-    skew = np.array(
-        [
-            [0.0, -cross[2], cross[1]],
-            [cross[2], 0.0, -cross[0]],
-            [-cross[1], cross[0], 0.0],
-        ],
-        dtype=np.float64,
-    )
-    return (
-        np.eye(source.size, dtype=np.float64)
-        + skew
-        + skew @ skew * ((1.0 - cos_theta) / (sin_theta**2))
-    )
+    source = np.asarray(source, dtype=np.float64).reshape(1, -1)
+    target = np.asarray(target, dtype=np.float64).reshape(1, -1)
+    rotation = Rotation.align_vectors(target, source)[0]
+    return rotation.as_matrix()
 
 
 def _get_voxel_to_world_plane_center(data: xr.DataArray) -> np.ndarray:
