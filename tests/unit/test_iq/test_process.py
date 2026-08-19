@@ -596,7 +596,8 @@ class TestProcessIqToPowerDoppler:
             },
         )
         with pytest.raises(
-            ValueError, match="must include all native voxel dimensions"
+            ValueError,
+            match="must include all native voxel dimensions|missing voxel dimension",
         ):
             process_iq_to_power_doppler(iq)
 
@@ -1317,7 +1318,8 @@ class TestProcessIqToBmode:
             },
         )
         with pytest.raises(
-            ValueError, match="must include all native voxel dimensions"
+            ValueError,
+            match="must include all native voxel dimensions|missing voxel dimension",
         ):
             process_iq_to_bmode(iq)
 

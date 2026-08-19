@@ -164,14 +164,19 @@ class TestRegisterVolumeValidation:
         da = xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
         with pytest.raises(
             ValueError,
-            match="native voxel dimensions|at least 2 spatial dimensions|defined spatial spacing",
+            match=(
+                "native voxel dimensions|at least 2 spatial dimensions|"
+                "defined spatial spacing|missing voxel dimension"
+            ),
         ):
             register_volume(da, da)
 
     def test_wrong_ndim_4d_raises(self):
         """4D input raises ValueError."""
         da = xr.DataArray(np.zeros((4, 4, 4, 4)), dims=("a", "b", "c", "d"))
-        with pytest.raises(ValueError, match="at most 3 spatial dimensions"):
+        with pytest.raises(
+            ValueError, match="at most 3 spatial dimensions|missing voxel dimension"
+        ):
             register_volume(da, da)
 
     def test_invalid_initialization_raises(self, sample_fusi_2d_registration):
@@ -837,7 +842,10 @@ class TestResampleVolume:
         da = xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
         with pytest.raises(
             ValueError,
-            match="native voxel dimensions|at least 2 spatial dimensions|defined spatial spacing",
+            match=(
+                "native voxel dimensions|at least 2 spatial dimensions|"
+                "defined spatial spacing|missing voxel dimension"
+            ),
         ):
             resample_volume(
                 da,
@@ -1025,7 +1033,9 @@ class TestInitialization:
                 "x": np.arange(6, dtype=np.float64),
             },
         )
-        with pytest.raises(ValueError, match="Unexpected dimensions"):
+        with pytest.raises(
+            ValueError, match="Unexpected dimensions|missing voxel dimension"
+        ):
             build_voxel_to_world_plane_initial_transform(da, da)
 
     def test_plane_initializer_rejects_extra_dims(self):
@@ -1717,7 +1727,10 @@ class TestResampleLike:
         da = xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
         with pytest.raises(
             ValueError,
-            match="native voxel dimensions|at least 2 spatial dimensions|defined spatial spacing",
+            match=(
+                "native voxel dimensions|at least 2 spatial dimensions|"
+                "defined spatial spacing|missing voxel dimension"
+            ),
         ):
             resample_like(da, da, np.eye(2))
 

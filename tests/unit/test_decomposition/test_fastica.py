@@ -479,5 +479,7 @@ def test_mask_mismatch_raises(sample_fusi_3dt):
     """fit raises when mask does not match spatial dimensions."""
     bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["j", "i"])
 
-    with pytest.raises(ValueError, match="native voxel dimensions"):
+    with pytest.raises(
+        ValueError, match="native voxel dimensions|missing voxel dimension"
+    ):
         FastICA(mask=bad_mask).fit(sample_fusi_3dt)

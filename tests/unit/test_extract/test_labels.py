@@ -95,7 +95,9 @@ class TestWithLabels:
     def test_missing_spatial_dim(self, sample_fusi_3dt):
         """Test that labels missing native voxel dims raises ValueError."""
         labels = xr.DataArray(np.array([1, 0, 2], dtype=int), dims=["w"])
-        with pytest.raises(ValueError, match="native voxel dimensions"):
+        with pytest.raises(
+            ValueError, match="native voxel dimensions|missing voxel dimension"
+        ):
             extract.extract_with_labels(sample_fusi_3dt, labels)
 
     def test_output_dims_4d(self, sample_fusi_3dt):

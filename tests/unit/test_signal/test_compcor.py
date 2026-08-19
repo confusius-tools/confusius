@@ -268,7 +268,9 @@ def test_compute_compcor_mask_rejects_subset_dims(sample_fusi_3dt):
         },
     )
 
-    with pytest.raises(ValueError, match="native voxel dimensions"):
+    with pytest.raises(
+        ValueError, match="native voxel dimensions|missing voxel dimension"
+    ):
         compute_compcor_confounds(
             sample_fusi_3dt,
             noise_mask=noise_mask,

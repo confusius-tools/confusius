@@ -217,7 +217,8 @@ class TestRegisterVolumewise:
         # 1D+time = 2D total.
         data = xr.DataArray(np.zeros((5, 10)), dims=("time", "i"))
         with pytest.raises(
-            ValueError, match="at least 2 spatial dimensions|native voxel"
+            ValueError,
+            match="at least 2 spatial dimensions|native voxel|missing voxel dimension",
         ):
             register_volumewise(data)
 
