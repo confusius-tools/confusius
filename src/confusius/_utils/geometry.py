@@ -449,9 +449,13 @@ class VoxelToWorldIndex(Index):
         ValueError
             If `data` still carries pose-dependent (stacked) geometry and `labels`
             selects world coordinates; reduce `pose` to a scalar first.
+        KeyError
+            If an axis-aligned world coordinate label has no exact match and
+            `method` is not `"nearest"`, or falls outside the axis's range.
         """
         transform = self._index.transform
         assert isinstance(transform, VoxelToWorldTransform)
+
         coord_labels = {
             name: labels[name] for name in transform.world_coord_names if name in labels
         }
@@ -470,6 +474,7 @@ class VoxelToWorldIndex(Index):
             return self._index.sel(
                 coord_labels, method=method or "nearest", tolerance=tolerance
             )
+
         dim_indexers: dict[Hashable, Any] = {}
         for column, dim in enumerate(transform._all_dims):
             name = transform.coord_names[column]
@@ -494,6 +499,20 @@ class VoxelToWorldIndex(Index):
             else:
                 voxel_label = (np.asarray(label) - offset) / scale
                 position = _reverse_lookup_positions(voxel_label, voxel_axis)
+                # `np.interp` clamps out-of-domain queries to the boundary sample
+                # instead of raising, so the domain check must run on `voxel_label`
+                # itself rather than on the already-clamped `position`.
+                valid = ~np.isnan(position) & (
+                    (voxel_label >= np.min(voxel_axis))
+                    & (voxel_label <= np.max(voxel_axis))
+                )
+                if method != "nearest":
+                    valid &= np.isclose(position, np.rint(position), atol=1e-8)
+                if not np.all(valid):
+                    raise KeyError(
+                        f"World coordinate {name}={label!r} not found along "
+                        f"dimension {dim!r}."
+                    )
                 dim_indexers[dim] = np.rint(position).astype(int)
         return IndexSelResult(dim_indexers)
 

@@ -9,6 +9,7 @@ import numpy.typing as npt
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.io.scan import load_scan
 from confusius.xarray import create_voxeldata
 
@@ -650,6 +651,45 @@ def sample_fusi_3d_oblique():
         dims=("k", "j", "i"),
         voxel_to_world=voxel_to_world,
     )
+
+
+@pytest.fixture
+def sample_fusi_3d_irregular_voxels():
+    """Small axis-aligned (k, j, i) volume with irregularly spaced voxel indices.
+
+    Unlike `sample_fusi_3d`'s evenly spaced voxel coordinates, `k`/`j`/`i` here are
+    non-consecutive and non-uniformly spaced (but still monotonic), so reverse
+    world-to-voxel lookups can't assume a dense `0..n-1` grid. For tests
+    exercising `VoxelToWorldIndex.sel`'s per-axis reverse lookup.
+
+    Shape: (2, 3, 4) -- deliberately small, independent of sample_fusi_3d's own shape.
+    """
+    data = xr.DataArray(
+        np.arange(2 * 3 * 4).reshape(2, 3, 4),
+        dims=("k", "j", "i"),
+        coords={"k": [0, 2], "j": [0, 1, 3], "i": [0, 2, 3, 7]},
+    )
+    return attach_voxel_to_world_index(data, np.diag([10.0, 2.0, 3.0, 1.0]))
+
+
+@pytest.fixture
+def sample_fusi_3d_nonmonotonic_voxels():
+    """Small axis-aligned (k, j, i) volume with a non-monotonic `j` voxel coordinate.
+
+    `k`/`i` are regular, consecutive voxel indices; only `j` is non-monotonic
+    (`[0, 3, 1]`), isolating that trait from irregular spacing (see
+    `sample_fusi_3d_irregular_voxels`). Reverse world-to-voxel lookup on a
+    non-monotonic axis can't use interpolation and falls back to exact-match
+    lookup -- for tests exercising that fallback in `VoxelToWorldIndex.sel`.
+
+    Shape: (2, 3, 4) -- deliberately small, independent of sample_fusi_3d's own shape.
+    """
+    data = xr.DataArray(
+        np.arange(2 * 3 * 4).reshape(2, 3, 4),
+        dims=("k", "j", "i"),
+        coords={"k": [0, 1], "j": [0, 3, 1], "i": [0, 1, 2, 3]},
+    )
+    return attach_voxel_to_world_index(data, np.diag([10.0, 2.0, 3.0, 1.0]))
 
 
 @pytest.fixture
