@@ -2027,11 +2027,6 @@ def _prepare_nifti_xforms(
 
     assert header_affines["qform"] is not None
     if resolved_codes["qform"] > 0 and _nifti_affine_has_shear(header_affines["qform"]):
-        warnings.warn(
-            "The coordinate-defining affine contains shear, which NIfTI qform cannot "
-            "represent. Writing this geometry to sform instead and disabling qform.",
-            stacklevel=find_stack_level(),
-        )
         resolved_codes["qform"] = 0
         qform_key = resolved_keys["qform"]
         if qform_key is not None:
@@ -2041,6 +2036,12 @@ def _prepare_nifti_xforms(
             # sform has no explicit/stored source of its own (it was only going to
             # fall back to raw voxel_to_world), so it's safe to rescue the sheared
             # geometry into it instead of overwriting a deliberately requested sform.
+            warnings.warn(
+                "The coordinate-defining affine contains shear, which NIfTI qform "
+                "cannot represent. Writing this geometry to sform instead and "
+                "disabling qform.",
+                stacklevel=find_stack_level(),
+            )
             header_affines["sform"] = header_affines["qform"].copy()
             resolved_codes["sform"] = _resolve_nifti_xform_code(
                 data_array,
@@ -2049,6 +2050,19 @@ def _prepare_nifti_xforms(
             )
             if qform_key is not None:
                 written_header_affine_keys.add(qform_key)
+        else:
+            # sform is already spoken for by an explicit/stored affine of its own, so
+            # the sheared qform geometry can't be rescued there without overwriting
+            # it. It is simply disabled and dropped from the NIfTI header; it
+            # remains available via the ConfUSIusAffines sidecar under its own key.
+            warnings.warn(
+                "The coordinate-defining affine contains shear, which NIfTI qform "
+                "cannot represent, and sform is already used for a different "
+                "affine. Disabling qform; the sheared geometry is not written to "
+                "the NIfTI header (it remains recorded in the ConfUSIusAffines "
+                "sidecar).",
+                stacklevel=find_stack_level(),
+            )
     return (
         stored_affines,
         header_affines["qform"],

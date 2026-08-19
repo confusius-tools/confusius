@@ -2787,6 +2787,61 @@ class TestSaveNifti:
             sidecar = json.load(f)
         assert "ConfUSIusAffines" not in sidecar
 
+    def test_sheared_qform_with_explicit_sform_disables_qform_without_overwriting_sform(
+        self, tmp_path
+    ):
+        """A sheared qform can't be rescued into an already-requested sform.
+
+        Regression test: the sform rescue used to only check whether
+        `resolved_keys["sform"]` was `None`, so when a caller explicitly requests
+        (or has stored) its own sform, a sheared qform used to be silently dropped
+        from both qform and sform, with a misleading warning claiming it was moved
+        to sform. It must instead disable qform, leave the explicitly requested
+        sform untouched, and keep the sheared geometry recoverable from the
+        ConfUSIusAffines sidecar (not written to the NIfTI header).
+        """
+        data = np.zeros((4, 3, 2), dtype=np.float32)
+        sheared_affine = np.array(
+            [
+                [1.0, 0.25, 0.0, 4.0],
+                [0.0, 1.0, 0.0, 5.0],
+                [0.0, 0.0, 1.0, 6.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        world_to_template = np.diag([2.0, 2.0, 2.0, 1.0])
+        da = create_voxeldata(
+            data,
+            dims=["z", "y", "x"],
+            coords={
+                "z": np.arange(4) * 1.0,
+                "y": np.arange(3) * 1.0,
+                "x": np.arange(2) * 1.0,
+            },
+            attrs={
+                "affines": {
+                    "world_to_qform": sheared_affine,
+                    "world_to_template": world_to_template,
+                }
+            },
+        )
+        output_path = tmp_path / "sheared_qform_explicit_sform.nii.gz"
+        with pytest.warns(
+            UserWarning, match="sform is already used for a different affine"
+        ):
+            save_nifti(da, output_path, sform="world_to_template")
+
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
+        assert loaded.header.get_qform(coded=True)[1] == 0
+        np.testing.assert_allclose(loaded.header.get_sform(), world_to_template, atol=1e-6)
+
+        sidecar_path = tmp_path / "sheared_qform_explicit_sform.json"
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+        np.testing.assert_allclose(
+            sidecar["ConfUSIusAffines"]["world_to_qform"], sheared_affine.tolist()
+        )
+
     def test_named_sform_sets_sform_code(self, tmp_path):
         """Providing `sform=` writes a sform with code=2 (ALIGNED_ANAT) by default."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
