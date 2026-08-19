@@ -552,3 +552,28 @@ def test_canonicalize_voxeldata_rejects_non_scalar_coordinate_for_missing_dim() 
         match="missing voxel dimension 'j', but coordinate 'j' is not scalar",
     ):
         canonicalize_voxeldata(bad)
+
+
+def test_canonicalize_voxeldata_rejects_dim_missing_entirely() -> None:
+    """A voxel dim missing from both dims and coords is rejected, not skipped.
+
+    Regression test: unlike a scalar-indexed dim (which `canonicalize_voxeldata`
+    restores) or a non-scalar same-named coordinate (rejected above), a voxel
+    dimension entirely absent from `data` has no scalar coordinate to restore it
+    from, and used to be silently skipped instead of raising the documented
+    `ValueError`.
+    """
+    bad = xr.DataArray(
+        np.zeros((2, 4), dtype=np.float32),
+        dims=("k", "i"),
+        coords={
+            "k": xr.DataArray([0, 1], dims=("k",)),
+            "i": xr.DataArray([0, 1, 2, 3], dims=("i",)),
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="missing voxel dimension 'j', and has no scalar coordinate 'j'",
+    ):
+        canonicalize_voxeldata(bad)

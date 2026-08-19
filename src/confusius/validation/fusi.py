@@ -377,7 +377,10 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
         if dim in result.dims:
             continue
         if dim not in result.coords:
-            continue
+            raise ValueError(
+                f"DataArray is missing voxel dimension {dim!r}, and has no scalar "
+                f"coordinate {dim!r} to restore it from."
+            )
         if result.coords[dim].shape != ():
             raise ValueError(
                 f"DataArray is missing voxel dimension {dim!r}, but coordinate "
