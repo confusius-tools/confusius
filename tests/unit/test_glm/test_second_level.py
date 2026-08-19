@@ -12,6 +12,18 @@ from confusius.glm import (
     make_second_level_design_matrix,
 )
 from confusius.glm._models import OLSModel
+from confusius.xarray import create_voxeldata
+
+
+def _spatial_map(shape: tuple[int, int]) -> xr.DataArray:
+    """A minimal `(j, i)` VoxelData map for tests unrelated to VoxelData structure."""
+    return create_voxeldata(
+        np.ones(shape),
+        dims=("j", "i"),
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+    )
+
 
 # -----------------------------------------------------------------------------
 # make_second_level_design_matrix tests
@@ -307,18 +319,20 @@ class TestSecondLevelModelErrors:
             group_model.fit([m, spatial_maps[0]])
 
     def test_shape_mismatch_raises(self):
-        maps = [
-            xr.DataArray(np.ones((2, 3)), dims=["y", "x"]),
-            xr.DataArray(np.ones((4, 3)), dims=["y", "x"]),
-        ]
+        maps = [_spatial_map((2, 3)), _spatial_map((4, 3))]
         model = SecondLevelModel()
         with pytest.raises(ValueError, match="shape"):
             model.fit(maps)
 
     def test_dims_mismatch_raises(self):
         maps = [
-            xr.DataArray(np.ones((2, 3)), dims=["y", "x"]),
-            xr.DataArray(np.ones((2, 3)), dims=["z", "x"]),
+            _spatial_map((2, 3)),
+            create_voxeldata(
+                np.ones((2, 2, 3)),
+                dims=("component", "j", "i"),
+                spacing=(1.0, 1.0, 1.0),
+                origin=(0.0, 0.0, 0.0),
+            ),
         ]
         model = SecondLevelModel()
         with pytest.raises(ValueError, match="dimensions"):
@@ -335,7 +349,7 @@ class TestSecondLevelModelErrors:
             model.fit(maps)
 
     def test_design_matrix_row_mismatch_raises(self):
-        maps = [xr.DataArray(np.ones((2, 3)), dims=["y", "x"]) for _ in range(5)]
+        maps = [_spatial_map((2, 3)) for _ in range(5)]
         dm = make_second_level_design_matrix(3)
         model = SecondLevelModel()
         with pytest.raises(ValueError, match="design_matrix"):
@@ -344,7 +358,13 @@ class TestSecondLevelModelErrors:
     def test_dataarray_with_time_dim_raises(self):
         """Raw DataArray inputs with a `time` dim are rejected."""
         maps = [
-            xr.DataArray(np.zeros((10, 2, 3)), dims=["time", "y", "x"])
+            create_voxeldata(
+                np.zeros((10, 2, 3)),
+                dims=("time", "j", "i"),
+                dt=1.0,
+                spacing=(1.0, 1.0, 1.0),
+                origin=(0.0, 0.0, 0.0),
+            )
             for _ in range(5)
         ]
         model = SecondLevelModel()
@@ -361,9 +381,11 @@ class TestSecondLevelModelErrors:
         silently flatten contrast components into the spatial axes.
         """
         maps = [
-            xr.DataArray(
+            create_voxeldata(
                 np.zeros((2, 3, 4)),
-                dims=["contrast_dim", "y", "x"],
+                dims=("contrast_dim", "j", "i"),
+                spacing=(1.0, 1.0, 1.0),
+                origin=(0.0, 0.0, 0.0),
             )
             for _ in range(5)
         ]
@@ -371,11 +393,26 @@ class TestSecondLevelModelErrors:
         with pytest.raises(ValueError, match="contrast_dim"):
             model.fit(maps)
 
-    def test_dropped_spatial_coord_raises(self, spatial_maps):
-        """A subject map missing a spatial coord present on the reference is rejected."""
-        maps = [spatial_maps[0], spatial_maps[1].drop_vars("k")]
+    def test_dropped_spatial_coord_raises(self):
+        """A subject map missing an extra dim's coordinate present on the reference is rejected."""
+        maps = [
+            create_voxeldata(
+                np.zeros((2, 2, 3, 4)),
+                dims=("component", "k", "j", "i"),
+                spacing=(0.5, 0.1, 0.1),
+                origin=(0.0, 0.0, 0.0),
+            ),
+            create_voxeldata(
+                np.zeros((2, 2, 3, 4)),
+                dims=("component", "k", "j", "i"),
+                spacing=(0.5, 0.1, 0.1),
+                origin=(0.0, 0.0, 0.0),
+            ).drop_vars("component"),
+        ]
         model = SecondLevelModel()
-        with pytest.raises(ValueError, match=r"Coordinate 'k' is missing from map 1"):
+        with pytest.raises(
+            ValueError, match=r"Coordinate 'component' is missing from map 1"
+        ):
             model.fit(maps)
 
     def test_duplicate_confound_columns_raises(self, spatial_maps):
@@ -401,21 +438,21 @@ class TestSecondLevelModelErrors:
             model.compute_contrast()
 
     def test_contrast_vector_too_long_raises(self):
-        maps = [xr.DataArray(np.ones((2, 3)), dims=["y", "x"]) for _ in range(5)]
+        maps = [_spatial_map((2, 3)) for _ in range(5)]
         model = SecondLevelModel()
         model.fit(maps)
         with pytest.raises(ValueError, match="exceeds"):
             model.compute_contrast(np.ones(5))
 
     def test_2d_contrast_too_wide_raises(self):
-        maps = [xr.DataArray(np.ones((2, 3)), dims=["y", "x"]) for _ in range(5)]
+        maps = [_spatial_map((2, 3)) for _ in range(5)]
         model = SecondLevelModel()
         model.fit(maps)
         with pytest.raises(ValueError, match="exceeds"):
             model.compute_contrast(np.ones((2, 5)), stat_type="F")
 
     def test_3d_contrast_raises(self):
-        maps = [xr.DataArray(np.ones((2, 3)), dims=["y", "x"]) for _ in range(5)]
+        maps = [_spatial_map((2, 3)) for _ in range(5)]
         model = SecondLevelModel()
         model.fit(maps)
         with pytest.raises(ValueError, match="string, 1D, or 2D"):

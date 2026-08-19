@@ -11,6 +11,10 @@ import pandas as pd
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+)
 from confusius.xarray import create_voxeldata
 
 
@@ -123,14 +127,18 @@ def spatial_maps(rng):
 @pytest.fixture
 def spatial_maps_with_mismatched_k(spatial_maps):
     """Spatial maps where the second map has mismatched native `k` coordinates."""
-    bad = xr.DataArray(
-        spatial_maps[1].data,
-        dims=spatial_maps[1].dims,
-        coords={
-            "k": spatial_maps[0].coords["k"].values + 10.0,
-            "j": spatial_maps[1].coords["j"],
-            "i": spatial_maps[1].coords["i"],
-        },
+    second = spatial_maps[1]
+    bad = attach_voxel_to_world_index(
+        xr.DataArray(
+            second.data,
+            dims=second.dims,
+            coords={
+                "k": second.coords["k"].values + 10,
+                "j": second.coords["j"].values,
+                "i": second.coords["i"].values,
+            },
+        ),
+        get_voxel_to_world_affine(second),
     )
     return [spatial_maps[0], bad]
 

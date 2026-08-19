@@ -31,6 +31,7 @@ from confusius.glm._utils import (
     to_spatial_dataarray,
 )
 from confusius.glm.first_level import FirstLevelModel
+from confusius.validation import ensure_voxeldata
 from confusius.validation.coordinates import validate_matching_coordinates
 
 if TYPE_CHECKING:
@@ -223,9 +224,9 @@ class SecondLevelModel(BaseEstimator):
         ------
         ValueError
             If `second_level_input` is empty, if `FirstLevelModel` objects are passed
-            without `first_level_contrast`, if maps have inconsistent spatial shapes
-            or mismatched spatial coordinates, or if `design_matrix` row count does
-            not match the number of inputs.
+            without `first_level_contrast`, if a map is not valid VoxelData, if maps
+            have inconsistent spatial shapes or mismatched spatial coordinates, or if
+            `design_matrix` row count does not match the number of inputs.
         TypeError
             If `second_level_input` is not a list of `FirstLevelModel` or
             `xarray.DataArray`.
@@ -328,7 +329,8 @@ class SecondLevelModel(BaseEstimator):
         Raises
         ------
         ValueError
-            If `FirstLevelModel` objects are passed without `first_level_contrast`.
+            If `FirstLevelModel` objects are passed without `first_level_contrast`,
+            or if a resolved map is not valid VoxelData.
         TypeError
             If elements are neither `FirstLevelModel` nor `xarray.DataArray`.
         """
@@ -342,11 +344,13 @@ class SecondLevelModel(BaseEstimator):
                 m.compute_contrast(first_level_contrast, output_type="effect")
                 for m in second_level_input
             ]
+            maps = [ensure_voxeldata(m, allow_pose=False) for m in maps]
             _validate_second_level_maps(maps)
             return maps
 
         if all(isinstance(m, xr.DataArray) for m in second_level_input):
             maps = [m for m in second_level_input if isinstance(m, xr.DataArray)]
+            maps = [ensure_voxeldata(m, allow_pose=False) for m in maps]
             _validate_second_level_maps(maps)
             return maps
 
