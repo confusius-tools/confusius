@@ -14,9 +14,9 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
 )
 from confusius.registration._utils import (
-    build_voxel_to_world_plane_initial_transform,
     dataarray_to_sitk_image,
     get_defined_spatial_spacing,
+    initialize_single_slice_rigid_transform,
 )
 from confusius.registration.bspline import (
     invert_displacement_field,
@@ -97,8 +97,8 @@ def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
     )
 
 
-def _make_voxel_to_world_3d_slab() -> xr.DataArray:
-    """Create a small 3D voxel-to-world slab with a singleton slice dimension."""
+def _make_voxel_to_world_single_slice() -> xr.DataArray:
+    """Create a small 3D single-slice voxel-to-world volume with a singleton slice dimension."""
     return create_voxeldata(
         np.zeros((1, 5, 6), dtype=np.float32),
         dims=("k", "j", "i"),
@@ -114,8 +114,8 @@ def _make_voxel_to_world_3d_slab() -> xr.DataArray:
     )
 
 
-def _make_voxel_to_world_3d_slab_flipped_normal() -> xr.DataArray:
-    """Voxel-to-world slab like `_make_voxel_to_world_3d_slab` with the k-axis normal flipped."""
+def _make_voxel_to_world_single_slice_flipped_normal() -> xr.DataArray:
+    """Single-slice voxel-to-world volume like `_make_voxel_to_world_single_slice` with the k-axis normal flipped."""
     return create_voxeldata(
         np.zeros((1, 5, 6), dtype=np.float32),
         dims=("k", "j", "i"),
@@ -954,9 +954,9 @@ class TestInitialization:
                 initialization=np.eye(3),  # wrong: 2D affine for 3D images
             )
 
-    def test_plane_initializer_aligns_voxel_to_world_slabs(self):
-        """The voxel-to-world slab initializer rotates and translates planes into coincidence."""
-        fixed = _make_voxel_to_world_3d_slab()
+    def test_plane_initializer_aligns_voxel_to_world_single_slices(self):
+        """The single-slice voxel-to-world volume initializer rotates and translates planes into coincidence."""
+        fixed = _make_voxel_to_world_single_slice()
         rotation = np.array(
             [
                 [np.cos(np.deg2rad(2.5)), -np.sin(np.deg2rad(2.5)), 0.0, 0.0],
@@ -971,7 +971,7 @@ class TestInitialization:
         expected_transform = translation @ rotation
         moving = fixed.fusi.affine.apply(expected_transform)
 
-        initial_transform = build_voxel_to_world_plane_initial_transform(fixed, moving)
+        initial_transform = initialize_single_slice_rigid_transform(fixed, moving)
         seeded = moving.fusi.affine.apply(np.linalg.inv(initial_transform))
 
         assert_allclose(initial_transform, expected_transform, atol=1e-10)
@@ -982,20 +982,20 @@ class TestInitialization:
 
     def test_plane_initializer_identity_rotation_for_parallel_normals(self):
         """Parallel slice normals use the identity-rotation shortcut."""
-        fixed = _make_voxel_to_world_3d_slab()
-        moving = _make_voxel_to_world_3d_slab()
+        fixed = _make_voxel_to_world_single_slice()
+        moving = _make_voxel_to_world_single_slice()
 
-        initial_transform = build_voxel_to_world_plane_initial_transform(fixed, moving)
+        initial_transform = initialize_single_slice_rigid_transform(fixed, moving)
 
         assert_allclose(initial_transform[:3, :3], np.eye(3), atol=1e-10)
         assert_allclose(initial_transform[:3, 3], 0.0, atol=1e-10)
 
     def test_plane_initializer_flips_antiparallel_normals(self):
         """Antiparallel slice normals fall back to the axis-flip rotation formula."""
-        fixed = _make_voxel_to_world_3d_slab()
-        moving = _make_voxel_to_world_3d_slab_flipped_normal()
+        fixed = _make_voxel_to_world_single_slice()
+        moving = _make_voxel_to_world_single_slice_flipped_normal()
 
-        initial_transform = build_voxel_to_world_plane_initial_transform(fixed, moving)
+        initial_transform = initialize_single_slice_rigid_transform(fixed, moving)
         rotation = initial_transform[:3, :3]
 
         # The rotation must be a proper rotation (orthogonal, determinant 1) that maps
@@ -1008,7 +1008,7 @@ class TestInitialization:
         )
 
     def test_plane_initializer_requires_single_singleton_dim(self):
-        """A voxel-to-world slab without exactly one singleton spatial axis is rejected."""
+        """A single-slice voxel-to-world volume without exactly one singleton spatial axis is rejected."""
         base = xr.DataArray(
             np.zeros((2, 5, 6), dtype=np.float32),
             dims=("k", "j", "i"),
@@ -1020,7 +1020,7 @@ class TestInitialization:
         )
         fixed = _add_identity_voxel_to_world(base)
         with pytest.raises(ValueError, match="exactly one singleton"):
-            build_voxel_to_world_plane_initial_transform(fixed, fixed)
+            initialize_single_slice_rigid_transform(fixed, fixed)
 
     def test_plane_initializer_requires_voxel_to_world_geometry(self):
         """Non-voxel-to-world inputs (plain z/y/x dims, no voxel_to_world index) are rejected."""
@@ -1036,7 +1036,7 @@ class TestInitialization:
         with pytest.raises(
             ValueError, match="Unexpected dimensions|missing voxel dimension"
         ):
-            build_voxel_to_world_plane_initial_transform(da, da)
+            initialize_single_slice_rigid_transform(da, da)
 
     def test_plane_initializer_rejects_extra_dims(self):
         """Plane initialization only accepts spatial-only canonical DataArrays."""
@@ -1047,7 +1047,7 @@ class TestInitialization:
             voxel_to_world=np.eye(4),
         )
         with pytest.raises(ValueError, match="Unexpected dimensions"):
-            build_voxel_to_world_plane_initial_transform(da, da)
+            initialize_single_slice_rigid_transform(da, da)
 
     def test_linear_initial_transform_is_not_shifted_by_geometry_centering(self):
         """A supplied initial affine is used directly, without extra centering shift."""
@@ -1471,7 +1471,7 @@ class TestDisplacementField:
             ],
             dtype=np.float64,
         )
-        fixed = _make_voxel_to_world_3d_slab().fusi.affine.apply(rotation)
+        fixed = _make_voxel_to_world_single_slice().fusi.affine.apply(rotation)
         _, bspline_tx, _ = register_volume(fixed, fixed, transform_type="bspline")
 
         field = sample_displacement_field_like(bspline_tx, fixed)
@@ -1780,7 +1780,7 @@ class TestResampleLike:
 
     def test_inherits_reference_voxel_to_world_geometry(self):
         """resample_like output inherits reference's grid, not moving's."""
-        moving = _make_voxel_to_world_3d_slab()
+        moving = _make_voxel_to_world_single_slice()
         reference = moving.fusi.affine.apply(
             np.array(
                 [

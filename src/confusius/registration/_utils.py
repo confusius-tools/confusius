@@ -106,7 +106,7 @@ def _rotation_matrix_aligning_vectors(
 
 
 def _get_voxel_to_world_plane_center(data: xr.DataArray) -> np.ndarray:
-    """Return the world center point of a voxel-to-world slab."""
+    """Return the world center point of a single-slice voxel-to-world volume."""
     return np.array(
         [
             float(np.asarray(data.coords[name].values).mean())
@@ -117,7 +117,7 @@ def _get_voxel_to_world_plane_center(data: xr.DataArray) -> np.ndarray:
 
 
 def _get_voxel_to_world_slice_normal(data: xr.DataArray) -> np.ndarray:
-    """Return the world-space normal of a singleton voxel-to-world slab."""
+    """Return the world-space normal of a single-slice voxel-to-world volume."""
     voxel_dims = get_voxel_to_world_spatial_dims(data)
     singleton_axes = [i for i, dim in enumerate(voxel_dims) if data.sizes[dim] == 1]
     if len(singleton_axes) != 1:
@@ -128,18 +128,18 @@ def _get_voxel_to_world_slice_normal(data: xr.DataArray) -> np.ndarray:
     return np.asarray(data.fusi.direction, dtype=np.float64)[:, singleton_axes[0]]
 
 
-def build_voxel_to_world_plane_initial_transform(
+def initialize_single_slice_rigid_transform(
     fixed: xr.DataArray,
     moving: xr.DataArray,
 ) -> np.ndarray:
-    """Build a rigid fixed-to-moving initializer for thin voxel-to-world slabs.
+    """Build a rigid fixed-to-moving initializer for single-slice voxel-to-world volumes.
 
     Parameters
     ----------
     fixed : xarray.DataArray
-        Fixed voxel-to-world slab.
+        Fixed single-slice voxel-to-world volume.
     moving : xarray.DataArray
-        Moving voxel-to-world slab.
+        Moving single-slice voxel-to-world volume.
 
     Returns
     -------
