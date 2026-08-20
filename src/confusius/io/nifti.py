@@ -44,6 +44,7 @@ from confusius.timing import (
     convert_time_units,
 )
 from confusius.validation import ensure_voxeldata
+from confusius.xarray.affine import reindex_voxels
 from confusius.xarray.create import create_voxeldata
 
 if TYPE_CHECKING:
@@ -1903,35 +1904,28 @@ def _resolve_nifti_xform_code(
 def _build_nifti_voxel_to_world_affine(
     data_array: xr.DataArray,
 ) -> npt.NDArray[np.floating]:
-    """Build the NIfTI voxel-to-world affine for serialized grid geometry."""
-    voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data_array.dims)
-    voxel_indices = [VOXEL_DIMS.index(dim) for dim in voxel_dims]
+    """Build the NIfTI voxel-to-world affine for serialized grid geometry.
 
-    index_to_voxel = np.eye(4, dtype=np.float64)
+    `reindex_voxels` computes exactly this: a dense-position-to-world affine,
+    replacing each voxel dim's coordinate with `0, 1, ..., dim - 1`. Its own
+    validation raises for irregular coordinates, but with a generic message, so
+    that case is checked explicitly first for a clear NIfTI-specific error. An
+    empty voxel coordinate needs no such check here: `save_nifti` validates `data_array`
+    via `ensure_voxeldata` before calling this, which already rejects zero-length
+    dimensions.
+    """
+    voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data_array.dims)
     for dim in voxel_dims:
-        axis = VOXEL_DIMS.index(dim)
         coord = np.asarray(data_array.coords[dim].values, dtype=np.float64)
-        if coord.size == 0:
-            raise ValueError(f"Cannot save empty voxel coordinate {dim!r} to NIfTI.")
-        if coord.size == 1:
-            start = float(coord[0])
-            step = 1.0
-        else:
-            step, approximate = get_representative_step(coord)
-            if approximate or step is None:
+        if coord.size > 1:
+            _, approximate = get_representative_step(coord)
+            if approximate:
                 raise ValueError(
                     "Saving voxel-to-world data to NIfTI requires regularly sampled "
                     f"voxel coordinates, but {dim!r} is irregular."
                 )
-            start = float(coord[0])
-        index_to_voxel[axis, axis] = float(step)
-        index_to_voxel[axis, 3] = start
 
-    voxel_to_world = get_voxel_to_world_affine(data_array)
-    full_voxel_to_world = np.eye(4, dtype=np.float64)
-    full_voxel_to_world[np.ix_(voxel_indices, voxel_indices)] = voxel_to_world[:-1, :-1]
-    full_voxel_to_world[voxel_indices, 3] = voxel_to_world[:-1, -1]
-    confusius_affine = full_voxel_to_world @ index_to_voxel
+    confusius_affine = get_voxel_to_world_affine(reindex_voxels(data_array))
     return confusius_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
 
 

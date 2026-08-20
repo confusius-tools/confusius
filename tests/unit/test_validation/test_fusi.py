@@ -87,6 +87,22 @@ def test_validate_voxeldata_rejects_plain_world_grid() -> None:
         validate_voxeldata(data)
 
 
+def test_validate_voxeldata_rejects_zero_length_core_dim() -> None:
+    """A zero-length core voxel dimension means the array has no data at all."""
+    data = _make_voxel_to_world_volume().isel(k=slice(0, 0))
+
+    with pytest.raises(ValueError, match="zero-length dimensions.*'k'"):
+        validate_voxeldata(data)
+
+
+def test_validate_voxeldata_rejects_zero_length_extra_dim() -> None:
+    """A zero-length non-core dimension is rejected too, not only core dims."""
+    data = _make_voxel_to_world_time_series().isel(time=slice(0, 0))
+
+    with pytest.raises(ValueError, match="zero-length dimensions.*'time'"):
+        validate_voxeldata(data)
+
+
 def test_validate_voxeldata_rejects_voxel_to_world_missing_world_coord() -> None:
     """Voxel-to-world geometry requires linked world coordinates."""
     good = _make_voxel_to_world_volume()

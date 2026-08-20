@@ -1657,36 +1657,19 @@ class TestSaveNifti:
         assert roundtripped.sizes["component"] == 1
         np.testing.assert_array_equal(roundtripped.coords["component"].values, [0.0])
 
-    def test_save_empty_extra_coord_roundtrips(self, tmp_path) -> None:
-        """An empty extra-dim coord is vacuously regular; the save writes an empty-axis NIfTI.
-
-        The load path is not exercised here because nibabel flattens 0-length axes when
-        proxying the data array, so the roundtrip cannot be verified through
-        `load_nifti`.
-        """
-        data = np.zeros((0, 4, 6, 8), dtype=np.float32)
-        da = create_voxeldata(
-            data,
-            dims=["component", "z", "y", "x"],
-            coords={
-                "component": np.array([], dtype=np.float64),
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(6, dtype=np.float64),
-                "x": np.arange(8, dtype=np.float64),
-            },
-        )
-
-        output_path = tmp_path / "empty.nii.gz"
-        save_nifti(da, output_path)
-
-        # NIfTI shape: (x=8, y=6, z=4, time=1, component=0).
-        assert nib.nifti1.Nifti1Image.from_filename(output_path).shape == (
-            8,
-            6,
-            4,
-            1,
-            0,
-        )
+    def test_empty_extra_coord_rejected_by_voxeldata_validation(self) -> None:
+        """Zero-length extra dimensions are invalid VoxelData, so they cannot save."""
+        with pytest.raises(ValueError, match="zero-length dimensions.*'component'"):
+            create_voxeldata(
+                np.zeros((0, 4, 6, 8), dtype=np.float32),
+                dims=["component", "z", "y", "x"],
+                coords={
+                    "component": np.array([], dtype=np.float64),
+                    "z": np.arange(4, dtype=np.float64),
+                    "y": np.arange(6, dtype=np.float64),
+                    "x": np.arange(8, dtype=np.float64),
+                },
+            )
 
     def test_save_extra_dim_coord_attrs_roundtrip_through_sidecar(
         self, tmp_path
@@ -2984,7 +2967,11 @@ class TestSaveNifti:
         np.testing.assert_array_equal(np.asarray(loaded.dataobj), da.values.T)
 
     def test_save_empty_voxel_coordinate_raises(self, tmp_path: Path) -> None:
-        """Saving a voxel-to-world DataArray with an empty voxel coordinate raises."""
+        """Saving a voxel-to-world DataArray with an empty voxel coordinate raises.
+
+        Caught by `ensure_voxeldata`'s zero-length-dimension check, which
+        `save_nifti` runs before ever reaching NIfTI-specific serialization logic.
+        """
         da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((0, 4, 6), dtype=np.float32),
@@ -2997,7 +2984,7 @@ class TestSaveNifti:
             )
         )
 
-        with pytest.raises(ValueError, match="Cannot save empty voxel coordinate 'k'"):
+        with pytest.raises(ValueError, match="zero-length dimensions.*'k'"):
             save_nifti(da, tmp_path / "empty_k.nii.gz")
 
     def test_save_irregular_voxel_coordinate_raises(self, tmp_path: Path) -> None:

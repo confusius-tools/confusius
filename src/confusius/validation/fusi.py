@@ -236,6 +236,30 @@ def _validate_core_dimension_names(da: xr.DataArray, allow_extra_dims: bool) -> 
             )
 
 
+def _validate_no_zero_length_dims(da: xr.DataArray) -> None:
+    """Validate that no dimension has zero length.
+
+    A zero-length dimension means `da` has no data at all, regardless of the size
+    of its other dimensions.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        DataArray whose dimension sizes should be checked.
+
+    Raises
+    ------
+    ValueError
+        If any dimension has size 0.
+    """
+    empty_dims = [str(dim) for dim in da.dims if da.sizes[dim] == 0]
+    if empty_dims:
+        raise ValueError(
+            f"DataArray must not have zero-length dimensions, got empty dimensions "
+            f"{empty_dims!r} (shape {da.shape!r})."
+        )
+
+
 def _validate_canonical_core_dim_order(da: xr.DataArray) -> None:
     """Validate the relative order of ConfUSIus core dimensions.
 
@@ -546,6 +570,7 @@ def validate_voxeldata(
         If dimension, coordinate, timing, or metadata validation fails.
     """
     require_dataarray(data)
+    _validate_no_zero_length_dims(data)
 
     _validate_core_dimension_names(data, allow_extra_dims=allow_extra_dims)
 
