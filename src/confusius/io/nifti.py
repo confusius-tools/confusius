@@ -231,36 +231,54 @@ def _select_affines(
 ) -> tuple[npt.NDArray[np.floating] | None, npt.NDArray[np.floating] | None]:
     """Select primary and secondary affine matrices from a NiBabel header.
 
-    Sform is preferred over qform when both codes are positive. When both are
-    valid, the qform is returned as the secondary affine so that scanner-space
-    coordinates can be stored alongside the template-space primary coordinates.
-    When both codes are zero, `(None, None)` is returned.
+    In `"auto"` mode, sform is preferred over qform when both codes are positive.
+    When both are valid, the qform is returned as the secondary affine so that
+    scanner-space coordinates can be stored alongside the template-space primary
+    coordinates. When both codes are zero, `(None, None)` is returned. In `"sform"`
+    or `"qform"` mode, the requested form must be valid -- it is *forced*, not
+    preferred, so there is no other form to silently fall back to.
 
     Parameters
     ----------
     header : nibabel.nifti1.Nifti1Header or nibabel.nifti2.Nifti2Header
         NiBabel NIfTI header.
+    coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
+        Header affine to use as the primary coordinate-defining geometry.
 
     Returns
     -------
     primary_affine : (4, 4) numpy.ndarray or None
-        Primary affine for computing spatial coordinates, or `None` when both
-        sform and qform codes are zero.
+        Primary affine for computing spatial coordinates, or `None` when
+        `coordinate_affine="auto"` and both sform and qform codes are zero.
     secondary_affine : (4, 4) numpy.ndarray or None
-        Qform affine when both sform and qform codes are positive; `None` otherwise.
+        The other form's affine when it is also valid; `None` otherwise.
+
+    Raises
+    ------
+    ValueError
+        If `coordinate_affine` is `"sform"` or `"qform"` and that form's code is
+        zero.
     """
+    # nibabel's get_sform/get_qform(coded=True) returns affine=None exactly when
+    # code == 0 (never independently), so checking the code alone is sufficient.
     sform, sform_code = header.get_sform(coded=True)
     qform, qform_code = header.get_qform(coded=True)
-    sform_valid = sform_code > 0 and sform is not None
-    qform_valid = qform_code > 0 and qform is not None
+    sform_valid = sform_code > 0
+    qform_valid = qform_code > 0
 
     if coordinate_affine == "sform":
         if not sform_valid:
-            return None, None
+            raise ValueError(
+                "coordinate_affine='sform' was requested, but sform_code is 0 in "
+                "the NIfTI header. Use coordinate_affine='qform' or 'auto' instead."
+            )
         return sform, (qform if qform_valid else None)
     if coordinate_affine == "qform":
         if not qform_valid:
-            return None, None
+            raise ValueError(
+                "coordinate_affine='qform' was requested, but qform_code is 0 in "
+                "the NIfTI header. Use coordinate_affine='sform' or 'auto' instead."
+            )
         return qform, (sform if sform_valid else None)
 
     if sform_valid:
@@ -366,9 +384,12 @@ def _resolve_spatial_geometry_from_nifti(
     re-expressed against that shared frame, so a secondary qform keeps its
     relationship to the world coordinates.
 
-    When both sform and qform codes are zero, `voxel_to_world` is built from
-    pixdim only (origin 0, step = voxel size). A warning is emitted and no
-    `"affines"` entry is added to `extra_attrs`.
+    With `coordinate_affine="auto"` and both sform and qform codes zero,
+    `voxel_to_world` is built from pixdim only (origin 0, step = voxel size). A
+    warning is emitted and no `"affines"` entry is added to `extra_attrs`. With an
+    explicit `coordinate_affine="sform"`/`"qform"`, that form is forced: if its code
+    is zero, `_select_affines` raises instead of silently falling back to pixdim or
+    to the other form.
 
     Parameters
     ----------
@@ -392,6 +413,12 @@ def _resolve_spatial_geometry_from_nifti(
     extra_attrs : dict[str, Any]
         Affine-derived DataArray attributes. Contains `"affines"` when a valid
         secondary affine is present; empty otherwise.
+
+    Raises
+    ------
+    ValueError
+        If `coordinate_affine` is `"sform"` or `"qform"` and that form's code is
+        zero.
     """
     voxel_sizes = extractor.get_voxel_dimensions()
     space_unit, _ = extractor.get_unit_strings()
@@ -1134,10 +1161,9 @@ def load_nifti(
       `pixdim` only (origin 0, step = voxel size), and no `"affines"` entry is
       stored in `da.attrs`.
 
-    Choosing `coordinate_affine="sform"` or `"qform"` overrides the automatic
-    preference only when that header affine is valid. If the requested affine is not
-    present, loading falls back to the same `pixdim`-only path as a file with no valid
-    header affine.
+    Choosing `coordinate_affine="sform"` or `"qform"` *forces* that header affine:
+    unlike `"auto"`, there is no fallback to the other form or to `pixdim` when the
+    requested affine is not valid -- `load_nifti` raises `ValueError` instead.
 
     The raw integer form codes are stored as `da.attrs["qform_code"]` and
     `da.attrs["sform_code"]` (only when > 0) so that a save/load roundtrip can

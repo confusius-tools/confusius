@@ -1283,15 +1283,14 @@ class TestLoadNifti:
 
         np.testing.assert_allclose(da.coords["time"].values, [0.0, 1.0, 2.0, 3.0, 4.0])
 
-    def test_load_nifti_coordinate_affine_sform_invalid_falls_back(
+    def test_load_nifti_coordinate_affine_sform_invalid_raises(
         self, tmp_path: Path
     ) -> None:
-        """`coordinate_affine="sform"` with an invalid sform falls back to pixdim.
+        """`coordinate_affine="sform"` with an invalid sform raises, even if qform is valid.
 
-        Even though qform is valid, an explicit `coordinate_affine="sform"` request
-        is honored literally: `_select_affines` returns `(None, None)` without
-        considering qform, so loading falls back to the same pixdim-only path used
-        when neither form is valid.
+        `"sform"` *forces* the sform to define the geometry -- unlike `"auto"`, there
+        is no silent fallback to qform or to pixdim when the requested form isn't
+        valid.
         """
         qform = np.diag([2.0, 3.0, 4.0, 1.0])
         data = np.zeros((4, 3, 2), dtype=np.float32)
@@ -1301,22 +1300,15 @@ class TestLoadNifti:
         nifti_path = tmp_path / "sform_invalid.nii.gz"
         img.to_filename(nifti_path)
 
-        with pytest.warns(UserWarning, match="sform_code and qform_code are 0"):
-            da = load_nifti(nifti_path, coordinate_affine="sform")
+        with pytest.raises(ValueError, match="coordinate_affine='sform'"):
+            load_nifti(nifti_path, coordinate_affine="sform")
 
-        assert "affines" not in da.attrs
-        # Pixdim-only fallback: origin 0, step = voxel size, ignoring the valid
-        # qform entirely because it was not the requested form.
-        np.testing.assert_allclose(_world_coord_1d(da, "x"), [0.0, 2.0, 4.0, 6.0])
-
-    def test_load_nifti_coordinate_affine_qform_invalid_falls_back(
+    def test_load_nifti_coordinate_affine_qform_invalid_raises(
         self, tmp_path: Path
     ) -> None:
-        """`coordinate_affine="qform"` with an invalid qform falls back to pixdim.
+        """`coordinate_affine="qform"` with an invalid qform raises, even if sform is valid.
 
-        Mirrors `test_load_nifti_coordinate_affine_sform_invalid_falls_back`: a
-        valid sform is ignored because qform was explicitly (but invalidly)
-        requested.
+        Mirrors `test_load_nifti_coordinate_affine_sform_invalid_raises`.
         """
         sform = np.diag([2.0, 3.0, 4.0, 1.0])
         data = np.zeros((4, 3, 2), dtype=np.float32)
@@ -1326,11 +1318,8 @@ class TestLoadNifti:
         nifti_path = tmp_path / "qform_invalid.nii.gz"
         img.to_filename(nifti_path)
 
-        with pytest.warns(UserWarning, match="sform_code and qform_code are 0"):
-            da = load_nifti(nifti_path, coordinate_affine="qform")
-
-        assert "affines" not in da.attrs
-        np.testing.assert_allclose(_world_coord_1d(da, "x"), [0.0, 1.0, 2.0, 3.0])
+        with pytest.raises(ValueError, match="coordinate_affine='qform'"):
+            load_nifti(nifti_path, coordinate_affine="qform")
 
     def test_load_nifti_extra_dims_named_j_i_fall_back_with_warning(
         self, tmp_path: Path
