@@ -343,7 +343,7 @@ def _load_nifti_with_nibabel(
     return img, _NiftiHeaderExtractor(img.header)
 
 
-def _create_spatial_coords_from_nifti(
+def _resolve_spatial_geometry_from_nifti(
     img: "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
     extractor: "_NiftiHeaderExtractor",
     dims: tuple[str, ...],
@@ -1189,11 +1189,13 @@ def load_nifti(
     )
     _pop_extra_dim_attrs(attrs)
 
-    voxel_to_world, world_coord_attrs, affine_attrs = _create_spatial_coords_from_nifti(
-        img=img,
-        extractor=extractor,
-        dims=nifti_dims,
-        coordinate_affine=coordinate_affine,
+    voxel_to_world, world_coord_attrs, affine_attrs = (
+        _resolve_spatial_geometry_from_nifti(
+            img=img,
+            extractor=extractor,
+            dims=nifti_dims,
+            coordinate_affine=coordinate_affine,
+        )
     )
     # Merge NIfTI-header-derived affines with any pre-existing affines (e.g. loaded
     # from the sidecar) so sidecar entries like `bspline_initialization` are not
