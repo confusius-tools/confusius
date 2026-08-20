@@ -708,7 +708,6 @@ def create_voxeldata(
         result,
         require_regular_spacing=True,
         regular_spacing_dims=regular_spacing_dims,
-        require_canonical_dim_order=True,
     )
     if per_pose_time is not None:
         result = result.drop_vars(TIME_DIM).assign_coords(

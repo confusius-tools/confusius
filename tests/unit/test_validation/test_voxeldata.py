@@ -250,12 +250,22 @@ def test_validate_voxeldata_rejects_non_numeric_core_coordinate() -> None:
         validate_voxeldata(bad)
 
 
-def test_validate_voxeldata_can_require_canonical_dim_order() -> None:
-    """Canonical core dimension order can be enforced explicitly."""
+def test_validate_voxeldata_rejects_noncanonical_dim_order() -> None:
+    """VoxelData dimensions must follow the canonical order."""
     reordered = _make_voxel_to_world_time_series().transpose("j", "i", "time", "k")
 
     with pytest.raises(ValueError, match="not in canonical ConfUSIus order"):
-        validate_voxeldata(reordered, require_canonical_dim_order=True)
+        validate_voxeldata(reordered)
+
+
+def test_canonicalize_voxeldata_reorders_dimensions() -> None:
+    """Canonicalization moves extra and core dimensions into model order."""
+    data = _make_voxel_to_world_time_series().expand_dims(component=[0, 1])
+    reordered = data.transpose("j", "component", "i", "time", "k")
+
+    result = canonicalize_voxeldata(reordered)
+
+    assert result.dims == ("component", "time", "k", "j", "i")
 
 
 def test_validate_voxeldata_can_require_regular_spacing() -> None:

@@ -101,8 +101,7 @@ def _validate_voxel_to_world_geometry(da: xr.DataArray) -> None:
             "VoxelToWorldIndex-backed world coordinates and defined spatial spacing."
         )
 
-    # Set membership only, not order: dim order is a separate concern covered by the
-    # opt-in `require_canonical_dim_order` check below.
+    # Dim order is validated separately after geometry consistency.
     voxel_dims = get_voxel_to_world_spatial_dims(da)
     if set(voxel_dims) != set(VOXEL_DIMS):
         raise ValueError(
@@ -379,8 +378,10 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
 
     Scalar indexing such as `data.isel(j=0)` removes `j` from the array dimensions
     but retains it as a scalar coordinate. This function restores every missing
-    native voxel dimension (`k`, `j`, `i`) as a length-one dimension in canonical
-    spatial order. When scalar indexing fixed a dimension in a `VoxelToWorldIndex`,
+    native voxel dimension (`k`, `j`, `i`) as a length-one dimension, then orders all
+    dimensions as `(...extra_dims, time, pose, k, j, i)`. It preserves coordinate
+    values and their order. When scalar indexing fixed a dimension in a
+    `VoxelToWorldIndex`,
     its geometry is rebuilt from the untouched affine. Missing world-coordinate
     `units` default to `"mm"`; missing time acquisition metadata also default where
     possible. This function does not otherwise validate the VoxelData model; use
@@ -443,6 +444,10 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
     from confusius._utils.geometry import restore_voxel_to_world_index
 
     result = restore_voxel_to_world_index(result)
+    result = result.transpose(
+        *(dim for dim in result.dims if dim not in CORE_DIMS),
+        *(dim for dim in CORE_DIMS if dim in result.dims),
+    )
     result = _ensure_spatial_metadata_attrs(result)
     return ensure_time_acquisition_attrs(result)
 
@@ -495,12 +500,13 @@ def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:
 def ensure_voxeldata(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
     """Return a canonical, validated VoxelData array.
 
-    This is the normal entry point for spatial inputs: it first restores
-    scalar-indexed native voxel dimensions and geometry with
-    [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata], then
-    checks the resulting DataArray against the VoxelData model. Use
-    [validate_voxeldata][confusius.validation.validate_voxeldata] when the input
-    must already be canonical.
+    This is the normal entry point for spatial inputs: it restores scalar-indexed
+    native voxel dimensions and geometry, and orders dimensions as
+    `(...extra_dims, time, pose, k, j, i)` with
+    [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata], then checks
+    the resulting DataArray against the VoxelData model. Use
+    [validate_voxeldata][confusius.validation.validate_voxeldata] when the input must
+    already follow that model.
 
     Parameters
     ----------
@@ -539,17 +545,17 @@ def validate_voxeldata(
     require_regular_spacing: bool = False,
     regular_spacing_tolerance: float = 1e-2,
     regular_spacing_dims: RegularSpacingDims = "space",
-    require_canonical_dim_order: bool = False,
     require_velocity_attrs: bool = False,
     require_dtype: Any | None = None,
 ) -> None:
     """Validate a DataArray against the VoxelData model without modifying it.
 
-    By default, this requires non-empty native voxel dimensions (`k`, `j`, `i`),
-    their coordinates, and a matching `VoxelToWorldIndex`. It also validates every
-    dimension coordinate and requires `units` on world coordinates. When `time` is
-    present, its acquisition metadata and `units` are required. The optional flags
-    add requirements needed by a particular consumer. Use
+    This requires non-empty native voxel dimensions (`k`, `j`, `i`), their
+    coordinates, a matching `VoxelToWorldIndex`, and dimensions ordered as
+    `(...extra_dims, time, pose, k, j, i)`. It also validates every dimension
+    coordinate and requires `units` on world coordinates. When `time` is present, its
+    acquisition metadata and `units` are required. The optional flags add requirements
+    needed by a particular consumer. Use
     [ensure_voxeldata][confusius.validation.ensure_voxeldata] when scalar indexing
     may have removed a voxel dimension and the input should be canonicalized first.
 
@@ -578,9 +584,6 @@ def validate_voxeldata(
     regular_spacing_dims : {"space", "core", "all"} or str or sequence[str], default: "space"
         Dimensions to check for regular spacing. `"space"` checks `k`, `j`, and `i`;
         `"core"` checks present core dimensions; `"all"` checks every dimension.
-    require_canonical_dim_order : bool, default: False
-        Whether present core dimensions must occur in `time`, `pose`, `k`, `j`, `i`
-        order. Extra dimensions may occur anywhere.
     require_velocity_attrs : bool, default: False
         Whether to require positive, finite `transmit_frequency` and
         `beamforming_sound_velocity` DataArray attributes.
@@ -654,8 +657,7 @@ def validate_voxeldata(
             spatial_dims,
         )
 
-    if require_canonical_dim_order:
-        _validate_canonical_core_dim_order(data)
+    _validate_canonical_core_dim_order(data)
 
     if require_dtype is not None and not np.issubdtype(data.dtype, require_dtype):
         raise TypeError(
