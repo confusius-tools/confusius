@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
@@ -14,6 +14,10 @@ from confusius._utils.coordinates import get_probe_surface_origin
 from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
 from confusius.validation.fusi import require_positive_finite, validate_voxeldata
+
+if TYPE_CHECKING:
+    import dask.array as da
+
 
 _SPATIAL_UNITS = "mm"
 """Physical units attached to the `z`, `y`, and `x` coordinates."""
@@ -347,12 +351,15 @@ def _resolve_voxel_to_world(
 
 
 def create_voxeldata(
-    data: npt.ArrayLike,
+    data: npt.ArrayLike | da.Array,
     *,
     dims: Sequence[str],
     extra_coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
     time: npt.ArrayLike | xr.DataArray | None = None,
     pose: npt.ArrayLike | xr.DataArray | None = None,
+    k: npt.ArrayLike | xr.DataArray | None = None,
+    j: npt.ArrayLike | xr.DataArray | None = None,
+    i: npt.ArrayLike | xr.DataArray | None = None,
     dt: float | None = None,
     t0: float | npt.ArrayLike = 0.0,
     volume_acquisition_reference: VolumeAcquisitionReference = "start",
@@ -397,6 +404,9 @@ def create_voxeldata(
         back into a real, selectable index.
     pose : numpy.typing.ArrayLike or xarray.DataArray, optional
         Integer coordinates for the `pose` dimension.
+    k, j, i : numpy.typing.ArrayLike or xarray.DataArray, optional
+        Integer native voxel coordinates for the corresponding voxel dimensions. If
+        not provided, dense zero-based coordinates are generated.
     dt : float, optional
         Time spacing in seconds, used when `time` is not provided. For multi-pose
         arrays, `dt` is shared across poses.
@@ -554,6 +564,7 @@ def create_voxeldata(
         coord_inputs[TIME_DIM] = time
     if pose is not None:
         coord_inputs["pose"] = pose
+    voxel_coord_inputs = {"k": k, "j": j, "i": i}
 
     scalar_t0: float | None
     if t0 is None or np.asarray(t0).ndim > 0:
@@ -616,11 +627,20 @@ def create_voxeldata(
             direction=direction,
             voxel_to_world=voxel_to_world,
         )
-    voxel_coords = {
-        dim: xr.DataArray(np.arange(spatial_sizes[dim]), dims=(dim,))
-        for dim in VOXEL_DIMS
-        if dim in data_dims
-    }
+    voxel_coords = {}
+    for dim in VOXEL_DIMS:
+        if dim not in data_dims:
+            continue
+        explicit = voxel_coord_inputs[dim]
+        if explicit is None:
+            voxel_coords[dim] = xr.DataArray(np.arange(spatial_sizes[dim]), dims=(dim,))
+            continue
+        values, coord_attrs = _coordinate_values_and_attrs(dim, {dim: explicit}) or (
+            np.array([], dtype=int),
+            {},
+        )
+        _validate_coordinate_shape(dim, values, spatial_sizes[dim])
+        voxel_coords[dim] = xr.DataArray(values, dims=(dim,), attrs=coord_attrs)
     world_attrs = {dim: {"units": _SPATIAL_UNITS} for dim in SPATIAL_DIMS}
 
     result = xr.DataArray(
@@ -673,11 +693,15 @@ def create_voxeldata(
     ordered_core = [dim for dim in CORE_DIMS if dim in result.dims]
     result = result.transpose(*extra_dims, *ordered_core)
 
+    explicit_voxel_dims = {
+        dim for dim, coord in voxel_coord_inputs.items() if coord is not None
+    }
     regular_spacing_dims = tuple(
         dim
         for dim in CORE_DIMS
         if dim in result.dims
         and result.sizes[dim] > 1
+        and dim not in explicit_voxel_dims
         and not (dim == TIME_DIM and time is not None)
     )
     validate_voxeldata(

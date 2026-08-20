@@ -6,11 +6,6 @@ import numpy as np
 import xarray as xr
 
 from confusius._dims import POSE_DIM
-from confusius._utils.geometry import (
-    attach_voxel_to_world_index,
-    get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
-)
 from confusius._utils.timing import interpolate_timeseries
 from confusius.multipose._utils import build_consolidated_time_coordinate
 from confusius.validation import ensure_voxeldata
@@ -175,18 +170,6 @@ def correct_slice_timings(
 
     out = da.copy(data=result.data)
     del out.coords[timing_coord_name]
-    world_coord_names = tuple(get_voxel_to_world_coord_names(da))
-    # `pose` is its own plain, independently indexed coordinate (not owned by the
-    # VoxelToWorldIndex -- see its docstring), so dropping the world coordinates here
-    # leaves it untouched.
-    out = out.drop_vars(world_coord_names, errors="ignore")
-    out = attach_voxel_to_world_index(
-        out,
-        get_voxel_to_world_affine(da),
-        world_coord_attrs={
-            name: dict(da.coords[name].attrs) for name in world_coord_names
-        },
-    )
     if timing_coord_name == "time":
         out = out.assign_coords(time=target_time_coord)
     return out

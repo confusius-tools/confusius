@@ -8,12 +8,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.geometry import (
-    attach_voxel_to_world_index,
-    get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
-    get_voxel_to_world_spatial_dims,
-)
+from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius._utils.stack import find_stack_level
 from confusius.iq._utils import ensure_iq_voxeldata
 from confusius.iq.clutter_filters import (
@@ -29,6 +24,7 @@ from confusius.timing import (
     get_representative_time_step,
 )
 from confusius.validation import ensure_voxeldata, validate_mask
+from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -111,23 +107,24 @@ def _attach_iq_output_geometry(
         Output DataArray with `iq`'s voxel-to-world geometry (native voxel dims and
         derived world coordinates) reattached.
     """
-    spatial_dims = get_voxel_to_world_spatial_dims(iq)
-    result_da = xr.DataArray(
+    return create_voxeldata(
         result,
+        dims=tuple(str(dim) for dim in iq.dims),
+        dt=time.attrs["volume_acquisition_duration"],
+        t0=float(np.asarray(time.values)[0]),
+        pose=iq.coords["pose"] if "pose" in iq.dims else None,
+        k=iq.coords["k"],
+        j=iq.coords["j"],
+        i=iq.coords["i"],
+        voxel_to_world=get_voxel_to_world_affine(iq),
         name=name,
-        dims=iq.dims,
-        coords={"time": time, **{dim: iq.coords[dim] for dim in spatial_dims}},
         attrs=attrs,
-    )
-    world_coord_names = get_voxel_to_world_coord_names(iq)
-    world_coord_attrs = {
-        coord_name: dict(iq.coords[coord_name].attrs)
-        for coord_name in world_coord_names
-        if coord_name in iq.coords
-    }
-    return attach_voxel_to_world_index(
-        result_da, get_voxel_to_world_affine(iq), world_coord_attrs=world_coord_attrs
-    )
+        world_coord_attrs={
+            coord: iq.coords[coord].attrs
+            for coord in ("z", "y", "x")
+            if coord in iq.coords
+        },
+    ).assign_coords(time=time)
 
 
 def _normalize_spatial_kernel(

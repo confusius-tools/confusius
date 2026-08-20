@@ -66,6 +66,20 @@ def test_create_voxeldata_keeps_dask_input_lazy():
     assert isinstance(result.data, da.Array)
 
 
+def test_create_voxeldata_accepts_explicit_voxel_coords():
+    """Explicit k/j/i coordinates may be sparse native voxel indices."""
+    result = create_voxeldata(
+        np.zeros((3, 2, 2)),
+        dims=("k", "j", "i"),
+        k=[0, 2, 5],
+        j=[10, 12],
+        i=[20, 23],
+        voxel_to_world=np.eye(4),
+    )
+
+    np.testing.assert_array_equal(result.coords["k"], [0, 2, 5])
+    np.testing.assert_array_equal(_world_coord_1d(result, "z"), [0, 2, 5])
+    validate_voxeldata(result)
 
 
 def test_create_voxeldata_uses_default_probe_origins():
@@ -176,9 +190,7 @@ def test_create_voxeldata_accepts_pose_stacked_voxel_to_world():
 
     assert result.dims == ("pose", "k", "j", "i")
     assert_allclose(result.coords["pose"].values, [0, 1])
-    assert_allclose(
-        result.coords["z"].isel(pose=1, j=0, i=0).values, [100.0, 101.0]
-    )
+    assert_allclose(result.coords["z"].isel(pose=1, j=0, i=0).values, [100.0, 101.0])
     validate_voxeldata(result)
 
 
