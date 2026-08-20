@@ -375,7 +375,17 @@ def _validate_regular_spacing(
 
 
 def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
-    """Return `data` with scalar voxel-space spatial coordinates restored as dims.
+    """Restore a scalar-indexed VoxelData dimension and its geometry.
+
+    Scalar indexing such as `data.isel(j=0)` removes `j` from the array dimensions
+    but retains it as a scalar coordinate. This function restores every missing
+    native voxel dimension (`k`, `j`, `i`) as a length-one dimension in canonical
+    spatial order. When scalar indexing fixed a dimension in a `VoxelToWorldIndex`,
+    its geometry is rebuilt from the untouched affine. Missing world-coordinate
+    `units` default to `"mm"`; missing time acquisition metadata also default where
+    possible. This function does not otherwise validate the VoxelData model; use
+    [ensure_voxeldata][confusius.validation.ensure_voxeldata] to canonicalize and
+    validate.
 
     Parameters
     ----------
@@ -385,14 +395,20 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
     Returns
     -------
     xarray.DataArray
-        DataArray with missing scalar-indexed voxel dimensions restored.
+        Canonicalized DataArray with all native voxel dimensions present.
 
     Raises
     ------
     TypeError
         If `data` is not an `xarray.DataArray`.
     ValueError
-        If a missing voxel dimension has no scalar coordinate to restore.
+        If a native voxel dimension is absent and has no scalar coordinate from which
+        to restore it, or its same-named coordinate is not scalar.
+
+    Warns
+    -----
+    UserWarning
+        If missing world-coordinate `units` or time acquisition metadata is defaulted.
     """
     require_dataarray(data)
 
