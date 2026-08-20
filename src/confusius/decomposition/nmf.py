@@ -281,7 +281,7 @@ class NMF(_BaseFUSIDecomposer):
                 f"mode must be 'temporal' or 'spatial', got '{self.mode}'."
             )
 
-        X_proc, spatial_dims, feature_mask = self._prepare_data(
+        X_proc, spatial_dims, mask = self._prepare_data(
             X,
             check_layout=False,
             operation_name="NMF.fit",
@@ -309,7 +309,7 @@ class NMF(_BaseFUSIDecomposer):
             shuffle=self.shuffle,
         )
 
-        self._store_fit_metadata(X, X_proc, spatial_dims, feature_mask)
+        self._store_fit_metadata(X, X_proc, spatial_dims, mask)
 
         if self.mode == "temporal":
             self._fit_temporal(nmf, X_proc)

@@ -10,18 +10,13 @@ import xarray as xr
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from confusius._utils.geometry import (
-    attach_voxel_to_world_index,
-    get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
-    has_voxel_to_world_index,
-)
+from confusius._utils.geometry import has_voxel_to_world_index
 from confusius._utils.mask import (
     select_masked_features,
     validate_spatial_or_feature_mask,
 )
 from confusius.extract import unmask
-from confusius.validation import validate_time_series
+from confusius.validation import ensure_voxeldata, validate_time_series
 
 
 class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
@@ -230,7 +225,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         X: xr.DataArray,
         check_layout: bool,
         operation_name: str,
-    ) -> tuple[npt.NDArray[np.floating], tuple[str, ...], npt.NDArray[np.bool_]]:
+    ) -> tuple[npt.NDArray[np.floating], tuple[str, ...], xr.DataArray]:
         """Validate and stack time series data into a 2D feature matrix.
 
         `X` may be a VoxelData array (native voxel dims `k`/`j`/`i`
@@ -257,8 +252,9 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             `X`; sklearn handles any required type promotion internally.
         spatial_dims : tuple[str, ...]
             Spatial dimensions used to order and stack the input data.
-        feature_mask : (n_features,) numpy.ndarray
-            Boolean mask selecting features used for fitting/projection.
+        mask : xarray.DataArray
+            Boolean mask selecting features used for fitting/projection, with `X`'s
+            spatial dims/coords (and `VoxelToWorldIndex`, if `X` is a VoxelData array).
 
         Raises
         ------
@@ -292,16 +288,23 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             spatial_dims = input_spatial_dims
 
         X_ordered = X.transpose("time", *spatial_dims)
-        mask = getattr(self, "mask", None)
+        mask = self.mask
         if mask is None:
-            mask = xr.ones_like(X_ordered.isel(time=0, drop=True), dtype=bool)
+            mask_template = X_ordered.isel(time=0, drop=True)
+            if has_voxel_to_world_index(X_ordered):
+                mask = ensure_voxeldata(
+                    mask_template.copy(data=np.ones(mask_template.shape, dtype=bool)),
+                    allow_extra_dims=False,
+                )
+            else:
+                mask = xr.ones_like(mask_template, dtype=bool)
         else:
             mask = validate_spatial_or_feature_mask(
                 X_ordered, mask, "mask", require_exact_dims=True
             )
 
         X_proc = select_masked_features(X_ordered, mask, "mask").values
-        return X_proc, spatial_dims, mask.values.ravel()
+        return X_proc, spatial_dims, mask
 
     def _reshape_component_matrix(
         self,
@@ -357,7 +360,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         X: xr.DataArray,
         X_proc: npt.NDArray[np.floating],
         spatial_dims: tuple[str, ...],
-        feature_mask: npt.NDArray[np.bool_],
+        mask: xr.DataArray,
     ) -> None:
         """Store spatial and array metadata from a fit call.
 
@@ -372,34 +375,15 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             Stacked data over selected features returned by `_prepare_data`.
         spatial_dims : tuple[str, ...]
             Spatial dimensions returned by `_prepare_data`.
-        feature_mask : (n_features,) numpy.ndarray
-            Boolean mask selecting features used for fitting/projection.
+        mask : xarray.DataArray
+            Mask returned by `_prepare_data`, already carrying `X`'s spatial
+            dims/coords (and `VoxelToWorldIndex`, if `X` is a VoxelData array).
         """
         self.spatial_dims_ = spatial_dims
         self._spatial_sizes_ = {
             dim: np.int64(X.sizes[dim]).item() for dim in self.spatial_dims_
         }
-        template = X.transpose("time", *self.spatial_dims_).isel(time=0, drop=True)
-        self._reconstruction_mask_ = xr.DataArray(
-            feature_mask.reshape(tuple(template.sizes[d] for d in self.spatial_dims_)),
-            dims=self.spatial_dims_,
-            coords={
-                d: template.coords[d]
-                for d in self.spatial_dims_
-                if d in template.coords
-            },
-        )
-        if has_voxel_to_world_index(template):
-            world_coord_names = get_voxel_to_world_coord_names(template)
-            self._reconstruction_mask_ = attach_voxel_to_world_index(
-                self._reconstruction_mask_,
-                get_voxel_to_world_affine(template),
-                world_coord_attrs={
-                    name: dict(template.coords[name].attrs)
-                    for name in world_coord_names
-                    if name in template.coords
-                },
-            )
+        self._reconstruction_mask_ = mask
         self._fit_attrs_ = dict(X.attrs)
         self._fit_name_ = X.name
         self.n_features_in_ = np.int64(X_proc.shape[1]).item()

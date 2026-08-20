@@ -240,7 +240,7 @@ class FastICA(_BaseFUSIDecomposer):
                 f"mode must be 'spatial' or 'temporal', got '{self.mode}'."
             )
 
-        X_proc, spatial_dims, feature_mask = self._prepare_data(
+        X_proc, spatial_dims, mask = self._prepare_data(
             X,
             check_layout=False,
             operation_name="FastICA.fit",
@@ -259,7 +259,7 @@ class FastICA(_BaseFUSIDecomposer):
             random_state=self.random_state,
         )
 
-        self._store_fit_metadata(X, X_proc, spatial_dims, feature_mask)
+        self._store_fit_metadata(X, X_proc, spatial_dims, mask)
 
         if self.mode == "spatial":
             self._fit_spatial(fastica, X_proc)
