@@ -11,7 +11,7 @@ import xarray as xr
 from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius.io.scan import (
     WORLD_TO_PROBE_PERMUTATION,
-    _build_world_to_lab,
+    _build_probe_to_lab,
     load_bps,
     load_scan,
 )
@@ -69,15 +69,15 @@ _PROBE_TO_LAB_MULTI = np.stack(
 )
 
 
-def _world_to_lab_single_translation() -> np.ndarray:
+def _probe_to_lab_single_translation() -> np.ndarray:
     """Return `_PROBE_TO_LAB_SINGLE`'s folded translation, in ConfUSIus (z, y, x) mm.
 
-    `_PROBE_TO_LAB_SINGLE`'s rotation block is identity, so folding world_to_lab
-    into the local voxel-to-world affine (`world_to_lab @ local`) only shifts the
+    `_PROBE_TO_LAB_SINGLE`'s rotation block is identity, so folding probe_to_lab
+    into the local voxel-to-world affine (`probe_to_lab @ local`) only shifts the
     translation column by this amount; the local affine's own rotation/scale is
     otherwise unchanged.
     """
-    return _build_world_to_lab(_PROBE_TO_LAB_SINGLE)[:3, 3]
+    return _build_probe_to_lab(_PROBE_TO_LAB_SINGLE)[:3, 3]
 
 
 _PROBE_TO_LAB_ROTATED = np.array(
@@ -185,7 +185,7 @@ class TestLoadScan2D:
         assert da.coords["y"].dims == ("k", "j", "i")
         assert da.coords["x"].dims == ("k", "j", "i")
         assert get_voxel_to_world_affine(da).shape == (4, 4)
-        t = _world_to_lab_single_translation()
+        t = _probe_to_lab_single_translation()
         np.testing.assert_allclose(
             _world_coord_1d(da, "x"),
             1e3
@@ -218,7 +218,7 @@ class TestLoadScan2D:
             + t[0],
             rtol=1e-10,
         )
-        assert "world_to_lab" not in da.attrs.get("affines", {})
+        assert "probe_to_lab" not in da.attrs.get("affines", {})
 
     def test_shape(self, scan_2d: xr.DataArray) -> None:
         """2Dscan shape matches (T, sizeY, sizeZ, sizeX)."""
@@ -253,22 +253,25 @@ class TestLoadScan2D:
     def test_x_coord_values(self, scan_2d: xr.DataArray) -> None:
         """x coordinate matches expected lateral positions in mm (MATLAB 1-indexed).
 
-        World coordinates are lab space (world_to_lab folded into voxel_to_world),
-        so the expected local position is offset by world_to_lab's own translation.
+        World coordinates are lab space (probe_to_lab folded into voxel_to_world),
+        so the expected local position is offset by probe_to_lab's own translation.
         """
         # voxelsToProbe is MATLAB-based (1-indexed), so we add 1 to zero-indexed Python.
         expected = (
             1e3
-            * (_VOXELS_TO_PROBE[0, 0] * (np.arange(_SIZE_X) + 1) + _VOXELS_TO_PROBE[0, 3])
-            + _world_to_lab_single_translation()[2]
+            * (
+                _VOXELS_TO_PROBE[0, 0] * (np.arange(_SIZE_X) + 1)
+                + _VOXELS_TO_PROBE[0, 3]
+            )
+            + _probe_to_lab_single_translation()[2]
         )
         np.testing.assert_allclose(_world_coord_1d(scan_2d, "x"), expected, rtol=1e-10)
 
     def test_y_coord_values(self, scan_2d: xr.DataArray) -> None:
         """y coordinate matches expected depth positions (sign-flipped probe z).
 
-        World coordinates are lab space (world_to_lab folded into voxel_to_world),
-        so the expected local position is offset by world_to_lab's own translation.
+        World coordinates are lab space (probe_to_lab folded into voxel_to_world),
+        so the expected local position is offset by probe_to_lab's own translation.
         """
         # voxelsToProbe is MATLAB-based (1-indexed), so we add 1 to zero-indexed Python.
         expected = (
@@ -279,7 +282,7 @@ class TestLoadScan2D:
                     + _VOXELS_TO_PROBE[2, 3]
                 )
             )
-            + _world_to_lab_single_translation()[1]
+            + _probe_to_lab_single_translation()[1]
         )
         np.testing.assert_allclose(_world_coord_1d(scan_2d, "y"), expected, rtol=1e-10)
 
@@ -311,7 +314,7 @@ class TestLoadScan2D:
         """iconeus_scan_mode attr equals '2Dscan'."""
         assert scan_2d.attrs["iconeus_scan_mode"] == "2Dscan"
 
-    def test_world_to_lab_shape(self, scan_2d: xr.DataArray) -> None:
+    def test_probe_to_lab_shape(self, scan_2d: xr.DataArray) -> None:
         """The primary voxel-to-world affine has shape (4, 4) for 2Dscan."""
         assert get_voxel_to_world_affine(scan_2d).shape == (4, 4)
 
@@ -389,7 +392,7 @@ class TestLoadScan3D:
         """3Dscan has no time coordinate."""
         assert "time" not in scan_3d.coords
 
-    def test_world_to_lab_shape(self, scan_3d: xr.DataArray) -> None:
+    def test_probe_to_lab_shape(self, scan_3d: xr.DataArray) -> None:
         """The primary voxel-to-world affine has shape (npose, 4, 4) for 3Dscan."""
         assert get_voxel_to_world_affine(scan_3d).shape == (_NPOSE, 4, 4)
 
@@ -463,9 +466,7 @@ class TestLoadScan4D:
             _T * _NPOSE, 1
         )
         expected = time_flat.reshape(_T, _NPOSE)
-        np.testing.assert_allclose(
-            scan_4d.coords["time"].values, expected, rtol=1e-10
-        )
+        np.testing.assert_allclose(scan_4d.coords["time"].values, expected, rtol=1e-10)
 
     def test_pose_coord(self, scan_4d: xr.DataArray) -> None:
         """4Dscan has integer pose coordinate from 0 to npose-1."""
@@ -484,7 +485,7 @@ class TestLoadScan4D:
         assert sliced.coords["time"].dims == ("time",)
         assert sliced.coords["time"].shape == (_T,)
 
-    def test_world_to_lab_shape(self, scan_4d: xr.DataArray) -> None:
+    def test_probe_to_lab_shape(self, scan_4d: xr.DataArray) -> None:
         """The primary voxel-to-world affine has shape (npose, 4, 4) for 4Dscan."""
         assert get_voxel_to_world_affine(scan_4d).shape == (_NPOSE, 4, 4)
 
@@ -564,23 +565,23 @@ class TestLoadScanErrors:
 
 
 # ---------------------------------------------------------------------------
-# Tests: world_to_lab correctness
+# Tests: probe_to_lab correctness
 # ---------------------------------------------------------------------------
 
 
 class TestWorldToLab:
-    """Tests for `_build_world_to_lab`, folded into the primary geometry at load time.
+    """Tests for `_build_probe_to_lab`, folded into the primary geometry at load time.
 
-    Since `world_to_lab` is no longer exposed separately on the loaded DataArray (it
+    Since `probe_to_lab` is no longer exposed separately on the loaded DataArray (it
     is folded into the primary voxel-to-world affine -- see `TestLoadScanFoldsWorldToLab`
     for that), these tests exercise the builder directly.
     """
 
-    def test_world_to_lab_maps_coords_to_lab(self) -> None:
-        """world_to_lab maps (z_mm, y_mm, x_mm) to ConfUSIus-ordered lab space (mm)."""
-        A = _build_world_to_lab(_PROBE_TO_LAB_SINGLE)
+    def test_probe_to_lab_maps_coords_to_lab(self) -> None:
+        """probe_to_lab maps (z_mm, y_mm, x_mm) to ConfUSIus-ordered lab space (mm)."""
+        A = _build_probe_to_lab(_PROBE_TO_LAB_SINGLE)
 
-        # world_to_lab = P^T @ probeToLab @ P, with output in ConfUSIus axis order.
+        # probe_to_lab = P^T @ probeToLab @ P, with output in ConfUSIus axis order.
         P = np.array(
             [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
         )
@@ -589,9 +590,9 @@ class TestWorldToLab:
 
         np.testing.assert_allclose(A, expected, rtol=1e-10)
 
-    def test_world_to_lab_per_pose_values(self) -> None:
-        """Each per-pose world_to_lab slice matches the corresponding probeToLab."""
-        A = _build_world_to_lab(_PROBE_TO_LAB_MULTI)
+    def test_probe_to_lab_per_pose_values(self) -> None:
+        """Each per-pose probe_to_lab slice matches the corresponding probeToLab."""
+        A = _build_probe_to_lab(_PROBE_TO_LAB_MULTI)
         P = np.array(
             [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
         )
@@ -600,14 +601,14 @@ class TestWorldToLab:
             expected[:3, 3] *= 1e3
             np.testing.assert_allclose(A[i], expected, rtol=1e-10)
 
-    def test_world_to_lab_non_identity_rotation(self) -> None:
-        """world_to_lab correctly applies P^T @ R @ P for a non-trivial rotation.
+    def test_probe_to_lab_non_identity_rotation(self) -> None:
+        """probe_to_lab correctly applies P^T @ R @ P for a non-trivial rotation.
 
-        With a 90° Y-rotation in probeToLab, the rotation block of world_to_lab
+        With a 90° Y-rotation in probeToLab, the rotation block of probe_to_lab
         must equal P^T @ R_y90 @ P, confirming that non-identity rotations are handled
         correctly and the output remains in ConfUSIus axis order.
         """
-        A = _build_world_to_lab(_PROBE_TO_LAB_ROTATED)
+        A = _build_probe_to_lab(_PROBE_TO_LAB_ROTATED)
 
         P = np.array(
             [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
@@ -619,36 +620,36 @@ class TestWorldToLab:
 
 
 class TestLoadScanFoldsWorldToLab:
-    """Tests that load_scan folds world_to_lab into the primary voxel-to-world affine."""
+    """Tests that load_scan folds probe_to_lab into the primary voxel-to-world affine."""
 
-    def test_2dscan_primary_affine_includes_world_to_lab(
+    def test_2dscan_primary_affine_includes_probe_to_lab(
         self, scan_2d_rotated: xr.DataArray
     ) -> None:
-        """The loaded 2Dscan's primary affine equals world_to_lab @ local affine."""
-        world_to_lab = _build_world_to_lab(_PROBE_TO_LAB_ROTATED)
-        local_affine = np.linalg.inv(world_to_lab) @ get_voxel_to_world_affine(
+        """The loaded 2Dscan's primary affine equals probe_to_lab @ local affine."""
+        probe_to_lab = _build_probe_to_lab(_PROBE_TO_LAB_ROTATED)
+        local_affine = np.linalg.inv(probe_to_lab) @ get_voxel_to_world_affine(
             scan_2d_rotated
         )
         np.testing.assert_allclose(
             get_voxel_to_world_affine(scan_2d_rotated),
-            world_to_lab @ local_affine,
+            probe_to_lab @ local_affine,
             rtol=1e-10,
         )
-        assert "world_to_lab" not in scan_2d_rotated.attrs.get("affines", {})
+        assert "probe_to_lab" not in scan_2d_rotated.attrs.get("affines", {})
 
     def test_3dscan_primary_affine_is_per_pose_stack(
         self, scan_3d: xr.DataArray
     ) -> None:
-        """The loaded 3Dscan's primary affine is a per-pose stack, one per world_to_lab."""
-        world_to_lab = _build_world_to_lab(_PROBE_TO_LAB_MULTI)
+        """The loaded 3Dscan's primary affine is a per-pose stack, one per probe_to_lab."""
+        probe_to_lab = _build_probe_to_lab(_PROBE_TO_LAB_MULTI)
         primary = get_voxel_to_world_affine(scan_3d)
         assert primary.shape == (_NPOSE, 4, 4)
         # Every pose shares the same local (pre-fold) affine: recovering it from
-        # each pose slice via its own world_to_lab must agree.
-        local_affines = np.linalg.inv(world_to_lab) @ primary
+        # each pose slice via its own probe_to_lab must agree.
+        local_affines = np.linalg.inv(probe_to_lab) @ primary
         for i in range(1, _NPOSE):
             np.testing.assert_allclose(local_affines[i], local_affines[0], rtol=1e-8)
-        assert "world_to_lab" not in scan_3d.attrs.get("affines", {})
+        assert "probe_to_lab" not in scan_3d.attrs.get("affines", {})
 
 
 # ---------------------------------------------------------------------------
@@ -660,7 +661,7 @@ class TestLoadScanWithBPS:
     """Tests for load_scan when a BPS file is provided via `bps_path`."""
 
     @staticmethod
-    def _expected_brain_to_confusius_lab(
+    def _expected_brain_to_lab(
         brain_to_lab: np.ndarray,
     ) -> np.ndarray:
         """Re-express a BrainToLab affine on the lab side in ConfUSIus zyx mm."""
@@ -673,18 +674,18 @@ class TestLoadScanWithBPS:
         """Compose the BPS affine into the expected result.
 
         ConfUSIus world coordinates for SCAN data are already lab space
-        (world_to_lab is folded into the primary voxel-to-world affine at
+        (probe_to_lab is folded into the primary voxel-to-world affine at
         construction), so world_to_brain maps directly from world to brain and does
         not depend on probe_to_lab / pose at all.
         """
-        brain_to_confusius_lab = cls._expected_brain_to_confusius_lab(brain_to_lab)
-        return np.linalg.inv(brain_to_confusius_lab)
+        brain_to_lab = cls._expected_brain_to_lab(brain_to_lab)
+        return np.linalg.inv(brain_to_lab)
 
     def test_load_bps_reexpresses_lab_side(
         self, bps_path: Path, brain_to_lab: np.ndarray
     ) -> None:
         """load_bps converts BrainToLab to ConfUSIus-ordered lab coordinates."""
-        expected = self._expected_brain_to_confusius_lab(brain_to_lab)
+        expected = self._expected_brain_to_lab(brain_to_lab)
         result = load_bps(bps_path)
         np.testing.assert_allclose(result, expected, rtol=1e-10, atol=1e-12)
 
@@ -710,7 +711,7 @@ class TestLoadScanWithBPS:
         World coordinates are already lab space -- one fixed frame regardless of
         which pose produced a given z/y/x value -- so mapping world to brain needs
         no per-pose indexing, unlike the pre-migration formula that composed with a
-        separately stored per-pose world_to_lab.
+        separately stored per-pose probe_to_lab.
         """
         da = load_scan(request.getfixturevalue(scan_path), bps_path=bps_path)
         expected = self._expected_world_to_brain(brain_to_lab)

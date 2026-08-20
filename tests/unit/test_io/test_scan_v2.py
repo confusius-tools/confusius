@@ -437,8 +437,8 @@ class TestLoadScanV2:
         for dim in ("x", "y", "z"):
             assert scan_v2.coords[dim].attrs["units"] == "mm"
 
-    def test_no_world_to_lab(self, scan_v2: xr.DataArray) -> None:
-        """v2 carries an empty affines dict (no world_to_lab yet)."""
+    def test_no_probe_to_lab(self, scan_v2: xr.DataArray) -> None:
+        """v2 carries an empty affines dict (no probe_to_lab yet)."""
         assert scan_v2.attrs["affines"] == {}
 
     def test_scan_format_attr(self, scan_v2: xr.DataArray) -> None:
@@ -576,14 +576,14 @@ class TestLoadScanV2Acquisition:
         assert scan_v2_acq.attrs["svd_low_cutoff"] == _SVD_CUTOFF
         assert scan_v2_acq.attrs["power_doppler_integration_window"] == _PD_WINDOW
 
-    def test_world_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
-        """world_to_lab (folded into the primary affine) is built from the 6DOF pose.
+    def test_probe_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
+        """probe_to_lab (folded into the primary affine) is built from the 6DOF pose.
 
-        world_to_lab is no longer exposed separately in attrs (ConfUSIus world
+        probe_to_lab is no longer exposed separately in attrs (ConfUSIus world
         coordinates for SCAN data are already lab space -- it is folded into the
         primary voxel-to-world affine at construction). This reconstructs the known
         local (pre-fold) affine from the fixture's own voxel-size/depth-origin
-        constants and checks world_to_lab @ local == the loaded primary affine.
+        constants and checks probe_to_lab @ local == the loaded primary affine.
         """
         tx, ty, tz, _, _, rz = _POSE
         cz, sz = math.cos(rz), math.sin(rz)
@@ -591,8 +591,8 @@ class TestLoadScanV2Acquisition:
         probe_to_lab[:3, :3] = [[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]]
         probe_to_lab[:3, 3] = (tx, ty, tz)
         perm = np.asarray(WORLD_TO_PROBE_PERMUTATION)
-        world_to_lab = perm.T @ probe_to_lab @ perm
-        world_to_lab[:3, 3] *= 1e3
+        probe_to_lab = perm.T @ probe_to_lab @ perm
+        probe_to_lab[:3, 3] *= 1e3
 
         local_affine = np.eye(4)
         local_affine[:3, :3] = np.diag([_DY_M * 1e3, _DZ_M * 1e3, _DX_M * 1e3])
@@ -604,10 +604,10 @@ class TestLoadScanV2Acquisition:
 
         np.testing.assert_allclose(
             get_voxel_to_world_affine(scan_v2_acq),
-            world_to_lab @ local_affine,
+            probe_to_lab @ local_affine,
             atol=1e-9,
         )
-        assert "world_to_lab" not in scan_v2_acq.attrs.get("affines", {})
+        assert "probe_to_lab" not in scan_v2_acq.attrs.get("affines", {})
 
     def test_affine_skipped_on_implausible_pose(self, tmp_path: Path) -> None:
         """An implausible pose yields no affine, but other fields still load."""
@@ -617,7 +617,7 @@ class TestLoadScanV2Acquisition:
         )
         da = load_scan(path)
         assert "probe_model" in da.attrs
-        assert "world_to_lab" not in da.attrs["affines"]
+        assert "probe_to_lab" not in da.attrs["affines"]
 
     def test_acquisition_absent_when_block_missing(self, scan_v2: xr.DataArray) -> None:
         """Without a valid acquisition block, probe/sequence fields are not emitted.
@@ -665,9 +665,9 @@ class TestLoadScanV2WithBPS:
     ) -> None:
         """bps_path adds a world_to_brain affine mapping world (already lab) to brain.
 
-        ConfUSIus world coordinates are already lab space (world_to_lab is folded
+        ConfUSIus world coordinates are already lab space (probe_to_lab is folded
         into the primary voxel-to-world affine at construction), so world_to_brain
-        no longer composes with a separately stored world_to_lab.
+        no longer composes with a separately stored probe_to_lab.
         """
         da = load_scan(scan_v2_acq_path, bps_path=bps_path)
         expected = np.linalg.inv(load_bps(bps_path))
@@ -676,12 +676,12 @@ class TestLoadScanV2WithBPS:
         )
 
     def test_bps_rejected_without_affine(self, tmp_path: Path, bps_path: Path) -> None:
-        """bps_path raises when no world_to_lab affine could be built."""
+        """bps_path raises when no probe_to_lab affine could be built."""
         path = tmp_path / "scan_v2_noaffine.scan"
         _write_scan_v2(
             path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
         )
-        with pytest.raises(ValueError, match="no world_to_lab affine could be built"):
+        with pytest.raises(ValueError, match="no probe_to_lab affine could be built"):
             load_scan(path, bps_path=bps_path)
 
 

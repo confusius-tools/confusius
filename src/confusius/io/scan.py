@@ -192,27 +192,22 @@ def _read_scan_scalar(h5: h5py.File, path: str) -> float:
     return float(h5[path][()].flat[0])
 
 
-def _build_world_to_lab(
+def _build_probe_to_lab(
     probe_to_lab: npt.NDArray[np.float64],
 ) -> npt.NDArray[np.float64]:
-    """Convert `probeToLab` to a ConfUSIus `world_to_lab` affine in mm.
+    """Convert `probeToLab` to a ConfUSIus `probe_to_lab` affine in mm.
 
-    `probeToLab` maps probe world `(x_probe, y_probe, z_probe, 1)` to Iconeus lab
+    `probeToLab` maps probe coordinates `(x_probe, y_probe, z_probe, 1)` to Iconeus lab
     space `(x_lab, y_lab, z_lab, 1)` in meters. The Iconeus lab frame is a fixed scanner
-    frame; `probeToLab` carries any rotation of the probe within it.
+    frame; `probeToLab` carries any translation and rotation of the probe within it.
 
-    We want `world_to_lab` to map ConfUSIus world `(z_conf, y_conf, x_conf, 1)`
-    (elevation, depth, lateral) to **ConfUSIus-ordered** lab space `(z_lab, y_lab,
-    x_lab)` in millimeters, using the same permutation `P` that maps between the two
-    world spaces:
+    `probe_to_lab` maps ConfUSIus-ordered probe coordinates `(z_probe, y_probe, x_probe,
+    1)` (elevation, depth, lateral) to **ConfUSIus-ordered** lab coordinates `(z_lab,
+    y_lab, x_lab)` in millimeters, using the permutation `P`:
 
     ```python
-    world_to_lab = WORLD_TO_PROBE_PERMUTATION^T @ probeToLab @ WORLD_TO_PROBE_PERMUTATION
+    probe_to_lab = WORLD_TO_PROBE_PERMUTATION^T @ probeToLab @ WORLD_TO_PROBE_PERMUTATION
     ```
-
-    This produces a ConfUSIus-ordered affine whose rotation block is identity for a
-    non-rotated probe, making it directly usable in napari and other tools that expect
-    `(z, y, x)` axis order.
 
     Parameters
     ----------
@@ -222,32 +217,32 @@ def _build_world_to_lab(
     Returns
     -------
     numpy.ndarray
-        `world_to_lab` affine(s) in millimeters. Shape matches input: `(4, 4)` for
+        `probe_to_lab` affine(s) in millimeters. Shape matches input: `(4, 4)` for
         `2Dscan` or `(npose, 4, 4)` for `3Dscan`/`4Dscan`.
     """
-    world_to_lab = (
+    probe_to_lab = (
         WORLD_TO_PROBE_PERMUTATION.T @ probe_to_lab @ WORLD_TO_PROBE_PERMUTATION
     )
-    world_to_lab[..., :3, 3] *= 1e3
-    return world_to_lab
+    probe_to_lab[..., :3, 3] *= 1e3
+    return probe_to_lab
 
 
-def _build_voxel_to_confusius_world(
+def _build_voxel_to_probe(
     voxels_to_probe: npt.NDArray[np.float64],
 ) -> npt.NDArray[np.float64]:
-    """Convert `voxelsToProbe` into a zero-based ConfUSIus voxel-to-world affine.
+    """Convert `voxelsToProbe` into a zero-based ConfUSIus `voxel_to_probe` affine.
 
     Parameters
     ----------
     voxels_to_probe : (4, 4) numpy.ndarray
         SCAN `voxelsToProbe` affine mapping one-based probe voxel coordinates to probe
-        world coordinates in metres.
+        coordinates in metres.
 
     Returns
     -------
     (4, 4) numpy.ndarray
         Affine mapping zero-based ConfUSIus voxel coordinates `(k, j, i)` to
-        ConfUSIus world coordinates `(z, y, x)` in millimetres.
+        ConfUSIus-ordered probe coordinates `(z, y, x)` in millimetres.
     """
     conf_voxel_to_probe_voxel = np.array(
         [
@@ -346,12 +341,10 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     The Iconeus lab frame is a fixed scanner frame; `probeToLab` carries any rotation
     of the probe within it.
 
-    To compose this affine with the rest of the ConfUSIus pipeline we re-express
-    the lab side as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)` in
-    millimeters, matching the convention used by `world_to_lab` (see
-    `_build_world_to_lab`). The brain side is left in its original axis order
-    (the brain coordinate units are not declared by the BPS format and are
-    therefore not converted).
+    To compose this affine with the rest of the ConfUSIus pipeline we re-express the lab
+    side as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)` in millimeters. The
+    brain side is left in its original axis order (the brain coordinate units are not
+    declared by the BPS format and are therefore not converted).
 
     The change of basis from ConfUSIus-ordered millimeter lab coordinates to
     Iconeus-ordered meter lab coordinates is
@@ -360,12 +353,12 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     confusius_lab_to_iconeus_lab = mm_to_m @ WORLD_TO_PROBE_PERMUTATION
     ```
 
-    `WORLD_TO_PROBE_PERMUTATION` permutes the axes from ConfUSIus order `(z, y, x)`
-    to probe / Iconeus-lab order `(x, y, z)`, and `mm_to_m = diag(1e-3, 1e-3, 1e-3, 1)`
+    `WORLD_TO_PROBE_PERMUTATION` permutes the axes from ConfUSIus order `(z, y, x)` to
+    probe / Iconeus-lab order `(x, y, z)`, and `mm_to_m = diag(1e-3, 1e-3, 1e-3, 1)`
     rescales the translation column. The returned affine is then
 
     ```
-    brain_to_confusius_lab = inv(confusius_lab_to_iconeus_lab) @ BrainToLab
+    brain_to_lab = inv(confusius_lab_to_iconeus_lab) @ BrainToLab
     ```
 
     Parameters
@@ -387,20 +380,20 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
     confusius_lab_to_iconeus_lab = mm_to_m @ WORLD_TO_PROBE_PERMUTATION
 
-    brain_to_confusius_lab = np.linalg.inv(confusius_lab_to_iconeus_lab) @ brain_to_lab
-    return brain_to_confusius_lab
+    brain_to_lab = np.linalg.inv(confusius_lab_to_iconeus_lab) @ brain_to_lab
+    return brain_to_lab
 
 
 def _add_world_to_brain(
     affines: dict[str, Any],
     bps_path: str | Path,
-    world_to_lab: npt.NDArray[np.float64] | None,
+    probe_to_lab: npt.NDArray[np.float64] | None,
 ) -> None:
     """Compose a `world_to_brain` affine from a BPS sidecar and store it in `affines`.
 
-    ConfUSIus world coordinates for SCAN data are already lab space (`world_to_lab`
-    is folded into the primary voxel-to-world affine at construction, see
-    `_build_world_to_lab`), so `world_to_brain` maps directly from world to brain:
+    ConfUSIus world coordinates for SCAN data are already lab space because the
+    probe-to-lab transform is folded into the primary voxel-to-world affine at
+    construction. Therefore `world_to_brain` maps directly from world to brain:
     `world_to_brain = inv(load_bps(bps_path))`.
 
     Parameters
@@ -409,7 +402,7 @@ def _add_world_to_brain(
         The DataArray's `affines` attribute; mutated in place to add `world_to_brain`.
     bps_path : str or pathlib.Path
         Path to the BPS file (`.bps`).
-    world_to_lab : numpy.ndarray, optional
+    probe_to_lab : numpy.ndarray, optional
         The affine that was (or would have been) folded into the primary geometry at
         construction. Only used to confirm lab space is actually this DataArray's
         world frame; `None` means it could not be built (e.g. an implausible SCAN v2
@@ -424,11 +417,11 @@ def _add_world_to_brain(
     Raises
     ------
     ValueError
-        If `world_to_lab` is `None`.
+        If `probe_to_lab` is `None`.
     """
-    if world_to_lab is None:
+    if probe_to_lab is None:
         raise ValueError(
-            "bps_path was given but no world_to_lab affine could be built for this "
+            "bps_path was given but no probe_to_lab affine could be built for this "
             "SCAN file (e.g. the 6DOF probe-pose block was missing or implausible), "
             "so the BPS transform cannot be composed."
         )
@@ -451,7 +444,7 @@ def load_scan(
       `.compute()`) before the handle is garbage-collected.
     - **v2**: a flat binary file (variable-length header + little-endian `float64`
       payload). The returned DataArray wraps a NumPy memmap via a Dask array. Support is
-      **experimental** (see Notes), including its `world_to_lab` affine and, when a
+      **experimental** (see Notes), including its `probe_to_lab` affine and, when a
       `bps_path` is given, `world_to_brain`.
 
     `load_scan` sniffs the format automatically and dispatches accordingly.
@@ -463,7 +456,7 @@ def load_scan(
     bps_path : str or pathlib.Path, optional
         Path to the corresponding BPS file (`.bps`). If provided, a `world_to_brain`
         affine is added to `da.attrs["affines"]`. For v2 files this requires the
-        (experimental) `world_to_lab` affine to have been built; if it could not be,
+        (experimental) `probe_to_lab` affine to have been built; if it could not be,
         passing `bps_path` raises.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
         Dask chunk specification passed to `dask.array.from_array`. Accepted forms:
@@ -495,7 +488,7 @@ def load_scan(
     ValueError
         If `path` does not exist or is not a file, if the file is neither an
         HDF5-based SCAN (v1) nor a binary SCAN v2 file, if `bps_path` is passed for a
-        v2 file whose `world_to_lab` affine could not be built, or if a v1
+        v2 file whose `probe_to_lab` affine could not be built, or if a v1
         `acquisitionMode` is not one of `"2Dscan"`, `"3Dscan"`, or `"4Dscan"`.
 
     Notes
@@ -504,7 +497,7 @@ def load_scan(
     number of example files. Data, temporal geometry, and voxel spacing are recovered.
     The depth (`y`) origin is read from the header when the depth range can be located;
     the lateral (`x`) and elevation (`z`) origins are not encoded, so those axes are
-    centered on zero (correct spacing, arbitrary origin). A `world_to_lab` affine is
+    centered on zero (correct spacing, arbitrary origin). A `probe_to_lab` affine is
     built from a header block interpreted as a 6DOF probe pose (translation + rotation),
     the v2 equivalent of SCAN v1's `probeToLab`; this interpretation is experimental
     (validated on a single near-identity pose, assumed axis order and Euler convention)
@@ -565,9 +558,9 @@ def load_scan(
                 f"{type(error).__name__}: {error}"
             ) from error
 
-        world_to_lab = data_array.attrs.pop("_world_to_lab")
+        probe_to_lab = data_array.attrs.pop("_probe_to_lab")
         if bps_path is not None:
-            _add_world_to_brain(data_array.attrs["affines"], bps_path, world_to_lab)
+            _add_world_to_brain(data_array.attrs["affines"], bps_path, probe_to_lab)
         return data_array
 
     raise ValueError(
@@ -622,14 +615,11 @@ def _load_scan_v1(
             h5["/acqMetaData/probeToLab"][()], dtype=np.float64
         )
 
-        local_voxel_to_world = _build_voxel_to_confusius_world(voxels_to_probe)
-        world_to_lab = _build_world_to_lab(probe_to_lab)
-        # Lab space (a fixed scanner frame shared by every pose) is the canonical
-        # ConfUSIus world frame for SCAN data: fold world_to_lab into voxel_to_world
-        # rather than keeping it as a side transform, so multi-pose files get one
-        # physically meaningful voxel-to-world affine per pose instead of an
-        # arbitrary shared "local" frame plus a separate per-pose correction.
-        voxel_to_world = world_to_lab @ local_voxel_to_world
+        voxel_to_probe = _build_voxel_to_probe(voxels_to_probe)
+        probe_to_lab = _build_probe_to_lab(probe_to_lab)
+        # Lab is the canonical VoxelData world frame for SCAN data, so composing these
+        # physical transforms produces the VoxelData geometry directly.
+        voxel_to_world = probe_to_lab @ voxel_to_probe
 
         attrs: dict[str, Any] = {
             "affines": {},
@@ -666,7 +656,7 @@ def _load_scan_v1(
 
         data_array.name = attrs["iconeus_scan"] or path.stem
         if bps_path is not None:
-            _add_world_to_brain(data_array.attrs["affines"], bps_path, world_to_lab)
+            _add_world_to_brain(data_array.attrs["affines"], bps_path, probe_to_lab)
     except Exception:
         h5.close()
         raise
@@ -1045,22 +1035,18 @@ def _load_scan_v2(
         pose = np.arange(npose)
 
     time_coord = _build_scan_v2_time_coord(meta, n_time_total)
-    local_voxel_to_world = _build_scan_v2_voxel_to_world(meta)
+    voxel_to_probe = _build_scan_v2_voxel_to_probe(meta)
     attrs = _build_scan_v2_attrs(header, npose, n_time_total)
     acquisition = _read_scan_v2_acquisition(header, n_time, meta["depth_start_mm"])
-    world_to_lab = acquisition.pop("_world_to_lab", None)
+    probe_to_lab = acquisition.pop("_probe_to_lab", None)
     attrs.update(acquisition)
-    # Lab space is the canonical ConfUSIus world frame for SCAN data (see the v1
-    # loader); v2 only ever recovers one 6DOF probe pose regardless of npose, so
-    # there is nothing to stack -- fold it into voxel_to_world directly, or leave
-    # voxel_to_world as the local frame if it could not be built.
+    # Lab is the canonical VoxelData world frame for SCAN data. v2 only recovers one
+    # 6DOF probe pose regardless of npose, so there is nothing to stack.
     voxel_to_world = (
-        world_to_lab @ local_voxel_to_world
-        if world_to_lab is not None
-        else local_voxel_to_world
+        probe_to_lab @ voxel_to_probe if probe_to_lab is not None else voxel_to_probe
     )
     # Exposed privately for load_scan's bps_path composition; popped before return.
-    attrs["_world_to_lab"] = world_to_lab
+    attrs["_probe_to_lab"] = probe_to_lab
 
     data_array = create_voxeldata(
         data_lazy,
@@ -1138,10 +1124,10 @@ def _build_rotation_matrix(rx: float, ry: float, rz: float) -> npt.NDArray[np.fl
     return rot_z @ rot_y @ rot_x
 
 
-def _build_scan_v2_world_to_lab(
+def _build_scan_v2_probe_to_lab(
     header: bytes, n_time: int
 ) -> npt.NDArray[np.float64] | None:
-    """Build a `world_to_lab` affine from the SCAN v2 6DOF probe-pose block.
+    """Build a `probe_to_lab` affine from the SCAN v2 6DOF probe-pose block.
 
     The 64-byte orientation block preceding the frequency block holds eight `float64`
     slots; the first six are interpreted as a rigid probe pose `(tx, ty, tz, rx, ry, rz)`
@@ -1150,7 +1136,7 @@ def _build_scan_v2_world_to_lab(
     interpretation validated on a single near-identity example; the axis order and Euler
     convention are assumed.
 
-    The resulting `probeToLab` is converted to a ConfUSIus-ordered `world_to_lab`
+    The resulting `probeToLab` is converted to a ConfUSIus-ordered `probe_to_lab`
     affine (millimeters) with the same permutation used by the v1 loader, so it is
     directly comparable to v1 output.
 
@@ -1164,7 +1150,7 @@ def _build_scan_v2_world_to_lab(
     Returns
     -------
     (4, 4) numpy.ndarray or None
-        The `world_to_lab` affine in millimeters, or `None` if the pose values are
+        The `probe_to_lab` affine in millimeters, or `None` if the pose values are
         implausible.
     """
     # The caller only invokes this after validating the acquisition block, which lies
@@ -1179,7 +1165,7 @@ def _build_scan_v2_world_to_lab(
     probe_to_lab = np.eye(4, dtype=np.float64)
     probe_to_lab[:3, :3] = _build_rotation_matrix(rx, ry, rz)
     probe_to_lab[:3, 3] = (tx, ty, tz)
-    return _build_world_to_lab(probe_to_lab)
+    return _build_probe_to_lab(probe_to_lab)
 
 
 def _read_scan_v2_acquisition(
@@ -1222,7 +1208,7 @@ def _read_scan_v2_acquisition(
     dict
         Acquisition attributes that could be recovered; fields whose block could not be
         validated are simply absent. When the block validates, a private
-        `_world_to_lab` key holds the pose-derived affine for the caller to fold into
+        `_probe_to_lab` key holds the pose-derived affine for the caller to fold into
         `voxel_to_world` (the primary geometry) and use for `world_to_brain`
         composition; `None` when it could not be built.
     """
@@ -1276,15 +1262,15 @@ def _read_scan_v2_acquisition(
     # The depth anchor confirms the n_time-derived layout, so the 6DOF pose block (in the
     # same region) can be trusted; expose the affine it yields under a private key that
     # the caller moves into `attrs["affines"]`.
-    world_to_lab = _build_scan_v2_world_to_lab(header, n_time)
-    if world_to_lab is not None:
-        result["_world_to_lab"] = world_to_lab
+    probe_to_lab = _build_scan_v2_probe_to_lab(header, n_time)
+    if probe_to_lab is not None:
+        result["_probe_to_lab"] = probe_to_lab
 
     return result
 
 
-def _build_scan_v2_voxel_to_world(meta: dict[str, Any]) -> npt.NDArray[np.float64]:
-    """Build a v2 affine from ConfUSIus voxel coordinates to world space.
+def _build_scan_v2_voxel_to_probe(meta: dict[str, Any]) -> npt.NDArray[np.float64]:
+    """Build a v2 affine from ConfUSIus voxel coordinates to probe space.
 
     Parameters
     ----------
@@ -1294,7 +1280,7 @@ def _build_scan_v2_voxel_to_world(meta: dict[str, Any]) -> npt.NDArray[np.float6
     Returns
     -------
     (4, 4) numpy.ndarray
-        Affine mapping `(k, j, i)` voxel coordinates to `(z, y, x)` world
+        Affine mapping `(k, j, i)` voxel coordinates to `(z, y, x)` probe
         coordinates in millimeters.
     """
     dx_mm = meta["x_voxel_m"] * 1e3
@@ -1306,10 +1292,10 @@ def _build_scan_v2_voxel_to_world(meta: dict[str, Any]) -> npt.NDArray[np.float6
     z0 = -((size_y - 1) / 2) * dz_mm
     y0 = meta.get("depth_start_mm", 0.0)
 
-    voxel_to_world = np.eye(4, dtype=np.float64)
-    voxel_to_world[:3, :3] = np.diag([dz_mm, dy_mm, dx_mm])
-    voxel_to_world[:3, 3] = [z0, y0, x0]
-    return voxel_to_world
+    voxel_to_probe = np.eye(4, dtype=np.float64)
+    voxel_to_probe[:3, :3] = np.diag([dz_mm, dy_mm, dx_mm])
+    voxel_to_probe[:3, 3] = [z0, y0, x0]
+    return voxel_to_probe
 
 
 def _build_scan_v2_time_coord(meta: dict[str, Any], n_time_total: int) -> xr.DataArray:

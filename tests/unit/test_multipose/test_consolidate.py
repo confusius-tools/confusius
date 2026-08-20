@@ -24,7 +24,7 @@ _T = 5
 class TestConsolidatePoses:
     """Tests for consolidate_poses."""
 
-    def test_world_to_lab_consolidated_rotation_orthogonal(
+    def test_probe_to_lab_consolidated_rotation_orthogonal(
         self, scan_3d: xr.DataArray
     ) -> None:
         """Consolidated affine is 4x4 with an orthogonal rotation block.
@@ -41,15 +41,15 @@ class TestConsolidatePoses:
         # (axis-aligned or rotated) frame.
         np.testing.assert_allclose(R_normalized.T @ R_normalized, np.eye(3), atol=1e-10)
 
-    def test_no_spurious_world_to_lab_in_attrs(self, scan_3d: xr.DataArray) -> None:
-        """Consolidation doesn't inject a world_to_lab attrs entry that never existed.
+    def test_no_spurious_probe_to_lab_in_attrs(self, scan_3d: xr.DataArray) -> None:
+        """Consolidation doesn't inject a probe_to_lab attrs entry that never existed.
 
         Primary geometry for SCAN data is index-based (VoxelToWorldIndex), so
         `attrs["affines"]` starts empty; consolidation must not fabricate one.
         """
-        assert "world_to_lab" not in scan_3d.attrs.get("affines", {})
+        assert "probe_to_lab" not in scan_3d.attrs.get("affines", {})
         result = consolidate_poses(scan_3d)
-        assert "world_to_lab" not in result.attrs.get("affines", {})
+        assert "probe_to_lab" not in result.attrs.get("affines", {})
 
     def test_4dscan_updates_time_coord_from_pose_timing(
         self, scan_4d: xr.DataArray
@@ -207,7 +207,7 @@ class TestConsolidatePoses:
         """
         ptl = get_voxel_to_world_affine(scan_3d)
         # Perturb pose 1 only: link derived from pose 0 is identity, so the chain
-        # `link @ world_to_lab` cannot reproduce the perturbed pose.
+        # `link @ probe_to_lab` cannot reproduce the perturbed pose.
         unlinked = ptl.copy()
         unlinked[1, :3, 3] += np.array([0.5, 0.0, 0.0])
         scan_3d.attrs["affines"]["world_to_unlinked"] = unlinked
@@ -267,7 +267,7 @@ class TestConsolidatePoses:
         consolidate_poses always reads positions from primary (index-based)
         geometry. To consolidate around a different, secondary named affine
         linked in attrs["affines"] (e.g. "world_to_brain" alongside a primary
-        "world_to_lab"-equivalent index) rather than the current primary,
+        "probe_to_lab"-equivalent index) rather than the current primary,
         `.fusi.affine.apply(<key>)` rebases the primary index onto it first,
         giving the same consolidated result as data whose primary geometry was
         that affine from the start.
