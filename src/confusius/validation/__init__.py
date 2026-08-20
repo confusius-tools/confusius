@@ -2,11 +2,6 @@
 
 from confusius.validation.atlas import validate_atlas
 from confusius.validation.coordinates import validate_matching_coordinates
-from confusius.validation.fusi import (
-    canonicalize_voxeldata,
-    ensure_voxeldata,
-    validate_voxeldata,
-)
 from confusius.validation.mask import (
     ensure_labels,
     ensure_mask,
@@ -19,6 +14,11 @@ from confusius.validation.registration import (
 )
 from confusius.validation.time_series import validate_time_series
 from confusius.validation.units import validate_matching_spatial_units
+from confusius.validation.voxeldata import (
+    canonicalize_voxeldata,
+    ensure_voxeldata,
+    validate_voxeldata,
+)
 
 __all__ = [
     "canonicalize_voxeldata",

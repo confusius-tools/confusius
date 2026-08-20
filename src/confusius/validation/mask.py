@@ -3,7 +3,7 @@
 import numpy as np
 import xarray as xr
 
-from confusius.validation.fusi import ensure_voxeldata, validate_voxeldata
+from confusius.validation.voxeldata import ensure_voxeldata, validate_voxeldata
 
 
 def _check_spatial_alignment(

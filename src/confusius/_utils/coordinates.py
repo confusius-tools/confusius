@@ -401,7 +401,7 @@ def get_grid_info_from_dataarray(
         If `data` is not a valid VoxelData array, or if spacing is undefined for any
         requested dimension.
     """
-    from confusius.validation.fusi import ensure_voxeldata
+    from confusius.validation.voxeldata import ensure_voxeldata
 
     data = ensure_voxeldata(data)
     dims = [str(dim) for dim in data.dims] if dims is None else list(dims)

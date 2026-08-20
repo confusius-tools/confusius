@@ -493,7 +493,14 @@ def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:
 
 
 def ensure_voxeldata(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
-    """Canonicalize and validate a DataArray following the VoxelData model.
+    """Return a canonical, validated VoxelData array.
+
+    This is the normal entry point for spatial inputs: it first restores
+    scalar-indexed native voxel dimensions and geometry with
+    [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata], then
+    checks the resulting DataArray against the VoxelData model. Use
+    [validate_voxeldata][confusius.validation.validate_voxeldata] when the input
+    must already be canonical.
 
     Parameters
     ----------
@@ -506,7 +513,7 @@ def ensure_voxeldata(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray
     Returns
     -------
     xarray.DataArray
-        Canonicalized VoxelData array.
+        Canonicalized VoxelData array that satisfies the requested validation checks.
 
     Raises
     ------
@@ -536,54 +543,58 @@ def validate_voxeldata(
     require_velocity_attrs: bool = False,
     require_dtype: Any | None = None,
 ) -> None:
-    """Validate that a DataArray follows the VoxelData model.
+    """Validate a DataArray against the VoxelData model without modifying it.
 
-    This is the general-purpose VoxelData checker: by default it enforces only the
-    universal `k`/`j`/`i` + `VoxelToWorldIndex` structure required of any
-    VoxelData array, so it is the right tool for any VoxelData array,
-    not only fUSI recordings. The optional flags below layer on genuine
-    fUSI-recording-specific requirements (e.g. acquisition timing) and should only be
-    enabled for actual fUSI recordings.
+    By default, this requires non-empty native voxel dimensions (`k`, `j`, `i`),
+    their coordinates, and a matching `VoxelToWorldIndex`. It also validates every
+    dimension coordinate and requires `units` on world coordinates. When `time` is
+    present, its acquisition metadata and `units` are required. The optional flags
+    add requirements needed by a particular consumer. Use
+    [ensure_voxeldata][confusius.validation.ensure_voxeldata] when scalar indexing
+    may have removed a voxel dimension and the input should be canonicalized first.
 
     Parameters
     ----------
     data : xarray.DataArray
-        DataArray to validate. It must be a VoxelData array with native
-        voxel dimensions `k`, `j`, `i` and derived world coordinates `z`, `y`, `x`.
+        DataArray to validate.
     require_time : bool, default: False
-        Whether to require a `time` dimension with more than one timepoint, as in an
-        actual fUSI recording.
+        Whether to require `time` with more than one coordinate value.
     require_unchunked_time : bool, default: False
-        Whether to require the time dimension to occupy one Dask chunk.
+        Whether to require `time` with more than one coordinate value in a single Dask
+        chunk.
     require_uniform_time : bool, default: False
-        Whether to require uniformly sampled time coordinates.
+        Whether to require `time` with more than one uniformly spaced coordinate
+        value.
     uniformity_tolerance : float, default: 1e-2
         Maximum relative variation allowed between consecutive time intervals.
     allow_pose : bool, default: True
         Whether to allow a `pose` dimension.
     allow_extra_dims : bool, default: True
-        Whether dimensions outside the ConfUSIus core set are allowed.
+        Whether to allow dimensions outside `time`, `pose`, `k`, `j`, and `i`.
     require_regular_spacing : bool, default: False
-        Whether selected numeric dimension coordinates must have regular spacing.
+        Whether to require regular spacing for selected numeric dimension coordinates.
     regular_spacing_tolerance : float, default: 1e-2
         Relative tolerance used to assess coordinate regularity.
     regular_spacing_dims : {"space", "core", "all"} or str or sequence[str], default: "space"
-        Dimensions that must satisfy regular-spacing checks.
+        Dimensions to check for regular spacing. `"space"` checks `k`, `j`, and `i`;
+        `"core"` checks present core dimensions; `"all"` checks every dimension.
     require_canonical_dim_order : bool, default: False
-        Whether core dimensions must appear in canonical order.
+        Whether present core dimensions must occur in `time`, `pose`, `k`, `j`, `i`
+        order. Extra dimensions may occur anywhere.
     require_velocity_attrs : bool, default: False
-        Whether to require and validate velocity-estimation attributes on the
-        DataArray.
+        Whether to require positive, finite `transmit_frequency` and
+        `beamforming_sound_velocity` DataArray attributes.
     require_dtype : Any, optional
-        NumPy dtype kind required for the DataArray values, passed to
-        `numpy.issubdtype`.
+        Required data dtype or dtype class, passed to `numpy.issubdtype`.
 
     Raises
     ------
     TypeError
-        If `data` is not an `xarray.DataArray`.
+        If `data` is not an `xarray.DataArray` or its dtype does not satisfy
+        `require_dtype`.
     ValueError
-        If dimension, coordinate, timing, or metadata validation fails.
+        If VoxelData geometry, dimensions, coordinates, timing, spacing, or metadata
+        validation fails.
     """
     require_dataarray(data)
     _validate_no_zero_length_dims(data)

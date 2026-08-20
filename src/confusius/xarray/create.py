@@ -13,7 +13,7 @@ from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, TIME_DIM, VOXEL_D
 from confusius._utils.coordinates import get_probe_surface_origin
 from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
-from confusius.validation.fusi import require_positive_finite, validate_voxeldata
+from confusius.validation.voxeldata import require_positive_finite, validate_voxeldata
 
 if TYPE_CHECKING:
     import dask.array as da

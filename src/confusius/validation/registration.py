@@ -3,7 +3,7 @@
 import xarray as xr
 
 from confusius._utils.geometry import get_voxel_to_world_spatial_dims
-from confusius.validation.fusi import validate_voxeldata
+from confusius.validation.voxeldata import validate_voxeldata
 
 
 def validate_bspline(da: xr.DataArray) -> None:
