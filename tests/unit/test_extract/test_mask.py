@@ -67,6 +67,28 @@ def test_extract_with_mask_selects_expected_voxels(
     )
 
 
+def test_extract_with_mask_restores_scalar_voxel_dim(
+    sample_fusi_3dt: xr.DataArray,
+) -> None:
+    """`data` with a scalar-reduced voxel dim (e.g. from `.isel(k=0)`) is canonicalized.
+
+    `.isel(k=0)` collapses `k` to a scalar coordinate, dropping the dim itself, which
+    only `ensure_voxeldata` restores -- exercises that `extract_with_mask`
+    canonicalizes `data` itself rather than relying on `validate_mask`'s internal
+    (and discarded) canonicalization of it.
+    """
+    single_k = sample_fusi_3dt.isel(k=0)
+    mask = _make_mask(sample_fusi_3dt).isel(k=[0])
+    mask.data[0, 1, 2] = True
+
+    signals = extract_with_mask(single_k, mask)
+
+    assert signals.dims == ("time", "space")
+    np.testing.assert_array_equal(
+        signals.values, sample_fusi_3dt.values[:, 0, [1], [2]]
+    )
+
+
 def test_extract_with_mask_accepts_single_label_integer_mask(
     sample_fusi_3dt: xr.DataArray,
 ) -> None:

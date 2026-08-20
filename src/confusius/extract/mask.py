@@ -2,7 +2,7 @@
 
 import xarray as xr
 
-from confusius.validation import validate_mask
+from confusius.validation import ensure_voxeldata, validate_mask
 
 
 def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
@@ -81,6 +81,7 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     >>> pose_signals.dims
     ('time', 'pose', 'space')
     """
+    data = ensure_voxeldata(data, allow_extra_dims=True)
     mask = validate_mask(mask, data, "mask")
 
     # validate_mask() already checked mask and data share the same voxel grid (same

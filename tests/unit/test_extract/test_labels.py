@@ -112,6 +112,27 @@ class TestWithLabels:
         assert result.dims == ("time", "region")
         np.testing.assert_array_equal(result.coords["region"].values, [1, 2])
 
+    def test_restores_scalar_voxel_dim(self, sample_fusi_3dt):
+        """`data` with a scalar-reduced voxel dim (e.g. from `.isel(k=0)`) works.
+
+        `.isel(k=0)` collapses `k` to a scalar coordinate, dropping the dim itself,
+        which only `ensure_voxeldata` restores -- exercises that
+        `extract_with_labels` canonicalizes `data` itself rather than relying on
+        `validate_labels`'s internal (and discarded) canonicalization of it.
+        """
+        single_k = sample_fusi_3dt.isel(k=0)
+        labels_data = np.zeros(sample_fusi_3dt.shape[1:], dtype=int)
+        labels_data[:, :, :4] = 1
+        labels_data[:, :, 4:] = 2
+        labels = _labels_like(labels_data, ("k", "j", "i"), sample_fusi_3dt).isel(
+            k=[0]
+        )
+
+        result = extract.extract_with_labels(single_k, labels)
+
+        assert result.dims == ("time", "region")
+        np.testing.assert_array_equal(result.coords["region"].values, [1, 2])
+
     def test_output_dims_3d(self):
         """Test that spatial dims are fully replaced for pure spatial data."""
         data = _canonical(np.ones((3, 4, 5)), ("k", "j", "i"))
