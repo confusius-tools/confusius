@@ -13,14 +13,14 @@ from confusius.validation import ensure_labels, ensure_mask, validate_labels, va
 
 
 @pytest.mark.parametrize("region_id", [1, 7, 256, 512, 1009])
-def test_coerces_integer_label_to_boolean(sample_fusi_3dt, sample_voxeldata_mask, region_id):
+def test_coerces_integer_label_to_boolean(sample_fusi_3dt, make_sample_voxeldata_mask, region_id):
     """A single-label integer mask {0, region_id} is returned as a boolean mask.
 
     Region ids that are multiples of 256 (256, 512) are included because casting the
     raw integer mask to `numpy.uint8` would wrap them to 0; the boolean coercion must
     not depend on the label value.
     """
-    mask = sample_voxeldata_mask(np.int32)
+    mask = make_sample_voxeldata_mask(np.int32)
     mask.values.flat[2:5] = region_id
 
     result = ensure_mask(mask, sample_fusi_3dt)
@@ -29,9 +29,9 @@ def test_coerces_integer_label_to_boolean(sample_fusi_3dt, sample_voxeldata_mask
     assert_array_equal(result.values.ravel(), mask.values.ravel() != 0)
 
 
-def test_passes_boolean_through(sample_fusi_3dt, sample_voxeldata_mask):
+def test_passes_boolean_through(sample_fusi_3dt, make_sample_voxeldata_mask):
     """A boolean mask is returned as boolean with its values unchanged."""
-    mask = sample_voxeldata_mask()
+    mask = make_sample_voxeldata_mask()
     mask.values.flat[1:4] = True
 
     result = ensure_mask(mask, sample_fusi_3dt)
@@ -40,9 +40,9 @@ def test_passes_boolean_through(sample_fusi_3dt, sample_voxeldata_mask):
     assert_array_equal(result.values.ravel(), mask.values.ravel())
 
 
-def test_return_dtype_as_bool_false_preserves_dtype(sample_fusi_3dt, sample_voxeldata_mask):
+def test_return_dtype_as_bool_false_preserves_dtype(sample_fusi_3dt, make_sample_voxeldata_mask):
     """With return_dtype_as_bool=False the mask is returned with its original dtype."""
-    mask = sample_voxeldata_mask(np.int32)
+    mask = make_sample_voxeldata_mask(np.int32)
     mask.values.flat[2:5] = 512
 
     result = ensure_mask(mask, sample_fusi_3dt, coerce_bool=False)
@@ -51,9 +51,9 @@ def test_return_dtype_as_bool_false_preserves_dtype(sample_fusi_3dt, sample_voxe
     assert_array_equal(result.values.ravel(), mask.values.ravel())
 
 
-def test_coerced_mask_preserves_dims_and_coords(sample_fusi_3dt, sample_voxeldata_mask):
+def test_coerced_mask_preserves_dims_and_coords(sample_fusi_3dt, make_sample_voxeldata_mask):
     """The coerced mask keeps the input dimensions and coordinates."""
-    mask = sample_voxeldata_mask(np.int32)
+    mask = make_sample_voxeldata_mask(np.int32)
     mask.values.flat[3:] = 512
 
     result = ensure_mask(mask, sample_fusi_3dt)
@@ -63,31 +63,31 @@ def test_coerced_mask_preserves_dims_and_coords(sample_fusi_3dt, sample_voxeldat
 
 
 def test_validate_mask_returns_none_for_canonical_aligned_input(
-    sample_fusi_3dt, sample_voxeldata_mask
+    sample_fusi_3dt, make_sample_voxeldata_mask
 ):
     """validate_mask is a pure check: it returns None, not a canonicalized mask."""
-    mask = sample_voxeldata_mask()
+    mask = make_sample_voxeldata_mask()
 
     assert validate_mask(mask, sample_fusi_3dt) is None
 
 
-def test_validate_mask_rejects_scalar_reduced_data(sample_fusi_3dt, sample_voxeldata_mask):
+def test_validate_mask_rejects_scalar_reduced_data(sample_fusi_3dt, make_sample_voxeldata_mask):
     """validate_mask does not canonicalize: a scalar-reduced data dim is rejected.
 
     Unlike ensure_mask, which restores data.isel(k=0)'s dropped k dim before
     checking, validate_mask requires both mask and data to already be canonical
     VoxelData arrays.
     """
-    mask = sample_voxeldata_mask()
+    mask = make_sample_voxeldata_mask()
     reduced_data = sample_fusi_3dt.isel(k=0)
 
     with pytest.raises(ValueError, match="native voxel dimension"):
         validate_mask(mask, reduced_data)
 
 
-def test_validate_mask_rejects_misaligned_grid(sample_fusi_3dt, sample_voxeldata_mask):
+def test_validate_mask_rejects_misaligned_grid(sample_fusi_3dt, make_sample_voxeldata_mask):
     """validate_mask rejects a mask whose voxel grid doesn't match data's."""
-    mask = sample_voxeldata_mask()
+    mask = make_sample_voxeldata_mask()
     shifted_affine = get_voxel_to_world_affine(sample_fusi_3dt).copy()
     shifted_affine[:3, 3] += 1.0
     mask = attach_voxel_to_world_index(

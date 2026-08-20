@@ -721,7 +721,7 @@ def sample_iq_3dt(rng):
 
 
 @pytest.fixture
-def sample_timeseries(rng):
+def make_sample_timeseries(rng):
     """Factory fixture for 2D time-series data (time, space).
 
     Creates DataArray with proper time coordinates.
@@ -753,7 +753,7 @@ def spatial_mask(rng, sample_fusi_3dt):
 
 
 @pytest.fixture
-def sample_voxeldata_mask(sample_fusi_3dt):
+def make_sample_voxeldata_mask(sample_fusi_3dt):
     """Factory for a zero-valued VoxelData mask sharing `sample_fusi_3dt`'s grid.
 
     Returns a callable `make_mask(dtype=bool)` producing an all-False (or all-0)

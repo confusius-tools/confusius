@@ -13,10 +13,10 @@ from confusius.extract import extract_with_mask, unmask
 
 
 def test_extract_with_mask_selects_expected_voxels(
-    sample_fusi_3dt: xr.DataArray, sample_voxeldata_mask
+    sample_fusi_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
     """Extraction retains the masked voxel signals and spatial index."""
-    mask = sample_voxeldata_mask()
+    mask = make_sample_voxeldata_mask()
     mask.data[0, 1, 2] = True
     mask.data[1, 2, 3] = True
 
@@ -30,7 +30,7 @@ def test_extract_with_mask_selects_expected_voxels(
 
 
 def test_extract_with_mask_restores_scalar_voxel_dim(
-    sample_fusi_3dt: xr.DataArray, sample_voxeldata_mask
+    sample_fusi_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
     """`data` with a scalar-reduced voxel dim (e.g. from `.isel(k=0)`) is canonicalized.
 
@@ -40,7 +40,7 @@ def test_extract_with_mask_restores_scalar_voxel_dim(
     (and discarded) canonicalization of it.
     """
     single_k = sample_fusi_3dt.isel(k=0)
-    mask = sample_voxeldata_mask().isel(k=[0])
+    mask = make_sample_voxeldata_mask().isel(k=[0])
     mask.data[0, 1, 2] = True
 
     signals = extract_with_mask(single_k, mask)
@@ -52,10 +52,10 @@ def test_extract_with_mask_restores_scalar_voxel_dim(
 
 
 def test_extract_with_mask_accepts_single_label_integer_mask(
-    sample_fusi_3dt: xr.DataArray, sample_voxeldata_mask
+    sample_fusi_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
     """A single non-zero integer label has the same selection as a boolean mask."""
-    boolean_mask = sample_voxeldata_mask()
+    boolean_mask = make_sample_voxeldata_mask()
     boolean_mask.data[0, 1, 2] = True
     integer_mask = boolean_mask.astype(np.int32) * 7
 
@@ -74,13 +74,13 @@ def test_extract_with_mask_accepts_single_label_integer_mask(
 )
 def test_extract_with_mask_rejects_invalid_mask_values(
     sample_fusi_3dt: xr.DataArray,
-    sample_voxeldata_mask,
+    make_sample_voxeldata_mask,
     dtype: type[np.generic] | type[float],
     values: tuple[float, ...],
     message: str,
 ) -> None:
     """Only boolean and single-label integer masks are accepted."""
-    mask = sample_voxeldata_mask(dtype)
+    mask = make_sample_voxeldata_mask(dtype)
     mask.data.flat[: len(values)] = values
 
     with pytest.raises(TypeError, match=message):
@@ -88,7 +88,7 @@ def test_extract_with_mask_rejects_invalid_mask_values(
 
 
 def test_extract_with_mask_rejects_misaligned_coordinates(
-    sample_fusi_3dt: xr.DataArray, sample_voxeldata_mask
+    sample_fusi_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
     """Extraction rejects a mask whose affine differs from data's.
 
@@ -96,7 +96,7 @@ def test_extract_with_mask_rejects_misaligned_coordinates(
     voxel_to_world affine (origin shifted) differs, so this specifically exercises
     that affine mismatches are caught, not just voxel-coordinate mismatches.
     """
-    mask = sample_voxeldata_mask()
+    mask = make_sample_voxeldata_mask()
     mask.data[0, 1, 2] = True
     shifted_affine = get_voxel_to_world_affine(sample_fusi_3dt).copy()
     shifted_affine[:3, 3] += 1.0
@@ -114,10 +114,10 @@ def test_extract_with_mask_rejects_misaligned_coordinates(
 
 
 def test_extract_with_mask_preserves_dask_laziness(
-    sample_fusi_3dt: xr.DataArray, sample_voxeldata_mask
+    sample_fusi_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
     """Dask-backed fUSI data remain lazy after extraction."""
-    mask = sample_voxeldata_mask()
+    mask = make_sample_voxeldata_mask()
     mask.data[0, 1, 2] = True
     chunked = sample_fusi_3dt.chunk({"time": 2})
 
@@ -130,10 +130,10 @@ def test_extract_with_mask_preserves_dask_laziness(
 
 
 def test_unmask_reconstructs_masked_fusi_grid(
-    sample_fusi_3dt: xr.DataArray, sample_voxeldata_mask
+    sample_fusi_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
     """Extraction followed by reconstruction preserves selected voxel signals."""
-    mask = sample_voxeldata_mask()
+    mask = make_sample_voxeldata_mask()
     mask.data[0, 1, 2] = True
     mask.data[1, 2, 3] = True
 
@@ -147,10 +147,10 @@ def test_unmask_reconstructs_masked_fusi_grid(
 
 
 def test_unmask_rejects_invalid_mask_dtype(
-    sample_fusi_3dt: xr.DataArray, sample_voxeldata_mask
+    sample_fusi_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
     """Reconstruction rejects masks that are neither boolean nor integer."""
-    mask = sample_voxeldata_mask(float)
+    mask = make_sample_voxeldata_mask(float)
     mask.data[0, 1, 2] = 1.0
 
     with pytest.raises(TypeError, match="single-label integer dtype"):
@@ -172,10 +172,10 @@ def test_unmask_supports_generic_mask_dimensions() -> None:
 
 
 def test_unmask_validates_signal_space_size(
-    sample_fusi_3dt: xr.DataArray, sample_voxeldata_mask
+    sample_fusi_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
     """Reconstruction requires one value for every selected voxel."""
-    mask = sample_voxeldata_mask()
+    mask = make_sample_voxeldata_mask()
     mask.data[0, 1, 2] = True
     mask.data[1, 2, 3] = True
 

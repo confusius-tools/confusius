@@ -314,9 +314,9 @@ def test_detrend_polynomial_3dt(sample_fusi_3dt):
     assert_allclose(result.values, naive_result, rtol=1e-8)
 
 
-def test_detrend_polynomial_with_nonleading_time_axis(sample_timeseries):
+def test_detrend_polynomial_with_nonleading_time_axis(make_sample_timeseries):
     """Test polynomial detrending when time is not the first axis."""
-    signals = sample_timeseries(n_time=100, n_voxels=20).transpose("space", "time")
+    signals = make_sample_timeseries(n_time=100, n_voxels=20).transpose("space", "time")
     time = np.arange(signals.sizes["time"])
     trended = signals + (time**2) * 0.05
 

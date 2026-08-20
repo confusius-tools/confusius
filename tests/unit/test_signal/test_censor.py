@@ -20,9 +20,9 @@ from confusius.signal import censor_samples, interpolate_samples
 
 
 @pytest.fixture
-def sample_mask_with_gaps(sample_timeseries):
+def sample_mask_with_gaps(make_sample_timeseries):
     """Sample mask with several censored gaps."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     mask_values = np.ones(100, dtype=bool)
     # Censor frames: single (10), consecutive (25-27), and isolated (60, 85).
     mask_values[[10, 25, 26, 27, 60, 85]] = False
@@ -32,9 +32,9 @@ def sample_mask_with_gaps(sample_timeseries):
 
 
 @pytest.fixture
-def sample_mask_boundary(sample_timeseries):
+def sample_mask_boundary(make_sample_timeseries):
     """Sample mask with censored boundary frames."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     mask_values = np.ones(100, dtype=bool)
     # Censor first and last frames.
     mask_values[[0, 99]] = False
@@ -48,9 +48,9 @@ def sample_mask_boundary(sample_timeseries):
 # ===========================
 
 
-def test_interpolate_preserves_kept_samples(sample_timeseries, sample_mask_with_gaps):
+def test_interpolate_preserves_kept_samples(make_sample_timeseries, sample_mask_with_gaps):
     """Test that kept samples are unchanged after interpolation."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     result = interpolate_samples(signals, sample_mask_with_gaps, method="linear")
 
     mask_bool = sample_mask_with_gaps.values
@@ -63,9 +63,9 @@ def test_interpolate_preserves_kept_samples(sample_timeseries, sample_mask_with_
     )
 
 
-def test_interpolate_matches_xarray_interp(sample_timeseries, sample_mask_with_gaps):
+def test_interpolate_matches_xarray_interp(make_sample_timeseries, sample_mask_with_gaps):
     """Test interpolation matches xarray.DataArray.interp() directly."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     result = interpolate_samples(signals, sample_mask_with_gaps, method="linear")
 
     # Reference: manual xarray.interp call.
@@ -76,9 +76,9 @@ def test_interpolate_matches_xarray_interp(sample_timeseries, sample_mask_with_g
     assert_allclose(result.values, expected.values, rtol=1e-14)
 
 
-def test_interpolate_boundary_extrapolation(sample_timeseries, sample_mask_boundary):
+def test_interpolate_boundary_extrapolation(make_sample_timeseries, sample_mask_boundary):
     """Test that fill_value='extrapolate' fills boundary values."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     result = interpolate_samples(
         signals, sample_mask_boundary, method="linear", fill_value="extrapolate"
     )
@@ -88,9 +88,9 @@ def test_interpolate_boundary_extrapolation(sample_timeseries, sample_mask_bound
     assert not np.any(np.isnan(result.values[99, :]))
 
 
-def test_interpolate_boundary_no_extrapolation(sample_timeseries, sample_mask_boundary):
+def test_interpolate_boundary_no_extrapolation(make_sample_timeseries, sample_mask_boundary):
     """Test that fill_value=np.nan produces NaN at boundaries."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     result = interpolate_samples(
         signals, sample_mask_boundary, method="linear", fill_value=np.nan
     )
@@ -100,9 +100,9 @@ def test_interpolate_boundary_no_extrapolation(sample_timeseries, sample_mask_bo
     assert np.all(np.isnan(result.values[99, :]))
 
 
-def test_interpolate_all_censored_error(sample_timeseries):
+def test_interpolate_all_censored_error(make_sample_timeseries):
     """Test error when all samples are censored."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     sample_mask = xr.DataArray(
         np.zeros(100, dtype=bool),
         dims=["time"],
@@ -113,9 +113,9 @@ def test_interpolate_all_censored_error(sample_timeseries):
         interpolate_samples(signals, sample_mask)
 
 
-def test_interpolate_all_kept_warning(sample_timeseries):
+def test_interpolate_all_kept_warning(make_sample_timeseries):
     """Test warning when all samples are kept (no interpolation needed)."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     sample_mask = xr.DataArray(
         np.ones(100, dtype=bool),
         dims=["time"],
@@ -129,44 +129,44 @@ def test_interpolate_all_kept_warning(sample_timeseries):
     assert_allclose(result.values, signals.values, rtol=1e-14)
 
 
-def test_interpolate_missing_time_dimension(sample_timeseries):
+def test_interpolate_missing_time_dimension(make_sample_timeseries):
     """Test error when signals have no time dimension."""
-    signals = sample_timeseries(n_time=100).rename({"time": "samples"})
+    signals = make_sample_timeseries(n_time=100).rename({"time": "samples"})
     sample_mask = xr.DataArray(np.ones(100, dtype=bool), dims=["time"])
 
     with pytest.raises(ValueError, match="must have a 'time' dimension"):
         interpolate_samples(signals, sample_mask)
 
 
-def test_interpolate_missing_time_coords(sample_timeseries):
+def test_interpolate_missing_time_coords(make_sample_timeseries):
     """Test error when signals have no time coordinates."""
-    signals = sample_timeseries(n_time=100).drop_vars("time")
+    signals = make_sample_timeseries(n_time=100).drop_vars("time")
     sample_mask = xr.DataArray(np.ones(100, dtype=bool), dims=["time"])
 
     with pytest.raises(ValueError, match="must have 'time' coordinates"):
         interpolate_samples(signals, sample_mask)
 
 
-def test_interpolate_rejects_non_dataarray_mask(sample_timeseries):
+def test_interpolate_rejects_non_dataarray_mask(make_sample_timeseries):
     """Test sample_mask must be an xarray.DataArray."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
 
     with pytest.raises(TypeError, match="sample_mask must be an xarray.DataArray"):
         interpolate_samples(signals, np.ones(100, dtype=bool))  # ty: ignore[invalid-argument-type]
 
 
-def test_interpolate_rejects_mask_without_time_dimension(sample_timeseries):
+def test_interpolate_rejects_mask_without_time_dimension(make_sample_timeseries):
     """Test sample_mask must have a time dimension."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     sample_mask = xr.DataArray(np.ones(100, dtype=bool), dims=["sample"])
 
     with pytest.raises(ValueError, match="sample_mask must have a 'time' dimension"):
         interpolate_samples(signals, sample_mask)
 
 
-def test_interpolate_rejects_non_boolean_mask(sample_timeseries):
+def test_interpolate_rejects_non_boolean_mask(make_sample_timeseries):
     """Test sample_mask must be boolean."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     sample_mask = xr.DataArray(
         np.ones(100, dtype=int), dims=["time"], coords={"time": signals.coords["time"]}
     )
@@ -175,9 +175,9 @@ def test_interpolate_rejects_non_boolean_mask(sample_timeseries):
         interpolate_samples(signals, sample_mask)
 
 
-def test_interpolate_rejects_non_1d_mask(sample_timeseries):
+def test_interpolate_rejects_non_1d_mask(make_sample_timeseries):
     """Test sample_mask must be 1D."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     sample_mask = xr.DataArray(
         np.ones((100, 1), dtype=bool),
         dims=["time", "extra"],
@@ -188,9 +188,9 @@ def test_interpolate_rejects_non_1d_mask(sample_timeseries):
         interpolate_samples(signals, sample_mask)
 
 
-def test_interpolate_rejects_mask_with_wrong_length(sample_timeseries):
+def test_interpolate_rejects_mask_with_wrong_length(make_sample_timeseries):
     """Test sample_mask length must match the time dimension."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     sample_mask = xr.DataArray(
         np.ones(99, dtype=bool),
         dims=["time"],
@@ -267,9 +267,9 @@ def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_fusi_
     assert result.dims == signals.dims
 
 
-def test_interpolate_accepts_small_time_coordinate_drift(sample_timeseries):
+def test_interpolate_accepts_small_time_coordinate_drift(make_sample_timeseries):
     """Test interpolation accepts small numeric drift in time coordinates."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     mask_values = np.ones(100, dtype=bool)
     mask_values[10] = False
     sample_mask = xr.DataArray(
@@ -283,9 +283,9 @@ def test_interpolate_accepts_small_time_coordinate_drift(sample_timeseries):
     assert result.shape == signals.shape
 
 
-def test_interpolate_dask(sample_timeseries, sample_mask_with_gaps):
+def test_interpolate_dask(make_sample_timeseries, sample_mask_with_gaps):
     """Test interpolation works with Dask-backed arrays."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     dask_signals = signals.chunk({"time": -1, "space": 10})
 
     result = interpolate_samples(dask_signals, sample_mask_with_gaps, method="linear")
@@ -303,9 +303,9 @@ def test_interpolate_dask(sample_timeseries, sample_mask_with_gaps):
 # ===========================
 
 
-def test_censor_removes_correct_samples(sample_timeseries, sample_mask_with_gaps):
+def test_censor_removes_correct_samples(make_sample_timeseries, sample_mask_with_gaps):
     """Test that censoring removes exactly the specified samples."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     result = censor_samples(signals, sample_mask_with_gaps)
 
     # Should remove 6 timepoints.
@@ -387,9 +387,9 @@ def test_censor_accepts_time_match_with_unrelated_scalar_coord(sample_fusi_3dt):
     assert_allclose(result.values, signals.values[mask_values], rtol=1e-14)
 
 
-def test_censor_accepts_small_time_coordinate_drift(sample_timeseries):
+def test_censor_accepts_small_time_coordinate_drift(make_sample_timeseries):
     """Test censoring accepts small numeric drift in time coordinates."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     mask_values = np.ones(100, dtype=bool)
     mask_values[[10, 25, 60]] = False
     sample_mask = xr.DataArray(
@@ -403,9 +403,9 @@ def test_censor_accepts_small_time_coordinate_drift(sample_timeseries):
     assert result.sizes["time"] == np.sum(mask_values)
 
 
-def test_censor_rejects_mismatched_time_coordinate(sample_timeseries):
+def test_censor_rejects_mismatched_time_coordinate(make_sample_timeseries):
     """Test censoring rejects genuinely mismatched time coordinates."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     sample_mask = xr.DataArray(
         np.ones(100, dtype=bool),
         dims=["time"],
@@ -416,9 +416,9 @@ def test_censor_rejects_mismatched_time_coordinate(sample_timeseries):
         censor_samples(signals, sample_mask)
 
 
-def test_censor_all_censored_error(sample_timeseries):
+def test_censor_all_censored_error(make_sample_timeseries):
     """Test error when all samples are censored."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     sample_mask = xr.DataArray(
         np.zeros(100, dtype=bool),
         dims=["time"],
@@ -429,9 +429,9 @@ def test_censor_all_censored_error(sample_timeseries):
         censor_samples(signals, sample_mask)
 
 
-def test_censor_all_kept_warning(sample_timeseries):
+def test_censor_all_kept_warning(make_sample_timeseries):
     """Test warning when all samples are kept (no censoring)."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     sample_mask = xr.DataArray(
         np.ones(100, dtype=bool),
         dims=["time"],
@@ -445,9 +445,9 @@ def test_censor_all_kept_warning(sample_timeseries):
     assert_allclose(result.values, signals.values, rtol=1e-14)
 
 
-def test_censor_dask(sample_timeseries, sample_mask_with_gaps):
+def test_censor_dask(make_sample_timeseries, sample_mask_with_gaps):
     """Test censoring works with Dask-backed arrays."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
     dask_signals = signals.chunk({"time": 20, "space": 10})
 
     result = censor_samples(dask_signals, sample_mask_with_gaps)
@@ -460,9 +460,9 @@ def test_censor_dask(sample_timeseries, sample_mask_with_gaps):
     assert_allclose(result.compute().values, eager_result.values, rtol=1e-14)
 
 
-def test_censor_missing_time_dimension(sample_timeseries):
+def test_censor_missing_time_dimension(make_sample_timeseries):
     """Test error when signals have no time dimension."""
-    signals = sample_timeseries(n_time=100).rename({"time": "samples"})
+    signals = make_sample_timeseries(n_time=100).rename({"time": "samples"})
     sample_mask = xr.DataArray(
         np.ones(100, dtype=bool), dims=["time"], coords={"time": np.arange(100) / 100}
     )
@@ -476,11 +476,11 @@ def test_censor_missing_time_dimension(sample_timeseries):
 # ===========================
 
 
-def test_pre_scrubbing_workflow(sample_timeseries, sample_mask_with_gaps):
+def test_pre_scrubbing_workflow(make_sample_timeseries, sample_mask_with_gaps):
     """Test complete pre-scrubbing workflow: interpolate → filter → censor."""
     from confusius.signal import filter_butterworth
 
-    signals = sample_timeseries(n_time=100, sampling_rate=100)
+    signals = make_sample_timeseries(n_time=100, sampling_rate=100)
 
     # 1. Interpolate censored samples.
     interpolated = interpolate_samples(signals, sample_mask_with_gaps, method="linear")
@@ -497,9 +497,9 @@ def test_pre_scrubbing_workflow(sample_timeseries, sample_mask_with_gaps):
     assert cleaned.sizes["space"] == signals.sizes["space"]
 
 
-def test_interpolate_and_censor_roundtrip(sample_timeseries, sample_mask_with_gaps):
+def test_interpolate_and_censor_roundtrip(make_sample_timeseries, sample_mask_with_gaps):
     """Test that kept samples survive interpolate → censor roundtrip."""
-    signals = sample_timeseries(n_time=100)
+    signals = make_sample_timeseries(n_time=100)
 
     # Interpolate then censor.
     interpolated = interpolate_samples(signals, sample_mask_with_gaps, method="linear")
