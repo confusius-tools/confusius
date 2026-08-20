@@ -295,8 +295,11 @@ class FirstLevelModel(BaseEstimator):
             run = run_data[run_index]
             if self.smoothing_fwhm is not None:
                 run = smooth_volume(run, self.smoothing_fwhm)
-            masked = extract_with_mask(run, self._effective_mask_)
-            data_2d = masked.transpose("time", "space").values
+            # _effective_mask_ spans every non-time dim of run (see its construction
+            # above), so extract_with_mask's data.stack(space=...) stacks away
+            # everything but time. xarray.stack always appends the new stacked dim at
+            # the end, so the result is already (time, space); no transpose needed.
+            data_2d = extract_with_mask(run, self._effective_mask_).values
 
             dm = design_matrices_list[run_index]
             design_array = dm.to_numpy()
