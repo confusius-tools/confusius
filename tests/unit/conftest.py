@@ -587,7 +587,7 @@ def singleton_registration_volume():
 
 
 @pytest.fixture
-def sample_fusi_3d(rng):
+def sample_voxeldata_3d(rng):
     """3D spatial volume (k, j, i) with consistent spatial coordinates.
 
     Shape: (4, 6, 8) - small enough for fast tests.
@@ -607,11 +607,11 @@ def sample_fusi_3d(rng):
 
 
 @pytest.fixture
-def sample_fusi_3dt(rng):
+def sample_voxeldata_3dt(rng):
     """3D+t volume (time, k, j, i) with consistent coordinates.
 
     Shape: (10, 4, 6, 8) - small enough for fast tests. Spatial coordinates match
-    sample_fusi_3d exactly. Includes name and metadata attributes for testing labels
+    sample_voxeldata_3d exactly. Includes name and metadata attributes for testing labels
     and units.
     """
     shape = (10, 4, 6, 8)
@@ -632,15 +632,15 @@ def sample_fusi_3dt(rng):
 
 
 @pytest.fixture
-def sample_fusi_3d_oblique():
+def sample_voxeldata_3d_oblique():
     """Small oblique (sheared) voxel-to-world (k, j, i) volume.
 
-    The oblique sibling of `sample_fusi_3d`: same canonical data model, but with a
+    The oblique sibling of `sample_voxeldata_3d`: same canonical data model, but with a
     sheared voxel-to-world affine instead of an axis-aligned one, for tests that
     specifically need to exercise oblique-geometry code paths (resampling onto an
     axis-aligned world grid, world-name axis labels, projected-plane slicing, etc.).
 
-    Shape: (2, 3, 4) -- deliberately small, independent of sample_fusi_3d's own shape.
+    Shape: (2, 3, 4) -- deliberately small, independent of sample_voxeldata_3d's own shape.
     """
     voxel_to_world = np.array(
         [
@@ -658,15 +658,15 @@ def sample_fusi_3d_oblique():
 
 
 @pytest.fixture
-def sample_fusi_3d_irregular_voxels():
+def sample_voxeldata_3d_irregular_voxels():
     """Small axis-aligned (k, j, i) volume with irregularly spaced voxel indices.
 
-    Unlike `sample_fusi_3d`'s evenly spaced voxel coordinates, `k`/`j`/`i` here are
+    Unlike `sample_voxeldata_3d`'s evenly spaced voxel coordinates, `k`/`j`/`i` here are
     non-consecutive and non-uniformly spaced (but still monotonic), so reverse
     world-to-voxel lookups can't assume a dense `0..n-1` grid. For tests
     exercising `VoxelToWorldIndex.sel`'s per-axis reverse lookup.
 
-    Shape: (2, 3, 4) -- deliberately small, independent of sample_fusi_3d's own shape.
+    Shape: (2, 3, 4) -- deliberately small, independent of sample_voxeldata_3d's own shape.
     """
     data = xr.DataArray(
         np.arange(2 * 3 * 4).reshape(2, 3, 4),
@@ -677,16 +677,16 @@ def sample_fusi_3d_irregular_voxels():
 
 
 @pytest.fixture
-def sample_fusi_3d_nonmonotonic_voxels():
+def sample_voxeldata_3d_nonmonotonic_voxels():
     """Small axis-aligned (k, j, i) volume with a non-monotonic `j` voxel coordinate.
 
     `k`/`i` are regular, consecutive voxel indices; only `j` is non-monotonic
     (`[0, 3, 1]`), isolating that trait from irregular spacing (see
-    `sample_fusi_3d_irregular_voxels`). Reverse world-to-voxel lookup on a
+    `sample_voxeldata_3d_irregular_voxels`). Reverse world-to-voxel lookup on a
     non-monotonic axis can't use interpolation and falls back to exact-match
     lookup -- for tests exercising that fallback in `VoxelToWorldIndex.sel`.
 
-    Shape: (2, 3, 4) -- deliberately small, independent of sample_fusi_3d's own shape.
+    Shape: (2, 3, 4) -- deliberately small, independent of sample_voxeldata_3d's own shape.
     """
     data = xr.DataArray(
         np.arange(2 * 3 * 4).reshape(2, 3, 4),
@@ -697,10 +697,10 @@ def sample_fusi_3d_nonmonotonic_voxels():
 
 
 @pytest.fixture
-def sample_iq_3dt(rng):
+def sample_voxeldata_iq_3dt(rng):
     """Complex-valued 3D+t volume (time, k, j, i) for IQ processing tests.
 
-    Shape: (10, 4, 6, 8) - matches sample_fusi_3dt spatial dimensions. Includes name
+    Shape: (10, 4, 6, 8) - matches sample_voxeldata_3dt spatial dimensions. Includes name
     and metadata attributes for testing labels and units.
     """
     shape = (10, 4, 6, 8)
@@ -746,18 +746,18 @@ def make_sample_timeseries(rng):
 
 
 @pytest.fixture
-def spatial_mask(rng, sample_fusi_3dt):
+def spatial_mask(rng, sample_voxeldata_3dt):
     """Boolean spatial mask matching (z, y, x) of sample volumes."""
-    _, z, y, x = sample_fusi_3dt.shape
+    _, z, y, x = sample_voxeldata_3dt.shape
     return rng.random((z, y, x)) > 0.5
 
 
 @pytest.fixture
-def make_sample_voxeldata_mask(sample_fusi_3dt):
-    """Factory for a zero-valued VoxelData mask sharing `sample_fusi_3dt`'s grid.
+def make_sample_voxeldata_mask(sample_voxeldata_3dt):
+    """Factory for a zero-valued VoxelData mask sharing `sample_voxeldata_3dt`'s grid.
 
     Returns a callable `make_mask(dtype=bool)` producing an all-False (or all-0)
-    `(k, j, i)` mask on `sample_fusi_3dt`'s exact voxel-to-world grid. Callers set
+    `(k, j, i)` mask on `sample_voxeldata_3dt`'s exact voxel-to-world grid. Callers set
     specific voxels afterward, e.g. `mask.data[0, 1, 2] = True`.
     """
 
@@ -765,21 +765,21 @@ def make_sample_voxeldata_mask(sample_fusi_3dt):
         spatial_dims = ("k", "j", "i")
         mask = xr.DataArray(
             np.zeros(
-                tuple(sample_fusi_3dt.sizes[dim] for dim in spatial_dims), dtype=dtype
+                tuple(sample_voxeldata_3dt.sizes[dim] for dim in spatial_dims), dtype=dtype
             ),
             dims=spatial_dims,
             coords={
                 name: coord
-                for name, coord in sample_fusi_3dt.coords.items()
+                for name, coord in sample_voxeldata_3dt.coords.items()
                 if "time" not in coord.dims
             },
         )
-        world_coord_names = get_voxel_to_world_coord_names(sample_fusi_3dt)
+        world_coord_names = get_voxel_to_world_coord_names(sample_voxeldata_3dt)
         return attach_voxel_to_world_index(
             mask,
-            get_voxel_to_world_affine(sample_fusi_3dt),
+            get_voxel_to_world_affine(sample_voxeldata_3dt),
             world_coord_attrs={
-                name: dict(sample_fusi_3dt.coords[name].attrs)
+                name: dict(sample_voxeldata_3dt.coords[name].attrs)
                 for name in world_coord_names
             },
         )
@@ -789,11 +789,11 @@ def make_sample_voxeldata_mask(sample_fusi_3dt):
 
 @pytest.fixture
 def sample_roi_labels():
-    """Integer ROI label map matching `sample_fusi_3d`'s spatial grid.
+    """Integer ROI label map matching `sample_voxeldata_3d`'s spatial grid.
 
     Three named regions with disjoint label ids — small enough for fast tests,
     structured enough that any per-region failure is visible. Coordinates and
-    units match `sample_fusi_3d` so the fixtures pair naturally for tests
+    units match `sample_voxeldata_3d` so the fixtures pair naturally for tests
     combining image + label data.
 
     Attributes mirror what `Atlas` / `labels_from_layer` produce in production:
@@ -834,8 +834,8 @@ def integer_nifti_path(tmp_path: Path, sample_roi_labels: xr.DataArray) -> Path:
 
 
 @pytest.fixture
-def float_nifti_path(tmp_path: Path, sample_fusi_3d: xr.DataArray) -> Path:
-    """`sample_fusi_3d` written to a NIfTI file.
+def float_nifti_path(tmp_path: Path, sample_voxeldata_3d: xr.DataArray) -> Path:
+    """`sample_voxeldata_3d` written to a NIfTI file.
 
     Shared by tests covering float-dtype file loading (CLI, native readers, GUI
     panels) so they all exercise the exact same on-disk data.
@@ -843,10 +843,10 @@ def float_nifti_path(tmp_path: Path, sample_fusi_3d: xr.DataArray) -> Path:
     from confusius.io import save_nifti
 
     path = tmp_path / "power_doppler.nii.gz"
-    # sample_fusi_3d's scalar `time` coord has no FrameAcquisitionDuration, which
+    # sample_voxeldata_3d's scalar `time` coord has no FrameAcquisitionDuration, which
     # save_nifti's BIDS sidecar validation requires once VolumeTiming is written;
     # this fixture only needs a plain spatial volume, so drop it before saving.
-    save_nifti(sample_fusi_3d.drop_vars("time"), path)
+    save_nifti(sample_voxeldata_3d.drop_vars("time"), path)
     return path
 
 

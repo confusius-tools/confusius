@@ -35,11 +35,11 @@ class TestOnLoadReturned:
         assert isinstance(viewer.layers[0], Labels)
 
     def test_float_dtype_adds_image_layer(
-        self, data_panel, viewer, sample_fusi_3d
+        self, data_panel, viewer, sample_voxeldata_3d
     ) -> None:
         from napari.layers import Image
 
-        data_panel._on_load_returned(sample_fusi_3d)
+        data_panel._on_load_returned(sample_voxeldata_3d)
 
         assert len(viewer.layers) == 1
         assert isinstance(viewer.layers[0], Image)

@@ -8,7 +8,7 @@ from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
-def sample_fusi_2d_registration():
+def sample_voxeldata_2d_registration():
     """Singleton-k registration image with a centred square and 0.1 mm in-plane spacing."""
     img = np.zeros((1, 32, 32), dtype=np.float32)
     img[:, 12:20, 12:20] = 100.0
@@ -21,7 +21,7 @@ def sample_fusi_2d_registration():
 
 
 @pytest.fixture
-def sample_fusi_3d_registration():
+def sample_voxeldata_3d_registration():
     """3D registration volume with a centred cube and unit spacing."""
     vol = np.zeros((16, 16, 16), dtype=np.float32)
     vol[6:10, 6:10, 6:10] = 100.0
@@ -34,7 +34,7 @@ def sample_fusi_3d_registration():
 
 
 @pytest.fixture
-def sample_fusi_3d_feature_registration():
+def sample_voxeldata_3d_feature_registration():
     """3D registration volume with several off-centre features and unit spacing."""
     vol = np.zeros((32, 32, 32), dtype=np.float32)
     vol[4:10, 4:10, 4:10] = 60.0
@@ -51,11 +51,11 @@ def sample_fusi_3d_feature_registration():
 
 
 @pytest.fixture
-def sample_fusi_2dt_registration(sample_fusi_2d_registration):
+def sample_voxeldata_2dt_registration(sample_voxeldata_2d_registration):
     """Singleton-k+time registration DataArray with five identical frames."""
     n_frames = 5
     return create_voxeldata(
-        np.stack([sample_fusi_2d_registration.values] * n_frames, axis=0),
+        np.stack([sample_voxeldata_2d_registration.values] * n_frames, axis=0),
         dims=("time", "k", "j", "i"),
         time=np.arange(n_frames) * 0.1,
         spacing=(1.0, 0.1, 0.1),
@@ -64,11 +64,11 @@ def sample_fusi_2dt_registration(sample_fusi_2d_registration):
 
 
 @pytest.fixture
-def sample_fusi_3dt_registration(sample_fusi_3d_registration):
+def sample_voxeldata_3dt_registration(sample_voxeldata_3d_registration):
     """3D+time registration DataArray with three identical frames."""
     n_frames = 3
     return create_voxeldata(
-        np.stack([sample_fusi_3d_registration.values] * n_frames, axis=0),
+        np.stack([sample_voxeldata_3d_registration.values] * n_frames, axis=0),
         dims=("time", "k", "j", "i"),
         time=np.arange(n_frames) * 0.1,
         spacing=(1.0, 1.0, 1.0),

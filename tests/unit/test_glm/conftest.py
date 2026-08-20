@@ -1,7 +1,7 @@
 """Shared fixtures for GLM tests.
 
 Mirrors the conventions of the project-wide
-[`sample_fusi_3dt`][tests.unit.conftest.sample_fusi_3dt] fixture (mm spatial
+[`sample_voxeldata_3dt`][tests.unit.conftest.sample_voxeldata_3dt] fixture (mm spatial
 coordinates, units/attrs metadata) but uses the longer time series GLM model
 fitting needs to estimate conditions plus drift cleanly.
 """

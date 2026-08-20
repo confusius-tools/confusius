@@ -83,44 +83,44 @@ def _meta_from_layer(
 
 class TestWriteNiftiWithDataArray:
     def test_returns_path_list(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """write_nifti returns a list containing the output path."""
         path = str(tmp_path / "out.nii.gz")
         result = write_nifti(
-            path, sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt)
+            path, sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt)
         )
         assert result == [path]
 
-    def test_file_created(self, tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> None:
+    def test_file_created(self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> None:
         """NIfTI file is created on disk."""
         path = tmp_path / "out.nii.gz"
-        write_nifti(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
+        write_nifti(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
         assert path.exists()
 
     def test_roundtrip_values(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """Data values are preserved through a write → load round-trip."""
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        write_nifti(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
+        write_nifti(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
         loaded = load(path)
-        npt.assert_allclose(loaded.values, sample_fusi_3dt.values, rtol=1e-5)
+        npt.assert_allclose(loaded.values, sample_voxeldata_3dt.values, rtol=1e-5)
 
     def test_roundtrip_spatial_coordinates(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """Spatial coordinates are preserved through a write → load round-trip."""
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        write_nifti(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
+        write_nifti(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
         loaded = load(path)
         for dim in ("z", "y", "x"):
             npt.assert_allclose(
-                loaded[dim].values, sample_fusi_3dt[dim].values, rtol=1e-4
+                loaded[dim].values, sample_voxeldata_3dt[dim].values, rtol=1e-4
             )
 
 
@@ -137,27 +137,27 @@ class TestWriteNiftiFromReconstruction:
     """
 
     def test_returns_path_list(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """write_nifti returns path list when reconstructing from layer state."""
         path = str(tmp_path / "out.nii.gz")
         with pytest.warns(UserWarning, match="missing"):
             result = write_nifti(
-                path, sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+                path, sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
             )
         assert result == [path]
 
-    def test_file_created(self, tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> None:
+    def test_file_created(self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> None:
         """NIfTI file is created when reconstructing from layer state."""
         path = tmp_path / "out.nii.gz"
         with pytest.warns(UserWarning, match="missing"):
             write_nifti(
-                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
             )
         assert path.exists()
 
     def test_roundtrip_values(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """Data values are preserved when reconstructing from layer state."""
         from confusius.io import load
@@ -165,13 +165,13 @@ class TestWriteNiftiFromReconstruction:
         path = tmp_path / "out.nii.gz"
         with pytest.warns(UserWarning, match="missing"):
             write_nifti(
-                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
             )
         loaded = load(path)
-        npt.assert_allclose(loaded.values, sample_fusi_3dt.values, rtol=1e-5)
+        npt.assert_allclose(loaded.values, sample_voxeldata_3dt.values, rtol=1e-5)
 
     def test_roundtrip_spatial_coordinates(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """Spatial coordinates are reconstructed correctly from scale/translate."""
         from confusius.io import load
@@ -179,12 +179,12 @@ class TestWriteNiftiFromReconstruction:
         path = tmp_path / "out.nii.gz"
         with pytest.warns(UserWarning, match="missing"):
             write_nifti(
-                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
             )
         loaded = load(path)
         for dim in ("z", "y", "x"):
             npt.assert_allclose(
-                loaded[dim].values, sample_fusi_3dt[dim].values, rtol=1e-4
+                loaded[dim].values, sample_voxeldata_3dt[dim].values, rtol=1e-4
             )
 
     def test_integer_labels_preserved(self, tmp_path: Path) -> None:
@@ -213,44 +213,44 @@ class TestWriteNiftiFromReconstruction:
 
 class TestWriteZarrWithDataArray:
     def test_returns_path_list(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """write_zarr returns a list containing the output path."""
         path = str(tmp_path / "out.zarr")
         result = write_zarr(
-            path, sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt)
+            path, sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt)
         )
         assert result == [path]
 
-    def test_store_created(self, tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> None:
+    def test_store_created(self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> None:
         """Zarr store directory is created on disk."""
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
+        write_zarr(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
         assert path.is_dir()
 
     def test_roundtrip_values(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """Data values are preserved through a write → load round-trip."""
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
+        write_zarr(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
         loaded = load(path)
-        npt.assert_allclose(loaded.values, sample_fusi_3dt.values, rtol=1e-6)
+        npt.assert_allclose(loaded.values, sample_voxeldata_3dt.values, rtol=1e-6)
 
     def test_roundtrip_all_coordinates(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """All coordinates are preserved through a write → load round-trip."""
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
+        write_zarr(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
         loaded = load(path)
         for dim in ("time", "z", "y", "x"):
             npt.assert_allclose(
-                loaded[dim].values, sample_fusi_3dt[dim].values, rtol=1e-6
+                loaded[dim].values, sample_voxeldata_3dt[dim].values, rtol=1e-6
             )
 
 
@@ -266,27 +266,27 @@ class TestWriteZarrFromReconstruction:
     """
 
     def test_returns_path_list(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """write_zarr returns path list when reconstructing from layer state."""
         path = str(tmp_path / "out.zarr")
         with pytest.warns(UserWarning, match="missing"):
             result = write_zarr(
-                path, sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+                path, sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
             )
         assert result == [path]
 
-    def test_store_created(self, tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> None:
+    def test_store_created(self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> None:
         """Zarr store directory is created when reconstructing from layer state."""
         path = tmp_path / "out.zarr"
         with pytest.warns(UserWarning, match="missing"):
             write_zarr(
-                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
             )
         assert path.is_dir()
 
     def test_roundtrip_values(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """Data values are preserved when reconstructing from layer state."""
         from confusius.io import load
@@ -294,13 +294,13 @@ class TestWriteZarrFromReconstruction:
         path = tmp_path / "out.zarr"
         with pytest.warns(UserWarning, match="missing"):
             write_zarr(
-                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
             )
         loaded = load(path)
-        npt.assert_allclose(loaded.values, sample_fusi_3dt.values, rtol=1e-6)
+        npt.assert_allclose(loaded.values, sample_voxeldata_3dt.values, rtol=1e-6)
 
     def test_roundtrip_spatial_coordinates(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """Spatial coordinates are reconstructed correctly from scale/translate."""
         from confusius.io import load
@@ -308,14 +308,14 @@ class TestWriteZarrFromReconstruction:
         path = tmp_path / "out.zarr"
         with pytest.warns(UserWarning, match="missing"):
             write_zarr(
-                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
             )
         loaded = load(path)
         coord_pairs = (("time", "time"), ("z", "z"), ("y", "y"), ("x", "x"))
         for loaded_dim, sample_dim in coord_pairs:
             npt.assert_allclose(
                 loaded[loaded_dim].values,
-                sample_fusi_3dt[sample_dim].values,
+                sample_voxeldata_3dt[sample_dim].values,
                 rtol=1e-6,
             )
 

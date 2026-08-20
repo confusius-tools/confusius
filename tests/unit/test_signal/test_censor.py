@@ -200,38 +200,38 @@ def test_interpolate_rejects_mask_with_wrong_length(make_sample_timeseries):
         interpolate_samples(signals, sample_mask)
 
 
-def test_interpolate_4d_data(sample_fusi_3dt):
+def test_interpolate_4d_data(sample_voxeldata_3dt):
     """Test interpolation on 4D (time, z, y, x) data."""
-    n_time = sample_fusi_3dt.sizes["time"]
+    n_time = sample_voxeldata_3dt.sizes["time"]
     mask_values = np.ones(n_time, dtype=bool)
     mask_values[[2, 5, 8]] = False
     sample_mask = xr.DataArray(
         mask_values,
         dims=["time"],
-        coords={"time": sample_fusi_3dt.coords["time"]},
+        coords={"time": sample_voxeldata_3dt.coords["time"]},
     )
 
-    result = interpolate_samples(sample_fusi_3dt, sample_mask, method="linear")
+    result = interpolate_samples(sample_voxeldata_3dt, sample_mask, method="linear")
 
     # Shape and dims preserved.
-    assert result.shape == sample_fusi_3dt.shape
-    assert result.dims == sample_fusi_3dt.dims
+    assert result.shape == sample_voxeldata_3dt.shape
+    assert result.dims == sample_voxeldata_3dt.dims
 
     # Kept samples identical within numerical precision.
     assert_allclose(
         result.values[mask_values, ...],
-        sample_fusi_3dt.values[mask_values, ...],
+        sample_voxeldata_3dt.values[mask_values, ...],
         rtol=1e-12,
         atol=1e-14,
     )
 
 
-def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_fusi_3dt):
+def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_voxeldata_3dt):
     """Test time matching ignores unrelated scalar coordinates on signals."""
-    mask_data = np.zeros((2, *sample_fusi_3dt.shape[1:]), dtype=int)
+    mask_data = np.zeros((2, *sample_voxeldata_3dt.shape[1:]), dtype=int)
     mask_data[0, 0, :, :] = 1
     mask_data[1, 1, :, :] = 2
-    spatial_dims = sample_fusi_3dt.dims[1:]
+    spatial_dims = sample_voxeldata_3dt.dims[1:]
     labels = xr.DataArray(
         mask_data,
         dims=("mask", *spatial_dims),
@@ -239,26 +239,26 @@ def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_fusi_
             "mask": ["VISp", "AUDp"],
             **{
                 name: coord
-                for name, coord in sample_fusi_3dt.coords.items()
+                for name, coord in sample_voxeldata_3dt.coords.items()
                 if set(coord.dims).issubset(spatial_dims)
             },
         },
     )
     labels = attach_voxel_to_world_index(
         labels,
-        get_voxel_to_world_affine(sample_fusi_3dt),
+        get_voxel_to_world_affine(sample_voxeldata_3dt),
         world_coord_attrs={
-            name: dict(sample_fusi_3dt.coords[name].attrs)
-            for name in get_voxel_to_world_coord_names(sample_fusi_3dt)
+            name: dict(sample_voxeldata_3dt.coords[name].attrs)
+            for name in get_voxel_to_world_coord_names(sample_voxeldata_3dt)
         },
     )
-    signals = extract_with_labels(sample_fusi_3dt, labels.isel(mask=0))
+    signals = extract_with_labels(sample_voxeldata_3dt, labels.isel(mask=0))
     mask_values = np.ones(signals.sizes["time"], dtype=bool)
     mask_values[3] = False
     sample_mask = xr.DataArray(
         mask_values,
         dims=["time"],
-        coords={"time": sample_fusi_3dt.coords["time"]},
+        coords={"time": sample_voxeldata_3dt.coords["time"]},
     )
 
     result = interpolate_samples(signals, sample_mask)
@@ -323,36 +323,36 @@ def test_censor_removes_correct_samples(make_sample_timeseries, sample_mask_with
     assert_allclose(result.coords["time"].values, expected_times, rtol=1e-14)
 
 
-def test_censor_4d_data(sample_fusi_3dt):
+def test_censor_4d_data(sample_voxeldata_3dt):
     """Test censoring on 4D (time, z, y, x) data."""
-    n_time = sample_fusi_3dt.sizes["time"]
+    n_time = sample_voxeldata_3dt.sizes["time"]
     mask_values = np.ones(n_time, dtype=bool)
     mask_values[[2, 5, 8]] = False
     sample_mask = xr.DataArray(
         mask_values,
         dims=["time"],
-        coords={"time": sample_fusi_3dt.coords["time"]},
+        coords={"time": sample_voxeldata_3dt.coords["time"]},
     )
 
-    result = censor_samples(sample_fusi_3dt, sample_mask)
+    result = censor_samples(sample_voxeldata_3dt, sample_mask)
 
     # Shape correct.
     assert result.sizes["time"] == np.sum(mask_values)
-    assert result.sizes["k"] == sample_fusi_3dt.sizes["k"]
-    assert result.sizes["j"] == sample_fusi_3dt.sizes["j"]
-    assert result.sizes["i"] == sample_fusi_3dt.sizes["i"]
+    assert result.sizes["k"] == sample_voxeldata_3dt.sizes["k"]
+    assert result.sizes["j"] == sample_voxeldata_3dt.sizes["j"]
+    assert result.sizes["i"] == sample_voxeldata_3dt.sizes["i"]
 
     # Data correct.
-    expected_data = sample_fusi_3dt.values[mask_values, ...]
+    expected_data = sample_voxeldata_3dt.values[mask_values, ...]
     assert_allclose(result.values, expected_data, rtol=1e-14)
 
 
-def test_censor_accepts_time_match_with_unrelated_scalar_coord(sample_fusi_3dt):
+def test_censor_accepts_time_match_with_unrelated_scalar_coord(sample_voxeldata_3dt):
     """Test censoring ignores unrelated scalar coordinates on signals."""
-    mask_data = np.zeros((2, *sample_fusi_3dt.shape[1:]), dtype=int)
+    mask_data = np.zeros((2, *sample_voxeldata_3dt.shape[1:]), dtype=int)
     mask_data[0, 0, :, :] = 1
     mask_data[1, 1, :, :] = 2
-    spatial_dims = sample_fusi_3dt.dims[1:]
+    spatial_dims = sample_voxeldata_3dt.dims[1:]
     labels = xr.DataArray(
         mask_data,
         dims=("mask", *spatial_dims),
@@ -360,26 +360,26 @@ def test_censor_accepts_time_match_with_unrelated_scalar_coord(sample_fusi_3dt):
             "mask": ["VISp", "AUDp"],
             **{
                 name: coord
-                for name, coord in sample_fusi_3dt.coords.items()
+                for name, coord in sample_voxeldata_3dt.coords.items()
                 if set(coord.dims).issubset(spatial_dims)
             },
         },
     )
     labels = attach_voxel_to_world_index(
         labels,
-        get_voxel_to_world_affine(sample_fusi_3dt),
+        get_voxel_to_world_affine(sample_voxeldata_3dt),
         world_coord_attrs={
-            name: dict(sample_fusi_3dt.coords[name].attrs)
-            for name in get_voxel_to_world_coord_names(sample_fusi_3dt)
+            name: dict(sample_voxeldata_3dt.coords[name].attrs)
+            for name in get_voxel_to_world_coord_names(sample_voxeldata_3dt)
         },
     )
-    signals = extract_with_labels(sample_fusi_3dt, labels.isel(mask=0))
+    signals = extract_with_labels(sample_voxeldata_3dt, labels.isel(mask=0))
     mask_values = np.ones(signals.sizes["time"], dtype=bool)
     mask_values[[2, 5, 8]] = False
     sample_mask = xr.DataArray(
         mask_values,
         dims=["time"],
-        coords={"time": sample_fusi_3dt.coords["time"]},
+        coords={"time": sample_voxeldata_3dt.coords["time"]},
     )
 
     result = censor_samples(signals, sample_mask)

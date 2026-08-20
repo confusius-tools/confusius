@@ -134,29 +134,29 @@ def _make_voxel_to_world_single_slice_flipped_normal() -> xr.DataArray:
 class TestRegisterVolumeValidation:
     """Input validation for register_volume."""
 
-    def test_time_dimension_raises(self, sample_fusi_2dt_registration):
+    def test_time_dimension_raises(self, sample_voxeldata_2dt_registration):
         """DataArray with a time dimension raises ValueError."""
         with pytest.raises(ValueError, match="spatial-only"):
-            register_volume(sample_fusi_2dt_registration, sample_fusi_2dt_registration)
+            register_volume(sample_voxeldata_2dt_registration, sample_voxeldata_2dt_registration)
 
-    def test_nan_in_moving_raises(self, sample_fusi_2d_registration):
+    def test_nan_in_moving_raises(self, sample_voxeldata_2d_registration):
         """moving with NaN values raises ValueError."""
-        moving = sample_fusi_2d_registration.copy()
+        moving = sample_voxeldata_2d_registration.copy()
         moving.values[0, 0] = float("nan")
         with pytest.raises(ValueError, match="NaN"):
             register_volume(
                 moving,
-                sample_fusi_2d_registration,
+                sample_voxeldata_2d_registration,
                 transform_type="translation",
             )
 
-    def test_nan_in_fixed_raises(self, sample_fusi_2d_registration):
+    def test_nan_in_fixed_raises(self, sample_voxeldata_2d_registration):
         """fixed with NaN values raises ValueError."""
-        fixed = sample_fusi_2d_registration.copy()
+        fixed = sample_voxeldata_2d_registration.copy()
         fixed.values[0, 0] = float("nan")
         with pytest.raises(ValueError, match="NaN"):
             register_volume(
-                sample_fusi_2d_registration, fixed, transform_type="translation"
+                sample_voxeldata_2d_registration, fixed, transform_type="translation"
             )
 
     def test_wrong_ndim_1d_raises(self):
@@ -179,64 +179,64 @@ class TestRegisterVolumeValidation:
         ):
             register_volume(da, da)
 
-    def test_invalid_initialization_raises(self, sample_fusi_2d_registration):
+    def test_invalid_initialization_raises(self, sample_voxeldata_2d_registration):
         """Unknown initialization mode raises ValueError."""
         with pytest.raises(ValueError, match="Invalid initialization"):
             register_volume(
-                sample_fusi_2d_registration,
-                sample_fusi_2d_registration,
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2d_registration,
                 initialization="moments",  # ty: ignore[invalid-argument-type]
             )
 
     def test_non_array_initialization_raises_value_error(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """A non-ndarray sequence raises ValueError, not an unhashable TypeError."""
         with pytest.raises(ValueError, match="Invalid initialization"):
             register_volume(
-                sample_fusi_2d_registration,
-                sample_fusi_2d_registration,
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2d_registration,
                 initialization=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],  # ty: ignore[invalid-argument-type]
             )
 
-    def test_invalid_learning_rate_raises(self, sample_fusi_2d_registration):
+    def test_invalid_learning_rate_raises(self, sample_voxeldata_2d_registration):
         """A non-positive learning_rate raises ValueError."""
         with pytest.raises(ValueError, match="learning_rate must be a positive"):
             register_volume(
-                sample_fusi_2d_registration,
-                sample_fusi_2d_registration,
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2d_registration,
                 learning_rate=-1.0,
             )
 
-    def test_shape_mismatch_no_error(self, sample_fusi_2d_registration):
+    def test_shape_mismatch_no_error(self, sample_voxeldata_2d_registration):
         """Different shapes do not raise an error."""
-        moving = sample_fusi_2d_registration.isel(j=slice(16), i=slice(16))
+        moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16))
         result, _, _ = register_volume(
             moving,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="translation",
             resample=False,
         )
         assert result.shape == moving.shape
 
-    def test_abort_event_returns_partial_result(self, sample_fusi_2d_registration):
+    def test_abort_event_returns_partial_result(self, sample_voxeldata_2d_registration):
         """A pre-set abort event returns an aborted diagnostics record."""
         abort_event = Event()
         abort_event.set()
 
         result, _transform, diagnostics = register_volume(
-            sample_fusi_2d_registration,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="translation",
             abort_event=abort_event,
         )
 
-        assert result.shape == sample_fusi_2d_registration.shape
+        assert result.shape == sample_voxeldata_2d_registration.shape
         assert diagnostics.status == "aborted"
         assert diagnostics.n_iterations == 0
 
     def test_unknown_runtime_error_is_passed_through(
-        self, sample_fusi_2d_registration, monkeypatch
+        self, sample_voxeldata_2d_registration, monkeypatch
     ):
         """Unknown SimpleITK runtime errors are re-raised unchanged."""
         import SimpleITK as sitk
@@ -251,15 +251,15 @@ class TestRegisterVolumeValidation:
 
         with pytest.raises(RuntimeError) as excinfo:
             register_volume(
-                sample_fusi_2d_registration,
-                sample_fusi_2d_registration,
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2d_registration,
                 transform_type="translation",
             )
 
         assert excinfo.value is error
 
     def test_bspline_scale_error_raises_clearer_message(
-        self, sample_fusi_2d_registration, monkeypatch
+        self, sample_voxeldata_2d_registration, monkeypatch
     ):
         """Known SimpleITK scale failures are rewritten to actionable errors."""
         import SimpleITK as sitk
@@ -278,14 +278,14 @@ class TestRegisterVolumeValidation:
             RuntimeError, match="could not compute valid optimizer scales"
         ):
             register_volume(
-                sample_fusi_2d_registration,
-                sample_fusi_2d_registration,
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2d_registration,
                 transform_type="bspline",
                 learning_rate=1.0,
             )
 
     def test_bspline_scale_error_with_auto_learning_rate_suggests_fixed_rate(
-        self, sample_fusi_2d_registration, monkeypatch
+        self, sample_voxeldata_2d_registration, monkeypatch
     ):
         """Auto-learning-rate scale failures suggest retrying with a fixed rate."""
         import SimpleITK as sitk
@@ -305,16 +305,16 @@ class TestRegisterVolumeValidation:
             match="Retry with a fixed `learning_rate` such as `0.1` or `0.01`",
         ):
             register_volume(
-                sample_fusi_2d_registration,
-                sample_fusi_2d_registration,
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2d_registration,
                 transform_type="bspline",
                 learning_rate="auto",
             )
 
-    def test_mismatched_spatial_units_raise(self, sample_fusi_2d_registration):
+    def test_mismatched_spatial_units_raise(self, sample_voxeldata_2d_registration):
         """moving and fixed must agree on spatial coordinate units when declared."""
-        moving = sample_fusi_2d_registration.copy()
-        fixed = sample_fusi_2d_registration.copy()
+        moving = sample_voxeldata_2d_registration.copy()
+        fixed = sample_voxeldata_2d_registration.copy()
         moving.coords["y"].attrs["units"] = "mm"
         moving.coords["x"].attrs["units"] = "mm"
         fixed.coords["y"].attrs["units"] = "um"
@@ -378,30 +378,30 @@ class TestSimpleITKGeometry:
 class TestRegisterVolumeOutput:
     """Output properties for register_volume."""
 
-    def test_without_coords_raises(self, sample_fusi_2d_registration):
+    def test_without_coords_raises(self, sample_voxeldata_2d_registration):
         """DataArray without coordinates is rejected."""
-        da = xr.DataArray(sample_fusi_2d_registration.values, dims=("k", "j", "i"))
+        da = xr.DataArray(sample_voxeldata_2d_registration.values, dims=("k", "j", "i"))
         with pytest.raises(
             ValueError,
             match="native voxel dimensions|at least 2 spatial dimensions|defined spatial spacing",
         ):
             register_volume(da, da, transform_type="translation")
 
-    def test_returns_affine_matrix(self, sample_fusi_2d_registration):
+    def test_returns_affine_matrix(self, sample_voxeldata_2d_registration):
         """register_volume returns a (4, 4) numpy affine matrix."""
         _, affine, _ = register_volume(
-            sample_fusi_2d_registration,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="translation",
         )
         assert isinstance(affine, np.ndarray)
         assert affine.shape == (4, 4)
 
-    def test_bspline_returns_dataarray_transform(self, sample_fusi_2d_registration):
+    def test_bspline_returns_dataarray_transform(self, sample_voxeldata_2d_registration):
         """register_volume with bspline returns a DataArray for the transform."""
         _, bspline_tx, _ = register_volume(
-            sample_fusi_2d_registration,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="bspline",
         )
         assert isinstance(bspline_tx, xr.DataArray)
@@ -443,28 +443,28 @@ class TestRegisterVolumeOutput:
         # swapped with the other axis's.
         assert y_span / x_span == pytest.approx(9.5 / 3.9, rel=0.3)
 
-    def test_resample_true_coords_match_fixed(self, sample_fusi_2d_registration):
+    def test_resample_true_coords_match_fixed(self, sample_voxeldata_2d_registration):
         """resample=True output coordinates match the fixed volume, not moving."""
-        moving = sample_fusi_2d_registration.isel(j=slice(16), i=slice(16))
+        moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16))
         result, _, _ = register_volume(
             moving,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="translation",
             resample=True,
         )
         assert_allclose(
             result.coords["j"].values,
-            sample_fusi_2d_registration.coords["j"].values,
+            sample_voxeldata_2d_registration.coords["j"].values,
         )
         assert_allclose(
             result.coords["i"].values,
-            sample_fusi_2d_registration.coords["i"].values,
+            sample_voxeldata_2d_registration.coords["i"].values,
         )
 
-    def test_resample_true_inherits_fixed_affines(self, sample_fusi_2d_registration):
+    def test_resample_true_inherits_fixed_affines(self, sample_voxeldata_2d_registration):
         """resample=True output inherits world-space affines from `fixed`."""
-        moving = sample_fusi_2d_registration.isel(j=slice(16), i=slice(16)).copy()
-        fixed = sample_fusi_2d_registration.copy()
+        moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16)).copy()
+        fixed = sample_voxeldata_2d_registration.copy()
         moving.attrs["affines"] = {"world_to_lab": np.diag([2.0, 2.0, 1.0])}
         fixed.attrs["affines"] = {"world_to_lab": np.diag([3.0, 3.0, 1.0])}
 
@@ -503,7 +503,7 @@ class TestRegisterVolumeOutput:
 class TestRegisterVolumeMask:
     """Metric masks for register_volume."""
 
-    def test_integer_label_mask_matches_boolean_mask(self, sample_fusi_2d_registration):
+    def test_integer_label_mask_matches_boolean_mask(self, sample_voxeldata_2d_registration):
         """A single-label integer mask registers identically to its boolean form.
 
         Guards against single-label integer masks (e.g. `{0, 512}` from
@@ -513,11 +513,11 @@ class TestRegisterVolumeMask:
         """
         shift = 2
         shifted = np.roll(
-            np.roll(sample_fusi_2d_registration.values, shift, axis=1),
+            np.roll(sample_voxeldata_2d_registration.values, shift, axis=1),
             shift,
             axis=2,
         )
-        fixed = sample_fusi_2d_registration
+        fixed = sample_voxeldata_2d_registration
         moving = xr.DataArray(
             shifted,
             dims=fixed.dims,
@@ -558,15 +558,15 @@ class TestRegisterVolumeMask:
         assert not np.allclose(affine_bool, np.eye(4), atol=1e-2)
         assert_allclose(affine_int, affine_bool)
 
-    def test_both_masks_coerced_to_bool(self, sample_fusi_2d_registration):
+    def test_both_masks_coerced_to_bool(self, sample_voxeldata_2d_registration):
         """Both fixed_mask and moving_mask are coerced to boolean."""
         shift = 2
         shifted = np.roll(
-            np.roll(sample_fusi_2d_registration.values, shift, axis=1),
+            np.roll(sample_voxeldata_2d_registration.values, shift, axis=1),
             shift,
             axis=2,
         )
-        fixed = sample_fusi_2d_registration
+        fixed = sample_voxeldata_2d_registration
         moving = xr.DataArray(
             shifted,
             dims=fixed.dims,
@@ -598,48 +598,48 @@ class TestRegisterVolumeResample:
     """Behaviour of the resample parameter."""
 
     def test_no_resample_returns_moving_values_unchanged(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """resample=False returns moving values without modification."""
         rng = np.random.default_rng(0)
         shift = rng.integers(1, 4, size=2)
         shifted = np.roll(
-            np.roll(sample_fusi_2d_registration.values, int(shift[0]), axis=1),
+            np.roll(sample_voxeldata_2d_registration.values, int(shift[0]), axis=1),
             int(shift[1]),
             axis=2,
         )
         moving = xr.DataArray(
             shifted,
-            dims=sample_fusi_2d_registration.dims,
-            coords=sample_fusi_2d_registration.coords,
-            attrs=sample_fusi_2d_registration.attrs,
+            dims=sample_voxeldata_2d_registration.dims,
+            coords=sample_voxeldata_2d_registration.coords,
+            attrs=sample_voxeldata_2d_registration.attrs,
         )
         result, _, _ = register_volume(
             moving,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="translation",
             resample=False,
         )
         assert_array_equal(result.values, moving.values)
 
-    def test_resample_true_aligns_to_fixed(self, sample_fusi_2d_registration):
+    def test_resample_true_aligns_to_fixed(self, sample_voxeldata_2d_registration):
         """resample=True produces output close to fixed (the registration target)."""
         # Use a fixed shift of 2 pixels to avoid wrap-around contamination from np.roll.
         shift = 2
         shifted = np.roll(
-            np.roll(sample_fusi_2d_registration.values, shift, axis=1),
+            np.roll(sample_voxeldata_2d_registration.values, shift, axis=1),
             shift,
             axis=2,
         )
         moving = xr.DataArray(
             shifted,
-            dims=sample_fusi_2d_registration.dims,
-            coords=sample_fusi_2d_registration.coords,
-            attrs=sample_fusi_2d_registration.attrs,
+            dims=sample_voxeldata_2d_registration.dims,
+            coords=sample_voxeldata_2d_registration.coords,
+            attrs=sample_voxeldata_2d_registration.attrs,
         )
         result, _, _ = register_volume(
             moving,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="translation",
             learning_rate=1.0,
             number_of_iterations=200,
@@ -649,7 +649,7 @@ class TestRegisterVolumeResample:
         margin = shift + 1
         assert_allclose(
             result.values[:, margin:-margin, margin:-margin],
-            sample_fusi_2d_registration.values[:, margin:-margin, margin:-margin],
+            sample_voxeldata_2d_registration.values[:, margin:-margin, margin:-margin],
             atol=10.0,
         )
 
@@ -657,36 +657,36 @@ class TestRegisterVolumeResample:
 class TestRegisterVolumeAccuracy:
     """Registration accuracy for register_volume."""
 
-    def test_identical_volumes_unchanged_2d(self, sample_fusi_2d_registration):
+    def test_identical_volumes_unchanged_2d(self, sample_voxeldata_2d_registration):
         """Registering identical 2D volumes produces nearly identical output."""
         result, _, _ = register_volume(
-            sample_fusi_2d_registration,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="translation",
             resample=True,
         )
-        assert_allclose(result.values, sample_fusi_2d_registration.values, atol=1e-3)
+        assert_allclose(result.values, sample_voxeldata_2d_registration.values, atol=1e-3)
 
-    def test_identical_volumes_unchanged_3d(self, sample_fusi_3d_registration):
+    def test_identical_volumes_unchanged_3d(self, sample_voxeldata_3d_registration):
         """Registering identical 3D volumes produces nearly identical output."""
         result, _, _ = register_volume(
-            sample_fusi_3d_registration,
-            sample_fusi_3d_registration,
+            sample_voxeldata_3d_registration,
+            sample_voxeldata_3d_registration,
             transform_type="translation",
             resample=True,
         )
-        assert_allclose(result.values, sample_fusi_3d_registration.values, atol=1e-3)
+        assert_allclose(result.values, sample_voxeldata_3d_registration.values, atol=1e-3)
 
-    def test_3d_recovers_known_shift(self, sample_fusi_3d_registration):
+    def test_3d_recovers_known_shift(self, sample_voxeldata_3d_registration):
         """Registration recovers a known 3D translation."""
-        shifted = np.roll(sample_fusi_3d_registration.values, 2, axis=0)
+        shifted = np.roll(sample_voxeldata_3d_registration.values, 2, axis=0)
         spacing = (1.0, 1.0, 1.0)
         fixed = _add_identity_voxel_to_world(
             xr.DataArray(
-                sample_fusi_3d_registration.values,
+                sample_voxeldata_3d_registration.values,
                 dims=("k", "j", "i"),
                 coords={
-                    d: np.arange(sample_fusi_3d_registration.values.shape[i])
+                    d: np.arange(sample_voxeldata_3d_registration.values.shape[i])
                     * spacing[i]
                     for i, d in enumerate(("k", "j", "i"))
                 },
@@ -711,9 +711,9 @@ class TestRegisterVolumeAccuracy:
             atol=10.0,
         )
 
-    def test_optimizer_weights_freezes_rotation(self, sample_fusi_2d_registration):
+    def test_optimizer_weights_freezes_rotation(self, sample_voxeldata_2d_registration):
         """Setting rotation weight to 0 produces the same result as translation-only."""
-        da = sample_fusi_2d_registration
+        da = sample_voxeldata_2d_registration
         _, _affine_translation, _ = register_volume(
             da, da, transform_type="translation"
         )
@@ -770,7 +770,7 @@ class TestRegisterVolumeThinDims:
         assert result.shape == da.shape
 
     def test_float32_moving_float64_fixed_does_not_crash(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """float32 moving and float64 fixed register without a dtype mismatch error.
 
@@ -778,8 +778,8 @@ class TestRegisterVolumeThinDims:
         same pixel type. Mixed dtypes (e.g. float32 template vs. float64 mean of NIfTI
         data) previously raised a RuntimeError.
         """
-        moving = sample_fusi_2d_registration  # float32
-        fixed = sample_fusi_2d_registration.astype(np.float64)
+        moving = sample_voxeldata_2d_registration  # float32
+        fixed = sample_voxeldata_2d_registration.astype(np.float64)
         result, _, _ = register_volume(moving, fixed, transform_type="translation")
         assert result.shape == fixed.shape
 
@@ -806,35 +806,35 @@ class TestResampleVolume:
     """Unit tests for the low-level resample_volume."""
 
     def test_time_dimension_moving_works(
-        self, sample_fusi_2d_registration, sample_fusi_2dt_registration
+        self, sample_voxeldata_2d_registration, sample_voxeldata_2dt_registration
     ):
         """moving with a time dimension resamples each frame with the same transform."""
         result = resample_volume(
-            sample_fusi_2dt_registration,
+            sample_voxeldata_2dt_registration,
             np.eye(4),
-            **_resample_volume_grid_kwargs(sample_fusi_2d_registration),
+            **_resample_volume_grid_kwargs(sample_voxeldata_2d_registration),
         )
         assert "time" in result.dims
-        assert result.shape == sample_fusi_2dt_registration.shape
+        assert result.shape == sample_voxeldata_2dt_registration.shape
         assert_allclose(
             result.coords["time"].values,
-            sample_fusi_2dt_registration.coords["time"].values,
+            sample_voxeldata_2dt_registration.coords["time"].values,
         )
 
     def test_3d_time_dimension_moving_works(
-        self, sample_fusi_3dt_registration, sample_fusi_3d_registration
+        self, sample_voxeldata_3dt_registration, sample_voxeldata_3d_registration
     ):
         """3D moving with time dimension resamples each frame with the same transform."""
         result = resample_volume(
-            sample_fusi_3dt_registration,
+            sample_voxeldata_3dt_registration,
             np.eye(4),
-            **_resample_volume_grid_kwargs(sample_fusi_3d_registration),
+            **_resample_volume_grid_kwargs(sample_voxeldata_3d_registration),
         )
         assert "time" in result.dims
-        assert result.shape == sample_fusi_3dt_registration.shape
+        assert result.shape == sample_voxeldata_3dt_registration.shape
         assert_allclose(
             result.coords["time"].values,
-            sample_fusi_3dt_registration.coords["time"].values,
+            sample_voxeldata_3dt_registration.coords["time"].values,
         )
 
     def test_wrong_ndim_raises(self):
@@ -855,31 +855,31 @@ class TestResampleVolume:
                 output_origin=[0.0, 0.0, 0.0],
             )
 
-    def test_affine_shape_mismatch_raises(self, sample_fusi_2d_registration):
+    def test_affine_shape_mismatch_raises(self, sample_voxeldata_2d_registration):
         """Affine with wrong shape raises ValueError."""
         with pytest.raises(ValueError, match="affine shape"):
             resample_volume(
-                sample_fusi_2d_registration,
+                sample_voxeldata_2d_registration,
                 np.eye(3),
-                **_resample_volume_grid_kwargs(sample_fusi_2d_registration),
+                **_resample_volume_grid_kwargs(sample_voxeldata_2d_registration),
             )
 
-    def test_output_shape_wrong_length_raises(self, sample_fusi_2d_registration):
+    def test_output_shape_wrong_length_raises(self, sample_voxeldata_2d_registration):
         """output_shape with the wrong number of entries raises ValueError."""
         with pytest.raises(ValueError, match="output_shape must have"):
             resample_volume(
-                sample_fusi_2d_registration,
+                sample_voxeldata_2d_registration,
                 np.eye(4),
                 output_shape=[10, 10],
                 output_spacing=[1.0, 1.0, 1.0],
                 output_origin=[0.0, 0.0, 0.0],
             )
 
-    def test_output_direction_wrong_shape_raises(self, sample_fusi_2d_registration):
+    def test_output_direction_wrong_shape_raises(self, sample_voxeldata_2d_registration):
         """output_direction with the wrong shape raises ValueError."""
         with pytest.raises(ValueError, match="output_direction must have shape"):
             resample_volume(
-                sample_fusi_2d_registration,
+                sample_voxeldata_2d_registration,
                 np.eye(4),
                 output_shape=[10, 10, 10],
                 output_spacing=[1.0, 1.0, 1.0],
@@ -887,22 +887,22 @@ class TestResampleVolume:
                 output_direction=np.eye(2),
             )
 
-    def test_output_shape_matches_requested_shape(self, sample_fusi_2d_registration):
+    def test_output_shape_matches_requested_shape(self, sample_voxeldata_2d_registration):
         """Output shape matches the requested shape, not the moving shape."""
-        moving = sample_fusi_2d_registration.isel(j=slice(16), i=slice(16))
+        moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16))
         result = resample_volume(
             moving,
             np.eye(4),
-            **_resample_volume_grid_kwargs(sample_fusi_2d_registration),
+            **_resample_volume_grid_kwargs(sample_voxeldata_2d_registration),
         )
-        assert result.shape == sample_fusi_2d_registration.shape
+        assert result.shape == sample_voxeldata_2d_registration.shape
 
     def test_coords_reconstructed_from_origin_and_spacing(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """Output geometry is reconstructed from the requested spacing/origin/direction."""
-        grid = _resample_volume_grid_kwargs(sample_fusi_2d_registration)
-        result = resample_volume(sample_fusi_2d_registration, np.eye(4), **grid)
+        grid = _resample_volume_grid_kwargs(sample_voxeldata_2d_registration)
+        result = resample_volume(sample_voxeldata_2d_registration, np.eye(4), **grid)
         for dim, size in zip(VOXEL_DIMS, grid["output_shape"], strict=True):
             assert result.sizes[dim] == size
         assert_allclose(
@@ -912,31 +912,31 @@ class TestResampleVolume:
             [result.fusi.origin[name] for name in SPATIAL_DIMS], grid["output_origin"]
         )
 
-    def test_matches_register_volume_resample(self, sample_fusi_2d_registration):
+    def test_matches_register_volume_resample(self, sample_voxeldata_2d_registration):
         """resample_volume matches register_volume(resample=True) on a shifted image."""
         rng = np.random.default_rng(42)
         shift = rng.integers(3, 6, size=2)
         shifted = np.roll(
-            np.roll(sample_fusi_2d_registration.values, int(shift[0]), axis=1),
+            np.roll(sample_voxeldata_2d_registration.values, int(shift[0]), axis=1),
             int(shift[1]),
             axis=2,
         )
         moving = xr.DataArray(
             shifted,
-            dims=sample_fusi_2d_registration.dims,
-            coords=sample_fusi_2d_registration.coords,
-            attrs=sample_fusi_2d_registration.attrs,
+            dims=sample_voxeldata_2d_registration.dims,
+            coords=sample_voxeldata_2d_registration.coords,
+            attrs=sample_voxeldata_2d_registration.attrs,
         )
         resampled_direct, affine, _ = register_volume(
             moving,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="translation",
             resample=True,
         )
         result = resample_volume(
             moving,
             affine,
-            **_resample_volume_grid_kwargs(sample_fusi_2d_registration),
+            **_resample_volume_grid_kwargs(sample_voxeldata_2d_registration),
         )
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
@@ -944,12 +944,12 @@ class TestResampleVolume:
 class TestInitialization:
     """Tests for the initialization parameter of register_volume."""
 
-    def test_wrong_shape_raises(self, sample_fusi_2d_registration):
+    def test_wrong_shape_raises(self, sample_voxeldata_2d_registration):
         """Affine initialization with wrong shape raises ValueError."""
         with pytest.raises(ValueError, match="initialization shape"):
             register_volume(
-                sample_fusi_2d_registration,
-                sample_fusi_2d_registration,
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2d_registration,
                 transform_type="bspline",
                 initialization=np.eye(3),  # wrong: 2D affine for 3D images
             )
@@ -1090,13 +1090,13 @@ class TestInitialization:
         assert_allclose(transform, initial_transform)
 
     def test_bspline_with_affine_initialization_stores_pre_affine(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """B-spline result stores the pre-affine when affine initialization is given."""
         pre_affine = np.eye(4)
         _, bspline_tx, diagnostics = register_volume(
-            sample_fusi_2d_registration,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="bspline",
             initialization=pre_affine,
             mesh_size=(1, 1, 1),
@@ -1109,12 +1109,12 @@ class TestInitialization:
         assert "bspline_initialization" in bspline_tx.attrs["affines"]
 
     def test_bspline_without_affine_initialization_has_no_pre_affine(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """B-spline result without affine initialization has no bspline_initialization key."""
         _, bspline_tx, _ = register_volume(
-            sample_fusi_2d_registration,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="bspline",
             mesh_size=(1, 1, 1),
             number_of_iterations=1,
@@ -1125,7 +1125,7 @@ class TestInitialization:
         assert "bspline_initialization" not in affines
 
     def test_center_moments_uses_moments_initializer(
-        self, sample_fusi_2d_registration, monkeypatch
+        self, sample_voxeldata_2d_registration, monkeypatch
     ):
         """center_moments uses SimpleITK's moments-based centering initializer."""
         import SimpleITK as sitk
@@ -1140,8 +1140,8 @@ class TestInitialization:
         monkeypatch.setattr(sitk, "CenteredTransformInitializer", wrapped_initializer)
 
         register_volume(
-            sample_fusi_2d_registration,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="affine",
             initialization="center_moments",
         )
@@ -1153,11 +1153,11 @@ class TestResampleVolumeWithBspline:
     """Tests for resample_volume and resample_like with a B-spline DataArray transform."""
 
     def test_resample_like_with_bspline_matches_direct_resample(
-        self, sample_fusi_3d_feature_registration
+        self, sample_voxeldata_3d_feature_registration
     ):
         """resample_like with a B-spline DataArray matches register_volume(resample=True).
 
-        Uses `sample_fusi_3d_feature_registration.values` (non-singleton, several scattered features)
+        Uses `sample_voxeldata_3d_feature_registration.values` (non-singleton, several scattered features)
         rather than the singleton-k 2D registration fixture, so every axis actually
         supports a control-point grid and no control point is left without any
         image gradient to constrain it. `mesh_size`/`learning_rate` are kept coarse
@@ -1169,19 +1169,19 @@ class TestResampleVolumeWithBspline:
         rng = np.random.default_rng(0)
         shift = rng.integers(3, 6, size=3)
         shifted = np.roll(
-            sample_fusi_3d_feature_registration.values,
+            sample_voxeldata_3d_feature_registration.values,
             tuple(int(s) for s in shift),
             axis=(0, 1, 2),
         )
         moving = xr.DataArray(
             shifted,
-            dims=sample_fusi_3d_feature_registration.dims,
-            coords=sample_fusi_3d_feature_registration.coords,
-            attrs=sample_fusi_3d_feature_registration.attrs,
+            dims=sample_voxeldata_3d_feature_registration.dims,
+            coords=sample_voxeldata_3d_feature_registration.coords,
+            attrs=sample_voxeldata_3d_feature_registration.attrs,
         )
         resampled_direct, bspline_tx, _ = register_volume(
             moving,
-            sample_fusi_3d_feature_registration,
+            sample_voxeldata_3d_feature_registration,
             transform_type="bspline",
             mesh_size=(2, 2, 2),
             learning_rate=0.5,
@@ -1189,42 +1189,42 @@ class TestResampleVolumeWithBspline:
             resample=True,
         )
         assert isinstance(bspline_tx, xr.DataArray)
-        result = resample_like(moving, sample_fusi_3d_feature_registration, bspline_tx)
+        result = resample_like(moving, sample_voxeldata_3d_feature_registration, bspline_tx)
         np.testing.assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
     def test_resample_like_with_composite_bspline_matches_direct_resample(
-        self, sample_fusi_3d_feature_registration
+        self, sample_voxeldata_3d_feature_registration
     ):
         """resample_like with composite B-spline matches register_volume(resample=True).
 
         See `test_resample_like_with_bspline_matches_direct_resample` for why this
-        uses the off-centre-feature `sample_fusi_3d_feature_registration.values` and a coarse, fixed
+        uses the off-centre-feature `sample_voxeldata_3d_feature_registration.values` and a coarse, fixed
         mesh/learning rate instead of a singleton-z fixture and this project's
         `mesh_size=(10, 10, 10)`/`"auto"` defaults.
         """
         rng = np.random.default_rng(1)
         shift = rng.integers(2, 4, size=3)
         shifted = np.roll(
-            sample_fusi_3d_feature_registration.values,
+            sample_voxeldata_3d_feature_registration.values,
             tuple(int(s) for s in shift),
             axis=(0, 1, 2),
         )
         moving = xr.DataArray(
             shifted,
-            dims=sample_fusi_3d_feature_registration.dims,
-            coords=sample_fusi_3d_feature_registration.coords,
-            attrs=sample_fusi_3d_feature_registration.attrs,
+            dims=sample_voxeldata_3d_feature_registration.dims,
+            coords=sample_voxeldata_3d_feature_registration.coords,
+            attrs=sample_voxeldata_3d_feature_registration.attrs,
         )
         # First pass: affine registration.
         _, affine_tx, _ = register_volume(
             moving,
-            sample_fusi_3d_feature_registration,
+            sample_voxeldata_3d_feature_registration,
             transform_type="affine",
         )
         # Second pass: B-spline refinement on top of the affine.
         resampled_direct, bspline_tx, _ = register_volume(
             moving,
-            sample_fusi_3d_feature_registration,
+            sample_voxeldata_3d_feature_registration,
             transform_type="bspline",
             initialization=affine_tx,
             mesh_size=(2, 2, 2),
@@ -1233,7 +1233,7 @@ class TestResampleVolumeWithBspline:
             resample=True,
         )
         assert isinstance(bspline_tx, xr.DataArray)
-        result = resample_like(moving, sample_fusi_3d_feature_registration, bspline_tx)
+        result = resample_like(moving, sample_voxeldata_3d_feature_registration, bspline_tx)
         np.testing.assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
 
@@ -1337,7 +1337,7 @@ class TestDisplacementField:
             )
 
     def test_sample_displacement_field_like_time_reference_raises(
-        self, sample_fusi_2dt_registration
+        self, sample_voxeldata_2dt_registration
     ):
         """The `_like` wrapper rejects references with a time dimension."""
         transform = xr.DataArray(
@@ -1351,7 +1351,7 @@ class TestDisplacementField:
             },
         )
         with pytest.raises(ValueError, match="time dimension"):
-            sample_displacement_field_like(transform, sample_fusi_2dt_registration)
+            sample_displacement_field_like(transform, sample_voxeldata_2dt_registration)
 
     def test_sample_displacement_field_like_singleton_dim_without_spacing_raises(self):
         """Thin references without defined spacing are rejected during field sampling."""
@@ -1409,55 +1409,55 @@ class TestDisplacementField:
             invert_displacement_field(field)
 
     def test_sample_displacement_field_returns_valid_dataarray(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """Sampling an identity B-spline transform yields a near-zero dense field."""
         _, bspline_tx, _ = register_volume(
-            sample_fusi_2d_registration,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="bspline",
         )
-        grid = get_grid_info_from_dataarray(sample_fusi_2d_registration)
+        grid = get_grid_info_from_dataarray(sample_voxeldata_2d_registration)
         field = sample_displacement_field(bspline_tx, **grid)
 
         assert field.attrs["type"] == "displacement_field_transform"
         assert field.dims[0] == "component"
         np.testing.assert_array_equal(field.coords["component"].values, ["k", "j", "i"])
         assert_allclose(field.fusi.direction, np.eye(3))
-        assert field.shape == (3, *sample_fusi_2d_registration.shape)
+        assert field.shape == (3, *sample_voxeldata_2d_registration.shape)
         assert_allclose(field.values, 0.0, atol=1e-6)
 
     def test_sample_displacement_field_like_matches_explicit_grid(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """The `_like` wrapper matches explicit-grid sampling."""
         _, bspline_tx, _ = register_volume(
-            sample_fusi_2d_registration,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="bspline",
         )
 
         by_grid = sample_displacement_field(
             bspline_tx,
-            **get_grid_info_from_dataarray(sample_fusi_2d_registration),
+            **get_grid_info_from_dataarray(sample_voxeldata_2d_registration),
         )
         by_reference = sample_displacement_field_like(
-            bspline_tx, sample_fusi_2d_registration
+            bspline_tx, sample_voxeldata_2d_registration
         )
 
         assert_array_equal(by_reference.coords["component"].values, ["k", "j", "i"])
         assert_allclose(by_reference.values, by_grid.values, atol=1e-6)
         assert_allclose(
             by_reference.fusi.direction,
-            sample_fusi_2d_registration.fusi.direction,
+            sample_voxeldata_2d_registration.fusi.direction,
         )
         assert_allclose(
             by_reference.coords["j"].values,
-            sample_fusi_2d_registration.coords["j"].values,
+            sample_voxeldata_2d_registration.coords["j"].values,
         )
         assert_allclose(
             by_reference.coords["i"].values,
-            sample_fusi_2d_registration.coords["i"].values,
+            sample_voxeldata_2d_registration.coords["i"].values,
         )
 
     def test_sample_and_invert_displacement_field_preserve_direction(self):
@@ -1533,38 +1533,38 @@ class TestDisplacementField:
         assert_allclose(inverted.values[interior], -array[interior], atol=1e-2)
 
     def test_resample_volume_with_displacement_field_matches_bspline(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """resample_volume with a displacement field matches the equivalent B-spline resample."""
         rng = np.random.default_rng(2)
         shift = rng.integers(3, 6, size=2)
         shifted = np.roll(
-            np.roll(sample_fusi_2d_registration.values, int(shift[0]), axis=1),
+            np.roll(sample_voxeldata_2d_registration.values, int(shift[0]), axis=1),
             int(shift[1]),
             axis=2,
         )
         moving = xr.DataArray(
             shifted,
-            dims=sample_fusi_2d_registration.dims,
-            coords=sample_fusi_2d_registration.coords,
-            attrs=sample_fusi_2d_registration.attrs,
+            dims=sample_voxeldata_2d_registration.dims,
+            coords=sample_voxeldata_2d_registration.coords,
+            attrs=sample_voxeldata_2d_registration.attrs,
         )
         _, bspline_tx, _ = register_volume(
             moving,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="bspline",
         )
-        grid = get_grid_info_from_dataarray(sample_fusi_2d_registration)
+        grid = get_grid_info_from_dataarray(sample_voxeldata_2d_registration)
         field = sample_displacement_field(bspline_tx, **grid)
 
-        resample_grid = _resample_volume_grid_kwargs(sample_fusi_2d_registration)
+        resample_grid = _resample_volume_grid_kwargs(sample_voxeldata_2d_registration)
         result_bspline = resample_volume(moving, bspline_tx, **resample_grid)
         result_field = resample_volume(moving, field, **resample_grid)
 
         assert_allclose(result_field.values, result_bspline.values, atol=1e-4)
 
     def test_matches_bspline_with_singleton_spatial_dim(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """A singleton spatial dim (a single 2D slice stored as (1, y, x)) must not
         produce NaN spacing anywhere in the field round trip.
@@ -1574,12 +1574,12 @@ class TestDisplacementField:
         to the voxel-to-world affine instead (via the `fusi` accessor), as
         `resample_volume`'s own grid handling already does.
         """
-        fixed = sample_fusi_2d_registration
+        fixed = sample_voxeldata_2d_registration
 
         rng = np.random.default_rng(3)
         shift = rng.integers(3, 6, size=2)
         shifted = np.roll(
-            np.roll(sample_fusi_2d_registration.values, int(shift[0]), axis=1),
+            np.roll(sample_voxeldata_2d_registration.values, int(shift[0]), axis=1),
             int(shift[1]),
             axis=2,
         )
@@ -1601,7 +1601,7 @@ class TestDisplacementField:
         assert not np.isnan(inverse_field.values).any()
 
     def test_invert_displacement_field_with_singleton_spatial_dim_is_nonzero(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """Inverting a field with a singleton spatial axis must not silently no-op.
 
@@ -1612,12 +1612,12 @@ class TestDisplacementField:
         expand the degenerate axis before inverting and crop it back down afterward,
         rather than passing the degenerate field straight to the filter.
         """
-        fixed = sample_fusi_2d_registration
+        fixed = sample_voxeldata_2d_registration
 
         rng = np.random.default_rng(4)
         shift = rng.integers(3, 6, size=2)
         shifted = np.roll(
-            np.roll(sample_fusi_2d_registration.values, int(shift[0]), axis=1),
+            np.roll(sample_voxeldata_2d_registration.values, int(shift[0]), axis=1),
             int(shift[1]),
             axis=2,
         )
@@ -1642,27 +1642,27 @@ class TestResampleLike:
     """Unit tests for resample_like."""
 
     def test_time_dimension_moving_works(
-        self, sample_fusi_2dt_registration, sample_fusi_2d_registration
+        self, sample_voxeldata_2dt_registration, sample_voxeldata_2d_registration
     ):
         """moving with a time dimension resamples each frame with the same transform."""
         result = resample_like(
-            sample_fusi_2dt_registration, sample_fusi_2d_registration, np.eye(4)
+            sample_voxeldata_2dt_registration, sample_voxeldata_2d_registration, np.eye(4)
         )
         assert "time" in result.dims
-        assert result.shape == sample_fusi_2dt_registration.shape
+        assert result.shape == sample_voxeldata_2dt_registration.shape
         assert_allclose(
             result.coords["time"].values,
-            sample_fusi_2dt_registration.coords["time"].values,
+            sample_voxeldata_2dt_registration.coords["time"].values,
         )
 
     def test_time_dimension_reference_raises(
-        self, sample_fusi_2dt_registration, sample_fusi_2d_registration
+        self, sample_voxeldata_2dt_registration, sample_voxeldata_2d_registration
     ):
         """reference with a time dimension raises ValueError."""
         with pytest.raises(ValueError, match="time"):
             resample_like(
-                sample_fusi_2d_registration,
-                sample_fusi_2dt_registration,
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2dt_registration,
                 np.eye(3),
             )
 
@@ -1686,11 +1686,11 @@ class TestResampleLike:
             resample_like(moving, reference, np.eye(4))
 
     def test_mismatched_units_between_moving_and_reference_raise(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """moving and reference must agree on spatial coordinate units when declared."""
-        moving = sample_fusi_2d_registration.copy()
-        reference = sample_fusi_2d_registration.copy()
+        moving = sample_voxeldata_2d_registration.copy()
+        reference = sample_voxeldata_2d_registration.copy()
         moving.coords["y"].attrs["units"] = "mm"
         moving.coords["x"].attrs["units"] = "mm"
         reference.coords["y"].attrs["units"] = "um"
@@ -1700,10 +1700,10 @@ class TestResampleLike:
             resample_like(moving, reference, np.eye(3))
 
     def test_mismatched_units_between_transform_and_reference_raise(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """DataArray transforms must agree with the reference units when declared."""
-        reference = sample_fusi_2d_registration.copy()
+        reference = sample_voxeldata_2d_registration.copy()
         reference.coords["y"].attrs["units"] = "mm"
         reference.coords["x"].attrs["units"] = "mm"
         transform = xr.DataArray(
@@ -1734,39 +1734,39 @@ class TestResampleLike:
         ):
             resample_like(da, da, np.eye(2))
 
-    def test_default_fill_is_moving_min(self, sample_fusi_2d_registration):
+    def test_default_fill_is_moving_min(self, sample_voxeldata_2d_registration):
         """Out-of-FOV voxels default to moving.min(), not 0.0."""
-        moving = sample_fusi_2d_registration.isel(j=slice(8), i=slice(8)).copy()
+        moving = sample_voxeldata_2d_registration.isel(j=slice(8), i=slice(8)).copy()
         moving.values[:] = 5.0
-        result = resample_like(moving, sample_fusi_2d_registration, np.eye(4))
+        result = resample_like(moving, sample_voxeldata_2d_registration, np.eye(4))
         assert float(result.values[-1, -1, -1]) == pytest.approx(5.0, abs=1e-5)
 
-    def test_explicit_default_value_overrides(self, sample_fusi_2d_registration):
+    def test_explicit_default_value_overrides(self, sample_voxeldata_2d_registration):
         """Explicit default_value overrides the auto-default."""
-        moving = sample_fusi_2d_registration.isel(j=slice(8), i=slice(8)).copy()
+        moving = sample_voxeldata_2d_registration.isel(j=slice(8), i=slice(8)).copy()
         moving.values[:] = 5.0
         result = resample_like(
-            moving, sample_fusi_2d_registration, np.eye(4), default_value=0.0
+            moving, sample_voxeldata_2d_registration, np.eye(4), default_value=0.0
         )
         assert float(result.values[-1, -1, -1]) == pytest.approx(0.0, abs=1e-5)
 
-    def test_output_coords_match_reference(self, sample_fusi_2d_registration):
+    def test_output_coords_match_reference(self, sample_voxeldata_2d_registration):
         """Output coordinates match reference, not moving."""
-        moving = sample_fusi_2d_registration.isel(j=slice(16), i=slice(16))
-        result = resample_like(moving, sample_fusi_2d_registration, np.eye(4))
+        moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16))
+        result = resample_like(moving, sample_voxeldata_2d_registration, np.eye(4))
         assert_allclose(
             result.coords["j"].values,
-            sample_fusi_2d_registration.coords["j"].values,
+            sample_voxeldata_2d_registration.coords["j"].values,
         )
         assert_allclose(
             result.coords["i"].values,
-            sample_fusi_2d_registration.coords["i"].values,
+            sample_voxeldata_2d_registration.coords["i"].values,
         )
 
-    def test_inherits_reference_affines(self, sample_fusi_2d_registration):
+    def test_inherits_reference_affines(self, sample_voxeldata_2d_registration):
         """resample_like output inherits world-space affines from `reference`."""
-        moving = sample_fusi_2d_registration.isel(j=slice(16), i=slice(16)).copy()
-        reference = sample_fusi_2d_registration.copy()
+        moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16)).copy()
+        reference = sample_voxeldata_2d_registration.copy()
         moving.attrs["affines"] = {"world_to_lab": np.diag([2.0, 2.0, 1.0])}
         reference.attrs["affines"] = {"world_to_lab": np.diag([3.0, 3.0, 1.0])}
 
@@ -1836,52 +1836,52 @@ class TestResampleLike:
         )
         assert_allclose(result.values, reference.values)
 
-    def test_matches_register_volume_resample_2d(self, sample_fusi_2d_registration):
+    def test_matches_register_volume_resample_2d(self, sample_voxeldata_2d_registration):
         """resample_like matches register_volume(resample=True) on a shifted 2D image."""
         rng = np.random.default_rng(42)
         shift = rng.integers(3, 6, size=2)
         shifted = np.roll(
-            np.roll(sample_fusi_2d_registration.values, int(shift[0]), axis=1),
+            np.roll(sample_voxeldata_2d_registration.values, int(shift[0]), axis=1),
             int(shift[1]),
             axis=2,
         )
         moving = xr.DataArray(
             shifted,
-            dims=sample_fusi_2d_registration.dims,
-            coords=sample_fusi_2d_registration.coords,
-            attrs=sample_fusi_2d_registration.attrs,
+            dims=sample_voxeldata_2d_registration.dims,
+            coords=sample_voxeldata_2d_registration.coords,
+            attrs=sample_voxeldata_2d_registration.attrs,
         )
         resampled_direct, affine, _ = register_volume(
             moving,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="translation",
             resample=True,
         )
-        result = resample_like(moving, sample_fusi_2d_registration, affine)
+        result = resample_like(moving, sample_voxeldata_2d_registration, affine)
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
-    def test_matches_register_volume_resample_3d(self, sample_fusi_3d_registration):
+    def test_matches_register_volume_resample_3d(self, sample_voxeldata_3d_registration):
         """resample_like matches register_volume(resample=True) in 3D."""
-        shifted = np.roll(sample_fusi_3d_registration.values, 2, axis=0)
+        shifted = np.roll(sample_voxeldata_3d_registration.values, 2, axis=0)
         moving = xr.DataArray(
             shifted,
-            dims=sample_fusi_3d_registration.dims,
-            coords=sample_fusi_3d_registration.coords,
-            attrs=sample_fusi_3d_registration.attrs,
+            dims=sample_voxeldata_3d_registration.dims,
+            coords=sample_voxeldata_3d_registration.coords,
+            attrs=sample_voxeldata_3d_registration.attrs,
         )
         resampled_direct, affine, _ = register_volume(
             moving,
-            sample_fusi_3d_registration,
+            sample_voxeldata_3d_registration,
             transform_type="translation",
             learning_rate=1.0,
             number_of_iterations=200,
             resample=True,
         )
-        result = resample_like(moving, sample_fusi_3d_registration, affine)
+        result = resample_like(moving, sample_voxeldata_3d_registration, affine)
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
     def test_matches_register_volume_with_affine_initialization(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """resample_like matches register_volume(resample=True) when affine initialization is used.
 
@@ -1893,38 +1893,38 @@ class TestResampleLike:
         rng = np.random.default_rng(42)
         shift = rng.integers(2, 4, size=2)
         shifted = np.roll(
-            np.roll(sample_fusi_2d_registration.values, int(shift[0]), axis=1),
+            np.roll(sample_voxeldata_2d_registration.values, int(shift[0]), axis=1),
             int(shift[1]),
             axis=2,
         )
         moving = xr.DataArray(
             shifted,
-            dims=sample_fusi_2d_registration.dims,
-            coords=sample_fusi_2d_registration.coords,
-            attrs=sample_fusi_2d_registration.attrs,
+            dims=sample_voxeldata_2d_registration.dims,
+            coords=sample_voxeldata_2d_registration.coords,
+            attrs=sample_voxeldata_2d_registration.attrs,
         )
         _, affine_init, _ = register_volume(
-            moving, sample_fusi_2d_registration, transform_type="translation"
+            moving, sample_voxeldata_2d_registration, transform_type="translation"
         )
         resampled_direct, affine, _ = register_volume(
             moving,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="affine",
             initialization=affine_init,
             resample=True,
         )
-        result = resample_like(moving, sample_fusi_2d_registration, affine)
+        result = resample_like(moving, sample_voxeldata_2d_registration, affine)
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
-    def test_matches_resample_volume(self, sample_fusi_2d_registration):
+    def test_matches_resample_volume(self, sample_voxeldata_2d_registration):
         """resample_like and resample_volume produce identical results."""
-        moving = sample_fusi_2d_registration.isel(j=slice(16), i=slice(16))
+        moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16))
         affine = np.eye(4)
-        result_like = resample_like(moving, sample_fusi_2d_registration, affine)
+        result_like = resample_like(moving, sample_voxeldata_2d_registration, affine)
         result_vol = resample_volume(
             moving,
             affine,
-            **_resample_volume_grid_kwargs(sample_fusi_2d_registration),
+            **_resample_volume_grid_kwargs(sample_voxeldata_2d_registration),
         )
         assert_allclose(result_like.values, result_vol.values, atol=1e-10)
 
@@ -1933,23 +1933,23 @@ class TestRegisterVolumeDiagnostics:
     """Diagnostics object returned by register_volume."""
 
     def test_returns_diagnostics_with_consistent_fields(
-        self, sample_fusi_2d_registration
+        self, sample_voxeldata_2d_registration
     ):
         """register_volume returns a fully populated RegistrationDiagnostics."""
         shifted = np.roll(
-            np.roll(sample_fusi_2d_registration.values, 2, axis=1), 2, axis=2
+            np.roll(sample_voxeldata_2d_registration.values, 2, axis=1), 2, axis=2
         )
         moving = xr.DataArray(
             shifted,
-            dims=sample_fusi_2d_registration.dims,
-            coords=sample_fusi_2d_registration.coords,
-            attrs=sample_fusi_2d_registration.attrs,
+            dims=sample_voxeldata_2d_registration.dims,
+            coords=sample_voxeldata_2d_registration.coords,
+            attrs=sample_voxeldata_2d_registration.attrs,
         )
 
         max_iters = 50
         _, _, diagnostics = register_volume(
             moving,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="translation",
             number_of_iterations=max_iters,
         )
@@ -1971,11 +1971,11 @@ class TestRegisterVolumeDiagnostics:
         assert isinstance(diagnostics.stop_condition, str)
         assert diagnostics.stop_condition != ""
 
-    def test_metric_field_echoes_argument(self, sample_fusi_2d_registration):
+    def test_metric_field_echoes_argument(self, sample_voxeldata_2d_registration):
         """The `metric` field on diagnostics matches the metric argument."""
         _, _, diagnostics = register_volume(
-            sample_fusi_2d_registration,
-            sample_fusi_2d_registration,
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
             transform_type="translation",
             metric="mattes_mi",
         )

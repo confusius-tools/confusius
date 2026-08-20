@@ -176,13 +176,13 @@ def test_standardize_zscore_psc_correlation(make_sample_timeseries):
         assert_allclose(corr, 1.0, rtol=1e-10)
 
 
-def test_standardize_4d_imaging_data(sample_fusi_3dt):
+def test_standardize_4d_imaging_data(sample_voxeldata_3dt):
     """Test that standardize works on 4D imaging data (time, z, y, x)."""
-    result = standardize(sample_fusi_3dt, method="zscore")
+    result = standardize(sample_voxeldata_3dt, method="zscore")
 
     # Check shape and dimensions preserved.
-    assert result.dims == sample_fusi_3dt.dims
-    assert result.shape == sample_fusi_3dt.shape
+    assert result.dims == sample_voxeldata_3dt.dims
+    assert result.shape == sample_voxeldata_3dt.shape
 
     # Check that each voxel (z, y, x) has mean≈0, std≈1 across time.
     mean_per_voxel = result.mean(dim="time")
@@ -193,11 +193,11 @@ def test_standardize_4d_imaging_data(sample_fusi_3dt):
 
     # Check coordinates preserved.
     assert_allclose(
-        result.coords["time"].values, sample_fusi_3dt.coords["time"].values
+        result.coords["time"].values, sample_voxeldata_3dt.coords["time"].values
     )
-    assert_allclose(result.coords["z"].values, sample_fusi_3dt.coords["z"].values)
-    assert_allclose(result.coords["y"].values, sample_fusi_3dt.coords["y"].values)
-    assert_allclose(result.coords["x"].values, sample_fusi_3dt.coords["x"].values)
+    assert_allclose(result.coords["z"].values, sample_voxeldata_3dt.coords["z"].values)
+    assert_allclose(result.coords["y"].values, sample_voxeldata_3dt.coords["y"].values)
+    assert_allclose(result.coords["x"].values, sample_voxeldata_3dt.coords["x"].values)
 
 
 def test_standardize_sets_units(make_sample_timeseries):

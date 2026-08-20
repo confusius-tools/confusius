@@ -18,19 +18,19 @@ from confusius.iq.clutter_filters import (
 class TestClutterFilterSvdFromIndices:
     """Tests for clutter_filter_svd_from_indices function."""
 
-    def test_no_cutoffs_returns_unchanged(self, sample_iq_block_4d):
+    def test_no_cutoffs_returns_unchanged(self, sample_voxeldata_iq_block_4d):
         """Passing no cutoffs returns block unchanged."""
-        result = clutter_filter_svd_from_indices(sample_iq_block_4d)
-        assert_array_equal(result, sample_iq_block_4d)
+        result = clutter_filter_svd_from_indices(sample_voxeldata_iq_block_4d)
+        assert_array_equal(result, sample_voxeldata_iq_block_4d)
 
-    def test_full_range_cutoffs_returns_unchanged(self, sample_iq_block_4d):
+    def test_full_range_cutoffs_returns_unchanged(self, sample_voxeldata_iq_block_4d):
         """Cutoffs spanning all components returns block unchanged."""
-        time, z, y, x = sample_iq_block_4d.shape
+        time, z, y, x = sample_voxeldata_iq_block_4d.shape
         max_components = min(time, z * y * x)
         result = clutter_filter_svd_from_indices(
-            sample_iq_block_4d, low_cutoff=0, high_cutoff=max_components
+            sample_voxeldata_iq_block_4d, low_cutoff=0, high_cutoff=max_components
         )
-        assert_array_equal(result, sample_iq_block_4d)
+        assert_array_equal(result, sample_voxeldata_iq_block_4d)
 
     @pytest.mark.parametrize(
         ("test_case", "kwargs", "expected_error", "match"),
@@ -56,52 +56,52 @@ class TestClutterFilterSvdFromIndices:
         ],
     )
     def test_cutoff_validation_errors(
-        self, sample_iq_block_4d, test_case, kwargs, expected_error, match
+        self, sample_voxeldata_iq_block_4d, test_case, kwargs, expected_error, match
     ):
         """Invalid cutoff values raise appropriate errors."""
         with pytest.raises(expected_error, match=match):
-            clutter_filter_svd_from_indices(sample_iq_block_4d, **kwargs)
+            clutter_filter_svd_from_indices(sample_voxeldata_iq_block_4d, **kwargs)
 
-    def test_non_4d_block_raises(self, sample_iq_block_4d):
+    def test_non_4d_block_raises(self, sample_voxeldata_iq_block_4d):
         """Non-4D block raises ValueError."""
         with pytest.raises(ValueError, match="must be 4D"):
-            clutter_filter_svd_from_indices(sample_iq_block_4d[..., 0])
+            clutter_filter_svd_from_indices(sample_voxeldata_iq_block_4d[..., 0])
 
-    def test_high_cutoff_exceeds_max_components_raises(self, sample_iq_block_4d):
+    def test_high_cutoff_exceeds_max_components_raises(self, sample_voxeldata_iq_block_4d):
         """high_cutoff > max_components raises ValueError."""
-        time, z, y, x = sample_iq_block_4d.shape
+        time, z, y, x = sample_voxeldata_iq_block_4d.shape
         max_components = min(time, z * y * x)
         with pytest.raises(ValueError, match="Cutoffs must satisfy"):
             clutter_filter_svd_from_indices(
-                sample_iq_block_4d, high_cutoff=max_components + 1
+                sample_voxeldata_iq_block_4d, high_cutoff=max_components + 1
             )
 
-    def test_empty_mask_returns_unchanged(self, sample_iq_block_4d):
+    def test_empty_mask_returns_unchanged(self, sample_voxeldata_iq_block_4d):
         """Empty mask (all False) returns block unchanged."""
-        _, z, y, x = sample_iq_block_4d.shape
+        _, z, y, x = sample_voxeldata_iq_block_4d.shape
         empty_mask = np.zeros((z, y, x), dtype=bool)
 
         result = clutter_filter_svd_from_indices(
-            sample_iq_block_4d, mask=empty_mask, low_cutoff=1, high_cutoff=5
+            sample_voxeldata_iq_block_4d, mask=empty_mask, low_cutoff=1, high_cutoff=5
         )
-        assert_array_equal(result, sample_iq_block_4d)
+        assert_array_equal(result, sample_voxeldata_iq_block_4d)
 
-    def test_mask_shape_mismatch_raises(self, sample_iq_block_4d):
+    def test_mask_shape_mismatch_raises(self, sample_voxeldata_iq_block_4d):
         """Mask with wrong shape raises ValueError."""
         wrong_mask = np.ones((2, 2, 2), dtype=bool)
         with pytest.raises(ValueError, match="doesn't match spatial dimensions"):
             clutter_filter_svd_from_indices(
-                sample_iq_block_4d, mask=wrong_mask, low_cutoff=1, high_cutoff=5
+                sample_voxeldata_iq_block_4d, mask=wrong_mask, low_cutoff=1, high_cutoff=5
             )
 
     def test_matches_reference_svd_implementation(
-        self, sample_iq_block_4d, spatial_mask
+        self, sample_voxeldata_iq_block_4d, spatial_mask
     ):
         """Result matches reference implementation using full SVD."""
         low_cutoff, high_cutoff = 2, 6
-        time, z, y, x = sample_iq_block_4d.shape
+        time, z, y, x = sample_voxeldata_iq_block_4d.shape
 
-        signals = sample_iq_block_4d.reshape(time, -1)
+        signals = sample_voxeldata_iq_block_4d.reshape(time, -1)
         masked_signals = signals[:, spatial_mask.ravel()].astype(np.cdouble)
 
         u, _, _ = np.linalg.svd(masked_signals, full_matrices=False)
@@ -114,10 +114,10 @@ class TestClutterFilterSvdFromIndices:
         filtered_signals = (
             signals - clutter_vectors @ clutter_vectors.conj().T @ signals
         )
-        expected = filtered_signals.reshape(sample_iq_block_4d.shape)
+        expected = filtered_signals.reshape(sample_voxeldata_iq_block_4d.shape)
 
         result = clutter_filter_svd_from_indices(
-            sample_iq_block_4d,
+            sample_voxeldata_iq_block_4d,
             mask=spatial_mask,
             low_cutoff=low_cutoff,
             high_cutoff=high_cutoff,
@@ -129,50 +129,50 @@ class TestClutterFilterSvdFromIndices:
 class TestClutterFilterSvdFromEnergy:
     """Tests for clutter_filter_svd_from_energy function."""
 
-    def test_no_cutoffs_returns_unchanged(self, sample_iq_block_4d):
+    def test_no_cutoffs_returns_unchanged(self, sample_voxeldata_iq_block_4d):
         """No cutoffs (0, inf) returns block unchanged."""
-        result = clutter_filter_svd_from_energy(sample_iq_block_4d)
-        assert_array_equal(result, sample_iq_block_4d)
+        result = clutter_filter_svd_from_energy(sample_voxeldata_iq_block_4d)
+        assert_array_equal(result, sample_voxeldata_iq_block_4d)
 
-    def test_non_4d_block_raises(self, sample_iq_block_4d):
+    def test_non_4d_block_raises(self, sample_voxeldata_iq_block_4d):
         """Non-4D block raises ValueError."""
         with pytest.raises(ValueError, match="must be 4D"):
-            clutter_filter_svd_from_energy(sample_iq_block_4d[..., 0])
+            clutter_filter_svd_from_energy(sample_voxeldata_iq_block_4d[..., 0])
 
-    def test_empty_mask_returns_unchanged(self, sample_iq_block_4d):
+    def test_empty_mask_returns_unchanged(self, sample_voxeldata_iq_block_4d):
         """Empty mask returns block unchanged."""
-        _, z, y, x = sample_iq_block_4d.shape
+        _, z, y, x = sample_voxeldata_iq_block_4d.shape
         empty_mask = np.zeros((z, y, x), dtype=bool)
 
         result = clutter_filter_svd_from_energy(
-            sample_iq_block_4d, mask=empty_mask, low_cutoff=1e5, high_cutoff=1e10
+            sample_voxeldata_iq_block_4d, mask=empty_mask, low_cutoff=1e5, high_cutoff=1e10
         )
-        assert_array_equal(result, sample_iq_block_4d)
+        assert_array_equal(result, sample_voxeldata_iq_block_4d)
 
-    def test_negative_cutoff_raises(self, sample_iq_block_4d):
+    def test_negative_cutoff_raises(self, sample_voxeldata_iq_block_4d):
         """Negative cutoff raises ValueError."""
         with pytest.raises(ValueError, match="non-negative"):
-            clutter_filter_svd_from_energy(sample_iq_block_4d, low_cutoff=-1)
+            clutter_filter_svd_from_energy(sample_voxeldata_iq_block_4d, low_cutoff=-1)
 
-    def test_negative_high_cutoff_raises(self, sample_iq_block_4d):
+    def test_negative_high_cutoff_raises(self, sample_voxeldata_iq_block_4d):
         """Negative high_cutoff raises ValueError."""
         with pytest.raises(ValueError, match="non-negative"):
-            clutter_filter_svd_from_energy(sample_iq_block_4d, high_cutoff=-1)
+            clutter_filter_svd_from_energy(sample_voxeldata_iq_block_4d, high_cutoff=-1)
 
-    def test_low_cutoff_greater_than_high_raises(self, sample_iq_block_4d):
+    def test_low_cutoff_greater_than_high_raises(self, sample_voxeldata_iq_block_4d):
         """low_cutoff >= high_cutoff raises ValueError."""
         with pytest.raises(ValueError, match="must be lower than"):
             clutter_filter_svd_from_energy(
-                sample_iq_block_4d, low_cutoff=100, high_cutoff=50
+                sample_voxeldata_iq_block_4d, low_cutoff=100, high_cutoff=50
             )
 
     def test_matches_reference_svd_implementation(
-        self, sample_iq_block_4d, spatial_mask
+        self, sample_voxeldata_iq_block_4d, spatial_mask
     ):
         """Result matches reference implementation using full SVD."""
-        time, z, y, x = sample_iq_block_4d.shape
+        time, z, y, x = sample_voxeldata_iq_block_4d.shape
 
-        signals = sample_iq_block_4d.reshape(time, -1)
+        signals = sample_voxeldata_iq_block_4d.reshape(time, -1)
         masked_signals = signals[:, spatial_mask.ravel()].astype(np.cdouble)
 
         u, s, _ = np.linalg.svd(masked_signals, full_matrices=False)
@@ -188,10 +188,10 @@ class TestClutterFilterSvdFromEnergy:
         filtered_signals = (
             signals - clutter_vectors @ clutter_vectors.conj().T @ signals
         )
-        expected = filtered_signals.reshape(sample_iq_block_4d.shape)
+        expected = filtered_signals.reshape(sample_voxeldata_iq_block_4d.shape)
 
         result = clutter_filter_svd_from_energy(
-            sample_iq_block_4d,
+            sample_voxeldata_iq_block_4d,
             mask=spatial_mask,
             low_cutoff=low_cutoff,
             high_cutoff=high_cutoff,
@@ -203,38 +203,38 @@ class TestClutterFilterSvdFromEnergy:
 class TestClutterFilterSvdFromCumulativeEnergy:
     """Tests for clutter_filter_svd_from_cumulative_energy function."""
 
-    def test_no_cutoffs_returns_unchanged(self, sample_iq_block_4d):
+    def test_no_cutoffs_returns_unchanged(self, sample_voxeldata_iq_block_4d):
         """No cutoffs returns block unchanged."""
-        result = clutter_filter_svd_from_cumulative_energy(sample_iq_block_4d)
-        assert_array_equal(result, sample_iq_block_4d)
+        result = clutter_filter_svd_from_cumulative_energy(sample_voxeldata_iq_block_4d)
+        assert_array_equal(result, sample_voxeldata_iq_block_4d)
 
-    def test_non_4d_block_raises(self, sample_iq_block_4d):
+    def test_non_4d_block_raises(self, sample_voxeldata_iq_block_4d):
         """Non-4D block raises ValueError."""
         with pytest.raises(ValueError, match="must be 4D"):
-            clutter_filter_svd_from_cumulative_energy(sample_iq_block_4d[..., 0])
+            clutter_filter_svd_from_cumulative_energy(sample_voxeldata_iq_block_4d[..., 0])
 
-    def test_empty_mask_returns_unchanged(self, sample_iq_block_4d):
+    def test_empty_mask_returns_unchanged(self, sample_voxeldata_iq_block_4d):
         """Empty mask returns block unchanged."""
-        _, z, y, x = sample_iq_block_4d.shape
+        _, z, y, x = sample_voxeldata_iq_block_4d.shape
         empty_mask = np.zeros((z, y, x), dtype=bool)
 
         result = clutter_filter_svd_from_cumulative_energy(
-            sample_iq_block_4d, mask=empty_mask, low_cutoff=1e5
+            sample_voxeldata_iq_block_4d, mask=empty_mask, low_cutoff=1e5
         )
-        assert_array_equal(result, sample_iq_block_4d)
+        assert_array_equal(result, sample_voxeldata_iq_block_4d)
 
-    def test_negative_cutoff_raises(self, sample_iq_block_4d):
+    def test_negative_cutoff_raises(self, sample_voxeldata_iq_block_4d):
         """Negative cutoff raises ValueError."""
         with pytest.raises(ValueError, match="non-negative"):
-            clutter_filter_svd_from_cumulative_energy(sample_iq_block_4d, low_cutoff=-1)
+            clutter_filter_svd_from_cumulative_energy(sample_voxeldata_iq_block_4d, low_cutoff=-1)
 
     def test_matches_reference_svd_implementation(
-        self, sample_iq_block_4d, spatial_mask
+        self, sample_voxeldata_iq_block_4d, spatial_mask
     ):
         """Result matches reference implementation using full SVD."""
-        time, z, y, x = sample_iq_block_4d.shape
+        time, z, y, x = sample_voxeldata_iq_block_4d.shape
 
-        signals = sample_iq_block_4d.reshape(time, -1)
+        signals = sample_voxeldata_iq_block_4d.reshape(time, -1)
         masked_signals = signals[:, spatial_mask.ravel()].astype(np.cdouble)
 
         u, s, _ = np.linalg.svd(masked_signals, full_matrices=False)
@@ -252,10 +252,10 @@ class TestClutterFilterSvdFromCumulativeEnergy:
         filtered_signals = (
             signals - clutter_vectors @ clutter_vectors.conj().T @ signals
         )
-        expected = filtered_signals.reshape(sample_iq_block_4d.shape)
+        expected = filtered_signals.reshape(sample_voxeldata_iq_block_4d.shape)
 
         result = clutter_filter_svd_from_cumulative_energy(
-            sample_iq_block_4d, mask=spatial_mask, low_cutoff=low_cutoff
+            sample_voxeldata_iq_block_4d, mask=spatial_mask, low_cutoff=low_cutoff
         )
 
         assert_allclose(result, expected, rtol=1e-5, atol=1e-10)
@@ -264,18 +264,18 @@ class TestClutterFilterSvdFromCumulativeEnergy:
 class TestClutterFilterSosfiltfilt:
     """Tests for clutter_filter_sosfiltfilt function."""
 
-    def test_non_4d_block_raises(self, sample_iq_block_4d):
+    def test_non_4d_block_raises(self, sample_voxeldata_iq_block_4d):
         """Non-4D block raises ValueError."""
         sos = sp_signal.butter(4, 0.1, btype="high", fs=1.0, output="sos")
         with pytest.raises(ValueError, match="must be 4D"):
-            clutter_filter_sosfiltfilt(sample_iq_block_4d[..., 0], sos)
+            clutter_filter_sosfiltfilt(sample_voxeldata_iq_block_4d[..., 0], sos)
 
-    def test_matches_scipy_sosfiltfilt(self, sample_iq_block_4d_long):
+    def test_matches_scipy_sosfiltfilt(self, sample_voxeldata_iq_block_4d_long):
         """Result matches direct scipy.signal.sosfiltfilt call."""
         sos = sp_signal.butter(4, 0.1, btype="high", fs=1.0, output="sos")
 
-        result = clutter_filter_sosfiltfilt(sample_iq_block_4d_long, sos)
-        expected = sp_signal.sosfiltfilt(sos, sample_iq_block_4d_long, axis=0)
+        result = clutter_filter_sosfiltfilt(sample_voxeldata_iq_block_4d_long, sos)
+        expected = sp_signal.sosfiltfilt(sos, sample_voxeldata_iq_block_4d_long, axis=0)
 
         assert_allclose(result, expected)
 
@@ -283,83 +283,83 @@ class TestClutterFilterSosfiltfilt:
 class TestClutterFilterButterworth:
     """Tests for clutter_filter_butterworth function."""
 
-    def test_non_4d_block_raises(self, sample_iq_block_4d):
+    def test_non_4d_block_raises(self, sample_voxeldata_iq_block_4d):
         """Non-4D block raises ValueError."""
         with pytest.raises(ValueError, match="must be 4D"):
             clutter_filter_butterworth(
-                sample_iq_block_4d[..., 0], fs=100.0, low_cutoff=5.0
+                sample_voxeldata_iq_block_4d[..., 0], fs=100.0, low_cutoff=5.0
             )
 
-    def test_no_cutoffs_returns_unchanged(self, sample_iq_block_4d_long):
+    def test_no_cutoffs_returns_unchanged(self, sample_voxeldata_iq_block_4d_long):
         """No cutoffs returns block unchanged."""
-        result = clutter_filter_butterworth(sample_iq_block_4d_long, fs=100.0)
-        assert_array_equal(result, sample_iq_block_4d_long)
+        result = clutter_filter_butterworth(sample_voxeldata_iq_block_4d_long, fs=100.0)
+        assert_array_equal(result, sample_voxeldata_iq_block_4d_long)
 
-    def test_high_cutoff_less_than_low_raises(self, sample_iq_block_4d_long):
+    def test_high_cutoff_less_than_low_raises(self, sample_voxeldata_iq_block_4d_long):
         """high_cutoff <= low_cutoff raises ValueError."""
         with pytest.raises(ValueError, match="must be greater than"):
             clutter_filter_butterworth(
-                sample_iq_block_4d_long, fs=100.0, low_cutoff=20.0, high_cutoff=5.0
+                sample_voxeldata_iq_block_4d_long, fs=100.0, low_cutoff=20.0, high_cutoff=5.0
             )
 
-    def test_frequency_at_nyquist_raises(self, sample_iq_block_4d_long):
+    def test_frequency_at_nyquist_raises(self, sample_voxeldata_iq_block_4d_long):
         """Frequency at Nyquist raises ValueError."""
         with pytest.raises(ValueError, match="must be in range"):
             clutter_filter_butterworth(
-                sample_iq_block_4d_long, fs=100.0, low_cutoff=50.0
+                sample_voxeldata_iq_block_4d_long, fs=100.0, low_cutoff=50.0
             )
 
-    def test_frequency_at_zero_raises(self, sample_iq_block_4d_long):
+    def test_frequency_at_zero_raises(self, sample_voxeldata_iq_block_4d_long):
         """Frequency at zero raises ValueError."""
         with pytest.raises(ValueError, match="must be in range"):
             clutter_filter_butterworth(
-                sample_iq_block_4d_long, fs=100.0, low_cutoff=0.0
+                sample_voxeldata_iq_block_4d_long, fs=100.0, low_cutoff=0.0
             )
 
-    def test_negative_frequency_raises(self, sample_iq_block_4d_long):
+    def test_negative_frequency_raises(self, sample_voxeldata_iq_block_4d_long):
         """Negative frequency raises ValueError."""
         with pytest.raises(ValueError, match="must be in range"):
             clutter_filter_butterworth(
-                sample_iq_block_4d_long, fs=100.0, low_cutoff=-5.0
+                sample_voxeldata_iq_block_4d_long, fs=100.0, low_cutoff=-5.0
             )
 
-    def test_matches_scipy_reference_high_pass(self, sample_iq_block_4d_long):
+    def test_matches_scipy_reference_high_pass(self, sample_voxeldata_iq_block_4d_long):
         """High-pass filter matches direct scipy implementation."""
         fs, low_cutoff, order = 100.0, 5.0, 4
 
         sos = sp_signal.butter(order, low_cutoff, btype="high", fs=fs, output="sos")
-        expected = sp_signal.sosfiltfilt(sos, sample_iq_block_4d_long, axis=0)
+        expected = sp_signal.sosfiltfilt(sos, sample_voxeldata_iq_block_4d_long, axis=0)
 
         result = clutter_filter_butterworth(
-            sample_iq_block_4d_long, fs=fs, low_cutoff=low_cutoff, order=order
+            sample_voxeldata_iq_block_4d_long, fs=fs, low_cutoff=low_cutoff, order=order
         )
 
         assert_allclose(result, expected)
 
-    def test_matches_scipy_reference_low_pass(self, sample_iq_block_4d_long):
+    def test_matches_scipy_reference_low_pass(self, sample_voxeldata_iq_block_4d_long):
         """Low-pass filter matches direct scipy implementation."""
         fs, high_cutoff, order = 100.0, 20.0, 4
 
         sos = sp_signal.butter(order, high_cutoff, btype="low", fs=fs, output="sos")
-        expected = sp_signal.sosfiltfilt(sos, sample_iq_block_4d_long, axis=0)
+        expected = sp_signal.sosfiltfilt(sos, sample_voxeldata_iq_block_4d_long, axis=0)
 
         result = clutter_filter_butterworth(
-            sample_iq_block_4d_long, fs=fs, high_cutoff=high_cutoff, order=order
+            sample_voxeldata_iq_block_4d_long, fs=fs, high_cutoff=high_cutoff, order=order
         )
 
         assert_allclose(result, expected)
 
-    def test_matches_scipy_reference_band_pass(self, sample_iq_block_4d_long):
+    def test_matches_scipy_reference_band_pass(self, sample_voxeldata_iq_block_4d_long):
         """Band-pass filter matches direct scipy implementation."""
         fs, low_cutoff, high_cutoff, order = 100.0, 5.0, 20.0, 4
 
         sos = sp_signal.butter(
             order, [low_cutoff, high_cutoff], btype="band", fs=fs, output="sos"
         )
-        expected = sp_signal.sosfiltfilt(sos, sample_iq_block_4d_long, axis=0)
+        expected = sp_signal.sosfiltfilt(sos, sample_voxeldata_iq_block_4d_long, axis=0)
 
         result = clutter_filter_butterworth(
-            sample_iq_block_4d_long,
+            sample_voxeldata_iq_block_4d_long,
             fs=fs,
             low_cutoff=low_cutoff,
             high_cutoff=high_cutoff,
@@ -372,16 +372,16 @@ class TestClutterFilterButterworth:
 class TestComputeSvdCumulativeEnergyThreshold:
     """Tests for compute_svd_cumulative_energy_threshold."""
 
-    def test_returns_dask_array(self, sample_iq_dataarray):
+    def test_returns_dask_array(self, sample_voxeldata_iq_dataarray):
         """Return value is a lazy dask array (not yet computed)."""
         import dask.array as da
 
         result = compute_svd_cumulative_energy_threshold(
-            sample_iq_dataarray, singular_value_index=1
+            sample_voxeldata_iq_dataarray, singular_value_index=1
         )
         assert isinstance(result, da.Array)
 
-    def test_single_timepoint_raises(self, sample_iq_dataarray):
+    def test_single_timepoint_raises(self, sample_voxeldata_iq_dataarray):
         """A single-timepoint `time` dimension raises ValueError.
 
         Regression test: `ensure_voxeldata` dropped the `require_time=True`
@@ -390,33 +390,33 @@ class TestComputeSvdCumulativeEnergyThreshold:
         """
         with pytest.raises(ValueError, match="more than 1 timepoint"):
             compute_svd_cumulative_energy_threshold(
-                sample_iq_dataarray.isel(time=slice(0, 1)), singular_value_index=1
+                sample_voxeldata_iq_dataarray.isel(time=slice(0, 1)), singular_value_index=1
             )
 
-    def test_singular_value_index_zero_raises(self, sample_iq_dataarray):
+    def test_singular_value_index_zero_raises(self, sample_voxeldata_iq_dataarray):
         """singular_value_index=0 raises ValueError."""
         with pytest.raises(ValueError, match="singular_value_index"):
             compute_svd_cumulative_energy_threshold(
-                sample_iq_dataarray, singular_value_index=0
+                sample_voxeldata_iq_dataarray, singular_value_index=0
             )
 
     def test_singular_value_index_exceeds_window_minus_one_raises(
-        self, sample_iq_dataarray
+        self, sample_voxeldata_iq_dataarray
     ):
         """singular_value_index > window_width - 1 raises ValueError."""
         with pytest.raises(ValueError, match="singular_value_index"):
             compute_svd_cumulative_energy_threshold(
-                sample_iq_dataarray, singular_value_index=10, window_width=10
+                sample_voxeldata_iq_dataarray, singular_value_index=10, window_width=10
             )
 
     def test_single_window_matches_reference(
-        self, sample_iq_dataarray, sample_spatial_mask_xarray
+        self, sample_voxeldata_iq_dataarray, sample_spatial_mask_xarray
     ):
         """Single-window result matches direct eigendecomposition of the full data."""
         singular_value_index = 3
-        n_volumes = sample_iq_dataarray.sizes["time"]
+        n_volumes = sample_voxeldata_iq_dataarray.sizes["time"]
 
-        signals = sample_iq_dataarray.values.reshape(n_volumes, -1).astype(np.cdouble)
+        signals = sample_voxeldata_iq_dataarray.values.reshape(n_volumes, -1).astype(np.cdouble)
         mask_flat = sample_spatial_mask_xarray.values.ravel()
         signals = signals[:, mask_flat]
 
@@ -425,7 +425,7 @@ class TestComputeSvdCumulativeEnergyThreshold:
         expected = float(np.cumsum(eigenvalues)[-(singular_value_index + 1)].real)
 
         result = compute_svd_cumulative_energy_threshold(
-            sample_iq_dataarray,
+            sample_voxeldata_iq_dataarray,
             singular_value_index=singular_value_index,
             clutter_mask=sample_spatial_mask_xarray,
             window_width=n_volumes,
@@ -434,20 +434,20 @@ class TestComputeSvdCumulativeEnergyThreshold:
         assert_allclose(result, expected, rtol=1e-10)
 
     def test_multiple_windows_returns_minimum(
-        self, sample_iq_dataarray, sample_spatial_mask_xarray
+        self, sample_voxeldata_iq_dataarray, sample_spatial_mask_xarray
     ):
         """Result equals the minimum cumulative energy across all windows."""
         singular_value_index = 2
         window_width = 10
         window_stride = 5
-        n_volumes = sample_iq_dataarray.sizes["time"]
+        n_volumes = sample_voxeldata_iq_dataarray.sizes["time"]
         mask_flat = sample_spatial_mask_xarray.values.ravel()
 
         # Compute per-window cumulative energies with the same logic as the function.
         window_thresholds = []
         for start in range(0, n_volumes - window_width + 1, window_stride):
             signals = (
-                sample_iq_dataarray.isel(time=slice(start, start + window_width))
+                sample_voxeldata_iq_dataarray.isel(time=slice(start, start + window_width))
                 .values.reshape(window_width, -1)
                 .astype(np.cdouble)
             )
@@ -460,7 +460,7 @@ class TestComputeSvdCumulativeEnergyThreshold:
 
         expected = min(window_thresholds)
         result = compute_svd_cumulative_energy_threshold(
-            sample_iq_dataarray,
+            sample_voxeldata_iq_dataarray,
             singular_value_index=singular_value_index,
             clutter_mask=sample_spatial_mask_xarray,
             window_width=window_width,
@@ -470,21 +470,21 @@ class TestComputeSvdCumulativeEnergyThreshold:
         assert_allclose(result, expected, rtol=1e-10)
 
     def test_threshold_as_high_cutoff_removes_correct_components(
-        self, sample_iq_dataarray, sample_spatial_mask_xarray
+        self, sample_voxeldata_iq_dataarray, sample_spatial_mask_xarray
     ):
         """Threshold used as high_cutoff removes exactly singular_value_index components."""
         singular_value_index = 3
-        n_volumes = sample_iq_dataarray.sizes["time"]
+        n_volumes = sample_voxeldata_iq_dataarray.sizes["time"]
         mask = sample_spatial_mask_xarray.values
 
         threshold = compute_svd_cumulative_energy_threshold(
-            sample_iq_dataarray,
+            sample_voxeldata_iq_dataarray,
             singular_value_index=singular_value_index,
             clutter_mask=sample_spatial_mask_xarray,
             window_width=n_volumes,
         ).compute()
 
-        block = sample_iq_dataarray.values
+        block = sample_voxeldata_iq_dataarray.values
         filtered = clutter_filter_svd_from_cumulative_energy(
             block, mask=mask, high_cutoff=float(threshold)
         )

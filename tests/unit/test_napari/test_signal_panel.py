@@ -28,14 +28,14 @@ def panel(viewer):
 class TestAvailableXaxisDims:
     """`_get_available_xaxis_dims` returns the non-displayed, multi-element axes."""
 
-    def test_lists_slider_axis_for_3d_volume(self, viewer, panel, sample_fusi_3d):
+    def test_lists_slider_axis_for_3d_volume(self, viewer, panel, sample_voxeldata_3d):
         # (z, y, x): napari displays (y, x); only z is a slider axis.
-        viewer.add_image(sample_fusi_3d.values, metadata={"xarray": sample_fusi_3d})
+        viewer.add_image(sample_voxeldata_3d.values, metadata={"xarray": sample_voxeldata_3d})
         assert panel._get_available_xaxis_dims() == ["k"]
 
-    def test_lists_all_slider_axes_for_4dt_volume(self, viewer, panel, sample_fusi_3dt):
+    def test_lists_all_slider_axes_for_4dt_volume(self, viewer, panel, sample_voxeldata_3dt):
         # (time, z, y, x): napari displays (y, x); both time and z are sliders.
-        viewer.add_image(sample_fusi_3dt.values, metadata={"xarray": sample_fusi_3dt})
+        viewer.add_image(sample_voxeldata_3dt.values, metadata={"xarray": sample_voxeldata_3dt})
         assert panel._get_available_xaxis_dims() == ["time", "k"]
 
     def test_excludes_singleton_slider_axis(self, viewer, panel):
@@ -44,8 +44,8 @@ class TestAvailableXaxisDims:
         viewer.add_image(da.values, metadata={"xarray": da})
         assert panel._get_available_xaxis_dims() == ["k"]
 
-    def test_combo_defaults_to_time_when_present(self, viewer, panel, sample_fusi_3dt):
-        viewer.add_image(sample_fusi_3dt.values, metadata={"xarray": sample_fusi_3dt})
+    def test_combo_defaults_to_time_when_present(self, viewer, panel, sample_voxeldata_3dt):
+        viewer.add_image(sample_voxeldata_3dt.values, metadata={"xarray": sample_voxeldata_3dt})
         panel._refresh_xaxis_combo()
         items = [
             panel._xaxis_combo.itemText(i) for i in range(panel._xaxis_combo.count())

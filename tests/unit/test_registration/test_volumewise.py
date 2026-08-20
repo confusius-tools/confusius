@@ -49,23 +49,23 @@ class TestRegisterVolumewise:
         result = register_volumewise(scan_2d, n_jobs=1, transform="translation")
         assert result.shape == scan_2d.shape
 
-    def test_non_h5py_dask_backed_does_not_raise(self, sample_fusi_2dt_registration):
+    def test_non_h5py_dask_backed_does_not_raise(self, sample_voxeldata_2dt_registration):
         """Dask-backed (non-h5py) DataArray with n_jobs != 1 does not raise TypeError."""
         import dask.array as da
 
         # Build a dask-backed DataArray that is NOT backed by h5py; is_h5py_backed
         # should return False and registration should proceed normally.
         dask_data = xr.DataArray(
-            da.from_array(sample_fusi_2dt_registration.values),
-            dims=sample_fusi_2dt_registration.dims,
-            coords=sample_fusi_2dt_registration.coords,
-            attrs=sample_fusi_2dt_registration.attrs,
+            da.from_array(sample_voxeldata_2dt_registration.values),
+            dims=sample_voxeldata_2dt_registration.dims,
+            coords=sample_voxeldata_2dt_registration.coords,
+            attrs=sample_voxeldata_2dt_registration.attrs,
         )
         result = register_volumewise(dask_data, n_jobs=2, transform="translation")
-        assert result.shape == sample_fusi_2dt_registration.shape
+        assert result.shape == sample_voxeldata_2dt_registration.shape
 
     def test_show_progress_false_skips_joblib_progress_import(
-        self, sample_fusi_2dt_registration, monkeypatch
+        self, sample_voxeldata_2dt_registration, monkeypatch
     ):
         """show_progress=False does not import joblib_progress."""
         import builtins
@@ -82,38 +82,38 @@ class TestRegisterVolumewise:
         monkeypatch.setattr(builtins, "__import__", _guarded_import)
 
         result = register_volumewise(
-            sample_fusi_2dt_registration,
+            sample_voxeldata_2dt_registration,
             n_jobs=1,
             transform="translation",
             show_progress=False,
         )
 
-        assert result.shape == sample_fusi_2dt_registration.shape
+        assert result.shape == sample_voxeldata_2dt_registration.shape
 
-    def test_abort_event_returns_partial_dataset(self, sample_fusi_2dt_registration):
+    def test_abort_event_returns_partial_dataset(self, sample_voxeldata_2dt_registration):
         """A pre-set abort event returns an aborted partial dataset."""
         abort_event = Event()
         abort_event.set()
 
         result = register_volumewise(
-            sample_fusi_2dt_registration,
+            sample_voxeldata_2dt_registration,
             n_jobs=2,
             transform="translation",
             abort_event=abort_event,
         )
 
-        assert result.shape == sample_fusi_2dt_registration.shape
+        assert result.shape == sample_voxeldata_2dt_registration.shape
         assert set(result.attrs["motion_params"]["status"]) == {"aborted"}
         assert_allclose(
             result.values,
             np.full_like(
-                sample_fusi_2dt_registration.values,
-                sample_fusi_2dt_registration.values.min(),
+                sample_voxeldata_2dt_registration.values,
+                sample_voxeldata_2dt_registration.values.min(),
             ),
         )
 
     def test_progress_reporter_receives_frame_updates(
-        self, sample_fusi_2dt_registration, monkeypatch
+        self, sample_voxeldata_2dt_registration, monkeypatch
     ):
         reporter = _FakeVolumewiseProgressReporter()
 
@@ -134,21 +134,21 @@ class TestRegisterVolumewise:
         )
 
         result = register_volumewise(
-            sample_fusi_2dt_registration,
+            sample_voxeldata_2dt_registration,
             n_jobs=1,
             transform="translation",
             show_progress=False,
             progress_reporter=reporter,
         )
 
-        assert result.shape == sample_fusi_2dt_registration.shape
+        assert result.shape == sample_voxeldata_2dt_registration.shape
         assert sorted(reporter.completed_frames) == list(
-            range(sample_fusi_2dt_registration.sizes["time"])
+            range(sample_voxeldata_2dt_registration.sizes["time"])
         )
         assert reporter.closed
 
     def test_abort_during_run_skips_not_yet_started_frames(
-        self, sample_fusi_2dt_registration, monkeypatch
+        self, sample_voxeldata_2dt_registration, monkeypatch
     ):
         """Already-scheduled frames hit the cheap aborted-frame fast path."""
         import joblib
@@ -197,7 +197,7 @@ class TestRegisterVolumewise:
         monkeypatch.setattr(joblib, "delayed", _fake_delayed)
 
         result = register_volumewise(
-            sample_fusi_2dt_registration,
+            sample_voxeldata_2dt_registration,
             n_jobs=2,
             transform="translation",
             show_progress=False,
@@ -209,7 +209,7 @@ class TestRegisterVolumewise:
         assert all(status == "aborted" for status in statuses[1:])
         assert calls["count"] == 1
 
-        background = sample_fusi_2dt_registration.values.min()
+        background = sample_voxeldata_2dt_registration.values.min()
         assert np.all(result.values[1:] == background)
 
     def test_wrong_dimensionality_raises(self):
@@ -225,8 +225,8 @@ class TestRegisterVolumewise:
     @pytest.mark.parametrize(
         ("data_fixture", "dims"),
         [
-            ("sample_fusi_2dt_registration", ("time", "k", "j", "i")),
-            ("sample_fusi_3dt_registration", ("time", "k", "j", "i")),
+            ("sample_voxeldata_2dt_registration", ("time", "k", "j", "i")),
+            ("sample_voxeldata_3dt_registration", ("time", "k", "j", "i")),
         ],
     )
     def test_identical_frames_unchanged(self, data_fixture, dims, request):
@@ -239,13 +239,13 @@ class TestRegisterVolumewise:
         # Identical frames should produce nearly identical output.
         assert_allclose(result.values, data.values, atol=1e-3)
 
-    def test_2d_recovers_known_shift(self, sample_fusi_2d_registration):
+    def test_2d_recovers_known_shift(self, sample_voxeldata_2d_registration):
         """Registration of a singleton-k volume recovers a known translation."""
         # Create data with a shifted frame.
         n_frames = 3
         shift_x, shift_y = 2, 3
 
-        frames = [sample_fusi_2d_registration.values.copy() for _ in range(n_frames)]
+        frames = [sample_voxeldata_2d_registration.values.copy() for _ in range(n_frames)]
         # Shift frame 1 by rolling (simulates translation).
         frames[1] = np.roll(np.roll(frames[1], shift_y, axis=1), shift_x, axis=2)
 
@@ -268,66 +268,66 @@ class TestRegisterVolumewise:
         assert abs(motion_df.loc[motion_df.index[1], "trans_x"]) < shift_x + 1
         assert abs(motion_df.loc[motion_df.index[1], "trans_y"]) < shift_y + 1
 
-    def test_output_has_motion_metadata_attributes(self, sample_fusi_2dt_registration):
+    def test_output_has_motion_metadata_attributes(self, sample_voxeldata_2dt_registration):
         """Output has motion metadata attributes."""
         result = register_volumewise(
-            sample_fusi_2dt_registration, reference_time=2, n_jobs=1
+            sample_voxeldata_2dt_registration, reference_time=2, n_jobs=1
         )
 
         assert "registration" not in result.attrs
         assert result.attrs["reference_time"] == 2
         assert "motion_params" in result.attrs
 
-    def test_preserves_input_attributes(self, sample_fusi_2dt_registration):
+    def test_preserves_input_attributes(self, sample_voxeldata_2dt_registration):
         """Input attributes are preserved in output."""
-        sample_fusi_2dt_registration.attrs["custom_attr"] = "test_value"
+        sample_voxeldata_2dt_registration.attrs["custom_attr"] = "test_value"
 
-        result = register_volumewise(sample_fusi_2dt_registration, n_jobs=1)
+        result = register_volumewise(sample_voxeldata_2dt_registration, n_jobs=1)
 
         assert result.attrs["custom_attr"] == "test_value"
 
-    def test_preserves_coordinates(self, sample_fusi_2dt_registration):
+    def test_preserves_coordinates(self, sample_voxeldata_2dt_registration):
         """Coordinates are preserved in output."""
-        result = register_volumewise(sample_fusi_2dt_registration, n_jobs=1)
+        result = register_volumewise(sample_voxeldata_2dt_registration, n_jobs=1)
 
         assert_allclose(
             result.coords["time"].values,
-            sample_fusi_2dt_registration.coords["time"].values,
+            sample_voxeldata_2dt_registration.coords["time"].values,
         )
         assert_allclose(
-            result.coords["y"].values, sample_fusi_2dt_registration.coords["y"].values
+            result.coords["y"].values, sample_voxeldata_2dt_registration.coords["y"].values
         )
         assert_allclose(
-            result.coords["x"].values, sample_fusi_2dt_registration.coords["x"].values
+            result.coords["x"].values, sample_voxeldata_2dt_registration.coords["x"].values
         )
 
-    def test_different_reference_time(self, sample_fusi_2dt_registration):
+    def test_different_reference_time(self, sample_voxeldata_2dt_registration):
         """Can use different reference time indices."""
         result = register_volumewise(
-            sample_fusi_2dt_registration, reference_time=2, n_jobs=1
+            sample_voxeldata_2dt_registration, reference_time=2, n_jobs=1
         )
 
         assert result.attrs["reference_time"] == 2
 
-    def test_transform_option(self, sample_fusi_2dt_registration):
+    def test_transform_option(self, sample_voxeldata_2dt_registration):
         """transform parameter changes registration behavior."""
         # Both should work without error.
         result_no_rot = register_volumewise(
-            sample_fusi_2dt_registration, n_jobs=1, transform="translation"
+            sample_voxeldata_2dt_registration, n_jobs=1, transform="translation"
         )
         result_with_rot = register_volumewise(
-            sample_fusi_2dt_registration, n_jobs=1, transform="rigid"
+            sample_voxeldata_2dt_registration, n_jobs=1, transform="rigid"
         )
 
         # Motion params should have rotation columns in both cases.
         assert "rot_x" in result_no_rot.attrs["motion_params"].columns
         assert "rot_x" in result_with_rot.attrs["motion_params"].columns
 
-    def test_singleton_dimension_handling(self, sample_fusi_2d_registration):
+    def test_singleton_dimension_handling(self, sample_voxeldata_2d_registration):
         """Singleton spatial dimensions are handled correctly."""
         # Create data with a singleton k dimension (2D slice in 3D array).
         data = create_voxeldata(
-            sample_fusi_2d_registration.values[np.newaxis, :, :, :].repeat(3, axis=0),
+            sample_voxeldata_2d_registration.values[np.newaxis, :, :, :].repeat(3, axis=0),
             dims=("time", "k", "j", "i"),
             time=np.arange(3) * 0.1,
             spacing=(0.2, 0.1, 0.1),
@@ -344,11 +344,11 @@ class TestRegisterVolumewise:
         # Identical frames should produce nearly identical output.
         assert_allclose(result.values, data.values, atol=1e-3)
 
-    def test_output_dimension_order_matches_input(self, sample_fusi_2d_registration):
+    def test_output_dimension_order_matches_input(self, sample_voxeldata_2d_registration):
         """Output dimension order matches input regardless of internal transposition."""
         # Create data with non-standard dimension order.
         data = create_voxeldata(
-            np.stack([sample_fusi_2d_registration.values] * 3, axis=0),
+            np.stack([sample_voxeldata_2d_registration.values] * 3, axis=0),
             dims=("time", "k", "j", "i"),
             time=np.arange(3) * 0.1,
             spacing=(0.2, 0.1, 0.1),
@@ -362,19 +362,19 @@ class TestRegisterVolumewise:
         # Identical frames should produce nearly identical output.
         assert_allclose(result.values, data.values, atol=1e-3)
 
-    def test_multi_resolution_does_not_crash(self, sample_fusi_3dt_registration):
+    def test_multi_resolution_does_not_crash(self, sample_voxeldata_3dt_registration):
         """Multi-resolution pyramid completes without error."""
         result = register_volumewise(
-            sample_fusi_3dt_registration,
+            sample_voxeldata_3dt_registration,
             n_jobs=1,
             transform="translation",
             use_multi_resolution=True,
         )
-        assert result.shape == sample_fusi_3dt_registration.shape
+        assert result.shape == sample_voxeldata_3dt_registration.shape
         # Identical frames should produce nearly identical output.
-        assert_allclose(result.values, sample_fusi_3dt_registration.values, atol=1e-3)
+        assert_allclose(result.values, sample_voxeldata_3dt_registration.values, atol=1e-3)
 
-    def test_keep_diagnostics_toggles_full_trace(self, sample_fusi_2dt_registration):
+    def test_keep_diagnostics_toggles_full_trace(self, sample_voxeldata_2dt_registration):
         """`keep_diagnostics` gates only the full diagnostics list.
 
         The cheap per-frame summaries (`final_metric_value`, `n_iterations`)
@@ -382,7 +382,7 @@ class TestRegisterVolumewise:
         memory-hungry trace list is opt-in.
         """
         # Default (False): summary columns yes, full diagnostics list no.
-        result_off = register_volumewise(sample_fusi_2dt_registration, n_jobs=1)
+        result_off = register_volumewise(sample_voxeldata_2dt_registration, n_jobs=1)
         assert "registration_diagnostics" not in result_off.attrs
         motion_df_off = result_off.attrs["motion_params"]
         assert "final_metric_value" in motion_df_off.columns
@@ -390,8 +390,8 @@ class TestRegisterVolumewise:
 
         # Opt-in: full diagnostics list is also attached.
         result_on = register_volumewise(
-            sample_fusi_2dt_registration, n_jobs=1, keep_diagnostics=True
+            sample_voxeldata_2dt_registration, n_jobs=1, keep_diagnostics=True
         )
         diagnostics = result_on.attrs["registration_diagnostics"]
-        assert len(diagnostics) == sample_fusi_2dt_registration.sizes["time"]
+        assert len(diagnostics) == sample_voxeldata_2dt_registration.sizes["time"]
         assert all(isinstance(d, RegistrationDiagnostics) for d in diagnostics)

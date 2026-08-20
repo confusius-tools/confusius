@@ -29,10 +29,10 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
 class TestPlotNapari:
     """Tests for plot_napari scale and translate parameters."""
 
-    def test_3d_scale_and_translate(self, sample_fusi_3d, make_napari_viewer):
+    def test_3d_scale_and_translate(self, sample_voxeldata_3d, make_napari_viewer):
         """3D layer scale matches fusi.spacing; translate matches fusi.origin."""
         viewer = make_napari_viewer()
-        _, layer = plot_napari(sample_fusi_3d, viewer=viewer)
+        _, layer = plot_napari(sample_voxeldata_3d, viewer=viewer)
 
         # z: origin=1.0 spacing=0.2; y: origin=2.0 spacing=0.1; x: origin=3.0 spacing=0.05
         npt.assert_allclose(layer.scale, [0.2, 0.1, 0.05], rtol=1e-5)
@@ -40,10 +40,10 @@ class TestPlotNapari:
         viewer.close()
 
     def test_length_three_spatial_axis_not_treated_as_rgb(
-        self, sample_fusi_3d, make_napari_viewer
+        self, sample_voxeldata_3d, make_napari_viewer
     ):
         """A spatial axis of length 3 is not auto-interpreted as RGB channels."""
-        data = sample_fusi_3d.isel(i=slice(0, 3))
+        data = sample_voxeldata_3d.isel(i=slice(0, 3))
         viewer = make_napari_viewer()
         _, layer = plot_napari(
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
@@ -54,11 +54,11 @@ class TestPlotNapari:
         npt.assert_allclose(layer.translate, [1.0, 2.0, 3.0], rtol=1e-5)
         viewer.close()
 
-    def test_4d_scale_uses_time_spacing(self, sample_fusi_3dt, make_napari_viewer):
+    def test_4d_scale_uses_time_spacing(self, sample_voxeldata_3dt, make_napari_viewer):
         """4D layer scale uses fusi.spacing for all dims, including time."""
         viewer = make_napari_viewer()
         _, layer = plot_napari(
-            sample_fusi_3dt, viewer=viewer, show_colorbar=False, show_scale_bar=False
+            sample_voxeldata_3dt, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
 
         # time: origin=10.0 spacing=0.5; z: origin=1.0 spacing=0.2;
@@ -68,7 +68,7 @@ class TestPlotNapari:
         viewer.close()
 
     def test_voxel_to_world_resamples_to_world_grid(
-        self, make_napari_viewer, sample_fusi_3d_oblique
+        self, make_napari_viewer, sample_voxeldata_3d_oblique
     ):
         """Oblique volumes are displayed on an axis-aligned world grid in napari.
 
@@ -76,7 +76,7 @@ class TestPlotNapari:
         intact (like the axis-aligned case); layers are always positioned in world
         space, so axis_labels shows world names regardless.
         """
-        data = sample_fusi_3d_oblique
+        data = sample_voxeldata_3d_oblique
         viewer = make_napari_viewer()
         _, layer = plot_napari(
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
@@ -124,10 +124,10 @@ class TestPlotNapari:
         viewer.close()
 
     def test_scale_falls_back_to_1_when_no_coords(
-        self, sample_fusi_3d, make_napari_viewer
+        self, sample_voxeldata_3d, make_napari_viewer
     ):
         """A dim without a coordinate uses scale=1.0 and translate=0.0."""
-        da = sample_fusi_3d.expand_dims({"channel": 2})
+        da = sample_voxeldata_3d.expand_dims({"channel": 2})
         viewer = make_napari_viewer()
         with pytest.warns(UserWarning):
             _, layer = plot_napari(
@@ -139,12 +139,12 @@ class TestPlotNapari:
         viewer.close()
 
     def test_dim_order_reorders_4d_display_axes(
-        self, sample_fusi_3dt, make_napari_viewer
+        self, sample_voxeldata_3dt, make_napari_viewer
     ):
         """`dim_order` reorders the spatial display axes; time is kept first."""
         viewer = make_napari_viewer()
         plot_napari(
-            sample_fusi_3dt,
+            sample_voxeldata_3dt,
             viewer=viewer,
             dim_order=("j", "k", "i"),
             show_colorbar=False,
@@ -155,12 +155,12 @@ class TestPlotNapari:
         assert tuple(viewer.dims.order) == (0, 2, 1, 3)
         viewer.close()
 
-    def test_dim_order_mismatch_raises(self, sample_fusi_3dt, make_napari_viewer):
+    def test_dim_order_mismatch_raises(self, sample_voxeldata_3dt, make_napari_viewer):
         """`dim_order` must list every spatial dim by name."""
         viewer = make_napari_viewer()
         with pytest.raises(ValueError, match="dim_order"):
             plot_napari(
-                sample_fusi_3dt,
+                sample_voxeldata_3dt,
                 viewer=viewer,
                 dim_order=("k", "j", "foo"),
                 show_colorbar=False,
@@ -169,14 +169,14 @@ class TestPlotNapari:
         viewer.close()
 
     def test_labels_layer_preserves_xarray_metadata(
-        self, sample_fusi_3dt, make_napari_viewer
+        self, sample_voxeldata_3dt, make_napari_viewer
     ):
         """Labels layers keep the source DataArray in napari metadata."""
         labels = xr.DataArray(
-            (sample_fusi_3dt > 0.5).astype(np.int32),
-            dims=sample_fusi_3dt.dims,
-            coords=sample_fusi_3dt.coords,
-            attrs=sample_fusi_3dt.attrs,
+            (sample_voxeldata_3dt > 0.5).astype(np.int32),
+            dims=sample_voxeldata_3dt.dims,
+            coords=sample_voxeldata_3dt.coords,
+            attrs=sample_voxeldata_3dt.attrs,
         )
         viewer = make_napari_viewer()
         _, layer = plot_napari(
@@ -190,9 +190,9 @@ class TestPlotNapari:
         assert layer.metadata["xarray"] is labels
         viewer.close()
 
-    def test_invalid_layer_type_raises(self, sample_fusi_3d) -> None:
+    def test_invalid_layer_type_raises(self, sample_voxeldata_3d) -> None:
         with pytest.raises(ValueError, match="Unknown layer_type"):
-            plot_napari(sample_fusi_3d, layer_type="bogus")  # ty: ignore[invalid-argument-type]
+            plot_napari(sample_voxeldata_3d, layer_type="bogus")  # ty: ignore[invalid-argument-type]
 
     def test_without_voxel_to_world_index_raises(self) -> None:
         """plot_napari raises clearly without a voxel-to-world index."""
@@ -201,10 +201,10 @@ class TestPlotNapari:
         with pytest.raises(ValueError, match="voxel-to-world index"):
             plot_napari(data)
 
-    def test_non_uniform_spatial_coords_warn(self, sample_fusi_3d, make_napari_viewer):
+    def test_non_uniform_spatial_coords_warn(self, sample_voxeldata_3d, make_napari_viewer):
         data = attach_voxel_to_world_index(
-            sample_fusi_3d.assign_coords(j=[2, 3, 5, 6, 7, 9]),
-            get_voxel_to_world_affine(sample_fusi_3d),
+            sample_voxeldata_3d.assign_coords(j=[2, 3, 5, 6, 7, 9]),
+            get_voxel_to_world_affine(sample_voxeldata_3d),
         )
         viewer = make_napari_viewer()
         with pytest.warns(UserWarning, match="non-uniform spacing"):
@@ -216,8 +216,8 @@ class TestPlotNapari:
             )
         viewer.close()
 
-    def test_image_attrs_cmap_is_forwarded(self, sample_fusi_3d, make_napari_viewer):
-        data = sample_fusi_3d.copy()
+    def test_image_attrs_cmap_is_forwarded(self, sample_voxeldata_3d, make_napari_viewer):
+        data = sample_voxeldata_3d.copy()
         data.attrs["cmap"] = "magma"
         viewer = make_napari_viewer()
         _, layer = plot_napari(
@@ -257,27 +257,27 @@ class TestPlotNapari:
         viewer.close()
 
     def test_complex_data_warns_and_plots_magnitude(
-        self, sample_iq_3dt, make_napari_viewer
+        self, sample_voxeldata_iq_3dt, make_napari_viewer
     ):
         """Complex-valued image data is converted to magnitude with a warning."""
         viewer = make_napari_viewer()
         with pytest.warns(UserWarning, match="Complex-valued data"):
             _, layer = plot_napari(
-                sample_iq_3dt,
+                sample_voxeldata_iq_3dt,
                 viewer=viewer,
                 show_colorbar=False,
                 show_scale_bar=False,
             )
 
         assert np.issubdtype(np.asarray(layer.data).dtype, np.floating)
-        npt.assert_allclose(np.asarray(layer.data), np.abs(sample_iq_3dt.data))
+        npt.assert_allclose(np.asarray(layer.data), np.abs(sample_voxeldata_iq_3dt.data))
         viewer.close()
 
     def test_non_monotonic_coords_are_sorted_before_napari(
-        self, sample_fusi_3d, make_napari_viewer
+        self, sample_voxeldata_3d, make_napari_viewer
     ):
         """plot_napari sorts non-monotonic spatial coordinates before display."""
-        data = sample_fusi_3d.copy().isel(j=[2, 0, 1], i=[3, 1, 2, 0])
+        data = sample_voxeldata_3d.copy().isel(j=[2, 0, 1], i=[3, 1, 2, 0])
 
         viewer = make_napari_viewer()
         _, layer = plot_napari(
@@ -360,29 +360,29 @@ class TestDrawNapariLabels:
             draw_napari_labels(data)
 
     def test_labels_scale_translate_match_image(
-        self, sample_fusi_3d, make_napari_viewer
+        self, sample_voxeldata_3d, make_napari_viewer
     ):
         """Labels overlay shares the image layer's world frame."""
         viewer = make_napari_viewer()
         _, labels_layer = draw_napari_labels(
-            sample_fusi_3d,
+            sample_voxeldata_3d,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
         )
-        # sample_fusi_3d: z spacing 0.2, y 0.1, x 0.05; origins 1.0, 2.0, 3.0.
+        # sample_voxeldata_3d: z spacing 0.2, y 0.1, x 0.05; origins 1.0, 2.0, 3.0.
         npt.assert_allclose(labels_layer.scale, [0.2, 0.1, 0.05], rtol=1e-5)
         npt.assert_allclose(labels_layer.translate, [1.0, 2.0, 3.0], rtol=1e-5)
         viewer.close()
 
     def test_strips_time_dim_from_labels_shape(
-        self, sample_fusi_3dt, make_napari_viewer
+        self, sample_voxeldata_3dt, make_napari_viewer
     ):
         """A reference with a `time` dim produces a spatial-only labels
         layer."""
         viewer = make_napari_viewer()
         _, labels_layer = draw_napari_labels(
-            sample_fusi_3dt,
+            sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
@@ -395,16 +395,16 @@ class TestLabelsFromLayer:
     """Tests for labels_from_layer."""
 
     def test_no_labels_returns_empty_mask_stack(
-        self, sample_fusi_3d, make_napari_viewer
+        self, sample_voxeldata_3d, make_napari_viewer
     ) -> None:
         viewer = make_napari_viewer()
         _, labels_layer = draw_napari_labels(
-            sample_fusi_3d,
+            sample_voxeldata_3d,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
         )
-        result = labels_from_layer(labels_layer, sample_fusi_3d)
+        result = labels_from_layer(labels_layer, sample_voxeldata_3d)
         assert result.dims == ("mask", "k", "j", "i")
         assert result.sizes["mask"] == 0
         viewer.close()
@@ -455,7 +455,7 @@ class TestLabelsFromLayer:
         viewer.close()
 
     def test_drops_time_from_reference(
-        self, sample_fusi_3dt, sample_roi_labels, make_napari_viewer
+        self, sample_voxeldata_3dt, sample_roi_labels, make_napari_viewer
     ) -> None:
         """A 4D reference array produces a purely spatial output."""
         viewer = make_napari_viewer()
@@ -466,7 +466,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
 
-        result = labels_from_layer(labels_layer, sample_fusi_3dt)
+        result = labels_from_layer(labels_layer, sample_voxeldata_3dt)
 
         assert result.dims == ("mask", "k", "j", "i")
         viewer.close()

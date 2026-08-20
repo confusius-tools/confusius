@@ -680,10 +680,10 @@ def test_get_voxel_to_world_origin_uses_first_sampled_voxel() -> None:
 
 
 def test_alignment_between_different_world_grids_raises_clear_error(
-    sample_fusi_3d_irregular_voxels,
+    sample_voxeldata_3d_irregular_voxels,
 ) -> None:
     """Arithmetic alignment tells users to resample mismatched world grids."""
-    left = sample_fusi_3d_irregular_voxels
+    left = sample_voxeldata_3d_irregular_voxels
     right = attach_voxel_to_world_index(
         xr.DataArray(
             np.ones_like(left.values),
@@ -705,10 +705,10 @@ def test_alignment_between_different_world_grids_raises_clear_error(
 
 
 def test_reindex_between_different_world_grids_raises_clear_error(
-    sample_fusi_3d_irregular_voxels,
+    sample_voxeldata_3d_irregular_voxels,
 ) -> None:
     """Reindexing alignment tells users to resample mismatched world grids."""
-    left = sample_fusi_3d_irregular_voxels
+    left = sample_voxeldata_3d_irregular_voxels
     right = attach_voxel_to_world_index(
         xr.DataArray(
             np.ones_like(left.values),
@@ -787,7 +787,7 @@ def test_sel_resolves_descending_and_nonmonotonic_axis_aligned_axes() -> None:
 
 
 def test_sel_scalar_no_exact_match_raises_key_error(
-    sample_fusi_3d_irregular_voxels,
+    sample_voxeldata_3d_irregular_voxels,
 ) -> None:
     """A scalar `.sel` label with no exact match raises instead of snapping.
 
@@ -796,7 +796,7 @@ def test_sel_scalar_no_exact_match_raises_key_error(
     sample instead of raising; the clamped fractional position used to be
     blindly cast to `int`, silently rounding to an unrelated voxel.
     """
-    result = sample_fusi_3d_irregular_voxels
+    result = sample_voxeldata_3d_irregular_voxels
 
     with pytest.raises(KeyError):
         result.sel(z=5.0)  # Between k=0 (z=0) and k=2 (z=20): no exact match.
@@ -805,7 +805,7 @@ def test_sel_scalar_no_exact_match_raises_key_error(
 
 
 def test_sel_scalar_no_exact_match_on_nonmonotonic_axis_raises_key_error(
-    sample_fusi_3d_nonmonotonic_voxels,
+    sample_voxeldata_3d_nonmonotonic_voxels,
 ) -> None:
     """A scalar `.sel` label with no exact match on a non-monotonic axis raises.
 
@@ -815,14 +815,14 @@ def test_sel_scalar_no_exact_match_on_nonmonotonic_axis_raises_key_error(
     not-found error.
     """
     with pytest.raises(KeyError):
-        sample_fusi_3d_nonmonotonic_voxels.sel(y=5.0)  # No exact match on j.
+        sample_voxeldata_3d_nonmonotonic_voxels.sel(y=5.0)  # No exact match on j.
 
 
 def test_sel_slice_out_of_range_selects_nothing_and_step_subsamples(
-    sample_fusi_3d_irregular_voxels,
+    sample_voxeldata_3d_irregular_voxels,
 ) -> None:
     """Axis-aligned slice selection handles an out-of-range slice and a step."""
-    result = sample_fusi_3d_irregular_voxels
+    result = sample_voxeldata_3d_irregular_voxels
 
     empty = result.sel(z=slice(1000.0, 2000.0))
     assert empty.sizes["k"] == 0
@@ -832,10 +832,10 @@ def test_sel_slice_out_of_range_selects_nothing_and_step_subsamples(
 
 
 def test_sel_plain_slice_without_step_selects_contiguous_range(
-    sample_fusi_3d_irregular_voxels,
+    sample_voxeldata_3d_irregular_voxels,
 ) -> None:
     """A plain (no-step) slice with hits selects the contiguous covered range."""
-    result = sample_fusi_3d_irregular_voxels
+    result = sample_voxeldata_3d_irregular_voxels
 
     selected = result.sel(z=slice(0.0, 15.0))
 
@@ -843,10 +843,10 @@ def test_sel_plain_slice_without_step_selects_contiguous_range(
 
 
 def test_voxel_to_world_index_sel_with_unrelated_labels_selects_nothing(
-    sample_fusi_3d_irregular_voxels,
+    sample_voxeldata_3d_irregular_voxels,
 ) -> None:
     """Calling `.sel` with no labels belonging to the index selects nothing."""
-    result = sample_fusi_3d_irregular_voxels
+    result = sample_voxeldata_3d_irregular_voxels
     index = result.xindexes["z"]
 
     selection = index.sel({})
@@ -1004,10 +1004,10 @@ def test_get_voxel_to_world_affine_raises_without_voxel_to_world_geometry() -> N
 
 
 def test_restore_world_coords_rebuilds_geometry_after_expand_dims(
-    sample_fusi_3d_irregular_voxels,
+    sample_voxeldata_3d_irregular_voxels,
 ) -> None:
     """Restoring a dimension fixed by isel rebuilds identical world coordinates."""
-    result = sample_fusi_3d_irregular_voxels
+    result = sample_voxeldata_3d_irregular_voxels
     fixed = result.isel(k=1)
 
     assert restore_voxel_to_world_index(fixed) is fixed

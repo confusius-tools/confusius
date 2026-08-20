@@ -83,12 +83,12 @@ class TestXaxisDimIndex:
         layer = _Layer(np.zeros((10, 4, 6, 8)))
         assert plotter._xaxis_dim_index(layer) == 0
 
-    def test_returns_zero_when_no_time_dim_in_metadata(self, plotter, sample_fusi_3d):
-        layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": sample_fusi_3d})
+    def test_returns_zero_when_no_time_dim_in_metadata(self, plotter, sample_voxeldata_3d):
+        layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": sample_voxeldata_3d})
         assert plotter._xaxis_dim_index(layer) == 0
 
-    def test_returns_zero_when_time_is_first_dim(self, plotter, sample_fusi_3dt):
-        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_fusi_3dt})
+    def test_returns_zero_when_time_is_first_dim(self, plotter, sample_voxeldata_3dt):
+        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt})
         assert plotter._xaxis_dim_index(layer) == 0
 
     def test_returns_correct_index_when_time_is_not_first(self, plotter):
@@ -144,10 +144,10 @@ class TestActiveLayer:
         assert plotter._active_layer() is None
 
     def test_returns_layer_for_valid_image_with_xarray(
-        self, viewer, plotter, sample_fusi_3dt
+        self, viewer, plotter, sample_voxeldata_3dt
     ):
         layer = viewer.add_image(
-            sample_fusi_3dt.values, metadata={"xarray": sample_fusi_3dt}
+            sample_voxeldata_3dt.values, metadata={"xarray": sample_voxeldata_3dt}
         )
         assert plotter._active_layer() is layer
 
@@ -159,10 +159,10 @@ class TestActiveLayer:
 
 class TestOnMouseMove:
     def test_shift_updates_cursor_pos_and_current_layer(
-        self, viewer, plotter, sample_fusi_3dt
+        self, viewer, plotter, sample_voxeldata_3dt
     ):
         layer = viewer.add_image(
-            sample_fusi_3dt.values, metadata={"xarray": sample_fusi_3dt}
+            sample_voxeldata_3dt.values, metadata={"xarray": sample_voxeldata_3dt}
         )
         viewer.layers.selection.active = layer
         plotter._on_mouse_move(viewer, _FakeEventShift())
@@ -193,10 +193,10 @@ class TestGetXaxisCoords:
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
         assert plotter._get_xaxis_coords(layer) is None
 
-    def test_returns_correct_coords(self, plotter, sample_fusi_3dt):
-        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_fusi_3dt})
+    def test_returns_correct_coords(self, plotter, sample_voxeldata_3dt):
+        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt})
         coords = plotter._get_xaxis_coords(layer)
-        npt.assert_array_equal(coords, sample_fusi_3dt.coords["time"].values)
+        npt.assert_array_equal(coords, sample_voxeldata_3dt.coords["time"].values)
 
     def test_resolves_slider_dim_coords_when_no_time(self, plotter):
         # No time dim: the x-axis falls back to the slider dim (z), so the trace
@@ -241,9 +241,9 @@ class TestGetXaxisLabel:
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
         assert plotter._get_xaxis_label(layer) == "Z (mm)"
 
-    def test_uses_units_from_time_coord(self, plotter, sample_fusi_3dt):
-        # sample_fusi_3dt has time attrs={"units": "s"}, no long_name.
-        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_fusi_3dt})
+    def test_uses_units_from_time_coord(self, plotter, sample_voxeldata_3dt):
+        # sample_voxeldata_3dt has time attrs={"units": "s"}, no long_name.
+        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt})
         assert plotter._get_xaxis_label(layer) == "Time (s)"
 
     def test_uses_long_name_and_units(self, plotter):
@@ -421,12 +421,12 @@ class TestVideoLayerInteraction:
     """
 
     @pytest.fixture
-    def fusi_layer(self, viewer, sample_fusi_3dt):
+    def fusi_layer(self, viewer, sample_voxeldata_3dt):
         """Add a real fUSI layer with xarray metadata to the viewer."""
         from confusius.plotting import plot_napari
 
         _, layer = plot_napari(
-            sample_fusi_3dt,
+            sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
@@ -480,14 +480,14 @@ class TestVideoLayerInteraction:
         assert plotter._current_layer is fusi_layer
 
     def test_cursor_uses_world_value_when_video_selected(
-        self, viewer, plotter, fusi_layer, video_layer, sample_fusi_3dt
+        self, viewer, plotter, fusi_layer, video_layer, sample_voxeldata_3dt
     ):
         """The x-axis cursor uses the world value directly (no snapping)
         even when the fUSI layer is retained as _current_layer.  This
         keeps the cursor in exact sync with the time overlay.
         """
         plotter._current_layer = fusi_layer
-        plotter._xaxis_coords = np.array(sample_fusi_3dt.coords["time"].values)
+        plotter._xaxis_coords = np.array(sample_voxeldata_3dt.coords["time"].values)
         plotter._xaxis_dim = "time"
 
         # Select the video layer (doesn't change _current_layer).
@@ -498,26 +498,26 @@ class TestVideoLayerInteraction:
         assert result == pytest.approx(2.0)
 
     def test_click_to_navigate_works_when_video_selected(
-        self, plotter, fusi_layer, sample_fusi_3dt
+        self, plotter, fusi_layer, sample_voxeldata_3dt
     ):
         """_x_to_frame must still convert xarray coords to frame indices
         when _xaxis_coords is retained from the fUSI layer.
         """
         plotter._current_layer = fusi_layer
-        plotter._xaxis_coords = np.array(sample_fusi_3dt.coords["time"].values)
+        plotter._xaxis_coords = np.array(sample_voxeldata_3dt.coords["time"].values)
 
         # Click on x=11.0 in the plot -> should map to frame index 2.
         frame = plotter._x_to_frame(11.0)
         assert frame == pytest.approx(2.0)
 
     def test_flush_cursor_with_fusi_retained_after_video_selection(
-        self, viewer, plotter, fusi_layer, video_layer, sample_fusi_3dt
+        self, viewer, plotter, fusi_layer, video_layer, sample_voxeldata_3dt
     ):
         """_flush_cursor must use the world value directly (no snapping)
         when the video layer is selected but _current_layer is the fUSI.
         """
         plotter._current_layer = fusi_layer
-        plotter._xaxis_coords = np.array(sample_fusi_3dt.coords["time"].values)
+        plotter._xaxis_coords = np.array(sample_voxeldata_3dt.coords["time"].values)
         plotter._xaxis_dim = "time"
 
         plotter._vline = plotter._axes.axvline(0, color="red", animated=True)
@@ -548,12 +548,12 @@ class TestPanelXaxisWithVideoLayer:
     """
 
     @pytest.fixture
-    def fusi_layer(self, viewer, sample_fusi_3dt):
+    def fusi_layer(self, viewer, sample_voxeldata_3dt):
         """Add a real fUSI layer with xarray metadata to the viewer."""
         from confusius.plotting import plot_napari
 
         _, layer = plot_napari(
-            sample_fusi_3dt,
+            sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
@@ -698,10 +698,10 @@ class TestUpdatePlotXlim:
 
 class TestTsvExport:
     def test_writes_time_first_column_for_current_plot(
-        self, plotter, tmp_path, sample_fusi_3dt
+        self, plotter, tmp_path, sample_voxeldata_3dt
     ):
-        data = np.asarray(sample_fusi_3dt)
-        layer = _Layer(data, metadata={"xarray": sample_fusi_3dt})
+        data = np.asarray(sample_voxeldata_3dt)
+        layer = _Layer(data, metadata={"xarray": sample_voxeldata_3dt})
         layer.name = "signal"
 
         plotter._current_layer = layer
@@ -715,7 +715,7 @@ class TestTsvExport:
         assert rows[0] == ["time", "signal"]
         assert [row[0] for row in rows[1:]] == [
             format_export_value(value)
-            for value in sample_fusi_3dt.coords["time"].values
+            for value in sample_voxeldata_3dt.coords["time"].values
         ]
         assert [row[1] for row in rows[1:]] == [
             format_export_value(value) for value in data[:, 1, 2, 3]

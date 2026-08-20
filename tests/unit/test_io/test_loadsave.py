@@ -17,9 +17,9 @@ from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
-def saveable_volume(sample_fusi_3d: xr.DataArray) -> xr.DataArray:
+def saveable_volume(sample_voxeldata_3d: xr.DataArray) -> xr.DataArray:
     """Canonical fUSI volume accepted by public save APIs."""
-    return sample_fusi_3d.copy(deep=True)
+    return sample_voxeldata_3d.copy(deep=True)
 
 
 class TestLoadDispatch:

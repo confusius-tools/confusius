@@ -70,49 +70,49 @@ def _labels_like(data, dims, reference):
 class TestWithLabels:
     """Tests for extract.extract_with_labels function."""
 
-    def test_labels_type_validation(self, sample_fusi_3dt):
+    def test_labels_type_validation(self, sample_voxeldata_3dt):
         """Test that non-DataArray labels raises TypeError."""
         with pytest.raises(TypeError, match="xarray.DataArray"):
             extract.extract_with_labels(
-                sample_fusi_3dt,
+                sample_voxeldata_3dt,
                 np.zeros((4, 6, 8), dtype=int),  # ty: ignore[invalid-argument-type]
             )
 
-    def test_labels_dtype_validation(self, sample_fusi_3dt):
+    def test_labels_dtype_validation(self, sample_voxeldata_3dt):
         """Test that non-integer labels raises TypeError."""
-        labels = _canonical(np.random.rand(*sample_fusi_3dt.shape[1:]), ("k", "j", "i"))
+        labels = _canonical(np.random.rand(*sample_voxeldata_3dt.shape[1:]), ("k", "j", "i"))
         with pytest.raises(TypeError, match="integer dtype"):
-            extract.extract_with_labels(sample_fusi_3dt, labels)
+            extract.extract_with_labels(sample_voxeldata_3dt, labels)
 
-    def test_boolean_labels_rejected(self, sample_fusi_3dt):
+    def test_boolean_labels_rejected(self, sample_voxeldata_3dt):
         """Test that boolean dtype labels raises TypeError."""
         labels = _canonical(
-            np.ones(sample_fusi_3dt.shape[1:], dtype=bool), ("k", "j", "i")
+            np.ones(sample_voxeldata_3dt.shape[1:], dtype=bool), ("k", "j", "i")
         )
         with pytest.raises(TypeError, match="integer dtype"):
-            extract.extract_with_labels(sample_fusi_3dt, labels)
+            extract.extract_with_labels(sample_voxeldata_3dt, labels)
 
-    def test_missing_spatial_dim(self, sample_fusi_3dt):
+    def test_missing_spatial_dim(self, sample_voxeldata_3dt):
         """Test that labels missing native voxel dims raises ValueError."""
         labels = xr.DataArray(np.array([1, 0, 2], dtype=int), dims=["w"])
         with pytest.raises(
             ValueError, match="native voxel dimensions|missing voxel dimension"
         ):
-            extract.extract_with_labels(sample_fusi_3dt, labels)
+            extract.extract_with_labels(sample_voxeldata_3dt, labels)
 
-    def test_output_dims_4d(self, sample_fusi_3dt):
+    def test_output_dims_4d(self, sample_voxeldata_3dt):
         """Test that spatial dims are replaced by region for 3D+t data."""
         labels_data = np.zeros((4, 6, 8), dtype=int)
         labels_data[:2, :, :] = 1
         labels_data[2:, :, :] = 2
-        labels = _labels_like(labels_data, ("k", "j", "i"), sample_fusi_3dt)
+        labels = _labels_like(labels_data, ("k", "j", "i"), sample_voxeldata_3dt)
 
-        result = extract.extract_with_labels(sample_fusi_3dt, labels)
+        result = extract.extract_with_labels(sample_voxeldata_3dt, labels)
 
         assert result.dims == ("time", "region")
         np.testing.assert_array_equal(result.coords["region"].values, [1, 2])
 
-    def test_restores_scalar_voxel_dim(self, sample_fusi_3dt):
+    def test_restores_scalar_voxel_dim(self, sample_voxeldata_3dt):
         """`data` with a scalar-reduced voxel dim (e.g. from `.isel(k=0)`) works.
 
         `.isel(k=0)` collapses `k` to a scalar coordinate, dropping the dim itself,
@@ -120,11 +120,11 @@ class TestWithLabels:
         `extract_with_labels` canonicalizes `data` itself rather than relying on
         `ensure_labels`'s internal (and discarded) canonicalization of it.
         """
-        single_k = sample_fusi_3dt.isel(k=0)
-        labels_data = np.zeros(sample_fusi_3dt.shape[1:], dtype=int)
+        single_k = sample_voxeldata_3dt.isel(k=0)
+        labels_data = np.zeros(sample_voxeldata_3dt.shape[1:], dtype=int)
         labels_data[:, :, :4] = 1
         labels_data[:, :, 4:] = 2
-        labels = _labels_like(labels_data, ("k", "j", "i"), sample_fusi_3dt).isel(
+        labels = _labels_like(labels_data, ("k", "j", "i"), sample_voxeldata_3dt).isel(
             k=[0]
         )
 
@@ -222,123 +222,123 @@ class TestWithLabels:
         expected = extract.extract_with_labels(data_eager, labels)
         np.testing.assert_allclose(result.values, expected.values)
 
-    def test_stacked_masks_format(self, sample_fusi_3dt):
+    def test_stacked_masks_format(self, sample_voxeldata_3dt):
         """Test extraction with stacked mask format (masks, z, y, x)."""
-        _, nz, ny, nx = sample_fusi_3dt.shape
+        _, nz, ny, nx = sample_voxeldata_3dt.shape
 
         # Build a stacked mask with two named regions.
         mask_data = np.zeros((2, nz, ny, nx), dtype=int)
         mask_data[0, 0, :, :] = 1  # Region "VISp": first k-slice.
         mask_data[1, 1, :, :] = 2  # Region "AUDp": second k-slice.
         labels = _labels_like(
-            mask_data, ("mask", "k", "j", "i"), sample_fusi_3dt
+            mask_data, ("mask", "k", "j", "i"), sample_voxeldata_3dt
         ).assign_coords(mask=["VISp", "AUDp"])
 
-        result = extract.extract_with_labels(sample_fusi_3dt, labels)
+        result = extract.extract_with_labels(sample_voxeldata_3dt, labels)
 
         assert set(result.dims) == {"time", "region"}
         np.testing.assert_array_equal(result.coords["region"].values, ["VISp", "AUDp"])
         np.testing.assert_allclose(
             result.sel(region="VISp").values,
-            sample_fusi_3dt.values[:, 0, :, :].mean(axis=(-2, -1)),
+            sample_voxeldata_3dt.values[:, 0, :, :].mean(axis=(-2, -1)),
         )
         np.testing.assert_allclose(
             result.sel(region="AUDp").values,
-            sample_fusi_3dt.values[:, 1, :, :].mean(axis=(-2, -1)),
+            sample_voxeldata_3dt.values[:, 1, :, :].mean(axis=(-2, -1)),
         )
 
-    def test_stacked_masks_overlapping(self, sample_fusi_3dt):
+    def test_stacked_masks_overlapping(self, sample_voxeldata_3dt):
         """Test extraction with overlapping stacked masks."""
-        _, nz, ny, nx = sample_fusi_3dt.shape
+        _, nz, ny, nx = sample_voxeldata_3dt.shape
 
         # Region "A": k-slices 0 and 1; Region "B": k-slices 1 and 2 — k=1 overlaps.
         mask_data = np.zeros((2, nz, ny, nx), dtype=int)
         mask_data[0, 0:2, :, :] = 1  # Region "A": slices 0–1.
         mask_data[1, 1:3, :, :] = 2  # Region "B": slices 1–2.
         labels = _labels_like(
-            mask_data, ("mask", "k", "j", "i"), sample_fusi_3dt
+            mask_data, ("mask", "k", "j", "i"), sample_voxeldata_3dt
         ).assign_coords(mask=["A", "B"])
 
-        result = extract.extract_with_labels(sample_fusi_3dt, labels)
+        result = extract.extract_with_labels(sample_voxeldata_3dt, labels)
 
         assert set(result.dims) == {"time", "region"}
         np.testing.assert_array_equal(result.coords["region"].values, ["A", "B"])
         np.testing.assert_allclose(
             result.sel(region="A").values,
-            sample_fusi_3dt.values[:, 0:2, :, :].mean(axis=(-3, -2, -1)),
+            sample_voxeldata_3dt.values[:, 0:2, :, :].mean(axis=(-3, -2, -1)),
         )
         np.testing.assert_allclose(
             result.sel(region="B").values,
-            sample_fusi_3dt.values[:, 1:3, :, :].mean(axis=(-3, -2, -1)),
+            sample_voxeldata_3dt.values[:, 1:3, :, :].mean(axis=(-3, -2, -1)),
         )
 
-    def test_stacked_masks_duplicate_ids_non_overlapping(self, sample_fusi_3dt):
+    def test_stacked_masks_duplicate_ids_non_overlapping(self, sample_voxeldata_3dt):
         """Non-overlapping layers sharing the same raw id must stay distinct regions.
 
         Regression test: layer position along `mask`, not the layer's own non-zero
         value, is what identifies a region — mirrors Atlas.get_masks reusing a
         region's id across its left/right hemisphere layers.
         """
-        _, nz, ny, nx = sample_fusi_3dt.shape
+        _, nz, ny, nx = sample_voxeldata_3dt.shape
 
         mask_data = np.zeros((2, nz, ny, nx), dtype=int)
         mask_data[0, 0, :, :] = 7  # Region "VISp_L": first k-slice, id 7.
         mask_data[1, 1, :, :] = 7  # Region "VISp_R": second k-slice, same id 7.
         labels = _labels_like(
-            mask_data, ("mask", "k", "j", "i"), sample_fusi_3dt
+            mask_data, ("mask", "k", "j", "i"), sample_voxeldata_3dt
         ).assign_coords(mask=["VISp_L", "VISp_R"])
 
-        result = extract.extract_with_labels(sample_fusi_3dt, labels)
+        result = extract.extract_with_labels(sample_voxeldata_3dt, labels)
 
         np.testing.assert_array_equal(
             result.coords["region"].values, ["VISp_L", "VISp_R"]
         )
         np.testing.assert_allclose(
             result.sel(region="VISp_L").values,
-            sample_fusi_3dt.values[:, 0, :, :].mean(axis=(-2, -1)),
+            sample_voxeldata_3dt.values[:, 0, :, :].mean(axis=(-2, -1)),
         )
         np.testing.assert_allclose(
             result.sel(region="VISp_R").values,
-            sample_fusi_3dt.values[:, 1, :, :].mean(axis=(-2, -1)),
+            sample_voxeldata_3dt.values[:, 1, :, :].mean(axis=(-2, -1)),
         )
 
-    def test_stacked_masks_duplicate_ids_overlapping(self, sample_fusi_3dt):
+    def test_stacked_masks_duplicate_ids_overlapping(self, sample_voxeldata_3dt):
         """Overlapping layers sharing the same raw id must stay distinct regions."""
-        _, nz, ny, nx = sample_fusi_3dt.shape
+        _, nz, ny, nx = sample_voxeldata_3dt.shape
 
         mask_data = np.zeros((2, nz, ny, nx), dtype=int)
         mask_data[0, 0:2, :, :] = 3  # Region "A": slices 0-1, id 3.
         mask_data[1, 1:3, :, :] = 3  # Region "B": slices 1-2, same id 3.
         labels = _labels_like(
-            mask_data, ("mask", "k", "j", "i"), sample_fusi_3dt
+            mask_data, ("mask", "k", "j", "i"), sample_voxeldata_3dt
         ).assign_coords(mask=["A", "B"])
 
-        result = extract.extract_with_labels(sample_fusi_3dt, labels)
+        result = extract.extract_with_labels(sample_voxeldata_3dt, labels)
 
         np.testing.assert_array_equal(result.coords["region"].values, ["A", "B"])
         np.testing.assert_allclose(
             result.sel(region="A").values,
-            sample_fusi_3dt.values[:, 0:2, :, :].mean(axis=(-3, -2, -1)),
+            sample_voxeldata_3dt.values[:, 0:2, :, :].mean(axis=(-3, -2, -1)),
         )
         np.testing.assert_allclose(
             result.sel(region="B").values,
-            sample_fusi_3dt.values[:, 1:3, :, :].mean(axis=(-3, -2, -1)),
+            sample_voxeldata_3dt.values[:, 1:3, :, :].mean(axis=(-3, -2, -1)),
         )
 
-    def test_stacked_mask_layer_wrong_nonzero_count_raises(self, sample_fusi_3dt):
+    def test_stacked_mask_layer_wrong_nonzero_count_raises(self, sample_voxeldata_3dt):
         """A layer with zero or multiple distinct non-zero values must raise."""
-        _, nz, ny, nx = sample_fusi_3dt.shape
+        _, nz, ny, nx = sample_voxeldata_3dt.shape
 
         mask_data = np.zeros((2, nz, ny, nx), dtype=int)
         mask_data[0, 0, :, :] = 1
         mask_data[1, 1, : ny // 2, :] = 2  # Layer 1 has two distinct values below.
         mask_data[1, 1, ny // 2 :, :] = 3
         labels = _labels_like(
-            mask_data, ("mask", "k", "j", "i"), sample_fusi_3dt
+            mask_data, ("mask", "k", "j", "i"), sample_voxeldata_3dt
         ).assign_coords(mask=["A", "B"])
 
         with pytest.raises(ValueError, match="exactly one unique non-zero"):
-            extract.extract_with_labels(sample_fusi_3dt, labels)
+            extract.extract_with_labels(sample_voxeldata_3dt, labels)
 
     def test_dask_spatial_chunks(self):
         """Test correctness when spatial dims are chunked in the Dask array."""

@@ -45,18 +45,18 @@ def scan_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def zarr_3d_path(tmp_path: Path, sample_fusi_3d: xr.DataArray) -> Path:
-    """Zarr store built from the shared sample_fusi_3d fixture."""
+def zarr_3d_path(tmp_path: Path, sample_voxeldata_3d: xr.DataArray) -> Path:
+    """Zarr store built from the shared sample_voxeldata_3d fixture."""
     path = tmp_path / "vol3d.zarr"
-    save(sample_fusi_3d, path)
+    save(sample_voxeldata_3d, path)
     return path
 
 
 @pytest.fixture
-def zarr_4d_path(tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> Path:
-    """Zarr store built from the shared sample_fusi_3dt fixture."""
+def zarr_4d_path(tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> Path:
+    """Zarr store built from the shared sample_voxeldata_3dt fixture."""
     path = tmp_path / "vol4d.zarr"
-    save(sample_fusi_3dt, path)
+    save(sample_voxeldata_3dt, path)
     return path
 
 
@@ -234,7 +234,7 @@ class TestReaderLayerData:
         assert kwargs["units"] == ["mm", "mm", "mm"]
 
     def test_voxel_to_world_is_resampled_to_world_grid(
-        self, tmp_path: Path, sample_fusi_3d_oblique
+        self, tmp_path: Path, sample_voxeldata_3d_oblique
     ) -> None:
         """Oblique reader output uses an axis-aligned world grid for napari.
 
@@ -244,7 +244,7 @@ class TestReaderLayerData:
         plot_napari's display convention.
         """
         path = tmp_path / "cti.zarr"
-        save(sample_fusi_3d_oblique, path)
+        save(sample_voxeldata_3d_oblique, path)
 
         reader = read_zarr(str(path))
         assert reader is not None
@@ -256,7 +256,7 @@ class TestReaderLayerData:
         assert has_voxel_to_world_index(kwargs["metadata"]["xarray"])
         # The displayed layer is actually resampled onto an axis-aligned grid, unlike
         # the sheared source data.
-        assert not has_axis_aligned_voxel_to_world_index(sample_fusi_3d_oblique)
+        assert not has_axis_aligned_voxel_to_world_index(sample_voxeldata_3d_oblique)
         assert has_axis_aligned_voxel_to_world_index(kwargs["metadata"]["xarray"])
         assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
         npt.assert_allclose(kwargs["translate"], [10.0, 20.0, 30.0], rtol=1e-5)
