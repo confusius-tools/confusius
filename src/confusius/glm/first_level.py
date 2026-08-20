@@ -181,9 +181,10 @@ class FirstLevelModel(BaseEstimator):
         Parameters
         ----------
         run_data : xarray.DataArray or list of xarray.DataArray
-            Single-run or multi-run VoxelData array. Must have a `time`
-            dimension; all other dimensions are treated as spatial (e.g.
-            `(time, k, j, i)` or `(time, pose, k, j, i)`).
+            A single-run VoxelData array, or a list of per-run VoxelData arrays for
+            multi-run data. Each array must have a `time` dimension; all other
+            dimensions are treated as spatial (e.g. `(time, k, j, i)` or `(time,
+            pose, k, j, i)`).
         events : pandas.DataFrame or list of pandas.DataFrame, optional
             Events table(s) with `onset`, `duration`, and `trial_type` columns. Onsets
             are in the same world time units as the `time` coordinate of `run_data`.
