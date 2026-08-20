@@ -8,11 +8,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS
 from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     import numpy.typing as npt
 
@@ -353,83 +352,3 @@ def resolve_contrast_vector(
         return contrast_def
 
     raise ValueError("Contrast must be a string, 1D, or 2D array.")
-
-
-def to_spatial_dataarray(
-    flat: npt.NDArray[np.floating],
-    *,
-    spatial_dims: tuple[str, ...],
-    spatial_shape: tuple[int, ...],
-    coords: Mapping[str, xr.Variable],
-    attrs: Mapping[str, object],
-    name: str,
-    voxel_to_world: npt.NDArray[np.float64] | None = None,
-    world_coord_attrs: Mapping[str, Mapping[str, object]] | None = None,
-) -> xr.DataArray:
-    """Reshape a flat voxel array into a spatial [`xarray.DataArray`][xarray.DataArray].
-
-    Handles both scalar maps `(n_voxels,)` and *F*-contrast effect maps
-    `(contrast_dim, n_voxels)`; in the second case a leading `contrast_dim` axis is
-    added.
-
-    Parameters
-    ----------
-    flat : (n_voxels,) or (contrast_dim, n_voxels) numpy.ndarray
-        Flat statistical map.
-    spatial_dims : tuple of str
-        Names of the spatial dimensions in their array layout order.
-    spatial_shape : tuple of int
-        Sizes of the spatial dimensions, matching `spatial_dims`.
-    coords : Mapping[str, xarray.Variable]
-        Spatial coordinates for any subset of `spatial_dims`. Missing dims have no
-        coordinate on the output. World coordinate names (`z`/`y`/`x`) are ignored here
-        and reconstructed instead (see `voxel_to_world`).
-    attrs : Mapping[str, object]
-        Base attributes; merged with `long_name=name` and `cmap="coolwarm"`.
-    name : str
-        Value for the `long_name` DataArray attribute.
-    voxel_to_world : numpy.typing.ArrayLike, optional
-        Homogeneous voxel-to-world affine to reattach as a proper voxel-to-world
-        index. World coordinates cannot be carried over as plain values (unlike
-        `coords`) because they are backed by a custom `VoxelToWorldIndex` that a bare
-        coordinate assignment does not reconstruct. If not provided, no voxel-to-world
-        geometry is attached.
-    world_coord_attrs : Mapping[str, Mapping[str, object]], optional
-        Attributes to attach to each reconstructed world coordinate, keyed by world
-        coordinate name.
-
-    Returns
-    -------
-    xarray.DataArray
-        Map reshaped to the given spatial dimensions.
-    """
-    if flat.ndim == 2:
-        volume = flat.reshape((-1, *spatial_shape))
-        dims: tuple[str, ...] = ("contrast_dim", *spatial_dims)
-    else:
-        volume = flat.reshape(spatial_shape)
-        dims = spatial_dims
-
-    spatial_dim_set = set(spatial_dims)
-    excluded_names = set(SPATIAL_DIMS) if voxel_to_world is not None else set()
-    result = xr.DataArray(
-        volume,
-        dims=dims,
-        coords={
-            name: coord
-            for name, coord in coords.items()
-            if set(coord.dims).issubset(spatial_dim_set) and name not in excluded_names
-        },
-        attrs={**attrs, "long_name": name, "cmap": "coolwarm"},
-    )
-
-    if voxel_to_world is not None:
-        from confusius._utils.geometry import attach_voxel_to_world_index
-
-        result = attach_voxel_to_world_index(
-            result,
-            voxel_to_world,
-            world_coord_attrs=world_coord_attrs,
-        )
-
-    return result

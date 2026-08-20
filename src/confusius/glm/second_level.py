@@ -17,18 +17,13 @@ import pandas as pd
 import xarray as xr
 from sklearn.base import BaseEstimator
 
-from confusius._utils.geometry import (
-    get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
-    has_voxel_to_world_index,
-)
+from confusius.extract import unmask
 from confusius.glm._contrasts import Contrast
 from confusius.glm._models import OLSModel, RegressionResults
 from confusius.glm._utils import (
     intersect_attrs,
     resolve_contrast_vector,
     select_contrast_map,
-    to_spatial_dataarray,
 )
 from confusius.glm.first_level import FirstLevelModel
 from confusius.validation import ensure_voxeldata
@@ -281,29 +276,14 @@ class SecondLevelModel(BaseEstimator):
         model = OLSModel(dm.to_numpy(dtype=np.float64))
         self.results_: RegressionResults = model.fit(Y)
         self.design_matrix_: pd.DataFrame = dm
-        self._spatial_dims: tuple[str, ...] = ref_dims
-        self._spatial_shape: tuple[int, ...] = ref_shape
-        spatial_dim_set = set(ref_dims)
-        self._coords: dict[str, xr.Variable] = {
-            str(name): coord
-            for name, coord in ref.coords.items()
-            if set(coord.dims).issubset(spatial_dim_set)
-        }
         self._input_attrs: dict[str, object] = intersect_attrs(maps)
 
-        if has_voxel_to_world_index(ref):
-            self._voxel_to_world: npt.NDArray[np.float64] | None = (
-                get_voxel_to_world_affine(ref)
-            )
-            world_coord_names = get_voxel_to_world_coord_names(ref)
-            self._world_coord_attrs: dict[str, dict[str, object]] | None = {
-                name: dict(ref.coords[name].attrs)
-                for name in world_coord_names
-                if name in ref.coords
-            }
-        else:
-            self._voxel_to_world = None
-            self._world_coord_attrs = None
+        # _resolve_input always canonicalizes maps via ensure_voxeldata, so ref is
+        # always VoxelData; an all-True mask on its grid lets compute_contrast
+        # reconstruct maps via unmask, matching FirstLevelModel's pattern.
+        self._effective_mask_: xr.DataArray = ensure_voxeldata(
+            ref.copy(data=np.ones(ref.shape, dtype=bool)), allow_extra_dims=False
+        )
 
         return self
 
@@ -406,15 +386,11 @@ class SecondLevelModel(BaseEstimator):
             self.results_, contrast_vec, stat_type=stat_type, baseline=baseline
         )
         flat = select_contrast_map(contrast_obj, output_type)
-        return to_spatial_dataarray(
+        return unmask(
             flat,
-            spatial_dims=self._spatial_dims,
-            spatial_shape=self._spatial_shape,
-            coords=self._coords,
-            attrs=self._input_attrs,
-            name=output_type,
-            voxel_to_world=self._voxel_to_world,
-            world_coord_attrs=self._world_coord_attrs,
+            self._effective_mask_,
+            new_dims=["contrast_dim"] if flat.ndim == 2 else None,
+            attrs={**self._input_attrs, "long_name": output_type, "cmap": "coolwarm"},
         )
 
     def _check_is_fitted(self) -> None:
