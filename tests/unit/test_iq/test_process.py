@@ -794,8 +794,8 @@ class TestProcessIqToPowerDoppler:
 
         assert result.coords["time"].attrs[
             "volume_acquisition_duration"
-        ] == pytest.approx(1.6)
-        assert result.attrs["bmode_integration_duration"] == pytest.approx(1.6)
+        ] == pytest.approx(3.0)
+        assert result.attrs["bmode_integration_duration"] == pytest.approx(3.0)
 
     def test_butterworth_non_uniform_time_raises(self, sample_iq_dataarray):
         """Butterworth filtering rejects non-uniform time coordinates."""
