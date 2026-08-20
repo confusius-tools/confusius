@@ -384,16 +384,10 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     return brain_to_lab
 
 
-def _add_world_to_brain(
-    affines: dict[str, Any],
-    bps_path: str | Path,
-    probe_to_lab: npt.NDArray[np.float64] | None,
-) -> None:
+def _add_world_to_brain(affines: dict[str, Any], bps_path: str | Path) -> None:
     """Compose a `world_to_brain` affine from a BPS sidecar and store it in `affines`.
 
-    ConfUSIus world coordinates for SCAN data are already lab space because the
-    probe-to-lab transform is folded into the primary voxel-to-world affine at
-    construction. Therefore `world_to_brain` maps directly from world to brain:
+    ConfUSIus world coordinates for SCAN data are already lab space, so
     `world_to_brain = inv(load_bps(bps_path))`.
 
     Parameters
@@ -402,29 +396,12 @@ def _add_world_to_brain(
         The DataArray's `affines` attribute; mutated in place to add `world_to_brain`.
     bps_path : str or pathlib.Path
         Path to the BPS file (`.bps`).
-    probe_to_lab : numpy.ndarray, optional
-        The affine that was (or would have been) folded into the primary geometry at
-        construction. Only used to confirm lab space is actually this DataArray's
-        world frame; `None` means it could not be built (e.g. an implausible SCAN v2
-        6DOF probe-pose block), in which case composing `world_to_brain` is impossible
-        and a clear error is raised instead.
 
     Returns
     -------
     None
         `affines` is updated in place.
-
-    Raises
-    ------
-    ValueError
-        If `probe_to_lab` is `None`.
     """
-    if probe_to_lab is None:
-        raise ValueError(
-            "bps_path was given but no probe_to_lab affine could be built for this "
-            "SCAN file (e.g. the 6DOF probe-pose block was missing or implausible), "
-            "so the BPS transform cannot be composed."
-        )
     brain_to_lab = load_bps(bps_path)
     affines["world_to_brain"] = np.linalg.inv(brain_to_lab)
 
@@ -455,9 +432,7 @@ def load_scan(
         Path to the SCAN file (`.scan`).
     bps_path : str or pathlib.Path, optional
         Path to the corresponding BPS file (`.bps`). If provided, a `world_to_brain`
-        affine is added to `da.attrs["affines"]`. For v2 files this requires the
-        (experimental) `probe_to_lab` affine to have been built; if it could not be,
-        passing `bps_path` raises.
+        affine is added to `da.attrs["affines"]`.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
         Dask chunk specification passed to `dask.array.from_array`. Accepted forms:
 
@@ -487,9 +462,9 @@ def load_scan(
     ------
     ValueError
         If `path` does not exist or is not a file, if the file is neither an
-        HDF5-based SCAN (v1) nor a binary SCAN v2 file, if `bps_path` is passed for a
-        v2 file whose `probe_to_lab` affine could not be built, or if a v1
-        `acquisitionMode` is not one of `"2Dscan"`, `"3Dscan"`, or `"4Dscan"`.
+        HDF5-based SCAN (v1) nor a binary SCAN v2 file, if a v2 file's experimental
+        `probe_to_lab` affine cannot be built, or if a v1 `acquisitionMode` is not one
+        of `"2Dscan"`, `"3Dscan"`, or `"4Dscan"`.
 
     Notes
     -----
@@ -500,8 +475,8 @@ def load_scan(
     centered on zero (correct spacing, arbitrary origin). A `probe_to_lab` affine is
     built from a header block interpreted as a 6DOF probe pose (translation + rotation),
     the v2 equivalent of SCAN v1's `probeToLab`; this interpretation is experimental
-    (validated on a single near-identity pose, assumed axis order and Euler convention)
-    and is omitted if the block cannot be validated.
+    (validated on a single near-identity pose, assumed axis order and Euler convention),
+    and loading fails if the pose block is implausible.
     Multi-pose / multi-block v2 layouts are inferred by analogy with v1 and have not
     been validated against real files. Provenance strings are mapped to v1-style
     `iconeus_*` fields heuristically (by position, with the hex-encoded serial/hardware
@@ -558,9 +533,8 @@ def load_scan(
                 f"{type(error).__name__}: {error}"
             ) from error
 
-        probe_to_lab = data_array.attrs.pop("_probe_to_lab")
         if bps_path is not None:
-            _add_world_to_brain(data_array.attrs["affines"], bps_path, probe_to_lab)
+            _add_world_to_brain(data_array.attrs["affines"], bps_path)
         return data_array
 
     raise ValueError(
@@ -656,7 +630,7 @@ def _load_scan_v1(
 
         data_array.name = attrs["iconeus_scan"] or path.stem
         if bps_path is not None:
-            _add_world_to_brain(data_array.attrs["affines"], bps_path, probe_to_lab)
+            _add_world_to_brain(data_array.attrs["affines"], bps_path)
     except Exception:
         h5.close()
         raise
@@ -1038,15 +1012,10 @@ def _load_scan_v2(
     voxel_to_probe = _build_scan_v2_voxel_to_probe(meta)
     attrs = _build_scan_v2_attrs(header, npose, n_time_total)
     acquisition = _read_scan_v2_acquisition(header, n_time, meta["depth_start_mm"])
-    probe_to_lab = acquisition.pop("_probe_to_lab", None)
     attrs.update(acquisition)
     # Lab is the canonical VoxelData world frame for SCAN data. v2 only recovers one
     # 6DOF probe pose regardless of npose, so there is nothing to stack.
-    voxel_to_world = (
-        probe_to_lab @ voxel_to_probe if probe_to_lab is not None else voxel_to_probe
-    )
-    # Exposed privately for load_scan's bps_path composition; popped before return.
-    attrs["_probe_to_lab"] = probe_to_lab
+    voxel_to_world = _build_scan_v2_probe_to_lab(header, n_time) @ voxel_to_probe
 
     data_array = create_voxeldata(
         data_lazy,
@@ -1124,9 +1093,7 @@ def _build_rotation_matrix(rx: float, ry: float, rz: float) -> npt.NDArray[np.fl
     return rot_z @ rot_y @ rot_x
 
 
-def _build_scan_v2_probe_to_lab(
-    header: bytes, n_time: int
-) -> npt.NDArray[np.float64] | None:
+def _build_scan_v2_probe_to_lab(header: bytes, n_time: int) -> npt.NDArray[np.float64]:
     """Build a `probe_to_lab` affine from the SCAN v2 6DOF probe-pose block.
 
     The 64-byte orientation block preceding the frequency block holds eight `float64`
@@ -1149,18 +1116,21 @@ def _build_scan_v2_probe_to_lab(
 
     Returns
     -------
-    (4, 4) numpy.ndarray or None
-        The `probe_to_lab` affine in millimeters, or `None` if the pose values are
-        implausible.
+    (4, 4) numpy.ndarray
+        The `probe_to_lab` affine in millimeters.
+
+    Raises
+    ------
+    ValueError
+        If the pose values are implausible.
     """
-    # The caller only invokes this after validating the acquisition block, which lies
-    # after the pose block, so `pose_offset` is guaranteed to be in range.
+    # The fixed header-size checks already guarantee the pose block is in range.
     pose_offset = _SCAN_V2_OFFSETS["time_coords"] + 12 * n_time
     tx, ty, tz, rx, ry, rz = struct.unpack_from("<6d", header, pose_offset)
     if any(abs(t) >= 1.0 for t in (tx, ty, tz)) or any(
         abs(a) > 2 * np.pi for a in (rx, ry, rz)
     ):
-        return None
+        raise ValueError("SCAN v2 probe-pose block is missing or implausible.")
 
     probe_to_lab = np.eye(4, dtype=np.float64)
     probe_to_lab[:3, :3] = _build_rotation_matrix(rx, ry, rz)
@@ -1207,10 +1177,7 @@ def _read_scan_v2_acquisition(
     -------
     dict
         Acquisition attributes that could be recovered; fields whose block could not be
-        validated are simply absent. When the block validates, a private
-        `_probe_to_lab` key holds the pose-derived affine for the caller to fold into
-        `voxel_to_world` (the primary geometry) and use for `world_to_brain`
-        composition; `None` when it could not be built.
+        validated are simply absent.
     """
     o = _SCAN_V2_OFFSETS
 
@@ -1258,13 +1225,6 @@ def _read_scan_v2_acquisition(
             header, dtype="<f8", count=n_angles, offset=name_end + 52
         )
         result["plane_wave_angles"] = angles.tolist()
-
-    # The depth anchor confirms the n_time-derived layout, so the 6DOF pose block (in the
-    # same region) can be trusted; expose the affine it yields under a private key that
-    # the caller moves into `attrs["affines"]`.
-    probe_to_lab = _build_scan_v2_probe_to_lab(header, n_time)
-    if probe_to_lab is not None:
-        result["_probe_to_lab"] = probe_to_lab
 
     return result
 

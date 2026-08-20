@@ -214,12 +214,13 @@ def _write_scan_v2(
             _ACQ_DEPTH_START if depth_start is None else depth_start,
             corrupt=corrupt_acquisition,
         )
-    elif depth_start is not None:
-        # Just an adjacent (start, end) depth-range pair for the span-search.
-        depth_end = depth_start + (size_z - 1) * _DZ_M * 1e3
-        head_bytes = struct.pack("<dd", depth_start, depth_end)
     else:
-        head_bytes = b""
+        pose = (5.0, *_POSE[1:]) if corrupt_acquisition == "pose" else (0.0,) * 6
+        head_bytes = struct.pack(f"<{n_time}I", *range(n_time))
+        head_bytes += struct.pack("<6d", *pose) + struct.pack("<Q", 1) + bytes(8)
+        if depth_start is not None:
+            depth_end = depth_start + (size_z - 1) * _DZ_M * 1e3
+            head_bytes += struct.pack("<dd", depth_start, depth_end)
 
     string_bytes = bytearray()
     for text in strings:
@@ -609,15 +610,14 @@ class TestLoadScanV2Acquisition:
         )
         assert "probe_to_lab" not in scan_v2_acq.attrs.get("affines", {})
 
-    def test_affine_skipped_on_implausible_pose(self, tmp_path: Path) -> None:
-        """An implausible pose yields no affine, but other fields still load."""
+    def test_implausible_pose_raises(self, tmp_path: Path) -> None:
+        """An implausible v2 pose fails loading instead of using probe geometry."""
         path = tmp_path / "scan_v2_badpose.scan"
         _write_scan_v2(
             path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
         )
-        da = load_scan(path)
-        assert "probe_model" in da.attrs
-        assert "probe_to_lab" not in da.attrs["affines"]
+        with pytest.raises(ValueError, match="probe-pose block"):
+            load_scan(path)
 
     def test_acquisition_absent_when_block_missing(self, scan_v2: xr.DataArray) -> None:
         """Without a valid acquisition block, probe/sequence fields are not emitted.
@@ -675,13 +675,15 @@ class TestLoadScanV2WithBPS:
             da.attrs["affines"]["world_to_brain"], expected, atol=1e-12
         )
 
-    def test_bps_rejected_without_affine(self, tmp_path: Path, bps_path: Path) -> None:
-        """bps_path raises when no probe_to_lab affine could be built."""
+    def test_implausible_pose_rejected_before_bps(
+        self, tmp_path: Path, bps_path: Path
+    ) -> None:
+        """v2 files with implausible pose fail loading, with or without bps_path."""
         path = tmp_path / "scan_v2_noaffine.scan"
         _write_scan_v2(
             path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
         )
-        with pytest.raises(ValueError, match="no probe_to_lab affine could be built"):
+        with pytest.raises(ValueError, match="probe-pose block"):
             load_scan(path, bps_path=bps_path)
 
 
