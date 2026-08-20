@@ -7,7 +7,7 @@ import flox.xarray
 import numpy as np
 import xarray as xr
 
-from confusius.validation import ensure_voxeldata, validate_labels
+from confusius.validation import ensure_labels, ensure_voxeldata
 
 _VALID_REDUCTIONS = frozenset({"mean", "sum", "median", "min", "max", "var", "std"})
 """Valid reduction names accepted by `extract_with_labels`."""
@@ -185,7 +185,7 @@ def extract_with_labels(
     array(['VISp_L', 'VISp_R'], dtype=object)
     """
     data = ensure_voxeldata(data, allow_extra_dims=True)
-    labels = validate_labels(labels, data, "labels")
+    labels = ensure_labels(labels, data, "labels")
 
     if reduction not in _VALID_REDUCTIONS:
         raise ValueError(

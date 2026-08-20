@@ -9,7 +9,11 @@ import numpy.typing as npt
 import pytest
 import xarray as xr
 
-from confusius._utils.geometry import attach_voxel_to_world_index
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+)
 from confusius.io.scan import load_scan
 from confusius.xarray import create_voxeldata
 
@@ -746,6 +750,41 @@ def spatial_mask(rng, sample_fusi_3dt):
     """Boolean spatial mask matching (z, y, x) of sample volumes."""
     _, z, y, x = sample_fusi_3dt.shape
     return rng.random((z, y, x)) > 0.5
+
+
+@pytest.fixture
+def sample_voxeldata_mask(sample_fusi_3dt):
+    """Factory for a zero-valued VoxelData mask sharing `sample_fusi_3dt`'s grid.
+
+    Returns a callable `make_mask(dtype=bool)` producing an all-False (or all-0)
+    `(k, j, i)` mask on `sample_fusi_3dt`'s exact voxel-to-world grid. Callers set
+    specific voxels afterward, e.g. `mask.data[0, 1, 2] = True`.
+    """
+
+    def _make(dtype: type[np.generic] | type[bool] | type[float] = bool) -> xr.DataArray:
+        spatial_dims = ("k", "j", "i")
+        mask = xr.DataArray(
+            np.zeros(
+                tuple(sample_fusi_3dt.sizes[dim] for dim in spatial_dims), dtype=dtype
+            ),
+            dims=spatial_dims,
+            coords={
+                name: coord
+                for name, coord in sample_fusi_3dt.coords.items()
+                if "time" not in coord.dims
+            },
+        )
+        world_coord_names = get_voxel_to_world_coord_names(sample_fusi_3dt)
+        return attach_voxel_to_world_index(
+            mask,
+            get_voxel_to_world_affine(sample_fusi_3dt),
+            world_coord_attrs={
+                name: dict(sample_fusi_3dt.coords[name].attrs)
+                for name in world_coord_names
+            },
+        )
+
+    return _make
 
 
 @pytest.fixture

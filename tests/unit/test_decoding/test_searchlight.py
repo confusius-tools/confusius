@@ -309,7 +309,7 @@ def test_single_slice_volume(decoding_volume, rng):
 def test_raises_without_voxel_to_world_index(decoding_volume, rng):
     """A mask without a VoxelToWorldIndex is rejected, not silently used.
 
-    Its k/j/i coordinate values match decoding_volume's exactly, so `validate_mask`
+    Its k/j/i coordinate values match decoding_volume's exactly, so `ensure_mask`
     alone would accept it; only the explicit index check catches this. A mask like
     this would otherwise silently make `radius` mean voxel indices instead of world
     coordinates, which is anisotropic.

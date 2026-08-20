@@ -190,12 +190,12 @@ def _validate_register_volume_inputs(
         )
 
     # --- Mask validation ---
-    from confusius.validation import validate_mask
+    from confusius.validation import ensure_mask
 
     if fixed_mask is not None:
-        fixed_mask = validate_mask(fixed_mask, fixed, "fixed_mask")
+        fixed_mask = ensure_mask(fixed_mask, fixed, "fixed_mask")
     if moving_mask is not None:
-        moving_mask = validate_mask(moving_mask, moving, "moving_mask")
+        moving_mask = ensure_mask(moving_mask, moving, "moving_mask")
 
     # --- Multi-resolution consistency ---
     if len(shrink_factors) != len(smoothing_sigmas):

@@ -1296,8 +1296,8 @@ def process_iq_to_power_doppler(
         clutter_mask = ensure_voxeldata(
             clutter_mask, allow_pose=False, allow_extra_dims=False
         )
-        clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
-        clutter_mask_array = clutter_mask.values
+        validate_mask(clutter_mask, iq, "clutter_mask")
+        clutter_mask_array = clutter_mask.values.astype(bool)
 
     dask_iq: Array = iq.data
     if not isinstance(dask_iq, Array):
@@ -1623,8 +1623,8 @@ def process_iq_to_axial_velocity(
         clutter_mask = ensure_voxeldata(
             clutter_mask, allow_pose=False, allow_extra_dims=False
         )
-        clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
-        clutter_mask_array = clutter_mask.values
+        validate_mask(clutter_mask, iq, "clutter_mask")
+        clutter_mask_array = clutter_mask.values.astype(bool)
 
     dask_iq: Array = iq.data
     if not isinstance(dask_iq, Array):

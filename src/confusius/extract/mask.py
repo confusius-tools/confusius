@@ -2,7 +2,7 @@
 
 import xarray as xr
 
-from confusius.validation import ensure_voxeldata, validate_mask
+from confusius.validation import ensure_mask, ensure_voxeldata
 
 
 def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
@@ -82,9 +82,9 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     ('time', 'pose', 'space')
     """
     data = ensure_voxeldata(data, allow_extra_dims=True)
-    mask = validate_mask(mask, data, "mask")
+    mask = ensure_mask(mask, data, "mask")
 
-    # validate_mask() already checked mask and data share the same voxel grid (same
+    # ensure_mask() already checked mask and data share the same voxel grid (same
     # k/j/i coordinates and voxel_to_world affine), so mask.values.ravel() is already
     # positionally aligned with data.stack(space=spatial_dims) below -- both iterate
     # spatial_dims (mask's own dim order) the same way.

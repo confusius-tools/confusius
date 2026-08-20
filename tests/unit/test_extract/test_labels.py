@@ -118,7 +118,7 @@ class TestWithLabels:
         `.isel(k=0)` collapses `k` to a scalar coordinate, dropping the dim itself,
         which only `ensure_voxeldata` restores -- exercises that
         `extract_with_labels` canonicalizes `data` itself rather than relying on
-        `validate_labels`'s internal (and discarded) canonicalization of it.
+        `ensure_labels`'s internal (and discarded) canonicalization of it.
         """
         single_k = sample_fusi_3dt.isel(k=0)
         labels_data = np.zeros(sample_fusi_3dt.shape[1:], dtype=int)

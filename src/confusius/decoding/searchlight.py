@@ -37,7 +37,7 @@ from confusius._utils.geometry import get_voxel_to_world_coord_names
 from confusius._utils.io import is_h5py_backed
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask, unmask
-from confusius.validation import ensure_voxeldata, validate_mask
+from confusius.validation import ensure_mask, ensure_voxeldata
 
 
 def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
@@ -60,7 +60,7 @@ def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
     SearchLight measures `radius` in world coordinate units, so this relies on
     `mask` carrying a real `VoxelToWorldIndex` (numeric `z`/`y`/`x` by
     construction) -- callers must validate that themselves (e.g. via
-    `validate_mask`) before reaching this function; a mask without a real index
+    `ensure_mask`) before reaching this function; a mask without a real index
     would otherwise silently make `radius` mean voxel indices instead, which is
     anisotropic.
     """
@@ -555,12 +555,12 @@ class SearchLight(BaseEstimator):
         if self.mask is None:
             mask = xr.ones_like(X_ordered.isel(time=0, drop=True), dtype=bool)
         else:
-            mask = validate_mask(self.mask, X_ordered, "mask", require_exact_dims=True)
+            mask = ensure_mask(self.mask, X_ordered, "mask", require_exact_dims=True)
 
         if self.process_mask is None:
             process_mask = mask
         else:
-            process_mask = validate_mask(
+            process_mask = ensure_mask(
                 self.process_mask, X_ordered, "process_mask", require_exact_dims=True
             )
             outside = int(

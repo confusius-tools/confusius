@@ -773,8 +773,8 @@ def compute_svd_cumulative_energy_threshold(
         clutter_mask = ensure_voxeldata(
             clutter_mask, allow_pose=False, allow_extra_dims=False
         )
-        clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
-        mask_array = clutter_mask.values
+        validate_mask(clutter_mask, iq, "clutter_mask")
+        mask_array = clutter_mask.values.astype(bool)
 
     dask_iq = iq.data
     if not isinstance(dask_iq, da.Array):

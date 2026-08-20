@@ -13,7 +13,7 @@ import xarray as xr
 from confusius._utils.geometry import has_voxel_to_world_index
 from confusius.extract.mask import extract_with_mask
 from confusius.validation.coordinates import validate_matching_coordinates
-from confusius.validation.mask import check_mask_dtype, validate_mask
+from confusius.validation.mask import check_mask_dtype, ensure_mask
 
 
 def _validate_feature_mask(
@@ -41,12 +41,12 @@ def _validate_feature_mask(
         non-zero value (0 = background, one region id = foreground).
     data : xarray.DataArray
         Data array to validate `mask` against. May carry dimensions `mask` doesn't
-        (e.g. `time`), same as [`validate_mask`][confusius.validation.validate_mask].
+        (e.g. `time`), same as [`ensure_mask`][confusius.validation.ensure_mask].
     mask_name : str
         Label used for `mask` in error messages.
     require_exact_dims : bool, default: False
         Whether `mask`'s dimensions must match all non-`time` dimensions of `data` in
-        the same order, mirroring `validate_mask`'s parameter of the same name.
+        the same order, mirroring `ensure_mask`'s parameter of the same name.
 
     Returns
     -------
@@ -100,7 +100,7 @@ def validate_spatial_or_feature_mask(
 
     Dispatches on [`has_voxel_to_world_index`][confusius._utils.geometry.has_voxel_to_world_index]:
     if `data` is a canonical VoxelData array, `mask` is validated against it via
-    [`validate_mask`][confusius.validation.validate_mask] (full grid semantics:
+    [`ensure_mask`][confusius.validation.ensure_mask] (full grid semantics:
     `VoxelToWorldIndex`, `voxel_to_world` affine, and voxel-space coordinates must all
     match). Otherwise `data` is treated as an already-extracted, non-spatial signals
     array (e.g. [`extract_with_labels`][confusius.extract.extract_with_labels]
@@ -135,9 +135,7 @@ def validate_spatial_or_feature_mask(
         coordinates (already-extracted case).
     """
     if has_voxel_to_world_index(data):
-        return validate_mask(
-            mask, data, mask_name, require_exact_dims=require_exact_dims
-        )
+        return ensure_mask(mask, data, mask_name, require_exact_dims=require_exact_dims)
     return _validate_feature_mask(
         mask, data, mask_name, require_exact_dims=require_exact_dims
     )
