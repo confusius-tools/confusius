@@ -65,16 +65,19 @@ Two exceptions:
    inherently runs before the index exists. Once construction is done, the result
    must be VoxelData; nothing downstream may special-case "no index" as supported.
 2. **Dual-input consumers** documented to accept VoxelData *or* an already-reduced
-   signals table `(time, region)` (e.g. `_BaseFUSIDecomposer`,
-   `compute_compcor_confounds`, `apply_statistical_threshold`, `plot_carpet`). A
-   signals table isn't a degraded form of VoxelData—it's already reduced off the
-   voxel grid. Such consumers branch explicitly on `has_voxel_to_world_index`; don't
-   reimplement this branch per call site—use
-   `confusius._utils.mask.validate_spatial_or_feature_mask` and
+   signals table `(time, region)` (e.g. `compute_compcor_confounds`,
+   `apply_statistical_threshold`, `plot_carpet`). A signals table isn't a degraded
+   form of VoxelData—it's already reduced off the voxel grid. Such consumers branch
+   explicitly on `has_voxel_to_world_index`; don't reimplement this branch per call
+   site—use `confusius._utils.mask.validate_spatial_or_feature_mask` and
    `confusius._utils.mask.select_masked_features`. Both are internal, existing only
    to serve this small set of dual-input consumers. This does not loosen the
    VoxelData requirement for functions whose input is meant to be spatial
-   (`extract_with_mask`, `validate_mask`, `validate_labels`, ...).
+   (`extract_with_mask`, `unmask`, `ensure_mask`, `ensure_labels`, ...).
+   `_BaseFUSIDecomposer` (PCA/FastICA/NMF) is VoxelData-only, not a dual-input
+   consumer: decomposing an already-reduced signals table is regular tabular
+   PCA/ICA/NMF with no spatial structure to track, so use scikit-learn directly for
+   that instead.
 
 ## Commands
 
@@ -110,7 +113,7 @@ src/confusius/
 ├── connectivity/   # Seed-based and matrix functional connectivity
 ├── datasets/       # Downloaders for public fUSI/atlas datasets
 ├── decoding/       # Searchlight decoding
-├── decomposition/  # PCA/ICA/NMF on VoxelData or extracted signals (_base.py)
+├── decomposition/  # PCA/ICA/NMF on VoxelData (_base.py)
 ├── extract/        # mask.py, labels.py, reconstruction.py — signal extraction
 ├── glm/            # First-/second-level GLM (design, contrasts, HRF models)
 ├── io/             # NIfTI, AUTC, EchoFrame, SCAN readers/writers (I/O boundary)

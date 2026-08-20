@@ -36,13 +36,31 @@ Current development version for the next ConfUSIus release.
   contain `attrs["voxel_to_world"]`, instead of silently loading them as non-canonical
   data. Use `xarray.open_zarr` directly for a foreign Zarr store
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
-- `extract_with_mask`/`extract_with_labels` (and `validate_mask`/
-  `validate_labels`) now require canonical VoxelData input for both `data` and
-  `mask`/`labels`, and check alignment via the full voxel-to-world affine (not
-  just matching `k`/`j`/`i` integer ranges) — two arrays on different physical
-  grids that happened to share voxel-index ranges no longer silently pass as
-  aligned. `validate_atlas` similarly no longer accepts a plain, non-indexed
-  atlas shape
+- `extract_with_mask`/`extract_with_labels` now require canonical VoxelData input
+  for both `data` and `mask`/`labels`, and check alignment via the full
+  voxel-to-world affine (not just matching `k`/`j`/`i` integer ranges) — two
+  arrays on different physical grids that happened to share voxel-index ranges no
+  longer silently pass as aligned. `validate_atlas` similarly no longer accepts a
+  plain, non-indexed atlas shape
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- Split `validate_mask`/`validate_labels` into a pure check (`mask`/`data` must
+  already be canonical VoxelData; returns `None`) and new
+  [`ensure_mask`][confusius.validation.ensure_mask]/
+  [`ensure_labels`][confusius.validation.ensure_labels] (canonicalize via
+  `ensure_voxeldata`, then validate; returns the canonicalized/coerced array) —
+  mirroring `validate_voxeldata`/`ensure_voxeldata`. Callers that relied on
+  `validate_mask`/`validate_labels`'s return value should switch to
+  `ensure_mask`/`ensure_labels`
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- [`PCA`][confusius.decomposition.PCA]/[`FastICA`][confusius.decomposition.FastICA]/
+  [`NMF`][confusius.decomposition.NMF] are now VoxelData-only; the previously
+  documented dual-input support for an already-reduced `(time, region)` signals
+  table (e.g. [`extract_with_labels`][confusius.extract.extract_with_labels]
+  output) is removed, along with the resulting `feature_names_in_` attribute.
+  Decomposing a signals table is regular tabular PCA/ICA/NMF with no spatial
+  structure to track, so use scikit-learn directly for that instead.
+  [`unmask`][confusius.extract.unmask] correspondingly now always requires a
+  VoxelData mask and always returns a VoxelData array
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 - Multi-pose data acquired sequentially now carries a pose-dependent, `(time,
   pose)`-shaped `time` coordinate holding each pose's own real acquisition

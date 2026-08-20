@@ -157,18 +157,16 @@ def test_unmask_rejects_invalid_mask_dtype(
         unmask(np.array([1.0]), mask)
 
 
-def test_unmask_supports_generic_mask_dimensions() -> None:
-    """Reconstruction remains available for non-fUSI feature grids."""
+def test_unmask_rejects_non_voxeldata_mask() -> None:
+    """unmask requires a VoxelData mask; it always reconstructs a VoxelData array."""
     mask = xr.DataArray(
         [[False, True], [True, False]],
         dims=("row", "column"),
         coords={"row": ["a", "b"], "column": [0, 1]},
     )
 
-    restored = unmask(np.array([3.0, 7.0]), mask)
-
-    assert restored.dims == ("row", "column")
-    np.testing.assert_array_equal(restored.values, [[0.0, 3.0], [7.0, 0.0]])
+    with pytest.raises(ValueError, match="missing voxel dimension"):
+        unmask(np.array([3.0, 7.0]), mask)
 
 
 def test_unmask_validates_signal_space_size(

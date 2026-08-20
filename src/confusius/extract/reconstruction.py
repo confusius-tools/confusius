@@ -7,8 +7,9 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
-    has_voxel_to_world_index,
 )
+from confusius.validation import ensure_voxeldata
+from confusius.validation.mask import check_mask_dtype
 
 
 def unmask(
@@ -35,10 +36,11 @@ def unmask(
           coordinates.
 
     mask : xarray.DataArray
-        Mask used for the original extraction. Provides spatial dimensions and
-        coordinates for reconstruction. Must be either boolean dtype, or integer dtype
-        with exactly one non-zero value (0 = background, one region id = foreground).
-        Spatial dimensions and coordinates must match the original data.
+        VoxelData mask used for the original extraction. Provides spatial dimensions,
+        coordinates, and `VoxelToWorldIndex` for reconstruction. Must be either
+        boolean dtype, or integer dtype with exactly one non-zero value (0 =
+        background, one region id = foreground). Spatial dimensions and coordinates
+        must match the original data.
     new_dims : list of str, optional
         Names for leading dimensions when `signals` is a Numpy array. Must match the
         number of leading dimensions `(ndim - 1)`. If not provided, uses `["dim_0",
@@ -55,16 +57,18 @@ def unmask(
     Returns
     -------
     xarray.DataArray
-        Reconstructed DataArray with shape `(..., *mask.dims)`, where spatial
-        dimensions and coordinates come from the mask. For a VoxelData
-        array mask (native voxel dims `k`/`j`/`i` with a `VoxelToWorldIndex`),
-        the derived world `z`/`y`/`x` coordinates are restored on the result as well.
+        Reconstructed VoxelData array with shape `(..., *mask.dims)`, where spatial
+        dimensions, coordinates, and the derived world `z`/`y`/`x` coordinates come
+        from the mask.
 
     Raises
     ------
     ValueError
-        If `signals` shape doesn't match `mask`, or if `new_dims`/`new_dims_coords`
-        are inconsistent with `signals` shape.
+        If `mask` isn't a valid VoxelData array, if `signals` shape doesn't match
+        `mask`, or if `new_dims`/`new_dims_coords` are inconsistent with `signals`
+        shape.
+    TypeError
+        If `mask` is not boolean dtype (or a single-label integer dtype).
 
     Examples
     --------
@@ -105,21 +109,9 @@ def unmask(
     >>> spatial_pose.dims
     ('component', 'pose', 'k', 'j', 'i')
     """
+    mask = ensure_voxeldata(mask, allow_extra_dims=True)
+    check_mask_dtype(mask, "mask")
     mask_values = mask.values
-    if np.issubdtype(mask_values.dtype, np.bool_):
-        pass
-    elif np.issubdtype(mask_values.dtype, np.integer):
-        non_zero = np.unique(mask_values[mask_values != 0])
-        if len(non_zero) > 1:
-            raise TypeError(
-                "mask has integer dtype with multiple distinct non-zero values. "
-                "A mask must be boolean or have exactly one non-zero label "
-                "(0 = background, one region id = foreground)."
-            )
-    else:
-        raise TypeError(
-            f"mask must be boolean dtype or a single-label integer dtype, got {mask_values.dtype}."
-        )
 
     n_voxels_mask = np.int64(np.count_nonzero(mask_values)).item()
 
@@ -218,14 +210,12 @@ def unmask(
         coords=coords,
         attrs=attrs if attrs is not None else {},
     )
-    if has_voxel_to_world_index(mask):
-        world_coord_names = get_voxel_to_world_coord_names(mask)
-        world_coord_attrs = {
-            name: dict(mask.coords[name].attrs)
-            for name in world_coord_names
-            if name in mask.coords
-        }
-        result = attach_voxel_to_world_index(
-            result, get_voxel_to_world_affine(mask), world_coord_attrs=world_coord_attrs
-        )
-    return result
+    world_coord_names = get_voxel_to_world_coord_names(mask)
+    world_coord_attrs = {
+        name: dict(mask.coords[name].attrs)
+        for name in world_coord_names
+        if name in mask.coords
+    }
+    return attach_voxel_to_world_index(
+        result, get_voxel_to_world_affine(mask), world_coord_attrs=world_coord_attrs
+    )

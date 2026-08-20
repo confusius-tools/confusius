@@ -46,17 +46,21 @@ def _make_mask(
     )
 
 
-def test_feature_names_in_for_string_feature_labels():
-    """feature_names_in_ is defined when flattened feature labels are strings."""
+def test_rejects_non_voxeldata_input():
+    """Fitting on a non-spatial (time, region) table is rejected, not silently used.
+
+    PCA is VoxelData-only: decomposing an already-reduced signals table has no
+    spatial structure to track, so it offers nothing over calling scikit-learn
+    directly on the array's values.
+    """
     data = xr.DataArray(
         np.arange(18.0).reshape(6, 3),
         dims=["time", "region"],
         coords={"region": ["A", "B", "C"]},
     )
 
-    model = PCA(n_components=2, random_state=0).fit(data)
-
-    np.testing.assert_array_equal(model.feature_names_in_, np.array(["A", "B", "C"]))
+    with pytest.raises(ValueError, match="missing voxel dimension"):
+        PCA(n_components=2, random_state=0).fit(data)
 
 
 @pytest.mark.parametrize("mode", ["temporal", "spatial"])
@@ -194,10 +198,10 @@ def test_fit_requires_more_than_one_timepoint(sample_voxeldata_3dt):
 
 
 def test_fit_requires_spatial_dimension():
-    """fit raises when input has no spatial dimensions."""
+    """fit raises when input has no spatial (native voxel) dimensions."""
     only_time = xr.DataArray(np.arange(30.0), dims=["time"])
 
-    with pytest.raises(ValueError, match="at least one spatial dimension"):
+    with pytest.raises(ValueError, match="missing voxel dimension"):
         PCA().fit(only_time)
 
 
@@ -238,33 +242,25 @@ def test_transform_checks_spatial_layout(sample_voxeldata_3dt):
 
 
 def test_transform_checks_spatial_dimension_names(sample_voxeldata_3dt):
-    """transform raises if spatial dimension names differ from fit."""
+    """transform rejects data missing a native voxel dimension."""
     model = PCA(n_components=4, random_state=0).fit(sample_voxeldata_3dt)
     bad = sample_voxeldata_3dt.rename({"i": "region"})
 
-    with pytest.raises(ValueError, match="spatial dimensions do not match"):
+    with pytest.raises(ValueError, match="missing voxel dimension"):
         model.transform(bad)
 
 
-def test_transform_without_time_coordinate_uses_index(sample_voxeldata_3dt):
-    """transform falls back to integer time coordinate when absent."""
+def test_transform_rejects_missing_time_coordinate(sample_voxeldata_3dt):
+    """transform rejects data with a time dim but no time coordinate.
+
+    A VoxelData array's time dim must always carry a time coordinate; this isn't
+    a fallback case to paper over.
+    """
     model = PCA(n_components=4, random_state=0).fit(sample_voxeldata_3dt)
-    no_time_coord = xr.DataArray(
-        sample_voxeldata_3dt.values,
-        dims=sample_voxeldata_3dt.dims,
-        coords={
-            "k": sample_voxeldata_3dt.coords["k"],
-            "j": sample_voxeldata_3dt.coords["j"],
-            "i": sample_voxeldata_3dt.coords["i"],
-        },
-    )
+    no_time_coord = sample_voxeldata_3dt.drop_vars("time")
 
-    transformed = model.transform(no_time_coord)
-
-    np.testing.assert_array_equal(
-        transformed.coords["time"].values,
-        np.arange(sample_voxeldata_3dt.sizes["time"]),
-    )
+    with pytest.raises(ValueError, match="Missing required coordinate"):
+        model.transform(no_time_coord)
 
 
 def test_transform_chunked_time_reports_transform_operation(sample_voxeldata_3dt):

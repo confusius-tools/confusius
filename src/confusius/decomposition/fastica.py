@@ -1,4 +1,4 @@
-"""FastICA decomposition for VoxelData arrays or signals."""
+"""FastICA decomposition for VoxelData arrays."""
 
 from collections.abc import Callable
 from typing import Any, Literal
@@ -12,7 +12,7 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class FastICA(_BaseFUSIDecomposer):
-    """Fast independent component analysis (ICA) for VoxelData arrays or signals.
+    """Fast independent component analysis (ICA) for VoxelData arrays.
 
     The FastICA algorithm is based on Hyvarinen *et al.* (2000).
 
@@ -99,11 +99,9 @@ class FastICA(_BaseFUSIDecomposer):
         Used to initialize `w_init` when not provided, with a normal distribution. Pass
         an int for reproducible results across multiple function calls.
     mask : xarray.DataArray, optional
-        Boolean mask selecting which elements to include during fitting and
-        projection: voxels, for VoxelData array input, or features, for an
-        already-extracted signals input (e.g.
-        [`extract_with_labels`][confusius.extract.extract_with_labels] output). Must
-        match the non-`time` dimensions of the input data in the same order.
+        Boolean VoxelData mask selecting which voxels to include during fitting and
+        projection. Must match the non-`time` dimensions of the input data in the
+        same order.
 
     Attributes
     ----------
@@ -129,9 +127,6 @@ class FastICA(_BaseFUSIDecomposer):
         components. Otherwise, the number of iterations taken to converge.
     n_features_in_ : int
         Number of features seen during fit.
-    feature_names_in_ : (n_features_in_,) numpy.ndarray
-        Feature names seen during `fit`. Defined only when flattened feature labels are
-        all strings.
 
     References
     ----------
@@ -141,7 +136,7 @@ class FastICA(_BaseFUSIDecomposer):
 
     Examples
     --------
-    Spatial ICA (default, matches FSL MELODIC), on a VoxelData array:
+    Spatial ICA (default, matches FSL MELODIC):
 
     >>> import numpy as np
     >>> from confusius.decomposition import FastICA
@@ -162,20 +157,6 @@ class FastICA(_BaseFUSIDecomposer):
     >>> reconstructed = ica.inverse_transform(signals)
     >>> reconstructed.dims
     ('time', 'k', 'j', 'i')
-
-    Fitting on already-extracted ROI signals, e.g. from
-    [`extract_with_labels`][confusius.extract.extract_with_labels]:
-
-    >>> import xarray as xr
-    >>> roi_signals = xr.DataArray(
-    ...     rng.standard_normal((200, 8)),
-    ...     dims=["time", "region"],
-    ...     coords={"region": [f"ROI_{i}" for i in range(8)]},
-    ... )
-    >>> ica_roi = FastICA(n_components=3, random_state=0)
-    >>> roi_signals_ic = ica_roi.fit_transform(roi_signals)
-    >>> roi_signals_ic.dims
-    ('time', 'component')
     """
 
     _signals_long_name = "FastICA signals"
@@ -210,13 +191,12 @@ class FastICA(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "FastICA":
-        """Fit FastICA on a VoxelData array or signals array.
+        """Fit FastICA on a VoxelData array.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: a VoxelData array, or an already-extracted
-            signals array (see class docstring).
+            VoxelData array.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
 
@@ -266,7 +246,6 @@ class FastICA(_BaseFUSIDecomposer):
         else:
             self._fit_temporal(fastica, X_proc)
 
-        self._store_feature_names(X)
         return self
 
     def _fit_spatial(

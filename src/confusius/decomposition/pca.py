@@ -1,4 +1,4 @@
-"""Principal component decomposition for VoxelData arrays or signals."""
+"""Principal component decomposition for VoxelData arrays."""
 
 from typing import Literal
 
@@ -11,7 +11,7 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class PCA(_BaseFUSIDecomposer):
-    """Principal component analysis (PCA) for VoxelData arrays or signals.
+    """Principal component analysis (PCA) for VoxelData arrays.
 
     Linear dimensionality reduction using singular value decomposition (SVD) of the data
     to project it to a lower dimensional space. The input data is centered but not
@@ -108,11 +108,9 @@ class PCA(_BaseFUSIDecomposer):
           projected components are spatial maps that capture dominant variance across
           time.
     mask : xarray.DataArray, optional
-        Boolean mask selecting which elements to include during fitting and
-        projection: voxels, for VoxelData array input, or features, for an
-        already-extracted signals input (e.g.
-        [`extract_with_labels`][confusius.extract.extract_with_labels] output). Must
-        match the non-`time` dimensions of the input data in the same order.
+        Boolean VoxelData mask selecting which voxels to include during fitting and
+        projection. Must match the non-`time` dimensions of the input data in the
+        same order.
 
     Attributes
     ----------
@@ -152,9 +150,6 @@ class PCA(_BaseFUSIDecomposer):
         of the covariance matrix of `X`.
     n_features_in_ : int
         Number of features seen during fit.
-    feature_names_in_ : (n_features_in_,) numpy.ndarray
-        Feature names seen during fit. Defined only when flattened feature labels are
-        all strings.
 
     References
     ----------
@@ -165,8 +160,6 @@ class PCA(_BaseFUSIDecomposer):
 
     Examples
     --------
-    Fitting on a VoxelData array:
-
     >>> import numpy as np
     >>> from confusius.decomposition import PCA
     >>> from confusius.xarray import create_voxeldata
@@ -186,20 +179,6 @@ class PCA(_BaseFUSIDecomposer):
     >>> reconstructed = pca.inverse_transform(signals)
     >>> reconstructed.dims
     ('time', 'k', 'j', 'i')
-
-    Fitting on already-extracted ROI signals, e.g. from
-    [`extract_with_labels`][confusius.extract.extract_with_labels]:
-
-    >>> import xarray as xr
-    >>> roi_signals = xr.DataArray(
-    ...     rng.standard_normal((200, 8)),
-    ...     dims=["time", "region"],
-    ...     coords={"region": [f"ROI_{i}" for i in range(8)]},
-    ... )
-    >>> pca_roi = PCA(n_components=3, random_state=0)
-    >>> roi_components = pca_roi.fit_transform(roi_signals)
-    >>> roi_components.dims
-    ('time', 'component')
     """
 
     _signals_long_name = "PCA signals"
@@ -232,13 +211,12 @@ class PCA(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "PCA":
-        """Fit PCA on a VoxelData array or signals array.
+        """Fit PCA on a VoxelData array.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: a VoxelData array, or an already-extracted
-            signals array (see class docstring).
+            VoxelData array.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
 
@@ -286,7 +264,6 @@ class PCA(_BaseFUSIDecomposer):
         else:
             self._fit_spatial(pca, X_proc)
 
-        self._store_feature_names(X)
         return self
 
     def _fit_temporal(

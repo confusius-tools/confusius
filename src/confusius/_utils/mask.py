@@ -1,10 +1,9 @@
 """Shared mask handling for consumers that accept VoxelData or extracted signals.
 
-Some consumers (`decomposition/_base.py`, `signal/confounds.py`,
-`stats/thresholding.py`, `plotting/image.py`) operate on either a canonical
-VoxelData array or an already-extracted, non-spatial signals array (e.g.
-`extract_with_labels` output). This module holds the shared dispatch logic so each
-consumer doesn't reimplement the branch on
+Some consumers (`signal/confounds.py`, `stats/thresholding.py`, `plotting/image.py`)
+operate on either a canonical VoxelData array or an already-extracted, non-spatial
+signals array (e.g. `extract_with_labels` output). This module holds the shared
+dispatch logic so each consumer doesn't reimplement the branch on
 [`has_voxel_to_world_index`][confusius._utils.geometry.has_voxel_to_world_index].
 """
 

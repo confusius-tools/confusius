@@ -1,4 +1,4 @@
-"""Non-negative matrix factorization for VoxelData arrays or signals."""
+"""Non-negative matrix factorization for VoxelData arrays."""
 
 from typing import Literal
 
@@ -11,7 +11,7 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class NMF(_BaseFUSIDecomposer):
-    r"""Non-negative matrix factorization (NMF) for VoxelData arrays or signals.
+    r"""Non-negative matrix factorization (NMF) for VoxelData arrays.
 
     Find two non-negative matrices, i.e. matrices with all non-negative elements,
     (`W`, `H`) whose product approximates the non-negative matrix `X`. This
@@ -119,11 +119,9 @@ class NMF(_BaseFUSIDecomposer):
           component)` signals.
 
     mask : xarray.DataArray, optional
-        Boolean mask selecting which elements to include during fitting and
-        projection: voxels, for VoxelData array input, or features, for an
-        already-extracted signals input (e.g.
-        [`extract_with_labels`][confusius.extract.extract_with_labels] output). Must
-        match the non-`time` dimensions of the input data in the same order.
+        Boolean VoxelData mask selecting which voxels to include during fitting and
+        projection. Must match the non-`time` dimensions of the input data in the
+        same order.
 
     Attributes
     ----------
@@ -143,9 +141,6 @@ class NMF(_BaseFUSIDecomposer):
         Actual number of iterations.
     n_features_in_ : int
         Number of features seen during fit.
-    feature_names_in_ : (n_features_in_,) numpy.ndarray
-        Names of features seen during fit. Defined only when flattened feature
-        labels are all strings.
 
     Notes
     -----
@@ -173,8 +168,6 @@ class NMF(_BaseFUSIDecomposer):
 
     Examples
     --------
-    On a VoxelData array:
-
     >>> import numpy as np
     >>> from confusius.decomposition import NMF
     >>> from confusius.xarray import create_voxeldata
@@ -198,20 +191,6 @@ class NMF(_BaseFUSIDecomposer):
     >>> reconstructed = nmf.inverse_transform(signals)
     >>> reconstructed.dims
     ('time', 'k', 'j', 'i')
-
-    Fitting on already-extracted, non-negative ROI signals, e.g. from
-    [`extract_with_labels`][confusius.extract.extract_with_labels]:
-
-    >>> import xarray as xr
-    >>> roi_signals = xr.DataArray(
-    ...     rng.random((200, 8)),
-    ...     dims=["time", "region"],
-    ...     coords={"region": [f"ROI_{i}" for i in range(8)]},
-    ... )
-    >>> nmf_roi = NMF(n_components=3, init="nndsvda", random_state=0)
-    >>> roi_signals_nmf = nmf_roi.fit_transform(roi_signals)
-    >>> roi_signals_nmf.dims
-    ('time', 'component')
     """
 
     _signals_long_name = "NMF signals"
@@ -252,13 +231,12 @@ class NMF(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "NMF":
-        """Fit NMF on a VoxelData array or signals array.
+        """Fit NMF on a VoxelData array.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: a VoxelData array, or an already-extracted
-            signals array (see class docstring). Must be non-negative.
+            VoxelData array. Must be non-negative.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
 
@@ -316,7 +294,6 @@ class NMF(_BaseFUSIDecomposer):
         else:
             self._fit_spatial(nmf, X_proc)
 
-        self._store_feature_names(X)
         return self
 
     def _fit_temporal(

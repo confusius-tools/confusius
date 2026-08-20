@@ -1,7 +1,5 @@
 """Tests for confusius.decomposition.NMF."""
 
-import warnings
-
 import numpy as np
 import pytest
 import xarray as xr
@@ -75,26 +73,21 @@ def nmf_3dt_volume():
     )
 
 
-def test_feature_names_in_for_string_feature_labels(nmf_3dt_volume):
-    """feature_names_in_ is defined when flattened feature labels are strings."""
+def test_rejects_non_voxeldata_input(nmf_3dt_volume):
+    """Fitting on a non-spatial (time, region) table is rejected, not silently used.
+
+    NMF is VoxelData-only: decomposing an already-reduced signals table has no
+    spatial structure to track, so it offers nothing over calling scikit-learn
+    directly on the array's values.
+    """
     data = (
         nmf_3dt_volume.isel(k=0, i=0, drop=True)
         .rename({"j": "region"})
         .assign_coords(region=["A", "B", "C", "D", "E", "F"])
     )
 
-    # sklearn's NMF iteration can hit a transient `RuntimeWarning: invalid value
-    # encountered in dot` on BLAS implementations that flush denormals differently
-    # (notably Accelerate on macOS). The test only inspects `feature_names_in_`,
-    # which is independent of the iteration's numerical result.
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="invalid value encountered in dot")
-        model = NMF(n_components=2, random_state=0).fit(data)
-
-    np.testing.assert_array_equal(
-        model.feature_names_in_,
-        np.array(["A", "B", "C", "D", "E", "F"]),
-    )
+    with pytest.raises(ValueError, match="missing voxel dimension"):
+        NMF(n_components=2, random_state=0).fit(data)
 
 
 @pytest.mark.parametrize("mode", ["temporal", "spatial"])
@@ -137,9 +130,11 @@ def test_wrapper_matches_sklearn_attributes(nmf_3dt_volume):
 def test_fit_raises_for_negative_input():
     """fit raises ValueError when input data contains negative values."""
     rng = np.random.default_rng(0)
-    data = xr.DataArray(
+    data = create_voxeldata(
         rng.standard_normal((20, 4, 5, 6)),
-        dims=["time", "k", "j", "i"],
+        dims=("time", "k", "j", "i"),
+        dt=1.0,
+        spacing=(1.0, 1.0, 1.0),
     )
 
     with pytest.raises(ValueError, match="non-negative input data"):
@@ -258,10 +253,10 @@ def test_fit_requires_more_than_one_timepoint(nmf_3dt_volume):
 
 
 def test_fit_requires_spatial_dimension():
-    """fit raises when input has no spatial dimensions."""
+    """fit raises when input has no spatial (native voxel) dimensions."""
     only_time = xr.DataArray(np.arange(30.0), dims=["time"])
 
-    with pytest.raises(ValueError, match="at least one spatial dimension"):
+    with pytest.raises(ValueError, match="missing voxel dimension"):
         NMF().fit(only_time)
 
 
@@ -302,33 +297,25 @@ def test_transform_checks_spatial_layout(nmf_3dt_volume):
 
 
 def test_transform_checks_spatial_dimension_names(nmf_3dt_volume):
-    """transform raises if spatial dimension names differ from fit."""
+    """transform rejects data missing a native voxel dimension."""
     model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
     bad = nmf_3dt_volume.rename({"i": "region"})
 
-    with pytest.raises(ValueError, match="spatial dimensions do not match"):
+    with pytest.raises(ValueError, match="missing voxel dimension"):
         model.transform(bad)
 
 
-def test_transform_without_time_coordinate_uses_index(nmf_3dt_volume):
-    """transform falls back to integer time coordinate when absent."""
+def test_transform_rejects_missing_time_coordinate(nmf_3dt_volume):
+    """transform rejects data with a time dim but no time coordinate.
+
+    A VoxelData array's time dim must always carry a time coordinate; this isn't
+    a fallback case to paper over.
+    """
     model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
-    no_time_coord = xr.DataArray(
-        nmf_3dt_volume.values,
-        dims=nmf_3dt_volume.dims,
-        coords={
-            "k": nmf_3dt_volume.coords["k"],
-            "j": nmf_3dt_volume.coords["j"],
-            "i": nmf_3dt_volume.coords["i"],
-        },
-    )
+    no_time_coord = nmf_3dt_volume.drop_vars("time")
 
-    transformed = model.transform(no_time_coord)
-
-    np.testing.assert_array_equal(
-        transformed.coords["time"].values,
-        np.arange(nmf_3dt_volume.sizes["time"]),
-    )
+    with pytest.raises(ValueError, match="Missing required coordinate"):
+        model.transform(no_time_coord)
 
 
 def test_transform_chunked_time_reports_transform_operation(nmf_3dt_volume):

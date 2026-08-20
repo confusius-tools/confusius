@@ -10,13 +10,8 @@ import xarray as xr
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from confusius._utils.geometry import has_voxel_to_world_index
-from confusius._utils.mask import (
-    select_masked_features,
-    validate_spatial_or_feature_mask,
-)
-from confusius.extract import unmask
-from confusius.validation import ensure_voxeldata, validate_time_series
+from confusius.extract import extract_with_mask, unmask
+from confusius.validation import ensure_mask, ensure_voxeldata, validate_time_series
 
 
 class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
@@ -31,17 +26,13 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
     All shared xarray bookkeeping (data preparation, spatial reshaping, `fit_transform`,
     `transform`, and `inverse_transform`) is handled here.
 
-    `X` accepts two kinds of input, told apart via
-    [`has_voxel_to_world_index`][confusius._utils.geometry.has_voxel_to_world_index]:
-
-    - A VoxelData array (native voxel dims `k`/`j`/`i` and a
-      `VoxelToWorldIndex`). `mask` then selects voxels, and reconstruction
-      (`inverse_transform`, `maps_`) restores the full `(k, j, i)` grid.
-    - An already-extracted signals array, e.g. the `(time, region)` output of
-      [`extract_with_labels`][confusius.extract.extract_with_labels]. This isn't
-      spatial data — it has already been reduced away from the voxel grid — so no
-      `VoxelToWorldIndex` is required; `mask` then selects features along the
-      non-`time` dimension instead of voxels.
+    `X` must be a VoxelData array (native voxel dims `k`/`j`/`i` and a
+    `VoxelToWorldIndex`). `mask` selects voxels, and reconstruction
+    (`inverse_transform`, `maps_`) restores the full `(k, j, i)` grid. Decomposing an
+    already-reduced signals table (e.g. the `(time, region)` output of
+    [`extract_with_labels`][confusius.extract.extract_with_labels]) is regular
+    tabular PCA/ICA/NMF with no spatial structure to track, so it offers nothing
+    over calling scikit-learn directly on the array's values.
     """
 
     _signals_long_name: str
@@ -70,7 +61,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input VoxelData array or already-extracted signals array.
+            VoxelData array.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
 
@@ -89,7 +80,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input VoxelData array or already-extracted signals array.
+            VoxelData array.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
         **fit_params : object
@@ -122,8 +113,8 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input VoxelData array or already-extracted signals array with
-            the same spatial dimensions and sizes as the data used during fit.
+            VoxelData array with the same spatial dimensions and sizes as the data used
+            during fit.
 
         Returns
         -------
@@ -145,7 +136,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             signals,
             dims=["time", "component"],
             coords={
-                "time": self._get_time_coord(X),
+                "time": X.coords["time"],
                 "component": self.maps_.coords["component"],
             },
         )
@@ -228,17 +219,10 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
     ) -> tuple[npt.NDArray[np.floating], tuple[str, ...], xr.DataArray]:
         """Validate and stack time series data into a 2D feature matrix.
 
-        `X` may be a VoxelData array (native voxel dims `k`/`j`/`i`
-        and a `VoxelToWorldIndex`) or an already-extracted signals array, e.g. the output
-        of [`extract_with_labels`][confusius.extract.extract_with_labels] (`(time,
-        region)`). [`select_masked_features`][confusius._utils.mask.select_masked_features]
-        tells the two apart and validates/flattens `mask` accordingly.
-
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: a VoxelData array, or an already-extracted
-            signals array.
+            VoxelData array.
         check_layout : bool
             Whether to check that the spatial dimensions and sizes match the fitted
             estimator state.
@@ -253,23 +237,19 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         spatial_dims : tuple[str, ...]
             Spatial dimensions used to order and stack the input data.
         mask : xarray.DataArray
-            Boolean mask selecting features used for fitting/projection, with `X`'s
-            spatial dims/coords (and `VoxelToWorldIndex`, if `X` is a VoxelData array).
+            Boolean VoxelData mask selecting features used for fitting/projection,
+            with `X`'s spatial dims, coords, and `VoxelToWorldIndex`.
 
         Raises
         ------
         ValueError
-            If `X` is not a valid time series, has no spatial dimensions, or has a
-            spatial layout inconsistent with the fitted estimator when `check_layout` is
-            `True`.
+            If `X` is not a valid VoxelData time series, or has a spatial layout
+            inconsistent with the fitted estimator when `check_layout` is `True`.
         """
+        X = ensure_voxeldata(X, allow_extra_dims=True)
         validate_time_series(X, operation_name=operation_name)
 
         input_spatial_dims = tuple(str(dim) for dim in X.dims if dim != "time")
-        if len(input_spatial_dims) == 0:
-            raise ValueError(
-                "X must have at least one spatial dimension besides 'time'."
-            )
 
         if check_layout:
             spatial_dims = self.spatial_dims_
@@ -291,19 +271,14 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         mask = self.mask
         if mask is None:
             mask_template = X_ordered.isel(time=0, drop=True)
-            if has_voxel_to_world_index(X_ordered):
-                mask = ensure_voxeldata(
-                    mask_template.copy(data=np.ones(mask_template.shape, dtype=bool)),
-                    allow_extra_dims=False,
-                )
-            else:
-                mask = xr.ones_like(mask_template, dtype=bool)
-        else:
-            mask = validate_spatial_or_feature_mask(
-                X_ordered, mask, "mask", require_exact_dims=True
+            mask = ensure_voxeldata(
+                mask_template.copy(data=np.ones(mask_template.shape, dtype=bool)),
+                allow_extra_dims=False,
             )
+        else:
+            mask = ensure_mask(mask, X_ordered, "mask", require_exact_dims=True)
 
-        X_proc = select_masked_features(X_ordered, mask, "mask").values
+        X_proc = extract_with_mask(X_ordered, mask).values
         return X_proc, spatial_dims, mask
 
     def _reshape_component_matrix(
@@ -376,8 +351,8 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         spatial_dims : tuple[str, ...]
             Spatial dimensions returned by `_prepare_data`.
         mask : xarray.DataArray
-            Mask returned by `_prepare_data`, already carrying `X`'s spatial
-            dims/coords (and `VoxelToWorldIndex`, if `X` is a VoxelData array).
+            Mask returned by `_prepare_data`, already carrying `X`'s spatial dims,
+            coords, and `VoxelToWorldIndex`.
         """
         self.spatial_dims_ = spatial_dims
         self._spatial_sizes_ = {
@@ -387,39 +362,6 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         self._fit_attrs_ = dict(X.attrs)
         self._fit_name_ = X.name
         self.n_features_in_ = np.int64(X_proc.shape[1]).item()
-
-    def _store_feature_names(self, X: xr.DataArray) -> None:
-        """Store `feature_names_in_` if the single spatial coordinate is string-valued.
-
-        Parameters
-        ----------
-        X : (time, ...) xarray.DataArray
-            Original input passed to `fit`.
-        """
-        if len(self.spatial_dims_) == 1 and self.spatial_dims_[0] in X.coords:
-            feature_labels = np.asarray(X.coords[self.spatial_dims_[0]].values)
-            if all(isinstance(value, (str, np.str_)) for value in feature_labels):
-                self.feature_names_in_ = feature_labels.astype(str, copy=False)
-
-    def _get_time_coord(
-        self, X: xr.DataArray
-    ) -> npt.NDArray[np.generic] | xr.DataArray:
-        """Extract or generate a time coordinate for `X`.
-
-        Parameters
-        ----------
-        X : xarray.DataArray
-            DataArray that may or may not have a `time` coordinate.
-
-        Returns
-        -------
-        xarray.DataArray or numpy.ndarray
-            `X.coords["time"]` if a time coordinate exists, otherwise integer
-            indices `0, 1, ..., n_time - 1`.
-        """
-        if "time" in X.coords:
-            return X.coords["time"]
-        return np.arange(X.sizes["time"], dtype=np.intp)
 
     def _uses_spatial_projection(self) -> bool:
         """Whether transform/inverse use shared spatial projection logic."""
