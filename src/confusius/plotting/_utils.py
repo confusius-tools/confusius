@@ -396,9 +396,10 @@ def resample_to_axis_aligned_world_grid(
         result = resample_volume(
             data,
             np.eye(len(world_dims) + 1, dtype=np.float64),
-            output_shape=shape,
-            output_spacing=spacing,
-            output_origin=origin,
+            output_sizes=dict(zip(VOXEL_DIMS, shape, strict=True)),
+            output_spacing=dict(zip(VOXEL_DIMS, spacing, strict=True)),
+            output_origin=dict(zip(SPATIAL_DIMS, origin, strict=True)),
+            output_direction=np.eye(len(world_dims), dtype=np.float64),
             interpolation=interpolation,
             fill_value=fill_value,
         )

@@ -53,6 +53,7 @@ class OutputGridPayload(TypedDict):
     shape: list[int]
     spacing: list[float]
     origin: list[float]
+    direction: NotRequired[list[list[float]]]
     units: list[str | None]
 
 
@@ -151,6 +152,7 @@ def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
         "shape": [int(reference.sizes[dim]) for dim in voxel_dims],
         "spacing": [resolved_spacing[dim] for dim in voxel_dims],
         "origin": [float(origin[dim]) for dim in dims],
+        "direction": np.asarray(reference.fusi.direction, dtype=float).tolist(),
         "units": [
             cast("str | None", reference.coords[dim].attrs.get("units"))
             if dim in reference.coords
@@ -527,8 +529,11 @@ def _coerce_grid_payload(
     shape = grid_dict.get("shape")
     spacing = grid_dict.get("spacing")
     origin = grid_dict.get("origin")
+    direction = grid_dict.get("direction")
     units = grid_dict.get("units")
-    if not all(isinstance(v, list) for v in (dims, shape, spacing, origin, units)):
+    if not all(
+        isinstance(v, list) for v in (dims, shape, spacing, origin, direction, units)
+    ):
         raise ValueError(f"Transform payload {field_name} is malformed.")
 
     dims_list = cast("list[object]", dims)
@@ -536,14 +541,19 @@ def _coerce_grid_payload(
     spacing_list = cast("list[SupportsFloat]", spacing)
     origin_list = cast("list[SupportsFloat]", origin)
     units_list = cast("list[object]", units)
-
-    return {
+    result: OutputGridPayload = {
         "dims": [str(v) for v in dims_list],
         "shape": [int(v) for v in shape_list],
         "spacing": [float(v) for v in spacing_list],
         "origin": [float(v) for v in origin_list],
         "units": [None if v is None else str(v) for v in units_list],
     }
+    result["direction"] = [
+        [float(value) for value in cast("list[SupportsFloat]", row)]
+        for row in cast("list[object]", direction)
+        if isinstance(row, list)
+    ]
+    return result
 
 
 def get_output_grid_from_payload(payload: Mapping[str, object]) -> OutputGridPayload:

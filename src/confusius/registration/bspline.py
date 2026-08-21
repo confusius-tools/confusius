@@ -93,7 +93,7 @@ def sitk_bspline_to_dataarray(
     pre_affine : (N+1, N+1) numpy.ndarray, optional
         Homogeneous affine matrix to store as
         `attrs["affines"]["bspline_initialization"]`. Pass the affine that was used as
-        the pre-alignment so that `_dataarray_to_sitk_bspline` can reconstruct the full
+        the pre-alignment so that `_voxeldata_to_sitk_bspline` can reconstruct the full
         composite for resampling.  If not provided, no `"affines"` key is written.
 
     Returns
@@ -117,7 +117,7 @@ def sitk_bspline_to_dataarray(
     coeff_images = bspline.GetCoefficientImages()
 
     # .T restores DataArray axis order, the same convention used throughout
-    # confusius.registration (see dataarray_to_sitk_image): sitk axis i corresponds
+    # confusius.registration (see voxeldata_to_sitk_image): sitk axis i corresponds
     # directly to DataArray dim i, with no axis reversal. Stack components along a
     # new leading axis: shape (ndim, *grid_shape).
     coefficients = np.stack(
@@ -159,7 +159,7 @@ def sitk_bspline_to_dataarray(
     )
 
 
-def _dataarray_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
+def _voxeldata_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
     """Reconstruct a SimpleITK transform from a B-spline DataArray.
 
     If `da.attrs["affines"]["bspline_initialization"]` is present, returns a
@@ -329,7 +329,7 @@ def sample_displacement_field(
             raise ValueError(
                 f"direction must have shape {(len(dims), len(dims))}, got {direction_array.shape}."
             )
-    tx = _dataarray_to_sitk_bspline(transform)
+    tx = _voxeldata_to_sitk_bspline(transform)
 
     ref = sitk.Image(list(shape), sitk.sitkFloat32)
     ref.SetSpacing(list(spacing))
@@ -457,7 +457,7 @@ def invert_displacement_field(
     dims = [str(dim) for dim in field.dims[1:]]
     shape = [field.sizes[d] for d in dims]
 
-    field_sitk = _dataarray_to_sitk_displacement_field(field)
+    field_sitk = _voxeldata_to_sitk_displacement_field(field)
 
     invert_filter = sitk.InvertDisplacementFieldImageFilter()
     invert_filter.SetMaximumNumberOfIterations(max_iterations)
@@ -532,7 +532,7 @@ def _sitk_displacement_field_to_dataarray(
     import SimpleITK as sitk
 
     # .T restores DataArray axis order (component first), the inverse of the .T used
-    # in _dataarray_to_sitk_displacement_field.
+    # in _voxeldata_to_sitk_displacement_field.
     array = sitk.GetArrayFromImage(field).T
 
     ndim = len(dims)
@@ -555,7 +555,7 @@ def _sitk_displacement_field_to_dataarray(
     )
 
 
-def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
+def _voxeldata_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     """Reconstruct a SimpleITK vector displacement field image from a DataArray.
 
     Parameters
@@ -585,7 +585,7 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     direction = np.asarray(field_grid.fusi.direction, dtype=np.float64)
 
     # .T maps the first DataArray axis to SimpleITK's world x-axis, matching the
-    # convention used throughout confusius.registration (see dataarray_to_sitk_image).
+    # convention used throughout confusius.registration (see voxeldata_to_sitk_image).
     field = sitk.GetImageFromArray(da.values.T, isVector=True)
     field.SetSpacing(spacing)
     field.SetOrigin(origin)

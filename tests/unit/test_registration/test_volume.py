@@ -14,7 +14,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
 )
 from confusius.registration._utils import (
-    dataarray_to_sitk_image,
+    voxeldata_to_sitk_image,
     get_defined_spatial_spacing,
     initialize_single_slice_rigid_transform,
 )
@@ -55,12 +55,10 @@ def _make_voxel_to_world_3d() -> xr.DataArray:
 
 def _resample_volume_grid_kwargs(data: xr.DataArray) -> dict:
     """Build `resample_volume`'s position-anchored output-grid kwargs."""
-    _, spacing = get_defined_spatial_spacing(data)
-    origin = data.fusi.origin
     return {
-        "output_shape": [int(data.sizes[dim]) for dim in VOXEL_DIMS],
-        "output_spacing": spacing,
-        "output_origin": [origin[name] for name in SPATIAL_DIMS],
+        "output_sizes": data.sizes,
+        "output_spacing": data.fusi.spacing,
+        "output_origin": data.fusi.origin,
         "output_direction": get_affine_direction_matrix(
             get_voxel_to_world_affine(data)
         ),
@@ -137,7 +135,9 @@ class TestRegisterVolumeValidation:
     def test_time_dimension_raises(self, sample_voxeldata_2dt_registration):
         """DataArray with a time dimension raises ValueError."""
         with pytest.raises(ValueError, match="spatial-only"):
-            register_volume(sample_voxeldata_2dt_registration, sample_voxeldata_2dt_registration)
+            register_volume(
+                sample_voxeldata_2dt_registration, sample_voxeldata_2dt_registration
+            )
 
     def test_nan_in_moving_raises(self, sample_voxeldata_2d_registration):
         """moving with NaN values raises ValueError."""
@@ -327,11 +327,11 @@ class TestRegisterVolumeValidation:
 class TestSimpleITKGeometry:
     """SimpleITK conversion preserves ConfUSIus spatial geometry."""
 
-    def test_dataarray_to_sitk_image_sets_voxel_to_world_origin_spacing_direction(self):
+    def test_voxeldata_to_sitk_image_sets_voxel_to_world_origin_spacing_direction(self):
         """Voxel-to-world DataArrays map to SimpleITK origin/spacing/direction."""
         data = _make_voxel_to_world_2d()
 
-        image = dataarray_to_sitk_image(data)
+        image = voxeldata_to_sitk_image(data)
 
         assert_allclose(image.GetOrigin(), (0.0, 10.0, 20.0))
         assert_allclose(
@@ -343,14 +343,8 @@ class TestSimpleITKGeometry:
             data.fusi.direction,
         )
 
-    def test_dataarray_to_sitk_image_without_voxel_to_world_index_raises(self):
-        """A DataArray without a `VoxelToWorldIndex` is not a supported input.
-
-        ConfUSIus has a single canonical spatial data shape: `k`/`j`/`i` voxel dims
-        backed by a `VoxelToWorldIndex`. Plain `z`/`y`/`x` coordinates with no index
-        attached are not a supported fallback shape, so `dataarray_to_sitk_image`
-        must raise instead of silently deriving a grid from the coordinates.
-        """
+    def test_voxeldata_to_sitk_image_without_voxel_to_world_index_raises(self):
+        """The internal converter assumes canonical VoxelData input."""
         da = xr.DataArray(
             np.zeros((3, 4, 5), dtype=np.float32),
             dims=("z", "y", "x"),
@@ -361,8 +355,8 @@ class TestSimpleITKGeometry:
             },
         )
 
-        with pytest.raises(ValueError, match=r"fusi\.affine\.set_voxel_to_world"):
-            dataarray_to_sitk_image(da)
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            voxeldata_to_sitk_image(da)
 
     def test_undefined_voxel_to_world_spacing_raises_repair_hint(self):
         """An irregularly spaced voxel-to-world coordinate raises a repair error."""
@@ -397,7 +391,9 @@ class TestRegisterVolumeOutput:
         assert isinstance(affine, np.ndarray)
         assert affine.shape == (4, 4)
 
-    def test_bspline_returns_dataarray_transform(self, sample_voxeldata_2d_registration):
+    def test_bspline_returns_dataarray_transform(
+        self, sample_voxeldata_2d_registration
+    ):
         """register_volume with bspline returns a DataArray for the transform."""
         _, bspline_tx, _ = register_volume(
             sample_voxeldata_2d_registration,
@@ -417,7 +413,7 @@ class TestRegisterVolumeOutput:
         Regression test for a bug where `sitk_bspline_to_dataarray` assumed
         SimpleITK reverses axis order relative to the DataArray (`(x, y, z)` vs.
         `(z, y, x)`), when in fact this codebase's convention (see
-        `dataarray_to_sitk_image`) never reverses axes: sitk axis `i` maps directly
+        `voxeldata_to_sitk_image`) never reverses axes: sitk axis `i` maps directly
         to DataArray dim `i`. On an anisotropic image, the erroneous reversal
         swapped the y/x control-point grids: `y`'s spacing was computed from `x`'s
         world domain and vice versa. Isotropic test fixtures never exposed this
@@ -461,7 +457,9 @@ class TestRegisterVolumeOutput:
             sample_voxeldata_2d_registration.coords["i"].values,
         )
 
-    def test_resample_true_inherits_fixed_affines(self, sample_voxeldata_2d_registration):
+    def test_resample_true_inherits_fixed_affines(
+        self, sample_voxeldata_2d_registration
+    ):
         """resample=True output inherits world-space affines from `fixed`."""
         moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16)).copy()
         fixed = sample_voxeldata_2d_registration.copy()
@@ -503,7 +501,9 @@ class TestRegisterVolumeOutput:
 class TestRegisterVolumeMask:
     """Metric masks for register_volume."""
 
-    def test_integer_label_mask_matches_boolean_mask(self, sample_voxeldata_2d_registration):
+    def test_integer_label_mask_matches_boolean_mask(
+        self, sample_voxeldata_2d_registration
+    ):
         """A single-label integer mask registers identically to its boolean form.
 
         Guards against single-label integer masks (e.g. `{0, 512}` from
@@ -665,7 +665,9 @@ class TestRegisterVolumeAccuracy:
             transform_type="translation",
             resample=True,
         )
-        assert_allclose(result.values, sample_voxeldata_2d_registration.values, atol=1e-3)
+        assert_allclose(
+            result.values, sample_voxeldata_2d_registration.values, atol=1e-3
+        )
 
     def test_identical_volumes_unchanged_3d(self, sample_voxeldata_3d_registration):
         """Registering identical 3D volumes produces nearly identical output."""
@@ -675,7 +677,9 @@ class TestRegisterVolumeAccuracy:
             transform_type="translation",
             resample=True,
         )
-        assert_allclose(result.values, sample_voxeldata_3d_registration.values, atol=1e-3)
+        assert_allclose(
+            result.values, sample_voxeldata_3d_registration.values, atol=1e-3
+        )
 
     def test_3d_recovers_known_shift(self, sample_voxeldata_3d_registration):
         """Registration recovers a known 3D translation."""
@@ -749,7 +753,7 @@ class TestRegisterVolumeThinDims:
         result, _, _ = register_volume(da, da, transform_type="translation")
         assert result.shape == da.shape
 
-    def test_3d_volume_with_depth_1_preserves_output_shape_on_resample(self):
+    def test_3d_volume_with_depth_1_preserves_output_sizes_on_resample(self):
         """resample=True preserves the original shape for a depth-1 volume."""
         arr = np.zeros((1, 32, 32), dtype=np.float32)
         arr[0, 12:20, 12:20] = 1.0
@@ -850,9 +854,10 @@ class TestResampleVolume:
             resample_volume(
                 da,
                 np.eye(2),
-                output_shape=[10, 10, 10],
-                output_spacing=[1.0, 1.0, 1.0],
-                output_origin=[0.0, 0.0, 0.0],
+                output_sizes={"k": 10, "j": 10, "i": 10},
+                output_spacing={"k": 1.0, "j": 1.0, "i": 1.0},
+                output_origin={"z": 0.0, "y": 0.0, "x": 0.0},
+                output_direction=np.eye(3),
             )
 
     def test_affine_shape_mismatch_raises(self, sample_voxeldata_2d_registration):
@@ -864,31 +869,36 @@ class TestResampleVolume:
                 **_resample_volume_grid_kwargs(sample_voxeldata_2d_registration),
             )
 
-    def test_output_shape_wrong_length_raises(self, sample_voxeldata_2d_registration):
-        """output_shape with the wrong number of entries raises ValueError."""
-        with pytest.raises(ValueError, match="output_shape must have"):
+    def test_output_sizes_missing_key_raises(self, sample_voxeldata_2d_registration):
+        """output_sizes must provide every native voxel dimension."""
+        with pytest.raises(ValueError, match="output_sizes is missing"):
             resample_volume(
                 sample_voxeldata_2d_registration,
                 np.eye(4),
-                output_shape=[10, 10],
-                output_spacing=[1.0, 1.0, 1.0],
-                output_origin=[0.0, 0.0, 0.0],
+                output_sizes={"k": 10, "j": 10},
+                output_spacing={"k": 1.0, "j": 1.0, "i": 1.0},
+                output_origin={"z": 0.0, "y": 0.0, "x": 0.0},
+                output_direction=np.eye(3),
             )
 
-    def test_output_direction_wrong_shape_raises(self, sample_voxeldata_2d_registration):
+    def test_output_direction_wrong_shape_raises(
+        self, sample_voxeldata_2d_registration
+    ):
         """output_direction with the wrong shape raises ValueError."""
         with pytest.raises(ValueError, match="output_direction must have shape"):
             resample_volume(
                 sample_voxeldata_2d_registration,
                 np.eye(4),
-                output_shape=[10, 10, 10],
-                output_spacing=[1.0, 1.0, 1.0],
-                output_origin=[0.0, 0.0, 0.0],
+                output_sizes={"k": 10, "j": 10, "i": 10},
+                output_spacing={"k": 1.0, "j": 1.0, "i": 1.0},
+                output_origin={"z": 0.0, "y": 0.0, "x": 0.0},
                 output_direction=np.eye(2),
             )
 
-    def test_output_shape_matches_requested_shape(self, sample_voxeldata_2d_registration):
-        """Output shape matches the requested shape, not the moving shape."""
+    def test_output_sizes_matches_requested_shape(
+        self, sample_voxeldata_2d_registration
+    ):
+        """Output sizes matches the requested sizes, not the moving shape."""
         moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16))
         result = resample_volume(
             moving,
@@ -903,13 +913,15 @@ class TestResampleVolume:
         """Output geometry is reconstructed from the requested spacing/origin/direction."""
         grid = _resample_volume_grid_kwargs(sample_voxeldata_2d_registration)
         result = resample_volume(sample_voxeldata_2d_registration, np.eye(4), **grid)
-        for dim, size in zip(VOXEL_DIMS, grid["output_shape"], strict=True):
-            assert result.sizes[dim] == size
+        for dim in VOXEL_DIMS:
+            assert result.sizes[dim] == grid["output_sizes"][dim]
         assert_allclose(
-            [result.fusi.spacing[dim] for dim in VOXEL_DIMS], grid["output_spacing"]
+            [result.fusi.spacing[dim] for dim in VOXEL_DIMS],
+            [grid["output_spacing"][dim] for dim in VOXEL_DIMS],
         )
         assert_allclose(
-            [result.fusi.origin[name] for name in SPATIAL_DIMS], grid["output_origin"]
+            [result.fusi.origin[name] for name in SPATIAL_DIMS],
+            [grid["output_origin"][name] for name in SPATIAL_DIMS],
         )
 
     def test_matches_register_volume_resample(self, sample_voxeldata_2d_registration):
@@ -1189,7 +1201,9 @@ class TestResampleVolumeWithBspline:
             resample=True,
         )
         assert isinstance(bspline_tx, xr.DataArray)
-        result = resample_like(moving, sample_voxeldata_3d_feature_registration, bspline_tx)
+        result = resample_like(
+            moving, sample_voxeldata_3d_feature_registration, bspline_tx
+        )
         np.testing.assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
     def test_resample_like_with_composite_bspline_matches_direct_resample(
@@ -1233,7 +1247,9 @@ class TestResampleVolumeWithBspline:
             resample=True,
         )
         assert isinstance(bspline_tx, xr.DataArray)
-        result = resample_like(moving, sample_voxeldata_3d_feature_registration, bspline_tx)
+        result = resample_like(
+            moving, sample_voxeldata_3d_feature_registration, bspline_tx
+        )
         np.testing.assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
 
@@ -1646,7 +1662,9 @@ class TestResampleLike:
     ):
         """moving with a time dimension resamples each frame with the same transform."""
         result = resample_like(
-            sample_voxeldata_2dt_registration, sample_voxeldata_2d_registration, np.eye(4)
+            sample_voxeldata_2dt_registration,
+            sample_voxeldata_2d_registration,
+            np.eye(4),
         )
         assert "time" in result.dims
         assert result.shape == sample_voxeldata_2dt_registration.shape
@@ -1836,7 +1854,9 @@ class TestResampleLike:
         )
         assert_allclose(result.values, reference.values)
 
-    def test_matches_register_volume_resample_2d(self, sample_voxeldata_2d_registration):
+    def test_matches_register_volume_resample_2d(
+        self, sample_voxeldata_2d_registration
+    ):
         """resample_like matches register_volume(resample=True) on a shifted 2D image."""
         rng = np.random.default_rng(42)
         shift = rng.integers(3, 6, size=2)
@@ -1860,7 +1880,9 @@ class TestResampleLike:
         result = resample_like(moving, sample_voxeldata_2d_registration, affine)
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
-    def test_matches_register_volume_resample_3d(self, sample_voxeldata_3d_registration):
+    def test_matches_register_volume_resample_3d(
+        self, sample_voxeldata_3d_registration
+    ):
         """resample_like matches register_volume(resample=True) in 3D."""
         shifted = np.roll(sample_voxeldata_3d_registration.values, 2, axis=0)
         moving = xr.DataArray(

@@ -14,7 +14,7 @@ from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtWidgets import QFileDialog
 
-from confusius._dims import SPATIAL_DIMS
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._napari._registration._panel_utils import (
     _get_image_display_kwargs_from_layer,
     _get_source_dataarray,
@@ -797,9 +797,10 @@ def apply_selected_transform(panel: RegistrationPanel) -> None:
     worker = thread_worker(resample_volume)(
         moving,
         transform,
-        output_shape=output_grid["shape"],
-        output_spacing=output_grid["spacing"],
-        output_origin=output_grid["origin"],
+        output_sizes=dict(zip(VOXEL_DIMS, output_grid["shape"], strict=True)),
+        output_spacing=dict(zip(VOXEL_DIMS, output_grid["spacing"], strict=True)),
+        output_origin=dict(zip(SPATIAL_DIMS, output_grid["origin"], strict=True)),
+        output_direction=np.asarray(output_grid["direction"], dtype=float),
         interpolation=panel._current_resample_interpolation(),
     )
     apply_payload: ApplyTransformPayload = {
@@ -860,9 +861,10 @@ def apply_selected_inverse_transform(panel: RegistrationPanel) -> None:
     worker = thread_worker(resample_volume)(
         moving,
         transform,
-        output_shape=output_grid["shape"],
-        output_spacing=output_grid["spacing"],
-        output_origin=output_grid["origin"],
+        output_sizes=dict(zip(VOXEL_DIMS, output_grid["shape"], strict=True)),
+        output_spacing=dict(zip(VOXEL_DIMS, output_grid["spacing"], strict=True)),
+        output_origin=dict(zip(SPATIAL_DIMS, output_grid["origin"], strict=True)),
+        output_direction=np.asarray(output_grid["direction"], dtype=float),
         interpolation=panel._current_resample_interpolation(),
     )
     apply_payload: ApplyTransformPayload = {

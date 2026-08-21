@@ -13,6 +13,7 @@ import numpy as np
 import xarray as xr
 from scipy.spatial.transform import Rotation
 
+from confusius._dims import VOXEL_DIMS
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
@@ -307,7 +308,7 @@ def abort_on_sigint(
         signal.signal(signal.SIGINT, previous_handler)
 
 
-def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
+def voxeldata_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     """Convert a VoxelData array to a SimpleITK image.
 
     Uses the transpose convention: `da.values.T` is passed to `GetImageFromArray`,
@@ -318,8 +319,7 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     Parameters
     ----------
     da : xarray.DataArray
-        VoxelData array, optionally with a `time` dimension. It is
-        canonicalized with [ensure_voxeldata][confusius.validation.ensure_voxeldata]; spacing,
+        Canonical VoxelData array, optionally with a `time` dimension. Spacing,
         origin, and direction are derived from its voxel-to-world index.
 
     Returns
@@ -328,31 +328,11 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
         SimpleITK image with spacing, origin, and direction set from the DataArray's
         voxel-to-world index. For `time`-stacked input, returns a vector image where
         time is the vector dimension.
-
-    Raises
-    ------
-    ValueError
-        If `da` is not a VoxelData array.
     """
     import SimpleITK as sitk
 
-    try:
-        da = ensure_voxeldata(
-            da,
-            require_time=False,
-            allow_pose=False,
-            allow_extra_dims=False,
-        )
-    except ValueError as exc:
-        raise ValueError(
-            "Cannot convert DataArray to a SimpleITK image because it is not "
-            "a VoxelData array. Attach voxel-to-world geometry with "
-            "da.fusi.affine.set_voxel_to_world(...) before calling "
-            "dataarray_to_sitk_image."
-        ) from exc
-
     has_time = "time" in da.dims
-    _, spacing = get_defined_spatial_spacing(da)
+    spacing = [float(da.fusi.spacing[dim]) for dim in VOXEL_DIMS]
     origin_dict = da.fusi.origin
     origin_names = get_voxel_to_world_coord_names(da)
     origin = tuple(origin_dict[d] for d in origin_names)

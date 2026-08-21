@@ -10,6 +10,7 @@ import pytest
 import xarray as xr
 from qtpy.QtWidgets import QApplication
 
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._napari._registration._panel_progress import (
     create_volume_progress_plotter,
     setup_volumewise_progress,
@@ -1130,9 +1131,10 @@ class TestTransforms:
         target = resample_volume(
             source,
             affine,
-            output_shape=[source.sizes["k"], source.sizes["j"], source.sizes["i"]],
-            output_spacing=[0.3, 0.2, 0.1],
-            output_origin=[0.0, 0.0, 0.0],
+            output_sizes=source.sizes,
+            output_spacing={"k": 0.3, "j": 0.2, "i": 0.1},
+            output_origin={"z": 0.0, "y": 0.0, "x": 0.0},
+            output_direction=np.eye(3),
             interpolation="nearest",
         )
         payload = make_affine_transform_payload(
@@ -1277,10 +1279,14 @@ class TestTransforms:
         assert calls["invert_field"] is inverse_field
         assert calls["resample_args"][0] is target
         assert calls["resample_args"][1] is inverse_field
-        assert calls["resample_kwargs"] == {
-            "output_shape": input_grid["shape"],
-            "output_spacing": input_grid["spacing"],
-            "output_origin": input_grid["origin"],
+        resample_kwargs = calls["resample_kwargs"]
+        np.testing.assert_allclose(
+            resample_kwargs.pop("output_direction"), input_grid["direction"]
+        )
+        assert resample_kwargs == {
+            "output_sizes": dict(zip(VOXEL_DIMS, input_grid["shape"], strict=True)),
+            "output_spacing": dict(zip(VOXEL_DIMS, input_grid["spacing"], strict=True)),
+            "output_origin": dict(zip(SPATIAL_DIMS, input_grid["origin"], strict=True)),
             "interpolation": "linear",
         }
 

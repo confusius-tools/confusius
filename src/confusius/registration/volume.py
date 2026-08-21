@@ -9,10 +9,10 @@ import xarray as xr
 
 from confusius.registration._utils import (
     abort_on_sigint,
-    dataarray_to_sitk_image,
     expand_thin_dims,
     replace_affines_attr,
     set_sitk_thread_count,
+    voxeldata_to_sitk_image,
 )
 from confusius.registration.affines import (
     affine_to_sitk_linear_transform,
@@ -606,8 +606,8 @@ def register_volume(
         resample_interpolation=resample_interpolation,
     )
 
-    fixed_sitk = dataarray_to_sitk_image(fixed)
-    moving_sitk = dataarray_to_sitk_image(moving)
+    fixed_sitk = voxeldata_to_sitk_image(fixed)
+    moving_sitk = voxeldata_to_sitk_image(moving)
 
     # SimpleITK's multi-resolution pyramid and interpolation fail when any spatial
     # dimension is smaller than 4 voxels (common for single-slice fUSI recordings with
@@ -655,14 +655,14 @@ def register_volume(
     if fixed_mask is not None:
         # Convert boolean mask to uint8 for SimpleITK
         fixed_mask_uint8 = fixed_mask.astype(np.uint8)
-        fixed_mask_sitk = dataarray_to_sitk_image(fixed_mask_uint8)
+        fixed_mask_sitk = voxeldata_to_sitk_image(fixed_mask_uint8)
         # Expand mask if image was expanded
         fixed_mask_sitk = expand_thin_dims(fixed_mask_sitk)
         registration.SetMetricFixedMask(fixed_mask_sitk)
     if moving_mask is not None:
         # Convert boolean mask to uint8 for SimpleITK
         moving_mask_uint8 = moving_mask.astype(np.uint8)
-        moving_mask_sitk = dataarray_to_sitk_image(moving_mask_uint8)
+        moving_mask_sitk = voxeldata_to_sitk_image(moving_mask_uint8)
         # Expand mask if image was expanded
         moving_mask_sitk = expand_thin_dims(moving_mask_sitk)
         registration.SetMetricMovingMask(moving_mask_sitk)
