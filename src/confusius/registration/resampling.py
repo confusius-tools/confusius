@@ -123,14 +123,13 @@ def resample_volume(
     another DataArray, use [`resample_like`][confusius.registration.resample_like]
     instead.
 
-    The output grid is specified as a position-anchored `shape`/`spacing`/`origin`/
-    `direction` (matching what a SimpleITK image expects), not as a single affine.
-    A DataArray's `voxel_to_world` affine is defined in terms of its voxel
-    *coordinate values*, which stay unchanged across cropping or striding (see
-    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]) — it does not
-    generally describe where the array's *position* `(0, ..., 0)` sits, or the
-    world distance between consecutive *positions*, once the array has been
-    cropped or strided. Use `reference.fusi.spacing`/`reference.fusi.origin` (as
+    The output grid is specified as position-anchored `sizes`/`spacing`/`origin`/
+    `direction` metadata (matching what a SimpleITK image expects), not as a single
+    affine. A DataArray's `voxel_to_world` affine is defined in terms of its voxel
+    coordinate values, which stay unchanged across cropping or striding; it does not
+    generally describe where the array's position `(0, ..., 0)` sits, or the world
+    distance between consecutive positions, once the array has been cropped or
+    strided. Use `reference.fusi.spacing`/`reference.fusi.origin` (as
     [`resample_like`][confusius.registration.resample_like] does) to derive a
     position-anchored grid from an existing DataArray.
 
@@ -194,8 +193,9 @@ def resample_volume(
     ------
     ValueError
         If `transform` is a numpy array whose shape does not match the spatial
-        dimensionality, or if `output_sizes`, `output_spacing`, or `output_origin`
-        is missing a required key.
+        dimensionality, if `output_direction` has the wrong shape, or if
+        `output_sizes`, `output_spacing`, or `output_origin` is missing a required
+        key.
     """
     import SimpleITK as sitk
 
@@ -311,7 +311,7 @@ def resample_like(
 
     Convenience wrapper around
     [`resample_volume`][confusius.registration.resample_volume] that extracts the
-    position-anchored output grid (`shape`, `spacing`, `origin`, `direction`) from
+    position-anchored output grid (`sizes`, `spacing`, `origin`, `direction`) from
     `reference`'s coordinates via the `fusi` accessor, so the grid is correct even if
     `reference` has been cropped or strided from a larger DataArray.
 
