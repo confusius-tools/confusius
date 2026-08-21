@@ -1438,9 +1438,14 @@ class RegistrationPanel(QWidget):
         spacings = source.fusi.spacing
         world_origins = source.fusi.origin
         origins = {d: world_origins[voxel_to_world_name.get(d, d)] for d in dims}
+        # Display each voxel dim by its linked world coordinate name (matching the
+        # convention in `get_napari_scale_translate_units`), not the raw k/j/i name.
+        axis_labels = tuple(voxel_to_world_name.get(d, d) for d in dims)
         units = tuple(
-            source.coords[d].attrs.get("units") if d in source.coords else None
-            for d in dims
+            source.coords[world_name].attrs.get("units")
+            if world_name in source.coords
+            else None
+            for world_name in axis_labels
         )
         kwargs: dict[str, Any] = {}
         if any(u is not None for u in units):
@@ -1452,7 +1457,7 @@ class RegistrationPanel(QWidget):
             name=name,
             scale=tuple(spacings[d] for d in dims),
             translate=tuple(origins[d] for d in dims),
-            axis_labels=dims,
+            axis_labels=axis_labels,
             **kwargs,
         )
 

@@ -151,7 +151,7 @@ def _make_manual_transform_payload(layer: Layer) -> AffineTransformPayload:
     """
     data = _get_source_dataarray(layer)
     spatial_data = _prepare_between_scan_data(data)
-    spatial_dims = [str(dim) for dim in spatial_data.dims if dim in SPATIAL_DIMS]
+    spatial_dims = [str(dim) for dim in spatial_data.dims if dim in VOXEL_DIMS]
     manual_affine = _get_spatial_manual_affine_from_layer(
         layer, spatial_dims=spatial_dims
     )
@@ -347,7 +347,7 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
     for layer in panel.viewer.layers:
         try:
             data = _get_source_dataarray(layer)
-            spatial_dims = [str(dim) for dim in data.dims if dim in SPATIAL_DIMS]
+            spatial_dims = [str(dim) for dim in data.dims if dim in VOXEL_DIMS]
             if not spatial_dims:
                 continue
             manual_affine = _get_spatial_manual_affine_from_layer(
@@ -589,7 +589,7 @@ def get_selected_initial_transform(
             "or fixed layer."
         )
 
-    spatial_dims = [str(dim) for dim in moving.dims if dim in SPATIAL_DIMS]
+    spatial_dims = [str(dim) for dim in moving.dims if dim in VOXEL_DIMS]
     moving_affine = _get_spatial_manual_affine_from_layer(
         moving_layer,
         spatial_dims=spatial_dims,
