@@ -341,6 +341,11 @@ class AtlasAccessor:
     ) -> xr.Dataset:
         """Resample the atlas onto an explicit output grid.
 
+        The atlas reference volume is resampled with `interpolation`; `annotation` and
+        `hemispheres` are always resampled with nearest-neighbor interpolation to
+        preserve integer labels. The returned Dataset stores the composed pull transform
+        from its new world space back to the atlas base space in `attrs["world_to_base"]`.
+
         Parameters
         ----------
         transform : (4, 4) numpy.ndarray or xarray.DataArray
@@ -362,7 +367,8 @@ class AtlasAccessor:
         Returns
         -------
         xarray.Dataset
-            Resampled atlas Dataset on the requested grid.
+            Resampled atlas Dataset on the requested grid. Meshes returned by
+            `get_mesh` are transformed through the composed `world_to_base` attribute.
         """
         resampled_ref = resample_volume(
             self.reference,
@@ -423,7 +429,8 @@ class AtlasAccessor:
         Parameters
         ----------
         reference : xarray.DataArray
-            VoxelData array defining the target grid.
+            VoxelData array defining the target grid. Must be spatial-only, without
+            `time`, `pose`, or extra non-spatial dimensions.
         transform : (4, 4) numpy.ndarray or xarray.DataArray
             Pull transform mapping reference world coordinates to atlas world
             coordinates.
@@ -436,7 +443,14 @@ class AtlasAccessor:
         -------
         xarray.Dataset
             Resampled atlas Dataset with exactly `reference`'s voxel labels and
-            voxel-to-world affine.
+            voxel-to-world affine. Meshes returned by `get_mesh` are transformed
+            through the composed `world_to_base` attribute.
+
+        Raises
+        ------
+        ValueError
+            If `reference` has a `time`, `pose`, or extra non-spatial dimension, or is
+            not a VoxelData array.
         """
         if "time" in reference.dims:
             raise ValueError(
