@@ -102,6 +102,18 @@ def test_fit_transform_matches_fit_then_transform(nmf_3dt_volume, mode):
     xr.testing.assert_identical(direct, two_step)
 
 
+def test_fit_with_extra_dimension_uses_default_mask(nmf_3dt_volume):
+    """NMF preserves extra VoxelData dimensions when no mask is provided."""
+    data = xr.concat(
+        [nmf_3dt_volume, nmf_3dt_volume],
+        dim=xr.IndexVariable("sign", ["pos", "neg"]),
+    )
+
+    model = NMF(n_components=3, random_state=0).fit(data)
+
+    assert model.maps_.dims == ("component", "sign", "k", "j", "i")
+
+
 def test_wrapper_matches_sklearn_attributes(nmf_3dt_volume):
     """Temporal wrapper exposes the same learned quantities as sklearn NMF."""
     stacked = nmf_3dt_volume.transpose("time", "k", "j", "i").stack(

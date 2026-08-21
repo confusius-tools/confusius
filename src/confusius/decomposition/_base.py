@@ -273,7 +273,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             mask_template = X_ordered.isel(time=0, drop=True)
             mask = ensure_voxeldata(
                 mask_template.copy(data=np.ones(mask_template.shape, dtype=bool)),
-                allow_extra_dims=False,
+                allow_extra_dims=True,
             )
         else:
             mask = ensure_mask(mask, X_ordered, "mask", require_exact_dims=True)
