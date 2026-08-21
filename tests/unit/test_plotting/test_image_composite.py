@@ -5,8 +5,11 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+)
 from confusius.plotting import VolumePlotter, plot_composite
-from confusius.plotting._utils import _materialize_axis_aligned_world_grid_for_display
 from confusius.xarray import create_voxeldata
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
@@ -29,13 +32,16 @@ def _axes(plotter):
 
 def _shifted_volume(template: xr.DataArray, shift: float = 0.07) -> xr.DataArray:
     """Return a second volume on the same grid as `template` with shifted values."""
-    return xr.DataArray(
-        np.roll(template.values, shift=1, axis=-1) + shift,
-        name="moving",
-        dims=template.dims,
-        coords=template.coords,
-        attrs=dict(template.attrs),
-    )
+    return template.copy(
+        data=np.roll(template.values, shift=1, axis=-1) + shift
+    ).rename("moving")
+
+
+def _shift_voxeldata_origin(data: xr.DataArray, *, x_shift: float) -> xr.DataArray:
+    """Return `data` on the same voxel grid but shifted in world `x`."""
+    affine = get_voxel_to_world_affine(data).copy()
+    affine[2, 3] += x_shift
+    return attach_voxel_to_world_index(data.copy(), affine)
 
 
 class TestAddCompositeChannels:
@@ -68,7 +74,9 @@ class TestAddCompositeChannels:
 class TestAddCompositeResample:
     """Verify the resample=True grid-alignment behaviour."""
 
-    def test_resamples_data2_onto_data1_grid(self, sample_voxeldata_3d, matplotlib_pyplot):
+    def test_resamples_data2_onto_data1_grid(
+        self, sample_voxeldata_3d, matplotlib_pyplot
+    ):
         data1 = sample_voxeldata_3d
         data2 = create_voxeldata(
             np.linspace(0, 1, 3 * 4 * 5).reshape(3, 4, 5),
@@ -100,8 +108,8 @@ class TestAddCompositeResample:
     def test_resample_false_coord_mismatch_raises_by_default(
         self, sample_voxeldata_3d, matplotlib_pyplot
     ):
-        data1 = _materialize_axis_aligned_world_grid_for_display(sample_voxeldata_3d)
-        data2 = data1.assign_coords(x=data1.coords["x"].values + 0.5)
+        data1 = sample_voxeldata_3d
+        data2 = _shift_voxeldata_origin(data1, x_shift=0.5)
         with pytest.raises(ValueError, match="does not match"):
             VolumePlotter(slice_mode="z").add_composite(data1, data2, resample=False)
 
@@ -111,10 +119,10 @@ class TestAddCompositeResample:
         # Tiny floating-point drift in data2's coords (well below the default
         # atol) should pass validation, and data2's coords should be replaced
         # with data1's so downstream slicing sees a single coordinate frame.
-        data1 = _materialize_axis_aligned_world_grid_for_display(sample_voxeldata_3d)
-        x_coords = data1.coords["x"].values.astype(float)
+        data1 = sample_voxeldata_3d
+        x_coords = _world_coord_1d(data1, "x").astype(float)
         drift = 1e-11
-        data2 = data1.assign_coords(x=x_coords + drift)
+        data2 = _shift_voxeldata_origin(data1, x_shift=drift)
 
         plotter = VolumePlotter(slice_mode="z").add_composite(
             data1, data2, resample=False
@@ -132,10 +140,10 @@ class TestAddCompositeResample:
         # A larger coord shift fails by default but passes when atol is widened
         # past the offset. data2's coords are replaced with data1's, so the
         # rendered axes sit on data1's grid.
-        data1 = _materialize_axis_aligned_world_grid_for_display(sample_voxeldata_3d)
-        x_coords = data1.coords["x"].values.astype(float)
+        data1 = sample_voxeldata_3d
+        x_coords = _world_coord_1d(data1, "x").astype(float)
         x_shift = 0.5
-        data2 = data1.assign_coords(x=x_coords + x_shift)
+        data2 = _shift_voxeldata_origin(data1, x_shift=x_shift)
 
         plotter = VolumePlotter(slice_mode="z").add_composite(
             data1, data2, resample=False, atol=1.0
@@ -159,7 +167,11 @@ class TestAddCompositeResampleKwargs:
         x_sub = x[len(x) // 4 : 3 * len(x) // 4]
         data2 = create_voxeldata(
             np.full(
-                (sample_voxeldata_3d.sizes["k"], sample_voxeldata_3d.sizes["j"], len(x_sub)),
+                (
+                    sample_voxeldata_3d.sizes["k"],
+                    sample_voxeldata_3d.sizes["j"],
+                    len(x_sub),
+                ),
                 fill_value=5.0,
             ),
             dims=["k", "j", "i"],
@@ -280,8 +292,12 @@ class TestAddCompositeNormalize:
     def test_shared_raises_when_no_finite_values(
         self, sample_voxeldata_3d, matplotlib_pyplot
     ):
-        data1 = sample_voxeldata_3d.copy(data=np.full(sample_voxeldata_3d.shape, -np.inf))
-        data2 = sample_voxeldata_3d.copy(data=np.full(sample_voxeldata_3d.shape, np.nan))
+        data1 = sample_voxeldata_3d.copy(
+            data=np.full(sample_voxeldata_3d.shape, -np.inf)
+        )
+        data2 = sample_voxeldata_3d.copy(
+            data=np.full(sample_voxeldata_3d.shape, np.nan)
+        )
         with pytest.raises(ValueError, match="no finite"):
             VolumePlotter(slice_mode="z").add_composite(
                 data1, data2, resample=False, normalize_strategy="shared"
@@ -323,7 +339,9 @@ class TestAddCompositeValidation:
 
     def test_requires_slice_mode_dim(self, sample_voxeldata_3d, matplotlib_pyplot):
         with pytest.raises(ValueError, match="slice_mode"):
-            VolumePlotter(slice_mode="t").add_composite(sample_voxeldata_3d, sample_voxeldata_3d)
+            VolumePlotter(slice_mode="t").add_composite(
+                sample_voxeldata_3d, sample_voxeldata_3d
+            )
 
     def test_invalid_normalize_raises(self, sample_voxeldata_3d, matplotlib_pyplot):
         with pytest.raises(ValueError, match="normalization strategy"):
@@ -376,7 +394,9 @@ class TestPlotComposite:
     def test_returns_volume_plotter_with_one_panel_per_slice(
         self, sample_voxeldata_3d, matplotlib_pyplot
     ):
-        plotter = plot_composite(sample_voxeldata_3d, sample_voxeldata_3d, resample=False)
+        plotter = plot_composite(
+            sample_voxeldata_3d, sample_voxeldata_3d, resample=False
+        )
         assert isinstance(plotter, VolumePlotter)
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == sample_voxeldata_3d.sizes["k"]
@@ -447,7 +467,9 @@ class TestCompositeAccessor:
     ):
         import confusius  # noqa: F401 - register accessor.
 
-        plotter = sample_voxeldata_3d.fusi.plot.composite(sample_voxeldata_3d, resample=False)
+        plotter = sample_voxeldata_3d.fusi.plot.composite(
+            sample_voxeldata_3d, resample=False
+        )
         assert isinstance(plotter, VolumePlotter)
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == sample_voxeldata_3d.sizes["k"]

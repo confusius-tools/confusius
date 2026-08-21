@@ -37,7 +37,11 @@ from confusius.plotting._utils import (
     resample_to_axis_aligned_world_grid as _shared_resample_to_axis_aligned_world_grid,
 )
 from confusius.signal import clean
-from confusius.validation import validate_matching_coordinates, validate_time_series
+from confusius.validation import (
+    ensure_voxeldata,
+    validate_matching_coordinates,
+    validate_time_series,
+)
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -115,7 +119,10 @@ def _validate_voxel_to_world_slice_mode(data: xr.DataArray, slice_mode: str) -> 
     if not _has_plottable_voxel_to_world_index(data):
         return
 
-    valid_slice_modes = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
+    valid_slice_modes = tuple(
+        str(dim) for dim in data.dims if str(dim) not in {"time", *VOXEL_DIMS}
+    )
+    valid_slice_modes += tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
     valid_slice_modes += tuple(
         dim
         for dim in get_voxel_to_world_coord_names(data)
@@ -916,7 +923,7 @@ class VolumePlotter:
 
     def _prepare_slice_inputs(self, data: xr.DataArray, *, caller: str) -> xr.DataArray:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords."""
-        data = coerce_complex_to_magnitude(data, caller=caller)
+        data = ensure_voxeldata(coerce_complex_to_magnitude(data, caller=caller))
         _validate_voxel_to_world_slice_mode(data, self.slice_mode)
         resampled = _resample_to_axis_aligned_world_grid_keep_index(
             data,

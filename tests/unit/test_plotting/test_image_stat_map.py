@@ -5,6 +5,7 @@ import pytest
 import xarray as xr
 
 from confusius.plotting import VolumePlotter, plot_stat_map
+from confusius.xarray import create_voxeldata
 
 
 def _axes(plotter):
@@ -19,45 +20,29 @@ def _signed_stat_map(template: xr.DataArray) -> xr.DataArray:
     `vmax` (the data's actual min/max) are deterministic.
     """
     values = np.linspace(-10.0, 10.0, template.size).reshape(template.shape)
-    return xr.DataArray(
-        values,
-        name="t_stat",
-        dims=template.dims,
-        coords=template.coords,
-        attrs=template.attrs,
-    )
+    return template.copy(data=values).rename("t_stat")
 
 
 def _nonneg_stat_map(template: xr.DataArray) -> xr.DataArray:
     """Return a stat map on `template`'s grid with non-negative values (e.g. R²)."""
     values = np.linspace(0.0, 10.0, template.size).reshape(template.shape)
-    return xr.DataArray(
-        values,
-        name="r2",
-        dims=template.dims,
-        coords=template.coords,
-        attrs=template.attrs,
-    )
+    return template.copy(data=values).rename("r2")
 
 
 def _create_deterministic_bg_and_stat_map() -> tuple[xr.DataArray, xr.DataArray]:
     """Deterministic (bg_volume, stat_map) pair for visual regression baselines."""
     rng = np.random.default_rng(42)
     shape = (4, 6, 8)
-    coords = {
-        "z": xr.DataArray(np.arange(4) * 0.1, dims=["z"], attrs={"units": "mm"}),
-        "y": xr.DataArray(np.arange(6) * 0.05, dims=["y"], attrs={"units": "mm"}),
-        "x": xr.DataArray(np.arange(8) * 0.05, dims=["x"], attrs={"units": "mm"}),
-    }
-    bg_volume = xr.DataArray(
-        rng.random(shape), dims=["z", "y", "x"], coords=coords, name="power_doppler"
+    bg_volume = create_voxeldata(
+        rng.random(shape),
+        dims=("k", "j", "i"),
+        spacing=(0.1, 0.05, 0.05),
+        origin=(0.0, 0.0, 0.0),
+        name="power_doppler",
     )
-    stat_map = xr.DataArray(
-        np.linspace(-10.0, 10.0, np.prod(shape)).reshape(shape),
-        dims=["z", "y", "x"],
-        coords=coords,
-        name="t_stat",
-    )
+    stat_map = bg_volume.copy(
+        data=np.linspace(-10.0, 10.0, np.prod(shape)).reshape(shape)
+    ).rename("t_stat")
     return bg_volume, stat_map
 
 

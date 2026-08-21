@@ -45,6 +45,19 @@ def _figure(plotter):
     return plotter.figure
 
 
+@pytest.fixture
+def make_region_voxeldata(sample_voxeldata_3d):
+    """Build region-stacked VoxelData on the shared plotting fixture grid."""
+
+    def _make(regions=("a", "b"), values=None, *, name="r"):
+        template = sample_voxeldata_3d.isel(k=[0]).expand_dims(region=list(regions))
+        if values is None:
+            values = np.zeros(tuple(template.sizes[dim] for dim in template.dims))
+        return template.copy(data=np.asarray(values), deep=True).rename(name)
+
+    return _make
+
+
 class TestPlotVolume:
     """Tests for plot_volume function."""
 
@@ -111,9 +124,7 @@ class TestPlotVolume:
             voxel_to_world=affine,
         )
 
-        plotter = plot_volume(
-            data.isel(k=0), slice_mode="pose", show_colorbar=False
-        )
+        plotter = plot_volume(data.isel(k=0), slice_mode="pose", show_colorbar=False)
 
         axes = _axes(plotter).ravel()
         assert sum(len(ax.collections) for ax in axes) == npose
@@ -159,29 +170,20 @@ class TestPlotVolume:
             voxel_to_world=affine,
         )
 
-        plotter = plot_volume(
-            data.isel(k=0), slice_mode="i", show_colorbar=False
-        )
+        plotter = plot_volume(data.isel(k=0), slice_mode="i", show_colorbar=False)
 
         axes = _axes(plotter).ravel()
         assert "mm" in axes[0].get_xlabel()
         assert axes[0].get_ylabel() == "pose"
 
-    def test_non_3d_data_raises(self):
+    def test_non_3d_data_raises(self, sample_voxeldata_3dt):
         """plot_volume raises ValueError for 4D data with no unitary dimensions."""
-        data = xr.DataArray(
-            np.zeros((5, 8, 10, 12)),
-            dims=["time", "z", "y", "x"],
-        )
+        data = sample_voxeldata_3dt
         with pytest.raises(ValueError, match="3D"):
             plot_volume(data, slice_mode="z")
 
-    def test_voxel_to_world_2d_world_slice_mode_raises(self, matplotlib_pyplot):
-        """World z/y/x slicing on 2D voxel-to-world data raises ValueError.
-
-        World-coordinate slicing requires a full 3D voxel-to-world volume; a 2D
-        oblique plane has no third axis to resolve against a world grid.
-        """
+    def test_voxel_to_world_2d_data_is_rejected(self, matplotlib_pyplot):
+        """VolumePlotter requires full VoxelData geometry."""
         data = xr.DataArray(
             np.arange(3 * 4, dtype=float).reshape(3, 4),
             dims=["j", "i"],
@@ -192,7 +194,7 @@ class TestPlotVolume:
             np.array([[0.3, 0.0, 20.0], [0.0, 0.25, 30.0], [0.0, 0.0, 1.0]]),
             world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
         )
-        with pytest.raises(ValueError, match="requires 3D data"):
+        with pytest.raises(ValueError, match="missing voxel dimension 'k'"):
             plot_volume(data, slice_mode="y")
 
     def test_complex_data_converted_to_magnitude(
@@ -320,7 +322,9 @@ class TestPlotVolume:
     def test_colorbar_added_by_default(self, sample_voxeldata_3d, matplotlib_pyplot):
         """plot_volume adds a colorbar when show_colorbar=True (default)."""
         z_coord = _world_coord_1d(sample_voxeldata_3d, "z")[0]
-        plotter = plot_volume(sample_voxeldata_3d, slice_mode="z", slice_coords=[z_coord])
+        plotter = plot_volume(
+            sample_voxeldata_3d, slice_mode="z", slice_coords=[z_coord]
+        )
 
         plot_axes = set(_axes(plotter).ravel())
         extra_axes = [ax for ax in _figure(plotter).axes if ax not in plot_axes]
@@ -446,7 +450,9 @@ class TestPlotVolume:
     def test_axis_limits_match_data_edges(self, sample_voxeldata_3d, matplotlib_pyplot):
         """Axes limits exactly equal data edges — no matplotlib auto-margin."""
         z_coord = _world_coord_1d(sample_voxeldata_3d, "z")[0]
-        plotter = plot_volume(sample_voxeldata_3d, slice_mode="z", slice_coords=[z_coord])
+        plotter = plot_volume(
+            sample_voxeldata_3d, slice_mode="z", slice_coords=[z_coord]
+        )
         ax = _axes(plotter)[0, 0]
 
         x_centers = _world_coord_1d(sample_voxeldata_3d, "x").astype(float)
@@ -462,16 +468,29 @@ class TestPlotVolume:
             (y_centers[-1] + dy / 2, y_centers[0] - dy / 2)
         )
 
-    def test_no_coordinate_arrays(self, matplotlib_pyplot):
-        """plot_volume uses pixel-index edges when coordinate arrays are absent."""
-        data = xr.DataArray(np.random.rand(3, 4, 5), dims=["z", "y", "x"])
+    def test_fixture_voxel_coordinates_define_edges(
+        self, sample_voxeldata_3d, matplotlib_pyplot
+    ):
+        """plot_volume derives pixel edges from VoxelData world coordinates."""
+        z_coord = _world_coord_1d(sample_voxeldata_3d, "z")[0]
         plotter = plot_volume(
-            data, slice_mode="z", slice_coords=[0], show_colorbar=False
+            sample_voxeldata_3d,
+            slice_mode="z",
+            slice_coords=[z_coord],
+            show_colorbar=False,
         )
         ax = _axes(plotter)[0, 0]
+        x_centers = _world_coord_1d(sample_voxeldata_3d, "x").astype(float)
+        y_centers = _world_coord_1d(sample_voxeldata_3d, "y").astype(float)
+        dx = x_centers[1] - x_centers[0]
+        dy = y_centers[1] - y_centers[0]
 
-        assert ax.get_xlim() == pytest.approx((0.0, 5.0))
-        assert ax.get_ylim() == pytest.approx((4.0, 0.0))
+        assert ax.get_xlim() == pytest.approx(
+            (x_centers[0] - dx / 2, x_centers[-1] + dx / 2)
+        )
+        assert ax.get_ylim() == pytest.approx(
+            (y_centers[-1] + dy / 2, y_centers[0] - dy / 2)
+        )
 
     def test_yincrease_true_places_origin_at_bottom(
         self, sample_voxeldata_3d, matplotlib_pyplot
@@ -508,11 +527,12 @@ class TestPlotVolume:
         assert plotter.figure is fig
         assert plotter.axes is not None
 
-    def test_4d_with_unitary_dim_squeezed(self, sample_voxeldata_3d, matplotlib_pyplot):
+    def test_4d_with_unitary_dim_squeezed(
+        self, sample_voxeldata_3dt, matplotlib_pyplot
+    ):
         """plot_volume squeezes unitary dimensions except slice_mode."""
-        # Add unitary time dimension that should be squeezed
-        data_4d = sample_voxeldata_3d.expand_dims("time")
-        z_coord = _world_coord_1d(sample_voxeldata_3d, "z")[0]
+        data_4d = sample_voxeldata_3dt.isel(time=[0])
+        z_coord = _world_coord_1d(data_4d, "z")[0]
         plotter = plot_volume(
             data_4d, slice_mode="z", slice_coords=[z_coord], show_colorbar=False
         )
@@ -533,25 +553,18 @@ class TestPlotVolume:
         )
         assert plotter.axes is not None
 
-    def test_unitary_slice_mode_preserved(self, matplotlib_pyplot):
+    def test_unitary_slice_mode_preserved(self, sample_voxeldata_3d, matplotlib_pyplot):
         """plot_volume preserves slice_mode dimension even when unitary."""
-        # 3D data with unitary z dimension
-        data = xr.DataArray(
-            np.random.rand(1, 10, 12),
-            dims=["z", "y", "x"],
-            coords={
-                "z": [0.5],
-                "y": np.linspace(0, 1, 10),
-                "x": np.linspace(0, 1.2, 12),
-            },
-        )
+        data = sample_voxeldata_3d.isel(k=[0])
         # Should plot single slice without error
         plotter = plot_volume(data, slice_mode="z", show_colorbar=False)
         assert _axes(plotter).shape == (1, 1)
         # Verify the slice was plotted
         assert len(_axes(plotter)[0, 0].collections) == 1
 
-    def test_scalar_slice_mode_from_selection(self, sample_voxeldata_3d, matplotlib_pyplot):
+    def test_scalar_slice_mode_from_selection(
+        self, sample_voxeldata_3d, matplotlib_pyplot
+    ):
         """plot_volume accepts a scalar slice_mode coordinate (issue #295).
 
         Selecting a single index (isel(z=1)) drops z to a scalar coordinate; it
@@ -563,30 +576,14 @@ class TestPlotVolume:
         assert _axes(plotter).shape == (1, 1)
         assert len(_axes(plotter)[0, 0].collections) == 1
 
-    def test_non_monotonic_coords_are_sorted_before_plotting(
+    def test_non_monotonic_voxel_coords_are_rejected(
         self, sample_voxeldata_3d, matplotlib_pyplot
     ):
-        """plot_volume sorts non-monotonic spatial coordinates before plotting."""
+        """VolumePlotter rejects inputs outside the VoxelData model."""
         data = sample_voxeldata_3d.copy().isel(j=[2, 0, 1], i=[3, 1, 2, 0])
 
-        z_coord = float(_world_coord_1d(data, "z")[0])
-        plotter = plot_volume(
-            data, slice_mode="z", slice_coords=[z_coord], show_colorbar=False
-        )
-        ax = _axes(plotter)[0, 0]
-
-        y_sorted = np.sort(_world_coord_1d(data, "y").astype(float))
-        x_sorted = np.sort(_world_coord_1d(data, "x").astype(float))
-
-        dy = y_sorted[1] - y_sorted[0]
-        dx = x_sorted[1] - x_sorted[0]
-
-        assert ax.get_xlim() == pytest.approx(
-            (x_sorted[0] - dx / 2, x_sorted[-1] + dx / 2)
-        )
-        assert ax.get_ylim() == pytest.approx(
-            (y_sorted[-1] + dy / 2, y_sorted[0] - dy / 2)
-        )
+        with pytest.raises(ValueError, match="must be strictly monotonic"):
+            plot_volume(data, slice_mode="z", show_colorbar=False)
 
     def test_voxel_to_world_slice_geometry_returns_2d_meshes(
         self, sample_voxeldata_3d_oblique
@@ -674,7 +671,7 @@ class TestPlotVolume:
         plotter = plot_volume(
             data,
             slice_mode="k",
-            slice_coords=[0.0],
+            slice_coords=[0],
             show_colorbar=False,
         )
 
@@ -919,11 +916,15 @@ class TestPlottingUtilsVoxelToWorldHelpers:
 class TestVolumePlotterAddVolume:
     """Tests for VolumePlotter.add_volume method."""
 
-    def test_overlay_lands_on_correct_axes(self, sample_voxeldata_3d, matplotlib_pyplot):
+    def test_overlay_lands_on_correct_axes(
+        self, sample_voxeldata_3d, matplotlib_pyplot
+    ):
         """add_volume overlays only on axes whose coordinates match."""
         plotter = plot_volume(sample_voxeldata_3d, slice_mode="z", show_colorbar=False)
 
-        subset = sample_voxeldata_3d.sel(z=_world_coord_1d(sample_voxeldata_3d, "z")[:2])
+        subset = sample_voxeldata_3d.sel(
+            z=_world_coord_1d(sample_voxeldata_3d, "z")[:2]
+        )
         plotter.add_volume(subset, cmap="hot", alpha=0.5, show_colorbar=False)
 
         axes_flat = _axes(plotter).ravel()
@@ -1063,7 +1064,7 @@ class TestVolumePlotterAddVolume:
         `alpha` 3D.
         """
         alpha = sample_voxeldata_3d.rename(i="w")
-        with pytest.raises(ValueError, match="dims|slice_mode"):
+        with pytest.raises(ValueError, match="missing voxel dimension 'i'"):
             VolumePlotter(slice_mode="z").add_volume(
                 sample_voxeldata_3d, match_coordinates=False, alpha=alpha
             )
@@ -1071,29 +1072,29 @@ class TestVolumePlotterAddVolume:
     def test_dataarray_alpha_coordinate_mismatch_raises(
         self, sample_voxeldata_3d, matplotlib_pyplot
     ):
-        data = _materialize_axis_aligned_world_grid_for_display(sample_voxeldata_3d)
-        alpha = data.assign_coords(x=_world_coord_1d(data, "x") + 1.0)
+        affine = get_voxel_to_world_affine(sample_voxeldata_3d).copy()
+        affine[2, 3] += 1.0
+        alpha = attach_voxel_to_world_index(sample_voxeldata_3d.copy(), affine)
         with pytest.raises(ValueError, match="does not match"):
             VolumePlotter(slice_mode="z").add_volume(
-                data, match_coordinates=False, alpha=alpha
+                sample_voxeldata_3d, match_coordinates=False, alpha=alpha
             )
 
 
 class TestNonNumericSliceMode:
     """Tests for slicing along a non-numeric coordinate (e.g. region labels)."""
 
-    def test_string_coord_slice_mode_selects_exact_match(self, matplotlib_pyplot):
+    def test_string_coord_slice_mode_selects_exact_match(
+        self, make_region_voxeldata, matplotlib_pyplot
+    ):
         """plot_volume selects the slice matching a string coordinate exactly.
 
         Regression test for a `TypeError` previously raised by the nearest-neighbour
         lookup (`.sel(..., method="nearest")`) on non-numeric coordinates, and a
         `ValueError` previously raised by the `.3g`-formatted slice title.
         """
-        data = xr.DataArray(
-            np.arange(2 * 3 * 3, dtype=float).reshape(2, 3, 3),
-            name="r",
-            dims=["region", "y", "x"],
-            coords={"region": ["a", "b"], "y": np.arange(3.0), "x": np.arange(3.0)},
+        data = make_region_voxeldata(
+            values=np.arange(2 * 1 * 6 * 8).reshape(2, 1, 6, 8)
         )
         plotter = plot_volume(
             data, slice_mode="region", slice_coords=["b"], show_colorbar=False
@@ -1101,18 +1102,15 @@ class TestNonNumericSliceMode:
 
         ax = _axes(plotter)[0, 0]
         np.testing.assert_array_equal(
-            ax.collections[0].get_array().data, data.sel(region="b").values
+            ax.collections[0].get_array().data, data.sel(region="b").isel(k=0).values
         )
         assert ax.get_title() == "region = b"
 
-    def test_string_coord_mismatch_warns_with_label(self, matplotlib_pyplot):
+    def test_string_coord_mismatch_warns_with_label(
+        self, make_region_voxeldata, matplotlib_pyplot
+    ):
         """add_volume reports unmatched non-numeric coordinates by their label."""
-        data = xr.DataArray(
-            np.zeros((2, 3, 3)),
-            name="r",
-            dims=["region", "y", "x"],
-            coords={"region": ["a", "b"], "y": np.arange(3.0), "x": np.arange(3.0)},
-        )
+        data = make_region_voxeldata()
         plotter = plot_volume(
             data, slice_mode="region", slice_coords=["a"], show_colorbar=False
         )
@@ -1122,14 +1120,16 @@ class TestNonNumericSliceMode:
             plotter.add_volume(other, show_colorbar=False)
 
     def test_non_numeric_slice_coords_without_coordinate_array_raises(
-        self, matplotlib_pyplot
+        self, make_region_voxeldata, matplotlib_pyplot
     ):
         """A non-numeric slice_coords entry is rejected when slice_mode is coordless."""
-        data = xr.DataArray(np.zeros((2, 3, 3)), name="r", dims=["region", "y", "x"])
+        data = make_region_voxeldata().drop_vars("region")
         with pytest.raises(ValueError, match="must be numeric positional indices"):
             plot_volume(data, slice_mode="region", slice_coords=["b"])
 
-    def test_region_panel_order_matches_input_not_alphabetical(self, matplotlib_pyplot):
+    def test_region_panel_order_matches_input_not_alphabetical(
+        self, make_region_voxeldata, matplotlib_pyplot
+    ):
         """Regression test: panels follow the given region order, unsorted.
 
         `_prepare_slice_inputs` used to sort every dim (including `slice_mode`)
@@ -1138,11 +1138,8 @@ class TestNonNumericSliceMode:
         Only the two display dims should be sorted.
         """
         regions = ["SSp-bfd", "RSP", "HIP", "VPM"]
-        data = xr.DataArray(
-            np.arange(4 * 3 * 3, dtype=float).reshape(4, 3, 3),
-            name="r",
-            dims=["region", "y", "x"],
-            coords={"region": regions, "y": np.arange(3.0), "x": np.arange(3.0)},
+        data = make_region_voxeldata(
+            regions=regions, values=np.arange(4 * 1 * 6 * 8).reshape(4, 1, 6, 8)
         )
         plotter = plot_volume(data, slice_mode="region", show_colorbar=False)
 
@@ -1153,7 +1150,9 @@ class TestNonNumericSliceMode:
 class TestVolumePlotterUtilities:
     """Tests for VolumePlotter utility methods."""
 
-    def test_savefig_creates_file(self, sample_voxeldata_3d, matplotlib_pyplot, tmp_path):
+    def test_savefig_creates_file(
+        self, sample_voxeldata_3d, matplotlib_pyplot, tmp_path
+    ):
         """savefig creates a non-empty file."""
         plotter = plot_volume(sample_voxeldata_3d, slice_mode="z")
         output_file = tmp_path / "test_output.png"
@@ -1292,21 +1291,19 @@ class TestVolumePlotterAddContours:
     def _make_mask(self, sample_voxeldata_3d, z_indices):
         """Create a mask with label 1 in a small region for the given z indices."""
         mask_data = np.zeros(
-            (len(z_indices), sample_voxeldata_3d.sizes["j"], sample_voxeldata_3d.sizes["i"]),
+            (
+                len(z_indices),
+                sample_voxeldata_3d.sizes["j"],
+                sample_voxeldata_3d.sizes["i"],
+            ),
             dtype=int,
         )
         mask_data[:, 1:3, 1:3] = 1
-        return xr.DataArray(
-            mask_data,
-            dims=["z", "y", "x"],
-            coords={
-                "z": _world_coord_1d(sample_voxeldata_3d, "z")[z_indices],
-                "y": _world_coord_1d(sample_voxeldata_3d, "y"),
-                "x": _world_coord_1d(sample_voxeldata_3d, "x"),
-            },
-        )
+        return sample_voxeldata_3d.isel(k=z_indices).copy(data=mask_data)
 
-    def test_contours_only_on_matching_axes(self, sample_voxeldata_3d, matplotlib_pyplot):
+    def test_contours_only_on_matching_axes(
+        self, sample_voxeldata_3d, matplotlib_pyplot
+    ):
         """add_contours draws lines only on axes whose z coord matches the mask."""
         plotter = plot_volume(sample_voxeldata_3d, slice_mode="z", show_colorbar=False)
         mask = self._make_mask(sample_voxeldata_3d, [0, 1])
@@ -1330,16 +1327,8 @@ class TestVolumePlotterAddContours:
 
         mask_data = np.zeros(sample_voxeldata_3d.shape, dtype=int)
         mask_data[:, 1:3, 1:3] = 1
-        mask = xr.DataArray(
-            mask_data,
-            dims=["z", "y", "x"],
-            coords={
-                "z": _world_coord_1d(sample_voxeldata_3d, "z"),
-                "y": _world_coord_1d(sample_voxeldata_3d, "y"),
-                "x": _world_coord_1d(sample_voxeldata_3d, "x"),
-            },
-            attrs={"rgb_lookup": {"1": [255, 0, 0]}},
-        )
+        mask = sample_voxeldata_3d.copy(data=mask_data)
+        mask.attrs["rgb_lookup"] = {"1": [255, 0, 0]}
         # Should not raise TypeError about concatenating str and int.
         plotter.add_contours(mask)
 
@@ -1374,61 +1363,49 @@ class TestRoiHover:
         fig.canvas.callbacks.process("motion_notify_event", ev)
         return ev
 
-    def test_hover_shows_value_and_roi(self, matplotlib_pyplot):
+    def test_hover_shows_value_and_roi(
+        self, sample_roi_labels, sample_voxeldata_3d, matplotlib_pyplot
+    ):
         """Cover the three hover paths: label-only, value-only, and overlay.
 
         Each registered slice contributes its own `<DataArray.name>=<value>`
         segment, so the overlay path produces both segments without either
         shadowing the other.
         """
-        coords = {"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]}
-        labels = xr.DataArray(
-            np.array(
-                [
-                    [[0, 0, 0, 0], [0, 7, 7, 0], [0, 7, 42, 0], [0, 0, 42, 0]],
-                ],
-                dtype=np.int32,
-            ),
-            dims=["z", "y", "x"],
-            coords=coords,
-            name="annotation",
-        )
+        labels = sample_roi_labels
         rng = np.random.default_rng(0)
-        volume = xr.DataArray(
-            rng.normal(size=(1, 4, 4)).astype(np.float32),
-            dims=["z", "y", "x"],
-            coords=coords,
-            attrs={"units": "dB"},
-            name="pd",
-        )
-        roi_labels = {7: "somatosensory", 42: "visual"}
-        x, y = 0.5, 0.5
-        sampled_value = float(volume.sel(z=0.0, y=y, x=x).values)
+        volume = sample_voxeldata_3d.copy(
+            data=rng.normal(size=sample_voxeldata_3d.shape).astype(np.float32)
+        ).rename("pd")
+        volume.attrs["units"] = "dB"
+        roi_labels = {3: "motor", 7: "somatosensory", 42: "visual"}
+        x = float(_world_coord_1d(labels, "x")[1])
+        y = float(_world_coord_1d(labels, "y")[1])
+        z = float(_world_coord_1d(labels, "z")[0])
+        sampled_value = float(volume.sel(z=z, y=y, x=x).values)
 
         # Atlas-only: one segment from the labels slice, no value-line.
         atlas_plotter = plot_volume(
             labels,
             slice_mode="z",
-            slice_coords=[0.0],
+            slice_coords=[z],
             show_colorbar=False,
             roi_labels=roi_labels,
         )
         ax = _axes(atlas_plotter).flat[0]
         self._fire_motion(ax, x, y)
-        assert (
-            ax.format_coord(x, y)
-            == f"x={x:.3g}, y={y:.3g}; annotation=7 (somatosensory)"
-        )
+        assert ax.format_coord(x, y) == f"x={x:.3g}, y={y:.3g}; roi_labels=3 (motor)"
 
         # Background voxel (label=0) drops the labels segment entirely.
-        bg_x, bg_y = 0.5, 1.5  # mask[3, 1] == 0.
+        bg_x = float(_world_coord_1d(labels, "x")[-1])
+        bg_y = float(_world_coord_1d(labels, "y")[-1])
         self._fire_motion(ax, bg_x, bg_y)
         bg_info = ax.format_coord(bg_x, bg_y)
         assert "annotation" not in bg_info
 
         # Volume-only: one segment using `data.name` and `units`.
         volume_plotter = plot_volume(
-            volume, slice_mode="z", slice_coords=[0.0], show_colorbar=False
+            volume, slice_mode="z", slice_coords=[z], show_colorbar=False
         )
         ax = _axes(volume_plotter).flat[0]
         self._fire_motion(ax, x, y)
@@ -1439,17 +1416,17 @@ class TestRoiHover:
         # Overlay: both segments in registration order, neither shadowing the other.
         overlay = VolumePlotter(slice_mode="z")
         overlay.add_volume(
-            volume, slice_coords=[0.0], match_coordinates=False, show_colorbar=False
+            volume, slice_coords=[z], match_coordinates=False, show_colorbar=False
         )
-        overlay.add_contours(labels, slice_coords=[0.0], roi_labels=roi_labels)
+        overlay.add_contours(labels, slice_coords=[z], roi_labels=roi_labels)
         ax = _axes(overlay).flat[0]
         self._fire_motion(ax, x, y)
         assert (
             ax.format_coord(x, y) == f"x={x:.3g}, y={y:.3g}; pd={sampled_value:.4g} dB"
-            "; annotation=7 (somatosensory)"
+            "; roi_labels=3 (motor)"
         )
 
-    def test_hover_survives_plotter_gc(self, matplotlib_pyplot):
+    def test_hover_survives_plotter_gc(self, sample_roi_labels, matplotlib_pyplot):
         """Hover stays wired up after the returned plotter is dropped and GC'd.
 
         Regression test for the fix that anchors active `_HoverManager`
@@ -1464,23 +1441,16 @@ class TestRoiHover:
 
         from confusius.plotting._hover import _CONFUSIUS_HOVER_MANAGERS
 
-        coords = {"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]}
-        labels = xr.DataArray(
-            np.array(
-                [[[0, 0, 0, 0], [0, 7, 7, 0], [0, 7, 42, 0], [0, 0, 42, 0]]],
-                dtype=np.int32,
-            ),
-            dims=["z", "y", "x"],
-            coords=coords,
-            name="annotation",
-        )
-        roi_labels = {7: "somatosensory", 42: "visual"}
-        x, y = 0.5, 0.5
+        labels = sample_roi_labels
+        roi_labels = {3: "motor", 7: "somatosensory", 42: "visual"}
+        x = float(_world_coord_1d(labels, "x")[1])
+        y = float(_world_coord_1d(labels, "y")[1])
+        z = float(_world_coord_1d(labels, "z")[0])
 
         plotter = plot_volume(
             labels,
             slice_mode="z",
-            slice_coords=[0.0],
+            slice_coords=[z],
             show_colorbar=False,
             roi_labels=roi_labels,
         )
@@ -1501,10 +1471,7 @@ class TestRoiHover:
         assert manager_ref() in _CONFUSIUS_HOVER_MANAGERS
 
         self._fire_motion(ax, x, y)
-        assert (
-            ax.format_coord(x, y)
-            == f"x={x:.3g}, y={y:.3g}; annotation=7 (somatosensory)"
-        )
+        assert ax.format_coord(x, y) == f"x={x:.3g}, y={y:.3g}; roi_labels=3 (motor)"
 
         # Closing the figure must release the manager from the registry,
         # after which it is free to be garbage collected. The Agg backend
@@ -1523,38 +1490,29 @@ class TestRoiHover:
         assert manager_ref() is None
 
 
-def _create_deterministic_volume():
-    """Create deterministic 3D volume for visual regression tests.
-
-    Uses fixed seed to ensure reproducible baseline images.
-    """
+@pytest.fixture
+def reproducible_baseline_voxeldata():
+    """Reproducible VoxelData array for plotting baseline tests."""
     rng = np.random.default_rng(42)
     shape = (4, 6, 8)
     data = rng.random(shape)
-    return xr.DataArray(
+    return create_voxeldata(
         data,
-        dims=["z", "y", "x"],
-        coords={
-            "z": xr.DataArray(
-                np.arange(4) * 0.1,
-                dims=["z"],
-                attrs={"units": "mm"},
-            ),
-            "y": xr.DataArray(
-                np.arange(6) * 0.05,
-                dims=["y"],
-                attrs={"units": "mm"},
-            ),
-            "x": xr.DataArray(
-                np.arange(8) * 0.05,
-                dims=["x"],
-                attrs={"units": "mm"},
-            ),
-        },
-        attrs={
-            "long_name": "Intensity",
-            "units": "a.u.",
-        },
+        dims=("k", "j", "i"),
+        spacing=(0.1, 0.05, 0.05),
+        origin=(0.0, 0.0, 0.0),
+        attrs={"long_name": "Intensity", "units": "a.u."},
+    )
+
+
+@pytest.fixture
+def contour_baseline_voxeldata():
+    """Small VoxelData grid matching the existing contour baselines."""
+    return create_voxeldata(
+        np.zeros((2, 4, 4), dtype=float),
+        dims=("k", "j", "i"),
+        spacing=(1.0, 0.5, 0.5),
+        origin=(0.0, 0.0, 0.0),
     )
 
 
@@ -1573,9 +1531,11 @@ class TestPlotVolumeVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_volume_default(self, matplotlib_pyplot):
+    def test_plot_volume_default(
+        self, matplotlib_pyplot, reproducible_baseline_voxeldata
+    ):
         """Baseline test for default plot_volume appearance (black background)."""
-        volume = _create_deterministic_volume()
+        volume = reproducible_baseline_voxeldata
         plotter = plot_volume(volume, slice_mode="z")
         return plotter.figure
 
@@ -1584,9 +1544,11 @@ class TestPlotVolumeVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_volume_single_slice(self, matplotlib_pyplot):
+    def test_plot_volume_single_slice(
+        self, matplotlib_pyplot, reproducible_baseline_voxeldata
+    ):
         """Baseline test for single slice."""
-        volume = _create_deterministic_volume()
+        volume = reproducible_baseline_voxeldata
         z_coord = _world_coord_1d(volume, "z")[0]
         plotter = plot_volume(volume, slice_mode="z", slice_coords=[z_coord])
         return plotter.figure
@@ -1596,9 +1558,11 @@ class TestPlotVolumeVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_volume_custom_grid(self, matplotlib_pyplot):
+    def test_plot_volume_custom_grid(
+        self, matplotlib_pyplot, reproducible_baseline_voxeldata
+    ):
         """Baseline test for custom grid layout (1 row, 4 columns)."""
-        volume = _create_deterministic_volume()
+        volume = reproducible_baseline_voxeldata
         plotter = plot_volume(volume, slice_mode="z", nrows=1, ncols=4)
         return plotter.figure
 
@@ -1607,9 +1571,11 @@ class TestPlotVolumeVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_volume_overlay(self, matplotlib_pyplot):
+    def test_plot_volume_overlay(
+        self, matplotlib_pyplot, reproducible_baseline_voxeldata
+    ):
         """Baseline test for overlaying two volumes with transparency."""
-        volume = _create_deterministic_volume()
+        volume = reproducible_baseline_voxeldata
         plotter = plot_volume(volume, slice_mode="z")
 
         subset_coords = _world_coord_1d(volume, "z")[[0, 3]].tolist()
@@ -1623,9 +1589,11 @@ class TestPlotVolumeVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_volume_threshold(self, matplotlib_pyplot):
+    def test_plot_volume_threshold(
+        self, matplotlib_pyplot, reproducible_baseline_voxeldata
+    ):
         """Baseline test for thresholding visualization."""
-        volume = _create_deterministic_volume()
+        volume = reproducible_baseline_voxeldata
         plotter = plot_volume(
             volume,
             slice_mode="z",
@@ -1639,9 +1607,11 @@ class TestPlotVolumeVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_volume_no_colorbar(self, matplotlib_pyplot):
+    def test_plot_volume_no_colorbar(
+        self, matplotlib_pyplot, reproducible_baseline_voxeldata
+    ):
         """Baseline test without colorbar."""
-        volume = _create_deterministic_volume()
+        volume = reproducible_baseline_voxeldata
         plotter = plot_volume(volume, slice_mode="z", show_colorbar=False)
         return plotter.figure
 
@@ -1657,9 +1627,11 @@ class TestPlotVolumeVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_volume_custom_bg_color(self, matplotlib_pyplot, bg_color):
+    def test_plot_volume_custom_bg_color(
+        self, matplotlib_pyplot, bg_color, reproducible_baseline_voxeldata
+    ):
         """Baseline test for custom bg_color — WCAG auto-derives white or black fg."""
-        volume = _create_deterministic_volume()
+        volume = reproducible_baseline_voxeldata
         plotter = plot_volume(volume, slice_mode="z", bg_color=bg_color)
         return plotter.figure
 
@@ -1668,9 +1640,11 @@ class TestPlotVolumeVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_volume_explicit_fg_color(self, matplotlib_pyplot):
+    def test_plot_volume_explicit_fg_color(
+        self, matplotlib_pyplot, reproducible_baseline_voxeldata
+    ):
         """Baseline test for explicit fg_color override."""
-        volume = _create_deterministic_volume()
+        volume = reproducible_baseline_voxeldata
         plotter = plot_volume(
             volume, slice_mode="z", bg_color="black", fg_color="#aaaaaa"
         )
@@ -1685,23 +1659,15 @@ class TestPlotContoursVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_contours_basic(self, matplotlib_pyplot):
+    def test_plot_contours_basic(self, matplotlib_pyplot, contour_baseline_voxeldata):
         """Baseline test for basic plot_contours."""
-        # Create a simple mask with two regions
-        mask = xr.DataArray(
-            np.array(
-                [
-                    [[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]],
-                    [[0, 0, 0, 0], [0, 2, 2, 0], [0, 2, 2, 0], [0, 0, 0, 0]],
-                ]
-            ),
-            dims=["z", "y", "x"],
-            coords={
-                "z": [0.0, 1.0],
-                "y": [0.0, 0.5, 1.0, 1.5],
-                "x": [0.0, 0.5, 1.0, 1.5],
-            },
+        mask_data = np.array(
+            [
+                [[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]],
+                [[0, 0, 0, 0], [0, 2, 2, 0], [0, 2, 2, 0], [0, 0, 0, 0]],
+            ]
         )
+        mask = contour_baseline_voxeldata.copy(data=mask_data)
         plotter = plot_contours(mask, slice_mode="z", colors={1: "red", 2: "blue"})
         return plotter.figure
 
@@ -1710,22 +1676,17 @@ class TestPlotContoursVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_contours_white_bg(self, matplotlib_pyplot):
+    def test_plot_contours_white_bg(
+        self, matplotlib_pyplot, contour_baseline_voxeldata
+    ):
         """Baseline test for plot_contours on a white background."""
-        mask = xr.DataArray(
-            np.array(
-                [
-                    [[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]],
-                    [[0, 0, 0, 0], [0, 2, 2, 0], [0, 2, 2, 0], [0, 0, 0, 0]],
-                ]
-            ),
-            dims=["z", "y", "x"],
-            coords={
-                "z": [0.0, 1.0],
-                "y": [0.0, 0.5, 1.0, 1.5],
-                "x": [0.0, 0.5, 1.0, 1.5],
-            },
+        mask_data = np.array(
+            [
+                [[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]],
+                [[0, 0, 0, 0], [0, 2, 2, 0], [0, 2, 2, 0], [0, 0, 0, 0]],
+            ]
         )
+        mask = contour_baseline_voxeldata.copy(data=mask_data)
         plotter = plot_contours(
             mask, slice_mode="z", colors={1: "red", 2: "blue"}, bg_color="white"
         )
@@ -1736,34 +1697,21 @@ class TestPlotContoursVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_contours_overlay_on_volume(self, matplotlib_pyplot):
+    def test_plot_contours_overlay_on_volume(
+        self, matplotlib_pyplot, contour_baseline_voxeldata
+    ):
         """Baseline test for add_contours overlay on volume."""
-        # Create volume data
         rng = np.random.default_rng(42)
-        volume = xr.DataArray(
-            rng.random((2, 4, 4)),
-            dims=["z", "y", "x"],
-            coords={
-                "z": [0.0, 1.0],
-                "y": [0.0, 0.5, 1.0, 1.5],
-                "x": [0.0, 0.5, 1.0, 1.5],
-            },
+        volume = contour_baseline_voxeldata.copy(
+            data=rng.random(contour_baseline_voxeldata.shape)
         )
-        # Create matching mask
-        mask = xr.DataArray(
-            np.array(
-                [
-                    [[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]],
-                    [[0, 0, 0, 0], [0, 2, 2, 0], [0, 2, 2, 0], [0, 0, 0, 0]],
-                ]
-            ),
-            dims=["z", "y", "x"],
-            coords={
-                "z": [0.0, 1.0],
-                "y": [0.0, 0.5, 1.0, 1.5],
-                "x": [0.0, 0.5, 1.0, 1.5],
-            },
+        mask_data = np.array(
+            [
+                [[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]],
+                [[0, 0, 0, 0], [0, 2, 2, 0], [0, 2, 2, 0], [0, 0, 0, 0]],
+            ]
         )
+        mask = contour_baseline_voxeldata.copy(data=mask_data)
         plotter = plot_volume(volume, slice_mode="z", show_colorbar=False)
         plotter.add_contours(mask, colors={1: "red", 2: "blue"})
         return plotter.figure
