@@ -85,7 +85,7 @@ print(f"Data shape: {doppler.shape}")
 # `UF.Lambda` for axial (`y`) spacing and the 0.3 mm probe pitch for lateral (`x`)
 # spacing. With no explicit `x0`/`y0`, ConfUSIus applies its default convention of using
 # the probe surface as the origin. See the [Spatial
-# Conventions](../../../user-guide/spatial-conventions.md) guide for details.
+# Conventions](../../../user-guide/voxeldata.md) guide for details.
 
 # %%
 power_doppler = cf.create_voxeldata(

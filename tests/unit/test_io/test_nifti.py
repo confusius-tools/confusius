@@ -2278,7 +2278,11 @@ class TestSaveNifti:
             slice_time=xr.DataArray(
                 time_values[:, np.newaxis] + np.array([0.0, 0.1, 0.2, 0.3]),
                 dims=("time", "k"),
-                attrs={"units": "s"},
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": 0.1,
+                },
             )
         )
 
@@ -2303,7 +2307,11 @@ class TestSaveNifti:
             slice_time=xr.DataArray(
                 time_values[:, np.newaxis] + varying_offsets,
                 dims=("time", "k"),
-                attrs={"units": "s"},
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": 0.1,
+                },
             )
         )
 
@@ -2328,7 +2336,11 @@ class TestSaveNifti:
             slice_time=xr.DataArray(
                 da.coords["time"].item() + np.array([0.0, 0.1, 0.2, 0.3]),
                 dims=("k",),
-                attrs={"units": "s"},
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": 0.1,
+                },
             )
         )
 
@@ -2361,7 +2373,13 @@ class TestSaveNifti:
                     "j": np.arange(3),
                     "i": np.arange(2),
                     "slice_time": xr.DataArray(
-                        [0.0, 0.1, 0.2, 0.3], dims=["k"], attrs={"units": "s"}
+                        [0.0, 0.1, 0.2, 0.3],
+                        dims=["k"],
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_reference": "start",
+                            "volume_acquisition_duration": 0.1,
+                        },
                     ),
                 },
             )
@@ -2382,7 +2400,13 @@ class TestSaveNifti:
                     "j": np.arange(3),
                     "i": np.arange(2),
                     "slice_time": xr.DataArray(
-                        [0.0, 0.1, 0.2, 0.3], dims=["k"], attrs={"units": "s"}
+                        [0.0, 0.1, 0.2, 0.3],
+                        dims=["k"],
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_reference": "start",
+                            "volume_acquisition_duration": 0.1,
+                        },
                     ),
                 },
             )
@@ -2452,7 +2476,7 @@ class TestSaveNifti:
                     "j": np.arange(3),
                     "i": np.arange(2),
                     "slice_time": xr.DataArray(
-                        [10.2, 10.3],
+                        [10.2, 10.4],
                         dims=["k"],
                         attrs={
                             "units": "s",
@@ -2470,7 +2494,7 @@ class TestSaveNifti:
         with open(tmp_path / "slice_time_1d_end_reference.json") as f:
             sidecar = json.load(f)
 
-        assert sidecar["SliceTiming"] == pytest.approx([0.0, 0.1])
+        assert sidecar["SliceTiming"] == pytest.approx([0.0, 0.2])
 
     def test_save_invalid_1d_slice_time_dimension_is_skipped(self, tmp_path) -> None:
         """A 1D `slice_time` on a non-spatial dimension is skipped silently."""
@@ -2492,7 +2516,13 @@ class TestSaveNifti:
                     "j": np.arange(3),
                     "i": np.arange(2),
                     "slice_time": xr.DataArray(
-                        [10.0, 10.1], dims=["channel"], attrs={"units": "s"}
+                        [10.0, 10.1],
+                        dims=["channel"],
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_reference": "start",
+                            "volume_acquisition_duration": 0.1,
+                        },
                     ),
                 },
             )
@@ -2522,7 +2552,11 @@ class TestSaveNifti:
                     )
                 ),
                 dims=("time", "k", "j"),
-                attrs={"units": "s"},
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": 0.1,
+                },
             )
         )
 
@@ -2551,7 +2585,13 @@ class TestSaveNifti:
                     "j": np.arange(3),
                     "i": np.arange(2),
                     "slice_time": xr.DataArray(
-                        np.zeros((2, 2)), dims=("time", "channel"), attrs={"units": "s"}
+                        np.zeros((2, 2)),
+                        dims=("time", "channel"),
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_reference": "start",
+                            "volume_acquisition_duration": 0.1,
+                        },
                     ),
                 },
             )
@@ -2572,7 +2612,13 @@ class TestSaveNifti:
                     "j": np.arange(3),
                     "i": np.arange(2),
                     "slice_time": xr.DataArray(
-                        np.zeros((2, 4)), dims=("time", "k"), attrs={"units": "s"}
+                        np.zeros((2, 4)),
+                        dims=("time", "k"),
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_reference": "start",
+                            "volume_acquisition_duration": 0.0,
+                        },
                     ),
                 },
             )
@@ -2602,7 +2648,11 @@ class TestSaveNifti:
                     "slice_time": xr.DataArray(
                         np.zeros((1, 4)) + np.array([10.0, 10.1, 10.2, 10.3]),
                         dims=("time", "k"),
-                        attrs={"units": "s"},
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_reference": "start",
+                            "volume_acquisition_duration": 0.1,
+                        },
                     ),
                 },
             )
@@ -3160,12 +3210,18 @@ class TestRoundtrip:
                     "j": np.arange(3),
                     "i": np.arange(2),
                     "slice_time": xr.DataArray(
-                        time_values[:, np.newaxis] + np.array([0.0, 1.8, 0.6, 1.2]),
+                        # Absolute timestamps, "start"-referenced: volume onset
+                        # (`time_values - 0.4`) plus a small onset-relative offset.
+                        # Each slice's own acquisition window is much shorter than
+                        # the whole volume's -- must fit within [volume onset,
+                        # volume onset + volume duration].
+                        (time_values[:, np.newaxis] - 0.4)
+                        + np.array([0.0, 0.3, 0.1, 0.2]),
                         dims=("time", "k"),
                         attrs={
                             "units": "s",
-                            "volume_acquisition_reference": "end",
-                            "volume_acquisition_duration": 0.4,
+                            "volume_acquisition_reference": "start",
+                            "volume_acquisition_duration": 0.05,
                         },
                     ),
                 },
@@ -3187,7 +3243,7 @@ class TestRoundtrip:
         assert sidecar["RepetitionTime"] == pytest.approx(2.4)
         assert sidecar["DelayTime"] == pytest.approx(2.0)
         assert "DelayAfterTrigger" not in sidecar
-        assert sidecar["SliceTiming"] == pytest.approx([0.0, 1.8, 0.6, 1.2])
+        assert sidecar["SliceTiming"] == pytest.approx([0.0, 0.3, 0.1, 0.2])
 
     def test_save_regular_timing_writes_delay_time_from_duration(self, tmp_path):
         """Regular timing exports dead time when TR exceeds acquisition duration."""

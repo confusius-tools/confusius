@@ -2,7 +2,119 @@
 icon: lucide/move-3d
 ---
 
-# Spatial Conventions
+# The VoxelData Model
+
+**VoxelData** is ConfUSIus's canonical
+[DataArray](https://docs.xarray.dev/en/stable/getting-started-guide/why-xarray.html#core-data-structures)
+model for any spatially referenced voxel array—beamformed IQ and fUSI recordings, atlas
+volumes, decomposition component maps, displacement fields, and anything else gridded in
+space.
+
+A **VoxelData array** is a DataArray that satisfies the following requirements:
+
+- native voxel dims `k`/`j`/`i` (integer coordinates), always last and always present,
+  optionally preceded by `pose` (integer coordinates), `time` (floating coordinates),
+  and any number of extra non-spatial dims (PCA/ICA components, stacked masks, etc.);
+- a single **`VoxelToWorldIndex`** attached to the world coordinates `z`/`y`/`x`, which
+  it derives from `k`/`j`/`i` through either one voxel-to-world affine shared by the
+  whole DataArray or a stacked affine with one entry per `pose`;
+- required metadata: `units` on each world coordinate, plus—whenever `time` is
+  present—`units`, `volume_acquisition_reference`, and `volume_acquisition_duration`
+  on `time`:
+
+| Attribute | Lives on | Meaning |
+|---|---|---|
+| `units` | `x`/`y`/`z`/`time` | Physical unit of the coordinate values (`"mm"` and `"s"` are typical). |
+| `volume_acquisition_reference` | `time` | Which point of the acquisition window each `time` value marks: `"start"`, `"center"`, or `"end"`. |
+| `volume_acquisition_duration` | `time` | Duration to acquire the whole `(k, j, i)` grid, in the same units as `time`—one whole volume when there's no `pose` dim, one pose's own volume when there is (see [Unconsolidated Multi-Pose Data](#unconsolidated-multi-pose-data)). |
+
+A pose-dependent array may also carry a 2D `time` coordinate with shape `(time, pose)`,
+recording each pose's own acquisition timestamps directly. Like pose-dependent world
+coordinates, this requires selecting a scalar `pose` before label-based selection on
+`time`.
+
+[`create_voxeldata`][confusius.xarray.create_voxeldata] builds a VoxelData array
+satisfying all of this from raw data, and
+[`validate_voxeldata`][confusius.validation.validate_voxeldata] checks an existing DataArray
+against it. [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] additionally
+canonicalizes the DataArray first—reordering dimensions to `(...extra, time, pose, k,
+j, i)`, restoring a voxel dimension collapsed to a scalar coordinate by a prior
+`.isel()`, and filling in missing `time` metadata with sensible defaults—before
+validating. ConfUSIus functions that expect a VoxelData array call `ensure_voxeldata`
+on their input.
+
+See [Working with Xarray](xarray.md) for the accessor API that the VoxelData model
+exposes.
+
+## Temporal Conventions
+
+The `time` coordinate marks when each volume was acquired, in the units named by its
+`units` attribute (seconds, typically). Because a volume is acquired over a nonzero
+window rather than instantaneously, `time` alone doesn't say which point of that window
+the value refers to—`volume_acquisition_reference` disambiguates this: `"start"`,
+`"center"`, or `"end"` of the acquisition window. `volume_acquisition_duration` gives
+the window's length, in the same units as `time`. Together, these three attributes let
+downstream code (e.g. GLM HRF convolution) reconstruct the exact acquisition window of
+every volume rather than treating `time` as an instantaneous sample.
+
+The rest of this section covers how these definitions adapt for [multi-pose
+data](multipose.md), where poses making up one volume are swept through sequentially
+rather than acquired simultaneously.
+
+### Unconsolidated Multi-Pose Data
+
+While a DataArray still carries a `pose` dimension, `time` is pose-dependent with shape
+`(time, pose)` instead of the plain 1D coordinate above: each pose's own real
+acquisition timestamp, built by [`stack_poses`][confusius.multipose.stack_poses] or
+returned directly by loaders, such as when loading Iconeus `4Dscan` recordings. In this
+shape, `volume_acquisition_duration` and `volume_acquisition_reference` describe **one
+pose's own `(k, j, i)` acquisition window**, not the time it takes to sweep through
+every pose. Resolving a single real timestamp requires selecting a scalar `pose`
+first, which reduces `time` back to the plain 1D case.
+
+### Consolidated Multi-Pose Data
+
+[`consolidate_poses`][confusius.multipose.consolidate_poses] merges `pose` into the
+sweep voxel dimension the poses were stepped along (`k`, `j`, or `i`, detected
+automatically), so the result has no `pose` dimension left. Two things happen to
+timing:
+
+- `time` becomes an ordinary whole-array 1D coordinate again, but
+  `volume_acquisition_duration`/`volume_acquisition_reference` are recomputed to
+  describe **the full sweep across every pose**—from the earliest pose's onset to the
+  latest pose's offset—rather than one pose's window.
+- Each slice's own real timestamp survives separately as a new **`slice_time`**
+  coordinate, with dims `(time, <sweep_dim>)` (or a single dim when `time` is scalar or
+  absent), inheriting the pre-consolidation `time`'s `volume_acquisition_duration`/
+  `volume_acquisition_reference` (still describing one pose's window, unlike the
+  recomputed `time` attributes above). `slice_time` requires the same three
+  attributes as `time`—`units`, `volume_acquisition_reference`,
+  `volume_acquisition_duration`—and
+  [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] fills in missing ones the
+  same way, defaulting `volume_acquisition_duration` from the median consecutive gap
+  between slices along `<sweep_dim>`.
+
+Since `time.attrs["volume_acquisition_duration"]` is the time to acquire the whole
+`(k, j, i)` volume, every one of its slices must have happened within that same
+window: validation converts both `time` and `slice_time` to `"start"` reference and checks:
+
+- that the first slice starts no earlier than the volume's onset,
+- and that the last slice ends no later than the volume's offset.
+
+This doesn't forbid overlap between consecutive *volumes*:
+`time.attrs["volume_acquisition_duration"]` may exceed the spacing between `time`
+values, e.g sliding-window beamformed IQ processing acquisition). It only constrains a
+slice against its own volume's window.
+
+### Slice Timing Correction
+
+[`correct_slice_timings`][confusius.multipose.correct_slice_timings] uses `slice_time`
+(or an unconsolidated pose-dependent `time`) to resample each slice's or pose's time
+series onto the shared, whole-array `time` reference—working on both unconsolidated and
+consolidated data. See the [Multi-Pose Imaging guide](multipose.md#pose-consolidation)
+for a full example.
+
+## Spatial Conventions
 
 ConfUSIus works with three kinds of coordinate systems:
 
@@ -43,7 +155,7 @@ flowchart LR
     ellipsis@{ shape: text }
 ```
 
-## Dimension Ordering: `(..., time, pose, k, j, i)`
+### Dimension Ordering: `(..., time, pose, k, j, i)`
 
 Every ConfUSIus DataArray that represents a fUSI recording uses the dimension order
 `(..., time, pose, k, j, i)`, where:
@@ -88,49 +200,9 @@ This ordering is motivated by several considerations.
   be the display axes of a volume. Plotting a `(time, k, j, i)` array directly would
   yield a `(j, i)` slice with `time` and `k` sliders, correctly oriented for display.
 
-## The VoxelData Model
+### Coordinate Systems
 
-**VoxelData** is ConfUSIus's canonical DataArray model for any spatially referenced
-voxel array—beamformed IQ and fUSI recordings, atlas volumes, decomposition component
-maps, displacement fields, and anything else gridded in space. Every VoxelData array
-has:
-
-- native voxel dims `k`/`j`/`i` (integer coordinates), always last and always present,
-  optionally preceded by `pose` (integer coordinates), `time` (floating coordinates),
-  and any number of extra non-spatial dims (PCA/ICA components, stacked masks, etc.);
-- a single **`VoxelToWorldIndex`** attached to `k`/`j`/`i`, which derives the world
-  coordinates `z`/`y`/`x` from either one voxel-to-world affine shared by the whole
-  DataArray or a stacked affine with one entry per `pose`;
-- required metadata: `units` on each world coordinate, plus—whenever `time` is
-  present—`units`, `volume_acquisition_reference`, and `volume_acquisition_duration`
-  on `time`:
-
-| Attribute | Lives on | Meaning |
-|---|---|---|
-| `units` | `x`/`y`/`z`/`time` | Physical unit of the coordinate values (`"mm"` and `"s"` are typical). |
-| `volume_acquisition_reference` | `time` | Which point of the acquisition window each `time` value marks: `"start"`, `"center"`, or `"end"`. |
-| `volume_acquisition_duration` | `time` | Duration of one volume's acquisition, in the same units as `time`. |
-
-A pose-dependent array may also carry a 2D `time` coordinate with shape `(time, pose)`,
-recording each pose's own acquisition timestamps directly. Like pose-dependent world
-coordinates, this requires selecting a scalar `pose` before label-based selection on
-`time`.
-
-[`create_voxeldata`][confusius.xarray.create_voxeldata] builds a VoxelData array
-satisfying all of this from raw data, and
-[`validate_voxeldata`][confusius.validation.validate_voxeldata] checks an existing DataArray
-against it. [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] additionally fixes small
-deviations with sensible defaults first—for example filling in missing `time`
-metadata, or restoring a voxel dimension collapsed to a scalar coordinate by a prior
-`.isel()`—before validating. ConfUSIus functions that expect a VoxelData
-array call `ensure_voxeldata` on their input.
-
-See [Working with Xarray](xarray.md) for the accessor API this backs
-(`.fusi.affine.voxel_to_world`, `.fusi.spacing`, `.fusi.direction`, ...).
-
-## Coordinate Systems
-
-### Voxel Space
+#### Voxel Space
 
 Voxel space has its origin at voxel `(0, 0, 0)` and integer indices along each spatial
 axis. It is the natural indexing space of the underlying array: DataArrays can be
@@ -153,7 +225,7 @@ dense positions—see [Rebasing voxel coordinates to dense
 positions](xarray.md#rebasing-voxel-coordinates-to-dense-positions) in Working with
 Xarray.
 
-### World Space
+#### World Space
 
 The world space is derived from voxel space by the DataArray's `VoxelToWorldIndex` and
 exposed as the coordinates `x`, `y`, `z`. For ordinary single-pose data these
@@ -212,7 +284,7 @@ Different loaders derive them in different ways:
 Hand-constructed DataArrays get whatever voxel-to-world affine the user provides via
 [`create_voxeldata`][confusius.xarray.create_voxeldata].
 
-### Reference Spaces
+#### Reference Spaces
 
 ConfUSIus stores affine transformations relating the DataArray's current world space to
 any number of other named spaces in `attrs["affines"]`, a dictionary keyed by affine

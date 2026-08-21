@@ -52,7 +52,10 @@ A **[DataArray][xarray.DataArray]** is a single array with its own dimensions,
 coordinates, and attributes. You get a DataArray whenever you load a single fUSI
 recording, for example a power Doppler NIfTI file from the [Nunez-Elizalde 2022
 dataset][confusius.datasets.fetch_nunez_elizalde_2022] via
-[`confusius.load`][confusius.load]:
+[`confusius.load`][confusius.load]. Such a DataArray follows **VoxelData**,
+ConfUSIus's canonical model for any spatially referenced voxel array—see [The
+VoxelData Model](voxeldata.md#the-voxeldata-model) for the full
+definition:
 
 ```pycon
 >>> import confusius as cf
@@ -103,7 +106,8 @@ Reading the output from top to bottom, a DataArray has four components:
         onto the memory layout used throughout the Python scientific ecosystem, often
         without copying or rearranging the data. In practice, this ordering is usually
         transparent because Xarray operations refer to dimensions by name rather than by
-        position. See [Spatial Conventions](spatial-conventions.md) for the full
+        position. See [The VoxelData
+        Model](voxeldata.md#dimension-ordering-time-pose-k-j-i) for the full
         explanation.
 
 - **Data**: the underlying array. ConfUSIus loaders return
@@ -462,8 +466,8 @@ set the first three `optimizer_weights` values to `0` to freeze rotation.
 ### Affine Transforms
 
 The [`.fusi.affine`][confusius.xarray.FUSIAffineAccessor] accessor inspects and applies
-the voxel-to-world and world-to-reference affines described in [Spatial
-Conventions](spatial-conventions.md).
+the voxel-to-world and world-to-reference affines described in [The VoxelData
+Model](voxeldata.md#coordinate-systems).
 
 #### Reading and applying affines
 

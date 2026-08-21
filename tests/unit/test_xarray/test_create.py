@@ -301,9 +301,46 @@ def test_create_voxeldata_accepts_per_pose_t0_with_shared_dt():
     assert result.coords["time"].dims == ("time", "pose")
     assert_allclose(result.coords["time"].values, expected)
     assert result.coords["time"].attrs["units"] == "s"
-    assert result.coords["time"].attrs["volume_acquisition_duration"] == 2.4
+    # Defaults from the spacing between poses' own onsets (0.6), not `dt` (2.4,
+    # the repetition period between successive samples of the *same* pose).
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == 0.6
     assert "time" not in result.xindexes
     assert result.fusi.spacing["time"] == pytest.approx(2.4)
+
+
+def test_create_voxeldata_per_pose_t0_ignores_simultaneous_ties():
+    """Poses sharing the same `t0` don't collapse the default duration to zero."""
+    npose = 4
+    affine = np.stack([np.eye(4) for _ in range(npose)])
+
+    result = create_voxeldata(
+        np.zeros((4, npose, 2, 3, 4)),
+        dims=("time", "pose", "k", "j", "i"),
+        dt=0.6,
+        t0=np.array([0.0, 0.0, 0.2, 0.4]),
+        pose=np.arange(npose),
+        voxel_to_world=affine,
+    )
+
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == 0.2
+
+
+def test_create_voxeldata_per_pose_t0_honors_explicit_duration():
+    """An explicit `volume_acquisition_duration` overrides the per-pose default."""
+    npose = 3
+    affine = np.stack([np.eye(4) for _ in range(npose)])
+
+    result = create_voxeldata(
+        np.zeros((4, npose, 2, 3, 4)),
+        dims=("time", "pose", "k", "j", "i"),
+        dt=2.4,
+        t0=np.array([0.0, 0.6, 1.2]),
+        volume_acquisition_duration=0.1,
+        pose=np.arange(npose),
+        voxel_to_world=affine,
+    )
+
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == 0.1
 
 
 def test_create_voxeldata_per_pose_t0_requires_pose_dim():
@@ -368,6 +405,58 @@ def test_create_voxeldata_2d_time_rejects_wrong_pose_count():
             pose=np.arange(npose),
             voxel_to_world=affine,
         )
+
+
+def test_create_voxeldata_2d_time_plain_array_gets_valid_attrs():
+    """A plain (non-DataArray) 2D `time` array still gets required timing attrs."""
+    npose = 4
+    affine = np.stack([np.eye(4) for _ in range(npose)])
+    # Poses 0 and 1 simultaneous (tie); the rest 0.15s apart.
+    time_2d = np.array(
+        [
+            [0.0, 0.0, 0.15, 0.3],
+            [0.6, 0.6, 0.75, 0.9],
+        ]
+    )
+
+    result = create_voxeldata(
+        np.zeros((2, npose, 2, 3, 4)),
+        dims=("time", "pose", "k", "j", "i"),
+        time=time_2d,
+        pose=np.arange(npose),
+        voxel_to_world=affine,
+    )
+
+    assert result.coords["time"].attrs["units"] == "s"
+    assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == 0.15
+    validate_voxeldata(result, allow_pose=True)
+
+
+def test_create_voxeldata_2d_time_dataarray_attrs_take_priority():
+    """An `xr.DataArray` `time`'s own attrs override the constructor defaults."""
+    npose = 2
+    affine = np.stack([np.eye(4) for _ in range(npose)])
+    time_2d = xr.DataArray(
+        np.array([[0.0, 0.1], [0.6, 0.7]]),
+        dims=("time", "pose"),
+        attrs={
+            "units": "s",
+            "volume_acquisition_reference": "end",
+            "volume_acquisition_duration": 0.05,
+        },
+    )
+
+    result = create_voxeldata(
+        np.zeros((2, npose, 2, 3, 4)),
+        dims=("time", "pose", "k", "j", "i"),
+        time=time_2d,
+        pose=np.arange(npose),
+        voxel_to_world=affine,
+    )
+
+    assert result.coords["time"].attrs["volume_acquisition_reference"] == "end"
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == 0.05
 
 
 def test_create_voxeldata_rejects_spatial_extra_coords():

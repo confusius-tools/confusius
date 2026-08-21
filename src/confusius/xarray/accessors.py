@@ -174,9 +174,10 @@ class FUSIAccessor:
         `k/j/i`, each voxel-space dimension receives its world step length derived
         from the voxel-to-world affine column norm and the 1D voxel-coordinate
         step. A coordinate is considered uniform if every interval is within 1% of the
-        median interval (per-interval `|diff - median| <= 0.01 * |median|`). A
-        singleton `time` dimension falls back to the `volume_acquisition_duration`
-        coordinate attribute when present.
+        median interval (per-interval `|diff - median| <= 0.01 * |median|`). `time`
+        has no such fallback: `volume_acquisition_duration` is the time to acquire one
+        volume, not the step between volumes, so a singleton or non-uniform `time`
+        reports `None` here like any other dimension without a defined step.
 
         Returns
         -------
@@ -205,7 +206,6 @@ class FUSIAccessor:
         >>> data.fusi.spacing
         {'k': 0.2, 'j': 0.1, 'i': 0.05}
         """
-        from confusius._dims import TIME_DIM
         from confusius._utils.coordinates import get_coordinate_spacing_info
         from confusius._utils.geometry import (
             get_voxel_to_world_index_spacing,
@@ -223,16 +223,6 @@ class FUSIAccessor:
             dim: get_coordinate_spacing_info(dim, self._obj, 1e-2).value
             for dim in missing_dims
         }
-        if (
-            TIME_DIM in regular_spacing
-            and regular_spacing[TIME_DIM] is None
-            and TIME_DIM in self._obj.coords
-        ):
-            duration = self._obj.coords[TIME_DIM].attrs.get(
-                "volume_acquisition_duration"
-            )
-            if duration is not None:
-                regular_spacing[TIME_DIM] = float(duration)
         return {
             dim_str: voxel_spacing[dim_str]
             if dim_str in voxel_spacing

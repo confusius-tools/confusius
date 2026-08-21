@@ -43,7 +43,7 @@ the `time` coordinate mean, because both are per-pose rather than per-array.
 - **Geometry is per-pose.** Each pose has its own voxel-to-world affine, so the world
   coordinates `z`/`y`/`x` are pose-dependent with shape `(pose, k, j, i)`. Resolving a
   voxel to a single world position requires selecting a scalar `pose` first, e.g.
-  `data.isel(pose=0).sel(z=1.2)`. See [Spatial Conventions](spatial-conventions.md#the-voxeldata-model)
+  `data.isel(pose=0).sel(z=1.2)`. See [The VoxelData Model](voxeldata.md#the-voxeldata-model)
   for the full explanation of pose-dependent voxel-to-world geometry.
 - **Timing can be per-pose.** When poses are acquired sequentially rather than
   simultaneously, each pose is captured at a slightly different time. The `time`

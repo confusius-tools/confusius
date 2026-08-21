@@ -6,7 +6,7 @@ icon: lucide/brain
 
 A brain atlas ties every voxel of a reference volume to a named region. In ConfUSIus an
 atlas is a plain [`xarray.Dataset`][xarray.Dataset] on a common [VoxelData
-grid](spatial-conventions.md#the-voxeldata-model) (`k`/`j`/`i` voxel dims, derived world
+grid](voxeldata.md#the-voxeldata-model) (`k`/`j`/`i` voxel dims, derived world
 `z`/`y`/`x` coordinates), with three data variables
 ([`reference`][confusius.atlas.AtlasAccessor.reference], the template volume;
 [`annotation`][confusius.atlas.AtlasAccessor.annotation], integer region labels; and

@@ -1351,7 +1351,11 @@ def _infer_frame_acquisition_duration(
     """
     duration = time_attrs.get("volume_acquisition_duration")
     if isinstance(duration, int | float) and duration > 0:
-        return float(duration)
+        return float(
+            convert_time_units(
+                duration, time_attrs.get("units"), "s", raise_on_unknown=True
+            )
+        )
 
     if time_values is not None and len(time_values) >= 2:
         time_step, non_uniform = get_representative_step(time_values)
@@ -1793,15 +1797,35 @@ def _build_nifti_timing_metadata(
             )
 
         tr_spacing, delay = _infer_repetition_time(time_values_seconds)
-        if tr_spacing is not None:
+        delay_time = (
+            tr_spacing - frame_acquisition_duration
+            if tr_spacing is not None and frame_acquisition_duration is not None
+            else None
+        )
+        if (
+            delay_time is not None
+            and delay_time < 0
+            and not np.isclose(delay_time, 0.0)
+        ):
+            # `volume_acquisition_duration` exceeds the repetition time (overlapping
+            # acquisition windows): BIDS's RepetitionTime/DelayTime model can't
+            # represent a negative DelayTime, so fall back to explicit VolumeTiming +
+            # FrameAcquisitionDuration instead of silently dropping the duration.
+            # Sampling is still regular, so pixdim[4] keeps the true repetition time.
+            tr_pixdim = tr_spacing
+            timing_metadata["VolumeTiming"] = time_values_seconds.tolist()
+            timing_metadata["FrameAcquisitionDuration"] = frame_acquisition_duration
+        elif tr_spacing is not None:
             tr_pixdim = tr_spacing
             timing_metadata["RepetitionTime"] = tr_spacing
             if not np.isclose(delay, 0.0):
                 timing_metadata["DelayAfterTrigger"] = delay
-            if frame_acquisition_duration is not None:
-                delay_time = tr_spacing - frame_acquisition_duration
-                if delay_time > 0 and not np.isclose(delay_time, 0.0):
-                    timing_metadata["DelayTime"] = delay_time
+            if (
+                delay_time is not None
+                and delay_time > 0
+                and not np.isclose(delay_time, 0.0)
+            ):
+                timing_metadata["DelayTime"] = delay_time
         else:
             tr_pixdim = 0.0
             if len(time_values_seconds) >= 2:

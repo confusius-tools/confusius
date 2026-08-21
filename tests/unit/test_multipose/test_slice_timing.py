@@ -54,6 +54,11 @@ def _make_consolidated_da(
     for t in range(ntime):
         slice_time_vals[t, :] = time_vals[t] + slice_offsets
 
+    # Slice duration cannot exceed the spacing between consecutive slices, so infer
+    # it from the offsets themselves rather than hardcoding `tr`.
+    sorted_diffs = np.diff(np.sort(slice_offsets))
+    slice_duration = float(sorted_diffs.min()) if sorted_diffs.size else 0.0
+
     result = create_voxeldata(
         data,
         dims=("time", "k", "j", "i"),
@@ -67,7 +72,11 @@ def _make_consolidated_da(
         slice_time=xr.DataArray(
             slice_time_vals,
             dims=["time", "k"],
-            attrs={"units": "s", "volume_acquisition_reference": "start"},
+            attrs={
+                "units": "s",
+                "volume_acquisition_reference": "start",
+                "volume_acquisition_duration": slice_duration,
+            },
         )
     )
 
@@ -137,7 +146,13 @@ class TestCorrectSliceTiming:
         da = _make_consolidated_da(ntime=5, nz=3, ny=2, nx=2).drop_vars("slice_time")
         da = da.assign_coords(
             slice_time=xr.DataArray(
-                np.zeros((5, 3, 2)), dims=("time", "k", "j"), attrs={"units": "s"}
+                np.zeros((5, 3, 2)),
+                dims=("time", "k", "j"),
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": 0.2,
+                },
             )
         )
         with pytest.raises(ValueError, match="dims \\('time', <sweep_dim>\\)"):
@@ -193,7 +208,15 @@ class TestCorrectSliceTiming:
             attrs={"affines": {"world_to_lab": np.eye(4)}},
         ).assign_coords(
             slice_time=xr.DataArray(
-                slice_time_vals, dims=["time", "k"], attrs={"units": "s"}
+                slice_time_vals,
+                dims=["time", "k"],
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": float(
+                        np.diff(np.sort(slice_offsets)).min()
+                    ),
+                },
             )
         )
 

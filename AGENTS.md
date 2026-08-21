@@ -23,9 +23,9 @@ else gridded in space. A VoxelData array is **always**:
   non-spatial dims (PCA/ICA components, displacement `component`, atlas region
   masks, ...) may precede them, but native voxel indices `k`/`j`/`i` are always
   present and always last.
-- Backed by a `VoxelToWorldIndex` attached to `k`/`j`/`i`
+- Backed by a `VoxelToWorldIndex` attached to `z`/`y`/`x`
   (`confusius._utils.geometry.VoxelToWorldIndex`/`VoxelToWorldTransform`), which
-  lazily derives world coordinates `z`/`y`/`x` from the voxel-to-world affine:
+  lazily derives those world coordinates from `k`/`j`/`i` via the voxel-to-world affine:
   either one affine shared by all data or one affine per `pose`. World coordinates
   are never stored directly—always this index's output.
 

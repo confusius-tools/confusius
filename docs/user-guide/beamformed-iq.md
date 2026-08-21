@@ -82,7 +82,7 @@ typically hundreds of hertz.
 ### Expected Data Structure
 
 Beamformed IQ data in ConfUSIus is a complex-valued, [VoxelData
-model](spatial-conventions.md#the-voxeldata-model) DataArray, with `time` as
+model](voxeldata.md#the-voxeldata-model) DataArray, with `time` as
 the slow-time dimension. This dimension order keeps IQ processing's sliding-window
 operations efficient.
 

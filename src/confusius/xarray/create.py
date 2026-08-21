@@ -55,6 +55,38 @@ def _require_spacing(dim: str, spacing: float | None) -> float:
     return require_positive_finite(spacing, f"Spacing for dimension {dim!r}")
 
 
+def _default_per_pose_time_duration(
+    per_pose_time: npt.NDArray[np.float64], dt_fallback: float | None
+) -> float | None:
+    """Infer one pose's own acquisition duration from a `(time, pose)` array.
+
+    `dt` (the shared spacing between successive samples of the *same* pose, i.e. the
+    repetition period) is not a safe default: it describes a completely different
+    quantity. Instead, default from the smallest nonzero gap between poses' own
+    timestamps, per time point -- poses sharing the same timestamp (e.g. a
+    stacked-linear-probe pose acquired simultaneously with another) don't count
+    toward the gap.
+
+    Parameters
+    ----------
+    per_pose_time : (n_time, n_pose) numpy.ndarray
+        Each pose's own acquisition timestamp, per time point.
+    dt_fallback : float, optional
+        Value to fall back to when every pose shares the same timestamp at every time
+        point, leaving no gap to infer from.
+
+    Returns
+    -------
+    float or None
+        Inferred duration, `dt_fallback`, or `None` when neither is available.
+    """
+    diffs = np.diff(np.sort(per_pose_time, axis=-1), axis=-1)
+    nonzero_diffs = diffs[diffs > 0]
+    if nonzero_diffs.size:
+        return float(nonzero_diffs.min())
+    return dt_fallback
+
+
 def _regular_step(values: np.ndarray) -> float | None:
     """Return the regular spacing in `values`, or None if it cannot be inferred.
 
@@ -417,7 +449,13 @@ def create_voxeldata(
     volume_acquisition_reference : {"start", "center", "end"}, default: "start"
         Time reference stored on generated `time` coordinates.
     volume_acquisition_duration : float, optional
-        Acquisition duration stored on generated `time` coordinates.
+        Acquisition duration stored on generated `time` coordinates. If not provided,
+        it defaults to `dt` for a plain 1D `time` coordinate, or to the smallest
+        nonzero gap between `t0` values for a pose-dependent `(time, pose)`
+        coordinate—`dt` there is the repetition period between successive samples of
+        the *same* pose, not one pose's own acquisition time. Poses sharing the same
+        `t0` (e.g. a stacked-linear-probe pose acquired simultaneously with another)
+        don't count toward the gap.
     spacing : sequence[float], optional
         World spacing in `z/y/x` order. Mutually exclusive with `voxel_to_world`.
     origin : sequence[float], optional
@@ -504,6 +542,32 @@ def create_voxeldata(
             per_pose_time_attrs = (
                 dict(time.attrs) if isinstance(time, xr.DataArray) else {}
             )
+            per_pose_time_attrs.setdefault("units", _TIME_UNITS)
+            per_pose_time_attrs.setdefault(
+                "volume_acquisition_reference", volume_acquisition_reference
+            )
+            if per_pose_time_attrs["volume_acquisition_reference"] not in (
+                TIMING_REFERENCE_FACTORS
+            ):
+                raise ValueError(
+                    "volume_acquisition_reference must be one of "
+                    f"{tuple(TIMING_REFERENCE_FACTORS)!r}, got "
+                    f"{per_pose_time_attrs['volume_acquisition_reference']!r}."
+                )
+            duration = per_pose_time_attrs.get(
+                "volume_acquisition_duration", volume_acquisition_duration
+            )
+            if duration is not None:
+                per_pose_time_attrs["volume_acquisition_duration"] = (
+                    require_positive_finite(duration, "volume_acquisition_duration")
+                )
+            else:
+                # `dt` only applies "when `time` is not provided" (see its own
+                # docstring); an explicit 2D `time` array makes it irrelevant, so
+                # there is no fallback if every timestamp ties.
+                inferred = _default_per_pose_time_duration(per_pose_time, None)
+                if inferred is not None:
+                    per_pose_time_attrs["volume_acquisition_duration"] = inferred
             # 1D placeholder: satisfies construction below, replaced at the end.
             time = time_array[:, 0]
     elif TIME_DIM in dims:
@@ -533,10 +597,22 @@ def create_voxeldata(
                 t0_values[None, :]
                 + np.arange(time_size, dtype=np.float64)[:, None] * dt_value
             )
+            if volume_acquisition_duration is not None:
+                pose_duration = require_positive_finite(
+                    volume_acquisition_duration, "volume_acquisition_duration"
+                )
+            else:
+                # Use t0_values directly (not per_pose_time): every row shares the
+                # same pose-to-pose gaps by construction, but repeating the `+ k *
+                # dt_value` addition per row risks floating-point noise between
+                # otherwise-identical gaps.
+                pose_duration = _default_per_pose_time_duration(
+                    t0_values[np.newaxis, :], dt_value
+                )
             per_pose_time_attrs = {
                 "units": _TIME_UNITS,
                 "volume_acquisition_reference": volume_acquisition_reference,
-                "volume_acquisition_duration": dt_value,
+                "volume_acquisition_duration": pose_duration,
             }
             time = per_pose_time[:, 0]
 

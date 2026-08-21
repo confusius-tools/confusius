@@ -90,7 +90,7 @@ events
 # ## Load the recordings and fix their spatial convention
 #
 # This dataset is stored with a spatial convention that differs from the [spatial
-# convention that ConfUSIus assumes](../../../user-guide/spatial-conventions/) (the axes
+# convention that ConfUSIus assumes](../../../user-guide/voxeldata/) (the axes
 # are labelled differently, the depth direction is flipped, and the stored
 # world-space affine is not metric). We correct these differences so the data conform
 # to ConfUSIus's spatial convention. The collapsed `_load_and_prepare_fusi` helper

@@ -10,6 +10,12 @@ from confusius._utils.geometry import VoxelToWorldIndex, attach_voxel_to_world_i
 from confusius.validation import canonicalize_voxeldata, validate_voxeldata
 from confusius.xarray import create_voxeldata
 
+_SLICE_TIME_ATTRS = {
+    "units": "s",
+    "volume_acquisition_reference": "start",
+    "volume_acquisition_duration": 0.1,
+}
+
 
 def _make_voxel_to_world_volume() -> xr.DataArray:
     """Create a small ConfUSIus-style 3D volume."""
@@ -69,9 +75,12 @@ def test_validate_voxeldata_accepts_valid_3dt() -> None:
 
 def test_validate_voxeldata_accepts_time_first_slice_time() -> None:
     """`slice_time` is a valid optional VoxelData timing coordinate."""
+    time_values = _make_voxel_to_world_time_series().coords["time"].values
     data = _make_voxel_to_world_time_series().assign_coords(
         slice_time=xr.DataArray(
-            np.zeros((6, 2)), dims=("time", "k"), attrs={"units": "s"}
+            time_values[:, np.newaxis] + np.array([0.0, 0.2]),
+            dims=("time", "k"),
+            attrs=_SLICE_TIME_ATTRS,
         )
     )
 
@@ -82,7 +91,7 @@ def test_validate_voxeldata_rejects_non_time_first_slice_time() -> None:
     """Time-series `slice_time` coordinates must be time-first."""
     data = _make_voxel_to_world_time_series().assign_coords(
         slice_time=xr.DataArray(
-            np.zeros((2, 6)), dims=("k", "time"), attrs={"units": "s"}
+            np.zeros((2, 6)), dims=("k", "time"), attrs=_SLICE_TIME_ATTRS
         )
     )
 
@@ -118,7 +127,9 @@ def test_validate_voxeldata_accepts_1d_slice_time_with_scalar_time() -> None:
         _make_voxel_to_world_time_series()
         .isel(time=0)
         .assign_coords(
-            slice_time=xr.DataArray(np.zeros(2), dims=("k",), attrs={"units": "s"})
+            slice_time=xr.DataArray(
+                np.array([0.0, 0.2]), dims=("k",), attrs=_SLICE_TIME_ATTRS
+            )
         )
     )
 
@@ -128,7 +139,7 @@ def test_validate_voxeldata_accepts_1d_slice_time_with_scalar_time() -> None:
 def test_validate_voxeldata_rejects_1d_slice_time_on_time_series() -> None:
     """Time-series `slice_time` needs an explicit time axis."""
     data = _make_voxel_to_world_time_series().assign_coords(
-        slice_time=xr.DataArray(np.zeros(2), dims=("k",), attrs={"units": "s"})
+        slice_time=xr.DataArray(np.zeros(2), dims=("k",), attrs=_SLICE_TIME_ATTRS)
     )
 
     with pytest.raises(ValueError, match="must have dims"):
@@ -139,7 +150,7 @@ def test_validate_voxeldata_rejects_3d_slice_time() -> None:
     """`slice_time` names one acquisition sweep dimension, not a volume grid."""
     data = _make_voxel_to_world_time_series().assign_coords(
         slice_time=xr.DataArray(
-            np.zeros((6, 2, 3)), dims=("time", "k", "j"), attrs={"units": "s"}
+            np.zeros((6, 2, 3)), dims=("time", "k", "j"), attrs=_SLICE_TIME_ATTRS
         )
     )
 

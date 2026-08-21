@@ -291,6 +291,75 @@ def ensure_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
     return data.assign_coords({TIME_DIM: data.coords[TIME_DIM].assign_attrs(new_attrs)})
 
 
+def ensure_slice_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
+    """Fill in default metadata attrs on `data`'s `slice_time` coordinate.
+
+    Every VoxelData array with a `slice_time` coordinate carries
+    `volume_acquisition_reference`, `volume_acquisition_duration`, and `units` on it.
+    Data built without going through
+    [consolidate_poses][confusius.multipose.consolidate_poses] (e.g. a `slice_time`
+    coordinate assembled by hand) may still be missing them; this fills in `"start"`
+    and `"s"`, respectively. `volume_acquisition_duration` is inferred from the median
+    consecutive difference along `slice_time`'s sweep dimension (its last dimension).
+    Simultaneous slices (e.g. a stacked-linear-probe pose) are expected and not
+    treated as an error.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to fill in.
+
+    Returns
+    -------
+    xarray.DataArray
+        `data` unchanged when it has no `slice_time` coordinate or that coordinate
+        already carries all three attrs. Otherwise a copy with
+        `volume_acquisition_reference` defaulted to `"start"`, `units` defaulted to
+        `"s"`, and `volume_acquisition_duration` defaulted from the median sweep-axis
+        step, when it can be inferred.
+
+    Warns
+    -----
+    UserWarning
+        If any attr was missing and defaulted, naming which ones and what they were
+        defaulted to.
+    """
+    if "slice_time" not in data.coords:
+        return data
+    coord = data.coords["slice_time"]
+    attrs = coord.attrs
+    if (
+        "volume_acquisition_reference" in attrs
+        and "volume_acquisition_duration" in attrs
+        and "units" in attrs
+    ):
+        return data
+
+    new_attrs = dict(attrs)
+    defaulted: list[str] = []
+    if "volume_acquisition_reference" not in new_attrs:
+        new_attrs["volume_acquisition_reference"] = "start"
+        defaulted.append("volume_acquisition_reference")
+    if "units" not in new_attrs:
+        new_attrs["units"] = "s"
+        defaulted.append("units")
+    if "volume_acquisition_duration" not in new_attrs:
+        diffs = np.abs(np.diff(np.asarray(coord.values), axis=-1))
+        if diffs.size > 0:
+            duration = float(np.median(diffs))
+            if duration > 0:
+                new_attrs["volume_acquisition_duration"] = duration
+                defaulted.append("volume_acquisition_duration")
+    if defaulted:
+        defaults_used = {key: new_attrs[key] for key in defaulted}
+        warnings.warn(
+            f"'slice_time' coordinate is missing {defaulted}; defaulting to "
+            f"{defaults_used}.",
+            stacklevel=find_stack_level(),
+        )
+    return data.assign_coords({"slice_time": coord.assign_attrs(new_attrs)})
+
+
 def convert_time_reference(
     time: npt.ArrayLike,
     volume_duration: float | npt.ArrayLike,

@@ -20,7 +20,13 @@ from confusius._utils.geometry import (
 )
 from confusius._utils.stack import find_stack_level
 from confusius._utils.validation import require_dataarray
-from confusius.timing import TIMING_REFERENCE_FACTORS, ensure_time_acquisition_attrs
+from confusius.timing import (
+    TIMING_REFERENCE_FACTORS,
+    convert_time_reference,
+    convert_time_units,
+    ensure_slice_time_acquisition_attrs,
+    ensure_time_acquisition_attrs,
+)
 from confusius.validation.time_series import (
     validate_required_time_dimension,
     validate_timepoint_count,
@@ -293,7 +299,9 @@ def _validate_slice_time_coordinate(da: xr.DataArray) -> None:
     ------
     ValueError
         If `slice_time` is present but does not describe numeric finite acquisition
-        times with `time` as its leading dimension for time-series data.
+        times with `time` as its leading dimension for time-series data, is missing
+        required acquisition metadata, or its acquisition windows fall outside their
+        volume's repetition interval.
     """
     if "slice_time" not in da.coords:
         return
@@ -306,6 +314,20 @@ def _validate_slice_time_coordinate(da: xr.DataArray) -> None:
     if "units" not in coord.attrs:
         raise ValueError(
             "Coordinate 'slice_time' is missing required 'units' metadata."
+        )
+    if "volume_acquisition_reference" not in coord.attrs:
+        raise ValueError(
+            "Coordinate 'slice_time' is missing 'volume_acquisition_reference'."
+        )
+    if coord.attrs["volume_acquisition_reference"] not in TIMING_REFERENCE_FACTORS:
+        raise ValueError(
+            "Coordinate 'slice_time' 'volume_acquisition_reference' must be one of "
+            f"{tuple(TIMING_REFERENCE_FACTORS)!r}, got "
+            f"{coord.attrs['volume_acquisition_reference']!r}."
+        )
+    if "volume_acquisition_duration" not in coord.attrs:
+        raise ValueError(
+            "Coordinate 'slice_time' is missing 'volume_acquisition_duration'."
         )
 
     if TIME_DIM in da.dims:
@@ -320,6 +342,7 @@ def _validate_slice_time_coordinate(da: xr.DataArray) -> None:
                 "Coordinate 'slice_time' sweep dimension must be present in data, "
                 f"got {sweep_dim!r}."
             )
+        _validate_slice_time_within_volume_window(da, coord)
         return
 
     if len(coord.dims) != 1:
@@ -331,6 +354,78 @@ def _validate_slice_time_coordinate(da: xr.DataArray) -> None:
         raise ValueError(
             "Coordinate 'slice_time' dimension must be present in data, "
             f"got {coord.dims[0]!r}."
+        )
+
+
+_SLICE_TIME_TOLERANCE = 1e-6
+"""Relative tolerance for `slice_time` consistency checks against floating drift."""
+
+
+def _validate_slice_time_within_volume_window(
+    da: xr.DataArray, coord: xr.DataArray
+) -> None:
+    """Check that `slice_time` stays within its own volume's acquisition window.
+
+    `time.attrs["volume_acquisition_duration"]` is the time to acquire the whole
+    `(k, j, i)` volume, so every one of its slices must fall within
+    `[onset, onset + duration]` (`time` and `slice_time` both converted to `"start"`
+    reference) -- never before the volume starts, never after it finishes.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        DataArray carrying both `slice_time` and a dimension `time` coordinate.
+    coord : xarray.DataArray
+        The `slice_time` coordinate, with dims `(time, <sweep_dim>)`.
+
+    Raises
+    ------
+    ValueError
+        If any slice's acquisition window (from `slice_time` and its own
+        `volume_acquisition_duration`/`volume_acquisition_reference`) falls outside
+        its volume's own `[onset, onset + volume_acquisition_duration]` window.
+    """
+    if TIME_DIM not in da.coords:
+        return
+    time_coord = da.coords[TIME_DIM]
+    time_attrs = time_coord.attrs
+    if (
+        "volume_acquisition_duration" not in time_attrs
+        or "volume_acquisition_reference" not in time_attrs
+    ):
+        return
+
+    time_duration = convert_time_units(
+        float(time_attrs["volume_acquisition_duration"]), time_attrs.get("units"), "s"
+    )
+    time_onset = convert_time_reference(
+        convert_time_units(time_coord.values, time_attrs.get("units"), "s"),
+        time_duration,
+        from_reference=time_attrs["volume_acquisition_reference"],
+        to_reference="start",
+    )
+
+    slice_duration = convert_time_units(
+        float(coord.attrs["volume_acquisition_duration"]), coord.attrs.get("units"), "s"
+    )
+    slice_onset = convert_time_reference(
+        convert_time_units(coord.values, coord.attrs.get("units"), "s"),
+        slice_duration,
+        from_reference=coord.attrs["volume_acquisition_reference"],
+        to_reference="start",
+    )
+
+    tolerance = _SLICE_TIME_TOLERANCE * max(float(np.max(time_duration)), 1.0)
+    window_start = time_onset[:, np.newaxis]
+    window_end = window_start + time_duration
+    slice_start = slice_onset
+    slice_end = slice_onset + slice_duration
+    if np.any(slice_start < window_start - tolerance) or np.any(
+        slice_end > window_end + tolerance
+    ):
+        raise ValueError(
+            "Coordinate 'slice_time' acquisition windows fall outside their own "
+            "volume's [onset, onset + volume_acquisition_duration] window."
         )
 
 
@@ -462,7 +557,8 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
     Warns
     -----
     UserWarning
-        If missing world-coordinate `units` or time acquisition metadata is defaulted.
+        If missing world-coordinate `units`, `time` acquisition metadata, or
+        `slice_time` acquisition metadata is defaulted.
     """
     require_dataarray(data)
 
@@ -502,7 +598,8 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
         *(dim for dim in CORE_DIMS if dim in result.dims),
     )
     result = _ensure_spatial_metadata_attrs(result)
-    return ensure_time_acquisition_attrs(result)
+    result = ensure_time_acquisition_attrs(result)
+    return ensure_slice_time_acquisition_attrs(result)
 
 
 def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:

@@ -28,7 +28,7 @@ Every loader in this guide returns **VoxelData arrays**: DataArrays with trailin
 `k`/`j`/`i` voxel dimensions backed by a `VoxelToWorldIndex`, which derives world
 coordinates `z`/`y`/`x` (in millimeters) from voxel-to-world affine transformations.
 World coordinates are never stored directly—they're always this index's output. See
-[Spatial Conventions](spatial-conventions.md) for details on the coordinate model.
+[The VoxelData Model](voxeldata.md) for details on the coordinate model.
 
 ### Xarray-Compatible Formats
 
@@ -253,7 +253,7 @@ acquisitions with external events.
 Additionally, each pose has its own voxel-to-world affine transformation, meaning the
 `z`/`y`/`x` world coordinates are **pose-dependent**. The `pose` coordinate indexes the
 pose dimension, and the `z`/`y`/`x` coordinates are derived from the corresponding
-pose's affine. See [Spatial Conventions](spatial-conventions.md) for details on how
+pose's affine. See [The VoxelData Model](voxeldata.md) for details on how
 world coordinates are derived from voxel indices and affines.
 
 !!! warning "SCAN files and parallel processing"
@@ -611,9 +611,9 @@ You can save VoxelData arrays to NIfTI and Zarr using the universal
     ```
 
 When saving to NIfTI, a
-[fUSI-BIDS](https://bids-specification.readthedocs.io/en/stable/) JSON sidecar file will
-be automatically created in fUSI-BIDS style. Spatial coordinates and units are encoded
-in the NIfTI header itself; the sidecar stores converted metadata fields, custom
+[fUSI-BIDS](https://bids-specification.readthedocs.io/en/stable/) JSON sidecar file
+will be automatically created in fUSI-BIDS style. Spatial coordinates and units are
+encoded in the NIfTI header itself; the sidecar stores converted metadata fields, custom
 attributes, and timing metadata such as `RepetitionTime`, `DelayAfterTrigger`, or
 `VolumeTiming`. When possible, `RepetitionTime` is inferred directly from the `time`
 coordinate so the sidecar stays consistent with the data being saved. Multi-pose data
