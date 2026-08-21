@@ -689,13 +689,27 @@ class TestNonlinearMesh:
         by_like = atlas_ds.atlas.resample_like(reference, np.eye(4))
         by_grid = atlas_ds.atlas.resample(
             np.eye(4),
-            shape=reference.shape,
-            spacing=[0.05, 0.05, 0.05],
-            origin=[0.0, 0.0, 0.0],
-            dims=["k", "j", "i"],
+            output_sizes=reference.sizes,
+            output_spacing=reference.fusi.spacing,
+            output_origin=reference.fusi.origin,
+            output_direction=reference.fusi.direction,
         )
         for var in ["reference", "annotation", "hemispheres"]:
             np.testing.assert_array_equal(by_like[var].values, by_grid[var].values)
+
+    def test_resample_preserves_output_direction(self, atlas_ds: xr.Dataset) -> None:
+        """The explicit-grid API forwards its output direction to every atlas map."""
+        direction = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]])
+        result = atlas_ds.atlas.resample(
+            np.eye(4),
+            output_sizes=atlas_ds.atlas.reference.sizes,
+            output_spacing=atlas_ds.atlas.reference.fusi.spacing,
+            output_origin=atlas_ds.atlas.reference.fusi.origin,
+            output_direction=direction,
+        )
+
+        for name in ["reference", "annotation", "hemispheres"]:
+            np.testing.assert_allclose(result[name].fusi.direction, direction)
 
 
 class TestTransformComposition:

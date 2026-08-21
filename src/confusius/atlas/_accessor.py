@@ -1,17 +1,16 @@
 """The `.atlas` xarray Dataset accessor: data-aware brain-atlas operations."""
 
-from collections.abc import Sequence
+from collections.abc import Hashable, Mapping, Sequence
+from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, SupportsFloat, SupportsIndex
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import xarray as xr
 
-from confusius._dims import VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.atlas._structures import (
     _build_lookup_df,
     _get_descendant_ids,
@@ -23,7 +22,8 @@ from confusius.atlas._world_to_base_transform import (
     _compose_world_to_base_transforms,
     _drop_vertices_outside_grid,
 )
-from confusius.registration.resampling import resample_like as resample_like_da
+from confusius.registration.resampling import resample_volume
+from confusius.validation import ensure_voxeldata
 from confusius.validation.atlas import validate_atlas
 
 if TYPE_CHECKING:
@@ -328,143 +328,34 @@ class AtlasAccessor:
 
     # ── Resampling ────────────────────────────────────────────────────────────────────
 
-    def resample_like(
-        self,
-        reference: xr.DataArray,
-        transform: WorldToBaseTransform,
-        *,
-        reference_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
-        sitk_threads: int = -1,
-    ) -> xr.Dataset:
-        """Resample the atlas onto the grid of `reference`.
-
-        Mirrors
-        [`confusius.registration.resample_like`][confusius.registration.resample_like].
-        Returns a new atlas Dataset whose variables live on `reference`'s grid.
-
-        - `reference`: resampled with `reference_interpolation`.
-        - `annotation` and `hemispheres`: resampled with nearest-neighbour
-          to preserve integer labels.
-        - Meshes returned by `get_mesh` will also be in the new world space.
-
-        `reference` and any DataArray transform must use the same world coordinate
-        units when such metadata is defined.
-
-        Parameters
-        ----------
-        reference : xarray.DataArray
-            VoxelData array defining the target grid. Must be 2D or 3D
-            and must not have a `time` dimension.
-        transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
-            Pull/inverse transform returned by `register_volume`, mapping `reference`
-            world coordinates to atlas world coordinates.
-
-            - **Affine** (`numpy.ndarray`): homogeneous matrix.
-            - **B-spline** (`xarray.DataArray`): control-point DataArray.
-            - **Displacement field** (`xarray.DataArray`): dense field with
-              `attrs["type"] == "displacement_field_transform"`.
-        reference_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
-            Interpolation used for the `reference` variable.
-        sitk_threads : int, default: -1
-            Number of SimpleITK threads. Negative values use
-            `max(1, cpu_count + 1 + sitk_threads)`.
-
-        Returns
-        -------
-        xarray.Dataset
-            New atlas Dataset on `reference`'s grid. The composed world→base pull
-            transform is stored in the `attrs["world_to_base"]` attribute — a numpy
-            affine, or a displacement-field DataArray when `transform` (or a previously
-            composed one) is nonlinear.
-
-        Examples
-        --------
-        >>> _, affine = atlas.atlas.reference.fusi.register.to_volume(
-        ...     fusi_mean, metric="mattes_mi", transform="affine"
-        ... )
-        >>> atlas_fusi = atlas.atlas.resample_like(fusi_mean, affine)
-        """
-        resampled_ref = resample_like_da(
-            self.reference,
-            reference,
-            transform,
-            interpolation=reference_interpolation,
-            fill_value=0.0,
-            sitk_threads=sitk_threads,
-        )
-        resampled_ann = resample_like_da(
-            self.annotation,
-            reference,
-            transform,
-            interpolation="nearest",
-            fill_value=0,
-            sitk_threads=sitk_threads,
-        )
-        resampled_ann.attrs = self.annotation.attrs.copy()
-
-        resampled_hemi = resample_like_da(
-            self.hemispheres,
-            reference,
-            transform,
-            interpolation="nearest",
-            fill_value=0,
-            sitk_threads=sitk_threads,
-        )
-
-        composed = _compose_world_to_base_transforms(
-            self._world_to_base_transform, transform, reference, self.reference
-        )
-
-        data_vars: dict[str, xr.DataArray] = {
-            "reference": resampled_ref,
-            "annotation": resampled_ann,
-            "hemispheres": resampled_hemi,
-        }
-        # `composed` is the pull (world→base) transform: a numpy affine when both inputs
-        # are affine, otherwise a dense displacement-field DataArray. Either rides directly
-        # in the single `world_to_base` attr.
-        new_attrs = dict(self._ds.attrs)
-        new_attrs["world_to_base"] = composed
-
-        return xr.Dataset(data_vars, attrs=new_attrs)
-
     def resample(
         self,
         transform: WorldToBaseTransform,
         *,
-        shape: Sequence[int],
-        spacing: Sequence[float],
-        origin: Sequence[float],
-        dims: Sequence[str],
-        reference_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+        output_sizes: Mapping[Hashable, SupportsIndex],
+        output_spacing: Mapping[Hashable, SupportsFloat | SupportsIndex],
+        output_origin: Mapping[Hashable, SupportsFloat | SupportsIndex],
+        output_direction: npt.ArrayLike,
+        interpolation: Literal["linear", "nearest", "bspline"] = "linear",
         sitk_threads: int = -1,
     ) -> xr.Dataset:
         """Resample the atlas onto an explicit output grid.
 
-        Mirrors
-        [`confusius.registration.resample_volume`][confusius.registration.resample_volume]
-        for atlas Datasets by constructing a temporary reference grid and delegating to
-        [`resample_like`][confusius.atlas.AtlasAccessor.resample_like].
-
         Parameters
         ----------
-        transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
-            Pull transform mapping output world coordinates to the current atlas
-            world coordinates. Affine, B-spline, or displacement-field, as for
-            [`resample_like`][confusius.atlas.AtlasAccessor.resample_like].
-        shape : sequence of int
-            Number of voxels along each output axis, in `dims` order.
-        spacing : sequence of float
-            Voxel spacing along each output axis, in `dims` order.
-        origin : sequence of float
-            World origin along each output axis, in `dims` order.
-        dims : sequence of str
-            Dimension names of the output atlas grid, in the same order as `shape`,
-            `spacing`, and `origin`. Must be a subset of the native voxel dims
-            `("k", "j", "i")`; entries outside that set are silently excluded when
-            building the voxel-to-world affine.
-        reference_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
-            Interpolation used for the `reference` volume.
+        transform : (4, 4) numpy.ndarray or xarray.DataArray
+            Pull transform mapping output world coordinates to current atlas world
+            coordinates.
+        output_sizes : mapping of str to int
+            Number of voxels along output axes, read by `k`/`j`/`i` keys.
+        output_spacing : mapping of str to float
+            World distance between output positions, read by `k`/`j`/`i` keys.
+        output_origin : mapping of str to float
+            World location of output position `(0, 0, 0)`, read by `z`/`y`/`x` keys.
+        output_direction : (3, 3) numpy.ndarray
+            Unit world-space direction columns for native `k`/`j`/`i` output axes.
+        interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+            Interpolation used for the atlas reference volume.
         sitk_threads : int, default: -1
             Number of SimpleITK threads.
 
@@ -472,48 +363,116 @@ class AtlasAccessor:
         -------
         xarray.Dataset
             Resampled atlas Dataset on the requested grid.
-
-        Raises
-        ------
-        ValueError
-            If `dims`, `shape`, `spacing`, and `origin` do not all have the same
-            length, or if `dims` contains none of the native voxel dims `"k"`, `"j"`,
-            `"i"`.
         """
-        dims = [str(dim) for dim in dims]
-        coords = {dim: np.arange(size) for dim, size in zip(dims, shape, strict=True)}
-        reference = xr.DataArray(
-            np.zeros(tuple(shape), dtype=np.float32),
-            dims=dims,
-            coords=coords,
-        )
-        # dims/spacing/origin may arrive in any caller-given order; the affine columns
-        # must line up with attach_voxel_to_world_index's canonical k/j/i order
-        # regardless of that order, so reorder before building the affine.
-        spacing = list(spacing)
-        origin = list(origin)
-        canonical_order = [dims.index(dim) for dim in VOXEL_DIMS if dim in dims]
-        canonical_dims = [dims[i] for i in canonical_order]
-        canonical_spacing = [spacing[i] for i in canonical_order]
-        canonical_origin = [origin[i] for i in canonical_order]
-        affine = np.eye(len(canonical_dims) + 1, dtype=np.float64)
-        affine[:-1, :-1] = np.diag(canonical_spacing)
-        affine[:-1, -1] = canonical_origin
-        world_names = tuple(
-            {"k": "z", "j": "y", "i": "x"}[dim] for dim in canonical_dims
-        )
-        world_attrs = {
-            name: dict(self.reference.coords.get(name, xr.Variable((), 0.0)).attrs)
-            for name in world_names
-        }
-        reference = attach_voxel_to_world_index(
-            reference, affine, world_coord_attrs=world_attrs
-        )
-        return self.resample_like(
-            reference,
+        resampled_ref = resample_volume(
+            self.reference,
             transform,
-            reference_interpolation=reference_interpolation,
+            output_sizes=output_sizes,
+            output_spacing=output_spacing,
+            output_origin=output_origin,
+            output_direction=output_direction,
+            interpolation=interpolation,
+            fill_value=0.0,
             sitk_threads=sitk_threads,
+        )
+        resampled_ann = resample_volume(
+            self.annotation,
+            transform,
+            output_sizes=output_sizes,
+            output_spacing=output_spacing,
+            output_origin=output_origin,
+            output_direction=output_direction,
+            interpolation="nearest",
+            fill_value=0,
+            sitk_threads=sitk_threads,
+        )
+        resampled_ann.attrs = self.annotation.attrs.copy()
+        resampled_hemi = resample_volume(
+            self.hemispheres,
+            transform,
+            output_sizes=output_sizes,
+            output_spacing=output_spacing,
+            output_origin=output_origin,
+            output_direction=output_direction,
+            interpolation="nearest",
+            fill_value=0,
+            sitk_threads=sitk_threads,
+        )
+        composed = _compose_world_to_base_transforms(
+            self._world_to_base_transform, transform, resampled_ref, self.reference
+        )
+        return xr.Dataset(
+            {
+                "reference": resampled_ref,
+                "annotation": resampled_ann,
+                "hemispheres": resampled_hemi,
+            },
+            attrs={**self._ds.attrs, "world_to_base": composed},
+        )
+
+    def resample_like(
+        self,
+        reference: xr.DataArray,
+        transform: WorldToBaseTransform,
+        *,
+        interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+        sitk_threads: int = -1,
+    ) -> xr.Dataset:
+        """Resample the atlas onto `reference`'s VoxelData grid.
+
+        Parameters
+        ----------
+        reference : xarray.DataArray
+            VoxelData array defining the target grid.
+        transform : (4, 4) numpy.ndarray or xarray.DataArray
+            Pull transform mapping reference world coordinates to atlas world
+            coordinates.
+        interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+            Interpolation used for the atlas reference volume.
+        sitk_threads : int, default: -1
+            Number of SimpleITK threads.
+
+        Returns
+        -------
+        xarray.Dataset
+            Resampled atlas Dataset with exactly `reference`'s voxel labels and
+            voxel-to-world affine.
+        """
+        if "time" in reference.dims:
+            raise ValueError(
+                f"'reference' must not have a time dimension; got dims {reference.dims}."
+            )
+        reference = ensure_voxeldata(
+            reference,
+            require_time=False,
+            allow_pose=False,
+            allow_extra_dims=False,
+        )
+        grid = reference.fusi
+        output = self.resample(
+            transform,
+            output_sizes=reference.sizes,
+            output_spacing=grid.spacing,
+            output_origin=grid.origin,
+            output_direction=grid.direction,
+            interpolation=interpolation,
+            sitk_threads=sitk_threads,
+        )
+        data_vars = {
+            name: output[name].fusi.affine.reindex_voxels_like(reference)
+            for name in output.data_vars
+        }
+        reference_attrs = dict(data_vars["reference"].attrs)
+        if "affines" in reference.attrs:
+            reference_attrs["affines"] = deepcopy(reference.attrs["affines"])
+        else:
+            reference_attrs.pop("affines", None)
+        data_vars["reference"] = data_vars["reference"].assign_attrs(reference_attrs)
+        world_to_base = output.attrs["world_to_base"]
+        if isinstance(world_to_base, xr.DataArray):
+            world_to_base = world_to_base.fusi.affine.reindex_voxels_like(reference)
+        return xr.Dataset(
+            data_vars, attrs={**output.attrs, "world_to_base": world_to_base}
         )
 
     # ── Tree helpers  ─────────────────────────────────────────────────────────────────

@@ -3,8 +3,7 @@
 An atlas world-to-base transform is a *pull* transform, following the same convention
 as `confusius.registration`: it maps a point in the atlas's world space back to its
 base (BrainGlobe OBJ) world space. Affine transforms are homogeneous `(4, 4)` matrices;
-nonlinear transforms are B-spline or dense displacement-field DataArrays -- the latter
-VoxelData arrays (voxel-to-world index, always axis-aligned) with an
+nonlinear transforms are B-spline or dense displacement-field VoxelData arrays with an
 extra leading `component` dim, labeled by native voxel dim name (matching the convention
 `confusius.registration.bspline` uses): component `k`/`j`/`i` displaces along that
 axis's world direction.
@@ -17,7 +16,6 @@ import numpy.typing as npt
 import xarray as xr
 from scipy.interpolate import interpn
 
-from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
@@ -153,26 +151,23 @@ def _compose_world_to_base_transforms(
     if isinstance(old_transform, np.ndarray) and isinstance(new_transform, np.ndarray):
         return old_transform @ new_transform
 
-    # World dim names/coordinates, not `new_reference.dims`/voxel `k`/`j`/`i` coordinate
-    # values: displacement components and interpolation both operate in world mm. The
-    # index-derived world coordinate is N-D even for an axis-aligned grid (it depends on
-    # all voxel dims jointly), so a plain per-axis 1D vector is built from the grid's
-    # shape/spacing/origin instead of read directly off `new_reference.coords`.
+    # Displacement components and interpolation operate in world space. Build every
+    # output-grid position from the requested spacing, origin, and direction rather
+    # than the derived N-D world coordinates.
     dims = list(get_voxel_to_world_coord_names(new_reference))
-    grid_info = get_grid_info_from_dataarray(new_reference)
-    grid = np.meshgrid(
-        *[
-            origin + np.arange(size, dtype=np.float64) * spacing
-            for size, spacing, origin in zip(
-                grid_info["shape"],
-                grid_info["spacing"],
-                grid_info["origin"],
-                strict=True,
-            )
-        ],
-        indexing="ij",
+    voxel_dims = get_voxel_to_world_spatial_dims(new_reference)
+    shape = tuple(new_reference.sizes[dim] for dim in voxel_dims)
+    spacing = np.asarray(
+        [new_reference.fusi.spacing[dim] for dim in voxel_dims], dtype=np.float64
     )
-    reference_points = np.stack(grid, axis=-1).reshape(-1, len(dims))
+    origin = np.asarray(
+        [new_reference.fusi.origin[dim] for dim in dims], dtype=np.float64
+    )
+    direction = np.asarray(new_reference.fusi.direction, dtype=np.float64)
+    voxel_positions = np.stack(
+        np.meshgrid(*(np.arange(size) for size in shape), indexing="ij"), axis=-1
+    ).reshape(-1, len(dims))
+    reference_points = voxel_positions @ (direction @ np.diag(spacing)).T + origin
     current_points = _transform_points(new_transform, reference_points, new_reference)
     base_points = _transform_points(old_transform, current_points, old_reference)
     # Points and displacement components are both in DataArray dim order (component
@@ -190,15 +185,13 @@ def _compose_world_to_base_transforms(
     # labeled by those same voxel names (in the same order the displacement was
     # stacked in above, which is `dims`'/world order -- `voxel_dims` here is just its
     # voxel-name spelling, not a reordering).
-    voxel_dims = get_voxel_to_world_spatial_dims(new_reference)
-    voxel_to_world = np.eye(len(dims) + 1, dtype=np.float64)
-    voxel_to_world[:-1, :-1] = np.diag(grid_info["spacing"])
-    voxel_to_world[:-1, -1] = grid_info["origin"]
     return create_voxeldata(
         displacement,
         dims=("component", *voxel_dims),
         extra_coords={"component": np.array(voxel_dims, dtype=np.str_)},
-        voxel_to_world=voxel_to_world,
+        spacing=spacing.tolist(),
+        origin=origin.tolist(),
+        direction=direction,
         attrs={"type": "displacement_field_transform"},
     )
 
