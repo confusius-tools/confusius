@@ -6,7 +6,6 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
-from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.glm import FirstLevelModel, make_first_level_design_matrix
 from confusius.glm._models import OLSModel
 from confusius.spatial import smooth_volume
@@ -576,36 +575,30 @@ class TestFirstLevelModelErrors:
         with pytest.raises(ValueError, match="noise_model"):
             model.fit(fusi_data, events=events)
 
-    def test_mask_must_cover_all_non_time_dims(
+    def test_mask_dim_order_is_canonicalized(
         self, frame_times, events, make_glm_test_dataarray
     ):
-        """Mask must span all non-time dims in the run's own dim order."""
+        """Wrong-order VoxelData masks are canonicalized before fitting."""
         data = make_glm_test_dataarray(
             np.zeros((len(frame_times), 2, 3, 4)),
             ("time", "k", "j", "i"),
             time=frame_times,
         )
-        # create_voxeldata always canonicalizes to (k, j, i), so a mask missing
-        # a spatial dim can no longer be built through it; build the mismatch (wrong
-        # dim order) via attach_voxel_to_world_index directly instead, which
-        # still carries real voxel-to-world geometry but doesn't reorder dims.
-        mask_data = xr.DataArray(
-            np.ones((data.sizes["i"], data.sizes["j"], data.sizes["k"]), dtype=bool),
-            dims=("i", "j", "k"),
-            coords={
-                "i": data.coords["i"],
-                "j": data.coords["j"],
-                "k": data.coords["k"],
-            },
-        )
-        mask = attach_voxel_to_world_index(
-            mask_data,
-            np.eye(4),
-            world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
+        mask = (
+            data.isel(time=0, drop=True)
+            .transpose("i", "j", "k")
+            .copy(
+                data=np.ones(
+                    (data.sizes["i"], data.sizes["j"], data.sizes["k"]), dtype=bool
+                )
+            )
         )
         model = FirstLevelModel(noise_model="ols", mask=mask)
-        with pytest.raises(ValueError, match="match all non-time dimensions"):
-            model.fit(data, events=events)
+
+        model.fit(data, events=events)
+
+        assert model.mask is not None
+        assert model.mask.dims == ("k", "j", "i")
 
     def test_2d_contrast_too_wide_raises(self, fusi_data, events):
         """2D contrast wider than design columns raises ValueError."""

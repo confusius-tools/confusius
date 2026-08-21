@@ -106,6 +106,13 @@ def correct_slice_timings(
     """
     if "time" not in da.dims:
         raise ValueError("DataArray must have a 'time' dimension.")
+    if "slice_time" in da.coords:
+        raw_slice_time_dims = da.coords["slice_time"].dims
+        if len(raw_slice_time_dims) != 2 or raw_slice_time_dims[0] != "time":
+            raise ValueError(
+                "'slice_time' coordinate must have dims ('time', <sweep_dim>), "
+                f"got {raw_slice_time_dims!r}."
+            )
     da = ensure_voxeldata(da, require_time=True, require_unchunked_time=True)
 
     time_coord = da.coords["time"]

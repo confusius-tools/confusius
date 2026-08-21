@@ -124,7 +124,9 @@ def test_inverse_transform_reconstructs_with_all_components(sample_voxeldata_3dt
     np.testing.assert_allclose(
         reconstructed.coords["time"], sample_voxeldata_3dt.coords["time"]
     )
-    np.testing.assert_allclose(reconstructed.values, sample_voxeldata_3dt.values, atol=1e-10)
+    np.testing.assert_allclose(
+        reconstructed.values, sample_voxeldata_3dt.values, atol=1e-10
+    )
     assert reconstructed.name == sample_voxeldata_3dt.name
     assert reconstructed.attrs == sample_voxeldata_3dt.attrs
 
@@ -205,13 +207,14 @@ def test_fit_requires_spatial_dimension():
         PCA().fit(only_time)
 
 
-def test_mask_must_match_full_spatial_dims_in_order(sample_voxeldata_3dt):
-    """Mask must span all spatial dims in the stacked feature order."""
+def test_mask_dim_order_is_canonicalized(sample_voxeldata_3dt):
+    """Wrong-order VoxelData masks are canonicalized before fitting."""
     mask = _make_mask(sample_voxeldata_3dt, dims=("j", "k", "i"))
     mask.values[:] = True
 
-    with pytest.raises(ValueError, match="must match all non-time dimensions"):
-        PCA(mask=mask).fit(sample_voxeldata_3dt)
+    result = PCA(n_components=2, mask=mask).fit(sample_voxeldata_3dt)
+
+    assert result.spatial_dims_ == ("k", "j", "i")
 
 
 def test_fit_rejects_unexpected_fit_params(sample_voxeldata_3dt):
@@ -356,7 +359,9 @@ def test_spatial_mode_matches_reference_implementation(sample_voxeldata_3dt):
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    model = PCA(n_components=4, random_state=0, mode="spatial").fit(sample_voxeldata_3dt)
+    model = PCA(n_components=4, random_state=0, mode="spatial").fit(
+        sample_voxeldata_3dt
+    )
     sklearn_model = SklearnPCA(n_components=4, random_state=0).fit(X.T)
 
     spatial_maps = sklearn_model.transform(X.T).T

@@ -170,14 +170,8 @@ class TestReaderLayerData:
         npt.assert_allclose(kwargs["translate"], [10.0, 1.0, 2.0, 3.0], rtol=1e-5)
         assert kwargs["axis_labels"] == ["time", "z", "y", "x"]
 
-    def test_time_last_dim_order(self, tmp_path: Path) -> None:
-        """scale/translate/units follow the actual dim order when time is last.
-
-        Canonical dim order is `(..., time, pose, k, j, i)`, but attach_voxel_to_world_index
-        doesn't itself enforce that order (only require_canonical_dim_order, opt-in,
-        does) -- this checks that a non-canonical-order array still reports geometry
-        in its own actual dim order, not a hardcoded canonical one.
-        """
+    def test_time_last_dim_order_is_canonicalized(self, tmp_path: Path) -> None:
+        """Zarr reader reports canonical VoxelData order when time is stored last."""
         da = xr.DataArray(
             np.zeros((8, 6, 4, 10), dtype=np.float32),
             dims=["k", "j", "i", "time"],
@@ -219,11 +213,10 @@ class TestReaderLayerData:
         assert reader is not None
         _, kwargs, _ = reader(str(path))[0]
 
-        # scale and translate must be in (k, j, i, time) order, not time-prepended.
-        npt.assert_allclose(kwargs["scale"], [0.05, 0.10, 0.20, 0.5], rtol=1e-5)
-        npt.assert_allclose(kwargs["translate"], [1.0, 2.0, 3.0, 10.0], rtol=1e-5)
-        assert kwargs["axis_labels"] == ["z", "y", "x", "time"]
-        assert kwargs["units"] == ["mm", "mm", "mm", "s"]
+        npt.assert_allclose(kwargs["scale"], [0.5, 0.05, 0.10, 0.20], rtol=1e-5)
+        npt.assert_allclose(kwargs["translate"], [10.0, 1.0, 2.0, 3.0], rtol=1e-5)
+        assert kwargs["axis_labels"] == ["time", "z", "y", "x"]
+        assert kwargs["units"] == ["s", "mm", "mm", "mm"]
 
     def test_units_from_coord_attrs(self, zarr_3d_path: Path) -> None:
         """Units are read from coordinate attrs and passed to napari."""

@@ -179,15 +179,17 @@ def test_validate_mask_accepts_scalar_attached_coordinate(sample_voxeldata_3dt):
     validate_mask(mask.isel(mask=0), sample_voxeldata_3dt)
 
 
-def test_validate_mask_require_exact_dims_accepts_full_spatial_mask(sample_voxeldata_3dt):
+def test_validate_mask_require_exact_dims_accepts_full_spatial_mask(
+    sample_voxeldata_3dt,
+):
     """`require_exact_dims=True` accepts masks over all non-time dimensions."""
     mask = xr.ones_like(sample_voxeldata_3dt.isel(time=0, drop=True), dtype=bool)
 
     validate_mask(mask, sample_voxeldata_3dt, require_exact_dims=True)
 
 
-def test_validate_mask_require_exact_dims_rejects_wrong_dim_order(sample_voxeldata_3dt):
-    """`require_exact_dims=True` rejects masks with a non-canonical dim order."""
+def test_validate_mask_rejects_noncanonical_mask(sample_voxeldata_3dt):
+    """`validate_mask` rejects masks that were not canonicalized first."""
     dims = ("j", "k", "i")
     mask = xr.DataArray(
         np.ones(tuple(sample_voxeldata_3dt.sizes[dim] for dim in dims), dtype=bool),
@@ -203,5 +205,5 @@ def test_validate_mask_require_exact_dims_rejects_wrong_dim_order(sample_voxelda
         },
     )
 
-    with pytest.raises(ValueError, match="must match all non-time dimensions"):
+    with pytest.raises(ValueError, match="canonical ConfUSIus order"):
         validate_mask(mask, sample_voxeldata_3dt, require_exact_dims=True)

@@ -260,13 +260,14 @@ def test_fit_requires_spatial_dimension():
         NMF().fit(only_time)
 
 
-def test_mask_must_match_full_spatial_dims_in_order(nmf_3dt_volume):
-    """Mask must span all spatial dims in the stacked feature order."""
+def test_mask_dim_order_is_canonicalized(nmf_3dt_volume):
+    """Wrong-order VoxelData masks are canonicalized before fitting."""
     mask = _make_mask(nmf_3dt_volume, dims=("j", "k", "i"))
     mask.values[:] = True
 
-    with pytest.raises(ValueError, match="must match all non-time dimensions"):
-        NMF(mask=mask).fit(nmf_3dt_volume)
+    result = NMF(n_components=1, mask=mask, tol=1e9).fit(nmf_3dt_volume)
+
+    assert result.spatial_dims_ == ("k", "j", "i")
 
 
 def test_fit_rejects_unexpected_fit_params(nmf_3dt_volume):
