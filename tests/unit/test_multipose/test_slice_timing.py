@@ -134,8 +134,11 @@ class TestCorrectSliceTiming:
 
     def test_raises_invalid_slice_time_dims(self) -> None:
         """Raises ValueError if slice_time has wrong dimensions."""
-        da = _make_consolidated_da(ntime=5, nz=3, ny=2, nx=2).assign_coords(
-            slice_time=xr.DataArray(np.zeros((3, 5)), dims=("k", "time"))
+        da = _make_consolidated_da(ntime=5, nz=3, ny=2, nx=2).drop_vars("slice_time")
+        da = da.assign_coords(
+            slice_time=xr.DataArray(
+                np.zeros((5, 3, 2)), dims=("time", "k", "j"), attrs={"units": "s"}
+            )
         )
         with pytest.raises(ValueError, match="dims \\('time', <sweep_dim>\\)"):
             correct_slice_timings(da)

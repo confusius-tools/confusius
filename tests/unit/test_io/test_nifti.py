@@ -2342,7 +2342,7 @@ class TestSaveNifti:
         assert sidecar["SliceEncodingDirection"] == "k"
 
     def test_save_1d_slice_time_requires_scalar_time_coordinate(self, tmp_path) -> None:
-        """A 1D `slice_time` on time-series data is rejected for BIDS export."""
+        """A 1D `slice_time` on time-series data is invalid VoxelData."""
         da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((2, 4, 3, 2), dtype=np.float32),
@@ -2368,13 +2368,8 @@ class TestSaveNifti:
         )
 
         output_path = tmp_path / "slice_time_1d_requires_scalar.nii.gz"
-        with pytest.warns(UserWarning, match="A 1D `slice_time` coordinate can only"):
+        with pytest.raises(ValueError, match="must have dims"):
             save_nifti(da, output_path)
-
-        with open(tmp_path / "slice_time_1d_requires_scalar.json") as f:
-            sidecar = json.load(f)
-
-        assert "SliceTiming" not in sidecar
 
     def test_save_1d_slice_time_without_time_coordinate_warns(self, tmp_path) -> None:
         """A 1D `slice_time` without `time` cannot be exported to BIDS."""
@@ -2514,7 +2509,7 @@ class TestSaveNifti:
     def test_save_invalid_2d_slice_time_shape_warns(
         self, tmp_path, sample_voxeldata_3dt
     ) -> None:
-        """A non-1D/non-2D `slice_time` is rejected with a warning."""
+        """A 3D `slice_time` is invalid VoxelData."""
         da = sample_voxeldata_3dt.copy()
         da.coords["time"].attrs["volume_acquisition_reference"] = "start"
         da = da.assign_coords(
@@ -2532,16 +2527,11 @@ class TestSaveNifti:
         )
 
         output_path = tmp_path / "slice_time_invalid_shape.nii.gz"
-        with pytest.warns(UserWarning, match="must be either a 2D coordinate"):
+        with pytest.raises(ValueError, match="must have dims"):
             save_nifti(da, output_path)
 
-        with open(tmp_path / "slice_time_invalid_shape.json") as f:
-            sidecar = json.load(f)
-
-        assert "SliceTiming" not in sidecar
-
     def test_save_2d_slice_time_on_non_spatial_dim_is_skipped(self, tmp_path) -> None:
-        """A 2D `slice_time` with a non-spatial companion dimension is skipped."""
+        """A `slice_time` coordinate must keep `time` first after canonicalization."""
         da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((2, 2, 4, 3, 2), dtype=np.float32),
@@ -2568,12 +2558,8 @@ class TestSaveNifti:
         )
 
         output_path = tmp_path / "slice_time_2d_non_spatial_dim.nii.gz"
-        save_nifti(da, output_path)
-
-        with open(tmp_path / "slice_time_2d_non_spatial_dim.json") as f:
-            sidecar = json.load(f)
-
-        assert "SliceTiming" not in sidecar
+        with pytest.raises(ValueError, match="must have dims"):
+            save_nifti(da, output_path)
 
     def test_save_2d_slice_time_without_time_coordinate_warns(self, tmp_path) -> None:
         """A 2D `slice_time` without a `time` coordinate cannot be exported."""

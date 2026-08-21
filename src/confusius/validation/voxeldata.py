@@ -281,6 +281,59 @@ def _validate_canonical_core_dim_order(da: xr.DataArray) -> None:
         )
 
 
+def _validate_slice_time_coordinate(da: xr.DataArray) -> None:
+    """Validate optional slice acquisition timestamps.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        DataArray whose `slice_time` coordinate should be validated.
+
+    Raises
+    ------
+    ValueError
+        If `slice_time` is present but does not describe numeric finite acquisition
+        times with `time` as its leading dimension for time-series data.
+    """
+    if "slice_time" not in da.coords:
+        return
+
+    coord = da.coords["slice_time"]
+    if not np.issubdtype(coord.dtype, np.number):
+        raise ValueError("Coordinate 'slice_time' must be numeric.")
+    if not np.all(np.isfinite(coord.values)):
+        raise ValueError("Coordinate 'slice_time' contains non-finite numeric values.")
+    if "units" not in coord.attrs:
+        raise ValueError(
+            "Coordinate 'slice_time' is missing required 'units' metadata."
+        )
+
+    if TIME_DIM in da.dims:
+        if len(coord.dims) != 2 or coord.dims[0] != TIME_DIM:
+            raise ValueError(
+                "Coordinate 'slice_time' must have dims ('time', <sweep_dim>) "
+                f"when `time` is a dimension, got {coord.dims!r}."
+            )
+        sweep_dim = coord.dims[1]
+        if sweep_dim not in da.dims:
+            raise ValueError(
+                "Coordinate 'slice_time' sweep dimension must be present in data, "
+                f"got {sweep_dim!r}."
+            )
+        return
+
+    if len(coord.dims) != 1:
+        raise ValueError(
+            "Coordinate 'slice_time' must be 1D when `time` is scalar or absent, "
+            f"got {coord.dims!r}."
+        )
+    if coord.dims[0] not in da.dims:
+        raise ValueError(
+            "Coordinate 'slice_time' dimension must be present in data, "
+            f"got {coord.dims[0]!r}."
+        )
+
+
 def _validate_required_coordinate_attrs(
     da: xr.DataArray,
     dims: tuple[str, ...],
@@ -640,6 +693,8 @@ def validate_voxeldata(
 
     if not allow_pose and POSE_DIM in data.dims:
         raise ValueError("DataArray must not have a 'pose' dimension.")
+
+    _validate_slice_time_coordinate(data)
 
     for dim in data.dims:
         _validate_dimension_coordinate(

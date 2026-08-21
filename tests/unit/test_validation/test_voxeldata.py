@@ -67,6 +67,86 @@ def test_validate_voxeldata_accepts_valid_3dt() -> None:
     validate_voxeldata(_make_voxel_to_world_time_series())
 
 
+def test_validate_voxeldata_accepts_time_first_slice_time() -> None:
+    """`slice_time` is a valid optional VoxelData timing coordinate."""
+    data = _make_voxel_to_world_time_series().assign_coords(
+        slice_time=xr.DataArray(
+            np.zeros((6, 2)), dims=("time", "k"), attrs={"units": "s"}
+        )
+    )
+
+    validate_voxeldata(data)
+
+
+def test_validate_voxeldata_rejects_non_time_first_slice_time() -> None:
+    """Time-series `slice_time` coordinates must be time-first."""
+    data = _make_voxel_to_world_time_series().assign_coords(
+        slice_time=xr.DataArray(
+            np.zeros((2, 6)), dims=("k", "time"), attrs={"units": "s"}
+        )
+    )
+
+    with pytest.raises(ValueError, match="must have dims"):
+        validate_voxeldata(data)
+
+
+def test_validate_voxeldata_rejects_slice_time_without_units() -> None:
+    """`slice_time` coordinates carry physical time units."""
+    data = _make_voxel_to_world_time_series().assign_coords(
+        slice_time=xr.DataArray(np.zeros((6, 2)), dims=("time", "k"))
+    )
+
+    with pytest.raises(ValueError, match="missing required 'units'"):
+        validate_voxeldata(data)
+
+
+def test_validate_voxeldata_rejects_nonfinite_slice_time() -> None:
+    """`slice_time` coordinates must be finite."""
+    values = np.zeros((6, 2))
+    values[0, 0] = np.nan
+    data = _make_voxel_to_world_time_series().assign_coords(
+        slice_time=xr.DataArray(values, dims=("time", "k"), attrs={"units": "s"})
+    )
+
+    with pytest.raises(ValueError, match="non-finite"):
+        validate_voxeldata(data)
+
+
+def test_validate_voxeldata_accepts_1d_slice_time_with_scalar_time() -> None:
+    """Single-volume snapshots can keep 1D `slice_time` metadata."""
+    data = (
+        _make_voxel_to_world_time_series()
+        .isel(time=0)
+        .assign_coords(
+            slice_time=xr.DataArray(np.zeros(2), dims=("k",), attrs={"units": "s"})
+        )
+    )
+
+    validate_voxeldata(data)
+
+
+def test_validate_voxeldata_rejects_1d_slice_time_on_time_series() -> None:
+    """Time-series `slice_time` needs an explicit time axis."""
+    data = _make_voxel_to_world_time_series().assign_coords(
+        slice_time=xr.DataArray(np.zeros(2), dims=("k",), attrs={"units": "s"})
+    )
+
+    with pytest.raises(ValueError, match="must have dims"):
+        validate_voxeldata(data)
+
+
+def test_validate_voxeldata_rejects_3d_slice_time() -> None:
+    """`slice_time` names one acquisition sweep dimension, not a volume grid."""
+    data = _make_voxel_to_world_time_series().assign_coords(
+        slice_time=xr.DataArray(
+            np.zeros((6, 2, 3)), dims=("time", "k", "j"), attrs={"units": "s"}
+        )
+    )
+
+    with pytest.raises(ValueError, match="must have dims"):
+        validate_voxeldata(data)
+
+
 def test_validate_voxeldata_rejects_non_dataarray() -> None:
     """Non-DataArray inputs raise `TypeError`."""
     bad_data: Any = np.zeros((2, 2))
