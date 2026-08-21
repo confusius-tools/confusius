@@ -90,11 +90,6 @@ from confusius._napari._registration._transform_payloads import (
     OutputGridPayload,
     TransformPayload,
 )
-from confusius._utils.coordinates import (
-    get_coordinate_origins,
-    get_coordinate_spacings_best_effort,
-)
-from confusius._utils.geometry import has_voxel_to_world_index
 from confusius.registration import register_volume, register_volumewise
 
 if TYPE_CHECKING:
@@ -1407,13 +1402,11 @@ class RegistrationPanel(QWidget):
         The grid (spatial dims, shape, scale, and translate) is taken from the
         source DataArray of the layer selected in `reference_combo`, so the mask
         passes coordinate validation against that layer during registration.
-        `_get_source_dataarray` may return VoxelData (a real ConfUSIus DataArray, or a
-        reconstruction that ends with `attach_voxel_to_world_index`) or a plain,
-        non-indexed DataArray (whatever a third party stored in `layer.metadata`
-        directly). When indexed, scale and translate are read from the
-        `VoxelToWorldIndex` via `.fusi.spacing`/`.fusi.origin` -- not from raw
-        per-dimension coordinate differences, which would silently be wrong for an
-        oblique affine.
+        `_get_source_dataarray` always returns VoxelData (a real ConfUSIus DataArray,
+        or a reconstruction that ends with `attach_voxel_to_world_index`), so scale
+        and translate are read from the `VoxelToWorldIndex` via
+        `.fusi.spacing`/`.fusi.origin` -- not from raw per-dimension coordinate
+        differences, which would silently be wrong for an oblique affine.
 
         Parameters
         ----------
@@ -1438,17 +1431,13 @@ class RegistrationPanel(QWidget):
         if not dims:
             self._set_error(f"Layer {layer.name!r} has no spatial dimensions.")
             return
-        if has_voxel_to_world_index(source):
-            # `.fusi.spacing` is keyed by voxel dim (k/j/i); `.fusi.origin` is keyed
-            # by world dim (z/y/x) for spatial dims, own name otherwise -- translate
-            # below to a dict keyed like `dims` (voxel/own names) either way.
-            voxel_to_world_name = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
-            spacings = source.fusi.spacing
-            world_origins = source.fusi.origin
-            origins = {d: world_origins[voxel_to_world_name.get(d, d)] for d in dims}
-        else:
-            spacings, _ = get_coordinate_spacings_best_effort(source)
-            origins = get_coordinate_origins(source)
+        # `.fusi.spacing` is keyed by voxel dim (k/j/i); `.fusi.origin` is keyed by
+        # world dim (z/y/x) for spatial dims, own name otherwise -- translate below
+        # to a dict keyed like `dims` (voxel/own names) either way.
+        voxel_to_world_name = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
+        spacings = source.fusi.spacing
+        world_origins = source.fusi.origin
+        origins = {d: world_origins[voxel_to_world_name.get(d, d)] for d in dims}
         units = tuple(
             source.coords[d].attrs.get("units") if d in source.coords else None
             for d in dims

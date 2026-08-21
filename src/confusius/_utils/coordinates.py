@@ -91,10 +91,9 @@ def get_coordinate_spacing_info(
     """Compute coordinate spacing information for a single dimension.
 
     Shared implementation used by
-    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]
-    and
     [`get_coordinate_spacings_best_effort`][confusius._utils.coordinates.get_coordinate_spacings_best_effort]
-    to avoid duplicating the uniformity check and median computation.
+    and other coordinate-spacing consumers to avoid duplicating the uniformity check
+    and median computation.
 
     Parameters
     ----------
@@ -182,60 +181,18 @@ def get_coordinate_spacing_info(
     return CoordinateSpacingInfo(value=steps[0], median=steps[0], warn_msg=None)
 
 
-def get_coordinate_spacings(
-    data: xr.DataArray, uniformity_tolerance: float = 1e-2
-) -> dict[str, float | None]:
-    """Compute coordinate spacing for all dimensions of a DataArray.
-
-    For each dimension:
-
-    - If the coordinate has two or more points and is uniformly sampled, returns the
-      median step size.
-    - If the coordinate has a single point, is missing, or has non-uniform spacing,
-      returns `None` with a warning.
-    - If the coordinate doesn't have int or float dtype, returns `None` without a
-      warning.
-
-    Uniformity is assessed per-interval: each consecutive difference must satisfy
-    `|diff - median| <= uniformity_tolerance * |median|`.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        DataArray whose coordinate spacing to compute.
-    uniformity_tolerance : float, default: 1e-2
-        Maximum allowed per-interval relative deviation from the median consecutive
-        difference. Coordinates with any interval exceeding this threshold are
-        considered non-uniform.
-
-    Returns
-    -------
-    dict[str, float | None]
-        Spacing per dimension in DataArray dimension order. `None` indicates that
-        spacing is undefined for that dimension.
-    """
-    result: dict[str, float | None] = {}
-    for dim in (str(d) for d in data.dims):
-        r = get_coordinate_spacing_info(dim, data, uniformity_tolerance)
-        if r.warn_msg is not None:
-            warnings.warn(r.warn_msg, stacklevel=find_stack_level())
-        result[dim] = r.value
-    return result
-
-
 def get_coordinate_spacings_best_effort(
     da: xr.DataArray, uniformity_tolerance: float = 1e-2
 ) -> tuple[dict[str, float], list[str]]:
     """Compute coordinate spacing, falling back to median diff for non-uniform dims.
 
-    Like
-    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]
-    but instead of returning `None` for non-uniform coordinates it returns the median
-    consecutive difference as a best-effort approximation. This is appropriate when a
-    single representative spacing is required (e.g. for napari's `scale` parameter) even
-    though the coordinate is not perfectly uniform. No warnings are emitted; the caller
-    is responsible for issuing context-appropriate messages for the dims listed in
-    `non_uniform`.
+    For each dimension, returns the median step size if the coordinate has two or
+    more points and is uniformly sampled. Otherwise it returns the median
+    consecutive difference as a best-effort approximation rather than `None`. This
+    is appropriate when a single representative spacing is required (e.g. for
+    napari's `scale` parameter) even though the coordinate is not perfectly
+    uniform. No warnings are emitted; the caller is responsible for issuing
+    context-appropriate messages for the dims listed in `non_uniform`.
 
     Parameters
     ----------

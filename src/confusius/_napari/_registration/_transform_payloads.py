@@ -19,7 +19,6 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.coordinates import get_coordinate_origins, get_coordinate_spacings
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
@@ -133,17 +132,12 @@ def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
         JSON-serializable output-grid description.
     """
     voxel_dims = [str(dim) for dim in reference.dims]
-    # `reference` may be a plain napari layer's DataArray, reconstructed without a
-    # voxel-to-world index (see `_reconstruct_layer_dataarray`), not just VoxelData.
-    has_index = has_voxel_to_world_index(reference)
     # Reported as world dim names (matching the `component` labeling convention used
     # everywhere a displacement field is built, e.g. `_compose_world_to_base_transforms`
     # and `sample_displacement_field_like`), not `reference`'s own (voxel) dims.
-    dims = list(get_voxel_to_world_coord_names(reference)) if has_index else voxel_dims
-    spacing = (
-        reference.fusi.spacing if has_index else get_coordinate_spacings(reference)
-    )
-    origin = reference.fusi.origin if has_index else get_coordinate_origins(reference)
+    dims = list(get_voxel_to_world_coord_names(reference))
+    spacing = reference.fusi.spacing
+    origin = reference.fusi.origin
     resolved_spacing: dict[str, float] = {}
     for dim in voxel_dims:
         dim_spacing = spacing[dim]
