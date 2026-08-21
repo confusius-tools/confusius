@@ -346,7 +346,10 @@ function calls for readability.
 
 ### Global Helpers
 
-Currently, three global helpers are available:
+Currently, three global helpers are available. Together they decompose the
+DataArray's voxel-to-world affine into origin, spacing, and direction—see [The
+voxel-to-world affine](voxeldata.md#world-space) in The VoxelData Model for how the
+three combine:
 
 - [`.fusi.spacing`][confusius.xarray.FUSIAccessor.spacing], which returns the step size
   along each dimension as a dictionary:
@@ -388,8 +391,11 @@ Currently, three global helpers are available:
   ```
 
   This is the identity for axis-aligned data (the common case). For oblique data, the
-  columns are the unit world-space directions of the voxel axes. For multi-pose data,
-  select a scalar pose first.
+  matrix has shape `(3, 3)`: columns are unit world-space directions for each voxel axis
+  (`k`/`j`/`i`), rows correspond to world axes (`z`/`y`/`x`). A voxel coordinate that runs
+  descending (e.g. after slicing with a negative step) flips the sign of its column,
+  since the matrix tracks array position rather than the coordinate's own direction. For
+  multi-pose data, select a scalar pose first.
 
 ### IQ Processing
 
@@ -467,7 +473,11 @@ set the first three `optimizer_weights` values to `0` to freeze rotation.
 
 The [`.fusi.affine`][confusius.xarray.FUSIAffineAccessor] accessor inspects and applies
 the voxel-to-world and world-to-reference affines described in [The VoxelData
-Model](voxeldata.md#coordinate-systems).
+Model](voxeldata.md#spatial-conventions). The voxel-to-world affine returned by
+`voxel_to_world` below is the same one [Global Helpers](#global-helpers) decomposes
+into `origin`/`spacing`/`direction`—use whichever form suits the task: the `(4, 4)`
+matrix for composing with other affines, the decomposed form for sanity-checking or
+constructing SimpleITK/ITK images.
 
 #### Reading and applying affines
 

@@ -290,9 +290,16 @@ class FUSIAccessor:
     def direction(self):
         """World-space direction matrix for the present spatial geometry.
 
+        Columns are unit world-space direction vectors for each voxel-space axis
+        (`k`/`j`/`i`, in that order); rows correspond to world axes (`z`/`y`/`x`, in
+        that order). Direction is expressed in dense array-position terms: a voxel
+        coordinate that runs descending (e.g. after `.isel(dim=slice(None, None,
+        -1))`) flips the sign of its column, since array position always counts up
+        from 0 regardless of the coordinate's own direction.
+
         Returns
         -------
-        numpy.ndarray
+        (3, 3) numpy.ndarray
             Identity for axis-aligned data. For oblique data, the columns are the
             unit world-space directions of the voxel axes.
 

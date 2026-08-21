@@ -15,9 +15,11 @@ A **VoxelData array** is a DataArray that satisfies the following requirements:
 - native voxel dims `k`/`j`/`i` (integer coordinates), always last and always present,
   optionally preceded by `pose` (integer coordinates), `time` (floating coordinates),
   and any number of extra non-spatial dims (PCA/ICA components, stacked masks, etc.);
-- a single **`VoxelToWorldIndex`** attached to the world coordinates `z`/`y`/`x`, which
-  it derives from `k`/`j`/`i` through either one voxel-to-world affine shared by the
-  whole DataArray or a stacked affine with one entry per `pose`;
+- a single
+  [**`VoxelToWorldIndex`**](https://docs.xarray.dev/en/stable/user-guide/indexing.html)
+  attached to the world coordinates `z`/`y`/`x`, which it derives from `k`/`j`/`i`
+  through either one voxel-to-world affine transformation shared by the whole DataArray
+  or stacked affine transformations with one entry per `pose`;
 - required metadata: `units` on each world coordinate, plus—whenever `time` is
   present—`units`, `volume_acquisition_reference`, and `volume_acquisition_duration`
   on `time`:
@@ -116,13 +118,16 @@ for a full example.
 
 ## Spatial Conventions
 
-ConfUSIus works with three kinds of coordinate systems:
+ConfUSIus works with four kinds of coordinate systems:
 
-- the **voxel space**, linked to the underlying array storage and indexed by the integer
-  dimension coordinates `i`/`j`/`k` (in dimension order `(k, j, i)`—see [Dimension
-  Ordering](#dimension-ordering-time-pose-k-j-i) below),
+- the **array space**, the dense, zero-based array position along each spatial
+  dimension,
+- the **voxel space**, the `k`/`j`/`i` coordinate labels attached to the underlying
+  array storage (in dimension order `(k, j, i)`—see [Dimension
+  Ordering](#dimension-ordering-time-pose-k-j-i) below), coinciding with array space
+  only when voxel labels themselves start at `0` and increase by `1`,
 - the **world space**, derived from voxel space through the DataArray's voxel-to-world
-  geometry and exposed as the coordinates `x`/`y`/`z`,
+  affine transformation(s) and exposed as the coordinates `x`/`y`/`z`,
 - and any number of **reference spaces** (atlas, scanner, etc.) linked to the world
   space through affine transforms stored in `attrs["affines"]`.
 
@@ -131,9 +136,8 @@ DataArray. Multi-pose acquisitions are the main exception: they carry one affine
 `pose`, so `x`/`y`/`z` become pose-dependent coordinates and a scalar `pose` selection is
 required before selecting by world coordinate.
 
-Understanding these spaces and the axis-ordering convention used throughout ConfUSIus
-makes it much easier to reason about visualization, registration, and downstream
-statistical analysis.
+Each space feeds the next—array position gets a voxel label, a voxel label gets a
+world coordinate, and a world coordinate can reach any number of reference spaces:
 
 ```mermaid
 ---
@@ -141,12 +145,14 @@ config:
   layout: elk
 ---
 flowchart LR
+    A["<b>Array space</b>"]
     V["<b>Voxel space</b>"]
     P["<b>World space</b>"]
     W1["<b>Scanner space</b>"]
     ellipsis{{"..."}}
     W2["<b>Atlas space</b>"]
 
+    A -->|"integer labels"| V
     V -->|"VoxelToWorldIndex"| P
     P -->|".attrs[affines]"| W1
     P -->|".attrs[affines]"| W2
@@ -200,39 +206,44 @@ This ordering is motivated by several considerations.
   be the display axes of a volume. Plotting a `(time, k, j, i)` array directly would
   yield a `(j, i)` slice with `time` and `k` sliders, correctly oriented for display.
 
-### Coordinate Systems
+### Array Space
 
-#### Voxel Space
+The array space is the dense, zero-based position along each spatial dimension: position
+`0` is always the array's first stored element, position `dim_size - 1` its last, and
+every position in between is contiguous. In Xarray, `.isel` indexes by array position.
+If you're used to NumPy, think of array space as the "axis index" of each dimension, for
+example `data[0, 0, 0]` is the first voxel in array space, `data[-1, -1, -1]` the last.
 
-Voxel space has its origin at voxel `(0, 0, 0)` and integer indices along each spatial
-axis. It is the natural indexing space of the underlying array: DataArrays can be
-indexed in voxel space either by array position with `.isel`, or by voxel label with
-`.sel`. The two coincide for a freshly built DataArray, but diverge once voxel labels
-stop matching dense positions, for example after cropping:
+### Voxel Space
+
+Voxel space is the DataArray's `k`/`j`/`i` coordinate labels—indexed by label with
+`.sel` in Xarray. Labels coincide with array space for a freshly built DataArray, but
+the two diverge once a DataArray is cropped or strided from a larger one:
 
 ```pycon
 >>> cropped = data.isel(i=slice(3, 6))
 >>> cropped.coords["i"].values
 array([3, 4, 5])
->>> cropped.isel(i=0).coords["i"].item()  # First voxel in the cropped array.
+>>> cropped.isel(i=0).coords["i"].item()  # Array position 0's label.
 3
->>> cropped.sel(i=3).coords["i"].item()   # Third voxel from the original voxel space.
+>>> cropped.sel(i=3).coords["i"].item()   # The voxel labeled 3.
 3
 ```
 
 Use [`reindex_voxels`][confusius.xarray.reindex_voxels] to rebase voxel labels back to
-dense positions—see [Rebasing voxel coordinates to dense
+dense array-space positions—see [Rebasing voxel coordinates to dense
 positions](xarray.md#rebasing-voxel-coordinates-to-dense-positions) in Working with
 Xarray.
 
-#### World Space
+### World Space
 
-The world space is derived from voxel space by the DataArray's `VoxelToWorldIndex` and
-exposed as the coordinates `x`, `y`, `z`. For ordinary single-pose data these
-coordinates have spatial shape `(k, j, i)`. For multi-pose data they are
-pose-dependent with shape `(pose, k, j, i)`, so selecting in world space requires a
-scalar `pose` first. The unit of the coordinates is stored in the `units` attribute of
-each coordinate array; millimeters are the usual default for fUSI recordings (e.g.
+The world space is defined by the DataArray's voxel-to-world affine transformation (or
+transformations, for multi-pose data) contained in the `VoxelToWorldIndex` and exposed
+as coordinates `x`, `y`, `z`. For ordinary single-pose data these coordinates are arrays
+with shape `(k, j, i)`. For multi-pose data they are pose-dependent with shape `(pose,
+k, j, i)`, so selecting in world space requires a scalar `pose` first. The unit of the
+coordinates is stored in the `units` attribute of each coordinate array; millimeters are
+the usual default for fUSI recordings (e.g.
 [`create_voxeldata`][confusius.xarray.create_voxeldata]'s default).
 
 !!! warning "Units are not enforced"
@@ -241,7 +252,7 @@ each coordinate array; millimeters are the usual default for fUSI recordings (e.
 
 World space is not tied to any one physical space—it's whatever space the DataArray's
 voxel-to-world affine currently encodes, and that changes over the course of a pipeline.
-A freshly loaded recording is typically expressed in **scanner space**: the space of the
+A freshly loaded recording is typically expressed in scanner space: the space of the
 first acquired probe pose, with origin at the probe surface and axes along lateral,
 depth, and elevation. Once the data is resampled or registered, world space becomes
 whatever space that operation targeted instead: an atlas template (e.g. Allen CCFv3),
@@ -284,7 +295,59 @@ Different loaders derive them in different ways:
 Hand-constructed DataArrays get whatever voxel-to-world affine the user provides via
 [`create_voxeldata`][confusius.xarray.create_voxeldata].
 
-#### Reference Spaces
+#### Voxel-to-World Affine
+
+The voxel-to-world affine itself is a `(4, 4)` homogeneous matrix (or a `(pose, 4, 4)`
+stack for multi-pose data) mapping `(k, j, i)` voxel-space coordinate *labels* to `(z,
+y, x)` world-space coordinate values:
+
+```
+[z, y, x, 1] = voxel_to_world @ [k_label, j_label, i_label, 1]
+```
+
+The voxel-to-world affine can be read with
+[`.fusi.affine.voxel_to_world`][confusius.xarray.FUSIAffineAccessor.voxel_to_world], or
+replaced outright with
+[`.fusi.affine.set_voxel_to_world`][confusius.xarray.FUSIAffineAccessor.set_voxel_to_world].
+
+That raw mapping is rarely what you want directly, though: most code that consumes
+world-space geometry thinks in [array space](#array-space), not in whatever labels the
+`k`/`j`/`i` coordinates happen to carry after upstream cropping or striding. See [Origin,
+Spacing, Direction](#origin-spacing-direction) below for the array-space equivalent.
+
+If you specifically need the dense-position affine that packages like NiBabel or the
+NIfTI format expect, call [`reindex_voxels`][confusius.xarray.reindex_voxels] first: it
+rebases `k`/`j`/`i` to the array space and updates `voxel_to_world` to match, so the
+affine you then read off directly maps dense array positions instead of labels.
+
+#### Origin, Spacing, Direction
+
+[`.fusi.origin`][confusius.xarray.FUSIAccessor.origin],
+[`.fusi.spacing`][confusius.xarray.FUSIAccessor.spacing], and
+[`.fusi.direction`][confusius.xarray.FUSIAccessor.direction] (see [Global
+Helpers](xarray.md#global-helpers) in Working with Xarray) describe the same
+voxel-to-world affine, but anchored to array space rather than voxel labels:
+
+- **origin**: world position of array space's origin, `(0, ..., 0)`. Keyed by world
+  axis (`z`/`y`/`x`).
+- **spacing**: world distance covered by one array-space step. Keyed by voxel axis
+  (`k`/`j`/`i`).
+- **direction**: `(3, 3)` matrix of unit world-space direction vectors, one per
+  array-space axis: columns are voxel axes (`k`/`j`/`i`), rows are world axes
+  (`z`/`y`/`x`). Direction flips sign on an axis whose labels run descending (e.g.
+  after `.isel(dim=slice(None, None, -1))`).
+
+For example, if `k`'s labels are `[0, 2, 4]` (every other voxel was kept, e.g. by
+`.isel(k=slice(None, None, 2))`) and the affine's per-label scale along `k` is `0.1`,
+then `data.fusi.spacing["k"]` is `0.2`, not `0.1`: consecutive *sampled* labels are two
+label-units apart. Together, `origin`/`spacing`/`direction` reconstruct world
+coordinates from array position rather than from labels:
+
+```
+world = origin + direction @ (spacing * array_position)
+```
+
+### Reference Spaces
 
 ConfUSIus stores affine transformations relating the DataArray's current world space to
 any number of other named spaces in `attrs["affines"]`, a dictionary keyed by affine
