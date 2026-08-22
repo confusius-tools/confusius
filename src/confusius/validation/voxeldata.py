@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Hashable, Sequence
 from typing import Any, Literal, SupportsFloat, SupportsIndex
 
@@ -12,13 +11,10 @@ import xarray as xr
 from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM, VOXEL_DIMS
 from confusius._utils.coordinates import get_coordinate_spacing_info
 from confusius._utils.geometry import (
-    get_voxel_to_world_coord_names,
     get_voxel_to_world_index_spacing,
     get_voxel_to_world_spatial_dims,
     has_voxel_to_world_index,
-    update_voxel_to_world_coord_attrs,
 )
-from confusius._utils.stack import find_stack_level
 from confusius._utils.validation import require_dataarray
 from confusius.timing import (
     TIMING_REFERENCE_FACTORS,
@@ -530,8 +526,10 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
     dimensions as `(...extra_dims, time, pose, k, j, i)`. It preserves coordinate
     values and their order. When scalar indexing fixed a dimension in a
     `VoxelToWorldIndex`,
-    its geometry is rebuilt from the untouched affine. Missing world-coordinate
-    `units` default to `"mm"`; missing time acquisition metadata also default where
+    its geometry is rebuilt from the untouched affine, including its `units`
+    (`VoxelToWorldIndex` always carries one, defaulting to `"mm"` since
+    [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
+    itself defaults it). Missing time acquisition metadata also defaults where
     possible. This function does not otherwise validate the VoxelData model; use
     [ensure_voxeldata][confusius.validation.ensure_voxeldata] to canonicalize and
     validate.
@@ -557,8 +555,7 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
     Warns
     -----
     UserWarning
-        If missing world-coordinate `units`, `time` acquisition metadata, or
-        `slice_time` acquisition metadata is defaulted.
+        If missing `time` or `slice_time` acquisition metadata is defaulted.
     """
     require_dataarray(data)
 
@@ -597,54 +594,8 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
         *(dim for dim in result.dims if dim not in CORE_DIMS),
         *(dim for dim in CORE_DIMS if dim in result.dims),
     )
-    result = _ensure_spatial_metadata_attrs(result)
     result = ensure_time_acquisition_attrs(result)
     return ensure_slice_time_acquisition_attrs(result)
-
-
-def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:
-    """Fill in default `units` metadata on the world spatial coordinates.
-
-    Every VoxelData array carries `units` on its world (`z`/`y`/`x`)
-    coordinates. `units` is already guaranteed there by
-    [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
-    itself for freshly-attached data, so this function is mainly a safety net for
-    data whose index predates that default (e.g. hand-built `VoxelToWorldIndex`
-    objects, or data deserialized from a format that stored one). It fills in `"mm"`
-    (the project-wide world-coordinate unit) for anything still missing it.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        DataArray to fill in.
-
-    Returns
-    -------
-    xarray.DataArray
-        `data` unchanged when it does not carry a voxel-to-world index or its world
-        coordinates already carry `units`. Otherwise a copy with `units` filled in.
-
-    Warns
-    -----
-    UserWarning
-        If any world coordinate was missing `units` and defaulted to `"mm"`.
-    """
-    if not has_voxel_to_world_index(data):
-        return data
-
-    world_coords = get_voxel_to_world_coord_names(data)
-    missing = [name for name in world_coords if "units" not in data.coords[name].attrs]
-    if not missing:
-        return data
-
-    result = update_voxel_to_world_coord_attrs(
-        data, {name: {"units": "mm"} for name in missing}
-    )
-    warnings.warn(
-        f"World coordinate(s) {missing} missing 'units'; defaulting to 'mm'.",
-        stacklevel=find_stack_level(),
-    )
-    return result
 
 
 def ensure_voxeldata(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
@@ -701,10 +652,11 @@ def validate_voxeldata(
     """Validate a DataArray against the VoxelData model without modifying it.
 
     This requires non-empty native voxel dimensions (`k`, `j`, `i`), their
-    coordinates, a matching `VoxelToWorldIndex`, and dimensions ordered as
-    `(...extra_dims, time, pose, k, j, i)`. It also validates every dimension
-    coordinate and requires `units` on world coordinates. When `time` is present, its
-    acquisition metadata and `units` are required. The optional flags add requirements
+    coordinates, and a matching `VoxelToWorldIndex` (which carries the world-space
+    `units` shared by `z`/`y`/`x`, exposed via `.fusi.affine.units`), and dimensions
+    ordered as `(...extra_dims, time, pose, k, j, i)`. It also validates every
+    dimension coordinate. When `time` is present, its acquisition metadata and
+    `units` are required. The optional flags add requirements
     needed by a particular consumer. Use
     [ensure_voxeldata][confusius.validation.ensure_voxeldata] when scalar indexing
     may have removed a voxel dimension and the input should be canonicalized first.
@@ -816,8 +768,6 @@ def validate_voxeldata(
             f"Expected data dtype compatible with {require_dtype}, got {data.dtype}."
         )
 
-    world_coords = get_voxel_to_world_coord_names(data)
-    _validate_required_coordinate_attrs(data, world_coords, "units")
     if TIME_DIM in data.dims:
         _validate_required_coordinate_attrs(data, (TIME_DIM,), "units")
 

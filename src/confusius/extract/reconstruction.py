@@ -6,7 +6,7 @@ import xarray as xr
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
 )
 from confusius.validation import ensure_voxeldata
 from confusius.validation.mask import check_mask_dtype
@@ -210,12 +210,6 @@ def unmask(
         coords=coords,
         attrs=attrs if attrs is not None else {},
     )
-    world_coord_names = get_voxel_to_world_coord_names(mask)
-    world_coord_attrs = {
-        name: dict(mask.coords[name].attrs)
-        for name in world_coord_names
-        if name in mask.coords
-    }
     return attach_voxel_to_world_index(
-        result, get_voxel_to_world_affine(mask), world_coord_attrs=world_coord_attrs
+        result, get_voxel_to_world_affine(mask), units=get_voxel_to_world_units(mask)
     )

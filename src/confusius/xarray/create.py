@@ -19,9 +19,6 @@ if TYPE_CHECKING:
     import dask.array as da
 
 
-_SPATIAL_UNITS = "mm"
-"""Physical units attached to the `z`, `y`, and `x` coordinates."""
-
 _TIME_UNITS = "s"
 """Physical units attached to the `time` coordinate."""
 
@@ -400,9 +397,9 @@ def create_voxeldata(
     origin: Sequence[float] | None = None,
     direction: npt.ArrayLike | None = None,
     voxel_to_world: npt.ArrayLike | None = None,
+    units: str = "mm",
     name: str | None = None,
     attrs: dict[str, Any] | None = None,
-    world_coord_attrs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
     """Build a VoxelData array from a raw array.
 
@@ -469,14 +466,12 @@ def create_voxeldata(
         `pose` dimension in `dims` with a matching length, and is mutually exclusive
         with `spacing`/`origin`/`direction` — per-pose geometry can only be supplied
         this way, there is no parallel per-pose `spacing`/`origin`/`direction` API.
+    units : str, default: "mm"
+        Physical unit shared by every derived world coordinate.
     name : str, optional
         DataArray name.
     attrs : dict, optional
         DataArray attributes.
-    world_coord_attrs : mapping[str, mapping[str, Any]], optional
-        Attributes to merge onto the derived world coordinates, keyed by world
-        coordinate name (`z`/`y`/`x`). Overrides the auto-computed `units` entry for
-        any key present in the given mapping; other auto-computed entries are kept.
 
     Returns
     -------
@@ -717,7 +712,6 @@ def create_voxeldata(
         )
         _validate_coordinate_shape(dim, values, spatial_sizes[dim])
         voxel_coords[dim] = xr.DataArray(values, dims=(dim,), attrs=coord_attrs)
-    world_attrs = {dim: {"units": _SPATIAL_UNITS} for dim in SPATIAL_DIMS}
 
     result = xr.DataArray(
         data_array,
@@ -731,11 +725,6 @@ def create_voxeldata(
     )
 
     present_voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in result.dims)
-    present_world_names = tuple(
-        world
-        for voxel, world in zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True)
-        if voxel in present_voxel_dims
-    )
     present_indices = [VOXEL_DIMS.index(dim) for dim in present_voxel_dims]
     if is_pose_stacked:
         npose = resolved_voxel_to_world.shape[0]
@@ -756,14 +745,7 @@ def create_voxeldata(
         ]
         index_affine[:-1, -1] = resolved_voxel_to_world[:3, -1][present_indices]
 
-    result = attach_voxel_to_world_index(
-        result,
-        index_affine,
-        world_coord_attrs={
-            name: {**world_attrs[name], **(world_coord_attrs or {}).get(name, {})}
-            for name in present_world_names
-        },
-    )
+    result = attach_voxel_to_world_index(result, index_affine, units=units)
 
     extra_dims = [dim for dim in result.dims if dim not in CORE_DIMS]
     ordered_core = [dim for dim in CORE_DIMS if dim in result.dims]

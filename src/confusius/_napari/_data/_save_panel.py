@@ -22,7 +22,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._napari._io._writers import _compute_dataarray_from_layer
+from confusius._napari._io._writers import _convert_layer_to_voxeldata
 
 if TYPE_CHECKING:
     import napari
@@ -272,7 +272,7 @@ class SavePanel(QWidget):
             "translate": list(layer.translate),
             "units": units,
         }
-        return _compute_dataarray_from_layer(layer.data, meta)
+        return _convert_layer_to_voxeldata(layer.data, meta)
 
     # ------------------------------------------------------------------
     # Work management

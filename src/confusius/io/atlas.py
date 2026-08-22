@@ -14,6 +14,7 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
 )
 from confusius.io._utils import (
     ZARR_V3_CONSOLIDATED_METADATA_WARNING,
@@ -250,16 +251,12 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     # for oblique geometry, would otherwise duplicate a full dense array per axis.
     voxel_to_world = get_voxel_to_world_affine(to_save["annotation"])
     world_coord_names = get_voxel_to_world_coord_names(to_save["annotation"])
-    world_coord_attrs = {
-        coord_name: dict(to_save.coords[coord_name].attrs)
-        for coord_name in world_coord_names
-        if coord_name in to_save.coords
-    }
+    units = get_voxel_to_world_units(to_save["annotation"])
     to_save = to_save.drop_vars(world_coord_names)
     to_save.attrs = {
         **to_save.attrs,
         "voxel_to_world": voxel_to_world,
-        "world_coord_attrs": world_coord_attrs,
+        "voxel_to_world_units": units,
     }
 
     # Serialize the in-memory StructuresDict to a flat JSON list and plan the mesh bundle.
@@ -365,11 +362,9 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
     # preserved.
     if "voxel_to_world" in ds.attrs:
         voxel_to_world = np.asarray(ds.attrs.pop("voxel_to_world"), dtype=np.float64)
-        world_coord_attrs = ds.attrs.pop("world_coord_attrs", None)
+        units = ds.attrs.pop("voxel_to_world_units", "mm")
         restored_vars = {
-            name: attach_voxel_to_world_index(
-                ds[name], voxel_to_world, world_coord_attrs=world_coord_attrs
-            )
+            name: attach_voxel_to_world_index(ds[name], voxel_to_world, units=units)
             for name in ds.data_vars
         }
         ds = xr.Dataset(restored_vars, attrs=ds.attrs)

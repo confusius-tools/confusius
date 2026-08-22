@@ -8,7 +8,10 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
-from confusius._utils.geometry import get_voxel_to_world_direction_matrix
+from confusius._utils.geometry import (
+    get_voxel_to_world_direction_matrix,
+    get_voxel_to_world_units,
+)
 from confusius.registration._utils import (
     replace_affines_attr,
     set_sitk_thread_count,
@@ -291,11 +294,7 @@ def resample_volume(
         attrs=attrs,
         name=str(moving.name) if moving.name is not None else None,
     )
-    for name in SPATIAL_DIMS:
-        units = moving.coords[name].attrs.get("units")
-        if units is not None:
-            result.coords[name].attrs["units"] = units
-    return result
+    return result.fusi.affine.set_units(get_voxel_to_world_units(moving))
 
 
 def resample_like(

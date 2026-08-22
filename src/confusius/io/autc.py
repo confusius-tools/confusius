@@ -13,7 +13,7 @@ import zarr
 if TYPE_CHECKING:
     from rich.progress import Progress
 
-from confusius._dims import SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
+from confusius._dims import TIME_DIM, VOXEL_DIMS
 from confusius._utils.coordinates import get_probe_surface_origin
 from confusius._utils.stack import find_stack_level
 from confusius.io._utils import make_attrs_zarr_safe
@@ -626,7 +626,7 @@ def convert_autc_dats_to_zarr(
     The group contains:
 
     - `iq`: The main data array with dimensions `(time, k, j, i)`. Voxel-to-world
-      geometry is stored as `attrs["voxel_to_world"]`/`attrs["world_coord_attrs"]`
+      geometry is stored as `attrs["voxel_to_world"]`/`attrs["voxel_to_world_units"]`
       rather than dense `z`/`y`/`x` coordinate arrays.
     - `time`: Time coordinate array.
     - `k`: Elevation voxel coordinate array (always `[0]` for 2D data).
@@ -766,7 +766,7 @@ def convert_autc_dats_to_zarr(
         make_attrs_zarr_safe(
             {
                 "voxel_to_world": voxel_to_world,
-                "world_coord_attrs": {name: {"units": "mm"} for name in SPATIAL_DIMS},
+                "voxel_to_world_units": "mm",
             }
         )
     )

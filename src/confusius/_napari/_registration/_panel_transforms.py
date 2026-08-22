@@ -908,15 +908,16 @@ def on_apply_transform_finished(
         else "apply_transform"
     )
 
-    # resample_volume rebuilds output coordinates as bare arrays; re-attach the
-    # units metadata recorded in the grid payload so downstream consumers
-    # (e.g. plot_napari layer scale and units) see the same coordinate metadata
-    # as a register_volume result.
-    grid = payload["output_grid"]
-    for dim, units in zip(grid["dims"], grid["units"], strict=True):
-        if dim not in registered.coords or units is None:
-            continue
-        registered.coords[dim].attrs["units"] = units
+    # resample_volume already carries over its input's unit, but the grid payload
+    # is the recorded ground truth for what the reference used at apply-transform
+    # time actually declared; go through the index-aware accessor (a plain
+    # `.coords[...].attrs[...] = ...` mutation would be silently discarded the next
+    # time an operation touches the index) so downstream consumers (e.g.
+    # plot_napari layer scale and units) see the same unit as a register_volume
+    # result.
+    grid_units = payload["output_grid"]["units"]
+    if grid_units and grid_units[0] is not None:
+        registered = registered.fusi.affine.set_units(grid_units[0])
 
     name = panel._make_unique_layer_name(
         f"{payload['moving_layer_name']} → {payload['target_layer_name']}"

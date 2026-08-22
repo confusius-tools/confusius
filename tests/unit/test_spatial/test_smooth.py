@@ -11,12 +11,7 @@ from confusius.spatial import smooth_volume
 
 def _add_identity_affine(da):
     """Attach identity voxel-to-world geometry."""
-    world_names = tuple("zyx"[-len(da.dims) :])
-    return attach_voxel_to_world_index(
-        da,
-        np.eye(len(da.dims) + 1),
-        world_coord_attrs={name: {"units": "mm"} for name in world_names},
-    )
+    return attach_voxel_to_world_index(da, np.eye(len(da.dims) + 1))
 
 
 def _spacing(da, dim):

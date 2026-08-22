@@ -9,7 +9,7 @@ from confusius import extract
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
 )
 from confusius.xarray import create_voxeldata
 
@@ -57,13 +57,10 @@ def _labels_like(data, dims, reference):
         dims=dims,
         coords={dim: reference.coords[dim] for dim in spatial_dims},
     )
-    world_coord_names = get_voxel_to_world_coord_names(reference)
     return attach_voxel_to_world_index(
         labels,
         get_voxel_to_world_affine(reference),
-        world_coord_attrs={
-            name: dict(reference.coords[name].attrs) for name in world_coord_names
-        },
+        units=get_voxel_to_world_units(reference),
     )
 
 

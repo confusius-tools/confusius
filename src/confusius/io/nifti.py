@@ -25,6 +25,7 @@ from confusius._utils.coordinates import (
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_index_spacing,
+    get_voxel_to_world_units,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.bids import (
@@ -114,9 +115,6 @@ _RESERVED_DIM_NAMES: frozenset[str] = frozenset({*VOXEL_DIMS, *SPATIAL_DIMS})
 coordinate names; both are reserved for the canonical spatial axes so an extra
 (non-spatial) axis can never collide with them.
 """
-
-_VOXEL_TO_WORLD_NAME: dict[str, str] = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
-"""Maps each native voxel dim name (`k`/`j`/`i`) to its world coordinate name."""
 
 _NIFTI_EXTRA_DIM_NAMES: tuple[str, ...] = ("dim4", "dim5", "dim6")
 """Generic dim names for non-time, non-spatial extra axes in NIfTI order.
@@ -370,15 +368,15 @@ def _resolve_spatial_geometry_from_nifti(
     coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
 ) -> tuple[
     npt.NDArray[np.floating],
-    dict[str, dict[str, Any]],
+    str,
     dict[str, Any],
 ]:
     """Resolve spatial geometry from a NIfTI image's header affine.
 
     Selects the primary affine (sform preferred over qform when both are valid)
-    and derives the full voxel-to-world affine plus per-axis metadata, ready to
-    pass straight to `create_voxeldata` as `voxel_to_world=`/
-    `world_coord_attrs=`. When a valid affine is available, `voxel_to_world`
+    and derives the full voxel-to-world affine plus its shared unit, ready to
+    pass straight to `attach_voxel_to_world_index` as `voxel_to_world=`/`units=`.
+    When a valid affine is available, `voxel_to_world`
     carries it exactly (any rotation/shear included) -- no axis-aligned-only
     decomposition. The world coordinate frame is defined by the primary
     affine's translation and zoom; every affine (primary and secondary) is
@@ -408,9 +406,9 @@ def _resolve_spatial_geometry_from_nifti(
     voxel_to_world : (4, 4) numpy.ndarray
         Primary voxel-to-world affine in ConfUSIus world `z`/`y`/`x` row and
         native voxel `k`/`j`/`i` column order.
-    world_coord_attrs : dict[str, dict[str, Any]]
-        `units` attributes keyed by world coordinate name (`"z"`, `"y"`, `"x"`), for
-        each spatial dim present in `dims`.
+    units : str
+        Physical unit shared by every world coordinate, from the header's
+        `xyzt_units` field when declared, otherwise `"mm"`.
     extra_attrs : dict[str, Any]
         Affine-derived DataArray attributes. Contains `"affines"` when a valid
         secondary affine is present; empty otherwise.
@@ -423,6 +421,7 @@ def _resolve_spatial_geometry_from_nifti(
     """
     voxel_sizes = extractor.get_voxel_dimensions()
     space_unit, _ = extractor.get_unit_strings()
+    units = space_unit if space_unit is not None else "mm"
     primary_affine, secondary_affine = _select_affines(
         img.header,
         coordinate_affine=coordinate_affine,
@@ -434,7 +433,6 @@ def _resolve_spatial_geometry_from_nifti(
     # DataArray dim name.
     axes = (("i", "x"), ("j", "y"), ("k", "z"))
 
-    world_coord_attrs: dict[str, dict[str, Any]] = {}
     extra_attrs: dict[str, Any] = {}
 
     if primary_affine is None:
@@ -450,14 +448,10 @@ def _resolve_spatial_geometry_from_nifti(
         for col, (voxel_dim, header_dim) in enumerate(axes):
             if voxel_dim not in dims:
                 continue
-            coord_attrs: dict[str, Any] = {}
-            if space_unit is not None:
-                coord_attrs["units"] = space_unit
             step = voxel_sizes.get(header_dim, 1.0)
-            world_coord_attrs[_VOXEL_TO_WORLD_NAME[voxel_dim]] = coord_attrs
             nifti_affine[col, col] = step
         voxel_to_world = nifti_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
-        return voxel_to_world, world_coord_attrs, extra_attrs
+        return voxel_to_world, units, extra_attrs
 
     # Determine which form is primary the same way `_select_affines` did, so the
     # secondary form (when present) gets the correct name -- an explicit
@@ -498,15 +492,7 @@ def _resolve_spatial_geometry_from_nifti(
             ]
         }
 
-    for voxel_dim, header_dim in axes:
-        if voxel_dim not in dims:
-            continue
-        coord_attrs = {}
-        if space_unit is not None:
-            coord_attrs["units"] = space_unit
-        world_coord_attrs[_VOXEL_TO_WORLD_NAME[voxel_dim]] = coord_attrs
-
-    return voxel_to_world, world_coord_attrs, extra_attrs
+    return voxel_to_world, units, extra_attrs
 
 
 def _validate_volume_timing_length(
@@ -1216,13 +1202,11 @@ def load_nifti(
     )
     _pop_extra_dim_attrs(attrs)
 
-    voxel_to_world, world_coord_attrs, affine_attrs = (
-        _resolve_spatial_geometry_from_nifti(
-            img=img,
-            extractor=extractor,
-            dims=nifti_dims,
-            coordinate_affine=coordinate_affine,
-        )
+    voxel_to_world, units, affine_attrs = _resolve_spatial_geometry_from_nifti(
+        img=img,
+        extractor=extractor,
+        dims=nifti_dims,
+        coordinate_affine=coordinate_affine,
     )
     # Merge NIfTI-header-derived affines with any pre-existing affines (e.g. loaded
     # from the sidecar) so sidecar entries like `bspline_initialization` are not
@@ -1290,7 +1274,7 @@ def load_nifti(
         time=time_coord,
         extra_coords=extra_coords,
         voxel_to_world=voxel_to_world,
-        world_coord_attrs=world_coord_attrs,
+        units=units,
         attrs=attrs,
         name=nifti_name,
     )
@@ -2298,24 +2282,9 @@ def _create_nifti_image(
             np.abs(spacings[:3]), dtype=np.float32
         )
 
-    spatial_units = set()
-    for dim in ("x", "y", "z"):
-        if dim in data_array.coords and "units" in data_array.coords[dim].attrs:
-            spatial_units.add(data_array.coords[dim].attrs["units"])
-    if len(spatial_units) > 1:
-        warnings.warn(
-            f"Spatial dimensions have different units: {spatial_units}. "
-            f"NIfTI only supports a single spatial unit; using the first one found.",
-            stacklevel=find_stack_level(),
-        )
-
-    space_unit_nib = None
-    for dim in ("x", "y", "z"):
-        if dim in data_array.coords and "units" in data_array.coords[dim].attrs:
-            confusius_unit = data_array.coords[dim].attrs["units"]
-            space_unit_nib = _CONFUSIUS_TO_NIFTI_SPACE_UNITS.get(confusius_unit)
-            break
-
+    space_unit_nib = _CONFUSIUS_TO_NIFTI_SPACE_UNITS.get(
+        get_voxel_to_world_units(data_array)
+    )
     if space_unit_nib is not None:
         nifti_img.header.set_xyzt_units(xyz=space_unit_nib, t="sec")
 

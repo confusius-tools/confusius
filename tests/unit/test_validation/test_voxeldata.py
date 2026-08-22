@@ -38,11 +38,6 @@ def _make_voxel_to_world_volume() -> xr.DataArray:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         ),
-        world_coord_attrs={
-            "z": {"units": "mm"},
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
-        },
     )
 
 
@@ -226,15 +221,7 @@ def test_validate_voxeldata_rejects_scalar_indexed_voxel_dim() -> None:
             [0.0, 0.0, 0.0, 1.0],
         ]
     )
-    data = attach_voxel_to_world_index(
-        base,
-        oblique,
-        world_coord_attrs={
-            "z": {"units": "mm"},
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
-        },
-    )
+    data = attach_voxel_to_world_index(base, oblique)
     fixed = data.isel(k=0)
 
     with pytest.raises(ValueError, match="must include all native voxel dimensions"):
@@ -265,7 +252,6 @@ def test_validate_voxeldata_rejects_2d_voxel_to_world_data() -> None:
     bad = attach_voxel_to_world_index(
         base,
         np.array([[3.0, 0.0, 20.0], [0.0, 4.0, 30.0], [0.0, 0.0, 1.0]]),
-        world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
     )
 
     with pytest.raises(ValueError, match="must include all native voxel dimensions"):
@@ -458,33 +444,6 @@ def test_validate_voxeldata_rejects_missing_volume_acquisition_duration() -> Non
 
     with pytest.raises(ValueError, match="missing 'volume_acquisition_duration'"):
         validate_voxeldata(bad)
-
-
-def test_validate_voxeldata_rejects_missing_spatial_units() -> None:
-    """World spatial `units` metadata is always required."""
-    bad = _make_voxel_to_world_time_series().copy(deep=True)
-    del bad.coords["x"].attrs["units"]
-
-    with pytest.raises(ValueError, match="missing required 'units' metadata"):
-        validate_voxeldata(bad)
-
-
-def test_canonicalize_voxeldata_defaults_missing_spatial_units_with_warning() -> None:
-    """canonicalize_voxeldata defaults missing world coordinate `units` to `mm`.
-
-    Unlike `validate_voxeldata` (strict, rejects missing `units`), `canonicalize_voxeldata`
-    heals data whose index predates the `units="mm"` default that
-    `attach_voxel_to_world_index` now applies at construction (e.g. a hand-built
-    `VoxelToWorldIndex`).
-    """
-    bad = _make_voxel_to_world_volume().copy(deep=True)
-    del bad.coords["x"].attrs["units"]
-    assert "units" not in bad.coords["x"].attrs
-
-    with pytest.warns(UserWarning, match="missing 'units'; defaulting to 'mm'"):
-        result = canonicalize_voxeldata(bad)
-
-    assert result.coords["x"].attrs["units"] == "mm"
 
 
 def test_validate_voxeldata_rejects_non_finite_numeric_coordinate() -> None:

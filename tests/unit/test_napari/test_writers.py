@@ -130,30 +130,24 @@ class TestWriteNiftiWithDataArray:
 
 
 class TestWriteNiftiFromReconstruction:
-    """Reconstructing from bare napari layer state (scale/translate/units) can never
-    carry ConfUSIus-specific acquisition-timing attrs -- a plain napari layer has no
-    concept of them -- so the writer's own `ensure_voxeldata` call always has to default
-    them here, unlike the "carries the original DataArray" path above.
-    """
+    """Reconstructing from bare napari layer state builds canonical VoxelData."""
 
     def test_returns_path_list(
         self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """write_nifti returns path list when reconstructing from layer state."""
         path = str(tmp_path / "out.nii.gz")
-        with pytest.warns(UserWarning, match="missing"):
-            result = write_nifti(
-                path, sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
-            )
+        result = write_nifti(
+            path, sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+        )
         assert result == [path]
 
     def test_file_created(self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> None:
         """NIfTI file is created when reconstructing from layer state."""
         path = tmp_path / "out.nii.gz"
-        with pytest.warns(UserWarning, match="missing"):
-            write_nifti(
-                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
-            )
+        write_nifti(
+            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+        )
         assert path.exists()
 
     def test_roundtrip_values(
@@ -163,10 +157,9 @@ class TestWriteNiftiFromReconstruction:
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        with pytest.warns(UserWarning, match="missing"):
-            write_nifti(
-                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
-            )
+        write_nifti(
+            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+        )
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_voxeldata_3dt.values, rtol=1e-5)
 
@@ -177,10 +170,9 @@ class TestWriteNiftiFromReconstruction:
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        with pytest.warns(UserWarning, match="missing"):
-            write_nifti(
-                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
-            )
+        write_nifti(
+            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+        )
         loaded = load(path)
         for dim in ("z", "y", "x"):
             npt.assert_allclose(
@@ -260,29 +252,24 @@ class TestWriteZarrWithDataArray:
 
 
 class TestWriteZarrFromReconstruction:
-    """See `TestWriteNiftiFromReconstruction`'s docstring: reconstructing from bare
-    napari layer state always makes the writer's `ensure_voxeldata` call default the
-    acquisition-timing attrs, since a plain napari layer has no concept of them.
-    """
+    """Reconstructing from bare napari layer state builds canonical VoxelData."""
 
     def test_returns_path_list(
         self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
     ) -> None:
         """write_zarr returns path list when reconstructing from layer state."""
         path = str(tmp_path / "out.zarr")
-        with pytest.warns(UserWarning, match="missing"):
-            result = write_zarr(
-                path, sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
-            )
+        result = write_zarr(
+            path, sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+        )
         assert result == [path]
 
     def test_store_created(self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> None:
         """Zarr store directory is created when reconstructing from layer state."""
         path = tmp_path / "out.zarr"
-        with pytest.warns(UserWarning, match="missing"):
-            write_zarr(
-                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
-            )
+        write_zarr(
+            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+        )
         assert path.is_dir()
 
     def test_roundtrip_values(
@@ -292,10 +279,9 @@ class TestWriteZarrFromReconstruction:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        with pytest.warns(UserWarning, match="missing"):
-            write_zarr(
-                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
-            )
+        write_zarr(
+            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+        )
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_voxeldata_3dt.values, rtol=1e-6)
 
@@ -306,10 +292,9 @@ class TestWriteZarrFromReconstruction:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        with pytest.warns(UserWarning, match="missing"):
-            write_zarr(
-                str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
-            )
+        write_zarr(
+            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+        )
         loaded = load(path)
         coord_pairs = (("time", "time"), ("z", "z"), ("y", "y"), ("x", "x"))
         for loaded_dim, sample_dim in coord_pairs:
@@ -339,35 +324,35 @@ class TestWriteZarrFromReconstruction:
 
 
 # ---------------------------------------------------------------------------
-# _compute_dataarray_from_layer — unit tests for the reconstruction helper
+# _convert_layer_to_voxeldata — unit tests for the reconstruction helper
 # ---------------------------------------------------------------------------
 
 
 class TestDaFromNapariLayer:
     def test_default_dims_3d(self) -> None:
         """3D data without axis_labels gets default dims (k, j, i)."""
-        from confusius._napari._io._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _convert_layer_to_voxeldata
 
         data = np.zeros((4, 6, 8))
-        da = _compute_dataarray_from_layer(
+        da = _convert_layer_to_voxeldata(
             data, {"scale": [0.2, 0.1, 0.05], "translate": [1.0, 2.0, 3.0]}
         )
         assert list(da.dims) == ["k", "j", "i"]
 
     def test_default_dims_4d(self) -> None:
         """4D data without axis_labels gets default dims (time, k, j, i)."""
-        from confusius._napari._io._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _convert_layer_to_voxeldata
 
         data = np.zeros((10, 4, 6, 8))
-        da = _compute_dataarray_from_layer(data, {})
+        da = _convert_layer_to_voxeldata(data, {})
         assert list(da.dims) == ["time", "k", "j", "i"]
 
     def test_scale_sets_coord_spacing(self) -> None:
         """Scale values produce correct coordinate spacing."""
-        from confusius._napari._io._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _convert_layer_to_voxeldata
 
         data = np.zeros((4, 6))
-        da = _compute_dataarray_from_layer(
+        da = _convert_layer_to_voxeldata(
             data,
             {"axis_labels": ["z", "x"], "scale": [0.2, 0.05], "translate": [1.0, 3.0]},
         )
@@ -376,10 +361,10 @@ class TestDaFromNapariLayer:
 
     def test_translate_sets_coord_origin(self) -> None:
         """Translate values set the first coordinate value for each dimension."""
-        from confusius._napari._io._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _convert_layer_to_voxeldata
 
         data = np.zeros((4, 6))
-        da = _compute_dataarray_from_layer(
+        da = _convert_layer_to_voxeldata(
             data,
             {"axis_labels": ["z", "x"], "scale": [0.2, 0.05], "translate": [1.0, 3.0]},
         )
@@ -388,10 +373,10 @@ class TestDaFromNapariLayer:
 
     def test_units_stored_in_coord_attrs(self) -> None:
         """Unit strings from meta are stored in coordinate attrs."""
-        from confusius._napari._io._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _convert_layer_to_voxeldata
 
         data = np.zeros((4, 6))
-        da = _compute_dataarray_from_layer(
+        da = _convert_layer_to_voxeldata(
             data,
             {
                 "axis_labels": ["z", "x"],
@@ -405,18 +390,18 @@ class TestDaFromNapariLayer:
 
     def test_napari_generic_axis_labels_replaced_by_defaults(self) -> None:
         """Napari's 'axis -N' labels are replaced with ConfUSIus default dim names."""
-        from confusius._napari._io._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _convert_layer_to_voxeldata
 
         data = np.zeros((4, 6, 8))
-        da = _compute_dataarray_from_layer(
+        da = _convert_layer_to_voxeldata(
             data, {"axis_labels": ["axis -3", "axis -2", "axis -1"]}
         )
         assert list(da.dims) == ["k", "j", "i"]
 
     def test_napari_pixel_units_treated_as_absent(self) -> None:
-        """Pint pixel/dimensionless units from napari are not stored in coord attrs."""
+        """Pint pixel/dimensionless units from napari default to VoxelData units."""
 
-        from confusius._napari._io._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _convert_layer_to_voxeldata
 
         # Simulate pint Unit objects as napari passes them.
         class _PixelUnit:
@@ -426,7 +411,7 @@ class TestDaFromNapariLayer:
         pixel_unit = _PixelUnit()
 
         data = np.zeros((4,))
-        da = _compute_dataarray_from_layer(
+        da = _convert_layer_to_voxeldata(
             data,
             {
                 "axis_labels": ["z"],
@@ -435,4 +420,20 @@ class TestDaFromNapariLayer:
                 "units": [pixel_unit],
             },
         )
-        assert "units" not in da["z"].attrs
+        assert list(da.dims) == ["k", "j", "i"]
+        assert da["z"].attrs["units"] == "mm"
+
+    def test_mismatched_voxel_axis_units_raise(self) -> None:
+        """Voxel axes cannot declare different physical units."""
+        from confusius._napari._io._writers import _convert_layer_to_voxeldata
+
+        with pytest.raises(ValueError, match="Voxel axis units must match"):
+            _convert_layer_to_voxeldata(
+                np.zeros((4, 6)),
+                {
+                    "axis_labels": ["z", "x"],
+                    "scale": [0.2, 0.05],
+                    "translate": [0.0, 0.0],
+                    "units": ["mm", "um"],
+                },
+            )

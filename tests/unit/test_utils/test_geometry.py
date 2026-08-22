@@ -19,9 +19,9 @@ from confusius._utils.geometry import (
     get_voxel_to_world_index_origin,
     get_voxel_to_world_index_spacing,
     get_voxel_to_world_spacings_from_coords,
+    get_voxel_to_world_units,
     has_axis_aligned_voxel_to_world_index,
     restore_voxel_to_world_index,
-    update_voxel_to_world_coord_attrs,
 )
 from confusius.xarray import create_voxeldata
 
@@ -30,8 +30,7 @@ def _simple_voxel_to_world_result() -> xr.DataArray:
     """Build a minimal pose-independent, identity-affine (k, j, i) DataArray.
 
     Shared by tests that only need *some* real VoxelToWorldIndex and don't care
-    about its specific geometry (join/reindex_like/equals/concat-rejection/
-    update_voxel_to_world_coord_attrs edge cases).
+    about its specific geometry (join/reindex_like/equals/concat-rejection tests).
     """
     return create_voxeldata(
         np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
@@ -73,9 +72,7 @@ def _pose_dependent_result(
         pose_affines,
         pose_coord=pose_coord,
     )
-    index = VoxelToWorldIndex(
-        CoordinateTransformIndex(transform), pose_affines, world_coord_attrs=None
-    )
+    index = VoxelToWorldIndex(CoordinateTransformIndex(transform), pose_affines)
     result = data.assign_coords(xr.Coordinates.from_xindex(index))
     # `pose` is not one of the index's owned coordinate names (see its docstring), so
     # it needs attaching separately as a plain coordinate, exactly like
@@ -1205,13 +1202,29 @@ def test_concat_rejects_mismatched_spatial_geometry_directly() -> None:
         )
 
 
-def test_update_voxel_to_world_coord_attrs_ignores_unknown_names() -> None:
-    """Unknown coordinate names in `attrs_by_name` are silently skipped."""
+def test_attach_voxel_to_world_index_defaults_units_to_mm() -> None:
+    """`units` defaults to `"mm"` when not given, on both coord attrs and the index."""
     da = _simple_voxel_to_world_result()
 
-    result = update_voxel_to_world_coord_attrs(da, {"not_a_coord": {"units": "mm"}})
+    assert get_voxel_to_world_units(da) == "mm"
+    assert da.coords["z"].attrs["units"] == "mm"
 
-    assert "not_a_coord" not in result.coords
+
+def test_attach_voxel_to_world_index_sets_custom_units() -> None:
+    """`units` is honored, and regenerated fresh on every derived world coordinate."""
+    da = attach_voxel_to_world_index(
+        xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=("k", "j", "i"),
+            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
+        ),
+        np.eye(4),
+        units="um",
+    )
+
+    assert get_voxel_to_world_units(da) == "um"
+    for name in ("z", "y", "x"):
+        assert da.coords[name].attrs["units"] == "um"
 
 
 def test_get_voxel_to_world_world_coord_names_defaults_when_coords_are_incomplete() -> (

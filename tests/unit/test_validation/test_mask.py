@@ -7,7 +7,7 @@ from numpy.testing import assert_array_equal
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
 )
 from confusius.validation import ensure_labels, ensure_mask, validate_labels, validate_mask
 
@@ -93,10 +93,7 @@ def test_validate_mask_rejects_misaligned_grid(sample_voxeldata_3dt, make_sample
     mask = attach_voxel_to_world_index(
         mask.drop_vars(("z", "y", "x")),
         shifted_affine,
-        world_coord_attrs={
-            name: dict(sample_voxeldata_3dt.coords[name].attrs)
-            for name in get_voxel_to_world_coord_names(sample_voxeldata_3dt)
-        },
+        units=get_voxel_to_world_units(sample_voxeldata_3dt),
     )
 
     with pytest.raises(ValueError, match="does not share data's voxel grid"):

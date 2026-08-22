@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius.atlas._structures import _build_rgb_lookup
 from confusius.xarray import create_voxeldata
@@ -39,7 +39,6 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
 
     voxel_to_world = np.eye(4, dtype=np.float64)
     voxel_to_world[:-1, :-1] = np.diag(resolution_mm)
-    world_coord_attrs = {name: {"units": "mm"} for name in SPATIAL_DIMS}
 
     rgb_lookup = _build_rgb_lookup(atlas.structures)
     cmap, norm = build_atlas_cmap_and_norm(rgb_lookup)
@@ -54,7 +53,6 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
             dims=VOXEL_DIMS,
             voxel_to_world=voxel_to_world,
             attrs=attrs,
-            world_coord_attrs=world_coord_attrs,
         )
 
     reference = _build(atlas.reference.astype(np.float32), {"cmap": "gray"})

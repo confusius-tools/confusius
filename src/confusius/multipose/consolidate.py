@@ -18,6 +18,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
+    get_voxel_to_world_units,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.multipose._utils import build_consolidated_time_coordinate
@@ -376,9 +377,6 @@ def consolidate_poses(
             )
 
     output_spatial_dim_names = tuple(str(dim) for dim in output_spatial_dims)
-    world_coord_names = tuple(
-        str(voxel_to_world.get(dim, dim)) for dim in output_spatial_dims
-    )
 
     # Non-sweep axes keep their pre-consolidation affine columns untouched, so their
     # true world spacing is that column's Euclidean norm (get_affine_axis_scalings) --
@@ -390,12 +388,9 @@ def consolidate_poses(
     other_axis_scalings = get_affine_axis_scalings(affine[0], tuple(spatial_dims))
 
     def _attach_output_cti(result: xr.DataArray) -> xr.DataArray:
-        world_attrs: dict[str, dict[str, Any]] = {}
         origins: list[float] = []
         spacings: list[float] = []
-        for voxel_dim, world_dim in zip(
-            output_spatial_dims, world_coord_names, strict=True
-        ):
+        for voxel_dim in output_spatial_dims:
             coord = result.coords[voxel_dim]
             values = np.asarray(coord.values, dtype=np.float64)
             origins.append(float(values[0]))
@@ -407,7 +402,6 @@ def consolidate_poses(
             else:
                 spacing = other_axis_scalings[voxel_dim]
             spacings.append(spacing)
-            world_attrs[world_dim] = dict(coord.attrs)
             result = result.assign_coords(
                 {voxel_dim: np.arange(result.sizes[voxel_dim])}
             )
@@ -415,7 +409,7 @@ def consolidate_poses(
         voxel_to_world_affine[:-1, :-1] = np.diag(spacings)
         voxel_to_world_affine[:-1, -1] = origins
         return attach_voxel_to_world_index(
-            result, voxel_to_world_affine, world_coord_attrs=world_attrs
+            result, voxel_to_world_affine, units=get_voxel_to_world_units(da)
         )
 
     # Use xarray's vectorized isel to select (pose, sweep_dim) pairs simultaneously.

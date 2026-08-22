@@ -12,7 +12,7 @@ import xarray as xr
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
 )
 from confusius.io.scan import load_scan
 from confusius.xarray import create_voxeldata
@@ -774,14 +774,10 @@ def make_sample_voxeldata_mask(sample_voxeldata_3dt):
                 if "time" not in coord.dims
             },
         )
-        world_coord_names = get_voxel_to_world_coord_names(sample_voxeldata_3dt)
         return attach_voxel_to_world_index(
             mask,
             get_voxel_to_world_affine(sample_voxeldata_3dt),
-            world_coord_attrs={
-                name: dict(sample_voxeldata_3dt.coords[name].attrs)
-                for name in world_coord_names
-            },
+            units=get_voxel_to_world_units(sample_voxeldata_3dt),
         )
 
     return _make

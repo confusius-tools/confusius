@@ -313,12 +313,8 @@ class TestRegisterVolumeValidation:
 
     def test_mismatched_spatial_units_raise(self, sample_voxeldata_2d_registration):
         """moving and fixed must agree on spatial coordinate units when declared."""
-        moving = sample_voxeldata_2d_registration.copy()
-        fixed = sample_voxeldata_2d_registration.copy()
-        moving.coords["y"].attrs["units"] = "mm"
-        moving.coords["x"].attrs["units"] = "mm"
-        fixed.coords["y"].attrs["units"] = "um"
-        fixed.coords["x"].attrs["units"] = "um"
+        moving = sample_voxeldata_2d_registration.fusi.affine.set_units("mm")
+        fixed = sample_voxeldata_2d_registration.fusi.affine.set_units("um")
 
         with pytest.raises(ValueError, match="units"):
             register_volume(moving, fixed, transform_type="translation")
@@ -1713,12 +1709,8 @@ class TestResampleLike:
         self, sample_voxeldata_2d_registration
     ):
         """moving and reference must agree on spatial coordinate units when declared."""
-        moving = sample_voxeldata_2d_registration.copy()
-        reference = sample_voxeldata_2d_registration.copy()
-        moving.coords["y"].attrs["units"] = "mm"
-        moving.coords["x"].attrs["units"] = "mm"
-        reference.coords["y"].attrs["units"] = "um"
-        reference.coords["x"].attrs["units"] = "um"
+        moving = sample_voxeldata_2d_registration.fusi.affine.set_units("mm")
+        reference = sample_voxeldata_2d_registration.fusi.affine.set_units("um")
 
         with pytest.raises(ValueError, match="units"):
             resample_like(moving, reference, np.eye(3))
@@ -1727,21 +1719,14 @@ class TestResampleLike:
         self, sample_voxeldata_2d_registration
     ):
         """DataArray transforms must agree with the reference units when declared."""
-        reference = sample_voxeldata_2d_registration.copy()
-        reference.coords["y"].attrs["units"] = "mm"
-        reference.coords["x"].attrs["units"] = "mm"
-        transform = xr.DataArray(
-            np.zeros((2, 2, 2), dtype=np.float64),
-            dims=["component", "j", "i"],
-            coords={
-                "component": np.arange(2),
-                "j": [0.0, 1.0],
-                "i": [0.0, 1.0],
-                "y": xr.Variable("j", [0.0, 1.0], attrs={"units": "um"}),
-                "x": xr.Variable("i", [0.0, 1.0], attrs={"units": "um"}),
-            },
+        reference = sample_voxeldata_2d_registration.fusi.affine.set_units("mm")
+        transform = create_voxeldata(
+            np.zeros((2, 1, 2, 2), dtype=np.float64),
+            dims=("component", "k", "j", "i"),
+            extra_coords={"component": np.arange(2)},
+            spacing=(1.0, 1.0, 1.0),
             attrs={"type": "displacement_field_transform"},
-        )
+        ).fusi.affine.set_units("um")
 
         with pytest.raises(ValueError, match="units"):
             resample_like(reference, reference, transform)

@@ -46,20 +46,21 @@ def test_seed_maps_preserve_world_coord_units(
     sample_voxeldata_3dt: xr.DataArray,
     sample_roi_labels: xr.DataArray,
 ) -> None:
-    """`maps_`'s world coordinates keep the same `units` attr as the input data.
+    """`maps_` keeps the same world-space `units` as the input data.
 
-    Regression test: `_compute_correlation_maps`'s `xr.where` call rebuilds
-    index-derived world coordinates from scratch when broadcasting a
-    lower-dimensional condition/fill against the `region`-dimensioned numerator,
-    dropping their cached `units` attr even though the `VoxelToWorldIndex`'s own
-    stored copy survives untouched.
+    Regression test: `xr.where(cond, x, y)` only restores coordinate attrs from `x`,
+    not `y`. `_compute_correlation_maps` used to pass the scalar fill value as `x` and
+    the real VoxelData array as `y`, which silently dropped `units` from every world
+    coordinate's `.attrs` (though the `VoxelToWorldIndex`'s own `units` survived
+    untouched). Checks both the authoritative `.fusi.affine.units` and the cosmetic
+    `.attrs` copy that external tools may read.
     """
     mapper = SeedBasedMaps(seed_masks=sample_roi_labels).fit(sample_voxeldata_3dt)
 
+    assert mapper.maps_.fusi.affine.units == sample_voxeldata_3dt.fusi.affine.units
     for name in ("z", "y", "x"):
         assert (
-            mapper.maps_.coords[name].attrs
-            == sample_voxeldata_3dt.coords[name].attrs
+            mapper.maps_.coords[name].attrs == sample_voxeldata_3dt.coords[name].attrs
         )
 
 

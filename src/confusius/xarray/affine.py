@@ -14,6 +14,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_index_origin,
     get_voxel_to_world_index_spacing,
     get_voxel_to_world_spatial_dims,
+    get_voxel_to_world_units,
     has_voxel_to_world_index,
 )
 
@@ -180,14 +181,10 @@ def apply_affine(
     if "affines" in da.attrs:
         new_attrs["affines"] = new_affines
 
-    world_coord_names = get_voxel_to_world_coord_names(da)
-    world_coord_attrs = {
-        name: dict(da.coords[name].attrs) for name in world_coord_names
-    }
     result = attach_voxel_to_world_index(
         da.assign_attrs(new_attrs),
         affine_array @ voxel_to_world,
-        world_coord_attrs=world_coord_attrs,
+        units=get_voxel_to_world_units(da),
     )
     if inplace:
         da.coords.update(result.coords)
@@ -271,14 +268,9 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     else:
         new_affine = _new_pose_affine(da)
 
-    world_coord_attrs = {
-        name: dict(da.coords[name].attrs)
-        for name in world_coord_names
-        if name in da.coords
-    }
     reindexed = da.assign_coords({dim: np.arange(da.sizes[dim]) for dim in voxel_dims})
     return attach_voxel_to_world_index(
-        reindexed, new_affine, world_coord_attrs=world_coord_attrs
+        reindexed, new_affine, units=get_voxel_to_world_units(da)
     )
 
 
@@ -357,16 +349,11 @@ def reindex_voxels_like(
                 "data to already occupy reference's exact world grid."
             )
 
-    world_coord_attrs = {
-        name: dict(reference.coords[name].attrs)
-        for name in reference_world_coord_names
-        if name in reference.coords
-    }
     relabeled = data.assign_coords({dim: reference.coords[dim] for dim in voxel_dims})
     return attach_voxel_to_world_index(
         relabeled,
         get_voxel_to_world_affine(reference),
-        world_coord_attrs=world_coord_attrs,
+        units=get_voxel_to_world_units(reference),
     )
 
 
@@ -397,7 +384,11 @@ class FUSIAffineAccessor:
         return get_voxel_to_world_affine(self._obj)
 
     def set_voxel_to_world(
-        self, voxel_to_world: "npt.ArrayLike", *, inplace: bool = False
+        self,
+        voxel_to_world: "npt.ArrayLike",
+        *,
+        units: str | None = None,
+        inplace: bool = False,
     ) -> xr.DataArray:
         """Replace voxel-to-world geometry.
 
@@ -405,6 +396,11 @@ class FUSIAffineAccessor:
         ----------
         voxel_to_world : numpy.typing.ArrayLike
             Homogeneous affine mapping native voxel coordinates to world coordinates.
+        units : str, optional
+            New physical unit shared by every world coordinate. If not provided,
+            the existing unit is kept, or `"mm"` if there is none yet (e.g. when
+            attaching geometry for the first time onto a plain, not-yet-indexed
+            DataArray).
         inplace : bool, default: False
             Whether to modify the wrapped DataArray in-place.
 
@@ -413,7 +409,49 @@ class FUSIAffineAccessor:
         xarray.DataArray
             DataArray with rebuilt VoxelToWorldIndex-backed coordinates.
         """
-        result = attach_voxel_to_world_index(self._obj, voxel_to_world)
+        if units is None:
+            if has_voxel_to_world_index(self._obj):
+                units = get_voxel_to_world_units(self._obj)
+            else:
+                units = "mm"
+        result = attach_voxel_to_world_index(self._obj, voxel_to_world, units=units)
+        if inplace:
+            self._obj.coords.update(result.coords)
+            self._obj.attrs.clear()
+            self._obj.attrs.update(result.attrs)
+            return self._obj
+        return result
+
+    @property
+    def units(self) -> str:
+        """World-space unit shared by every world coordinate (e.g. `"mm"`).
+
+        Returns
+        -------
+        str
+            Physical unit shared by `z`/`y`/`x`, since they're derived jointly from
+            one affine.
+        """
+        return get_voxel_to_world_units(self._obj)
+
+    def set_units(self, units: str, *, inplace: bool = False) -> xr.DataArray:
+        """Replace the world-space unit, rebuilding the VoxelToWorldIndex.
+
+        Parameters
+        ----------
+        units : str
+            New physical unit shared by every world coordinate.
+        inplace : bool, default: False
+            Whether to modify the wrapped DataArray in-place.
+
+        Returns
+        -------
+        xarray.DataArray
+            DataArray with rebuilt VoxelToWorldIndex-backed coordinates.
+        """
+        result = attach_voxel_to_world_index(
+            self._obj, self.voxel_to_world, units=units
+        )
         if inplace:
             self._obj.coords.update(result.coords)
             self._obj.attrs.clear()
@@ -514,12 +552,17 @@ class FUSIAffineAccessor:
         """
         return apply_affine(self._obj, affine, inplace=inplace)
 
-    def reindex_voxels(self) -> xr.DataArray:
+    def reindex_voxels(self, *, inplace: bool = False) -> xr.DataArray:
         """Rebase voxel coordinates to dense positions without moving world coordinates.
 
         See
         [reindex_voxels][confusius.xarray.affine.reindex_voxels]
         for details.
+
+        Parameters
+        ----------
+        inplace : bool, default: False
+            Whether to modify the wrapped DataArray in-place.
 
         Returns
         -------
@@ -548,10 +591,16 @@ class FUSIAffineAccessor:
         >>> float(reindexed.coords["y"].isel(j=0, i=0, k=0))
         2.0
         """
-        return reindex_voxels(self._obj)
+        result = reindex_voxels(self._obj)
+        if inplace:
+            self._obj.coords.update(result.coords)
+            self._obj.attrs.clear()
+            self._obj.attrs.update(result.attrs)
+            return self._obj
+        return result
 
     def reindex_voxels_like(
-        self, reference: xr.DataArray, *, atol: float = 1e-6
+        self, reference: xr.DataArray, *, atol: float = 1e-6, inplace: bool = False
     ) -> xr.DataArray:
         """Rebase voxel coordinates onto `reference`'s voxel labels.
 
@@ -566,6 +615,8 @@ class FUSIAffineAccessor:
         atol : float, default: 1e-6
             Absolute tolerance, in `reference`'s physical units, for the
             world-coordinate alignment check between `self` and `reference`.
+        inplace : bool, default: False
+            Whether to modify the wrapped DataArray in-place.
 
         Returns
         -------
@@ -580,4 +631,10 @@ class FUSIAffineAccessor:
             dimensions or shapes differ, or if their world coordinates do not
             match within `atol`.
         """
-        return reindex_voxels_like(self._obj, reference, atol=atol)
+        result = reindex_voxels_like(self._obj, reference, atol=atol)
+        if inplace:
+            self._obj.coords.update(result.coords)
+            self._obj.attrs.clear()
+            self._obj.attrs.update(result.attrs)
+            return self._obj
+        return result

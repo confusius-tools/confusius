@@ -170,20 +170,6 @@ def test_create_voxeldata_uses_default_probe_origins():
     assert_allclose(_world_coord_1d(result, "x"), [-0.3, -0.1, 0.1, 0.3])
 
 
-def test_create_voxeldata_world_coord_attrs_overrides_units():
-    """world_coord_attrs overrides given keys, keeps auto-computed defaults for others."""
-    result = create_voxeldata(
-        np.zeros((4, 8, 12)),
-        dims=("k", "j", "i"),
-        spacing=(0.4, 0.1, 0.2),
-        origin=(0.0, 0.0, 0.0),
-        world_coord_attrs={"z": {"units": "um"}},
-    )
-
-    assert result.coords["z"].attrs["units"] == "um"
-    assert result.coords["y"].attrs["units"] == "mm"
-
-
 def test_create_voxeldata_sets_name_and_attrs():
     """`name` and arbitrary `attrs` (e.g. IQ velocity metadata) round-trip and
     satisfy the validation that requires them."""

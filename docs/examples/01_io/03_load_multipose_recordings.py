@@ -141,6 +141,7 @@ plotter = cf.plotting.plot_volume(
     slice_mode="pose",
     cbar_label="Power Doppler (dB)",
     bg_color=bg_color,
+    yincrease=True,
 )
 
 # %% [markdown]

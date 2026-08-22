@@ -12,6 +12,7 @@ import xarray as xr
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
+    get_voxel_to_world_units,
 )
 from confusius.plotting import (
     VolumePlotter,
@@ -192,7 +193,6 @@ class TestPlotVolume:
         data = attach_voxel_to_world_index(
             data,
             np.array([[0.3, 0.0, 20.0], [0.0, 0.25, 30.0], [0.0, 0.0, 1.0]]),
-            world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
         )
         with pytest.raises(ValueError, match="missing voxel dimension 'k'"):
             plot_volume(data, slice_mode="y")
@@ -651,15 +651,7 @@ class TestPlotVolume:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        data = attach_voxel_to_world_index(
-            data,
-            voxel_to_world,
-            world_coord_attrs={
-                "z": {"units": "mm"},
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
-        )
+        data = attach_voxel_to_world_index(data, voxel_to_world)
         with pytest.raises(ValueError, match="non-collinear plane axes"):
             _slice_edges_and_centers(data.isel(k=0), "j", "i")
 
@@ -732,15 +724,7 @@ class TestPlotVolume:
             dims=["k", "j", "i"],
             coords={"k": [0, 1], "j": [0, 1, 2], "i": [0, 1, 2, 3]},
         )
-        data = attach_voxel_to_world_index(
-            data,
-            np.diag([0.4, 0.3, 0.25, 1.0]),
-            world_coord_attrs={
-                "z": {"units": "mm"},
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
-        )
+        data = attach_voxel_to_world_index(data, np.diag([0.4, 0.3, 0.25, 1.0]))
 
         result = _resample_to_axis_aligned_world_grid(data, "z")
 
@@ -767,7 +751,6 @@ class TestPlotVolume:
         data = attach_voxel_to_world_index(
             data,
             np.array([[0.3, 0.0, 20.0], [0.0, 0.25, 30.0], [0.0, 0.0, 1.0]]),
-            world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
         )
 
         result = _resample_to_axis_aligned_world_grid(data, "z")
@@ -860,11 +843,7 @@ class TestPlottingUtilsVoxelToWorldHelpers:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        data = attach_voxel_to_world_index(
-            data,
-            voxel_to_world,
-            world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
-        )
+        data = attach_voxel_to_world_index(data, voxel_to_world)
 
         result = resample_to_axis_aligned_world_grid(data)
 
@@ -902,11 +881,6 @@ class TestPlottingUtilsVoxelToWorldHelpers:
                     [0.0, 0.0, 0.0, 1.0],
                 ]
             ),
-            world_coord_attrs={
-                "z": {"units": "mm"},
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
         )
 
         with pytest.raises(ValueError, match="no well-defined spacing"):
@@ -967,11 +941,7 @@ class TestVolumePlotterAddVolume:
                     [0.0, 0.0, 0.0, 1.0],
                 ]
             ),
-            world_coord_attrs={
-                "z": dict(sample_voxeldata_3d.coords["z"].attrs),
-                "y": dict(sample_voxeldata_3d.coords["y"].attrs),
-                "x": dict(sample_voxeldata_3d.coords["x"].attrs),
-            },
+            units=get_voxel_to_world_units(sample_voxeldata_3d),
         )
         z_coords = list(_world_coord_1d(sample_voxeldata_3d, "z")[:2])
 
@@ -1200,15 +1170,7 @@ def _mask_voxeldata(data: np.ndarray) -> xr.DataArray:
         dims=("k", "j", "i"),
         coords={"k": np.arange(nz), "j": np.arange(ny), "i": np.arange(nx)},
     )
-    return attach_voxel_to_world_index(
-        da,
-        np.diag([1.0, 0.5, 0.5, 1.0]),
-        world_coord_attrs={
-            "z": {"units": "mm"},
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
-        },
-    )
+    return attach_voxel_to_world_index(da, np.diag([1.0, 0.5, 0.5, 1.0]))
 
 
 class TestPlotContours:

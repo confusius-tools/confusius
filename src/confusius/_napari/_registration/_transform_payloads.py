@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
-    Any,
     Literal,
     NotRequired,
     SupportsFloat,
@@ -22,8 +21,8 @@ import xarray as xr
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
     has_voxel_to_world_index,
-    update_voxel_to_world_coord_attrs,
 )
 from confusius.io import load as load_dataarray
 from confusius.io import save as save_dataarray
@@ -31,7 +30,7 @@ from confusius.validation import validate_bspline
 from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
-    from collections.abc import Hashable, Mapping
+    from collections.abc import Mapping
 
     from confusius.registration import RegistrationDiagnostics
 
@@ -153,12 +152,7 @@ def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
         "spacing": [resolved_spacing[dim] for dim in voxel_dims],
         "origin": [float(origin[dim]) for dim in dims],
         "direction": np.asarray(reference.fusi.direction, dtype=float).tolist(),
-        "units": [
-            cast("str | None", reference.coords[dim].attrs.get("units"))
-            if dim in reference.coords
-            else None
-            for dim in dims
-        ],
+        "units": [get_voxel_to_world_units(reference)] * len(dims),
     }
 
 
@@ -270,15 +264,10 @@ def _serialize_bspline_dataarray(transform: xr.DataArray) -> BSplineDataArrayPay
         JSON-serializable B-spline DataArray payload.
     """
     validate_bspline(transform)
-    world_coord_names = get_voxel_to_world_coord_names(transform)
     attrs = {
         **transform.attrs,
         "voxel_to_world": get_voxel_to_world_affine(transform).tolist(),
-        "world_coord_attrs": {
-            name: dict(transform.coords[name].attrs)
-            for name in world_coord_names
-            if name in transform.coords
-        },
+        "voxel_to_world_units": get_voxel_to_world_units(transform),
     }
     return {
         "dims": [str(dim) for dim in transform.dims],
@@ -310,18 +299,16 @@ def _deserialize_bspline_dataarray(payload: BSplineDataArrayPayload) -> xr.DataA
     component = np.asarray(payload["coords"]["component"], dtype=np.str_)
     attrs = dict(payload["attrs"])
     voxel_to_world = np.asarray(attrs.pop("voxel_to_world"), dtype=np.float64)
-    world_coord_attrs = cast(
-        "Mapping[Hashable, Mapping[str, Any]]", attrs.pop("world_coord_attrs")
-    )
+    units = cast("str", attrs.pop("voxel_to_world_units", "mm"))
 
     transform = create_voxeldata(
         np.asarray(payload["data"], dtype=float),
         dims=("component", *spatial_dims),
         extra_coords={"component": component},
         voxel_to_world=voxel_to_world,
+        units=units,
         attrs=attrs,
     )
-    transform = update_voxel_to_world_coord_attrs(transform, world_coord_attrs)
     validate_bspline(transform)
     return transform
 
@@ -384,20 +371,14 @@ def _normalize_loaded_bspline_transform(transform: xr.DataArray) -> xr.DataArray
             [1 + spatial_dims.index(dim) for dim in component_values],
             list(range(1, len(component_values) + 1)),
         )
-        world_coord_attrs = {
-            world_name: dict(normalized.coords[world_name].attrs)
-            for world_name in get_voxel_to_world_coord_names(normalized)
-            if world_name in normalized.coords
-        }
+        units = get_voxel_to_world_units(normalized)
         normalized = create_voxeldata(
             values,
             dims=("component", *component_values),
             extra_coords={"component": normalized.coords["component"].values},
             voxel_to_world=new_affine,
+            units=units,
             attrs=normalized.attrs,
-        )
-        normalized = update_voxel_to_world_coord_attrs(
-            normalized, cast("Mapping[Hashable, Mapping[str, Any]]", world_coord_attrs)
         )
 
     return normalized
@@ -727,20 +708,14 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
         voxel_to_world = np.eye(len(spatial_dims) + 1, dtype=np.float64)
         voxel_to_world[:-1, :-1] = direction * spacing
         voxel_to_world[:-1, -1] = origin
-        world_coord_attrs = {
-            world_name: dict(transform.coords[world_name].attrs)
-            for world_name in get_voxel_to_world_coord_names(transform)
-            if world_name in transform.coords
-        }
+        units = get_voxel_to_world_units(transform)
         transform = create_voxeldata(
             transform.values,
             dims=("component", *spatial_dims),
             extra_coords={"component": transform.coords["component"].values},
             voxel_to_world=voxel_to_world,
+            units=units,
             attrs=transform.attrs,
-        )
-        transform = update_voxel_to_world_coord_attrs(
-            transform, cast("Mapping[Hashable, Mapping[str, Any]]", world_coord_attrs)
         )
     validate_bspline(transform)
     payload: BSplineTransformPayload = {

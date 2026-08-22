@@ -9,7 +9,7 @@ from sklearn.utils.validation import check_is_fitted
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
 )
 from confusius.decomposition import PCA
 
@@ -36,13 +36,10 @@ def _make_mask(
         dims=dims,
         coords={dim: reference.coords[dim] for dim in dims},
     )
-    world_coord_names = get_voxel_to_world_coord_names(reference)
     return attach_voxel_to_world_index(
         mask,
         get_voxel_to_world_affine(reference),
-        world_coord_attrs={
-            name: dict(reference.coords[name].attrs) for name in world_coord_names
-        },
+        units=get_voxel_to_world_units(reference),
     )
 
 

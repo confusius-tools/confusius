@@ -105,11 +105,6 @@ class TestPlotNapari:
         data = attach_voxel_to_world_index(
             data,
             np.diag([0.4, 0.3, 0.25, 1.0]),
-            world_coord_attrs={
-                "z": {"units": "mm"},
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
         )
         viewer = make_napari_viewer()
         _, layer = plot_napari(

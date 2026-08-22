@@ -207,8 +207,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     m_to_mm = np.eye(4)
     m_to_mm[:3, :3] *= 1e3
     da.fusi.affine.apply(m_to_mm, inplace=True)
-    for dim in ("x", "y", "z"):
-        da.coords[dim].attrs["units"] = "mm"
+    da.fusi.affine.set_units("mm", inplace=True)
 
     return da
 

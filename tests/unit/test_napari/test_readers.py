@@ -200,11 +200,6 @@ class TestReaderLayerData:
                     [0.0, 0.0, 0.0, 1.0],
                 ]
             ),
-            world_coord_attrs={
-                "z": {"units": "mm"},
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
         )
         path = tmp_path / "time_last.zarr"
         save(da, path)
@@ -266,11 +261,6 @@ class TestReaderLayerData:
         data = attach_voxel_to_world_index(
             data,
             np.diag([0.4, 0.3, 0.25, 1.0]),
-            world_coord_attrs={
-                "z": {"units": "mm"},
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
         )
         path = tmp_path / "axis_aligned_cti.zarr"
         save(data, path)

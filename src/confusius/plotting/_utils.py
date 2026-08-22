@@ -16,7 +16,6 @@ from confusius._utils.geometry import (
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
     require_scalar_pose_affine,
-    update_voxel_to_world_coord_attrs,
 )
 from confusius._utils.stack import find_stack_level
 
@@ -385,14 +384,6 @@ def resample_to_axis_aligned_world_grid(
             fill_value=fill_value,
         )
 
-    # `resample_volume`/`resample_like` always build indexed VoxelData output;
-    # carry over the source world coordinates' attrs (units, etc.)
-    # via the index-aware helper rather than a direct `.attrs =` assignment, since
-    # the world coordinates here are index-derived and a plain mutation would be
-    # silently discarded by the next operation that touches the index.
-    result = update_voxel_to_world_coord_attrs(
-        result, {dim: dict(data.coords[dim].attrs) for dim in world_dims}
-    )
     return result
 
 

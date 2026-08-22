@@ -158,22 +158,20 @@ class VoxelToWorldIndex(Index):
         Index wrapping a [VoxelToWorldTransform][confusius._utils.geometry.VoxelToWorldTransform].
     voxel_to_world : numpy.typing.ArrayLike
         Homogeneous voxel-to-world affine.
-    world_coord_attrs : mapping[Any, mapping[str, Any]], optional
-        Attributes to attach to the derived world coordinates, keyed by world
-        coordinate name.
+    units : str, default: "mm"
+        Physical unit shared by every derived world coordinate (`z`/`y`/`x` are always
+        expressed in the same unit, since they're derived jointly from one affine).
     """
 
     def __init__(
         self,
         index: CoordinateTransformIndex,
         voxel_to_world: npt.ArrayLike,
-        world_coord_attrs: Mapping[Any, Mapping[str, Any]] | None = None,
+        units: str = "mm",
     ) -> None:
         self._index = index
         self.voxel_to_world = np.asarray(voxel_to_world, dtype=np.float64)
-        self.world_coord_attrs = {
-            name: dict(attrs) for name, attrs in (world_coord_attrs or {}).items()
-        }
+        self.units = units
 
     @property
     def voxel_dims(self) -> tuple[str, ...]:
@@ -256,7 +254,7 @@ class VoxelToWorldIndex(Index):
         voxel_to_world: npt.ArrayLike,
         *,
         world_coord_names: tuple[Hashable, ...] | None = None,
-        world_coord_attrs: Mapping[Any, Mapping[str, Any]] | None = None,
+        units: str = "mm",
         pose_coord: npt.ArrayLike | None = None,
     ) -> Self:
         """Create a voxel-to-world index from an affine.
@@ -273,9 +271,8 @@ class VoxelToWorldIndex(Index):
         world_coord_names : tuple[Hashable, ...], optional
             Names of the world-space coordinates exposed by the index. If not
             provided, defaults to `("z", "y", "x")` for 3D and `("y", "x")` for 2D.
-        world_coord_attrs : mapping[Any, mapping[str, Any]], optional
-            Attributes to attach to the derived world coordinates, keyed by world
-            coordinate name.
+        units : str, default: "mm"
+            Physical unit shared by every derived world coordinate.
         pose_coord : numpy.typing.ArrayLike, optional
             1D pose coordinate labels. Required when `voxel_to_world` is a stack of
             affines (one per pose); must be left unset otherwise.
@@ -299,7 +296,7 @@ class VoxelToWorldIndex(Index):
         return cls(
             CoordinateTransformIndex(transform),
             affine,
-            world_coord_attrs=world_coord_attrs,
+            units=units,
         )
 
     def create_variables(
@@ -319,9 +316,12 @@ class VoxelToWorldIndex(Index):
             `pose`, which this index does not own -- see the class docstring.
         """
         new_variables = dict(self._index.create_variables())
-        for name, attrs in self.world_coord_attrs.items():
-            if name in new_variables:
-                new_variables[name].attrs.update(attrs)
+        # Always regenerated from self.units, never merged with whatever the
+        # variable's own attrs happened to hold before -- this is what keeps units
+        # correct even after an xarray operation (e.g. a broadcasting xr.where) that
+        # rebuilds the variable without properly re-deriving it from this index.
+        for variable in new_variables.values():
+            variable.attrs["units"] = self.units
         return new_variables
 
     def rename(
@@ -369,14 +369,10 @@ class VoxelToWorldIndex(Index):
             all_dims=tuple(_rename_dim(dim) for dim in transform._all_dims),
             pose_coord=transform.pose_coord,
         )
-        new_world_coord_attrs = {
-            name_dict.get(name, name): attrs
-            for name, attrs in self.world_coord_attrs.items()
-        }
         return type(self)(
             CoordinateTransformIndex(new_transform),
             self.voxel_to_world,
-            world_coord_attrs=new_world_coord_attrs,
+            units=self.units,
         )
 
     def isel(
@@ -406,7 +402,7 @@ class VoxelToWorldIndex(Index):
         return type(self)(
             CoordinateTransformIndex(new_transform),
             new_transform.voxel_to_world,
-            world_coord_attrs=self.world_coord_attrs,
+            units=self.units,
         )
 
     def sel(
@@ -718,7 +714,7 @@ class VoxelToWorldIndex(Index):
         return cls(
             CoordinateTransformIndex(new_transform),
             new_affine,
-            world_coord_attrs=first_index.world_coord_attrs,
+            units=first_index.units,
         )
 
 
@@ -1157,17 +1153,14 @@ def attach_voxel_to_world_index(
     data: xr.DataArray,
     voxel_to_world: npt.ArrayLike,
     *,
-    world_coord_attrs: Mapping[Any, Mapping[str, Any]] | None = None,
+    units: str = "mm",
 ) -> xr.DataArray:
     """Attach world coordinates to a DataArray, making it a VoxelData array.
 
     Voxel dimensions are the native voxel names (`k`/`j`/`i`) present on `data`, in
     canonical affine input-space column order; each gets the matching fixed world
     coordinate name (`k`→`z`, `j`→`y`, `i`→`x`), so e.g. a `(k, i)` DataArray gets
-    `z`/`x` world coordinates, not `z`/`y`. Each derived world coordinate always ends
-    up with a `units` (`"mm"`, the project-wide world-coordinate unit) attr;
-    `world_coord_attrs` can override it, and any value left unset there is filled in
-    with this default.
+    `z`/`x` world coordinates, not `z`/`y`.
 
     Parameters
     ----------
@@ -1179,10 +1172,8 @@ def attach_voxel_to_world_index(
         coordinates, or a stack of one such affine per pose. A stack requires `data`
         to have a matching `pose` dimension with a 1D coordinate; a single affine
         applies to every pose (or to no pose dimension at all).
-    world_coord_attrs : mapping[str, mapping[str, Any]], optional
-        Attributes to attach to the derived world coordinates, keyed by world
-        coordinate name. `units` is filled in with its default (`"mm"`) for any
-        coordinate that doesn't specify it here.
+    units : str, default: "mm"
+        Physical unit shared by every derived world coordinate.
 
     Returns
     -------
@@ -1258,7 +1249,7 @@ def attach_voxel_to_world_index(
         voxel_coords,
         voxel_to_world_array,
         world_coord_names=world_coord_names,
-        world_coord_attrs=world_coord_attrs,
+        units=units,
         pose_coord=pose_coord,
     )
     result = base.assign_coords(xr.Coordinates.from_xindex(index))
@@ -1268,53 +1259,6 @@ def attach_voxel_to_world_index(
         # it its own default index automatically, exactly like k/j/i.
         result = result.assign_coords({POSE_DIM: (POSE_DIM, pose_coord)})
 
-    if world_coord_attrs is not None:
-        for name, attrs in world_coord_attrs.items():
-            if name in result.coords:
-                result.coords[name].attrs.update(dict(attrs))
-
-    for name in world_coord_names:
-        # world_coord_names is exactly the set of names index just registered on
-        # result via from_affine/create_variables, so name is always present here.
-        if "units" not in result.coords[name].attrs:
-            result.coords[name].attrs["units"] = "mm"
-            index.world_coord_attrs.setdefault(name, {})["units"] = "mm"
-
-    return result
-
-
-def update_voxel_to_world_coord_attrs(
-    data: xr.DataArray, attrs_by_name: Mapping[Hashable, Mapping[str, Any]]
-) -> xr.DataArray:
-    """Update attrs on `data`'s index-derived world coordinates.
-
-    World coordinates are index-derived: any operation that touches the index (e.g.
-    `.assign_coords()` on an unrelated coordinate) re-derives them from the
-    `VoxelToWorldIndex`'s own stored `world_coord_attrs`, silently discarding a plain
-    in-place `data.coords[name].attrs[...] = ...` mutation the next time that happens.
-    This updates both the coordinate's own attrs and the index's stored copy, so the
-    update survives.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        DataArray to update. Must carry a voxel-to-world index.
-    attrs_by_name : mapping[Hashable, mapping[str, Any]]
-        Attrs to merge in, keyed by world coordinate name.
-
-    Returns
-    -------
-    xarray.DataArray
-        `data` with the given attrs merged into each named world coordinate, on both
-        the coordinate itself and the underlying index.
-    """
-    result = data.copy()
-    for index in _collect_voxel_to_world_indexes(result):
-        for name, attrs in attrs_by_name.items():
-            if name not in result.coords:
-                continue
-            result.coords[name].attrs.update(attrs)
-            index.world_coord_attrs.setdefault(name, {}).update(attrs)
     return result
 
 
@@ -1432,21 +1376,40 @@ def get_voxel_to_world_affine(data: xr.DataArray) -> npt.NDArray[np.float64]:
     ValueError
         If `data` does not carry voxel-to-world geometry.
     """
-    indexes = _collect_voxel_to_world_indexes(data)
-    active_dims = tuple(dim for index in indexes for dim in index.voxel_dims)
-    if (
-        len(active_dims) not in {2, 3}
-        or len(set(active_dims)) != len(active_dims)
-        or not set(active_dims).issubset(set(VOXEL_DIMS))
-    ):
+    if not has_voxel_to_world_index(data):
         raise ValueError("DataArray must have a voxel-to-world index.")
-    index = indexes[0]
+    index = _collect_voxel_to_world_indexes(data)[0]
     return _fold_fixed_dims_into_affine(
         index.voxel_to_world,
         index.all_voxel_dims,
         index.voxel_dims,
         index.fixed_voxel_coords,
     )
+
+
+def get_voxel_to_world_units(data: xr.DataArray) -> str:
+    """Return the physical unit shared by the DataArray's world coordinates.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array.
+
+    Returns
+    -------
+    str
+        Physical unit (e.g. `"mm"`) shared by every world coordinate (`z`/`y`/`x` are
+        always expressed in the same unit, since they're derived jointly from one
+        affine).
+
+    Raises
+    ------
+    ValueError
+        If `data` does not carry voxel-to-world geometry.
+    """
+    if not has_voxel_to_world_index(data):
+        raise ValueError("DataArray must have a voxel-to-world index.")
+    return _collect_voxel_to_world_indexes(data)[0].units
 
 
 def restore_voxel_to_world_index(data: xr.DataArray) -> xr.DataArray:
@@ -1477,14 +1440,8 @@ def restore_voxel_to_world_index(data: xr.DataArray) -> xr.DataArray:
             dim not in data.dims or data.coords[dim].dims != (dim,) for dim in all_dims
         ):
             continue
-        world_coord_names = index.world_coord_names
-        world_coord_attrs: dict[Hashable, Mapping[str, Any]] = {
-            name: dict(data.coords[name].attrs)
-            for name in world_coord_names
-            if name in data.coords
-        }
         return attach_voxel_to_world_index(
-            data, index.voxel_to_world, world_coord_attrs=world_coord_attrs
+            data, index.voxel_to_world, units=index.units
         )
     return data
 

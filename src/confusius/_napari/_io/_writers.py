@@ -31,8 +31,8 @@ if TYPE_CHECKING:
     import xarray as xr
 
 
-def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArray:
-    """Reconstruct a ConfUSIus DataArray from raw napari layer properties.
+def _convert_layer_to_voxeldata(data: Any, meta: dict[str, Any]) -> xr.DataArray:
+    """Reconstruct a VoxelData array from raw napari layer properties.
 
     Builds uniform coordinates for each dimension using `scale` (spacing) and
     `translate` (origin) from the napari layer state. `axis_labels` and `units` are used
@@ -49,11 +49,15 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     Returns
     -------
     xarray.DataArray
-        DataArray with world coordinates derived from the layer state.
+        VoxelData array with world coordinates derived from the layer state.
     """
     import xarray as xr
 
-    ndim = np.asarray(data).ndim
+    from confusius._dims import VOXEL_DIMS
+    from confusius.xarray import create_voxeldata
+
+    data_array = np.asarray(data)
+    ndim = data_array.ndim
 
     _default_dims: dict[int, tuple[str, ...]] = {
         1: SPATIAL_DIMS[-1:],  # ("x",)
@@ -69,105 +73,78 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     else:
         axis_labels = _default_dims.get(ndim, tuple(f"dim{i}" for i in range(ndim)))
 
-    scale: list[float] = list(meta.get("scale") or ([1.0] * ndim))
-    translate: list[float] = list(meta.get("translate") or ([0.0] * ndim))
+    scale = list(meta.get("scale") or [1.0] * ndim)
+    translate = list(meta.get("translate") or [0.0] * ndim)
 
     # Napari may pass pint Unit objects rather than strings. Convert to str and treat
     # non-physical units ('pixel') as absent.
-    raw_units = meta.get("units") or ([None] * ndim)
+    raw_units = meta.get("units") or [None] * ndim
     units: list[str | None] = [
         None if u is None or str(u) in _NAPARI_NON_PHYSICAL_UNITS else str(u)
         for u in raw_units
     ]
 
-    data_array = np.asarray(data)
-    voxel_to_world_name = {"k": "z", "j": "y", "i": "x"}
-    world_to_voxel_name = {v: k for k, v in voxel_to_world_name.items()}
+    voxel_to_world_name = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
+    world_to_voxel_name = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
+    spatial_scale = dict.fromkeys(VOXEL_DIMS, 1.0)
+    spatial_translate = dict.fromkeys(VOXEL_DIMS, 0.0)
+    spatial_units: list[str] = []
+    dims: list[str] = []
+    extra_coords: dict[str, xr.DataArray] = {}
+    time_coord: xr.DataArray | None = None
 
-    axis_specs: list[tuple[str, str, int, float, float, dict[str, Any]]] = []
-    for axis, dim in enumerate(axis_labels):
-        n = data_array.shape[axis]
-        if dim in world_to_voxel_name:
-            result_dim = world_to_voxel_name[dim]
-            world_name = dim
-        elif dim in voxel_to_world_name:
-            result_dim = dim
-            world_name = voxel_to_world_name[dim]
-        else:
-            result_dim = dim
-            world_name = ""
+    for axis, label in enumerate(axis_labels):
+        dim = world_to_voxel_name.get(label, label)
+        unit = units[axis]
+        if dim in voxel_to_world_name:
+            dims.append(dim)
+            spatial_scale[dim] = float(scale[axis])
+            spatial_translate[dim] = float(translate[axis])
+            if unit is not None:
+                spatial_units.append(unit)
+            continue
 
-        attrs: dict[str, Any] = {}
-        if units[axis] is not None:
-            attrs["units"] = units[axis]
-        axis_specs.append(
-            (
-                result_dim,
-                world_name,
-                n,
-                float(scale[axis]),
-                float(translate[axis]),
-                attrs,
-            )
+        dims.append(label)
+        attrs = {"units": unit} if unit is not None else {}
+        coord = xr.DataArray(
+            float(translate[axis])
+            + np.arange(data_array.shape[axis]) * float(scale[axis]),
+            dims=[label],
+            attrs=attrs,
         )
-
-    # A voxel-to-world index requires at least 2 active voxel dims; a single
-    # recognized world dim (e.g. a 1D napari labels layer) falls back to a plain
-    # coordinate below.
-    build_voxel_to_world_index = sum(1 for spec in axis_specs if spec[1]) >= 2
-
-    result_dims: list[str] = []
-    coords: dict[str, xr.DataArray] = {}
-    voxel_dims: list[str] = []
-    affine_scales: list[float] = []
-    affine_translates: list[float] = []
-    world_attrs: dict[str, dict[str, Any]] = {}
-
-    for result_dim, world_name, n, axis_scale, axis_translate, attrs in axis_specs:
-        if world_name and build_voxel_to_world_index:
-            result_dims.append(result_dim)
-            coords[result_dim] = xr.DataArray(np.arange(n), dims=[result_dim])
-            voxel_dims.append(result_dim)
-            affine_scales.append(axis_scale)
-            affine_translates.append(axis_translate)
-            world_attrs[world_name] = attrs
+        if label == TIME_DIM:
+            time_coord = coord
         else:
-            final_dim = world_name or result_dim
-            result_dims.append(final_dim)
-            coord_values = axis_translate + np.arange(n) * axis_scale
-            coords[final_dim] = xr.DataArray(
-                coord_values, dims=[final_dim], attrs=attrs
-            )
+            extra_coords[label] = coord
 
-    result = xr.DataArray(data_array, dims=result_dims, coords=coords)
-    if not voxel_dims:
-        return result
+    if len(set(spatial_units)) > 1:
+        raise ValueError(
+            "Voxel axis units must match because VoxelData has one shared world "
+            f"unit, got {tuple(spatial_units)!r}."
+        )
+    world_units = spatial_units[0] if spatial_units else "mm"
 
-    from confusius._dims import VOXEL_DIMS
-    from confusius._utils.geometry import attach_voxel_to_world_index
+    affine = np.eye(4, dtype=float)
+    for index, dim in enumerate(VOXEL_DIMS):
+        affine[index, index] = spatial_scale[dim]
+        affine[index, -1] = spatial_translate[dim]
 
-    # `voxel_dims`/`world_names`/the affine scale-translate lists are in the layer's
-    # own (possibly non-canonical) axis order at this point; attach_voxel_to_world_index
-    # always derives voxel dims in canonical k/j/i order, so the affine columns must be
-    # reordered to match before building it.
-    canonical_order = [voxel_dims.index(dim) for dim in VOXEL_DIMS if dim in voxel_dims]
-    affine_scales = [affine_scales[i] for i in canonical_order]
-    affine_translates = [affine_translates[i] for i in canonical_order]
-
-    affine = np.eye(len(voxel_dims) + 1, dtype=float)
-    affine[:-1, :-1] = np.diag(affine_scales)
-    affine[:-1, -1] = affine_translates
-    return attach_voxel_to_world_index(result, affine, world_coord_attrs=world_attrs)
+    return create_voxeldata(
+        data_array,
+        dims=dims,
+        extra_coords=extra_coords,
+        time=time_coord,
+        voxel_to_world=affine,
+        units=world_units,
+    )
 
 
-def _get_or_compute_dataarray_from_layer(
-    data: Any, meta: dict[str, Any]
-) -> xr.DataArray:
+def _get_or_convert_layer_to_voxeldata(data: Any, meta: dict[str, Any]) -> xr.DataArray:
     """Return a ConfUSIus DataArray for the given napari layer.
 
     Uses the original DataArray stored in `meta["metadata"]["xarray"]` when available
     (layers loaded via the ConfUSIus reader). Falls back to
-    [`_compute_dataarray_from_layer`][confusius._writers._compute_dataarray_from_layer]
+    [`_convert_layer_to_voxeldata`][confusius._napari._io._writers._convert_layer_to_voxeldata]
     otherwise (e.g. user-drawn labels layers).
 
     Parameters
@@ -187,7 +164,7 @@ def _get_or_compute_dataarray_from_layer(
         da = meta.get("metadata", {}).get("xarray")
     if da is not None:
         return da
-    return _compute_dataarray_from_layer(data, meta)
+    return _convert_layer_to_voxeldata(data, meta)
 
 
 def write_nifti(path: str, data: Any, meta: dict[str, Any]) -> list[str]:
@@ -218,7 +195,7 @@ def write_nifti(path: str, data: Any, meta: dict[str, Any]) -> list[str]:
     """
     from confusius.io import save
 
-    da = _get_or_compute_dataarray_from_layer(data, meta)
+    da = _get_or_convert_layer_to_voxeldata(data, meta)
     save(da, path)
     return [path]
 
@@ -248,6 +225,6 @@ def write_zarr(path: str, data: Any, meta: dict[str, Any]) -> list[str]:
     """
     from confusius.io import save
 
-    da = _get_or_compute_dataarray_from_layer(data, meta)
+    da = _get_or_convert_layer_to_voxeldata(data, meta)
     save(da, path)
     return [path]

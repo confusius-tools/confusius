@@ -7,7 +7,7 @@ import xarray as xr
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
 )
 from confusius.extract import extract_with_mask, unmask
 
@@ -103,10 +103,7 @@ def test_extract_with_mask_rejects_misaligned_coordinates(
     mask = attach_voxel_to_world_index(
         mask.drop_vars(("z", "y", "x")),
         shifted_affine,
-        world_coord_attrs={
-            name: dict(sample_voxeldata_3dt.coords[name].attrs)
-            for name in get_voxel_to_world_coord_names(sample_voxeldata_3dt)
-        },
+        units=get_voxel_to_world_units(sample_voxeldata_3dt),
     )
 
     with pytest.raises(ValueError, match="does not share data's voxel grid"):

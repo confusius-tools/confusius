@@ -100,12 +100,7 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
 def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
     """Attach test voxel-to-world geometry to a k/j/i DataArray."""
     voxel_dims = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
-    world_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
-    return attach_voxel_to_world_index(
-        data,
-        np.eye(len(voxel_dims) + 1),
-        world_coord_attrs={name: {"units": "mm"} for name in world_names},
-    )
+    return attach_voxel_to_world_index(data, np.eye(len(voxel_dims) + 1))
 
 
 @pytest.fixture
@@ -3504,18 +3499,14 @@ class TestRoundtrip:
 
     def test_roundtrip_preserves_units(self, tmp_path, sample_voxeldata_3d):
         """Spatial units survive a save/load roundtrip."""
-        da = sample_voxeldata_3d.drop_vars("time").copy()
-        for dim in ("z", "y", "x"):
-            da.coords[dim].attrs["units"] = "um"
+        da = sample_voxeldata_3d.drop_vars("time").fusi.affine.set_units("um")
 
         nifti_path = tmp_path / "units_roundtrip.nii.gz"
         save_nifti(da, nifti_path)
 
         loaded = load_nifti(nifti_path)
 
-        assert loaded.coords["z"].attrs["units"] == "um"
-        assert loaded.coords["y"].attrs["units"] == "um"
-        assert loaded.coords["x"].attrs["units"] == "um"
+        assert loaded.fusi.affine.units == "um"
 
     def test_load_nii_uncompressed_with_sidecar(self, tmp_path):
         """load_nifti reads an uncompressed .nii file and merges its JSON sidecar."""
@@ -3611,11 +3602,3 @@ class TestRoundtrip:
         assert sidecar["ConfUSIusBmodeIntegrationDuration"] == pytest.approx(0.1)
         assert sidecar["ConfUSIusBmodeIntegrationStride"] == pytest.approx(0.06)
 
-    def test_save_warns_on_inconsistent_spatial_units(self, tmp_path, sample_voxeldata_3d):
-        """Saving warns when spatial dimensions have different units."""
-        da = sample_voxeldata_3d.drop_vars("time").copy()
-        da.coords["x"].attrs["units"] = "m"
-
-        nifti_path = tmp_path / "mixed_units.nii.gz"
-        with pytest.warns(UserWarning, match="different units"):
-            save_nifti(da, nifti_path)

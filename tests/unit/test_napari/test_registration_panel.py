@@ -443,11 +443,6 @@ class TestRunRegistration:
             time=np.arange(2),
             spacing=(0.3, 0.2, 0.1),
             origin=(1.0, 2.0, 3.0),
-            world_coord_attrs={
-                "z": {"units": "mm"},
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
         )
         fixed = create_voxeldata(
             np.zeros((3, 5, 7), dtype=np.float32),

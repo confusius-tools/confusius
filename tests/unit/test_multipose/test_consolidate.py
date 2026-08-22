@@ -344,8 +344,7 @@ class TestConsolidatePoses:
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
             voxel_to_world=affines @ spacing_diag,
-        )
-        da.coords[{"k": "z", "j": "y", "i": "x"}[sweep_dim]].attrs["units"] = sweep_unit
+        ).fusi.affine.set_units(sweep_unit)
 
         result = consolidate_poses(da)
 

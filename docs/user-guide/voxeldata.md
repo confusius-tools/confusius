@@ -21,8 +21,8 @@ A **VoxelData array** is a DataArray that satisfies the following requirements:
    [**`VoxelToWorldIndex`**](https://docs.xarray.dev/en/stable/user-guide/indexing.html)
    attached to the world coordinates `(z, y, x)`, which it derives either from `(pose,
    k, j, i)` through one voxel-to-world affine transformation per pose.
-3. Metadata `units` on each world coordinate and `units`,
-   `volume_acquisition_reference`, and `volume_acquisition_duration` on `time`.
+3. Attributes `units`, `volume_acquisition_reference`, and `volume_acquisition_duration`
+   on `time`.
 
 ### Dimension Ordering: `(..., time, pose, k, j, i)`
 
@@ -75,11 +75,30 @@ This ordering pays off beyond the NumPy memory layout above:
 The `units`, `volume_acquisition_reference`, and `volume_acquisition_duration`
 attributes from requirement 3 above have the following meanings:
 
-| Attribute | Lives on | Meaning |
-|---|---|---|
-| `units` | `x`/`y`/`z`/`time` | Physical unit of the coordinate values (`"mm"` and `"s"` are typical). |
-| `volume_acquisition_reference` | `time` | Which point of the acquisition window each `time` value marks: `"start"`, `"center"`, or `"end"`. |
-| `volume_acquisition_duration` | `time` | Duration to acquire the whole `(k, j, i)` grid, in the same units as `time`. |
+| Attribute | Meaning |
+|---|---|
+| `units` | Physical unit of the `time` coordinate values (`"s"` is typical). |
+| `volume_acquisition_reference` | Which point of the acquisition window each `time` value marks: `"start"`, `"center"`, or `"end"`. |
+| `volume_acquisition_duration` | Duration to acquire the whole `(k, j, i)` grid, in the same units as `time`. |
+
+Additionally, the `VoxelToWorldIndex` attached to `(z, y, x)` carries its own `units`
+attribute, which is the physical unit of the world coordinates (millimeters is typical).
+It is accessed through the
+[`.fusi.affine.units`][confusius.xarray.FUSIAffineAccessor.units] property and set with
+[`.fusi.affine.set_units(...)`][confusius.xarray.FUSIAffineAccessor.set_units].
+
+!!! warning "Don't set attributes on world coordinates directly"
+    World coordinates `(z, y, x)` are always derived fresh from the
+    `VoxelToWorldIndex`; any operation that touches the index (`.isel`,
+    `.assign_coords`, etc.) regenerates them, including their `.attrs`, from the index's
+    own state. Mutating `data.coords["z"].attrs[...]` directly is unsupported: the
+    mutation is silently discarded the next time the coordinate is rebuilt. The index
+    does write `units` onto each world coordinate's `.attrs` too, purely so external
+    packages that read it from there still see it — but some xarray operations that
+    combine several arrays (e.g. `xr.where`, which only keeps attrs from its `x`
+    argument) can drop that copy from the result without touching the index's own
+    `units`. Always trust `.fusi.affine.units`, never `.coords["z"].attrs["units"]`,
+    when correctness matters.
 
 ### Creating and Validating VoxelData Arrays
 
@@ -238,10 +257,10 @@ The world space is defined by the DataArray's voxel-to-world affine transformati
 transformations, for multi-pose data) contained in the `VoxelToWorldIndex` and exposed
 as coordinates `(x, y, z)`. For ordinary single-pose data these coordinates are arrays
 with shape `(k, j, i)`. For multi-pose data they are pose-dependent with shape `(pose,
-k, j, i)`, so selecting in world space requires a scalar `pose` first. The unit of the
-coordinates is stored in the `units` attribute of each coordinate array; millimeters are
-the usual default for fUSI recordings
-([`create_voxeldata`][confusius.xarray.create_voxeldata]'s default).
+k, j, i)`, so selecting in world space requires a scalar `pose` first. The unit shared
+by `x`/`y`/`z` is exposed as `data.fusi.affine.units` and set with
+`data.fusi.affine.set_units(...)`; millimeters are the usual default for fUSI
+recordings.
 
 !!! warning "Units are not enforced"
     ConfUSIus does not check or convert between units across its APIs—`units` is

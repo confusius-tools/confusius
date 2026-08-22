@@ -8,7 +8,10 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.geometry import get_voxel_to_world_affine
+from confusius._utils.geometry import (
+    get_voxel_to_world_affine,
+    get_voxel_to_world_units,
+)
 from confusius._utils.stack import find_stack_level
 from confusius.iq._utils import ensure_iq_voxeldata
 from confusius.iq.clutter_filters import (
@@ -117,13 +120,9 @@ def _attach_iq_output_geometry(
         j=iq.coords["j"],
         i=iq.coords["i"],
         voxel_to_world=get_voxel_to_world_affine(iq),
+        units=get_voxel_to_world_units(iq),
         name=name,
         attrs=attrs,
-        world_coord_attrs={
-            coord: iq.coords[coord].attrs
-            for coord in ("z", "y", "x")
-            if coord in iq.coords
-        },
     ).assign_coords(time=time)
 
 

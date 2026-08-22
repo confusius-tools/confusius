@@ -189,16 +189,10 @@ def _reconstruct_layer_dataarray(layer: Layer) -> xr.DataArray:
     voxel_to_world = np.eye(len(VOXEL_DIMS) + 1)
     voxel_to_world[: len(VOXEL_DIMS), : len(VOXEL_DIMS)] = np.diag(padded_scale)
     voxel_to_world[: len(VOXEL_DIMS), len(VOXEL_DIMS)] = padded_translate
-    world_coord_attrs = {
-        dim: {"units": unit}
-        for dim, unit in zip(SPATIAL_DIMS, padded_units, strict=True)
-        if unit is not None
-    }
-    return attach_voxel_to_world_index(
-        da,
-        voxel_to_world,
-        world_coord_attrs=world_coord_attrs,
-    )
+    # napari layers can carry per-axis units, but ConfUSIus's world space has a
+    # single shared unit; use the first one a voxel axis declares.
+    world_units = next((unit for unit in padded_units if unit is not None), "mm")
+    return attach_voxel_to_world_index(da, voxel_to_world, units=world_units)
 
 
 def _is_registration_source_layer(layer: Layer) -> bool:

@@ -24,11 +24,10 @@ NumPy arrays:
   your data.
 - **Unified API**: Use the same operations regardless of the underlying storage format.
 
-Every loader in this guide returns **VoxelData arrays**: DataArrays with trailing
-`k`/`j`/`i` voxel dimensions backed by a `VoxelToWorldIndex`, which derives world
-coordinates `z`/`y`/`x` (in millimeters) from voxel-to-world affine transformations.
-World coordinates are never stored directly—they're always this index's output. See
-[The VoxelData Model](voxeldata.md) for details on the coordinate model.
+Every loader in this guide returns **VoxelData arrays**: DataArrays with `(k, j, i)`
+voxel dimensions backed by a `VoxelToWorldIndex`, which derives world coordinates `(z,
+y, x)` from voxel-to-world affine transformations. See [The VoxelData
+Model](voxeldata.md) for details on the coordinate model.
 
 ### Xarray-Compatible Formats
 
@@ -515,8 +514,8 @@ Zarr for more efficient processing.
 
     - `iq`: Beamformed IQ data with native dimensions `(time, k, j, i)`.
     - `time`, `k`, `j`, `i`: Native time and voxel-space dimension coordinates.
-    - `voxel_to_world` and `world_coord_attrs`: Attributes on `iq` used to restore the
-      `VoxelToWorldIndex` and derive `z`/`y`/`x` world coordinates.
+    - `voxel_to_world` and `voxel_to_world_units`: Attributes on `iq` used to restore
+      the `VoxelToWorldIndex` and derive `z`/`y`/`x` world coordinates.
     - Metadata attributes (e.g., `transmit_frequency`, `plane_wave_angles`)
       as provided via keyword arguments.
 
@@ -546,8 +545,8 @@ Zarr for more efficient processing.
 
     - `iq`: Beamformed IQ data with native dimensions `(time, k, j, i)`.
     - `time`, `k`, `j`, `i`: Native time and voxel-space dimension coordinates.
-    - `voxel_to_world` and `world_coord_attrs`: Attributes on `iq` used to restore the
-      `VoxelToWorldIndex` and derive `z`/`y`/`x` world coordinates.
+    - `voxel_to_world` and `voxel_to_world_units`: Attributes on `iq` used to restore
+      the `VoxelToWorldIndex` and derive `z`/`y`/`x` world coordinates.
     - Metadata attributes (e.g., `transmit_frequency`, `plane_wave_angles`)
       as extracted from the metadata file.
 

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 from confusius._dims import TIME_DIM, VOXEL_DIMS
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.io._utils import make_attrs_zarr_safe
@@ -515,7 +515,7 @@ def convert_echoframe_dat_to_zarr(
     The group contains:
 
     - `iq`: The main data array with dimensions `(time, k, j, i)`. Voxel-to-world
-      geometry is stored as `attrs["voxel_to_world"]`/`attrs["world_coord_attrs"]`
+      geometry is stored as `attrs["voxel_to_world"]`/`attrs["voxel_to_world_units"]`
       rather than dense `z`/`y`/`x` coordinate arrays.
     - `time`: Time coordinate array.
     - `k`: Elevation voxel coordinate array (always `[0]` for 2D data).
@@ -610,14 +610,11 @@ def convert_echoframe_dat_to_zarr(
         )
         zarr_group[dim].attrs.update(iq_da.coords[dim].attrs)
 
-    world_coord_names = get_voxel_to_world_coord_names(iq_da)
     iq_attrs = {
         key: value for key, value in iq_da.attrs.items() if key != "n_volumes_per_block"
     }
     iq_attrs["voxel_to_world"] = get_voxel_to_world_affine(iq_da)
-    iq_attrs["world_coord_attrs"] = {
-        name: dict(iq_da.coords[name].attrs) for name in world_coord_names
-    }
+    iq_attrs["voxel_to_world_units"] = get_voxel_to_world_units(iq_da)
     zarr_iq.attrs.update(make_attrs_zarr_safe(iq_attrs))
 
     first_block = skip_first_blocks

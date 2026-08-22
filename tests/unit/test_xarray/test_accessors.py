@@ -35,11 +35,6 @@ def _make_voxel_to_world_volume() -> xr.DataArray:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         ),
-        world_coord_attrs={
-            "z": {"units": "mm"},
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
-        },
     )
 
 
@@ -474,6 +469,19 @@ class TestReindexVoxels:
         with pytest.raises(ValueError, match="spacing is undefined"):
             data.fusi.affine.reindex_voxels()
 
+    def test_inplace_updates_and_returns_same_object(self):
+        """inplace=True mutates and returns the original DataArray."""
+        data = _make_voxel_to_world_volume()
+        cropped = data.isel(k=slice(1, 2), j=slice(1, 3), i=slice(2, 4))
+
+        returned = cropped.fusi.affine.reindex_voxels(inplace=True)
+
+        assert returned is cropped
+        for dim in ("k", "j", "i"):
+            np.testing.assert_array_equal(
+                cropped.coords[dim].values, np.arange(cropped.sizes[dim], dtype=float)
+            )
+
 
 class TestReindexVoxelsLike:
     """Tests for fusi.reindex_voxels_like."""
@@ -489,15 +497,7 @@ class TestReindexVoxelsLike:
                 "i": np.arange(20),
             },
         )
-        base = attach_voxel_to_world_index(
-            base,
-            np.diag([1.0, 1.0, 1.0, 1.0]),
-            world_coord_attrs={
-                "z": {"units": "mm"},
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
-        )
+        base = attach_voxel_to_world_index(base, np.diag([1.0, 1.0, 1.0, 1.0]))
         return base.isel(k=slice(1, 3), j=slice(2, 10, 2), i=slice(1, 15, 3))
 
     def test_relabels_onto_reference_voxel_coords(self):
@@ -588,6 +588,19 @@ class TestReindexVoxelsLike:
         with pytest.raises(ValueError, match="same voxel dimensions"):
             data_2d.fusi.affine.reindex_voxels_like(reference)
 
+    def test_inplace_updates_and_returns_same_object(self):
+        """inplace=True mutates and returns the original DataArray."""
+        reference = self._cropped_strided_reference()
+        data = reference.fusi.affine.reindex_voxels()
+
+        returned = data.fusi.affine.reindex_voxels_like(reference, inplace=True)
+
+        assert returned is data
+        for dim in ("k", "j", "i"):
+            np.testing.assert_array_equal(
+                data.coords[dim].values, reference.coords[dim].values
+            )
+
 
 class TestAffineSetVoxelToWorldMethod:
     """Tests for fusi.affine.set_voxel_to_world."""
@@ -632,6 +645,24 @@ class TestAffineSetVoxelToWorldMethod:
         assert returned is data
         np.testing.assert_allclose(get_voxel_to_world_affine(data), affine)
         assert data.coords["z"].isel(k=1, j=0, i=0).item() == pytest.approx(2.0)
+
+    def test_units_defaults_to_mm_for_first_attachment(self):
+        """`units` defaults to `"mm"` when the DataArray had no prior geometry."""
+        data = self._make_data()
+        result = data.fusi.affine.set_voxel_to_world(np.eye(4))
+        assert result.fusi.affine.units == "mm"
+
+    def test_units_carries_over_when_not_given(self):
+        """`units` defaults to the existing unit when replacing an affine."""
+        data = self._make_data().fusi.affine.set_voxel_to_world(np.eye(4), units="um")
+        result = data.fusi.affine.set_voxel_to_world(np.diag([2.0, 3.0, 4.0, 1.0]))
+        assert result.fusi.affine.units == "um"
+
+    def test_units_can_be_overridden(self):
+        """`units` replaces the existing unit when explicitly given."""
+        data = self._make_data().fusi.affine.set_voxel_to_world(np.eye(4), units="um")
+        result = data.fusi.affine.set_voxel_to_world(np.eye(4), units="mm")
+        assert result.fusi.affine.units == "mm"
 
 
 class TestAffineToMethod:

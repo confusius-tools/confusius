@@ -106,7 +106,7 @@ data_nmf = xr.concat(
 #   courses of shape `(time, component)`.
 
 # %%
-nmf_t = cf.decomposition.NMF(n_components=10, random_state=0, max_iter=500)
+nmf_t = cf.decomposition.NMF(n_components=10, random_state=0, max_iter=1000)
 signals = nmf_t.fit_transform(data_nmf)
 signals
 

@@ -88,14 +88,6 @@ Current development version for the next ConfUSIus release.
   `beamforming_sound_velocity` passed via `attrs` and validated using
   `require_velocity_attrs=True`
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
-- Spatial coordinates must carry `units` metadata, and so must `time` when present;
-  spacing along every spatial axis, including singleton dimensions, is always
-  derived from the voxel-to-world affine, never from separate coordinate metadata.
-  Scalar-indexed slices are recovered as singleton dimensions at relevant API
-  boundaries; use
-  [`create_voxeldata`][confusius.xarray.create_voxeldata] to add singleton
-  axes and coordinate metadata from raw 2D or 2D+t arrays
-  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
 - Removed [`consolidate_poses`][confusius.multipose.consolidate_poses]'s
   `sweep_dim` parameter. The swept voxel dimension is now always auto-detected
   from the per-pose voxel-to-world geometry (the pose-translation direction
@@ -103,6 +95,17 @@ Current development version for the next ConfUSIus release.
   isn't cleanly aligned with a single voxel dimension can never form the
   regular grid consolidation requires, so no override was needed
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+- World-space `units` moved off the `z`/`y`/`x` coordinates' `.attrs` onto
+  [`VoxelToWorldIndex`][confusius._utils.geometry.VoxelToWorldIndex] as a single
+  shared property, exposed via
+  [`data.fusi.affine.units`][confusius.xarray.FUSIAffineAccessor.units] and set with
+  [`data.fusi.affine.set_units`][confusius.xarray.FUSIAffineAccessor.set_units].
+  Setting `data.coords["z"].attrs["units"]` directly no longer has any effect — world
+  coordinates are always regenerated fresh from the index. `create_voxeldata`'s
+  `world_coord_attrs` parameter was replaced by a plain `units: str = "mm"`; Zarr's
+  `attrs["world_coord_attrs"]` round-trip key was renamed to
+  `attrs["voxel_to_world_units"]` (a single string)
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 
 ### :sparkles: Enhancements
 

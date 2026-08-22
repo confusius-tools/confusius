@@ -590,10 +590,6 @@ class TestProcessIqToPowerDoppler:
         iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 1.0]),
-            world_coord_attrs={
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
         )
         with pytest.raises(
             ValueError,
@@ -625,11 +621,6 @@ class TestProcessIqToPowerDoppler:
         iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 0.05, 1.0]),
-            world_coord_attrs={
-                "z": {"units": "mm"},
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
         )
         with pytest.raises(TypeError, match="Expected data dtype compatible"):
             process_iq_to_power_doppler(iq)
@@ -1312,10 +1303,6 @@ class TestProcessIqToBmode:
         iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 1.0]),
-            world_coord_attrs={
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
         )
         with pytest.raises(
             ValueError,
@@ -1347,11 +1334,6 @@ class TestProcessIqToBmode:
         iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 0.05, 1.0]),
-            world_coord_attrs={
-                "z": {"units": "mm"},
-                "y": {"units": "mm"},
-                "x": {"units": "mm"},
-            },
         )
         with pytest.raises(TypeError, match="Expected data dtype compatible"):
             process_iq_to_bmode(iq)

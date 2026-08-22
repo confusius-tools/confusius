@@ -7,7 +7,7 @@ import xarray as xr
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
 )
 from confusius.validation import validate_mask, validate_matching_coordinates
 
@@ -169,10 +169,7 @@ def test_validate_mask_accepts_scalar_attached_coordinate(sample_voxeldata_3dt):
     mask = attach_voxel_to_world_index(
         mask,
         get_voxel_to_world_affine(sample_voxeldata_3dt),
-        world_coord_attrs={
-            name: dict(sample_voxeldata_3dt.coords[name].attrs)
-            for name in get_voxel_to_world_coord_names(sample_voxeldata_3dt)
-        },
+        units=get_voxel_to_world_units(sample_voxeldata_3dt),
     )
     mask[0, 0, :, :] = 1
 
@@ -199,10 +196,7 @@ def test_validate_mask_rejects_noncanonical_mask(sample_voxeldata_3dt):
     mask = attach_voxel_to_world_index(
         mask,
         get_voxel_to_world_affine(sample_voxeldata_3dt),
-        world_coord_attrs={
-            name: dict(sample_voxeldata_3dt.coords[name].attrs)
-            for name in get_voxel_to_world_coord_names(sample_voxeldata_3dt)
-        },
+        units=get_voxel_to_world_units(sample_voxeldata_3dt),
     )
 
     with pytest.raises(ValueError, match="canonical ConfUSIus order"):

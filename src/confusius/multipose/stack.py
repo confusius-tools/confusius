@@ -9,7 +9,7 @@ from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
 )
 from confusius.validation import ensure_voxeldata
 
@@ -102,16 +102,12 @@ def stack_poses(
     promoted = []
     for da, label in zip(poses, pose_labels, strict=True):
         affine = get_voxel_to_world_affine(da)[np.newaxis]
-        world_coord_attrs = {
-            name: dict(da.coords[name].attrs)
-            for name in get_voxel_to_world_coord_names(da)
-        }
         expanded = da.expand_dims({POSE_DIM: [label]})
         if per_pose_time is not None:
             expanded = expanded.drop_vars(TIME_DIM)
         promoted.append(
             attach_voxel_to_world_index(
-                expanded, affine, world_coord_attrs=world_coord_attrs
+                expanded, affine, units=get_voxel_to_world_units(da)
             )
         )
 

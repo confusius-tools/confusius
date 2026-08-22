@@ -11,6 +11,7 @@ import xarray as xr
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
+    get_voxel_to_world_units,
 )
 from confusius.io.loadsave import load, save
 from confusius.xarray import create_voxeldata
@@ -313,16 +314,12 @@ class TestLoadZarr:
         for da in (power, iq):
             voxel_to_world = get_voxel_to_world_affine(da)
             world_coord_names = get_voxel_to_world_coord_names(da)
-            world_coord_attrs = {
-                name: dict(da.coords[name].attrs)
-                for name in world_coord_names
-                if name in da.coords
-            }
+            units = get_voxel_to_world_units(da)
             da = da.drop_vars(world_coord_names)
             da.attrs = {
                 **da.attrs,
                 "voxel_to_world": voxel_to_world,
-                "world_coord_attrs": world_coord_attrs,
+                "voxel_to_world_units": units,
             }
             variables[da.name] = da
         xr.Dataset(variables).to_zarr(path)
