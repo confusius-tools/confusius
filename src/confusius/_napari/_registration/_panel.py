@@ -31,7 +31,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._dims import SPATIAL_DIMS_WITH_POSE, TIME_DIM
+from confusius._dims import POSE_DIM, SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
 from confusius._napari._registration._metric_plotter import (
     RegistrationMetricPlotter,
 )
@@ -89,10 +89,6 @@ from confusius._napari._registration._progress import (
 from confusius._napari._registration._transform_payloads import (
     OutputGridPayload,
     TransformPayload,
-)
-from confusius._utils.coordinates import (
-    get_coordinate_origins,
-    get_coordinate_spacings_best_effort,
 )
 from confusius.registration import register_volume, register_volumewise
 
@@ -1406,6 +1402,11 @@ class RegistrationPanel(QWidget):
         The grid (spatial dims, shape, scale, and translate) is taken from the
         source DataArray of the layer selected in `reference_combo`, so the mask
         passes coordinate validation against that layer during registration.
+        `_get_source_dataarray` always returns VoxelData (a real ConfUSIus DataArray,
+        or a reconstruction that ends with `attach_voxel_to_world_index`), so scale
+        and translate are read from the `VoxelToWorldIndex` via
+        `.fusi.spacing`/`.fusi.origin` -- not from raw per-dimension coordinate
+        differences, which would silently be wrong for an oblique affine.
 
         Parameters
         ----------
@@ -1424,15 +1425,27 @@ class RegistrationPanel(QWidget):
             self._set_error(str(exc))
             return
 
-        dims = tuple(str(d) for d in source.dims if d in SPATIAL_DIMS_WITH_POSE)
+        dims = tuple(
+            str(d) for d in source.dims if d in (POSE_DIM, *VOXEL_DIMS, *SPATIAL_DIMS)
+        )
         if not dims:
             self._set_error(f"Layer {layer.name!r} has no spatial dimensions.")
             return
-        spacings, _ = get_coordinate_spacings_best_effort(source)
-        origins = get_coordinate_origins(source)
+        # `.fusi.spacing` is keyed by voxel dim (k/j/i); `.fusi.origin` is keyed by
+        # world dim (z/y/x) for spatial dims, own name otherwise -- translate below
+        # to a dict keyed like `dims` (voxel/own names) either way.
+        voxel_to_world_name = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
+        spacings = source.fusi.spacing
+        world_origins = source.fusi.origin
+        origins = {d: world_origins[voxel_to_world_name.get(d, d)] for d in dims}
+        # Display each voxel dim by its linked world coordinate name (matching the
+        # convention in `get_napari_scale_translate_units`), not the raw k/j/i name.
+        axis_labels = tuple(voxel_to_world_name.get(d, d) for d in dims)
         units = tuple(
-            source.coords[d].attrs.get("units") if d in source.coords else None
-            for d in dims
+            source.coords[world_name].attrs.get("units")
+            if world_name in source.coords
+            else None
+            for world_name in axis_labels
         )
         kwargs: dict[str, Any] = {}
         if any(u is not None for u in units):
@@ -1444,7 +1457,7 @@ class RegistrationPanel(QWidget):
             name=name,
             scale=tuple(spacings[d] for d in dims),
             translate=tuple(origins[d] for d in dims),
-            axis_labels=dims,
+            axis_labels=axis_labels,
             **kwargs,
         )
 

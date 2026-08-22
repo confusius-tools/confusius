@@ -9,7 +9,21 @@ import pytest
 import xarray as xr
 import zarr
 
+import confusius as cf
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius.io.echoframe import convert_echoframe_dat_to_zarr
+
+_VOXEL_DIM_BY_WORLD_NAME = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
+
+
+def get_world_coord_1d(data: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = data.coords[name]
+    dim = _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
 
 
 class TestEchoFrameConversion:
@@ -60,22 +74,27 @@ class TestEchoFrameConversion:
                 5 / 5000.0
             )
 
-            np.testing.assert_allclose(ds["x"].values, np.linspace(0, 0.4, 4))
-            assert ds["x"].attrs["units"] == "mm"
-            assert ds["x"].attrs["long_name"] == "Lateral"
+            # z/y/x are not stored as dense coordinate arrays -- they're derived from
+            # attrs["voxel_to_world"] on the `iq` array (confusius.io.save's Zarr
+            # convention), not by xarray.open_zarr directly. Reload with
+            # confusius.io.load to reconstruct the voxel-to-world index.
+            assert "voxel_to_world" in ds["iq"].attrs
 
-            np.testing.assert_allclose(ds["z"].values, np.array([0.0]))
-            assert ds["z"].attrs["units"] == "mm"
-            assert ds["z"].attrs["long_name"] == "Elevation"
+            iq_loaded = cf.io.load(output_path)
+            np.testing.assert_allclose(
+                get_world_coord_1d(iq_loaded, "x"), np.linspace(0, 0.4, 4)
+            )
+            assert iq_loaded.coords["x"].attrs["units"] == "mm"
 
-            np.testing.assert_allclose(ds["y"].values, np.linspace(0, 0.3, 6))
-            assert ds["y"].attrs["units"] == "mm"
-            assert ds["y"].attrs["long_name"] == "Depth"
+            np.testing.assert_allclose(
+                get_world_coord_1d(iq_loaded, "z"), np.array([0.0])
+            )
+            assert iq_loaded.coords["z"].attrs["units"] == "mm"
 
-            # Verify voxdim is stored as per-coordinate attribute.
-            assert ds["z"].attrs["voxdim"] == pytest.approx(0.4)
-            assert ds["y"].attrs["voxdim"] == pytest.approx(0.06)
-            assert ds["x"].attrs["voxdim"] == pytest.approx(0.13333333333333333)
+            np.testing.assert_allclose(
+                get_world_coord_1d(iq_loaded, "y"), np.linspace(0, 0.3, 6)
+            )
+            assert iq_loaded.coords["y"].attrs["units"] == "mm"
             assert ds["iq"].attrs["transmit_frequency"] == 15.625e6
             assert ds["iq"].attrs["probe_number_of_elements"] == 128
             assert ds["iq"].attrs["probe_pitch"] == pytest.approx(0.3)
@@ -200,27 +219,6 @@ class TestEchoFrameConversion:
         ).shape
         assert first_shape == second_shape
 
-    def test_volumes_per_shard_not_multiple(
-        self, synthetic_echoframe_session, tmp_path
-    ):
-        """Raise ValueError when volumes_per_shard is not a multiple of volumes_per_chunk."""
-        dat_path = synthetic_echoframe_session / "fUSi_BF.dat"
-        meta_path = synthetic_echoframe_session / "ScanParameters.mat"
-        output_path = tmp_path / "output.zarr"
-
-        with pytest.raises(
-            ValueError,
-            match="volumes_per_shard.*must be a multiple of.*volumes_per_chunk",
-        ):
-            convert_echoframe_dat_to_zarr(
-                dat_path,
-                meta_path,
-                output_path,
-                volumes_per_chunk=3,
-                volumes_per_shard=5,
-                show_progress=False,
-            )
-
     def test_zarr_kwargs_override_warning(
         self, synthetic_echoframe_session, tmp_path, caplog
     ):
@@ -258,7 +256,7 @@ class TestEchoFrameConversion:
             meta_path,
             output_path,
             volumes_per_chunk=3,
-            volumes_per_shard=6,
+            chunks_per_shard=2,
             show_progress=False,
         )
 
@@ -311,16 +309,18 @@ class TestEchoFrameConversion:
             real_group = original_open_group(*args, **kwargs)
             return MockZarrGroup(real_group)
 
-        with patch(
-            "confusius.io.echoframe.zarr.open_group", side_effect=mock_open_group
+        with (
+            patch(
+                "confusius.io.echoframe.zarr.open_group", side_effect=mock_open_group
+            ),
+            pytest.raises(Exception, match="Simulated error during conversion"),
         ):
-            with pytest.raises(Exception, match="Simulated error during conversion"):
-                convert_echoframe_dat_to_zarr(
-                    dat_path,
-                    meta_path,
-                    output_path,
-                    show_progress=False,
-                )
+            convert_echoframe_dat_to_zarr(
+                dat_path,
+                meta_path,
+                output_path,
+                show_progress=False,
+            )
 
         assert not output_path.exists()
 

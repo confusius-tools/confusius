@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
+    Any,
     Literal,
     NotRequired,
     SupportsFloat,
@@ -18,12 +19,19 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.geometry import (
+    get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+    has_voxel_to_world_index,
+    update_voxel_to_world_coord_attrs,
+)
 from confusius.io import load as load_dataarray
 from confusius.io import save as save_dataarray
-from confusius.registration.bspline import validate_bspline
+from confusius.validation import validate_bspline
+from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Hashable, Mapping
 
     from confusius.registration import RegistrationDiagnostics
 
@@ -45,6 +53,7 @@ class OutputGridPayload(TypedDict):
     shape: list[int]
     spacing: list[float]
     origin: list[float]
+    direction: NotRequired[list[list[float]]]
     units: list[str | None]
 
 
@@ -123,12 +132,27 @@ def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
     OutputGridPayload
         JSON-serializable output-grid description.
     """
-    dims = [str(dim) for dim in reference.dims]
+    voxel_dims = [str(dim) for dim in reference.dims]
+    # Reported as world dim names (matching the `component` labeling convention used
+    # everywhere a displacement field is built, e.g. `_compose_world_to_base_transforms`
+    # and `sample_displacement_field_like`), not `reference`'s own (voxel) dims.
+    dims = list(get_voxel_to_world_coord_names(reference))
+    spacing = reference.fusi.spacing
+    origin = reference.fusi.origin
+    resolved_spacing: dict[str, float] = {}
+    for dim in voxel_dims:
+        dim_spacing = spacing[dim]
+        if dim_spacing is None:
+            raise ValueError(
+                f"'reference' has undefined spacing for dimension {dim!r}."
+            )
+        resolved_spacing[dim] = dim_spacing
     return {
         "dims": dims,
-        "shape": [int(reference.sizes[dim]) for dim in dims],
-        "spacing": [float(reference.fusi.spacing[dim]) for dim in dims],
-        "origin": [float(reference.fusi.origin[dim]) for dim in dims],
+        "shape": [int(reference.sizes[dim]) for dim in voxel_dims],
+        "spacing": [resolved_spacing[dim] for dim in voxel_dims],
+        "origin": [float(origin[dim]) for dim in dims],
+        "direction": np.asarray(reference.fusi.direction, dtype=float).tolist(),
         "units": [
             cast("str | None", reference.coords[dim].attrs.get("units"))
             if dim in reference.coords
@@ -230,6 +254,11 @@ def make_affine_transform_payload(
 def _serialize_bspline_dataarray(transform: xr.DataArray) -> BSplineDataArrayPayload:
     """Return a JSON-serializable B-spline DataArray payload.
 
+    `transform` is VoxelData; its geometry is
+    stored as `attrs["voxel_to_world"]` (mirroring the zarr save convention in
+    [`save`][confusius.io.save]) rather than dense per-axis coordinate arrays, since
+    the index derives those on load.
+
     Parameters
     ----------
     transform : xarray.DataArray
@@ -241,19 +270,25 @@ def _serialize_bspline_dataarray(transform: xr.DataArray) -> BSplineDataArrayPay
         JSON-serializable B-spline DataArray payload.
     """
     validate_bspline(transform)
+    world_coord_names = get_voxel_to_world_coord_names(transform)
+    attrs = {
+        **transform.attrs,
+        "voxel_to_world": get_voxel_to_world_affine(transform).tolist(),
+        "world_coord_attrs": {
+            name: dict(transform.coords[name].attrs)
+            for name in world_coord_names
+            if name in transform.coords
+        },
+    }
     return {
         "dims": [str(dim) for dim in transform.dims],
         "data": np.asarray(transform, dtype=float).tolist(),
         "coords": {
-            str(dim): (
-                np.asarray(transform.coords[dim], dtype=np.str_).tolist()
-                if str(dim) == "component"
-                else np.asarray(transform.coords[dim], dtype=float).tolist()
-            )
-            for dim in transform.dims
-            if dim in transform.coords
+            "component": np.asarray(
+                transform.coords["component"], dtype=np.str_
+            ).tolist(),
         },
-        "attrs": json.loads(json.dumps(_make_json_serializable(transform.attrs))),
+        "attrs": json.loads(json.dumps(_make_json_serializable(attrs))),
     }
 
 
@@ -271,23 +306,22 @@ def _deserialize_bspline_dataarray(payload: BSplineDataArrayPayload) -> xr.DataA
         Reconstructed B-spline control-point grid.
     """
     dims = [str(dim) for dim in payload["dims"]]
-    coords = {
-        str(dim): xr.DataArray(
-            (
-                np.asarray(values, dtype=np.str_)
-                if str(dim) == "component"
-                else np.asarray(values, dtype=float)
-            ),
-            dims=[str(dim)],
-        )
-        for dim, values in payload["coords"].items()
-    }
-    transform = xr.DataArray(
-        np.asarray(payload["data"], dtype=float),
-        dims=dims,
-        coords=coords,
-        attrs=dict(payload["attrs"]),
+    spatial_dims = dims[1:]
+    component = np.asarray(payload["coords"]["component"], dtype=np.str_)
+    attrs = dict(payload["attrs"])
+    voxel_to_world = np.asarray(attrs.pop("voxel_to_world"), dtype=np.float64)
+    world_coord_attrs = cast(
+        "Mapping[Hashable, Mapping[str, Any]]", attrs.pop("world_coord_attrs")
     )
+
+    transform = create_voxeldata(
+        np.asarray(payload["data"], dtype=float),
+        dims=("component", *spatial_dims),
+        extra_coords={"component": component},
+        voxel_to_world=voxel_to_world,
+        attrs=attrs,
+    )
+    transform = update_voxel_to_world_coord_attrs(transform, world_coord_attrs)
     validate_bspline(transform)
     return transform
 
@@ -315,16 +349,56 @@ def _normalize_loaded_bspline_transform(transform: xr.DataArray) -> xr.DataArray
     affines = normalized.attrs.get("affines")
     if isinstance(affines, dict):
         normalized_affines = dict(affines)
-        normalized_affines.pop("physical_to_qform", None)
+        normalized_affines.pop("world_to_qform", None)
         if normalized_affines:
             normalized.attrs["affines"] = normalized_affines
         else:
             normalized.attrs.pop("affines", None)
 
     component_values = [str(v) for v in normalized.coords["component"].values]
-    for dim in list(normalized.dims[1:]):
+    spatial_dims = list(normalized.dims[1:])
+    for dim in spatial_dims:
         if dim not in component_values and normalized.sizes[dim] == 1:
             normalized = normalized.squeeze(dim, drop=True)
+
+    spatial_dims = list(normalized.dims[1:])
+    if spatial_dims != component_values and len(spatial_dims) == len(component_values):
+        if not has_voxel_to_world_index(normalized):
+            raise ValueError(
+                "Loaded B-spline transform has spatial dims "
+                f"{spatial_dims} that do not match its component labels "
+                f"{component_values}, and no voxel-to-world index to reorder by."
+            )
+        # component_values is a permutation of spatial_dims (axis-aligned, since a
+        # B-spline control-point grid is always axis-aligned): reorder both the array
+        # axes and the voxel-to-world affine to match, preserving the index instead of
+        # dropping it.
+        old_affine = get_voxel_to_world_affine(normalized)
+        permutation = [spatial_dims.index(dim) for dim in component_values]
+        new_affine = np.eye(len(component_values) + 1, dtype=np.float64)
+        new_affine[:-1, :-1] = old_affine[:-1, :-1][np.ix_(permutation, permutation)]
+        new_affine[:-1, -1] = old_affine[:-1, -1][permutation]
+
+        values = np.moveaxis(
+            normalized.values,
+            [1 + spatial_dims.index(dim) for dim in component_values],
+            list(range(1, len(component_values) + 1)),
+        )
+        world_coord_attrs = {
+            world_name: dict(normalized.coords[world_name].attrs)
+            for world_name in get_voxel_to_world_coord_names(normalized)
+            if world_name in normalized.coords
+        }
+        normalized = create_voxeldata(
+            values,
+            dims=("component", *component_values),
+            extra_coords={"component": normalized.coords["component"].values},
+            voxel_to_world=new_affine,
+            attrs=normalized.attrs,
+        )
+        normalized = update_voxel_to_world_coord_attrs(
+            normalized, cast("Mapping[Hashable, Mapping[str, Any]]", world_coord_attrs)
+        )
 
     return normalized
 
@@ -455,8 +529,11 @@ def _coerce_grid_payload(
     shape = grid_dict.get("shape")
     spacing = grid_dict.get("spacing")
     origin = grid_dict.get("origin")
+    direction = grid_dict.get("direction")
     units = grid_dict.get("units")
-    if not all(isinstance(v, list) for v in (dims, shape, spacing, origin, units)):
+    if not all(
+        isinstance(v, list) for v in (dims, shape, spacing, origin, direction, units)
+    ):
         raise ValueError(f"Transform payload {field_name} is malformed.")
 
     dims_list = cast("list[object]", dims)
@@ -464,14 +541,19 @@ def _coerce_grid_payload(
     spacing_list = cast("list[SupportsFloat]", spacing)
     origin_list = cast("list[SupportsFloat]", origin)
     units_list = cast("list[object]", units)
-
-    return {
+    result: OutputGridPayload = {
         "dims": [str(v) for v in dims_list],
         "shape": [int(v) for v in shape_list],
         "spacing": [float(v) for v in spacing_list],
         "origin": [float(v) for v in origin_list],
         "units": [None if v is None else str(v) for v in units_list],
     }
+    result["direction"] = [
+        [float(value) for value in cast("list[SupportsFloat]", row)]
+        for row in cast("list[object]", direction)
+        if isinstance(row, list)
+    ]
+    return result
 
 
 def get_output_grid_from_payload(payload: Mapping[str, object]) -> OutputGridPayload:
@@ -627,6 +709,39 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
                 payload_metadata["input_grid"] = transform.attrs["input_grid"]
 
     transform = _normalize_loaded_bspline_transform(transform)
+    grid = get_input_grid_from_payload(
+        payload_metadata
+    ) or get_output_grid_from_payload(payload_metadata)
+    component_values = [str(v) for v in transform.coords["component"].values]
+    if grid["dims"] == component_values:
+        # Legacy NIfTI files (no confusius_transform_metadata_json sidecar) don't
+        # carry the control-point grid's own geometry reliably; recover it from the
+        # recorded output/input grid instead, rebuilding the voxel-to-world index
+        # (rather than assigning raw coordinate arrays) to keep `transform`
+        # a VoxelData array.
+        spatial_dims = [str(dim) for dim in transform.dims[1:]]
+        order = [grid["dims"].index(dim) for dim in spatial_dims]
+        direction = np.asarray(transform.fusi.direction, dtype=np.float64)
+        spacing = np.asarray(grid["spacing"], dtype=np.float64)[order]
+        origin = np.asarray(grid["origin"], dtype=np.float64)[order]
+        voxel_to_world = np.eye(len(spatial_dims) + 1, dtype=np.float64)
+        voxel_to_world[:-1, :-1] = direction * spacing
+        voxel_to_world[:-1, -1] = origin
+        world_coord_attrs = {
+            world_name: dict(transform.coords[world_name].attrs)
+            for world_name in get_voxel_to_world_coord_names(transform)
+            if world_name in transform.coords
+        }
+        transform = create_voxeldata(
+            transform.values,
+            dims=("component", *spatial_dims),
+            extra_coords={"component": transform.coords["component"].values},
+            voxel_to_world=voxel_to_world,
+            attrs=transform.attrs,
+        )
+        transform = update_voxel_to_world_coord_attrs(
+            transform, cast("Mapping[Hashable, Mapping[str, Any]]", world_coord_attrs)
+        )
     validate_bspline(transform)
     payload: BSplineTransformPayload = {
         "kind": "bspline",

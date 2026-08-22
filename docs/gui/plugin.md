@@ -54,6 +54,10 @@ any error is reported in the napari notification bar.
    `.nii` / `.nii.gz` for NIfTI and `.zarr` for Zarr.
 4. Click **Save**. A notification confirms success.
 
+!!! warning "Multi-pose data"
+    Saving multi-pose data from the plugin is not yet supported. Use the Python API to
+    consolidate poses first or select a single pose before saving.
+
 Three save modes are applied automatically depending on what is available:
 
 | Mode | When applied |
@@ -106,9 +110,9 @@ the frame centered on the scan.
     depending on user hardware and operating system). Use **Frame step** to reduce the
     effective frame rate if playback is choppy or buffering.
 
-The time scale of each video layer is `frame_step / fps` seconds, so the napari
-time slider and the time overlay continue to report physical seconds regardless
-of the chosen step.
+The time scale of each video layer is `frame_step / fps` seconds, so the napari time
+slider and the time overlay continue to report time in seconds regardless of the chosen
+step.
 
 !!! note "Time axis is kept out of the displayed dims"
     The panel installs a guard that prevents napari from ever placing the time
@@ -277,8 +281,7 @@ Select a layer from the **Layer** dropdown, check the metrics you want, and clic
 
 === "Spatial metrics"
 
-    Spatial map metrics are added as new image layers in the napari layer list, with
-    correct physical scale and origin preserved.
+    Spatial map metrics are added as new image layers in the napari layer list.
 
     **CV**
     : Coefficient of variation map.
@@ -298,6 +301,10 @@ The Registration Panel runs the ConfUSIus registration workflows directly from n
 Use **Between scans** for registering different recordings, or **Within-scan** for
 volume-wise motion correction within a single recording. The panel supports modifying
 registration parameters, live preview, and saving/loading/applying computed transforms.
+
+!!! warning "Multi-pose data"
+    Registration of multi-pose data from the plugin is not yet supported. Use the
+    Python API to consolidate poses first or select a single pose before registering.
 
 ### Between scans
 
@@ -331,7 +338,7 @@ large-scale and local deformation at once.
 | **Metric** | Chooses the similarity criterion (`correlation` or `mattes_mi`). | `correlation` is a good default for power Doppler data; `mattes_mi` is more robust when intensity distributions differ. |
 | **Scale** | Applies optional intensity scaling before registration. | Useful for power Doppler data where large vessels are typically overbright compared to finer structures. |
 | **Initialization** | Sets the starting transform before optimization. | Use `center_geometry` or `center_moments` for coarse setup; reuse a saved/manual affine transform when you already have a good approximate alignment. |
-| **Learning rate** | Sets the optimizer step size. | Leave **Auto** enabled to let SimpleITK estimate it each iteration, or untick it to use a fixed value (default `1.0`). |
+| **Learning rate** | Sets the optimizer step size. | Leave **Auto** enabled to let SimpleITK estimate it each iteration, or untick it to use a fixed value (default `0.01`). |
 | **Iterations** | Maximum number of optimizer steps. | Increase it when alignment is still improving near the end of a run. |
 
 #### Advanced parameters

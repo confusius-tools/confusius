@@ -6,7 +6,7 @@ import xarray as xr
 import confusius  # noqa: F401  # Registers accessor.
 
 
-def test_scale_wrappers_forward_calls(monkeypatch, sample_3dt_volume):
+def test_scale_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
     """Scale accessor methods forward arguments to module functions."""
     expected = xr.DataArray(np.array([1.0]), dims=["k"])
     calls: dict[str, tuple] = {}
@@ -27,18 +27,18 @@ def test_scale_wrappers_forward_calls(monkeypatch, sample_3dt_volume):
     monkeypatch.setattr("confusius.xarray.scale.log_scale", _log)
     monkeypatch.setattr("confusius.xarray.scale.power_scale", _power)
 
-    assert sample_3dt_volume.fusi.scale.db(factor=20) is expected
-    assert calls["db"] == (sample_3dt_volume, 20)
+    assert sample_voxeldata_3dt.fusi.scale.db(factor=20) is expected
+    assert calls["db"] == (sample_voxeldata_3dt, 20)
 
-    assert sample_3dt_volume.fusi.scale.log() is expected
-    assert calls["log"] == (sample_3dt_volume,)
+    assert sample_voxeldata_3dt.fusi.scale.log() is expected
+    assert calls["log"] == (sample_voxeldata_3dt,)
 
-    assert sample_3dt_volume.fusi.scale.power(exponent=2.0) is expected
-    assert calls["power"] == (sample_3dt_volume, 2.0)
+    assert sample_voxeldata_3dt.fusi.scale.power(exponent=2.0) is expected
+    assert calls["power"] == (sample_voxeldata_3dt, 2.0)
 
 
 def test_extract_wrappers_forward_calls(
-    monkeypatch, sample_3dt_volume, sample_roi_labels
+    monkeypatch, sample_voxeldata_3dt, sample_roi_labels
 ):
     """Extract accessor methods forward arguments to extraction functions."""
     expected = xr.DataArray(np.array([1.0]), dims=["k"])
@@ -62,23 +62,23 @@ def test_extract_wrappers_forward_calls(
     monkeypatch.setattr("confusius.extract.reconstruction.unmask", _unmask)
 
     assert (
-        sample_3dt_volume.fusi.extract.with_labels(sample_roi_labels, reduction="sum")
+        sample_voxeldata_3dt.fusi.extract.with_labels(sample_roi_labels, reduction="sum")
         is expected
     )
-    assert calls["labels"] == (sample_3dt_volume, sample_roi_labels, "sum")
+    assert calls["labels"] == (sample_voxeldata_3dt, sample_roi_labels, "sum")
 
-    assert sample_3dt_volume.fusi.extract.with_mask(mask) is expected
-    assert calls["mask"] == (sample_3dt_volume, mask)
+    assert sample_voxeldata_3dt.fusi.extract.with_mask(mask) is expected
+    assert calls["mask"] == (sample_voxeldata_3dt, mask)
 
-    assert sample_3dt_volume.fusi.extract.unmask(mask, fill_value=-1.0) is expected
-    assert calls["unmask"] == (sample_3dt_volume, mask, -1.0)
+    assert sample_voxeldata_3dt.fusi.extract.unmask(mask, fill_value=-1.0) is expected
+    assert calls["unmask"] == (sample_voxeldata_3dt, mask, -1.0)
 
 
-def test_affine_wrappers_forward_calls(monkeypatch, sample_3dt_volume):
+def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
     """Affine accessor methods forward arguments to helper functions."""
     expected_to = np.eye(4)
-    expected_apply = (sample_3dt_volume, np.eye(4))
-    other = sample_3dt_volume.copy()
+    expected_apply = sample_voxeldata_3dt
+    other = sample_voxeldata_3dt.copy()
     affine = np.diag([1.0, 2.0, 3.0, 1.0])
     calls: dict[str, tuple] = {}
 
@@ -90,17 +90,17 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_3dt_volume):
         calls["apply"] = (data, affine_, inplace)
         return expected_apply
 
-    monkeypatch.setattr("confusius.xarray.affine.affine_to", _to)
+    monkeypatch.setattr("confusius.xarray.affine.get_relative_affine", _to)
     monkeypatch.setattr("confusius.xarray.affine.apply_affine", _apply)
 
-    assert sample_3dt_volume.fusi.affine.to(other, via="physical_to_lab") is expected_to
-    assert calls["to"] == (sample_3dt_volume, other, "physical_to_lab")
+    assert sample_voxeldata_3dt.fusi.affine.to(other, via="world_to_lab") is expected_to
+    assert calls["to"] == (sample_voxeldata_3dt, other, "world_to_lab")
 
-    assert sample_3dt_volume.fusi.affine.apply(affine, inplace=True) == expected_apply
-    assert calls["apply"] == (sample_3dt_volume, affine, True)
+    assert sample_voxeldata_3dt.fusi.affine.apply(affine, inplace=True) is expected_apply
+    assert calls["apply"] == (sample_voxeldata_3dt, affine, True)
 
 
-def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
+def test_iq_wrappers_forward_calls(monkeypatch, sample_voxeldata_iq_3dt):
     """IQ accessor methods forward all arguments to processing functions."""
     expected = xr.DataArray(np.array([1.0]), dims=["k"])
     calls: dict[str, tuple] = {}
@@ -121,14 +121,10 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
     monkeypatch.setattr("confusius.xarray.iq.process_iq_to_axial_velocity", _vel)
     monkeypatch.setattr("confusius.xarray.iq.process_iq_to_bmode", _bmode)
 
-    mask = xr.DataArray(
-        np.ones(sample_3dt_volume_complex.shape[1:], dtype=bool),
-        dims=["z", "y", "x"],
-        coords={k: sample_3dt_volume_complex.coords[k] for k in ("z", "y", "x")},
-    )
+    mask = xr.ones_like(sample_voxeldata_iq_3dt.isel(time=0), dtype=bool)
 
     assert (
-        sample_3dt_volume_complex.fusi.iq.process_to_power_doppler(
+        sample_voxeldata_iq_3dt.fusi.iq.process_to_power_doppler(
             clutter_window_width=11,
             clutter_window_stride=7,
             filter_method="butterworth",
@@ -142,7 +138,7 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
         is expected
     )
     assert calls["pwd"] == (
-        sample_3dt_volume_complex,
+        sample_voxeldata_iq_3dt,
         {
             "clutter_window_width": 11,
             "clutter_window_stride": 7,
@@ -157,7 +153,7 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
     )
 
     assert (
-        sample_3dt_volume_complex.fusi.iq.process_to_axial_velocity(
+        sample_voxeldata_iq_3dt.fusi.iq.process_to_axial_velocity(
             clutter_window_width=13,
             clutter_window_stride=5,
             filter_method="svd_energy",
@@ -173,7 +169,7 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
         is expected
     )
     assert calls["vel"] == (
-        sample_3dt_volume_complex,
+        sample_voxeldata_iq_3dt,
         {
             "clutter_window_width": 13,
             "clutter_window_stride": 5,
@@ -190,22 +186,22 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
     )
 
     assert (
-        sample_3dt_volume_complex.fusi.iq.process_to_bmode(
+        sample_voxeldata_iq_3dt.fusi.iq.process_to_bmode(
             bmode_window_width=5,
             bmode_window_stride=2,
         )
         is expected
     )
     assert calls["bmode"] == (
-        sample_3dt_volume_complex,
+        sample_voxeldata_iq_3dt,
         {"bmode_window_width": 5, "bmode_window_stride": 2},
     )
 
 
-def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
+def test_registration_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d):
     """Registration accessor methods forward all arguments and return results."""
-    reg_result = (sample_3d_volume, np.eye(4), object())
-    volumewise_result = sample_3d_volume
+    reg_result = (sample_voxeldata_3d, np.eye(4), object())
+    volumewise_result = sample_voxeldata_3d
     calls: dict[str, tuple] = {}
 
     def _to_volume(data, fixed, **kwargs):
@@ -221,13 +217,13 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
         "confusius.xarray.registration.register_volumewise", _volumewise
     )
 
-    fixed = sample_3d_volume.copy()
+    fixed = sample_voxeldata_3d.copy()
     fixed_mask = fixed > 0
-    moving_mask = sample_3d_volume > 0
+    moving_mask = sample_voxeldata_3d > 0
     progress_plotter = object()
     abort_event = object()
     assert (
-        sample_3d_volume.fusi.register.to_volume(
+        sample_voxeldata_3d.fusi.register.to_volume(
             fixed,
             fixed_mask=fixed_mask,
             moving_mask=moving_mask,
@@ -257,7 +253,7 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
         is reg_result
     )
     assert calls["to_volume"] == (
-        sample_3d_volume,
+        sample_voxeldata_3d,
         fixed,
         {
             "fixed_mask": fixed_mask,
@@ -290,7 +286,7 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
     progress_reporter = object()
     abort_event = object()
     assert (
-        sample_3d_volume.fusi.register.volumewise(
+        sample_voxeldata_3d.fusi.register.volumewise(
             reference_time=2,
             n_jobs=1,
             transform="translation",
@@ -315,7 +311,7 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
         is volumewise_result
     )
     assert calls["volumewise"] == (
-        sample_3d_volume,
+        sample_voxeldata_3d,
         {
             "reference_time": 2,
             "n_jobs": 1,
@@ -342,7 +338,7 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
 
 
 def test_connectivity_seed_map_with_masks_constructs_and_fits(
-    sample_3dt_volume, sample_roi_labels, monkeypatch
+    sample_voxeldata_3dt, sample_roi_labels, monkeypatch
 ):
     """Connectivity wrapper forwards mask-based seed-map arguments."""
     calls: dict[str, object] = {}
@@ -357,14 +353,14 @@ def test_connectivity_seed_map_with_masks_constructs_and_fits(
 
     monkeypatch.setattr("confusius.connectivity.SeedBasedMaps", DummySeedBasedMaps)
 
-    result = sample_3dt_volume.fusi.connectivity.seed_map(
+    result = sample_voxeldata_3dt.fusi.connectivity.seed_map(
         seed_masks=sample_roi_labels,
         labels_reduction="median",
         clean_kwargs={"detrend_order": 1},
     )
 
     assert isinstance(result, DummySeedBasedMaps)
-    assert calls["fit_data"] is sample_3dt_volume
+    assert calls["fit_data"] is sample_voxeldata_3dt
     assert calls["init_kwargs"] == {
         "seed_masks": sample_roi_labels,
         "seed_signals": None,
@@ -374,7 +370,7 @@ def test_connectivity_seed_map_with_masks_constructs_and_fits(
 
 
 def test_connectivity_seed_map_with_signals_constructs_and_fits(
-    sample_3dt_volume, monkeypatch
+    sample_voxeldata_3dt, monkeypatch
 ):
     """Connectivity wrapper forwards signal-based seed-map arguments."""
     calls: dict[str, object] = {}
@@ -390,14 +386,14 @@ def test_connectivity_seed_map_with_signals_constructs_and_fits(
     monkeypatch.setattr("confusius.connectivity.SeedBasedMaps", DummySeedBasedMaps)
 
     seed_signals = xr.DataArray(np.ones((3, 2)), dims=["time", "region"])
-    result = sample_3dt_volume.fusi.connectivity.seed_map(
+    result = sample_voxeldata_3dt.fusi.connectivity.seed_map(
         seed_signals=seed_signals,
         labels_reduction="std",
         clean_kwargs={"detrend_order": 2},
     )
 
     assert isinstance(result, DummySeedBasedMaps)
-    assert calls["fit_data"] is sample_3dt_volume
+    assert calls["fit_data"] is sample_voxeldata_3dt
     assert calls["init_kwargs"] == {
         "seed_masks": None,
         "seed_signals": seed_signals,
@@ -406,7 +402,7 @@ def test_connectivity_seed_map_with_signals_constructs_and_fits(
     }
 
 
-def test_plot_wrappers_forward_calls(monkeypatch, sample_3d_volume, sample_roi_labels):
+def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_roi_labels):
     """Plot accessor methods forward all arguments to plotting helpers."""
     calls: dict[str, tuple] = {}
 
@@ -447,19 +443,21 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_3d_volume, sample_roi_l
     monkeypatch.setattr("confusius.xarray.plotting.plot_composite", _composite)
 
     viewer = object()
-    assert sample_3d_volume.fusi.plot(show_scale_bar=False) == ("viewer", "layer")
+    assert sample_voxeldata_3d.fusi.plot(show_scale_bar=False) == ("viewer", "layer")
     assert calls["napari"] == (
-        sample_3d_volume,
+        sample_voxeldata_3d,
         {
             "show_colorbar": True,
             "show_scale_bar": False,
             "dim_order": None,
             "viewer": None,
             "layer_type": "image",
+            "resample_interpolation": None,
+            "resample_fill_value": None,
         },
     )
 
-    assert sample_3d_volume.fusi.plot.napari(
+    assert sample_voxeldata_3d.fusi.plot.napari(
         show_colorbar=False,
         show_scale_bar=False,
         dim_order=("y", "z", "x"),
@@ -468,31 +466,33 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_3d_volume, sample_roi_l
         opacity=0.4,
     ) == ("viewer", "layer")
     assert calls["napari"] == (
-        sample_3d_volume,
+        sample_voxeldata_3d,
         {
             "show_colorbar": False,
             "show_scale_bar": False,
             "dim_order": ("y", "z", "x"),
             "viewer": viewer,
             "layer_type": "labels",
+            "resample_interpolation": None,
+            "resample_fill_value": None,
             "opacity": 0.4,
         },
     )
 
-    assert sample_3d_volume.fusi.plot.draw_napari_labels(
+    assert sample_voxeldata_3d.fusi.plot.draw_napari_labels(
         labels_layer_name="roi",
         viewer=viewer,
         colormap="hot",
     ) == ("viewer", "labels")
     assert calls["draw"] == (
-        sample_3d_volume,
+        sample_voxeldata_3d,
         {"labels_layer_name": "roi", "viewer": viewer, "colormap": "hot"},
     )
 
-    assert sample_3d_volume.fusi.plot.labels_from_layer("layer") is sample_roi_labels
-    assert calls["labels"] == ("layer", sample_3d_volume)
+    assert sample_voxeldata_3d.fusi.plot.labels_from_layer("layer") is sample_roi_labels
+    assert calls["labels"] == ("layer", sample_voxeldata_3d)
 
-    assert sample_3d_volume.fusi.plot.carpet(
+    assert sample_voxeldata_3d.fusi.plot.carpet(
         mask=sample_roi_labels > 0,
         detrend_order=1,
         standardize=False,
@@ -507,11 +507,11 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_3d_volume, sample_roi_l
         fg_color="white",
         ax="existing_ax",
     ) == ("fig", "ax")
-    assert calls["carpet"][0] is sample_3d_volume
+    assert calls["carpet"][0] is sample_voxeldata_3d
     assert calls["carpet"][1]["detrend_order"] == 1
 
     assert (
-        sample_3d_volume.fusi.plot.volume(
+        sample_voxeldata_3d.fusi.plot.volume(
             slice_coords=[1.0],
             slice_mode="y",
             nrows=1,
@@ -540,11 +540,11 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_3d_volume, sample_roi_l
         )
         == "plotter"
     )
-    assert calls["volume"][0] is sample_3d_volume
+    assert calls["volume"][0] is sample_voxeldata_3d
     assert calls["volume"][1]["threshold_mode"] == "upper"
 
     assert (
-        sample_3d_volume.fusi.plot.contours(
+        sample_voxeldata_3d.fusi.plot.contours(
             colors={1: "red"},
             linewidths=2.0,
             linestyles="dashed",
@@ -561,12 +561,12 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_3d_volume, sample_roi_l
         )
         == "plotter"
     )
-    assert calls["contours"][0] is sample_3d_volume
+    assert calls["contours"][0] is sample_voxeldata_3d
     assert calls["contours"][1]["linestyles"] == "dashed"
 
-    other = sample_3d_volume.copy()
+    other = sample_voxeldata_3d.copy()
     assert (
-        sample_3d_volume.fusi.plot.composite(
+        sample_voxeldata_3d.fusi.plot.composite(
             other,
             resample=False,
             resample_kwargs={"fill_value": 0},
@@ -594,7 +594,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_3d_volume, sample_roi_l
         == "plotter"
     )
     assert calls["composite"] == (
-        sample_3d_volume,
+        sample_voxeldata_3d,
         other,
         {
             "resample": False,
@@ -619,5 +619,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_3d_volume, sample_roi_l
             "nrows": 1,
             "ncols": 1,
             "dpi": 120,
+            "resample_interpolation": "linear",
+            "resample_fill_value": None,
         },
     )

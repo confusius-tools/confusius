@@ -1,4 +1,4 @@
-"""Searchlight decoding for `(time, ...)` fUSI DataArrays.
+"""Searchlight decoding for VoxelData arrays.
 
 Portions of this module are inspired by `nilearn.decoding.searchlight`, which is
 licensed under the BSD-3-Clause License. See `NOTICE` for details.
@@ -32,51 +32,49 @@ from sklearn.model_selection import (
     cross_val_score,
 )
 
+from confusius._dims import VOXEL_DIMS
+from confusius._utils.geometry import get_voxel_to_world_coord_names
 from confusius._utils.io import is_h5py_backed
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask, unmask
-from confusius.validation import validate_mask, validate_time_series
+from confusius.validation import ensure_mask, ensure_voxeldata
 
 
 def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
-    """Physical coordinates of the `True` voxels of a mask.
+    """World coordinates of the `True` voxels of a mask.
 
     Parameters
     ----------
     mask : xarray.DataArray
-        Boolean spatial mask. Every dimension must carry a numeric coordinate.
+        Boolean spatial mask carrying a `VoxelToWorldIndex` over its native voxel
+        (`k`/`j`/`i`) dimensions.
 
     Returns
     -------
     numpy.ndarray
-        `(n_masked, n_dims)` array of coordinates, in the order given by `mask.dims`.
+        `(n_masked, n_dims)` array of world coordinates, in the order given by
+        `get_voxel_to_world_coord_names(mask)`.
 
-    Raises
-    ------
-    ValueError
-        If any dimension of the mask lacks a coordinate, or carries a non-numeric one.
-        SearchLight measures its radius in coordinate units, so a missing coordinate
-        would silently make the radius mean voxel indices, which is anisotropic.
+    Notes
+    -----
+    SearchLight measures `radius` in world coordinate units, so this relies on
+    `mask` carrying a real `VoxelToWorldIndex` (numeric `z`/`y`/`x` by
+    construction) -- callers must validate that themselves (e.g. via
+    `ensure_mask`) before reaching this function; a mask without a real index
+    would otherwise silently make `radius` mean voxel indices instead, which is
+    anisotropic.
     """
     dims = tuple(str(dim) for dim in mask.dims)
-    invalid = [
-        dim
-        for dim in dims
-        if dim not in mask.coords
-        or not np.issubdtype(mask.coords[dim].dtype, np.number)
-    ]
-    if invalid:
-        raise ValueError(
-            f"Mask dimensions {invalid} lack a numeric coordinate. SearchLight "
-            "measures `radius` in coordinate units, so every spatial dimension must "
-            "carry one."
+    coord_names = get_voxel_to_world_coord_names(mask)
+    coord_arrays = [
+        np.broadcast_to(
+            np.asarray(mask.coords[name].transpose(*dims).values, dtype=np.float64),
+            mask.shape,
         )
+        for name in coord_names
+    ]
 
-    grids = np.meshgrid(
-        *[np.asarray(mask.coords[dim].values, dtype=np.float64) for dim in dims],
-        indexing="ij",
-    )
-    flat = np.stack([grid.ravel() for grid in grids], axis=-1)
+    flat = np.stack([arr.ravel() for arr in coord_arrays], axis=-1)
     return flat[np.asarray(mask.values).ravel()]
 
 
@@ -139,7 +137,7 @@ def _resolve_cv(
     return cv
 
 
-def _score_units(scoring: str | Callable | None, *, classifier: bool) -> str | None:
+def _get_score_units(scoring: str | Callable | None, *, classifier: bool) -> str | None:
     """Name of the metric a searchlight score is measured in, from the scorer.
 
     Parameters
@@ -369,7 +367,8 @@ class SearchLight(BaseEstimator):
 
     This estimator wraps scikit-learn while keeping xarray metadata:
 
-    - Input data are expected as `(time, ...)` where `...` are spatial dimensions.
+    - Input data must be a VoxelData array with dims `(time, k, j, i)`—no `pose` or
+      extra dimensions.
     - The `time` dimension is the sample axis. It need not be temporally ordered. For
       trial-averaged data, rename the trial dimension with `.rename(trial="time")`.
     - `scores_` is returned in the spatial geometry of `process_mask`.
@@ -380,18 +379,19 @@ class SearchLight(BaseEstimator):
         Estimator or [`Pipeline`][sklearn.pipeline.Pipeline].
     mask : xarray.DataArray, optional
         Boolean spatial mask selecting the voxels that may act as *features*. If not
-        provided, every voxel of the input data is used as a feature voxel. Every
-        spatial dimension must carry a numeric coordinate, because `radius` is measured
-        in coordinate units.
+        provided, every voxel of the input data is used as a feature voxel. Must be a
+        VoxelData array on `X`'s grid, because `radius` is measured in world
+        coordinates.
     radius : float, default: 1.0
         Neighborhood radius, in the units of the data's spatial coordinates. Check
-        `X[dim].attrs.get("units")` if unsure. Radii are measured in physical
+        `X.coords[dim].attrs.get("units")` if unsure. Radii are measured in world
         coordinates rather than voxel indices, so anisotropic voxels behave correctly.
     process_mask : xarray.DataArray, optional
         Boolean mask selecting the voxels that act as neighborhood *centers*. Must be
-        a subset of `mask`. If not provided, a score is computed at every `mask` voxel.
-        Use it to restrict the searchlight to a region of interest while still drawing
-        features from the surrounding tissue.
+        a subset of `mask`, and a VoxelData array on `X`'s grid. If not provided, a
+        score is computed at every `mask` voxel. Use it to restrict the searchlight to
+        a region of interest while still drawing features from the surrounding
+        tissue.
     cv : int or sklearn.model_selection.BaseCrossValidator, default: 5
         Cross-validation strategy. An integer builds a
         [`KFold`][sklearn.model_selection.KFold] for regressors, whose folds are
@@ -412,11 +412,11 @@ class SearchLight(BaseEstimator):
 
     Attributes
     ----------
-    scores_ : (...) xarray.DataArray
+    scores_ : (k, j, i) xarray.DataArray
         Mean cross-validation score at each `process_mask` center, in the spatial
         geometry of `process_mask`. Voxels outside `process_mask` are `numpy.nan`. The
         input's attributes are carried over, including any `affines`, so the map stays in
-        the same physical space. `long_name` is set to `"Searchlight CV score"` and
+        the same world space. `long_name` is set to `"Searchlight CV score"` and
         `units` to the metric implied by `scoring`: the scorer string when one is given,
         otherwise `"accuracy"` for a classifier or `"R²"` for a regressor. A callable
         scorer leaves `units` unset.
@@ -449,20 +449,16 @@ class SearchLight(BaseEstimator):
     Examples
     --------
     >>> import numpy as np
-    >>> import xarray as xr
     >>> from sklearn.linear_model import Ridge
     >>> from confusius.decoding import SearchLight
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> rng = np.random.default_rng(0)
-    >>> data = xr.DataArray(
+    >>> data = create_voxeldata(
     ...     rng.standard_normal((40, 1, 5, 5)),
-    ...     dims=["time", "z", "y", "x"],
-    ...     coords={
-    ...         "time": np.arange(40) * 0.5,
-    ...         "z": [0.0],
-    ...         "y": np.arange(5) * 0.2,
-    ...         "x": np.arange(5) * 0.2,
-    ...     },
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.5,
+    ...     spacing=(1.0, 0.2, 0.2),
     ... )
     >>> speed = rng.standard_normal(40)
     >>>
@@ -470,7 +466,7 @@ class SearchLight(BaseEstimator):
     ...     estimator=Ridge(), radius=0.25, cv=3, show_progress=False
     ... )
     >>> searchlight.fit(data, speed).scores_.dims
-    ('z', 'y', 'x')
+    ('k', 'j', 'i')
     """
 
     def __init__(
@@ -504,8 +500,8 @@ class SearchLight(BaseEstimator):
 
         Parameters
         ----------
-        X : (time, ...) xarray.DataArray
-            Functional ultrasound data. The `time` dimension is the sample axis.
+        X : (time, k, j, i) xarray.DataArray
+            VoxelData array. The `time` dimension is the sample axis.
         y : (n_samples,) array-like or xarray.DataArray
             Targets aligned with `X`'s `time` axis.
         groups : (n_samples,) array-like, optional
@@ -520,9 +516,10 @@ class SearchLight(BaseEstimator):
         Raises
         ------
         ValueError
-            If `X` is h5py-backed, if `radius` is negative, if `process_mask` is not a
-            subset of `mask`, if `y` or `groups` do not align with `X`, if a spatial
-            dimension lacks a numeric coordinate, or if the masked data contains
+            If `X` is h5py-backed or is not a VoxelData array with exactly dims
+            `(time, k, j, i)`; if `radius` is negative; if `mask` or `process_mask` is
+            not a VoxelData array; if `process_mask` is not a subset of `mask`; if `y`
+            or `groups` do not align with `X`; or if the masked data contains
             non-finite values.
 
         Warns
@@ -542,23 +539,28 @@ class SearchLight(BaseEstimator):
                 "data first."
             )
 
-        validate_time_series(X, operation_name="SearchLight.fit")
+        X_ordered = ensure_voxeldata(
+            X,
+            require_time=True,
+            require_unchunked_time=True,
+            allow_pose=False,
+            allow_extra_dims=False,
+        )
 
         if self.radius < 0:
             raise ValueError(f"radius must be non-negative, got {self.radius}.")
 
-        spatial_dims = tuple(str(dim) for dim in X.dims if dim != "time")
-        X_ordered = X.transpose("time", *spatial_dims)
+        X_ordered = X_ordered.transpose("time", *VOXEL_DIMS)
 
         if self.mask is None:
             mask = xr.ones_like(X_ordered.isel(time=0, drop=True), dtype=bool)
         else:
-            mask = validate_mask(self.mask, X_ordered, "mask", require_exact_dims=True)
+            mask = ensure_mask(self.mask, X_ordered, "mask", require_exact_dims=True)
 
         if self.process_mask is None:
             process_mask = mask
         else:
-            process_mask = validate_mask(
+            process_mask = ensure_mask(
                 self.process_mask, X_ordered, "process_mask", require_exact_dims=True
             )
             outside = int(
@@ -629,10 +631,10 @@ class SearchLight(BaseEstimator):
         )
 
         # Carry the input's attributes over, notably any `affines`, so the score map
-        # stays in the same physical space. Override the semantic attributes to describe
+        # stays in the same world space. Override the semantic attributes to describe
         # the score itself rather than the input signal.
         attrs = {**dict(X_ordered.attrs), "long_name": "Searchlight CV score"}
-        units = _score_units(self.scoring, classifier=classifier)
+        units = _get_score_units(self.scoring, classifier=classifier)
         if units is not None:
             attrs["units"] = units
         else:

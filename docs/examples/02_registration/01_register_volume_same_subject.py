@@ -59,7 +59,7 @@ def _load_angio_for_registration(session: str) -> xr.DataArray:
         / f"sub-rat75_ses-{session}_acq-{acq}_rec-minframe2d_pwd.nii.gz"
     )
     angio = cf.load(path).fusi.scale.db().compute()
-    return angio.fusi.affine.apply(angio.affines["physical_to_qform"])[0]
+    return angio.fusi.affine.apply(angio.affines["world_to_qform"])
 
 
 fixed = _load_angio_for_registration(sessions[0])
@@ -81,7 +81,7 @@ moving
 # [`register_volume`][confusius.registration.register_volume] will correct.
 
 # %%
-cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
+_ = cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 
 # %% [markdown]
 # ## Run the registration
@@ -91,7 +91,7 @@ cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 # values:
 #
 # 1. the moving image (only aligned to the fixed grid if `resample=True` is used);
-# 2. the rigid transform matrix that maps fixed-physical coordinates to moving-physical
+# 2. the rigid transform matrix that maps fixed-world coordinates to moving-world
 #    coordinates;
 # 3. a [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
 #    dataclass holding the per-iteration metric values and the optimizer stop
@@ -270,9 +270,10 @@ local_inverse_field = cf.registration.invert_displacement_field(local_field)
 # %% [markdown]
 # A quiver plot draws the in-plane displacement as arrows over the anatomy, so the
 # *direction* of the warp is easy to read. The field carries a leading `component` axis
-# labeled by the spatial dim names, so we use the `x` and `y` displacement components,
-# drop the degenerate `z` of the single slice, and subsample the dense grid so the
-# arrows stay legible.
+# labeled by the native voxel dim names, so we use the `i` and `j` displacement
+# components (lateral and axial), drop the degenerate `k` (elevation) of the single
+# slice, and subsample the dense grid so the arrows stay legible. Displacements are
+# still plotted against the world `x`/`y` coordinates attached to the `i`/`j` dims.
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(8, 3))
@@ -283,12 +284,16 @@ for ax, background, field, title in [
     (axes[1], fixed, local_inverse_field, "Approximate inverse local B-spline warp"),
 ]:
     cf.plotting.plot_volume(background, axes=ax, show_colorbar=False, bg_color=bg_color)
-    # x- and y-displacement of the single slice.
-    disp_x = field.sel(component="x").squeeze(drop=True)
-    disp_y = field.sel(component="y").squeeze(drop=True)
+    # Lateral (i/x) and axial (j/y) displacement of the single slice.
+    disp_x = field.sel(component="i").squeeze(drop=True)
+    disp_y = field.sel(component="j").squeeze(drop=True)
     # Subsample to roughly 20 arrows along the shorter axis so the field stays readable.
-    step = max(1, min(disp_x.sizes["y"], disp_x.sizes["x"]) // 20)
-    grid_x, grid_y = np.meshgrid(disp_x["x"].values[::step], disp_x["y"].values[::step])
+    step = max(1, min(disp_x.sizes["j"], disp_x.sizes["i"]) // 20)
+    # x/y are (j, i)-shaped axis-aligned coordinates: x varies only along i, y only
+    # along j, so a single row/column recovers the 1D axis values for the meshgrid.
+    x_1d = disp_x["x"].isel(j=0).values
+    y_1d = disp_x["y"].isel(i=0).values
+    grid_x, grid_y = np.meshgrid(x_1d[::step], y_1d[::step])
     u = disp_x.values[::step, ::step]
     v = disp_y.values[::step, ::step]
     arrows = ax.quiver(grid_x, grid_y, u, v, np.hypot(u, v), angles="xy", cmap="autumn")

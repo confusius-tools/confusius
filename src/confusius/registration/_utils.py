@@ -11,13 +11,177 @@ from typing import TYPE_CHECKING, TypeGuard
 
 import numpy as np
 import xarray as xr
+from scipy.spatial.transform import Rotation
 
-from confusius._utils.coordinates import get_grid_info_from_dataarray
+from confusius._dims import VOXEL_DIMS
+from confusius._utils.geometry import (
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+)
+from confusius.validation import ensure_voxeldata
 
 if TYPE_CHECKING:
     from threading import Event
 
     import SimpleITK as sitk
+
+
+def _raise_undefined_spatial_spacing_error(undefined_dims: list[str]) -> None:
+    """Raise a consistent registration spacing error.
+
+    Parameters
+    ----------
+    undefined_dims : list[str]
+        Spatial dimensions whose spacing could not be determined.
+
+    Raises
+    ------
+    ValueError
+        Always raised with a message explaining that the coordinates are irregular.
+    """
+    raise ValueError(
+        "Registration requires defined spatial spacing for all spatial "
+        f"dimensions, but {undefined_dims!r} are irregularly spaced (spacing is not "
+        "uniform along the coordinate). Resample onto a regularly spaced grid before "
+        "registering."
+    )
+
+
+def get_defined_spatial_spacing(da: xr.DataArray) -> tuple[list[str], list[float]]:
+    """Return spatial dims and their defined spacings for registration.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        Spatial or spatiotemporal DataArray.
+
+    Returns
+    -------
+    spatial_dims : list[str]
+        Spatial dimension names in DataArray order.
+    spacing : list[float]
+        World spacing for each spatial dimension.
+
+    Raises
+    ------
+    ValueError
+        If any spatial spacing is undefined.
+    """
+    da = ensure_voxeldata(
+        da,
+        require_time=False,
+        allow_pose=False,
+        allow_extra_dims=False,
+    )
+    spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
+    spacing_dict = da.fusi.spacing
+    undefined_dims = [dim for dim in spatial_dims if spacing_dict.get(dim) is None]
+    if undefined_dims:
+        _raise_undefined_spatial_spacing_error(undefined_dims)
+    return spatial_dims, [float(spacing_dict[dim]) for dim in spatial_dims]
+
+
+def _rotation_matrix_aligning_vectors(
+    source: np.ndarray,
+    target: np.ndarray,
+) -> np.ndarray:
+    """Return the minimal rotation that maps one unit vector onto another.
+
+    Parameters
+    ----------
+    source : (N,) numpy.ndarray
+        Source unit vector.
+    target : (N,) numpy.ndarray
+        Target unit vector.
+
+    Returns
+    -------
+    (N, N) numpy.ndarray
+        Proper rotation matrix satisfying `R @ source == target` up to numerical
+        precision.
+    """
+    source = np.asarray(source, dtype=np.float64).reshape(1, -1)
+    target = np.asarray(target, dtype=np.float64).reshape(1, -1)
+    rotation = Rotation.align_vectors(target, source)[0]
+    return rotation.as_matrix()
+
+
+def _get_voxel_to_world_plane_center(data: xr.DataArray) -> np.ndarray:
+    """Return the world center point of a single-slice voxel-to-world volume."""
+    return np.array(
+        [
+            float(np.asarray(data.coords[name].values).mean())
+            for name in get_voxel_to_world_coord_names(data)
+        ],
+        dtype=np.float64,
+    )
+
+
+def _get_voxel_to_world_slice_normal(data: xr.DataArray) -> np.ndarray:
+    """Return the world-space normal of a single-slice voxel-to-world volume."""
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
+    singleton_axes = [i for i, dim in enumerate(voxel_dims) if data.sizes[dim] == 1]
+    if len(singleton_axes) != 1:
+        raise ValueError(
+            "Voxel-to-world plane initialization requires exactly one singleton "
+            f"spatial dimension, got sizes {[data.sizes[dim] for dim in voxel_dims]!r}."
+        )
+    return np.asarray(data.fusi.direction, dtype=np.float64)[:, singleton_axes[0]]
+
+
+def initialize_single_slice_rigid_transform(
+    fixed: xr.DataArray,
+    moving: xr.DataArray,
+) -> np.ndarray:
+    """Build a rigid fixed-to-moving initializer for single-slice voxel-to-world volumes.
+
+    Parameters
+    ----------
+    fixed : xarray.DataArray
+        Fixed single-slice voxel-to-world volume.
+    moving : xarray.DataArray
+        Moving single-slice voxel-to-world volume.
+
+    Returns
+    -------
+    (4, 4) numpy.ndarray
+        Rigid transform in world space mapping fixed coordinates into moving
+        coordinates.
+
+    Raises
+    ------
+    ValueError
+        If either input is not a VoxelData array with a time-free, pose-free,
+        3D voxel-to-world grid (see `confusius.validation.ensure_voxeldata`).
+    """
+    # ensure_voxeldata (allow_extra_dims=False) already guarantees spatial_dims ==
+    # VOXEL_DIMS for both inputs, so fixed/moving spatial dims can never actually
+    # differ here -- no separate dims-match check needed.
+    fixed = ensure_voxeldata(
+        fixed,
+        require_time=False,
+        allow_pose=False,
+        allow_extra_dims=False,
+    )
+    moving = ensure_voxeldata(
+        moving,
+        require_time=False,
+        allow_pose=False,
+        allow_extra_dims=False,
+    )
+
+    fixed_normal = _get_voxel_to_world_slice_normal(fixed)
+    moving_normal = _get_voxel_to_world_slice_normal(moving)
+    rotation = _rotation_matrix_aligning_vectors(fixed_normal, moving_normal)
+
+    fixed_center = _get_voxel_to_world_plane_center(fixed)
+    moving_center = _get_voxel_to_world_plane_center(moving)
+    translation = moving_center - rotation @ fixed_center
+
+    transform = np.eye(4, dtype=np.float64)
+    transform[:3, :3] = rotation
+    transform[:3, 3] = translation
+    return transform
 
 
 SignalHandler = Callable[[int, FrameType | None], object]
@@ -37,7 +201,7 @@ def replace_affines_attr(result: xr.DataArray, reference: xr.DataArray) -> None:
     result : xarray.DataArray
         DataArray whose affine metadata should be updated in place.
     reference : xarray.DataArray
-        DataArray providing the physical-to-reference affines for the output grid.
+        DataArray providing the world-to-reference affines for the output grid.
 
     Notes
     -----
@@ -144,40 +308,34 @@ def abort_on_sigint(
         signal.signal(signal.SIGINT, previous_handler)
 
 
-def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
-    """Convert a spatial or spatiotemporal DataArray to a SimpleITK image.
+def voxeldata_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
+    """Convert a VoxelData array to a SimpleITK image.
 
     Uses the transpose convention: `da.values.T` is passed to `GetImageFromArray`,
-    so that the first DataArray axis maps to SimpleITK's physical x-axis. For data
+    so that the first DataArray axis maps to SimpleITK's world x-axis. For data
     with a time dimension, the time dimension is converted to a vector image channel
     dimension.
 
     Parameters
     ----------
     da : xarray.DataArray
-        2D or 3D spatial DataArray, or 2D+t or 3D+t DataArray with a time dimension.
-        Spacing and origin are derived from its coordinates. Spatial spacing must be
-        defined by regular coordinates or `voxdim` metadata on singleton coordinates.
+        Canonical VoxelData array, optionally with a `time` dimension. Spacing,
+        origin, and direction are derived from its voxel-to-world index.
 
     Returns
     -------
     SimpleITK.Image
-        SimpleITK image with spacing and origin set from the DataArray coordinates.
-        For `time`-stacked input, returns a vector image where time is the vector
-        dimension.
+        SimpleITK image with spacing, origin, and direction set from the DataArray's
+        voxel-to-world index. For `time`-stacked input, returns a vector image where
+        time is the vector dimension.
     """
     import SimpleITK as sitk
 
     has_time = "time" in da.dims
-    spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
-    grid = get_grid_info_from_dataarray(
-        da,
-        spatial_dims,
-        error_prefix=(
-            "Cannot convert DataArray to a SimpleITK image because spatial spacing "
-            "is undefined"
-        ),
-    )
+    spacing = [float(da.fusi.spacing[dim]) for dim in VOXEL_DIMS]
+    origin_dict = da.fusi.origin
+    origin_names = get_voxel_to_world_coord_names(da)
+    origin = tuple(origin_dict[d] for d in origin_names)
 
     if has_time:
         data = da.values
@@ -189,8 +347,9 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     else:
         image = sitk.GetImageFromArray(da.values.T)
 
-    image.SetSpacing(grid["spacing"])
-    image.SetOrigin(grid["origin"])
+    image.SetSpacing(tuple(spacing))
+    image.SetOrigin(tuple(origin))
+    image.SetDirection(np.asarray(da.fusi.direction, dtype=np.float64).ravel().tolist())
     return image
 
 
@@ -201,7 +360,7 @@ def expand_thin_dims(img: "sitk.Image", min_size: int = 4) -> "sitk.Image":
     inversion fail when a spatial dimension is smaller than a handful of voxels
     (common for 2D+t fUSI recordings with a 1-voxel depth). This helper replicates
     thin dimensions so that the image is safe to process, while preserving the
-    physical extent (spacing is divided by the expansion factor, keeping
+    world extent (spacing is divided by the expansion factor, keeping
     `size * spacing` constant).
 
     Parameters

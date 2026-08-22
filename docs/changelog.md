@@ -12,40 +12,151 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
-- Renamed `validate_fusi_dataarray` to `validate_fusi`, `validate_iq_dataarray`
-  to `validate_iq`, `validate_bspline_dataarray` to `validate_bspline`, and
-  `validate_atlas_dataset` to `validate_atlas`; renamed the IQ validator option
-  `require_attrs` to `require_velocity_attrs`
+- **VoxelData's canonical dims changed from `(...extra, time, pose, z, y, x)` to
+  `(...extra, time, pose, k, j, i)`.** World coordinates `z`/`y`/`x` are no longer
+  stored dimensions — they're derived lazily, per voxel, from a single
+  voxel-to-world affine owned by a custom xarray index
+  ([`VoxelToWorldIndex`][confusius._utils.geometry.VoxelToWorldIndex]) attached
+  to native voxel dims `k`/`j`/`i`. This lets ConfUSIus represent oblique,
+  rotated, or sheared acquisitions and registration outputs exactly, without
+  resampling onto an axis-aligned grid (previously lossy or impossible). Every
+  loader (`load_scan`, `load_nifti`, AUTC, EchoFrame), registration function,
+  plotting path, napari layer, and I/O round trip (Zarr, NIfTI) was migrated to
+  this model; `confusius.validation.validate_voxeldata`/`ensure_voxeldata` enforce it
+  unconditionally, with no fallback to a plain, non-indexed shape. See the
+  "VoxelData" section of `AGENTS.md`/the API docs for the full contract
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- Renamed "physical" to "world" throughout the public API (`attrs["affines"]`
+  keys such as `world_to_sform`, function/parameter names, docs) to describe the
+  coordinate *space*, reserving "physical units" for the mm-vs-voxel-index unit
+  distinction (standard ITK/NIfTI usage). `affine_to` was renamed to
+  [`get_relative_affine`][confusius.xarray.get_relative_affine]
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- `cf.io.load`'s `.zarr` branch and the napari Zarr reader now reject stores that don't
+  contain `attrs["voxel_to_world"]`, instead of silently loading them as non-canonical
+  data. Use `xarray.open_zarr` directly for a foreign Zarr store
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- `extract_with_mask`/`extract_with_labels` now require canonical VoxelData input
+  for both `data` and `mask`/`labels`, and check alignment via the full
+  voxel-to-world affine (not just matching `k`/`j`/`i` integer ranges) — two
+  arrays on different physical grids that happened to share voxel-index ranges no
+  longer silently pass as aligned. `validate_atlas` similarly no longer accepts a
+  plain, non-indexed atlas shape
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- Split `validate_mask`/`validate_labels` into a pure check (`mask`/`data` must
+  already be canonical VoxelData; returns `None`) and new
+  [`ensure_mask`][confusius.validation.ensure_mask]/
+  [`ensure_labels`][confusius.validation.ensure_labels] (canonicalize via
+  `ensure_voxeldata`, then validate; returns the canonicalized/coerced array) —
+  mirroring `validate_voxeldata`/`ensure_voxeldata`. Callers that relied on
+  `validate_mask`/`validate_labels`'s return value should switch to
+  `ensure_mask`/`ensure_labels`
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- [`PCA`][confusius.decomposition.PCA]/[`FastICA`][confusius.decomposition.FastICA]/
+  [`NMF`][confusius.decomposition.NMF] are now VoxelData-only; the previously
+  documented dual-input support for an already-reduced `(time, region)` signals
+  table (e.g. [`extract_with_labels`][confusius.extract.extract_with_labels]
+  output) is removed, along with the resulting `feature_names_in_` attribute.
+  Decomposing a signals table is regular tabular PCA/ICA/NMF with no spatial
+  structure to track, so use scikit-learn directly for that instead.
+  [`unmask`][confusius.extract.unmask] correspondingly now always requires a
+  VoxelData mask and always returns a VoxelData array
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- Multi-pose data acquired sequentially now carries a pose-dependent, `(time,
+  pose)`-shaped `time` coordinate holding each pose's own real acquisition
+  timestamps directly, replacing the old 1D `time` + `pose_time` sidecar
+  coordinate convention. `load_scan`'s `4Dscan` mode and
+  [`stack_poses`][confusius.multipose.stack_poses] (new — assembles independently
+  loaded single-pose grids into one pose-dependent DataArray) both produce this
+  shape; [`consolidate_poses`][confusius.multipose.consolidate_poses] and
+  [`correct_slice_timings`][confusius.multipose.correct_slice_timings] consume it
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- [`consolidate_poses`][confusius.multipose.consolidate_poses] dropped its
+  `affines_key` parameter and now always reads per-pose positions from `da`'s
+  primary voxel-to-world geometry, which must therefore itself be pose-dependent.
+  To consolidate around a different, secondary affine linked in
+  `da.attrs["affines"]` instead, rebase onto it first with
+  [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply]
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- Renamed `create_fusi_dataarray` to
+  [`create_voxeldata`][confusius.xarray.create_voxeldata], `validate_fusi` to
+  [`validate_voxeldata`][confusius.validation.validate_voxeldata], `ensure_fusi` to
+  [`ensure_voxeldata`][confusius.validation.ensure_voxeldata], and
+  `canonicalize_fusi` to `canonicalize_voxeldata`. Removed the separate
+  `create_iq_dataarray`, `validate_iq`, and `ensure_iq` APIs; IQ data is now built
+  with `create_voxeldata`, with `transmit_frequency` and
+  `beamforming_sound_velocity` passed via `attrs` and validated using
+  `require_velocity_attrs=True`
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
-- fUSI DataArrays now require explicit 3D spatial geometry with `z`, `y`, and `x`
-  dimensions. Spatial coordinates must carry `units` metadata, time coordinates must
-  carry `units` metadata when present, and singleton spatial dimensions must carry
-  `voxdim` metadata because spacing cannot be inferred from a single coordinate point. Scalar-indexed slices are
-  recovered as singleton dimensions at relevant API boundaries; use
-  [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to add singleton
+- Spatial coordinates must carry `units` metadata, and so must `time` when present;
+  spacing along every spatial axis, including singleton dimensions, is always
+  derived from the voxel-to-world affine, never from separate coordinate metadata.
+  Scalar-indexed slices are recovered as singleton dimensions at relevant API
+  boundaries; use
+  [`create_voxeldata`][confusius.xarray.create_voxeldata] to add singleton
   axes and coordinate metadata from raw 2D or 2D+t arrays
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
-  
+- Removed [`consolidate_poses`][confusius.multipose.consolidate_poses]'s
+  `sweep_dim` parameter. The swept voxel dimension is now always auto-detected
+  from the per-pose voxel-to-world geometry (the pose-translation direction
+  matched against each voxel dimension's world-space direction); a sweep that
+  isn't cleanly aligned with a single voxel dimension can never form the
+  regular grid consolidation requires, so no override was needed
+  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+
 ### :sparkles: Enhancements
 
-- Added [`ensure_iq`][confusius.validation.ensure_iq] to canonicalize and validate IQ
-  inputs with one call ([#322](https://github.com/confusius-tools/confusius/pull/322)).
-- Added [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to build a
-  canonical fUSI DataArray from a raw array plus higher-level metadata (`dt`, `dz`,
-  `dy`, `dx`, and axis origins). It attaches regularly spaced physical coordinates,
-  `units`/`voxdim` metadata, and validates the result before returning it
+- `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
+  support pose-dependent voxel-to-world geometry: a `(npose, 4, 4)` affine
+  stack, one per pose, instead of one affine shared by every pose. New
+  [`stack_poses`][confusius.multipose.stack_poses] assembles independently
+  loaded single-pose grids (e.g. one NIfTI file per probe position) into a
+  single pose-dependent DataArray. `load_scan`'s `3Dscan`/`4Dscan` modes,
+  [`consolidate_poses`][confusius.multipose.consolidate_poses], and
+  [`correct_slice_timings`][confusius.multipose.correct_slice_timings] all
+  build on this
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- Added [`reindex_voxels`][confusius.xarray.reindex_voxels]/
+  [`reindex_voxels_like`][confusius.xarray.reindex_voxels_like] to `.fusi.affine`,
+  rebasing voxel-space coordinates to dense positions via plain 4x4 matrix
+  composition ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- NIfTI and Zarr I/O round-trip oblique/rotated/sheared voxel-to-world geometry
+  exactly; `load_nifti` composes the full primary qform/sform affine into
+  `voxel_to_world` instead of decomposing it into axis-aligned scale/origin
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- `plot_volume` (and napari layers) can now slice along either native voxel
+  planes (`k`/`j`/`i`) or world planes (`z`/`y`/`x`), resampling onto an
+  axis-aligned display grid only when slicing by world plane and only for
+  oblique data; `slice_mode="pose"` facets a multi-pose array over its poses
+  with world-coordinate axis labels
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- Added [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] to canonicalize
+  and validate VoxelData inputs with one call, and added
+  [`create_voxeldata`][confusius.xarray.create_voxeldata] to build VoxelData from a
+  raw array plus higher-level metadata (`dt`, spacing, axis origins, attrs). It
+  attaches regularly spaced world coordinates, `units` metadata, and validates the
+  result before returning it
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
-- Added [`create_iq_dataarray`][confusius.xarray.create_iq_dataarray] to construct
-  canonical complex IQ DataArrays with explicit `transmit_frequency` and
-  `beamforming_sound_velocity` arguments
-  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+- `plot_volume`/`plot_composite`/`plot_stat_map`/`VolumePlotter`/`.fusi.plot.napari`
+  now accept `resample_interpolation`/`resample_fill_value` to control how
+  oblique (non-axis-aligned) voxel-to-world data is resampled onto an
+  axis-aligned display grid
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 
 ### :bug: Fixes
 
+- `save_nifti` now always writes both a qform and sform (previously sform was
+  silently dropped when no secondary affine had been explicitly recorded)
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 - `plot_composite` no longer produces a blank/NaN composite when either input has
   been scaled with `.fusi.scale.db()`; the `-inf` values `db_scale` assigns to
   zero-valued voxels are now excluded from the normalization bounds
   ([#370](https://github.com/confusius-tools/confusius/pull/370)).
+- `FirstLevelModel.fit` no longer errors on multi-pose data. Its implicit
+  all-True mask (used when no `mask` is passed) now covers `pose` when the
+  input has it, instead of collapsing to a single pose; the explicit-`mask`
+  path no longer rejects a `pose`-carrying mask either
+  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 
 ## 0.6.1
 
@@ -541,8 +652,8 @@ Released 2026-07-07.
   full per-frame diagnostics list under `attrs["registration_diagnostics"]` only when
   called with `keep_diagnostics=True` to avoid retaining the full optimizer metric
   trace by default ([#139](https://github.com/confusius-tools/confusius/pull/139)).
-- Renamed `validate_iq` to
-  [`validate_iq_dataarray`][confusius.validation.validate_iq]
+- Renamed `validate_voxeldata` to
+  [`validate_fusi_dataarray`][confusius.validation.validate_voxeldata]
   ([#153](https://github.com/confusius-tools/confusius/pull/153)).
 
 ### :sparkles: Enhancements
@@ -566,7 +677,7 @@ Released 2026-07-07.
 - Added `show_progress` to volumewise registration so joblib progress output can be
   disabled in scripted or quiet workflows
   ([#126](https://github.com/confusius-tools/confusius/pull/126)).
-- Added a reusable [`validate_fusi_dataarray`][confusius.validation.validate_fusi]
+- Added a reusable [`validate_fusi_dataarray`][confusius.validation.validate_voxeldata]
   validator and refactored IQ/registration validation to use it. Core dimension
   coordinates are now validated as 1D, numeric, finite, and strictly increasing, while
   extra/non-dimension coordinates remain allowed

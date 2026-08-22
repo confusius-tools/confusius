@@ -23,12 +23,12 @@ def create_signals_with_time(shape, sampling_rate=100, **kwargs):
 class TestFilterButterworth:
     """Tests for Butterworth filtering."""
 
-    def test_lowpass_matches_scipy(self, sample_timeseries):
+    def test_lowpass_matches_scipy(self, make_sample_timeseries):
         """Low-pass filter should match scipy.signal.butter + sosfiltfilt."""
         n_timepoints = 500
         n_voxels = 10
         sampling_rate = 100
-        signals = sample_timeseries(
+        signals = make_sample_timeseries(
             n_time=n_timepoints, n_voxels=n_voxels, sampling_rate=sampling_rate
         )
         data = signals.values
@@ -50,12 +50,12 @@ class TestFilterButterworth:
 
         np.testing.assert_allclose(filtered.values, expected)
 
-    def test_highpass_matches_scipy(self, sample_timeseries):
+    def test_highpass_matches_scipy(self, make_sample_timeseries):
         """High-pass filter should match scipy.signal.butter + sosfiltfilt."""
         n_timepoints = 500
         n_voxels = 10
         sampling_rate = 100
-        signals = sample_timeseries(
+        signals = make_sample_timeseries(
             n_time=n_timepoints, n_voxels=n_voxels, sampling_rate=sampling_rate
         )
         data = signals.values
@@ -77,12 +77,12 @@ class TestFilterButterworth:
 
         np.testing.assert_allclose(filtered.values, expected)
 
-    def test_bandpass_matches_scipy(self, sample_timeseries):
+    def test_bandpass_matches_scipy(self, make_sample_timeseries):
         """Band-pass filter should match scipy.signal.butter + sosfiltfilt."""
         n_timepoints = 500
         n_voxels = 10
         sampling_rate = 100
-        signals = sample_timeseries(
+        signals = make_sample_timeseries(
             n_time=n_timepoints, n_voxels=n_voxels, sampling_rate=sampling_rate
         )
         data = signals.values
@@ -184,12 +184,12 @@ class TestFilterButterworth:
         low_freq_ref = np.sin(2 * np.pi * 1 * t[mid])
         np.testing.assert_allclose(filtered.values[mid, 0], low_freq_ref, atol=0.1)
 
-    def test_single_vs_multiple_voxels_consistency(self, sample_timeseries):
+    def test_single_vs_multiple_voxels_consistency(self, make_sample_timeseries):
         """Filtering single voxel should match first column of multi-voxel result."""
         n_timepoints = 500
         n_voxels = 50
         sampling_rate = 100
-        multi_voxel = sample_timeseries(
+        multi_voxel = make_sample_timeseries(
             n_time=n_timepoints, n_voxels=n_voxels, sampling_rate=sampling_rate
         )
         data = multi_voxel.values

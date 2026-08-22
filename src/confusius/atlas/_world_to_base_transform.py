@@ -1,11 +1,12 @@
-"""Physical-to-base transforms for atlas resampling (affine and nonlinear).
+"""World-to-base transforms for atlas resampling (affine and nonlinear).
 
-An atlas physical-to-base transform is a *pull* transform, following the same convention
-as `confusius.registration`: it maps a point in the atlas's physical space back to its
-base (BrainGlobe OBJ) physical space. Affine transforms are homogeneous `(4, 4)` matrices;
-nonlinear transforms are B-spline or dense displacement-field DataArrays. All points,
-vertices, and displacement components are in DataArray dim order `(z, y, x)`: component `i`
-of a displacement field displaces along axis `dims[i]`.
+An atlas world-to-base transform is a *pull* transform, following the same convention
+as `confusius.registration`: it maps a point in the atlas's world space back to its
+base (BrainGlobe OBJ) world space. Affine transforms are homogeneous `(4, 4)` matrices;
+nonlinear transforms are B-spline or dense displacement-field VoxelData arrays with an
+extra leading `component` dim, labeled by native voxel dim name (matching the convention
+`confusius.registration.bspline` uses): component `k`/`j`/`i` displaces along that
+axis's world direction.
 """
 
 from typing import cast
@@ -15,10 +16,16 @@ import numpy.typing as npt
 import xarray as xr
 from scipy.interpolate import interpn
 
+from confusius._utils.geometry import (
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
+)
 from confusius.registration.bspline import sample_displacement_field_like
+from confusius.xarray import create_voxeldata
 
-PhysicalToBaseTransform = npt.NDArray[np.float64] | xr.DataArray
-"""Pull transform mapping the atlas's physical coordinates back to base atlas space.
+WorldToBaseTransform = npt.NDArray[np.float64] | xr.DataArray
+"""Pull transform mapping the atlas's world coordinates back to base atlas space.
 
 Affine transforms use homogeneous `(4, 4)` matrices; nonlinear transforms use B-spline or
 displacement-field DataArrays (`attrs["type"]` in `{"bspline_transform",
@@ -26,8 +33,8 @@ displacement-field DataArrays (`attrs["type"]` in `{"bspline_transform",
 """
 
 
-def _validate_physical_to_base_transform(transform: PhysicalToBaseTransform) -> None:
-    """Raise ValueError if `transform` is not a valid physical-to-base transform.
+def _validate_world_to_base_transform(transform: WorldToBaseTransform) -> None:
+    """Raise ValueError if `transform` is not a valid world-to-base transform.
 
     Parameters
     ----------
@@ -57,11 +64,11 @@ def _validate_physical_to_base_transform(transform: PhysicalToBaseTransform) -> 
 
 
 def _transform_points(
-    transform: PhysicalToBaseTransform,
+    transform: WorldToBaseTransform,
     points: npt.NDArray[np.float64],
     reference: xr.DataArray,
 ) -> npt.NDArray[np.float64]:
-    """Apply a pull transform to physical points.
+    """Apply a pull transform to world points.
 
     Parameters
     ----------
@@ -69,7 +76,7 @@ def _transform_points(
         Pull transform mapping points from `reference` space into some moving/base
         space.
     points : (N, D) numpy.ndarray
-        Physical points in DataArray dim order `(z, y, x)`.
+        World points in DataArray dim order `(z, y, x)`.
     reference : xarray.DataArray
         Reference grid on which nonlinear transforms live.
 
@@ -78,7 +85,7 @@ def _transform_points(
     numpy.ndarray
         Transformed points with shape `(N, D)`.
     """
-    _validate_physical_to_base_transform(transform)
+    _validate_world_to_base_transform(transform)
 
     if isinstance(transform, np.ndarray):
         n_points, ndim = points.shape
@@ -92,20 +99,20 @@ def _transform_points(
     return points + displacement
 
 
-def _compose_physical_to_base_transforms(
-    old_transform: PhysicalToBaseTransform,
-    new_transform: PhysicalToBaseTransform,
+def _compose_world_to_base_transforms(
+    old_transform: WorldToBaseTransform,
+    new_transform: WorldToBaseTransform,
     new_reference: xr.DataArray,
     old_reference: xr.DataArray,
-) -> PhysicalToBaseTransform:
+) -> WorldToBaseTransform:
     """Compose mesh pull transforms as `old_transform ∘ new_transform`.
 
     Parameters
     ----------
     old_transform : numpy.ndarray or xarray.DataArray
-        Pull transform from the current atlas physical space to the base atlas space.
+        Pull transform from the current atlas world space to the base atlas space.
     new_transform : numpy.ndarray or xarray.DataArray
-        Pull transform from the new atlas physical space to the current atlas space.
+        Pull transform from the new atlas world space to the current atlas space.
     new_reference : xarray.DataArray
         Reference grid of the new atlas space.
     old_reference : xarray.DataArray
@@ -114,17 +121,28 @@ def _compose_physical_to_base_transforms(
     Returns
     -------
     numpy.ndarray or xarray.DataArray
-        Pull transform from the new atlas physical space to the base atlas space. Affine
+        Pull transform from the new atlas world space to the base atlas space. Affine
         when both inputs are affine, otherwise a dense displacement field on
         `new_reference`'s grid.
     """
-    if isinstance(old_transform, np.ndarray) and np.allclose(old_transform, np.eye(4)):
+    # Shape-check before np.allclose: a malformed (non-(4, 4)) affine must be
+    # rejected by _validate_world_to_base_transform below with a clear error, not
+    # crash here with an opaque numpy broadcast error.
+    if (
+        isinstance(old_transform, np.ndarray)
+        and old_transform.shape == (4, 4)
+        and np.allclose(old_transform, np.eye(4))
+    ):
         return (
             new_transform.copy(deep=False)
             if isinstance(new_transform, xr.DataArray)
             else new_transform.copy()
         )
-    if isinstance(new_transform, np.ndarray) and np.allclose(new_transform, np.eye(4)):
+    if (
+        isinstance(new_transform, np.ndarray)
+        and new_transform.shape == (4, 4)
+        and np.allclose(new_transform, np.eye(4))
+    ):
         return (
             old_transform.copy(deep=False)
             if isinstance(old_transform, xr.DataArray)
@@ -133,15 +151,23 @@ def _compose_physical_to_base_transforms(
     if isinstance(old_transform, np.ndarray) and isinstance(new_transform, np.ndarray):
         return old_transform @ new_transform
 
-    dims = [str(dim) for dim in new_reference.dims]
-    grid = np.meshgrid(
-        *[
-            np.asarray(new_reference.coords[dim].values, dtype=np.float64)
-            for dim in dims
-        ],
-        indexing="ij",
+    # Displacement components and interpolation operate in world space. Build every
+    # output-grid position from the requested spacing, origin, and direction rather
+    # than the derived N-D world coordinates.
+    dims = list(get_voxel_to_world_coord_names(new_reference))
+    voxel_dims = get_voxel_to_world_spatial_dims(new_reference)
+    shape = tuple(new_reference.sizes[dim] for dim in voxel_dims)
+    spacing = np.asarray(
+        [new_reference.fusi.spacing[dim] for dim in voxel_dims], dtype=np.float64
     )
-    reference_points = np.stack(grid, axis=-1).reshape(-1, len(dims))
+    origin = np.asarray(
+        [new_reference.fusi.origin[dim] for dim in dims], dtype=np.float64
+    )
+    direction = np.asarray(new_reference.fusi.direction, dtype=np.float64)
+    voxel_positions = np.stack(
+        np.meshgrid(*(np.arange(size) for size in shape), indexing="ij"), axis=-1
+    ).reshape(-1, len(dims))
+    reference_points = voxel_positions @ (direction @ np.diag(spacing)).T + origin
     current_points = _transform_points(new_transform, reference_points, new_reference)
     base_points = _transform_points(old_transform, current_points, old_reference)
     # Points and displacement components are both in DataArray dim order (component
@@ -151,12 +177,21 @@ def _compose_physical_to_base_transforms(
         len(dims), *new_reference.shape
     )
 
-    coords: dict = {"component": np.array(dims, dtype=np.str_)}
-    coords.update({dim: new_reference.coords[dim] for dim in dims})
-    return xr.DataArray(
+    # A displacement field is a VoxelData array (voxel-to-world index,
+    # always axis-aligned here) with an extra leading `component` dim, matching the
+    # convention
+    # `sample_displacement_field`/`_sitk_displacement_field_to_dataarray` already use:
+    # `dims`/the array's own dims must be native voxel names, and `component` is
+    # labeled by those same voxel names (in the same order the displacement was
+    # stacked in above, which is `dims`'/world order -- `voxel_dims` here is just its
+    # voxel-name spelling, not a reordering).
+    return create_voxeldata(
         displacement,
-        dims=["component", *dims],
-        coords=coords,
+        dims=("component", *voxel_dims),
+        extra_coords={"component": np.array(voxel_dims, dtype=np.str_)},
+        spacing=spacing.tolist(),
+        origin=origin.tolist(),
+        direction=direction,
         attrs={"type": "displacement_field_transform"},
     )
 
@@ -164,39 +199,59 @@ def _compose_physical_to_base_transforms(
 def _interpolate_displacement_field(
     field: xr.DataArray, points: npt.NDArray[np.float64]
 ) -> npt.NDArray[np.float64]:
-    """Interpolate a dense displacement field at physical points.
+    """Interpolate a dense displacement field at world points.
 
     Parameters
     ----------
     field : xarray.DataArray
-        Dense displacement field with dimensions `("component", *spatial_dims)`.
+        Dense displacement field: VoxelData array (voxel dims
+        `k`/`j`/`i` + a voxel-to-world index, always axis-aligned -- see
+        [sample_displacement_field][confusius.registration.bspline.sample_displacement_field])
+        with an extra leading `component` dimension.
     points : (N, D) numpy.ndarray
-        Physical points in the same axis order as `field.dims[1:]`.
+        World points, in the same axis order as
+        `get_voxel_to_world_coord_names(field)`.
 
     Returns
     -------
     numpy.ndarray
         Interpolated displacement vectors with shape `(N, D)`. Points beyond the field
         domain and its one-voxel edge-padded margin are returned as NaN.
-    """
-    spatial_dims = [str(dim) for dim in field.dims[1:]]
-    spacing = field.fusi.spacing
 
-    # Pad the field by one voxel (edge replication) at each end of every spatial dim, so
-    # points within one voxel of a boundary, as barely-outside mesh vertices are, can
-    # still be interpolated. Points beyond the padded margin resolve to NaN; the mesh
-    # caller drops the vertices that could not be warped.
-    padded_field = field.pad({dim: (1, 1) for dim in spatial_dims}, mode="edge")
-    grid = []
-    for dim in spatial_dims:
-        padded_coord = np.asarray(padded_field.coords[dim], dtype=np.float64).copy()
-        padded_coord[0] = padded_coord[1] - spacing[dim]
-        padded_coord[-1] = padded_coord[-2] + spacing[dim]
-        grid.append(padded_coord)
+    Raises
+    ------
+    ValueError
+        If `field` does not carry a voxel-to-world index.
+    """
+    if not has_voxel_to_world_index(field):
+        raise ValueError("field must have a voxel-to-world index.")
+
+    voxel_dims = get_voxel_to_world_spatial_dims(field)
+    spacing = field.fusi.spacing
+    origin = field.fusi.origin
+    world_dims = get_voxel_to_world_coord_names(field)
+    shape = [field.sizes[dim] for dim in voxel_dims]
+
+    # Pad the field's data by one voxel (edge replication) at each end of every spatial
+    # dim, so points within one voxel of a boundary, as barely-outside mesh vertices
+    # are, can still be interpolated. Points beyond the padded margin resolve to NaN;
+    # the mesh caller drops the vertices that could not be warped. Padding is done on
+    # the plain values array (not via `field.pad()`, which would silently drop the
+    # voxel-to-world index) and the interpolation grid built directly from the affine,
+    # since these fields are always axis-aligned.
+    padded_values = np.pad(
+        np.asarray(field.transpose("component", *voxel_dims).values, dtype=np.float64),
+        [(0, 0), *[(1, 1)] * len(voxel_dims)],
+        mode="edge",
+    )
+    grid = [
+        origin[world_name] + (np.arange(-1, n + 1, dtype=np.float64)) * spacing[dim]
+        for dim, world_name, n in zip(voxel_dims, world_dims, shape, strict=True)
+    ]
 
     displacements = interpn(
         grid,
-        np.moveaxis(np.asarray(padded_field.values, dtype=np.float64), 0, -1),
+        np.moveaxis(padded_values, 0, -1),
         points,
         bounds_error=False,
         fill_value=np.nan,
@@ -255,20 +310,20 @@ def _invert_displacement_field_at_points(
     return fixed_points
 
 
-def _apply_physical_to_base_transform(
-    transform: PhysicalToBaseTransform,
+def _apply_world_to_base_transform(
+    transform: WorldToBaseTransform,
     vertices: npt.NDArray[np.float64],
     reference: xr.DataArray,
 ) -> npt.NDArray[np.float64]:
-    """Transform mesh vertices from base atlas space into the atlas's physical space.
+    """Transform mesh vertices from base atlas space into the atlas's world space.
 
     Parameters
     ----------
     transform : numpy.ndarray or xarray.DataArray
-        Pull transform from the atlas's physical space back to the base atlas physical
+        Pull transform from the atlas's world space back to the base atlas world
         space.
     vertices : (N, 3) numpy.ndarray
-        Mesh vertices expressed in the base atlas physical coordinates (millimetres).
+        Mesh vertices expressed in the base atlas world coordinates (millimetres).
     reference : xarray.DataArray
         The atlas's reference grid. Used to sample B-spline transforms into a dense
         displacement field when needed.
@@ -276,7 +331,7 @@ def _apply_physical_to_base_transform(
     Returns
     -------
     numpy.ndarray
-        Mesh vertices in the atlas's physical space.
+        Mesh vertices in the atlas's world space.
     """
     if isinstance(transform, np.ndarray):
         n_vertices, ndim = vertices.shape
@@ -327,15 +382,18 @@ def _drop_vertices_outside_grid(
     faces : numpy.ndarray
         Faces whose three vertices all survived, reindexed into the new vertex array.
     """
-    dims = [str(dim) for dim in reference.dims]
+    dims = list(get_voxel_to_world_coord_names(reference))
+    voxel_dims = list(get_voxel_to_world_spatial_dims(reference))
     spacing = reference.fusi.spacing
     inside = np.ones(len(vertices), dtype=bool)
-    for axis, dim in enumerate(dims):
+    for axis, (dim, voxel_dim) in enumerate(zip(dims, voxel_dims, strict=True)):
         coord = reference.coords[dim].values
         # Keep the same one-voxel margin the field interpolation is padded to, so a
         # vertex within `spacing` of a boundary (e.g. the anterior/posterior tips of the
-        # Allen brain) is retained rather than clipped.
-        margin = spacing[dim] if spacing[dim] is not None else 0.0
+        # Allen brain) is retained rather than clipped. `fusi.spacing` is keyed by voxel
+        # dim (k/j/i), not world dim (z/y/x) -- look it up by the matching voxel dim.
+        coord_spacing = spacing.get(voxel_dim)
+        margin = coord_spacing if coord_spacing is not None else 0.0
         inside &= (vertices[:, axis] >= coord.min() - margin) & (
             vertices[:, axis] <= coord.max() + margin
         )

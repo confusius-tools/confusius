@@ -9,10 +9,17 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import xarray as xr
 
+from confusius._dims import CORE_DIMS, POSE_DIM, VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.geometry import (
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
+    require_scalar_pose_affine,
+)
+from confusius._utils.mask import select_masked_features
 from confusius._utils.plotting import blend_red_cyan, scale_min_max
 from confusius._utils.stack import find_stack_level
-from confusius.extract import extract_with_mask
 from confusius.plotting._hover import (
     _HoverManager,
     _normalize_roi_labels,
@@ -20,13 +27,21 @@ from confusius.plotting._hover import (
 from confusius.plotting._utils import (
     _auto_fg_color,
     _get_distinct_colors,
+    _materialize_axis_aligned_world_grid_for_display,
     _resolve_font_sizes,
     _style_colorbar,
     coerce_complex_to_magnitude,
     sort_coords_for_plot,
 )
+from confusius.plotting._utils import (
+    resample_to_axis_aligned_world_grid as _shared_resample_to_axis_aligned_world_grid,
+)
 from confusius.signal import clean
-from confusius.validation import validate_matching_coordinates, validate_time_series
+from confusius.validation import (
+    ensure_voxeldata,
+    validate_matching_coordinates,
+    validate_time_series,
+)
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -71,15 +86,225 @@ def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
     return np.concatenate([[left], interior, [right]])
 
 
+def _has_plottable_voxel_to_world_index(data: xr.DataArray) -> bool:
+    """Return whether `data` carries voxel-to-world geometry metadata.
+
+    `pose` is allowed here (unlike most single-grid geometry helpers) so that
+    world-coordinate axis labels/ticks are used for `slice_mode="pose"` faceting;
+    functions that actually need one grid (e.g. resampling onto an axis-aligned
+    world grid) still require a scalar pose via
+    [require_scalar_pose_affine][confusius._utils.geometry.require_scalar_pose_affine],
+    raising clearly instead of silently doing the wrong thing.
+    """
+    return has_voxel_to_world_index(data) and all(
+        str(dim) in CORE_DIMS for dim in data.dims
+    )
+
+
+def _validate_voxel_to_world_slice_mode(data: xr.DataArray, slice_mode: str) -> None:
+    """Validate slice selection semantics for voxel-to-world data.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Data being sliced for plotting.
+    slice_mode : str
+        Requested slice dimension.
+
+    Raises
+    ------
+    ValueError
+        If voxel-to-world data is sliced along an unsupported dimension.
+    """
+    if not _has_plottable_voxel_to_world_index(data):
+        return
+
+    valid_slice_modes = tuple(
+        str(dim) for dim in data.dims if str(dim) not in {"time", *VOXEL_DIMS}
+    )
+    valid_slice_modes += tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
+    valid_slice_modes += tuple(
+        dim
+        for dim in get_voxel_to_world_coord_names(data)
+        if dim not in valid_slice_modes
+    )
+    if POSE_DIM in data.dims:
+        valid_slice_modes += (POSE_DIM,)
+    if slice_mode not in valid_slice_modes:
+        raise ValueError(
+            "Voxel-to-world plotting supports only native voxel-plane slicing, "
+            "world z/y/x slicing, or pose slicing, got "
+            f"slice_mode={slice_mode!r}. Supported modes: {valid_slice_modes!r}."
+        )
+    spatial_dims = [dim for dim in data.dims if dim in {"k", "j", "i"}]
+    if slice_mode in {"z", "y", "x"} and len(spatial_dims) != 3:
+        raise ValueError(
+            "World z/y/x slicing for voxel-to-world plotting requires 3D data."
+        )
+
+
+def _get_voxel_to_world_dim_order(slice_da: xr.DataArray) -> tuple[str, ...]:
+    """Return active voxel-space dimension order implied by the stored affine.
+
+    `_fold_fixed_dims_into_affine` always returns an affine whose column count
+    equals the active dims count, so the two are guaranteed to agree here; no
+    mismatch check is needed.
+    """
+    return get_voxel_to_world_spatial_dims(slice_da)
+
+
+def _project_voxel_to_world_plane(
+    slice_da: xr.DataArray,
+    dim_row: str,
+    dim_col: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Project a voxel-to-world 2D slice into an in-plane orthonormal basis.
+
+    Parameters
+    ----------
+    slice_da : xarray.DataArray
+        Two-dimensional slice whose dimensions are voxel-space dims.
+    dim_row : str
+        Voxel-space dimension displayed on rows.
+    dim_col : str
+        Voxel-space dimension displayed on columns.
+
+    Returns
+    -------
+    x_edges : (H+1, W+1) numpy.ndarray
+        In-plane x coordinates of cell corners.
+    y_edges : (H+1, W+1) numpy.ndarray
+        In-plane y coordinates of cell corners.
+    x_centers : (H, W) numpy.ndarray
+        In-plane x coordinates of cell centers.
+    y_centers : (H, W) numpy.ndarray
+        In-plane y coordinates of cell centers.
+    """
+    affine = require_scalar_pose_affine(slice_da, "Voxel-to-world plotting")
+    dim_order = _get_voxel_to_world_dim_order(slice_da)
+    linear = affine[:-1, :-1]
+
+    row_vals = (
+        slice_da.coords[dim_row].values.astype(float)
+        if dim_row in slice_da.coords
+        else np.arange(slice_da.sizes[dim_row], dtype=float)
+    )
+    col_vals = (
+        slice_da.coords[dim_col].values.astype(float)
+        if dim_col in slice_da.coords
+        else np.arange(slice_da.sizes[dim_col], dtype=float)
+    )
+    row_edges = _centers_to_edges(row_vals)
+    col_edges = _centers_to_edges(col_vals)
+
+    col_vec = linear[:, dim_order.index(dim_col)]
+    row_vec = linear[:, dim_order.index(dim_row)]
+    e1 = col_vec / np.linalg.norm(col_vec)
+    row_perp = row_vec - np.dot(row_vec, e1) * e1
+    row_perp_norm = np.linalg.norm(row_perp)
+    if np.isclose(row_perp_norm, 0.0):
+        raise ValueError(
+            f"Voxel-to-world plotting requires non-collinear plane axes, got {dim_row!r} "
+            f"and {dim_col!r}."
+        )
+    e2 = row_perp / row_perp_norm
+
+    def _project(
+        row_axis: np.ndarray, col_axis: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        col_grid, row_grid = np.meshgrid(col_axis, row_axis, indexing="xy")
+        voxel_components: list[np.ndarray] = []
+        for dim in dim_order:
+            if dim == dim_row:
+                voxel_components.append(row_grid)
+            elif dim == dim_col:
+                voxel_components.append(col_grid)
+            else:
+                voxel_components.append(
+                    np.full_like(
+                        row_grid, float(slice_da.coords[dim].item()), dtype=float
+                    )
+                )
+        homogeneous = np.stack(
+            [*voxel_components, np.ones_like(row_grid, dtype=float)], axis=0
+        ).reshape(len(dim_order) + 1, -1)
+        world = (affine @ homogeneous).reshape((affine.shape[0], *row_grid.shape))[:-1]
+        origin = world[:, 0, 0][:, np.newaxis, np.newaxis]
+        rel = world - origin
+        x = np.tensordot(e1, rel, axes=(0, 0))
+        y = np.tensordot(e2, rel, axes=(0, 0))
+        return x, y
+
+    x_edges, y_edges = _project(row_edges, col_edges)
+    x_centers, y_centers = _project(row_vals, col_vals)
+    return x_edges, y_edges, x_centers, y_centers
+
+
+def _resample_to_axis_aligned_world_grid_keep_index(
+    data: xr.DataArray,
+    slice_mode: str,
+    reference: xr.DataArray | None = None,
+    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    fill_value: float | None = None,
+) -> xr.DataArray | None:
+    """Resample voxel-to-world data onto an axis-aligned world grid, index intact.
+
+    Returns `None` when `data` doesn't need resampling for `slice_mode` (no
+    plottable index, or `slice_mode` isn't a spatial world axis) -- callers fall
+    back to `data` itself in that case.
+    """
+    if not _has_plottable_voxel_to_world_index(data) or slice_mode not in {
+        "z",
+        "y",
+        "x",
+    }:
+        return None
+    world_dims = get_voxel_to_world_coord_names(data)
+    if slice_mode not in world_dims:
+        return None
+    return _shared_resample_to_axis_aligned_world_grid(
+        data, reference=reference, interpolation=interpolation, fill_value=fill_value
+    )
+
+
+def _resample_to_axis_aligned_world_grid(
+    data: xr.DataArray,
+    slice_mode: str,
+    reference: xr.DataArray | None = None,
+    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    fill_value: float | None = None,
+) -> xr.DataArray:
+    """Resample voxel-to-world data onto an axis-aligned world grid for plotting."""
+    resampled = _resample_to_axis_aligned_world_grid_keep_index(
+        data,
+        slice_mode,
+        reference=reference,
+        interpolation=interpolation,
+        fill_value=fill_value,
+    )
+    if resampled is None:
+        converted = _materialize_axis_aligned_world_grid_for_display(data)
+        return converted if slice_mode in converted.dims else data
+
+    # The shared resampler keeps its output as a VoxelData array (native voxel
+    # dims, still indexed) even for oblique input; this caller's own dim-name-based
+    # slicing (dim_row/dim_col/slice_mode comparisons against "z"/"y"/"x") needs the
+    # world-renamed form, so materialize after resampling rather than before.
+    return _materialize_axis_aligned_world_grid_for_display(resampled)
+
+
 def _slice_edges_and_centers(
     slice_da: xr.DataArray, dim_row: str, dim_col: str
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Return `(x_edges, y_edges, x_centers, y_centers)` for a 2D slice.
+    """Return plotting geometry for a 2D slice.
 
-    Centers fall back to integer indices when the slice lacks coordinates along the
-    requested dimension; edges are derived from the centers via
-    [`_centers_to_edges`][confusius.plotting.image._centers_to_edges].
+    For standard axis-aligned data, returns 1D edge/center coordinates for the plotted
+    row/column dimensions. For voxel-to-world data, returns 2D corner and center meshes
+    obtained by projecting the world slice into an orthonormal in-plane basis.
     """
+    if _has_plottable_voxel_to_world_index(slice_da):
+        return _project_voxel_to_world_plane(slice_da, dim_row, dim_col)
+
     if dim_col in slice_da.coords:
         x_centers = slice_da.coords[dim_col].values.astype(float)
         x_edges = _centers_to_edges(x_centers)
@@ -347,6 +572,9 @@ def _resolve_cmap(
 
 def _build_axis_label(da: xr.DataArray, dim: str) -> str:
     """Return axis label for `dim`, including units when available."""
+    if dim != POSE_DIM and _has_plottable_voxel_to_world_index(da):
+        return f"{dim} in-plane (mm)"
+
     label = dim
     if dim in da.coords:
         units = da.coords[dim].attrs.get("units")
@@ -460,6 +688,18 @@ class VolumePlotter:
         upward.
     xincrease : bool, default: True
         Whether the x-axis increases to the right.
+    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolation method used when resampling oblique (non-axis-aligned)
+        voxel-to-world data onto an axis-aligned world grid for display. Applies to
+        [`add_volume`][confusius.plotting.VolumePlotter.add_volume]; mask data passed
+        to [`add_contours`][confusius.plotting.VolumePlotter.add_contours] always
+        resamples with `"nearest"` regardless of this setting, since blending
+        distinct integer labels together is never meaningful.
+    resample_fill_value : float, optional
+        Value assigned to voxels outside the source data's field of view after
+        resampling oblique data. If not provided, defaults to the source data's own
+        minimum value (see
+        [`resample_volume`][confusius.registration.resample_volume]).
 
     Attributes
     ----------
@@ -487,6 +727,8 @@ class VolumePlotter:
         fg_color: str | None = None,
         yincrease: bool = False,
         xincrease: bool = True,
+        resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+        resample_fill_value: float | None = None,
     ):
         self.slice_mode = slice_mode
         if axes is not None and not isinstance(axes, np.ndarray):
@@ -511,7 +753,10 @@ class VolumePlotter:
         self._axis_xlims: dict[int, tuple[float, float]] = {}
         self._axis_ylims: dict[int, tuple[float, float]] = {}
 
+        self._resample_interpolation = resample_interpolation
+        self._resample_fill_value = resample_fill_value
         self._hover_manager = _HoverManager()
+        self._world_grid_reference: xr.DataArray | None = None
 
     def _ensure_figure(
         self,
@@ -675,7 +920,26 @@ class VolumePlotter:
 
     def _prepare_slice_inputs(self, data: xr.DataArray, *, caller: str) -> xr.DataArray:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords."""
-        data = coerce_complex_to_magnitude(data, caller=caller)
+        data = ensure_voxeldata(coerce_complex_to_magnitude(data, caller=caller))
+        _validate_voxel_to_world_slice_mode(data, self.slice_mode)
+        resampled = _resample_to_axis_aligned_world_grid_keep_index(
+            data,
+            self.slice_mode,
+            reference=self._world_grid_reference,
+            interpolation=self._resample_interpolation,
+            fill_value=self._resample_fill_value,
+        )
+        if resampled is not None:
+            # Capture the reference before display materialization drops the
+            # VoxelToWorldIndex, so a later resample (e.g. add_contours' mask) can
+            # align to this exact grid via resample_like's affine-aware path
+            # instead of reconstructing spacing from a plain, index-less DataArray.
+            if self._world_grid_reference is None:
+                self._world_grid_reference = resampled
+            data = _materialize_axis_aligned_world_grid_for_display(resampled)
+        else:
+            converted = _materialize_axis_aligned_world_grid_for_display(data)
+            data = converted if self.slice_mode in converted.dims else data
         # A single-index selection (e.g. data.sel(z=6)) drops slice_mode to a scalar
         # coordinate; promote it back to a size-1 dimension so it plots like data.sel(z=[6]).
         if self.slice_mode not in data.dims and _is_scalar_coord(data, self.slice_mode):
@@ -1051,16 +1315,17 @@ class VolumePlotter:
                 norm=norm,
                 alpha=panel_alpha,
             )
-            self._attach_or_update_hover_manager(resolved_roi_labels)
-            self._hover_manager.register_data_to_axis(
-                ax,
-                hover_x,
-                hover_y,
-                slice_da.values,
-                role="labels" if resolved_roi_labels else "volume",
-                name=str(data.name) if data.name is not None else "value",
-                units=data.attrs.get("units"),
-            )
+            if hover_x.ndim == 1 and hover_y.ndim == 1:
+                self._attach_or_update_hover_manager(resolved_roi_labels)
+                self._hover_manager.register_data_to_axis(
+                    ax,
+                    hover_x,
+                    hover_y,
+                    slice_da.values,
+                    role="labels" if resolved_roi_labels else "volume",
+                    name=str(data.name) if data.name is not None else "value",
+                    units=data.attrs.get("units"),
+                )
 
             self._style_slice_axis(
                 ax,
@@ -1249,6 +1514,16 @@ class VolumePlotter:
                 f"Expected 'per_volume', 'per_slice', or 'shared'."
             )
 
+        if resample:
+            from confusius.registration.resampling import resample_like
+
+            data2_name = data2.name or "data2"
+            _kw: dict[str, Any] = dict(resample_kwargs or {})
+            # The identity transform is always spatial-only (3D): resample_like reads
+            # only data1's k/j/i grid, regardless of any time dimension it carries.
+            data2 = resample_like(data2, data1, np.eye(len(VOXEL_DIMS) + 1), **_kw)
+            data2.name = data2_name
+
         data1 = self._prepare_slice_inputs(
             data1, caller="VolumePlotter.add_composite (data1)"
         )
@@ -1256,14 +1531,7 @@ class VolumePlotter:
             data2, caller="VolumePlotter.add_composite (data2)"
         )
 
-        if resample:
-            from confusius.registration.resampling import resample_like
-
-            data2_name = data2.name or "data2"
-            _kw: dict[str, Any] = dict(resample_kwargs or {})
-            data2 = resample_like(data2, data1, np.eye(data1.ndim + 1), **_kw)
-            data2.name = data2_name
-        else:
+        if not resample:
             if data1.dims != data2.dims:
                 raise ValueError(
                     f"With resample=False, data1 and data2 must share dimensions; "
@@ -1361,19 +1629,22 @@ class VolumePlotter:
             )
 
             ax.pcolormesh(x_edges, y_edges, rgb, alpha=alpha)
-            self._attach_or_update_hover_manager({})
-            for i, (data, input_slices) in enumerate(
-                zip((data1, data2), (input_slices1, input_slices2))
-            ):
-                self._hover_manager.register_data_to_axis(
-                    ax,
-                    hover_x,
-                    hover_y,
-                    input_slices[slice_idx].values,
-                    role="volume",
-                    name=str(data.name) if data.name is not None else f"data{i + 1}",
-                    units=data.attrs.get("units"),
-                )
+            if hover_x.ndim == 1 and hover_y.ndim == 1:
+                self._attach_or_update_hover_manager({})
+                for i, (data, input_slices) in enumerate(
+                    zip((data1, data2), (input_slices1, input_slices2))
+                ):
+                    self._hover_manager.register_data_to_axis(
+                        ax,
+                        hover_x,
+                        hover_y,
+                        input_slices[slice_idx].values,
+                        role="volume",
+                        name=str(data.name)
+                        if data.name is not None
+                        else f"data{i + 1}",
+                        units=data.attrs.get("units"),
+                    )
 
             self._style_slice_axis(
                 ax,
@@ -1419,12 +1690,12 @@ class VolumePlotter:
         mask : xarray.DataArray
             Integer label map in one of two formats:
 
-            - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+            - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
               labeled `0`; each unique non-zero integer identifies a distinct,
               non-overlapping region. The `region` coordinate of the output holds the
               integer label values.
             - **Stacked mask format**: Has a leading `mask` dimension followed by
-              spatial dims, e.g. `(mask, z, y, x)`. Each layer has values in `{0,
+              spatial dims, e.g. `(mask, k, j, i)`. Each layer has values in `{0,
               region_id}` and regions may overlap. The `region` coordinate of the
               output holds the `mask` coordinate values (e.g., region label).
 
@@ -1527,6 +1798,21 @@ class VolumePlotter:
                     **kwargs,
                 )
             return self
+
+        # Mirror _prepare_slice_inputs' canonicalization of the plotter's own data:
+        # mask can carry an extra facet dim (e.g. "region") matching self.slice_mode,
+        # the same way plot_volume(data, slice_mode="region") facets data itself.
+        mask = ensure_voxeldata(mask)
+        _validate_voxel_to_world_slice_mode(mask, self.slice_mode)
+        # Always "nearest", regardless of self._resample_interpolation: mask/label
+        # data is a set of distinct integer regions, and blending them together
+        # (linear/bspline) would fabricate boundary values that match no real label.
+        mask = _resample_to_axis_aligned_world_grid(
+            mask,
+            self.slice_mode,
+            reference=self._world_grid_reference,
+            interpolation="nearest",
+        )
 
         # A single-index selection (e.g. mask.sel(z=6)) drops slice_mode to a scalar
         # coordinate; promote it back to a size-1 dimension so it plots like mask.sel(z=[6]).
@@ -1659,25 +1945,25 @@ class VolumePlotter:
                     if len(contour) < 2:
                         continue
 
-                    # Map pixel indices to physical coordinates.
+                    # Map pixel indices to world coordinates.
                     # Contours are at pixel boundaries, so we need to interpolate
                     # between coordinate centers to get edge positions.
                     # contour[:, 0] is row (y) index, contour[:, 1] is col (x) index
                     x_idx = contour[:, 1]
                     y_idx = contour[:, 0]
-                    x_physical = np.interp(
+                    x_world = np.interp(
                         x_idx,
                         np.arange(len(x_coords)),
                         x_coords,
                     )
-                    y_physical = np.interp(
+                    y_world = np.interp(
                         y_idx,
                         np.arange(len(y_coords)),
                         y_coords,
                     )
                     ax.plot(
-                        x_physical,
-                        y_physical,
+                        x_world,
+                        y_world,
                         color=color,
                         linewidth=linewidths,
                         linestyle=linestyles,
@@ -1698,7 +1984,7 @@ class VolumePlotter:
             if not match_coordinates:
                 ax.set_aspect("equal")
 
-                # Compute limits from physical coordinates, not from auto-scaled
+                # Compute limits from world coordinates, not from auto-scaled
                 # matplotlib limits, which may include padding.
                 x_edges = _centers_to_edges(x_coords)
                 y_edges = _centers_to_edges(y_coords)
@@ -1792,7 +2078,7 @@ def plot_contours(
     """Plot mask contours as a grid of 2D slice panels.
 
     Displays contour lines for each labeled region in `mask` across a grid of subplots.
-    Each panel shows the contours for one slice along `slice_mode`, drawn in physical
+    Each panel shows the contours for one slice along `slice_mode`, drawn in world
     coordinates when available.
 
     Parameters
@@ -1800,12 +2086,12 @@ def plot_contours(
     mask : xarray.DataArray
         Integer label map in one of two formats:
 
-        - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+        - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
           labeled `0`; each unique non-zero integer identifies a distinct,
           non-overlapping region. The `regions` coordinate of the output holds the
           integer label values.
         - **Stacked mask format**: Has a leading `masks` dimension followed by
-          spatial dims, e.g. `(masks, z, y, x)`. Each layer has values in `{0,
+          spatial dims, e.g. `(masks, k, j, i)`. Each layer has values in `{0,
           region_id}` and regions may overlap. The `regions` coordinate of the
           output holds the `masks` coordinate values (e.g., region label).
 
@@ -1871,7 +2157,7 @@ def plot_contours(
     Notes
     -----
     Contours are computed with `skimage.measure.find_contours` on a binary mask for each
-    label, then mapped to physical coordinates via linear interpolation between
+    label, then mapped to world coordinates via linear interpolation between
     coordinate centers. Each panel has `aspect="equal"` so that 1 unit in x matches 1
     unit in y.
 
@@ -1948,11 +2234,13 @@ def plot_volume(
     nrows: int | None = None,
     ncols: int | None = None,
     dpi: int | None = None,
+    resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    resample_fill_value: float | None = None,
 ) -> VolumePlotter:
     """Plot 2D slices of a volume using matplotlib.
 
     Displays a series of 2D slices extracted along `slice_mode` as a grid of subplots.
-    Each slice is rendered using physical coordinates for axis ticks when available.
+    Each slice is rendered using world coordinates for axis ticks when available.
 
     Parameters
     ----------
@@ -2053,6 +2341,12 @@ def plot_volume(
         Mapping from integer label to display name. When provided (or when
         `data.attrs["roi_labels"]` is populated), hovering the cursor over a
         voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar.
+    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolation method used when resampling oblique (non-axis-aligned)
+        voxel-to-world `data` onto an axis-aligned world grid for display.
+    resample_fill_value : float, optional
+        Value assigned to voxels outside `data`'s field of view after resampling
+        oblique data. If not provided, defaults to `data`'s own minimum value.
 
     Returns
     -------
@@ -2072,7 +2366,7 @@ def plot_volume(
     -----
     Rendering is done with [`pcolormesh`][matplotlib.pyplot.pcolormesh], which accepts
     coordinate arrays directly and therefore handles non-uniform coordinate spacing
-    correctly. Because each panel is drawn in physical coordinate space, multiple calls
+    correctly. Because each panel is drawn in world coordinate space, multiple calls
     with different `axes` elements will overlay correctly as long as the displayed
     dimensions are the same.
 
@@ -2116,6 +2410,8 @@ def plot_volume(
         fg_color=fg_color,
         yincrease=yincrease,
         xincrease=xincrease,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
     )
 
     return plotter.add_volume(
@@ -2170,6 +2466,8 @@ def plot_composite(
     nrows: int | None = None,
     ncols: int | None = None,
     dpi: int | None = None,
+    resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    resample_fill_value: float | None = None,
 ) -> VolumePlotter:
     """Plot a red/cyan composite of two volumes as a grid of 2D slice panels.
 
@@ -2265,6 +2563,15 @@ def plot_composite(
         Number of columns in the subplot grid. If not provided, computed automatically.
     dpi : int, optional
         Figure resolution in dots per inch. Ignored when `figure` is provided.
+    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolation method used when resampling oblique (non-axis-aligned)
+        voxel-to-world `data1`/`data2` onto an axis-aligned world grid for display.
+        Distinct from `resample_kwargs`, which controls resampling `data2` onto
+        `data1`'s grid for compositing.
+    resample_fill_value : float, optional
+        Value assigned to voxels outside `data1`/`data2`'s field of view after
+        display resampling. If not provided, defaults to each array's own minimum
+        value.
 
     Returns
     -------
@@ -2314,6 +2621,8 @@ def plot_composite(
         fg_color=fg_color,
         yincrease=yincrease,
         xincrease=xincrease,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
     )
 
     return plotter.add_composite(
@@ -2370,6 +2679,8 @@ def plot_stat_map(
     nrows: int | None = None,
     ncols: int | None = None,
     dpi: int | None = None,
+    resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    resample_fill_value: float | None = None,
 ) -> VolumePlotter:
     """Plot a statistical map, optionally over a background volume.
 
@@ -2512,6 +2823,14 @@ def plot_stat_map(
         Number of columns in the subplot grid. If not provided, computed automatically.
     dpi : int, optional
         Figure resolution in dots per inch. Ignored when `figure` is provided.
+    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolation method used when resampling oblique (non-axis-aligned)
+        voxel-to-world `stat_map`/`bg_volume` onto an axis-aligned world grid for
+        display. Applied to both, since they share one `VolumePlotter`.
+    resample_fill_value : float, optional
+        Value assigned to voxels outside `stat_map`/`bg_volume`'s field of view
+        after display resampling. If not provided, defaults to each array's own
+        minimum value.
 
     Returns
     -------
@@ -2581,6 +2900,8 @@ def plot_stat_map(
             nrows=nrows,
             ncols=ncols,
             dpi=dpi,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
             **(bg_kwargs or {}),
         )
     else:
@@ -2592,6 +2913,8 @@ def plot_stat_map(
             fg_color=fg_color,
             yincrease=yincrease,
             xincrease=xincrease,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
         )
 
     resolved_vmin, resolved_vmax, resolved_cmap = _resolve_stat_map_style(
@@ -2640,9 +2963,10 @@ def _prepare_carpet_data(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array with a `"time"` dimension and coordinate.
+        Input data array with a `"time"` dimension and coordinate: a VoxelData
+        array, or an already-extracted signals array.
     mask : xarray.DataArray, optional
-        Boolean mask to select voxels. Defaults to all non-zero voxels.
+        Boolean mask to select elements. Defaults to all non-zero elements.
     detrend_order : int, optional
         Polynomial order for detrending. See `plot_carpet`.
     standardize : bool, default: True
@@ -2657,7 +2981,7 @@ def _prepare_carpet_data(
     Returns
     -------
     dict
-        Keys: `signals` (DataArray with shape `(time, voxels)`), `vmin` (float),
+        Keys: `signals` (DataArray with shape `(time, space)`), `vmin` (float),
         `vmax` (float), `xlabel` (str), `time_coord` (DataArray | None).
     """
     if np.iscomplexobj(data):
@@ -2673,7 +2997,7 @@ def _prepare_carpet_data(
     else:
         mask = mask & non_zero
 
-    signals = extract_with_mask(data, mask)
+    signals = select_masked_features(data, mask)
 
     # Carpet plots don't need spatial coordinates, and multi-index coordinates will make
     # plotting fail.
@@ -2834,11 +3158,13 @@ def plot_carpet(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array with a 'time' dimension.
+        Input data array with a `time` dimension: a VoxelData array, or
+        an already-extracted signals array (e.g.
+        [`extract_with_labels`][confusius.extract.extract_with_labels] output).
     mask : xarray.DataArray, optional
-        Boolean mask with same spatial dimensions and coordinates as `data`. True
-        values indicate voxels to include. If not provided, all non-zero voxels
-        from the data are included.
+        Boolean mask with the same non-`time` dimensions and coordinates as `data`.
+        True values indicate elements to include. If not provided, all non-zero
+        elements from the data are included.
     detrend_order : int, optional
         Polynomial order for detrending:
 

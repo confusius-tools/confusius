@@ -46,10 +46,13 @@ def _validate_affines(
             raise TypeError(
                 f"affines[{i}] must be a numpy.ndarray, got {type(affine).__name__}."
             )
+        if affine.ndim != 2 or affine.shape[0] != affine.shape[1]:
+            raise ValueError(
+                f"affines[{i}] must be a square 2D array, got shape {affine.shape}."
+            )
         if affine.shape != (4, 4):
             raise ValueError(
-                f"affines[{i}] must be a (4, 4) 3D homogeneous affine, got shape "
-                f"{affine.shape}."
+                f"affines[{i}] must have shape (4, 4), got shape {affine.shape}."
             )
         validated.append(affine)
 
@@ -163,7 +166,9 @@ def _get_motion_parameter_columns(
     ValueError
         If `params` does not have 6 columns.
     """
-    spatial_dims = tuple(str(dim) for dim in reference.dims)
+    from confusius._utils.geometry import get_voxel_to_world_coord_names
+
+    spatial_dims = get_voxel_to_world_coord_names(reference)
     axis_index = {dim: i for i, dim in enumerate(spatial_dims)}
 
     if params.shape[1] != 6:
@@ -196,7 +201,7 @@ def compute_framewise_displacement(
     affines : list[numpy.ndarray]
         List of affine matrices, one per frame.
     reference : xarray.DataArray
-        Spatial DataArray defining the physical grid (spacing and origin derived from
+        Spatial DataArray defining the world grid (spacing and origin derived from
         its coordinates).
     mask : numpy.ndarray, optional
         Boolean mask indicating which voxels to include. If not provided, uses all
@@ -214,7 +219,7 @@ def compute_framewise_displacement(
     Raises
     ------
     ValueError
-        If `reference` contains a `time` dimension, fails fUSI validation, or if
+        If `reference` contains a `time` dimension, fails VoxelData validation, or if
         `affines` is empty or contains an array that is not a `(4, 4)` homogeneous 3D
         affine.
     TypeError
@@ -227,14 +232,14 @@ def compute_framewise_displacement(
         Spurious but systematic correlations in functional connectivity MRI networks
         arise from subject motion. Neuroimage 59, 2142-2154
     """
-    from confusius.validation import ensure_fusi
+    from confusius.validation import ensure_voxeldata
 
     if "time" in reference.dims:
         raise ValueError(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    reference = ensure_fusi(
+    reference = ensure_voxeldata(
         reference,
         require_time=False,
         allow_pose=False,
@@ -245,17 +250,18 @@ def compute_framewise_displacement(
 
     affines_validated = _validate_affines(affines)
     n_frames = len(affines_validated)
-    # fUSI references and affines are both 3D after validation; the 'time' check above
-    # rules out the only allowed core dim that could otherwise make reference.ndim != 3.
-    ndim = 3
 
-    coords_1d = [
-        np.asarray(reference.coords[str(dim)].values, dtype=float)
-        for dim in reference.dims
+    from confusius._utils.geometry import get_voxel_to_world_coord_names
+
+    # World coordinates derived by VoxelToWorldIndex are always dense,
+    # reference.shape-matching arrays regardless of axis-alignment (unlike the
+    # pre-CTI-migration representation, where axis-aligned world coordinates were
+    # 1D per-axis and needed a meshgrid expansion here).
+    spatial_names = get_voxel_to_world_coord_names(reference)
+    coord_arrays = [
+        np.asarray(reference.coords[name].values, dtype=float) for name in spatial_names
     ]
-
-    grids = np.meshgrid(*coords_1d, indexing="ij")
-    points = np.stack([g.ravel() for g in grids], axis=1)
+    points = np.stack([array.ravel() for array in coord_arrays], axis=1)
 
     if mask is not None:
         points = points[mask.ravel()]
@@ -267,10 +273,10 @@ def compute_framewise_displacement(
     # Framewise displacement is strictly pairwise, so transform one frame at a time and
     # retain only the previous frame's points instead of every frame's transformed grid.
     first = affines_validated[0]
-    prev_pts = (first[:ndim, :ndim] @ points.T).T + first[:ndim, ndim]
+    prev_pts = (first[:3, :3] @ points.T).T + first[:3, 3]
     for t in range(n_frames - 1):
         nxt = affines_validated[t + 1]
-        next_pts = (nxt[:ndim, :ndim] @ points.T).T + nxt[:ndim, ndim]
+        next_pts = (nxt[:3, :3] @ points.T).T + nxt[:3, 3]
         displacements = np.linalg.norm(next_pts - prev_pts, axis=1)
         mean_fd[t] = np.mean(displacements)
         max_fd[t] = np.max(displacements)
@@ -301,8 +307,8 @@ def create_motion_dataframe(
     affines : list[numpy.ndarray]
         List of affine matrices from registration.
     reference : xarray.DataArray
-        Spatial DataArray defining the physical grid for framewise displacement
-        computation.
+        Spatial-only VoxelData array defining the world grid for
+        framewise displacement computation.
     mask : numpy.ndarray, optional
         Boolean mask for FD computation.
     time_coords : numpy.ndarray, optional
@@ -328,7 +334,7 @@ def create_motion_dataframe(
     Raises
     ------
     ValueError
-        If `reference` contains a `time` dimension, fails fUSI validation, or if
+        If `reference` contains a `time` dimension, fails VoxelData validation, or if
         `affines` is empty or contains an array that is not a `(4, 4)` homogeneous 3D
         affine.
     TypeError
@@ -336,7 +342,7 @@ def create_motion_dataframe(
     """
     import pandas as pd
 
-    from confusius.validation import ensure_fusi
+    from confusius.validation import ensure_voxeldata
 
     if "time" in reference.dims:
         raise ValueError(
@@ -346,7 +352,7 @@ def create_motion_dataframe(
     # Canonicalize once so a scalar-indexed reference (e.g. `.isel(z=0)`) has its
     # singleton spatial dim restored before compute_framewise_displacement and
     # _get_motion_parameter_columns both consult reference.dims.
-    reference = ensure_fusi(
+    reference = ensure_voxeldata(
         reference,
         require_time=False,
         allow_pose=False,

@@ -1,5 +1,6 @@
 """Registration module for fUSI data."""
 
+from confusius.registration._utils import initialize_single_slice_rigid_transform
 from confusius.registration.affines import compose_affine, decompose_affine
 from confusius.registration.bspline import (
     invert_displacement_field,
@@ -7,7 +8,6 @@ from confusius.registration.bspline import (
     sample_displacement_field_like,
 )
 from confusius.registration.diagnostics import RegistrationDiagnostics
-from confusius.registration.exceptions import RegistrationAbortedError
 from confusius.registration.motion import (
     compute_framewise_displacement,
     create_motion_dataframe,
@@ -27,7 +27,6 @@ from confusius.registration.volumewise_progress import VolumewiseProgressReporte
 
 __all__ = [
     "MatplotlibRegistrationProgressPlotter",
-    "RegistrationAbortedError",
     "RegistrationDiagnostics",
     "RegistrationProgress",
     "VolumewiseProgressReporter",
@@ -36,6 +35,7 @@ __all__ = [
     "create_motion_dataframe",
     "decompose_affine",
     "extract_motion_parameters",
+    "initialize_single_slice_rigid_transform",
     "invert_displacement_field",
     "register_volume",
     "register_volumewise",

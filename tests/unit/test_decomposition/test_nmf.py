@@ -1,14 +1,50 @@
 """Tests for confusius.decomposition.NMF."""
 
-import warnings
-
 import numpy as np
 import pytest
 import xarray as xr
 from sklearn.decomposition import NMF as SklearnNMF
 from sklearn.utils.validation import check_is_fitted
 
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+)
 from confusius.decomposition import NMF
+from confusius.xarray import create_voxeldata
+
+
+def _make_mask(
+    reference: xr.DataArray, dims: tuple[str, ...] = ("k", "j", "i")
+) -> xr.DataArray:
+    """Create an empty boolean mask sharing `reference`'s voxel grid.
+
+    Parameters
+    ----------
+    reference : xarray.DataArray
+        Canonical DataArray supplying the voxel grid.
+    dims : tuple[str, ...], default: ("k", "j", "i")
+        Dimension order for the mask.
+
+    Returns
+    -------
+    xarray.DataArray
+        Zero-valued mask carrying `reference`'s `VoxelToWorldIndex`.
+    """
+    mask = xr.DataArray(
+        np.zeros(tuple(reference.sizes[dim] for dim in dims), dtype=bool),
+        dims=dims,
+        coords={dim: reference.coords[dim] for dim in dims},
+    )
+    world_coord_names = get_voxel_to_world_coord_names(reference)
+    return attach_voxel_to_world_index(
+        mask,
+        get_voxel_to_world_affine(reference),
+        world_coord_attrs={
+            name: dict(reference.coords[name].attrs) for name in world_coord_names
+        },
+    )
 
 
 @pytest.fixture
@@ -25,56 +61,33 @@ def nmf_3dt_volume():
     W = local_rng.random((n_t, k))
     H = local_rng.random((k, n_z * n_y * n_x))
     data = (10.0 * (W @ H) + 1.0).reshape(n_t, n_z, n_y, n_x)
-    return xr.DataArray(
+    return create_voxeldata(
         data,
         name="power_doppler",
-        dims=["time", "z", "y", "x"],
-        coords={
-            "time": xr.DataArray(
-                10.0 + np.arange(n_t) * 0.5,
-                dims=["time"],
-                attrs={"units": "s"},
-            ),
-            "z": xr.DataArray(
-                1.0 + np.arange(n_z) * 0.2,
-                dims=["z"],
-                attrs={"units": "mm", "voxdim": 0.2},
-            ),
-            "y": xr.DataArray(
-                2.0 + np.arange(n_y) * 0.1,
-                dims=["y"],
-                attrs={"units": "mm", "voxdim": 0.1},
-            ),
-            "x": xr.DataArray(
-                3.0 + np.arange(n_x) * 0.05,
-                dims=["x"],
-                attrs={"units": "mm", "voxdim": 0.05},
-            ),
-        },
+        dims=("time", "k", "j", "i"),
+        dt=0.5,
+        t0=10.0,
+        spacing=(0.2, 0.1, 0.05),
+        origin=(1.0, 2.0, 3.0),
         attrs={"long_name": "Intensity", "units": "a.u."},
     )
 
 
-def test_feature_names_in_for_string_feature_labels(nmf_3dt_volume):
-    """feature_names_in_ is defined when flattened feature labels are strings."""
+def test_rejects_non_voxeldata_input(nmf_3dt_volume):
+    """Fitting on a non-spatial (time, region) table is rejected, not silently used.
+
+    NMF is VoxelData-only: decomposing an already-reduced signals table has no
+    spatial structure to track, so it offers nothing over calling scikit-learn
+    directly on the array's values.
+    """
     data = (
-        nmf_3dt_volume.isel(z=0, x=0, drop=True)
-        .rename({"y": "region"})
+        nmf_3dt_volume.isel(k=0, i=0, drop=True)
+        .rename({"j": "region"})
         .assign_coords(region=["A", "B", "C", "D", "E", "F"])
     )
 
-    # sklearn's NMF iteration can hit a transient `RuntimeWarning: invalid value
-    # encountered in dot` on BLAS implementations that flush denormals differently
-    # (notably Accelerate on macOS). The test only inspects `feature_names_in_`,
-    # which is independent of the iteration's numerical result.
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="invalid value encountered in dot")
-        model = NMF(n_components=2, random_state=0).fit(data)
-
-    np.testing.assert_array_equal(
-        model.feature_names_in_,
-        np.array(["A", "B", "C", "D", "E", "F"]),
-    )
+    with pytest.raises(ValueError, match="missing voxel dimension"):
+        NMF(n_components=2, random_state=0).fit(data)
 
 
 @pytest.mark.parametrize("mode", ["temporal", "spatial"])
@@ -89,10 +102,22 @@ def test_fit_transform_matches_fit_then_transform(nmf_3dt_volume, mode):
     xr.testing.assert_identical(direct, two_step)
 
 
+def test_fit_with_extra_dimension_uses_default_mask(nmf_3dt_volume):
+    """NMF preserves extra VoxelData dimensions when no mask is provided."""
+    data = xr.concat(
+        [nmf_3dt_volume, nmf_3dt_volume],
+        dim=xr.IndexVariable("sign", ["pos", "neg"]),
+    )
+
+    model = NMF(n_components=3, random_state=0).fit(data)
+
+    assert model.maps_.dims == ("component", "sign", "k", "j", "i")
+
+
 def test_wrapper_matches_sklearn_attributes(nmf_3dt_volume):
     """Temporal wrapper exposes the same learned quantities as sklearn NMF."""
-    stacked = nmf_3dt_volume.transpose("time", "z", "y", "x").stack(
-        feature=["z", "y", "x"]
+    stacked = nmf_3dt_volume.transpose("time", "k", "j", "i").stack(
+        feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
@@ -104,7 +129,7 @@ def test_wrapper_matches_sklearn_attributes(nmf_3dt_volume):
         sklearn_model.transform(X),
     )
     np.testing.assert_allclose(
-        model.maps_.stack(feature=["z", "y", "x"]).values,
+        model.maps_.stack(feature=["k", "j", "i"]).values,
         sklearn_model.components_,
     )
     assert model.n_components_ == sklearn_model.n_components_
@@ -117,9 +142,11 @@ def test_wrapper_matches_sklearn_attributes(nmf_3dt_volume):
 def test_fit_raises_for_negative_input():
     """fit raises ValueError when input data contains negative values."""
     rng = np.random.default_rng(0)
-    data = xr.DataArray(
+    data = create_voxeldata(
         rng.standard_normal((20, 4, 5, 6)),
-        dims=["time", "z", "y", "x"],
+        dims=("time", "k", "j", "i"),
+        dt=1.0,
+        spacing=(1.0, 1.0, 1.0),
     )
 
     with pytest.raises(ValueError, match="non-negative input data"):
@@ -128,8 +155,8 @@ def test_fit_raises_for_negative_input():
 
 def test_inverse_transform_matches_sklearn_temporal(nmf_3dt_volume):
     """inverse_transform matches sklearn NMF reconstruction in temporal mode."""
-    stacked = nmf_3dt_volume.transpose("time", "z", "y", "x").stack(
-        feature=["z", "y", "x"]
+    stacked = nmf_3dt_volume.transpose("time", "k", "j", "i").stack(
+        feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
@@ -140,7 +167,7 @@ def test_inverse_transform_matches_sklearn_temporal(nmf_3dt_volume):
     sklearn_reconstructed = sklearn_model.inverse_transform(sklearn_model.transform(X))
 
     np.testing.assert_allclose(
-        reconstructed.stack(feature=["z", "y", "x"]).values,
+        reconstructed.stack(feature=["k", "j", "i"]).values,
         sklearn_reconstructed,
     )
 
@@ -238,34 +265,21 @@ def test_fit_requires_more_than_one_timepoint(nmf_3dt_volume):
 
 
 def test_fit_requires_spatial_dimension():
-    """fit raises when input has no spatial dimensions."""
+    """fit raises when input has no spatial (native voxel) dimensions."""
     only_time = xr.DataArray(np.arange(30.0), dims=["time"])
 
-    with pytest.raises(ValueError, match="at least one spatial dimension"):
+    with pytest.raises(ValueError, match="missing voxel dimension"):
         NMF().fit(only_time)
 
 
-def test_mask_must_match_full_spatial_dims_in_order(nmf_3dt_volume):
-    """Mask must span all spatial dims in the stacked feature order."""
-    mask = xr.DataArray(
-        np.ones(
-            (
-                nmf_3dt_volume.sizes["y"],
-                nmf_3dt_volume.sizes["z"],
-                nmf_3dt_volume.sizes["x"],
-            ),
-            dtype=bool,
-        ),
-        dims=["y", "z", "x"],
-        coords={
-            "y": nmf_3dt_volume.coords["y"],
-            "z": nmf_3dt_volume.coords["z"],
-            "x": nmf_3dt_volume.coords["x"],
-        },
-    )
+def test_mask_dim_order_is_canonicalized(nmf_3dt_volume):
+    """Wrong-order VoxelData masks are canonicalized before fitting."""
+    mask = _make_mask(nmf_3dt_volume, dims=("j", "k", "i"))
+    mask.values[:] = True
 
-    with pytest.raises(ValueError, match="must match all non-time dimensions"):
-        NMF(mask=mask).fit(nmf_3dt_volume)
+    result = NMF(n_components=1, mask=mask, tol=1e9).fit(nmf_3dt_volume)
+
+    assert result.spatial_dims_ == ("k", "j", "i")
 
 
 def test_fit_rejects_unexpected_fit_params(nmf_3dt_volume):
@@ -289,40 +303,32 @@ def test_fit_transform_rejects_unexpected_fit_params(nmf_3dt_volume):
 def test_transform_checks_spatial_layout(nmf_3dt_volume):
     """transform raises if spatial layout differs from fit."""
     model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
-    bad = nmf_3dt_volume.isel(x=slice(0, 4))
+    bad = nmf_3dt_volume.isel(i=slice(0, 4))
 
-    with pytest.raises(ValueError, match="Spatial dimension 'x' has size"):
+    with pytest.raises(ValueError, match="Spatial dimension 'i' has size"):
         model.transform(bad)
 
 
 def test_transform_checks_spatial_dimension_names(nmf_3dt_volume):
-    """transform raises if spatial dimension names differ from fit."""
+    """transform rejects data missing a native voxel dimension."""
     model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
-    bad = nmf_3dt_volume.rename({"x": "region"})
+    bad = nmf_3dt_volume.rename({"i": "region"})
 
-    with pytest.raises(ValueError, match="spatial dimensions do not match"):
+    with pytest.raises(ValueError, match="missing voxel dimension"):
         model.transform(bad)
 
 
-def test_transform_without_time_coordinate_uses_index(nmf_3dt_volume):
-    """transform falls back to integer time coordinate when absent."""
+def test_transform_rejects_missing_time_coordinate(nmf_3dt_volume):
+    """transform rejects data with a time dim but no time coordinate.
+
+    A VoxelData array's time dim must always carry a time coordinate; this isn't
+    a fallback case to paper over.
+    """
     model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
-    no_time_coord = xr.DataArray(
-        nmf_3dt_volume.values,
-        dims=nmf_3dt_volume.dims,
-        coords={
-            "z": nmf_3dt_volume.coords["z"],
-            "y": nmf_3dt_volume.coords["y"],
-            "x": nmf_3dt_volume.coords["x"],
-        },
-    )
+    no_time_coord = nmf_3dt_volume.drop_vars("time")
 
-    transformed = model.transform(no_time_coord)
-
-    np.testing.assert_array_equal(
-        transformed.coords["time"].values,
-        np.arange(nmf_3dt_volume.sizes["time"]),
-    )
+    with pytest.raises(ValueError, match="Missing required coordinate"):
+        model.transform(no_time_coord)
 
 
 def test_transform_chunked_time_reports_transform_operation(nmf_3dt_volume):
@@ -347,7 +353,7 @@ def test_fit_failure_does_not_mark_estimator_fitted(nmf_3dt_volume, monkeypatch)
     """Estimator remains unfitted when underlying sklearn NMF fit fails."""
     import confusius.decomposition.nmf as nmf_module
 
-    def _raise_fit(self, X, y=None):
+    def _raise_fit(self, X, j=None):
         raise RuntimeError("fit failed")
 
     monkeypatch.setattr(nmf_module._SklearnNMF, "fit", _raise_fit)
@@ -414,8 +420,8 @@ def test_set_params_updates_values():
 
 def test_spatial_mode_matches_reference_implementation(nmf_3dt_volume):
     """Spatial mode matches sklearn NMF fitted on transposed data."""
-    stacked = nmf_3dt_volume.transpose("time", "z", "y", "x").stack(
-        feature=["z", "y", "x"]
+    stacked = nmf_3dt_volume.transpose("time", "k", "j", "i").stack(
+        feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
@@ -432,12 +438,12 @@ def test_spatial_mode_matches_reference_implementation(nmf_3dt_volume):
         reference_signals,
     )
     np.testing.assert_allclose(
-        model.maps_.stack(feature=["z", "y", "x"]).values,
+        model.maps_.stack(feature=["k", "j", "i"]).values,
         spatial_maps,
     )
     np.testing.assert_allclose(
         model.inverse_transform(model.transform(nmf_3dt_volume))
-        .stack(feature=["z", "y", "x"])
+        .stack(feature=["k", "j", "i"])
         .values,
         reference_reconstructed,
     )
@@ -451,22 +457,7 @@ def test_fit_rejects_invalid_mode(nmf_3dt_volume):
 
 def test_mask_restricts_features(nmf_3dt_volume):
     """mask restricts fitted feature count to selected voxels."""
-    mask = xr.DataArray(
-        np.zeros(
-            (
-                nmf_3dt_volume.sizes["z"],
-                nmf_3dt_volume.sizes["y"],
-                nmf_3dt_volume.sizes["x"],
-            ),
-            dtype=bool,
-        ),
-        dims=["z", "y", "x"],
-        coords={
-            "z": nmf_3dt_volume.coords["z"],
-            "y": nmf_3dt_volume.coords["y"],
-            "x": nmf_3dt_volume.coords["x"],
-        },
-    )
+    mask = _make_mask(nmf_3dt_volume)
     mask.values[:2, :, :] = True
 
     model = NMF(n_components=3, random_state=0, mask=mask).fit(nmf_3dt_volume)
@@ -476,22 +467,7 @@ def test_mask_restricts_features(nmf_3dt_volume):
 
 def test_masked_fit_reconstructs_full_geometry_with_zero_fill(nmf_3dt_volume):
     """Masked NMF keeps full geometry and fills outside-mask voxels with zero."""
-    mask = xr.DataArray(
-        np.zeros(
-            (
-                nmf_3dt_volume.sizes["z"],
-                nmf_3dt_volume.sizes["y"],
-                nmf_3dt_volume.sizes["x"],
-            ),
-            dtype=bool,
-        ),
-        dims=["z", "y", "x"],
-        coords={
-            "z": nmf_3dt_volume.coords["z"],
-            "y": nmf_3dt_volume.coords["y"],
-            "x": nmf_3dt_volume.coords["x"],
-        },
-    )
+    mask = _make_mask(nmf_3dt_volume)
     mask.values[:2, :, :] = True
 
     model = NMF(n_components=3, random_state=0, mask=mask).fit(nmf_3dt_volume)
@@ -510,7 +486,9 @@ def test_masked_fit_reconstructs_full_geometry_with_zero_fill(nmf_3dt_volume):
 
 def test_mask_mismatch_raises(nmf_3dt_volume):
     """fit raises when mask does not match spatial dimensions."""
-    bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["y", "x"])
+    bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["j", "i"])
 
-    with pytest.raises(ValueError, match="missing from mask"):
+    with pytest.raises(
+        ValueError, match="native voxel dimensions|missing voxel dimension"
+    ):
         NMF(mask=bad_mask).fit(nmf_3dt_volume)

@@ -11,10 +11,11 @@ import numpy as np
 import scipy.linalg
 import xarray as xr
 
+from confusius._utils.mask import validate_spatial_or_feature_mask
 from confusius.signal._utils import remove_zero_variance_voxels
 from confusius.signal.detrending import detrend as detrend_signals
 from confusius.signal.standardization import standardize
-from confusius.validation import validate_mask, validate_time_series
+from confusius.validation import validate_time_series
 from confusius.validation.coordinates import validate_matching_coordinates
 
 
@@ -210,9 +211,8 @@ def regress_confounds(
     Parameters
     ----------
     signals : (time, ...) xarray.DataArray
-        Signals to clean. Must have a `time` dimension. Can be any shape,
-        e.g., extracted signals `(time, space)`, full 3D+t imaging data
-        `(time, z, y, x)`, or regional signals `(time, region)`.
+        Signals to clean. Must have a `time` dimension. Can be any shape, e.g.,
+        extracted signals `(time, space)` or VoxelData array `(time, k, j, i)`.
 
         !!! warning "Chunking along time is not supported"
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
@@ -399,8 +399,8 @@ def compute_compcor_confounds(
     ----------
     signals : (time, ...) xarray.DataArray
         Signals from which to extract components. Must have a `time` dimension.
-        For extracted signals, shape is typically `(time, space)`. For full
-        imaging data, shape is typically `(time, z, y, x)`.
+        For extracted signals, shape is typically `(time, space)`. For a full
+        VoxelData array, shape is typically `(time, k, j, i)`.
 
         !!! warning "Chunking along time is not supported"
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
@@ -543,7 +543,9 @@ def compute_compcor_confounds(
     selected_voxels = np.ones(n_voxels, dtype=bool)
 
     if noise_mask is not None:
-        noise_mask = validate_mask(noise_mask, signals, "noise_mask")
+        noise_mask = validate_spatial_or_feature_mask(
+            signals, noise_mask, "noise_mask", require_exact_dims=True
+        )
         noise_mask_flat = noise_mask.values.flatten()
 
         if noise_mask_flat.shape[0] != n_voxels:

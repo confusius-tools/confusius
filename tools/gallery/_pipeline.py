@@ -55,7 +55,7 @@ def _extract_title_and_summary(
 
 
 def _copy_dir_contents(src: Path, dst: Path) -> None:
-    """Copy the contents of ``src`` into ``dst``, merging subdirectories."""
+    """Copy the contents of `src` into `dst`, merging subdirectories."""
     dst.mkdir(parents=True, exist_ok=True)
     for item in src.iterdir():
         target = dst / item.name
@@ -68,7 +68,7 @@ def _copy_dir_contents(src: Path, dst: Path) -> None:
 def _write_cached_artifacts(
     cache_dir: Path, dest_dir: Path, base_name: str
 ) -> tuple[Path, Path] | None:
-    """Copy cached files for one example into ``dest_dir``."""
+    """Copy cached files for one example into `dest_dir`."""
     _copy_dir_contents(cache_dir, dest_dir)
     thumb_light = dest_dir / f"{base_name}_thumb_light.png"
     thumb_dark = dest_dir / f"{base_name}_thumb_dark.png"
@@ -134,9 +134,9 @@ def _make_progress(interactive: bool) -> Progress:
 
 
 def _advance_on_cell(progress: Progress, task_id: TaskID):
-    """Return an ``on_cell_executed`` hook that advances ``task_id`` by one.
+    """Return an `on_cell_executed` hook that advances `task_id` by one.
 
-    The injected theme-setup cell (always at ``cell_index == 0``) is skipped so the
+    The injected theme-setup cell (always at `cell_index == 0`) is skipped so the
     bar's totals reflect only the cells the user wrote.
     """
 
@@ -306,7 +306,7 @@ def _build_one(
 def _binder_url(
     source: Path, *, repo_root: Path, binder_repo: str, binder_ref: str
 ) -> str:
-    """Return the mybinder.org URL that opens ``source`` as a notebook."""
+    """Return the mybinder.org URL that opens `source` as a notebook."""
     rel = source.relative_to(repo_root).as_posix()
     return (
         f"https://mybinder.org/v2/gh/{binder_repo}/{binder_ref}?urlpath=lab/tree/{rel}"

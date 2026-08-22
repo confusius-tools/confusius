@@ -6,16 +6,16 @@ reference them without duplicating string literals.
 """
 
 SPATIAL_DIMS: tuple[str, ...] = ("z", "y", "x")
-"""Spatial dimension names in ConfUSIus order (elevation, axial, lateral)."""
+"""World spatial dimension names in ConfUSIus order."""
+
+VOXEL_DIMS: tuple[str, ...] = ("k", "j", "i")
+"""Native voxel-space dimension names in ConfUSIus order."""
 
 POSE_DIM: str = "pose"
 """Dimension name for discrete probe positions in multi-pose acquisitions."""
 
-SPATIAL_DIMS_WITH_POSE: tuple[str, ...] = (POSE_DIM, *SPATIAL_DIMS)
-"""All dimensions that represent physical space, including pose."""
-
 TIME_DIM: str = "time"
 """Default signal (x-axis) dimension name."""
 
-CORE_DIMS: tuple[str, ...] = (TIME_DIM,) + SPATIAL_DIMS_WITH_POSE
-"""Core ConfUSIus dimensions in canonical relative order."""
+CORE_DIMS: tuple[str, ...] = (TIME_DIM, POSE_DIM, *VOXEL_DIMS)
+"""Canonical ConfUSIus core dimension names."""

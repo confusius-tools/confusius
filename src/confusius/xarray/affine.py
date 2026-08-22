@@ -5,43 +5,51 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS
-from confusius._utils.coordinates import get_affine_in_axis_aligned_space
-from confusius.registration.affines import decompose_affine
+from confusius._dims import POSE_DIM
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_direction_matrix,
+    get_voxel_to_world_index_origin,
+    get_voxel_to_world_index_spacing,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
+)
 
 if TYPE_CHECKING:
     import numpy.typing as npt
 
 
-def affine_to(
+def get_relative_affine(
     da: xr.DataArray,
     other: xr.DataArray,
     via: str,
 ) -> "npt.NDArray[np.float64]":
-    """Return the affine mapping `da`'s physical space into `other`'s.
+    """Return the affine mapping `da`'s world space into `other`'s.
 
     Computes `inv(other.attrs["affines"][via]) @ da.attrs["affines"][via]`,
     giving the transform that takes coordinates expressed in `da`'s
-    physical frame and expresses them in `other`'s physical frame.  Both
+    world frame and expresses them in `other`'s world frame.  Both
     arrays must carry an `"affines"` dict in their `attrs` with the key
     `via`.
 
     Parameters
     ----------
     da : xarray.DataArray
-        The source scan (origin physical space).
+        The source scan (origin world space).
     other : xarray.DataArray
-        The scan whose physical space is the target.
+        The scan whose world space is the target.
     via : str
         Key into `attrs["affines"]` that names the shared intermediate
-        coordinate space used to bridge the two physical frames (e.g.
-        `"physical_to_lab"`).
+        coordinate space used to bridge the two world frames (e.g.
+        `"world_to_lab"`).
 
     Returns
     -------
     numpy.ndarray, shape (4, 4)
-        Homogeneous affine matrix mapping `da`'s physical coordinates
-        to `other`'s physical coordinates.
+        Homogeneous affine matrix mapping `da`'s world coordinates
+        to `other`'s world coordinates.
 
     Raises
     ------
@@ -68,52 +76,35 @@ def apply_affine(
     da: xr.DataArray,
     affine: "npt.NDArray[np.float64] | str",
     inplace: bool = False,
-) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
-    """Apply an affine to a DataArray's spatial coordinates.
+) -> xr.DataArray:
+    """Apply a world-space affine to a DataArray's world coordinates.
 
-    A diagonal affine (any per-axis scale or sign flip, plus translation) maps
-    each spatial axis to itself and updates the independent 1D `z`, `y`, `x`
-    coordinate arrays: `new_coord = scale * old_coord + translation`. The whole
-    transform is absorbed into the coordinates, so the returned orientation is
-    the identity.
-
-    An affine that mixes axes (a rotation, shear, or axis permutation) cannot be
-    expressed as independent 1D coordinates. The coordinates then absorb only the
-    axis-aligned zoom and translation, and the residual orientation is returned
-    as a 4x4 affine mapping the new physical coordinates to the affine's target
-    world frame (`orientation @ new_physical == affine @ old_physical`). The
-    caller decides what to do with it (compose it with a stored affine, store it
-    under a key of their choosing, or ignore it).
-
-    All affines already in `da.attrs["affines"]` are re-expressed against the new
-    coordinate frame so they remain valid. Per-pose `(npose, 4, 4)` stacks are handled
-    per pose via broadcasting.
+    The transform is composed into the DataArray's `VoxelToWorldIndex`, derived
+    world coordinates are regenerated, and existing `attrs["affines"]` entries are
+    re-expressed against the new world frame.
 
     Parameters
     ----------
     da : xarray.DataArray
-        Input scan. Must have at least one of `"z"`, `"y"`, `"x"` as dimensions
-        with associated 1D coordinates.
-    affine : numpy.ndarray, shape (4, 4), or str
-        Homogeneous affine matrix to apply. If a string, it is looked up as a
-        key in `da.attrs["affines"]`.
+        Input scan with voxel-to-world geometry (a `VoxelToWorldIndex`).
+    affine : (4, 4) numpy.ndarray or str
+        Homogeneous world-space affine matrix to apply. If a string, it is looked up as
+        a key in `da.attrs["affines"]`.
     inplace : bool, default: False
         Whether to modify the DataArray in-place.
 
     Returns
     -------
-    result : xarray.DataArray
-        `da` with updated spatial coordinates and updated `attrs["affines"]`.
-    orientation : (4, 4) numpy.ndarray
-        The residual orientation the coordinates could not absorb, mapping the
-        new physical coordinates to the affine's target world frame. The identity
-        when `affine` is diagonal.
+    xarray.DataArray
+        `da` with updated spatial coordinates and updated `attrs["affines"]`. When
+        `affine` is a string, that key is dropped from the result.
 
     Raises
     ------
     ValueError
-        If `affine` is not shape `(4, 4)`, or if `affine` is a string and `da`
-        has no `"affines"` entry in `attrs`.
+        If `da` lacks voxel-to-world geometry, if `affine` shape does not match the
+        DataArray's voxel-to-world affine, or if `affine` is a string and `da` has no
+        `"affines"` entry in `attrs`.
     KeyError
         If `affine` is a string not present in `da.attrs["affines"]`.
 
@@ -124,104 +115,263 @@ def apply_affine(
     >>> import confusius  # noqa: F401
     >>> data = xr.DataArray(
     ...     np.zeros((3, 4)),
-    ...     dims=["z", "y"],
-    ...     coords={"z": [0.0, 1.0, 2.0], "y": [0.0, 1.0, 2.0, 3.0]},
+    ...     dims=["j", "i"],
+    ...     coords={"j": np.arange(3), "i": np.arange(4)},
     ... )
-    >>> shift = np.eye(4)
-    >>> shift[:3, 3] = [10.0, 5.0, 0.0]
-    >>> result, orientation = data.fusi.affine.apply(shift)
-    >>> float(result.coords["z"].values[0])
+    >>> data = data.fusi.affine.set_voxel_to_world(np.eye(3))
+    >>> shift = np.eye(3)
+    >>> shift[:2, 2] = [10.0, 5.0]
+    >>> result = data.fusi.affine.apply(shift)
+    >>> float(result.fusi.affine.voxel_to_world[0, 2])
     10.0
     """
-    if isinstance(affine, str):
+    applied_key = affine if isinstance(affine, str) else None
+    if applied_key is not None:
         if "affines" not in da.attrs:
             raise ValueError("da does not have an 'affines' entry in attrs.")
-        if affine not in da.attrs["affines"]:
-            raise KeyError(f"'{affine}' not found in da.attrs['affines'].")
-        affine = da.attrs["affines"][affine]
-    affine = np.asarray(affine, dtype=np.float64)
-    if affine.shape != (4, 4):
-        raise ValueError(f"affine must have shape (4, 4), got {affine.shape}.")
+        if applied_key not in da.attrs["affines"]:
+            raise KeyError(f"'{applied_key}' not found in da.attrs['affines'].")
+        affine = da.attrs["affines"][applied_key]
+    affine_array = np.asarray(affine, dtype=np.float64)
 
-    # Classify the transform from its decomposition A = R @ diag(Z) @ S:
-    #   - sign flips sit on the DIAGONAL of R (axis-aligned, not mixing),
-    #   - a true rotation or axis permutation fills R's OFF-diagonal,
-    #   - any shear is non-zero in S.
-    # A non-mixing affine is fully absorbed into the independent 1D coordinates;
-    # a mixing one absorbs only the axis-aligned zoom and leaves a residual
-    # orientation, which is returned to the caller.
-    translation, rotation, zoom, shear = decompose_affine(affine)
-    off_diagonal = rotation[~np.eye(3, dtype=bool)]
-    mixes_axes = bool(
-        np.any(np.abs(off_diagonal) > 1e-9) or np.any(np.abs(shear) > 1e-9)
+    if not has_voxel_to_world_index(da):
+        raise ValueError("DataArray must have a voxel-to-world index.")
+
+    voxel_to_world = get_voxel_to_world_affine(da)
+    is_pose_stacked = voxel_to_world.ndim == 3
+    # A single (4, 4) world-space affine broadcasts over every pose (numpy's `@`
+    # already does this correctly: `affine_array @ voxel_to_world[p]` per pose); a
+    # pose-dependent affine_array must match the stack length exactly instead.
+    valid_shape = (
+        affine_array.shape == voxel_to_world.shape[1:]
+        or affine_array.shape == voxel_to_world.shape
+        if is_pose_stacked
+        else affine_array.shape == voxel_to_world.shape
     )
-
-    if mixes_axes:
-        # When axes mix, the decomposition's signed zoom is not a canonical
-        # per-axis coordinate scaling: decompose_affine keeps `rotation`
-        # right-handed (`det(rotation) > 0`) by relocating any needed
-        # reflection into one zoom entry. Absorb only the zoom magnitudes into
-        # the independent 1D coordinates and leave permutations/reflections in
-        # the residual orientation.
-        zoom = np.abs(zoom)
-        orientation = get_affine_in_axis_aligned_space(affine, translation, zoom)
-    else:
-        # Diagonal affine: each axis keeps its own SIGNED scale. Use the raw
-        # diagonal, not the decomposed zoom -- decompose relocates a lone sign
-        # flip onto axis 0, which would otherwise flip the wrong coordinate. The
-        # coordinates absorb the whole transform, leaving no residual.
-        zoom = np.diag(affine[:3, :3])
-        orientation = np.eye(4)
-
-    # Apply the axis-aligned part to each present spatial dimension's 1D coords:
-    #   new_coord_i = zoom[i] * old_coord_i + translation[i].
-    spatial_axes = [0, 1, 2]  # z, y, x map to affine rows 0, 1, 2.
-    dim_names = list(SPATIAL_DIMS)
-    new_coords = dict(da.coords)
-    for axis, dim in zip(spatial_axes, dim_names):
-        if dim not in da.dims:
-            continue
-        old_coord = da.coords[dim].values.astype(np.float64)
-        new_coord = zoom[axis] * old_coord + translation[axis]
-        new_coords[dim] = xr.DataArray(
-            new_coord,
-            dims=[dim],
-            attrs=da.coords[dim].attrs,
+    if not valid_shape:
+        expected = (
+            f"{voxel_to_world.shape[1:]} or {voxel_to_world.shape}"
+            if is_pose_stacked
+            else f"{voxel_to_world.shape}"
         )
-        if "voxdim" in new_coords[dim].attrs:
-            # `voxdim` records the physical voxel size along this axis, so it must scale
-            # together with the coordinates it describes.
-            new_coords[dim].attrs["voxdim"] *= np.abs(zoom[axis])
+        raise ValueError(
+            "voxel-to-world data requires an affine with shape matching "
+            f"voxel_to_world ({expected}), got {affine_array.shape}."
+        )
 
-    # Re-express every stored affine against the new axis-aligned physical frame
-    # so it stays valid: M_new = M_old @ inv(axis_aligned(translation, zoom)).
-    # Per-pose (npose, 4, 4) stacks are handled via broadcasting in
-    # get_affine_in_axis_aligned_space.
     stored = da.attrs.get("affines", {})
     new_affines: dict[str, npt.NDArray[np.float64]] = {}
+    inv_affine = np.linalg.inv(affine_array)
     for stored_key, val in stored.items():
+        if stored_key == applied_key:
+            # Composing this stored affine with itself is deterministically
+            # identity (arr @ inv(arr) == I), regardless of what it held --
+            # applying "by key" means "move the world frame to align with
+            # this named affine," which by construction leaves nothing to
+            # report here.
+            continue
         arr = np.asarray(val, dtype=np.float64)
         if arr.ndim in (2, 3):
-            new_affines[stored_key] = get_affine_in_axis_aligned_space(
-                arr, translation, zoom
-            )
+            new_affines[stored_key] = arr @ inv_affine
         else:
-            # Unexpected shape: pass through unchanged.
             new_affines[stored_key] = arr
 
-    new_attrs = {**da.attrs, "affines": new_affines}
-    result = da.assign_coords(new_coords).assign_attrs(new_attrs)
+    new_attrs = dict(da.attrs)
+    if "affines" in da.attrs:
+        new_attrs["affines"] = new_affines
+
+    world_coord_names = get_voxel_to_world_coord_names(da)
+    world_coord_attrs = {
+        name: dict(da.coords[name].attrs) for name in world_coord_names
+    }
+    result = attach_voxel_to_world_index(
+        da.assign_attrs(new_attrs),
+        affine_array @ voxel_to_world,
+        world_coord_attrs=world_coord_attrs,
+    )
     if inplace:
-        # xarray DataArrays are not truly mutable; update the underlying variable
-        # in-place so callers holding a reference see the change.
         da.coords.update(result.coords)
-        da.attrs.update(new_attrs)
-        return da, orientation
-    return result, orientation
+        da.attrs.clear()
+        da.attrs.update(result.attrs)
+        return da
+    return result
+
+
+def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
+    """Rebase voxel coordinates to dense positions without moving world coordinates.
+
+    A VoxelData array's stored `voxel_to_world` affine is defined in
+    terms of voxel *coordinate values*, which stay unchanged across cropping or
+    striding by design (see
+    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]).
+    Because of this, the affine generally does not describe where voxel *position*
+    `(0, ..., 0)` sits in world space, or the world distance between
+    consecutive positions, once `da` has been cropped or strided from a larger
+    array. This replaces each voxel dimension's coordinate with `0, 1, ..., dim - 1`
+    and rebuilds `voxel_to_world` so the resulting affine directly maps those dense
+    positions to `da`'s existing world coordinates, producing a DataArray whose
+    affine is directly usable by software that assumes dense, zero-based voxel
+    indices (e.g. ITK, nilearn).
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        Input scan with voxel-to-world geometry.
+
+    Returns
+    -------
+    xarray.DataArray
+        `da` with voxel coordinates rebased to `0, 1, ..., dim - 1` and an updated
+        `voxel_to_world` affine. World coordinates are unchanged. For pose-dependent
+        geometry, `voxel_to_world` stays a per-pose stack: each pose keeps its own
+        origin and direction (spacing is shared, per the equal-scale invariant), so
+        rebasing is unambiguous per pose and every pose is reindexed at once.
+
+    Raises
+    ------
+    ValueError
+        If `da` lacks voxel-to-world geometry, or if world spacing is undefined for
+        any voxel dimension.
+    """
+    if not has_voxel_to_world_index(da):
+        raise ValueError("DataArray must have a voxel-to-world index.")
+
+    voxel_dims = get_voxel_to_world_spatial_dims(da)
+    world_coord_names = get_voxel_to_world_coord_names(da)
+
+    spacing = get_voxel_to_world_index_spacing(da)
+    missing_spacing = [dim for dim in voxel_dims if spacing[dim] is None]
+    if missing_spacing:
+        raise ValueError(
+            f"Cannot reindex voxels because spacing is undefined for dimensions "
+            f"{missing_spacing!r}."
+        )
+    spacing_diag = np.diag([spacing[dim] for dim in voxel_dims])
+    ndim = len(voxel_dims)
+
+    def _new_pose_affine(pose_da: xr.DataArray) -> "npt.NDArray[np.float64]":
+        origin = get_voxel_to_world_index_origin(pose_da)
+        # Already expressed in dense-position terms (accounts for a descending
+        # voxel coordinate, e.g. after `.isel(dim=slice(None, None, -1))`),
+        # matching how `spacing` (a magnitude) and dense array position combine
+        # below.
+        direction = get_voxel_to_world_direction_matrix(pose_da)
+        affine = np.eye(ndim + 1, dtype=np.float64)
+        affine[:ndim, :ndim] = direction @ spacing_diag
+        affine[:ndim, ndim] = [origin[name] for name in world_coord_names]
+        return affine
+
+    if POSE_DIM in da.dims and get_voxel_to_world_affine(da).ndim == 3:
+        new_affine = np.stack(
+            [
+                _new_pose_affine(da.isel({POSE_DIM: pose}))
+                for pose in range(da.sizes[POSE_DIM])
+            ]
+        )
+    else:
+        new_affine = _new_pose_affine(da)
+
+    world_coord_attrs = {
+        name: dict(da.coords[name].attrs)
+        for name in world_coord_names
+        if name in da.coords
+    }
+    reindexed = da.assign_coords({dim: np.arange(da.sizes[dim]) for dim in voxel_dims})
+    return attach_voxel_to_world_index(
+        reindexed, new_affine, world_coord_attrs=world_coord_attrs
+    )
+
+
+def reindex_voxels_like(
+    data: xr.DataArray, reference: xr.DataArray, *, atol: float = 1e-6
+) -> xr.DataArray:
+    """Rebase voxel coordinates onto `reference`'s voxel labels.
+
+    `data` and `reference`'s `voxel_to_world` affines can differ even when they describe
+    the exact same world grid: the affine is defined in terms of voxel *coordinate
+    values*, so two arrays occupying identical world positions can still carry
+    different affines if their voxel dimensions happen to be labeled differently (e.g.
+    `reference` was cropped or strided from a larger array, while `data` was freshly
+    built with dense labels). This verifies the two occupy the same world grid, then
+    relabels `data`'s voxel coordinates and affine to match `reference`'s exactly, so
+    the two become directly alignable (`.sel()`, arithmetic, `xarray.align`, ...) by
+    voxel label as well as by world position.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Input scan with voxel-to-world geometry, physically aligned with `reference`.
+    reference : xarray.DataArray
+        DataArray whose voxel labels and affine `data` should adopt.
+    atol : float, default: 1e-6
+        Absolute tolerance, in `reference`'s physical units, for the world-coordinate
+        alignment check between `data` and `reference`.
+
+    Returns
+    -------
+    xarray.DataArray
+        `data` with voxel coordinates and `voxel_to_world` replaced by `reference`'s.
+        World coordinates are unchanged, since `data` and `reference` are verified to
+        already occupy the same world grid.
+
+    Raises
+    ------
+    ValueError
+        If `data` or `reference` lacks voxel-to-world geometry, if their voxel
+        dimensions or shapes differ, or if their world coordinates do not match
+        within `atol`.
+    """
+    if not has_voxel_to_world_index(data):
+        raise ValueError("data must have a voxel-to-world index.")
+    if not has_voxel_to_world_index(reference):
+        raise ValueError("reference must have a voxel-to-world index.")
+
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
+    reference_voxel_dims = get_voxel_to_world_spatial_dims(reference)
+    if voxel_dims != reference_voxel_dims:
+        raise ValueError(
+            f"data and reference must have the same voxel dimensions; got "
+            f"{voxel_dims!r} and {reference_voxel_dims!r}."
+        )
+    shape = tuple(data.sizes[dim] for dim in voxel_dims)
+    reference_shape = tuple(reference.sizes[dim] for dim in voxel_dims)
+    if shape != reference_shape:
+        raise ValueError(
+            f"data and reference must have the same voxel grid shape to reindex; "
+            f"got {shape!r} and {reference_shape!r}."
+        )
+
+    world_coord_names = get_voxel_to_world_coord_names(data)
+    reference_world_coord_names = get_voxel_to_world_coord_names(reference)
+    for name, reference_name in zip(
+        world_coord_names, reference_world_coord_names, strict=True
+    ):
+        data_values = data.coords[name].transpose(*voxel_dims).values
+        reference_values = (
+            reference.coords[reference_name].transpose(*voxel_dims).values
+        )
+        if not np.allclose(data_values, reference_values, atol=atol):
+            raise ValueError(
+                f"data and reference are not aligned in world space: coordinate "
+                f"{name!r} differs by more than {atol}. reindex_voxels_like requires "
+                "data to already occupy reference's exact world grid."
+            )
+
+    world_coord_attrs = {
+        name: dict(reference.coords[name].attrs)
+        for name in reference_world_coord_names
+        if name in reference.coords
+    }
+    relabeled = data.assign_coords({dim: reference.coords[dim] for dim in voxel_dims})
+    return attach_voxel_to_world_index(
+        relabeled,
+        get_voxel_to_world_affine(reference),
+        world_coord_attrs=world_coord_attrs,
+    )
 
 
 class FUSIAffineAccessor:
-    """Accessor for affine transform operations on fUSI DataArrays.
+    """Accessor for affine transform operations on VoxelData arrays.
 
     Provides methods to compute relative transforms between scans and to
     apply axis-aligned affines to a scan's spatial coordinates.
@@ -235,25 +385,61 @@ class FUSIAffineAccessor:
     def __init__(self, xarray_obj: xr.DataArray) -> None:
         self._obj = xarray_obj
 
+    @property
+    def voxel_to_world(self) -> "npt.NDArray[np.float64]":
+        """Affine mapping native voxel coordinates to world coordinates.
+
+        Returns
+        -------
+        numpy.ndarray
+            Homogeneous voxel-to-world affine.
+        """
+        return get_voxel_to_world_affine(self._obj)
+
+    def set_voxel_to_world(
+        self, voxel_to_world: "npt.ArrayLike", *, inplace: bool = False
+    ) -> xr.DataArray:
+        """Replace voxel-to-world geometry.
+
+        Parameters
+        ----------
+        voxel_to_world : numpy.typing.ArrayLike
+            Homogeneous affine mapping native voxel coordinates to world coordinates.
+        inplace : bool, default: False
+            Whether to modify the wrapped DataArray in-place.
+
+        Returns
+        -------
+        xarray.DataArray
+            DataArray with rebuilt VoxelToWorldIndex-backed coordinates.
+        """
+        result = attach_voxel_to_world_index(self._obj, voxel_to_world)
+        if inplace:
+            self._obj.coords.update(result.coords)
+            self._obj.attrs.clear()
+            self._obj.attrs.update(result.attrs)
+            return self._obj
+        return result
+
     def to(self, other: xr.DataArray, via: str) -> "npt.NDArray[np.float64]":
-        """Return the affine mapping `self`'s physical space into `other`'s.
+        """Return the affine mapping `self`'s world space into `other`'s.
 
         Computes `inv(other.attrs["affines"][via]) @ self.attrs["affines"][via]`,
-        giving the transform from `self`'s physical frame to `other`'s.
+        giving the transform from `self`'s world frame to `other`'s.
 
         Parameters
         ----------
         other : xarray.DataArray
-            The scan whose physical space is the target.
+            The scan whose world space is the target.
         via : str
             Key into `attrs["affines"]` naming the shared intermediate
-            coordinate space (e.g. `"physical_to_lab"`).
+            coordinate space (e.g. `"world_to_lab"`).
 
         Returns
         -------
         numpy.ndarray, shape (4, 4)
-            Homogeneous affine matrix mapping `self`'s physical coordinates
-            to `other`'s physical coordinates.
+            Homogeneous affine matrix mapping `self`'s world coordinates
+            to `other`'s world coordinates.
 
         Raises
         ------
@@ -273,53 +459,38 @@ class FUSIAffineAccessor:
         >>> np.allclose(a.fusi.affine.to(b, via="to_world"), np.eye(4))
         True
         """
-        return affine_to(self._obj, other, via)
+        return get_relative_affine(self._obj, other, via)
 
     def apply(
         self,
         affine: "npt.NDArray[np.float64] | str",
         inplace: bool = False,
-    ) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
-        """Apply an affine to the scan's spatial coordinates.
+    ) -> xr.DataArray:
+        """Apply a world-space affine to a DataArray's world coordinates.
 
-        A diagonal affine (any per-axis scale or sign flip, plus translation) maps
-        each spatial axis to itself and updates the independent 1D `z`, `y`, `x`
-        coordinate arrays: `new_coord = scale * old_coord + translation`. The whole
-        transform is absorbed into the coordinates, so the returned orientation is
-        the identity.
-
-        An affine that mixes axes (a rotation, shear, or axis permutation) cannot be
-        expressed as independent 1D coordinates. The coordinates then absorb only the
-        axis-aligned zoom and translation, and the residual orientation is returned
-        as a 4x4 affine mapping the new physical coordinates to the affine's target
-        world frame (`orientation @ new_physical == affine @ old_physical`). The
-        caller decides what to do with it.
-
-        All affines already in `attrs["affines"]` are re-expressed against the new
-        coordinate frame so they remain valid. Per-pose `(npose, 4, 4)` stacks are
-        handled per pose via broadcasting.
+        The transform is composed into the DataArray's `VoxelToWorldIndex`, derived
+        world coordinates are regenerated, and existing `attrs["affines"]` entries
+        are re-expressed against the new world frame.
 
         Parameters
         ----------
-        affine : numpy.ndarray, shape (4, 4), or str
-            Homogeneous affine matrix to apply. If a string, it is looked up
-            as a key in `self.attrs["affines"]`.
+        affine : (4, 4) numpy.ndarray or str
+            Homogeneous world-space affine matrix to apply. If a string, it is
+            looked up as a key in `self.attrs["affines"]`.
         inplace : bool, default: False
             Whether to modify the DataArray in-place.
 
         Returns
         -------
-        result : xarray.DataArray
+        xarray.DataArray
             The DataArray with updated spatial coordinates and `attrs["affines"]`.
-        orientation : (4, 4) numpy.ndarray
-            The residual orientation the coordinates could not absorb, mapping the
-            new physical coordinates to the affine's target world frame. The
-            identity when `affine` is diagonal.
+            When `affine` is a string, that key is dropped from the result.
 
         Raises
         ------
         ValueError
-            If `affine` shape is not `(4, 4)`, or if `affine` is a string and
+            If `self` lacks voxel-to-world geometry, if `affine` shape does not match
+            the DataArray's voxel-to-world affine, or if `affine` is a string and
             `self` has no `"affines"` entry in `attrs`.
         KeyError
             If `affine` is a string not present in `self.attrs["affines"]`.
@@ -331,13 +502,82 @@ class FUSIAffineAccessor:
         >>> import confusius  # noqa: F401
         >>> data = xr.DataArray(
         ...     np.zeros((3, 4)),
-        ...     dims=["z", "y"],
-        ...     coords={"z": [0.0, 1.0, 2.0], "y": [0.0, 1.0, 2.0, 3.0]},
+        ...     dims=["j", "i"],
+        ...     coords={"j": np.arange(3), "i": np.arange(4)},
         ... )
-        >>> shift = np.eye(4)
-        >>> shift[:3, 3] = [10.0, 5.0, 0.0]
-        >>> result, orientation = data.fusi.affine.apply(shift)
-        >>> float(result.coords["z"].values[0])
+        >>> data = data.fusi.affine.set_voxel_to_world(np.eye(3))
+        >>> shift = np.eye(3)
+        >>> shift[:2, 2] = [10.0, 5.0]
+        >>> result = data.fusi.affine.apply(shift)
+        >>> float(result.fusi.affine.voxel_to_world[0, 2])
         10.0
         """
         return apply_affine(self._obj, affine, inplace=inplace)
+
+    def reindex_voxels(self) -> xr.DataArray:
+        """Rebase voxel coordinates to dense positions without moving world coordinates.
+
+        See
+        [reindex_voxels][confusius.xarray.affine.reindex_voxels]
+        for details.
+
+        Returns
+        -------
+        xarray.DataArray
+            DataArray with voxel coordinates rebased to `0, 1, ..., dim - 1` and an
+            updated `voxel_to_world` affine. World coordinates are unchanged.
+
+        Raises
+        ------
+        ValueError
+            If `self` lacks voxel-to-world geometry, or if world spacing is
+            undefined for any voxel dimension.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> base = create_voxeldata(
+        ...     np.zeros((5, 5)), dims=("j", "i"), voxel_to_world=np.eye(4)
+        ... )
+        >>> data = base.isel(j=slice(2, 5), i=slice(1, 5))
+        >>> reindexed = data.fusi.affine.reindex_voxels()
+        >>> reindexed.coords["j"].values
+        array([0, 1, 2])
+        >>> float(reindexed.coords["y"].isel(j=0, i=0, k=0))
+        2.0
+        """
+        return reindex_voxels(self._obj)
+
+    def reindex_voxels_like(
+        self, reference: xr.DataArray, *, atol: float = 1e-6
+    ) -> xr.DataArray:
+        """Rebase voxel coordinates onto `reference`'s voxel labels.
+
+        See
+        [reindex_voxels_like][confusius.xarray.affine.reindex_voxels_like]
+        for details.
+
+        Parameters
+        ----------
+        reference : xarray.DataArray
+            DataArray whose voxel labels and affine `self` should adopt.
+        atol : float, default: 1e-6
+            Absolute tolerance, in `reference`'s physical units, for the
+            world-coordinate alignment check between `self` and `reference`.
+
+        Returns
+        -------
+        xarray.DataArray
+            `self` with voxel coordinates and `voxel_to_world` replaced by
+            `reference`'s. World coordinates are unchanged.
+
+        Raises
+        ------
+        ValueError
+            If `self` or `reference` lacks voxel-to-world geometry, if their voxel
+            dimensions or shapes differ, or if their world coordinates do not
+            match within `atol`.
+        """
+        return reindex_voxels_like(self._obj, reference, atol=atol)

@@ -66,7 +66,7 @@ class _VideoArray:
         the spatial axes.
     step : int, default: 1
         Show every *step*-th frame (temporal subsampling).  Logical
-        frame `t` maps to physical frame `t * step`.
+        frame `t` maps to world frame `t * step`.
     time_dim : int, default: 0
         Position of the time axis in the output shape.
     h_dim : int or None, optional
@@ -638,7 +638,7 @@ class VideoPanel(QWidget):
         )
 
         # Time scale = frame_step / fps.  Each logical frame spans
-        # `frame_step` physical frames, so consecutive data points are
+        # `frame_step` world frames, so consecutive data points are
         # `frame_step / fps` seconds apart.
         time_scale = frame_step / entry.fps if entry.fps > 0 else 1.0
         # Isotropic spatial scale (video pixels are square).
@@ -808,10 +808,12 @@ class VideoPanel(QWidget):
             return None
 
         dim_name = self._axis_labels[dim_idx]
-        if dim_name not in xr_da.coords:
+        world_dim = {"k": "z", "j": "y", "i": "x"}.get(dim_name, dim_name)
+        coord_name = world_dim if world_dim in xr_da.coords else dim_name
+        if coord_name not in xr_da.coords:
             return None
 
-        return np.asarray(xr_da.coords[dim_name], dtype=np.float64)
+        return np.asarray(xr_da.coords[coord_name], dtype=np.float64)
 
     def _compute_spatial_scale(self, vertical_dim: int, video_h: int) -> float:
         """Return the isotropic spatial scale for the video.
@@ -839,7 +841,12 @@ class VideoPanel(QWidget):
         else:
             dim_name = self._axis_labels[vertical_dim]
             xr_da = self._ref_layer.metadata["xarray"]  # type: ignore
-            y_step = float(xr_da.coords[dim_name].attrs.get("voxdim", 1.0))
+            # A singleton axis has no diff to derive spacing from; `fusi.spacing`
+            # falls back to the affine column norm for that voxel dim in that case.
+            spacing = (
+                xr_da.fusi.spacing.get(dim_name) if dim_name in xr_da.dims else None
+            )
+            y_step = spacing if spacing is not None else 1.0
 
         fusi_extent = (y_max - y_min) + abs(y_step)
         return fusi_extent / video_h

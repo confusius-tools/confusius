@@ -9,9 +9,9 @@ from numpy.testing import assert_allclose
 from confusius.signal import standardize
 
 
-def test_standardize_zscore(sample_timeseries):
+def test_standardize_zscore(make_sample_timeseries):
     """Test z-score standardization produces mean=0, std=1."""
-    random_signals = sample_timeseries(n_time=100, n_voxels=50)
+    random_signals = make_sample_timeseries(n_time=100, n_voxels=50)
     result = standardize(random_signals, method="zscore")
 
     # Check shape and coordinates preserved.
@@ -30,9 +30,9 @@ def test_standardize_zscore(sample_timeseries):
     assert_allclose(std_per_voxel.values, 1.0, rtol=1e-10)
 
 
-def test_standardize_psc(sample_timeseries):
+def test_standardize_psc(make_sample_timeseries):
     """Test percent signal change standardization."""
-    random_signals = sample_timeseries(n_time=100, n_voxels=50)
+    random_signals = make_sample_timeseries(n_time=100, n_voxels=50)
     result = standardize(random_signals, method="psc")
 
     # Check shape and coordinates preserved.
@@ -50,9 +50,9 @@ def test_standardize_psc(sample_timeseries):
     assert_allclose(result_mean.values, 0.0, atol=1e-7)
 
 
-def test_standardize_invalid_method(sample_timeseries):
+def test_standardize_invalid_method(make_sample_timeseries):
     """Test error raised for invalid method."""
-    random_signals = sample_timeseries(n_time=100, n_voxels=50)
+    random_signals = make_sample_timeseries(n_time=100, n_voxels=50)
     with pytest.raises(ValueError, match="method must be"):
         standardize(random_signals, method="invalid")  # type: ignore
 
@@ -102,9 +102,9 @@ def test_standardize_psc_near_zero_mean():
     assert np.all(np.isnan(result.values[:, 0]))
 
 
-def test_standardize_dask_compatibility(sample_timeseries):
+def test_standardize_dask_compatibility(make_sample_timeseries):
     """Test standardization works with Dask-backed arrays."""
-    signals = sample_timeseries(n_time=100, n_voxels=50).chunk(
+    signals = make_sample_timeseries(n_time=100, n_voxels=50).chunk(
         {"time": 50, "space": 25}
     )
 
@@ -123,9 +123,9 @@ def test_standardize_dask_compatibility(sample_timeseries):
     assert_allclose(std_per_voxel.values, 1.0, rtol=1e-10)
 
 
-def test_standardize_default_method(sample_timeseries):
+def test_standardize_default_method(make_sample_timeseries):
     """Test default method is zscore."""
-    signals = sample_timeseries()
+    signals = make_sample_timeseries()
     result = standardize(signals)
 
     # Should be same as explicitly passing method='zscore'.
@@ -164,9 +164,9 @@ def test_standardize_zscore_zero_variance():
     assert_allclose(result.values[:, 1], expected_1)
 
 
-def test_standardize_zscore_psc_correlation(sample_timeseries):
+def test_standardize_zscore_psc_correlation(make_sample_timeseries):
     """Test that zscore and psc are perfectly correlated (from nilearn)."""
-    signals = sample_timeseries()
+    signals = make_sample_timeseries()
     z = standardize(signals, method="zscore")
     psc = standardize(signals, method="psc")
 
@@ -176,13 +176,13 @@ def test_standardize_zscore_psc_correlation(sample_timeseries):
         assert_allclose(corr, 1.0, rtol=1e-10)
 
 
-def test_standardize_4d_imaging_data(sample_3dt_volume):
+def test_standardize_4d_imaging_data(sample_voxeldata_3dt):
     """Test that standardize works on 4D imaging data (time, z, y, x)."""
-    result = standardize(sample_3dt_volume, method="zscore")
+    result = standardize(sample_voxeldata_3dt, method="zscore")
 
     # Check shape and dimensions preserved.
-    assert result.dims == sample_3dt_volume.dims
-    assert result.shape == sample_3dt_volume.shape
+    assert result.dims == sample_voxeldata_3dt.dims
+    assert result.shape == sample_voxeldata_3dt.shape
 
     # Check that each voxel (z, y, x) has mean≈0, std≈1 across time.
     mean_per_voxel = result.mean(dim="time")
@@ -193,16 +193,16 @@ def test_standardize_4d_imaging_data(sample_3dt_volume):
 
     # Check coordinates preserved.
     assert_allclose(
-        result.coords["time"].values, sample_3dt_volume.coords["time"].values
+        result.coords["time"].values, sample_voxeldata_3dt.coords["time"].values
     )
-    assert_allclose(result.coords["z"].values, sample_3dt_volume.coords["z"].values)
-    assert_allclose(result.coords["y"].values, sample_3dt_volume.coords["y"].values)
-    assert_allclose(result.coords["x"].values, sample_3dt_volume.coords["x"].values)
+    assert_allclose(result.coords["z"].values, sample_voxeldata_3dt.coords["z"].values)
+    assert_allclose(result.coords["y"].values, sample_voxeldata_3dt.coords["y"].values)
+    assert_allclose(result.coords["x"].values, sample_voxeldata_3dt.coords["x"].values)
 
 
-def test_standardize_sets_units(sample_timeseries):
+def test_standardize_sets_units(make_sample_timeseries):
     """Test that standardize sets the units attribute on the result."""
-    signals = sample_timeseries()
+    signals = make_sample_timeseries()
 
     result_zscore = standardize(signals, method="zscore")
     assert result_zscore.attrs["units"] == "z-score"

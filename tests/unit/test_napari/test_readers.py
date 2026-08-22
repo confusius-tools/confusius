@@ -15,10 +15,12 @@ import pytest
 import xarray as xr
 
 from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
-from confusius._utils.napari import (
-    build_direct_label_colormap,
-    convert_dataarray_to_layer_data,
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    has_axis_aligned_voxel_to_world_index,
+    has_voxel_to_world_index,
 )
+from confusius.io.loadsave import save
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -43,18 +45,18 @@ def scan_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def zarr_3d_path(tmp_path: Path, sample_3d_volume: xr.DataArray) -> Path:
-    """Zarr store built from the shared sample_3d_volume fixture."""
+def zarr_3d_path(tmp_path: Path, sample_voxeldata_3d: xr.DataArray) -> Path:
+    """Zarr store built from the shared sample_voxeldata_3d fixture."""
     path = tmp_path / "vol3d.zarr"
-    xr.Dataset({"data": sample_3d_volume}).to_zarr(path, zarr_format=2)
+    save(sample_voxeldata_3d, path)
     return path
 
 
 @pytest.fixture
-def zarr_4d_path(tmp_path: Path, sample_3dt_volume: xr.DataArray) -> Path:
-    """Zarr store built from the shared sample_3dt_volume fixture."""
+def zarr_4d_path(tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> Path:
+    """Zarr store built from the shared sample_voxeldata_3dt fixture."""
     path = tmp_path / "vol4d.zarr"
-    xr.Dataset({"data": sample_3dt_volume}).to_zarr(path, zarr_format=2)
+    save(sample_voxeldata_3dt, path)
     return path
 
 
@@ -65,7 +67,7 @@ def integer_zarr_path(tmp_path: Path, sample_roi_labels: xr.DataArray) -> Path:
     Carries `roi_labels` and `rgb_lookup` attrs, like a real atlas mask.
     """
     path = tmp_path / "labels.zarr"
-    xr.Dataset({"data": sample_roi_labels}).to_zarr(path, zarr_format=2)
+    save(sample_roi_labels, path)
     return path
 
 
@@ -127,6 +129,13 @@ class TestReadZarrGating:
         """Valid zarr store returns a reader function."""
         assert callable(read_zarr(str(zarr_3d_path)))
 
+    def test_returns_none_for_foreign_zarr_store(self, tmp_path: Path) -> None:
+        """A structurally valid but non-ConfUSIus Zarr store defers to other plugins."""
+        path = tmp_path / "foreign.zarr"
+        xr.Dataset({"data": xr.DataArray(np.zeros((4, 6)))}).to_zarr(path)
+
+        assert read_zarr(str(path)) is None
+
 
 # ---------------------------------------------------------------------------
 # LayerData structure
@@ -161,38 +170,53 @@ class TestReaderLayerData:
         npt.assert_allclose(kwargs["translate"], [10.0, 1.0, 2.0, 3.0], rtol=1e-5)
         assert kwargs["axis_labels"] == ["time", "z", "y", "x"]
 
-    def test_time_last_dim_order(self, tmp_path: Path) -> None:
-        """scale/translate/units follow the actual dim order when time is last (e.g. NIfTI)."""
+    def test_time_last_dim_order_is_canonicalized(self, tmp_path: Path) -> None:
+        """Zarr reader reports canonical VoxelData order when time is stored last."""
         da = xr.DataArray(
             np.zeros((8, 6, 4, 10), dtype=np.float32),
-            dims=["x", "y", "z", "time"],
+            dims=["k", "j", "i", "time"],
             coords={
-                "x": xr.DataArray(
-                    1.0 + np.arange(8) * 0.05, dims=["x"], attrs={"units": "mm"}
-                ),
-                "y": xr.DataArray(
-                    2.0 + np.arange(6) * 0.10, dims=["y"], attrs={"units": "mm"}
-                ),
-                "z": xr.DataArray(
-                    3.0 + np.arange(4) * 0.20, dims=["z"], attrs={"units": "mm"}
-                ),
+                "k": np.arange(8),
+                "j": np.arange(6),
+                "i": np.arange(4),
                 "time": xr.DataArray(
-                    10.0 + np.arange(10) * 0.5, dims=["time"], attrs={"units": "s"}
+                    10.0 + np.arange(10) * 0.5,
+                    dims=["time"],
+                    attrs={
+                        "units": "s",
+                        "volume_acquisition_reference": "start",
+                        "volume_acquisition_duration": 0.5,
+                    },
                 ),
             },
         )
+        da = attach_voxel_to_world_index(
+            da,
+            np.array(
+                [
+                    [0.05, 0.0, 0.0, 1.0],
+                    [0.0, 0.10, 0.0, 2.0],
+                    [0.0, 0.0, 0.20, 3.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+            world_coord_attrs={
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
+            },
+        )
         path = tmp_path / "time_last.zarr"
-        xr.Dataset({"data": da}).to_zarr(path, zarr_format=2)
+        save(da, path)
 
         reader = read_zarr(str(path))
         assert reader is not None
         _, kwargs, _ = reader(str(path))[0]
 
-        # scale and translate must be in (x, y, z, time) order, not time-prepended.
-        npt.assert_allclose(kwargs["scale"], [0.05, 0.10, 0.20, 0.5], rtol=1e-5)
-        npt.assert_allclose(kwargs["translate"], [1.0, 2.0, 3.0, 10.0], rtol=1e-5)
-        assert kwargs["axis_labels"] == ["x", "y", "z", "time"]
-        assert kwargs["units"] == ["mm", "mm", "mm", "s"]
+        npt.assert_allclose(kwargs["scale"], [0.5, 0.05, 0.10, 0.20], rtol=1e-5)
+        npt.assert_allclose(kwargs["translate"], [10.0, 1.0, 2.0, 3.0], rtol=1e-5)
+        assert kwargs["axis_labels"] == ["time", "z", "y", "x"]
+        assert kwargs["units"] == ["s", "mm", "mm", "mm"]
 
     def test_units_from_coord_attrs(self, zarr_3d_path: Path) -> None:
         """Units are read from coordinate attrs and passed to napari."""
@@ -201,6 +225,67 @@ class TestReaderLayerData:
         _, kwargs, _ = reader(str(zarr_3d_path))[0]
 
         assert kwargs["units"] == ["mm", "mm", "mm"]
+
+    def test_voxel_to_world_is_resampled_to_world_grid(
+        self, tmp_path: Path, sample_voxeldata_3d_oblique
+    ) -> None:
+        """Oblique reader output uses an axis-aligned world grid for napari.
+
+        The resampled grid stays on native voxel dims with its voxel-to-world index
+        intact (like the axis-aligned case); layers are always positioned in world
+        space, so `axis_labels` shows world names regardless -- matching
+        plot_napari's display convention.
+        """
+        path = tmp_path / "cti.zarr"
+        save(sample_voxeldata_3d_oblique, path)
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        _, kwargs, layer_type = reader(str(path))[0]
+
+        assert layer_type == "image"
+        assert kwargs["axis_labels"] == ["z", "y", "x"]
+        assert kwargs["metadata"]["xarray"].dims == ("k", "j", "i")
+        assert has_voxel_to_world_index(kwargs["metadata"]["xarray"])
+        # The displayed layer is actually resampled onto an axis-aligned grid, unlike
+        # the sheared source data.
+        assert not has_axis_aligned_voxel_to_world_index(sample_voxeldata_3d_oblique)
+        assert has_axis_aligned_voxel_to_world_index(kwargs["metadata"]["xarray"])
+        assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
+        npt.assert_allclose(kwargs["translate"], [10.0, 20.0, 30.0], rtol=1e-5)
+
+    def test_axis_aligned_voxel_to_world_uses_world_display_by_default(
+        self, tmp_path: Path
+    ) -> None:
+        """Axis-aligned reader output keeps native voxel dims but shows world labels."""
+        data = xr.DataArray(
+            np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+            dims=["k", "j", "i"],
+            coords={"k": [0, 1], "j": [0, 1, 2], "i": [0, 1, 2, 3]},
+        )
+        data = attach_voxel_to_world_index(
+            data,
+            np.diag([0.4, 0.3, 0.25, 1.0]),
+            world_coord_attrs={
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
+            },
+        )
+        path = tmp_path / "axis_aligned_cti.zarr"
+        save(data, path)
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        _, kwargs, layer_type = reader(str(path))[0]
+
+        assert layer_type == "image"
+        assert kwargs["axis_labels"] == ["z", "y", "x"]
+        npt.assert_allclose(kwargs["scale"], [0.4, 0.3, 0.25], rtol=1e-5)
+        npt.assert_allclose(kwargs["translate"], [0.0, 0.0, 0.0], rtol=1e-5)
+        assert kwargs["metadata"]["xarray"].dims == ("k", "j", "i")
+        assert has_voxel_to_world_index(kwargs["metadata"]["xarray"])
+        assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
 
     def test_default_colormap_is_gray(self, zarr_3d_path: Path) -> None:
         """Colormap defaults to gray when da.attrs has no 'cmap' key."""
@@ -213,16 +298,18 @@ class TestReaderLayerData:
     def test_colormap_from_attrs(self, tmp_path: Path) -> None:
         """Colormap is read from da.attrs['cmap'] when present."""
         da = xr.DataArray(
-            np.zeros((4, 6), dtype=np.float32),
-            dims=["z", "x"],
+            np.zeros((4, 1, 6), dtype=np.float32),
+            dims=["k", "j", "i"],
             coords={
-                "z": np.arange(4) * 0.1,
-                "x": np.arange(6) * 0.05,
+                "k": np.arange(4),
+                "j": np.arange(1),
+                "i": np.arange(6),
             },
             attrs={"cmap": "viridis"},
         )
+        da = attach_voxel_to_world_index(da, np.diag([0.1, 1.0, 0.05, 1.0]))
         path = tmp_path / "colored.zarr"
-        xr.Dataset({"data": da}).to_zarr(path, zarr_format=2)
+        save(da, path)
 
         reader = read_zarr(str(path))
         assert reader is not None
@@ -241,16 +328,18 @@ class TestReaderLayerData:
         monkeypatch.setattr(napari_utils, "show_warning", warnings_seen.append)
 
         da = xr.DataArray(
-            np.zeros((4, 6), dtype=np.float32),
-            dims=["z", "x"],
+            np.zeros((4, 1, 6), dtype=np.float32),
+            dims=["k", "j", "i"],
             coords={
-                "z": np.arange(4) * 0.1,
-                "x": np.arange(6) * 0.05,
+                "k": np.arange(4),
+                "j": np.arange(1),
+                "i": np.arange(6),
             },
             attrs={"cmap": "<matplotlib.colors.ListedColormap object at 0x0>"},
         )
+        da = attach_voxel_to_world_index(da, np.diag([0.1, 1.0, 0.05, 1.0]))
         path = tmp_path / "invalid_cmap.zarr"
-        xr.Dataset({"data": da}).to_zarr(path, zarr_format=2)
+        save(da, path)
 
         reader = read_zarr(str(path))
         assert reader is not None
@@ -291,48 +380,3 @@ class TestReaderLayerData:
         # sample_roi_labels' roi_labels attr should populate hover-status features.
         features = kwargs["features"]
         assert dict(zip(features["index"], features["name"]))[7] == "somatosensory"
-
-    def test_build_direct_label_colormap_returns_none_without_color_attrs(self) -> None:
-        """Labels with no cmap/norm or rgb_lookup keep colormap unset."""
-        da = xr.DataArray(
-            np.array([[0, 1]], dtype=np.int16),
-            dims=["z", "x"],
-            coords={"z": [0.0], "x": [0.0, 1.0]},
-        )
-
-        assert build_direct_label_colormap(da) is None
-
-    def test_build_direct_label_colormap_rebuilds_from_rgb_lookup(self) -> None:
-        """rgb_lookup alone is enough to rebuild atlas label colors."""
-        da = xr.DataArray(
-            np.array([[0, 3, 7]], dtype=np.int16),
-            dims=["z", "x"],
-            coords={"z": [0.0], "x": [0.0, 1.0, 2.0]},
-            attrs={"rgb_lookup": {3: [0, 0, 255], 7: [255, 0, 0]}},
-        )
-
-        colormap = build_direct_label_colormap(da)
-
-        assert colormap is not None
-        npt.assert_allclose(colormap.map(np.array([3])), [[0.0, 0.0, 1.0, 1.0]])
-        npt.assert_allclose(colormap.map(np.array([7])), [[1.0, 0.0, 0.0, 1.0]])
-
-    def test_non_uniform_spacing_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Non-uniform coords warn and still use the best-effort median spacing."""
-        warnings_seen: list[str] = []
-        monkeypatch.setattr(
-            "confusius._utils.napari.show_warning", warnings_seen.append
-        )
-
-        da = xr.DataArray(
-            np.zeros((3, 2), dtype=np.float32),
-            dims=["z", "x"],
-            coords={"z": [0.0, 1.0, 3.0], "x": [10.0, 10.5]},
-        )
-
-        _, kwargs, _ = convert_dataarray_to_layer_data(da, "demo")
-
-        assert warnings_seen == [
-            "'z' has non-uniform spacing; using median 1.5 (positions along this axis may be approximate)."
-        ]
-        npt.assert_allclose(kwargs["scale"], [1.5, 0.5])

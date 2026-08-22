@@ -52,7 +52,7 @@ class SavePanel(QWidget):
       labels layers).
     - **Template**: coordinates are borrowed from a second layer that *does*
       carry a DataArray (e.g. the fUSI image on which the labels were drawn).
-      This preserves the full physical coordinate system and all DataArray
+      This preserves the full world coordinate system and all DataArray
       attributes. When the layer has fewer dimensions than the template (e.g. a
       3D labels layer with a 4D image template), the trailing spatial dimensions
       of the template are used.
@@ -106,7 +106,7 @@ class SavePanel(QWidget):
         self._template_combo.setToolTip(
             "Optional: borrow coordinates and metadata from this layer.\n"
             "Useful when saving labels drawn on top of a ConfUSIus image layer\n"
-            "to preserve physical coordinates. The layer must have been loaded\n"
+            "to preserve world coordinates. The layer must have been loaded\n"
             "via the ConfUSIus reader."
         )
 

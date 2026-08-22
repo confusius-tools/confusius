@@ -10,7 +10,7 @@ generation**:
 | Tool | Backend | Best for |
 |---|---|---|
 | [`plot_napari`][confusius.plotting.plot_napari] / [`.fusi.plot.napari()`][confusius.xarray.FUSIPlotAccessor.napari] | napari | Interactive exploration of 3D+t datasets |
-| [`draw_napari_labels`][confusius.plotting.draw_napari_labels] + [`labels_from_layer`][confusius.plotting.labels_from_layer] | napari | Interactive manual ROI drawing |
+| [`draw_napari_labels`][confusius.plotting.draw_napari_labels] / [`.fusi.plot.draw_napari_labels()`][confusius.xarray.FUSIPlotAccessor.draw_napari_labels] + [`labels_from_layer`][confusius.plotting.labels_from_layer] / [`.fusi.plot.labels_from_layer()`][confusius.xarray.FUSIPlotAccessor.labels_from_layer] | napari | Interactive manual ROI drawing |
 | [`plot_volume`][confusius.plotting.plot_volume] / [`.fusi.plot.volume()`][confusius.xarray.FUSIPlotAccessor.volume] | Matplotlib | Static slice grids |
 | [`plot_contours`][confusius.plotting.plot_contours] / [`.fusi.plot.contours()`][confusius.xarray.FUSIPlotAccessor.contours] | Matplotlib | Contour-only grids (masks or atlas outlines) |
 | [`plot_composite`][confusius.plotting.plot_composite] / [`.fusi.plot.composite()`][confusius.xarray.FUSIPlotAccessor.composite] | Matplotlib | Composite plots of two volumes |
@@ -18,7 +18,7 @@ generation**:
 | [`plot_carpet`][confusius.plotting.plot_carpet] / [`.fusi.plot.carpet()`][confusius.xarray.FUSIPlotAccessor.carpet] | Matplotlib | Voxel time-series raster (quality control) |
 | [`plot_matrix`][confusius.plotting.plot_matrix] | Matplotlib | Any square 2D matrix (e.g. correlation, connectivity, or statistical matrices) |
 
-All functions accept DataArrays and use physical coordinates for axis scaling
+All functions accept DataArrays and use world coordinates for axis scaling
 automatically. The [Xarray accessor](xarray.md) variants (`.fusi.plot.*`) offer a more
 concise syntax; both call the same underlying functions.
 
@@ -69,6 +69,7 @@ concise syntax; both call the same underlying functions.
             }
         )
 
+
     bids_root = fetch_nunez_elizalde_2022(
         subjects=["CR022"],
         sessions=["20201011", "20201007"],
@@ -83,14 +84,10 @@ concise syntax; both call the same underlying functions.
     )
     mean_vol = pwd.mean("time").compute()
     angio = cf.load(
-        bids_root
-        / "sub-CR022/ses-20201011/angio"
-        / "sub-CR022_ses-20201011_pwd.nii.gz"
+        bids_root / "sub-CR022/ses-20201011/angio" / "sub-CR022_ses-20201011_pwd.nii.gz"
     ).compute()
     angio_2 = cf.load(
-        bids_root
-        / "sub-CR022/ses-20201007/angio"
-        / "sub-CR022_ses-20201007_pwd.nii.gz"
+        bids_root / "sub-CR022/ses-20201007/angio" / "sub-CR022_ses-20201007_pwd.nii.gz"
     ).compute()
     atlas_labels = cf.load(
         bids_root
@@ -132,7 +129,7 @@ the controls and features.
     viewer, layer = cf.plotting.plot_napari(pwd)
     ```
 
-This opens a napari viewer with a scale bar, colorbar, and correct physical scaling
+This opens a napari viewer with a scale bar, colorbar, and correct world scaling
 across axes. The viewer is fully interactive: you can zoom, pan, and scroll through time
 and elevation slices with the sliders or mouse wheel.
 
@@ -245,7 +242,7 @@ viewer, labels_layer = cf.plotting.draw_napari_labels(
 )
 ```
 
-The Labels layer is aligned to the same physical coordinate frame as the image layer, so
+The Labels layer is aligned to the same world coordinate frame as the image layer, so
 the spatial scale and origin are consistent regardless of voxel size or data origin.
 
 ![napari viewer with two painted ROI regions](../images/visualization/napari-draw-labels.png)
@@ -261,7 +258,7 @@ into a stacked integer DataArray compatible with
 from confusius.plotting import labels_from_layer
 
 # Convert the painted layer to a stacked DataArray.
-# label_map has dims ("masks", "z", "y", "x"), one layer per painted label.
+# label_map has dims ("mask", "k", "j", "i"), one layer per painted label.
 label_map = labels_from_layer(labels_layer, mean_vol)
 
 # Each label's color as painted in napari is stored in attrs["rgb_lookup"]
@@ -269,7 +266,7 @@ label_map = labels_from_layer(labels_layer, mean_vol)
 
 # Extract region-averaged signals.
 region_signals = pwd.fusi.extract.with_labels(label_map)
-# region_signals has dims (time, regions).
+# region_signals has dims (time, region).
 
 # Overlay contours on a volume plot.
 plotter = mean_vol.fusi.scale.db().fusi.plot.volume(slice_mode="z", cmap="gray")
@@ -408,9 +405,7 @@ statistic's sign.
 === "Function API"
 
     ```python
-    plotter = cf.plotting.plot_stat_map(
-        t_map, bg_volume=pwd, slice_mode="z", threshold=3.0
-    )
+    plotter = cf.plotting.plot_stat_map(t_map, bg_volume=pwd, slice_mode="z", threshold=3.0)
     ```
 
 `bg_volume` is optional. Omit it to plot the statistical map on its own. When `alpha` is
@@ -531,9 +526,11 @@ plotter.add_contours(atlas_fusi.annotation)
 ![Power Doppler volume with Allen atlas region contours overlaid](../images/visualization/volume-with-contours-light.png#only-light)
 ![Power Doppler volume with Allen atlas region contours overlaid](../images/visualization/volume-with-contours-dark.png#only-dark)
 
-Coordinate matching is done in physical units, matching contour coordinates with those
-of the previously plotted volume. Slices present in the mask but absent from the volume
-are skipped with a warning.
+Coordinate matching is done along the plotter's `slice_mode`: world coordinates
+(`z`/`y`/`x`) when `slice_mode` is a physical dim, or voxel indices (`k`/`j`/`i`) when
+it's a native voxel dim, matching contour coordinates with those of the previously
+plotted volume. Slices present in the mask but absent from the volume are skipped with
+a warning.
 
 ### Contours-only Grid
 

@@ -3,111 +3,91 @@
 import numpy as np
 import pytest
 import SimpleITK as sitk
-import xarray as xr
+
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
-def sample_2d_image():
-    """2D NumPy array with a bright square in the centre (32x32)."""
-    img = np.zeros((32, 32), dtype=np.float32)
-    img[12:20, 12:20] = 100.0
-    return img
+def sample_voxeldata_2d_registration():
+    """Singleton-k registration image with a centred square and 0.1 mm in-plane spacing."""
+    img = np.zeros((1, 32, 32), dtype=np.float32)
+    img[:, 12:20, 12:20] = 100.0
+    return create_voxeldata(
+        img,
+        dims=("k", "j", "i"),
+        spacing=(1.0, 0.1, 0.1),
+        origin=(0.0, 0.0, 0.0),
+    )
 
 
 @pytest.fixture
-def sample_3d_array():
-    """3D NumPy array with a bright cube in the centre (16x16x16)."""
+def sample_voxeldata_3d_registration():
+    """3D registration volume with a centred cube and unit spacing."""
     vol = np.zeros((16, 16, 16), dtype=np.float32)
     vol[6:10, 6:10, 6:10] = 100.0
-    return vol
-
-
-@pytest.fixture
-def sample_singleton_z_dataarray_spatial(sample_2d_image):
-    """Single-slice spatial (1, y, x) DataArray wrapping sample_2d_image.
-
-    Single-slice fUSI data is represented as 3D with a singleton `z` axis (0.2 mm
-    thick) and 0.1 mm in-plane spacing.
-    """
-    return xr.DataArray(
-        sample_2d_image[np.newaxis, :, :],
-        dims=("z", "y", "x"),
-        coords={
-            "z": xr.DataArray([0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.2}),
-            "y": xr.DataArray(np.arange(32) * 0.1, dims=("y",), attrs={"units": "mm"}),
-            "x": xr.DataArray(np.arange(32) * 0.1, dims=("x",), attrs={"units": "mm"}),
-        },
+    return create_voxeldata(
+        vol,
+        dims=("k", "j", "i"),
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
     )
 
 
 @pytest.fixture
-def sample_3d_dataarray_spatial(sample_3d_array):
-    """Spatial (z, y, x) DataArray wrapping sample_3d_array with unit spacing."""
-    return xr.DataArray(
-        sample_3d_array,
-        dims=("z", "y", "x"),
-        coords={
-            "z": xr.DataArray(np.arange(16) * 1.0, dims=("z",), attrs={"units": "mm"}),
-            "y": xr.DataArray(np.arange(16) * 1.0, dims=("y",), attrs={"units": "mm"}),
-            "x": xr.DataArray(np.arange(16) * 1.0, dims=("x",), attrs={"units": "mm"}),
-        },
+def sample_voxeldata_3d_feature_registration():
+    """3D registration volume with several off-centre features and unit spacing."""
+    vol = np.zeros((32, 32, 32), dtype=np.float32)
+    vol[4:10, 4:10, 4:10] = 60.0
+    vol[20:28, 6:12, 18:24] = 100.0
+    vol[8:14, 20:26, 6:12] = 80.0
+    vol[18:24, 20:30, 20:26] = 40.0
+    vol[14:18, 14:18, 14:18] = 120.0
+    return create_voxeldata(
+        vol,
+        dims=("k", "j", "i"),
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
     )
 
 
 @pytest.fixture
-def sample_singleton_z_dataarray(sample_2d_image):
-    """Single-slice time-varying (time, 1, y, x) DataArray (5 frames).
-
-    Single-slice fUSI recordings are represented as 3D+time data with a singleton
-    `z` axis (0.2 mm thick) and 0.1 mm in-plane spacing.
-    """
+def sample_voxeldata_2dt_registration(sample_voxeldata_2d_registration):
+    """Singleton-k+time registration DataArray with five identical frames."""
     n_frames = 5
-    data = np.stack([sample_2d_image] * n_frames, axis=0)[:, np.newaxis, :, :]
-    return xr.DataArray(
-        data,
-        dims=("time", "z", "y", "x"),
-        coords={
-            "time": xr.DataArray(
-                np.arange(n_frames) * 0.1, dims=("time",), attrs={"units": "s"}
-            ),
-            "z": xr.DataArray([0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.2}),
-            "y": xr.DataArray(np.arange(32) * 0.1, dims=("y",), attrs={"units": "mm"}),
-            "x": xr.DataArray(np.arange(32) * 0.1, dims=("x",), attrs={"units": "mm"}),
-        },
+    return create_voxeldata(
+        np.stack([sample_voxeldata_2d_registration.values] * n_frames, axis=0),
+        dims=("time", "k", "j", "i"),
+        time=np.arange(n_frames) * 0.1,
+        spacing=(1.0, 0.1, 0.1),
+        origin=(0.0, 0.0, 0.0),
     )
 
 
 @pytest.fixture
-def sample_3d_dataarray(sample_3d_array):
-    """3D+time DataArray (3 frames) for volumewise registration tests."""
+def sample_voxeldata_3dt_registration(sample_voxeldata_3d_registration):
+    """3D+time registration DataArray with three identical frames."""
     n_frames = 3
-    data = np.stack([sample_3d_array] * n_frames, axis=0)
-    return xr.DataArray(
-        data,
-        dims=("time", "z", "y", "x"),
-        coords={
-            "time": xr.DataArray(
-                np.arange(n_frames) * 0.1, dims=("time",), attrs={"units": "s"}
-            ),
-            "z": xr.DataArray(np.arange(16) * 1.0, dims=("z",), attrs={"units": "mm"}),
-            "y": xr.DataArray(np.arange(16) * 1.0, dims=("y",), attrs={"units": "mm"}),
-            "x": xr.DataArray(np.arange(16) * 1.0, dims=("x",), attrs={"units": "mm"}),
-        },
+    return create_voxeldata(
+        np.stack([sample_voxeldata_3d_registration.values] * n_frames, axis=0),
+        dims=("time", "k", "j", "i"),
+        time=np.arange(n_frames) * 0.1,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
     )
 
 
 @pytest.fixture
-def translation_transform_3d():
-    """3D translation transform with known offset (tx=1, ty=2, tz=3)."""
-    t = sitk.TranslationTransform(3)
-    t.SetOffset((1.0, 2.0, 3.0))
+def translation_transform_2d():
+    """2D translation transform with known offset (tx=2, ty=3)."""
+    t = sitk.TranslationTransform(2)
+    t.SetOffset((2.0, 3.0))
     return t
 
 
 @pytest.fixture
-def euler_transform_3d():
-    """3D Euler transform with rotations (0.05, 0.1, 0.15) rad and translation (1, 2, 3)."""
-    t = sitk.Euler3DTransform()
-    t.SetRotation(0.05, 0.1, 0.15)
-    t.SetTranslation((1.0, 2.0, 3.0))
+def euler_transform_2d():
+    """2D Euler transform with rotation ~5.7° and translation (1.5, 2.5)."""
+    t = sitk.Euler2DTransform()
+    t.SetAngle(0.1)
+    t.SetTranslation((1.5, 2.5))
     return t

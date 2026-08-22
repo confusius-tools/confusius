@@ -8,8 +8,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius.atlas._structures import _build_rgb_lookup
+from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
     from brainglobe_atlasapi import BrainGlobeAtlas
@@ -29,19 +31,15 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     -------
     xarray.Dataset
         Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
-        on a common `(z, y, x)` grid with physical coordinates in millimetres.
+        on a common voxel-to-world `(k, j, i)` grid, with world `z`/`y`/`x` coordinates
+        in millimetres.
     """
     metadata = atlas.metadata
     resolution_mm = [r * 1e-3 for r in metadata["resolution"]]
-    shape = metadata["shape"]
 
-    coords = {
-        dim: (
-            np.arange(shape[i]) * resolution_mm[i],
-            {"voxdim": resolution_mm[i], "units": "mm"},
-        )
-        for i, dim in enumerate(["z", "y", "x"])
-    }
+    voxel_to_world = np.eye(4, dtype=np.float64)
+    voxel_to_world[:-1, :-1] = np.diag(resolution_mm)
+    world_coord_attrs = {name: {"units": "mm"} for name in SPATIAL_DIMS}
 
     rgb_lookup = _build_rgb_lookup(atlas.structures)
     cmap, norm = build_atlas_cmap_and_norm(rgb_lookup)
@@ -50,18 +48,20 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
         for sid, info in atlas.structures.items()
     }
 
-    reference = xr.DataArray(
-        atlas.reference.astype(np.float32),
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
-        attrs={"cmap": "gray"},
-    )
+    def _build(data: np.ndarray, attrs: dict[str, object]) -> xr.DataArray:
+        return create_voxeldata(
+            data,
+            dims=VOXEL_DIMS,
+            voxel_to_world=voxel_to_world,
+            attrs=attrs,
+            world_coord_attrs=world_coord_attrs,
+        )
 
-    annotation = xr.DataArray(
+    reference = _build(atlas.reference.astype(np.float32), {"cmap": "gray"})
+
+    annotation = _build(
         atlas.annotation.astype(np.int32),
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
-        attrs={
+        {
             "rgb_lookup": rgb_lookup,
             "roi_labels": roi_labels,
             "cmap": cmap,
@@ -69,13 +69,11 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
         },
     )
 
-    physical_to_base = np.eye(4)
+    world_to_base = np.eye(4)
 
-    hemispheres = xr.DataArray(
+    hemispheres = _build(
         atlas.hemispheres.astype(np.int8),
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
-        attrs={
+        {
             "left": int(getattr(atlas, "left_hemisphere_value", 1)),
             "right": int(getattr(atlas, "right_hemisphere_value", 2)),
         },
@@ -93,7 +91,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
             "species": metadata["species"],
             "orientation": metadata["orientation"],
             "structures": atlas.structures,
-            "physical_to_base": physical_to_base,
+            "world_to_base": world_to_base,
         },
     )
 
@@ -128,8 +126,9 @@ def fetch_brainglobe_atlas(
     -------
     xarray.Dataset
         Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
-        on a common `(z, y, x)` grid with physical coordinates in millimetres, and the
-        `.atlas` accessor for structure queries, masks, and meshes.
+        on a common voxel-to-world `(k, j, i)` grid with world `z`/`y`/`x` coordinates
+        in millimetres, and the `.atlas` accessor for structure queries, masks, and
+        meshes.
 
     Examples
     --------

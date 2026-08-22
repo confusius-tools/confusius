@@ -262,24 +262,30 @@ background_data = data.mean("time").fusi.scale.db()
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 3), constrained_layout=True)
 
-background_data.fusi.plot.volume(axes=axes[0], show_colorbar=False, bg_color=bg_color)
-searchlight.scores_.plot(
-    ax=axes[0],
+searchlight.scores_.fusi.plot.stat_map(
+    bg_volume=background_data,
+    axes=axes[0],
     cmap=searchlight_cmap,
     vmin=0,
-    cbar_kwargs={"label": "Cross-validated $R^2$"},
+    auto_range=False,
+    cbar_label="Cross-validated $R^2$",
+    show_titles=False,
+    bg_color=bg_color,
 )
 axes[0].set_title("Searchlight decoding of speed")
 
-background_data.fusi.plot.volume(axes=axes[1], show_colorbar=False, bg_color=bg_color)
-z_scores.where(mask).plot(
-    ax=axes[1], cmap=glm_cmap, center=0, cbar_kwargs={"label": "z-score"}
+z_scores.where(mask).fusi.plot.stat_map(
+    bg_volume=background_data,
+    axes=axes[1],
+    cmap=glm_cmap,
+    cbar_label="z-score",
+    show_titles=False,
+    bg_color=bg_color,
 )
 axes[1].set_title("GLM, same regressor")
 
 for ax in axes:
     ax.set_aspect("equal")
-    ax.invert_yaxis()
 
 
 # %% [markdown]

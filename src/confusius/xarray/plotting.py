@@ -36,7 +36,7 @@ class FUSIPlotAccessor:
     Parameters
     ----------
     xarray_obj : xarray.DataArray
-        The DataArray to wrap.
+        The VoxelData array to wrap.
 
     Examples
     --------
@@ -65,6 +65,8 @@ class FUSIPlotAccessor:
         dim_order: tuple[str, ...] | None = None,
         viewer: "Viewer | None" = None,
         layer_type: Literal["image", "labels"] = "image",
+        resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
+        resample_fill_value: float | None = None,
         **layer_kwargs,
     ) -> "tuple[Viewer, Image | Labels]":
         """Display data in napari viewer.
@@ -84,6 +86,15 @@ class FUSIPlotAccessor:
         layer_type : {"image", "labels"}, default: "image"
             Type of layer to create. Use "image" for fUSI data and "labels" for
             ROI masks, segmentations, or other label data.
+        resample_interpolation : {"linear", "nearest", "bspline"}, optional
+            Interpolation method used when resampling oblique (non-axis-aligned)
+            voxel-to-world data onto an axis-aligned world grid for display. If not
+            provided, defaults to `"nearest"` for `layer_type="labels"` and
+            `"linear"` otherwise.
+        resample_fill_value : float, optional
+            Value assigned to voxels outside this DataArray's field of view after
+            resampling oblique data. If not provided, defaults to its own minimum
+            value.
         **layer_kwargs
             Additional keyword arguments passed to the layer creation method.
             For image layers, if `data.attrs` contains `"cmap"` and `"colormap"`
@@ -99,15 +110,16 @@ class FUSIPlotAccessor:
         Notes
         -----
         If all spatial dimensions have coordinates, their spacing is used as the scale
-        parameter for napari to ensure correct physical scaling. If any spatial dimension
+        parameter for napari to ensure correct world scaling. If any spatial dimension
         is missing coordinates, no scaling is applied. The spacing is computed as the
         median difference between consecutive coordinate values.
 
-        For unitary dimensions (e.g., a single-slice elevation axis in 2D+t data), the
-        spacing cannot be inferred from coordinates. In that case, the function looks for
-        a `voxdim` attribute on the coordinate variable
-        (`data.coords[dim].attrs["voxdim"]`) and uses it as the spacing. If no such
-        attribute is found, unit spacing is assumed and a warning is emitted.
+        For unitary voxel dimensions (e.g., a single-slice elevation axis in 2D+t
+        data), the spacing cannot be inferred from consecutive coordinate
+        differences. In that case, `.fusi.spacing` derives it from the
+        voxel-to-world affine column norm instead. For unitary non-voxel dimensions
+        with no affine to fall back on, unit spacing is assumed and a warning is
+        emitted.
 
         Examples
         --------
@@ -141,6 +153,8 @@ class FUSIPlotAccessor:
             dim_order=dim_order,
             viewer=viewer,
             layer_type=layer_type,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
             **layer_kwargs,
         )
 
@@ -381,6 +395,8 @@ class FUSIPlotAccessor:
         figure: "Figure | None" = None,
         axes: "npt.NDArray[Any] | None" = None,
         dpi: int | None = None,
+        resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+        resample_fill_value: float | None = None,
     ) -> "VolumePlotter":
         """Plot 2D slices of a volume as a matplotlib subplot grid.
 
@@ -478,6 +494,13 @@ class FUSIPlotAccessor:
         dpi : int, optional
             Figure resolution in dots per inch. Ignored when `figure` is
             provided.
+        resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+            Interpolation method used when resampling oblique (non-axis-aligned)
+            voxel-to-world data onto an axis-aligned world grid for display.
+        resample_fill_value : float, optional
+            Value assigned to voxels outside this DataArray's field of view after
+            resampling oblique data. If not provided, defaults to its own minimum
+            value.
 
         Returns
         -------
@@ -538,6 +561,8 @@ class FUSIPlotAccessor:
             figure=figure,
             axes=axes,
             dpi=dpi,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
         )
 
     def contours(
@@ -665,6 +690,8 @@ class FUSIPlotAccessor:
         nrows: int | None = None,
         ncols: int | None = None,
         dpi: int | None = None,
+        resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+        resample_fill_value: float | None = None,
     ) -> "VolumePlotter":
         """Plot a red/cyan composite of this volume against `other`.
 
@@ -758,6 +785,15 @@ class FUSIPlotAccessor:
         dpi : int, optional
             Figure resolution in dots per inch. Ignored when `figure` is
             provided.
+        resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+            Interpolation method used when resampling oblique (non-axis-aligned)
+            voxel-to-world data onto an axis-aligned world grid for display.
+            Distinct from `resample_kwargs`, which controls resampling `other`
+            onto this DataArray's grid for compositing.
+        resample_fill_value : float, optional
+            Value assigned to voxels outside this DataArray's/`other`'s field of
+            view after display resampling. If not provided, defaults to each
+            array's own minimum value.
 
         Returns
         -------
@@ -803,6 +839,8 @@ class FUSIPlotAccessor:
             nrows=nrows,
             ncols=ncols,
             dpi=dpi,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
         )
 
     def stat_map(
@@ -836,6 +874,8 @@ class FUSIPlotAccessor:
         nrows: int | None = None,
         ncols: int | None = None,
         dpi: int | None = None,
+        resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+        resample_fill_value: float | None = None,
     ) -> "VolumePlotter":
         """Plot this statistical map, optionally over `bg_volume`.
 
@@ -978,6 +1018,14 @@ class FUSIPlotAccessor:
             automatically.
         dpi : int, optional
             Figure resolution in dots per inch. Ignored when `figure` is provided.
+        resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+            Interpolation method used when resampling oblique (non-axis-aligned)
+            voxel-to-world data/`bg_volume` onto an axis-aligned world grid for
+            display. Applied to both, since they share one `VolumePlotter`.
+        resample_fill_value : float, optional
+            Value assigned to voxels outside this DataArray's/`bg_volume`'s field
+            of view after display resampling. If not provided, defaults to each
+            array's own minimum value.
 
         Returns
         -------
@@ -1031,4 +1079,6 @@ class FUSIPlotAccessor:
             nrows=nrows,
             ncols=ncols,
             dpi=dpi,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
         )

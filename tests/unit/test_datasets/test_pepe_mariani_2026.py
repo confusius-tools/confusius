@@ -51,12 +51,14 @@ def test_resolve_template_url_returns_download_link() -> None:
 
 
 def test_resolve_template_url_raises_when_missing() -> None:
-    with patch(
-        "confusius.datasets._pepe_mariani_2026.requests.get",
-        return_value=_Response({"data": []}),
+    with (
+        patch(
+            "confusius.datasets._pepe_mariani_2026.requests.get",
+            return_value=_Response({"data": []}),
+        ),
+        pytest.raises(RuntimeError, match=_FILENAME),
     ):
-        with pytest.raises(RuntimeError, match=_FILENAME):
-            resolve_template_url()
+        resolve_template_url()
 
 
 @pytest.fixture
@@ -102,7 +104,7 @@ def test_fetch_downloads_missing_template(
     assert result is sentinel
     mock_resolve.assert_called_once_with()
     mock_retrieve.assert_called_once()
-    mock_load_fn.assert_called_once_with(dest)
+    mock_load_fn.assert_called_once_with(dest, coordinate_affine="qform")
     assert dest.exists()
 
 
@@ -119,7 +121,7 @@ def test_fetch_skips_download_when_cached(
     assert result is sentinel
     mock_resolve.assert_not_called()
     mock_retrieve.assert_not_called()
-    mock_load_fn.assert_called_once_with(dest)
+    mock_load_fn.assert_called_once_with(dest, coordinate_affine="qform")
 
 
 def test_fetch_refresh_redownloads_cached_template(
@@ -135,7 +137,7 @@ def test_fetch_refresh_redownloads_cached_template(
     assert result is sentinel
     mock_resolve.assert_called_once_with()
     mock_retrieve.assert_called_once()
-    mock_load_fn.assert_called_once_with(dest)
+    mock_load_fn.assert_called_once_with(dest, coordinate_affine="qform")
     assert dest.exists()
 
 

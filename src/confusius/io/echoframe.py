@@ -16,8 +16,15 @@ import zarr
 if TYPE_CHECKING:
     from rich.progress import Progress
 
+from confusius._dims import TIME_DIM, VOXEL_DIMS
+from confusius._utils.geometry import (
+    get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+)
 from confusius._utils.stack import find_stack_level
+from confusius.io._utils import make_attrs_zarr_safe
 from confusius.io.utils import check_path
+from confusius.xarray.create import create_voxeldata
 
 
 class EchoFrameMetadata(TypedDict):
@@ -296,13 +303,13 @@ def load_echoframe_dat(
 ) -> xr.DataArray:
     """Load an EchoFrame DAT file as a lazy, ConfUSIus-ordered DataArray.
 
-    Beamformed IQ data is loaded as a DataArray with dimensions `(time, z, y, x)`,
-    matching ConfUSIus conventions. Coordinates (`time`, `z`, `y`, `x`) and acquisition
-    metadata (e.g. `transmit_frequency`, `beamforming_sound_velocity`) are attached
-    from the EchoFrame sequence parameter file. The `time` coordinate is computed from
-    frame indices and the compound sampling frequency; callers with acquisition
-    timestamps for each block should override it (e.g. via
-    `data.assign_coords(time=...)`).
+    Beamformed IQ data is loaded as a VoxelData array with voxel
+    dimensions `(time, k, j, i)` and a voxel-to-world index deriving world coordinates
+    `z`, `y`, `x`. Coordinates and acquisition metadata (e.g. `transmit_frequency`,
+    `beamforming_sound_velocity`) are attached from the EchoFrame sequence parameter
+    file. The `time` coordinate is computed from frame indices and the compound
+    sampling frequency; callers with acquisition timestamps for each block should
+    override it (e.g. via `data.assign_coords(time=...)`).
 
     Parameters
     ----------
@@ -322,7 +329,8 @@ def load_echoframe_dat(
     Returns
     -------
     xarray.DataArray
-        Lazy DataArray with dimensions `(time, z, y, x)`, where `z` is a singleton
+        Lazy VoxelData array with dimensions `(time, k, j, i)`, where
+        `k` is a singleton
         elevation dimension. Data is wrapped in a Dask array, chunked so that each
         chunk corresponds to one acquisition block's volumes; individual blocks
         remain accessible via `data.isel(time=slice(i * n, (i + 1) * n))`, where `n`
@@ -365,57 +373,35 @@ def load_echoframe_dat(
         meta["plane_wave_angles"].size / meta["pulse_repetition_frequency"]
     )
 
-    # TODO: we should compute the actual z-axis voxdim from the elevation beam width,
+    # TODO: we should compute the actual z-axis spacing from the elevation beam width,
     # but we're currently missing some information for that, such as the elevation
     # aperture and elevation focus.
-    coords = {
-        "time": (
-            "time",
-            time_values,
-            {
-                "units": "s",
-                "long_name": "Time",
-                "volume_acquisition_reference": "start",
-                "volume_acquisition_duration": volume_acquisition_duration,
-            },
-        ),
-        "z": (
-            "z",
-            np.array([0.0]),
-            {"units": "mm", "long_name": "Elevation", "voxdim": 0.4},
-        ),
-        "y": (
-            "y",
-            meta["axial_coords"],
-            {
-                "units": "mm",
-                "long_name": "Depth",
-                "voxdim": float(np.diff(meta["axial_coords"]).mean()),
-            },
-        ),
-        "x": (
-            "x",
-            meta["lateral_coords"],
-            {
-                "units": "mm",
-                "long_name": "Lateral",
-                "voxdim": float(np.diff(meta["lateral_coords"]).mean()),
-            },
-        ),
-    }
+    z_spacing = 0.4
+    y_spacing = float(np.diff(meta["axial_coords"]).mean())
+    x_spacing = float(np.diff(meta["lateral_coords"]).mean())
+    voxel_to_world = np.eye(4)
+    voxel_to_world[:3, :3] = np.diag([z_spacing, y_spacing, x_spacing])
+    voxel_to_world[:3, 3] = [0.0, meta["axial_coords"][0], meta["lateral_coords"][0]]
+
     attrs = {
-        "transmit_frequency": meta["transmit_frequency"],
         "probe_number_of_elements": meta["probe_number_of_elements"],
         "probe_pitch": meta["probe_pitch"],
-        "beamforming_sound_velocity": meta["beamforming_sound_velocity"],
         "plane_wave_angles": meta["plane_wave_angles"],
         "compound_sampling_frequency": meta["compound_sampling_frequency"],
         "pulse_repetition_frequency": meta["pulse_repetition_frequency"],
         "beamforming_method": meta["beamforming_method"],
         "n_volumes_per_block": n_volumes_per_block,
+        "transmit_frequency": meta["transmit_frequency"],
+        "beamforming_sound_velocity": meta["beamforming_sound_velocity"],
     }
-    return xr.DataArray(
-        iq, dims=("time", "z", "y", "x"), coords=coords, attrs=attrs, name="iq"
+    return create_voxeldata(
+        iq,
+        dims=(TIME_DIM, *VOXEL_DIMS),
+        time=xr.DataArray(time_values, dims=["time"], attrs={"long_name": "Time"}),
+        volume_acquisition_reference="start",
+        volume_acquisition_duration=volume_acquisition_duration,
+        voxel_to_world=voxel_to_world,
+        attrs=attrs,
     )
 
 
@@ -427,7 +413,7 @@ def convert_echoframe_dat_to_zarr(
     header_dtype: npt.DTypeLike = np.uint64,
     n_header_items: int = 5,
     volumes_per_chunk: int | None = None,
-    volumes_per_shard: int | None = None,
+    chunks_per_shard: int | None = None,
     batch_size: int = 100,
     overwrite: bool = False,
     zarr_kwargs: dict[str, Any] | None = None,
@@ -441,9 +427,11 @@ def convert_echoframe_dat_to_zarr(
     """Convert an EchoFrame DAT file to Zarr format compatible with Xarray.
 
     Beamformed IQ data is converted to a Zarr group with an `iq` array of shape
-    `(time, z, y, x)` chunked along the first dimension. Coordinates are stored as
-    separate Zarr arrays following Xarray conventions, allowing the data to be opened
-    directly with `xarray.open_zarr()`.
+    `(time, k, j, i)` chunked along the first dimension. Voxel-to-world geometry is
+    stored as `attrs["voxel_to_world"]` on the `iq` array rather than dense `z`/`y`/`x`
+    coordinate arrays, matching [`confusius.io.save`][confusius.io.save]'s Zarr
+    convention. Coordinates are stored as separate Zarr arrays following Xarray
+    conventions, allowing the data to be opened directly with `xarray.open_zarr()`.
 
     Parameters
     ----------
@@ -462,10 +450,10 @@ def convert_echoframe_dat_to_zarr(
     volumes_per_chunk : int, optional
         Number of volumes to include in each Zarr chunk. If not provided, defaults to
         the number of volumes per block from the raw file.
-    volumes_per_shard : int, optional
-        Number of volumes to include in each shard. If provided, enables Zarr v3
-        sharding to reduce the number of files on disk. Must be a multiple of
-        `volumes_per_chunk`. If not provided, sharding is disabled.
+    chunks_per_shard : int, optional
+        Number of chunks to bundle into each shard. If provided, enables Zarr v3
+        sharding to reduce the number of files on disk. If not provided, sharding is
+        disabled.
     batch_size : int, default: 100
         Number of blocks to process in each batch.
     overwrite : bool, default: False
@@ -512,17 +500,27 @@ def convert_echoframe_dat_to_zarr(
         ds = xr.open_zarr("output.zarr")
         iq = ds["iq"]
 
+    `iq` above carries plain `k`/`j`/`i` voxel dims, not a VoxelData array --
+    [`xarray.open_zarr`][xarray.open_zarr] doesn't know how to rebuild a
+    `VoxelToWorldIndex` from `attrs["voxel_to_world"]`. Load with
+    [`confusius.io.load`][confusius.io.load] instead to get the world coordinates back:
+
+        import confusius as cf
+        iq = cf.io.load("output.zarr")
+
     Metadata attributes (e.g., `transmit_frequency`, `beamforming_sound_velocity`) are stored
     on the `iq` DataArray (accessible via `iq.attrs`), consistent with how
     reduction functions return DataArrays with attributes.
 
     The group contains:
 
-    - `iq`: The main data array with dimensions `(time, z, y, x)`.
+    - `iq`: The main data array with dimensions `(time, k, j, i)`. Voxel-to-world
+      geometry is stored as `attrs["voxel_to_world"]`/`attrs["world_coord_attrs"]`
+      rather than dense `z`/`y`/`x` coordinate arrays.
     - `time`: Time coordinate array.
-    - `z`: Elevation coordinate array (always `[0]` for 2D data).
-    - `y`: Axial (depth) coordinate array (from metadata).
-    - `x`: Lateral coordinate array (from metadata).
+    - `k`: Elevation voxel coordinate array (always `[0]` for 2D data).
+    - `j`: Axial (depth) voxel coordinate array.
+    - `i`: Lateral voxel coordinate array.
     """
     from rich.progress import track
 
@@ -553,26 +551,21 @@ def convert_echoframe_dat_to_zarr(
     )
     n_blocks_after_skip = n_blocks - total_skip
     n_total_volumes = iq_da.sizes["time"]
-    n_z, n_x = iq_da.sizes["y"], iq_da.sizes["x"]
+    n_j, n_i = iq_da.sizes["j"], iq_da.sizes["i"]
 
     if volumes_per_chunk is None:
         volumes_per_chunk = n_volumes
 
-    output_shape = (n_total_volumes, 1, n_z, n_x)
-    chunks = (volumes_per_chunk, 1, n_z, n_x)
+    output_shape = (n_total_volumes, 1, n_j, n_i)
+    chunks = (volumes_per_chunk, 1, n_j, n_i)
 
-    if volumes_per_shard is not None:
-        if volumes_per_shard % volumes_per_chunk != 0:
-            raise ValueError(
-                f"volumes_per_shard ({volumes_per_shard}) must be a multiple of "
-                f"volumes_per_chunk ({volumes_per_chunk})."
-            )
-        shards = (volumes_per_shard, 1, n_z, n_x)
+    if chunks_per_shard is not None:
+        shards = (volumes_per_chunk * chunks_per_shard, 1, n_j, n_i)
     else:
         shards = None
 
     # Dimension names required for Zarr v3 / Xarray compatibility.
-    dim_names = ["time", "z", "y", "x"]
+    dim_names = [TIME_DIM, *VOXEL_DIMS]
 
     create_array_kwargs = zarr_kwargs.copy() if zarr_kwargs else {}
     handled_keys = {"shape", "chunks", "shards", "dtype", "dimension_names"}
@@ -611,16 +604,21 @@ def convert_echoframe_dat_to_zarr(
     zarr_group = zarr.open_group(output_path, mode="w" if overwrite else "w-")
     zarr_iq = zarr_group.create_array("iq", **create_array_kwargs)
 
-    for dim in ("time", "z", "y", "x"):
+    for dim in (TIME_DIM, *VOXEL_DIMS):
         zarr_group.create_array(
             dim, data=iq_da.coords[dim].values, dimension_names=[dim]
         )
         zarr_group[dim].attrs.update(iq_da.coords[dim].attrs)
 
-    for key, value in iq_da.attrs.items():
-        if key == "n_volumes_per_block":
-            continue
-        zarr_iq.attrs[key] = value.tolist() if isinstance(value, np.ndarray) else value
+    world_coord_names = get_voxel_to_world_coord_names(iq_da)
+    iq_attrs = {
+        key: value for key, value in iq_da.attrs.items() if key != "n_volumes_per_block"
+    }
+    iq_attrs["voxel_to_world"] = get_voxel_to_world_affine(iq_da)
+    iq_attrs["world_coord_attrs"] = {
+        name: dict(iq_da.coords[name].attrs) for name in world_coord_names
+    }
+    zarr_iq.attrs.update(make_attrs_zarr_safe(iq_attrs))
 
     first_block = skip_first_blocks
     last_block = n_blocks - skip_last_blocks

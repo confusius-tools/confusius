@@ -2,6 +2,7 @@
 
 import shutil
 import warnings
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, TypeAlias, TypedDict
 
@@ -12,7 +13,10 @@ import zarr
 if TYPE_CHECKING:
     from rich.progress import Progress
 
+from confusius._dims import SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
+from confusius._utils.coordinates import get_probe_surface_origin
 from confusius._utils.stack import find_stack_level
+from confusius.io._utils import make_attrs_zarr_safe
 from confusius.io.utils import check_path
 
 
@@ -23,8 +27,6 @@ class AUTCDATFileHeader(TypedDict):
     ----------
     acquisition_block_index : int
         Index of the acquisition block.
-    n_data_items : int
-        Number of data items in the block.
     n_z : int
         Number of depth samples.
     n_x : int
@@ -34,7 +36,6 @@ class AUTCDATFileHeader(TypedDict):
     """
 
     acquisition_block_index: int
-    n_data_items: int
     n_z: int
     n_x: int
     n_frames: int
@@ -171,9 +172,10 @@ class AUTCDAT:
         """
         header = np.fromfile(self.path, dtype=dtype, count=n_items)
         return {
-            # Frame index is 1-based in the AUTC DAT format.
+            # Frame index is 1-based in the AUTC DAT format. header[1] (n_data_items
+            # in the on-disk format) is skipped over: it is not part of the parsed
+            # header contract.
             "acquisition_block_index": header[0] - 1,
-            "n_data_items": header[1],
             "n_z": header[2],
             "n_x": header[3],
             "n_frames": header[4],
@@ -349,7 +351,7 @@ class AUTCDATsLoader:
             kwargs.setdefault("total", len(dat_paths))
             iterable = track(enumerate(dat_paths), **kwargs)
 
-        for dat_index, dat_path in iterable:
+        for _, dat_path in iterable:
             if dat_path not in self.dats:
                 n_total_bytes = dat_path.stat().st_size
                 if n_total_bytes == 0:
@@ -483,14 +485,14 @@ class AUTCDATsLoader:
 def convert_autc_dats_to_zarr(
     dats_root: str | Path,
     output_path: str | Path,
+    spacing: Sequence[float],
+    origin: Sequence[float] | None = None,
     dats_pattern: str = "bf*part*.dat",
     frames_per_chunk: int | None = None,
-    frames_per_shard: int | None = None,
+    chunks_per_shard: int | None = None,
     batch_size: int = 100,
     overwrite: bool = False,
     zarr_kwargs: dict[str, Any] | None = None,
-    lateral_coords: npt.ArrayLike | None = None,
-    axial_coords: npt.ArrayLike | None = None,
     transmit_frequency: float | None = None,
     probe_n_elements: int | None = None,
     probe_pitch: float | None = None,
@@ -509,9 +511,11 @@ def convert_autc_dats_to_zarr(
     """Convert AUTC DAT files to Zarr format compatible with Xarray.
 
     Beamformed IQ data is converted to a Zarr group with an `iq` array of shape
-    `(time, z, y, x)` chunked along the first dimension. Coordinates are stored as
-    separate Zarr arrays following Xarray conventions, allowing the data to be opened
-    directly with `xarray.open_zarr()`.
+    `(time, k, j, i)` chunked along the first dimension. Voxel-to-world geometry is
+    stored as `attrs["voxel_to_world"]` on the `iq` array rather than dense `z`/`y`/`x`
+    coordinate arrays, matching [`confusius.io.save`][confusius.io.save]'s Zarr
+    convention. Coordinates are stored as separate Zarr arrays following Xarray
+    conventions, allowing the data to be opened directly with `xarray.open_zarr()`.
 
     Parameters
     ----------
@@ -519,15 +523,26 @@ def convert_autc_dats_to_zarr(
         Path to the directory containing AUTC DAT files.
     output_path : str or pathlib.Path
         Path where the Zarr group will be saved.
+    spacing : sequence[float]
+        World voxel spacing in `(k, j, i)` order (elevation, axial/depth, lateral), in
+        millimeters. AUTC's own file data carries no physical calibration for any
+        axis (see the Notes section for the elevation placeholder), so this must
+        always be supplied explicitly.
+    origin : sequence[float], optional
+        World position of voxel index 0 in `(k, j, i)` order, in millimeters in the
+        probe-relative coordinate system (origin at the center of the probe face). If
+        not provided, defaults to the same probe-centered/surface-referenced
+        convention as [`create_voxeldata`][confusius.xarray.create_voxeldata]:
+        elevation and lateral centered on the probe, depth referenced to the probe
+        surface.
     dats_pattern : str, default: "bf*part*.dat"
         Glob pattern used to search for AUTC DAT files inside `dats_root`.
     frames_per_chunk : int, optional
         Number of frames to include in each Zarr chunk. If not provided, defaults to
         the number of frames per block in the AUTC DAT files.
-    frames_per_shard : int, optional
-        Number of frames to include in each shard. If provided, enables Zarr sharding
-        to reduce the number of files on disk. Must be a multiple of
-        `frames_per_chunk`. If not provided, sharding is disabled.
+    chunks_per_shard : int, optional
+        Number of chunks to bundle into each shard. If provided, enables Zarr sharding
+        to reduce the number of files on disk. If not provided, sharding is disabled.
     batch_size : int, default: 100
         Number of blocks to process in each batch.
     overwrite : bool, default: False
@@ -535,15 +550,6 @@ def convert_autc_dats_to_zarr(
     zarr_kwargs : dict, optional
         Additional keyword arguments to pass to `zarr.create_array` for the main data
         array.
-    lateral_coords : array_like, optional
-        Lateral coordinates in millimeters in the probe-relative coordinate system, with
-        the origin at the center of the probe face. These define the x-axis positions.
-        If not provided, voxel indices are stored instead and a warning is emitted.
-    axial_coords : array_like, optional
-        Axial (depth) coordinates in millimeters in the probe-relative coordinate
-        system, with the origin at the center of the probe face. These define the y-axis
-        positions. If not provided, voxel indices are stored instead and a warning is
-        emitted.
     transmit_frequency : float, optional
         Central frequency of the ultrasound probe in hertz.
     probe_n_elements : int, optional
@@ -591,6 +597,12 @@ def convert_autc_dats_to_zarr(
         The created Zarr group containing the `iq` data array and coordinate arrays.
         Can be opened directly with `xarray.open_zarr()`.
 
+    Raises
+    ------
+    ValueError
+        If `spacing` or `origin` does not have length 3, or if `block_times` is
+        provided without `compound_sampling_frequency`.
+
     Notes
     -----
     The output Zarr group follows Xarray conventions and can be opened with::
@@ -599,24 +611,39 @@ def convert_autc_dats_to_zarr(
         ds = xr.open_zarr("output.zarr")
         iq = ds["iq"]
 
+    `iq` above carries plain `k`/`j`/`i` voxel dims, not VoxelData --
+    [`xarray.open_zarr`][xarray.open_zarr] doesn't know how to rebuild a
+    `VoxelToWorldIndex` from `attrs["voxel_to_world"]`. Load with
+    [`confusius.io.load`][confusius.io.load] instead to get the world coordinates back:
+
+        import confusius as cf
+        iq = cf.io.load("output.zarr")
+
     Metadata attributes (e.g., `transmit_frequency`, `beamforming_sound_velocity`) are stored
     on the `iq` DataArray (accessible via `iq.attrs`), consistent with how
     reduction functions return DataArrays with attributes.
 
     The group contains:
 
-    - `iq`: The main data array with dimensions `(time, z, y, x)`.
+    - `iq`: The main data array with dimensions `(time, k, j, i)`. Voxel-to-world
+      geometry is stored as `attrs["voxel_to_world"]`/`attrs["world_coord_attrs"]`
+      rather than dense `z`/`y`/`x` coordinate arrays.
     - `time`: Time coordinate array.
-    - `z`: Elevation coordinate array (always `[0.0]` mm for 2D data).
-    - `y`: Axial (depth) coordinate array in probe-relative mm.
-    - `x`: Lateral coordinate array in probe-relative mm.
+    - `k`: Elevation voxel coordinate array (always `[0]` for 2D data).
+    - `j`: Axial (depth) voxel coordinate array.
+    - `i`: Lateral voxel coordinate array.
 
     Spatial coordinates (`z`, `y`, `x`) follow the ConfUSIus probe-relative
-    coordinate system: physical distances in millimeters along each voxel axis, with the
+    coordinate system: world distances in millimeters along each voxel axis, with the
     origin at the center of the probe face. Unlike EchoFrame data (where coordinates are
-    embedded in the metadata file), AUTC data carries no spatial calibration, so
-    `lateral_coords` and `axial_coords` must be supplied by the caller. Omitting
-    them produces physically meaningless voxel-index coordinates.
+    embedded in the metadata file), AUTC's own file data carries no physical
+    calibration for any axis, so `spacing` must always be supplied by the caller --
+    there is no meaningful default.
+
+    Correctly computing elevation (`spacing[0]`) spacing requires the elevation beam
+    width, which itself needs the elevation aperture and elevation focus; that
+    computation isn't implemented here, so pass `spacing[0]` explicitly if that
+    information is known, or an intentional placeholder (e.g. `0.4`) otherwise.
     """
     from rich.progress import track
 
@@ -647,20 +674,15 @@ def convert_autc_dats_to_zarr(
     output_shape = (n_total_frames, 1, n_z, n_x)
     chunks = (frames_per_chunk, 1, n_z, n_x)
 
-    if frames_per_shard is not None:
-        if frames_per_shard % frames_per_chunk != 0:
-            raise ValueError(
-                f"frames_per_shard ({frames_per_shard}) must be a multiple of "
-                f"frames_per_chunk ({frames_per_chunk})."
-            )
-        shards = (frames_per_shard, 1, n_z, n_x)
+    if chunks_per_shard is not None:
+        shards = (frames_per_chunk * chunks_per_shard, 1, n_z, n_x)
     else:
         shards = None
 
     zarr_group = zarr.open_group(output_path, mode="w" if overwrite else "w-")
 
     # Dimension names required for Zarr v3 / Xarray compatibility.
-    dim_names = ["time", "z", "y", "x"]
+    dim_names = [TIME_DIM, *VOXEL_DIMS]
 
     create_array_kwargs = zarr_kwargs.copy() if zarr_kwargs else {}
     handled_keys = {"shape", "chunks", "shards", "dtype", "dimension_names"}
@@ -717,61 +739,37 @@ def convert_autc_dats_to_zarr(
             np.asarray(plane_wave_angles).size / pulse_repetition_frequency
         )
 
-    # z coordinate is the stacking dimension (size 1 for 2D data).
-    z_values = np.array([0.0])
-    zarr_group.create_array("z", data=z_values, dimension_names=["z"])
-    zarr_group["z"].attrs["units"] = "mm"
-    zarr_group["z"].attrs["long_name"] = "Elevation"
-
-    if axial_coords is None:
-        warnings.warn(
-            "axial_coords not provided: storing voxel indices as y coordinates. "
-            "Provide axial_coords in probe-relative mm for physically meaningful "
-            "coordinates.",
-            stacklevel=find_stack_level(),
-        )
-    if lateral_coords is None:
-        warnings.warn(
-            "lateral_coords not provided: storing voxel indices as x coordinates. "
-            "Provide lateral_coords in probe-relative mm for physically meaningful "
-            "coordinates.",
-            stacklevel=find_stack_level(),
+    for dim, size in zip(VOXEL_DIMS, (1, n_z, n_x), strict=True):
+        zarr_group.create_array(
+            dim, data=np.arange(size, dtype=np.int64), dimension_names=[dim]
         )
 
-    y_values = (
-        np.asarray(axial_coords)
-        if axial_coords is not None
-        else np.arange(n_z, dtype=np.float64)
-    )
-    zarr_group.create_array("y", data=y_values, dimension_names=["y"])
-    zarr_group["y"].attrs["units"] = "mm"
-    zarr_group["y"].attrs["long_name"] = "Depth"
+    if len(spacing) != 3:
+        raise ValueError(f"spacing must have length 3 (k, j, i), got {len(spacing)}.")
+    spacing_k, spacing_j, spacing_i = (float(value) for value in spacing)
+    resolved_spacing = (spacing_k, spacing_j, spacing_i)
 
-    x_values = (
-        np.asarray(lateral_coords)
-        if lateral_coords is not None
-        else np.arange(n_x, dtype=np.float64)
-    )
-    zarr_group.create_array("x", data=x_values, dimension_names=["x"])
-    zarr_group["x"].attrs["units"] = "mm"
-    zarr_group["x"].attrs["long_name"] = "Lateral"
+    if origin is None:
+        resolved_origin = get_probe_surface_origin(
+            {"k": 1, "j": n_z, "i": n_x}, resolved_spacing
+        )
+    elif len(origin) != 3:
+        raise ValueError(f"origin must have length 3 (k, j, i), got {len(origin)}.")
+    else:
+        origin_k, origin_j, origin_i = (float(value) for value in origin)
+        resolved_origin = (origin_k, origin_j, origin_i)
 
-    lateral_coords_dim = (
-        float(np.diff(np.asarray(lateral_coords)).mean())
-        if lateral_coords is not None
-        else 0.0
+    voxel_to_world = np.eye(4)
+    voxel_to_world[:3, :3] = np.diag(resolved_spacing)
+    voxel_to_world[:3, 3] = resolved_origin
+    zarr_iq.attrs.update(
+        make_attrs_zarr_safe(
+            {
+                "voxel_to_world": voxel_to_world,
+                "world_coord_attrs": {name: {"units": "mm"} for name in SPATIAL_DIMS},
+            }
+        )
     )
-    axial_coords_dim = (
-        float(np.diff(np.asarray(axial_coords)).mean())
-        if axial_coords is not None
-        else 0.0
-    )
-    # TODO: we should compute the actual z-axis voxdim from the elevation beam width,
-    # but we're currently missing some information for that, such as the elevation
-    # aperture and elevation focus.
-    zarr_group["z"].attrs["voxdim"] = 0.4
-    zarr_group["y"].attrs["voxdim"] = axial_coords_dim
-    zarr_group["x"].attrs["voxdim"] = lateral_coords_dim
 
     if transmit_frequency is not None:
         zarr_iq.attrs["transmit_frequency"] = transmit_frequency

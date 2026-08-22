@@ -24,7 +24,7 @@ from confusius._dims import SPATIAL_DIMS, TIME_DIM
 _NAPARI_GENERIC_AXIS = re.compile(r"^axis -?\d+$")
 """Matches napari's default generic axis labels (e.g. 'axis -4', 'axis -3', ...)."""
 
-_NAPARI_NOPHYSICAL_UNITS = frozenset({"pixel"})
+_NAPARI_NON_PHYSICAL_UNITS = frozenset({"pixel"})
 """Napari units that indicate the absence of physical units."""
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     Returns
     -------
     xarray.DataArray
-        DataArray with physical coordinates derived from the layer state.
+        DataArray with world coordinates derived from the layer state.
     """
     import xarray as xr
 
@@ -76,21 +76,88 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     # non-physical units ('pixel') as absent.
     raw_units = meta.get("units") or ([None] * ndim)
     units: list[str | None] = [
-        None if u is None or str(u) in _NAPARI_NOPHYSICAL_UNITS else str(u)
+        None if u is None or str(u) in _NAPARI_NON_PHYSICAL_UNITS else str(u)
         for u in raw_units
     ]
 
     data_array = np.asarray(data)
-    coords: dict[str, xr.DataArray] = {}
-    for i, dim in enumerate(axis_labels):
-        n = data_array.shape[i]
-        coord_values = translate[i] + np.arange(n) * scale[i]
-        attrs: dict[str, Any] = {"voxdim": abs(float(scale[i]))}
-        if units[i] is not None:
-            attrs["units"] = units[i]
-        coords[dim] = xr.DataArray(coord_values, dims=[dim], attrs=attrs)
+    voxel_to_world_name = {"k": "z", "j": "y", "i": "x"}
+    world_to_voxel_name = {v: k for k, v in voxel_to_world_name.items()}
 
-    return xr.DataArray(data_array, dims=list(axis_labels), coords=coords)
+    axis_specs: list[tuple[str, str, int, float, float, dict[str, Any]]] = []
+    for axis, dim in enumerate(axis_labels):
+        n = data_array.shape[axis]
+        if dim in world_to_voxel_name:
+            result_dim = world_to_voxel_name[dim]
+            world_name = dim
+        elif dim in voxel_to_world_name:
+            result_dim = dim
+            world_name = voxel_to_world_name[dim]
+        else:
+            result_dim = dim
+            world_name = ""
+
+        attrs: dict[str, Any] = {}
+        if units[axis] is not None:
+            attrs["units"] = units[axis]
+        axis_specs.append(
+            (
+                result_dim,
+                world_name,
+                n,
+                float(scale[axis]),
+                float(translate[axis]),
+                attrs,
+            )
+        )
+
+    # A voxel-to-world index requires at least 2 active voxel dims; a single
+    # recognized world dim (e.g. a 1D napari labels layer) falls back to a plain
+    # coordinate below.
+    build_voxel_to_world_index = sum(1 for spec in axis_specs if spec[1]) >= 2
+
+    result_dims: list[str] = []
+    coords: dict[str, xr.DataArray] = {}
+    voxel_dims: list[str] = []
+    affine_scales: list[float] = []
+    affine_translates: list[float] = []
+    world_attrs: dict[str, dict[str, Any]] = {}
+
+    for result_dim, world_name, n, axis_scale, axis_translate, attrs in axis_specs:
+        if world_name and build_voxel_to_world_index:
+            result_dims.append(result_dim)
+            coords[result_dim] = xr.DataArray(np.arange(n), dims=[result_dim])
+            voxel_dims.append(result_dim)
+            affine_scales.append(axis_scale)
+            affine_translates.append(axis_translate)
+            world_attrs[world_name] = attrs
+        else:
+            final_dim = world_name or result_dim
+            result_dims.append(final_dim)
+            coord_values = axis_translate + np.arange(n) * axis_scale
+            coords[final_dim] = xr.DataArray(
+                coord_values, dims=[final_dim], attrs=attrs
+            )
+
+    result = xr.DataArray(data_array, dims=result_dims, coords=coords)
+    if not voxel_dims:
+        return result
+
+    from confusius._dims import VOXEL_DIMS
+    from confusius._utils.geometry import attach_voxel_to_world_index
+
+    # `voxel_dims`/`world_names`/the affine scale-translate lists are in the layer's
+    # own (possibly non-canonical) axis order at this point; attach_voxel_to_world_index
+    # always derives voxel dims in canonical k/j/i order, so the affine columns must be
+    # reordered to match before building it.
+    canonical_order = [voxel_dims.index(dim) for dim in VOXEL_DIMS if dim in voxel_dims]
+    affine_scales = [affine_scales[i] for i in canonical_order]
+    affine_translates = [affine_translates[i] for i in canonical_order]
+
+    affine = np.eye(len(voxel_dims) + 1, dtype=float)
+    affine[:-1, :-1] = np.diag(affine_scales)
+    affine[:-1, -1] = affine_translates
+    return attach_voxel_to_world_index(result, affine, world_coord_attrs=world_attrs)
 
 
 def _get_or_compute_dataarray_from_layer(
@@ -115,7 +182,9 @@ def _get_or_compute_dataarray_from_layer(
     xarray.DataArray
         DataArray ready for saving.
     """
-    da: xr.DataArray | None = meta.get("metadata", {}).get("xarray")
+    da: xr.DataArray | None = meta.get("metadata", {}).get("source_xarray")
+    if da is None:
+        da = meta.get("metadata", {}).get("xarray")
     if da is not None:
         return da
     return _compute_dataarray_from_layer(data, meta)

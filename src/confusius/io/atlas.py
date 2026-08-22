@@ -10,12 +10,18 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+)
 from confusius.io._utils import (
     ZARR_V3_CONSOLIDATED_METADATA_WARNING,
     make_attrs_zarr_safe,
     restore_affines_in_attrs,
 )
 from confusius.io.utils import check_path
+from confusius.validation import validate_atlas
 
 if TYPE_CHECKING:
     from brainglobe_atlasapi.structure_class import StructuresDict
@@ -195,7 +201,8 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     The non-serializable `cmap`/`norm` matplotlib objects in `annotation.attrs` are stripped
     before writing (the caller's in-memory Dataset is left untouched);
     [`load_atlas`][confusius.io.load_atlas] rebuilds the `StructuresDict`, the `cmap`/`norm`
-    from `rgb_lookup`, and re-points the mesh paths on load.
+    from `rgb_lookup`, and re-points the mesh paths on load. Voxel-to-world geometry is stored
+    as `attrs["voxel_to_world"]` rather than dense `z`/`y`/`x` coordinate arrays.
 
     Parameters
     ----------
@@ -216,8 +223,15 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     Raises
     ------
     ValueError
-        If `path` does not end with the `.zarr` suffix.
+        If `path` does not end with the `.zarr` suffix, or if `ds` is not a well-formed
+        atlas Dataset (see
+        [`validate_atlas`][confusius.validation.validate_atlas]).
+    TypeError
+        If `ds` is not a well-formed atlas Dataset (see
+        [`validate_atlas`][confusius.validation.validate_atlas]).
     """
+    validate_atlas(ds)
+
     path = check_path(path)
     _check_zarr_suffix(path)
 
@@ -230,6 +244,24 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     to_save = ds.copy()
     to_save["annotation"] = annotation
 
+    # validate_atlas above guarantees every variable carries a VoxelToWorldIndex, so
+    # geometry is always stored as attrs["voxel_to_world"] rather than dense z/y/x
+    # coordinate arrays, since those are cheaply derived from the affine on load and,
+    # for oblique geometry, would otherwise duplicate a full dense array per axis.
+    voxel_to_world = get_voxel_to_world_affine(to_save["annotation"])
+    world_coord_names = get_voxel_to_world_coord_names(to_save["annotation"])
+    world_coord_attrs = {
+        coord_name: dict(to_save.coords[coord_name].attrs)
+        for coord_name in world_coord_names
+        if coord_name in to_save.coords
+    }
+    to_save = to_save.drop_vars(world_coord_names)
+    to_save.attrs = {
+        **to_save.attrs,
+        "voxel_to_world": voxel_to_world,
+        "world_coord_attrs": world_coord_attrs,
+    }
+
     # Serialize the in-memory StructuresDict to a flat JSON list and plan the mesh bundle.
     # Done before attr sanitization below, which would otherwise drop the (non-JSON)
     # StructuresDict along with the other non-serializable attrs.
@@ -240,19 +272,17 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
         )
         to_save.attrs = {**to_save.attrs, "structures": blob}
 
-    # physical_to_base rides in a single attr as either a numpy affine or a displacement
+    # world_to_base rides in a single attr as either a numpy affine or a displacement
     # field. A DataArray cannot live in JSON attrs, so a displacement field is moved into a
     # data variable of the same name for storage (load_atlas lifts it back into attrs); a
     # numpy affine is left in attrs and JSON-sanitized like any other array below.
-    physical_to_base = to_save.attrs.get("physical_to_base")
-    if isinstance(physical_to_base, xr.DataArray):
-        to_save = to_save.assign(physical_to_base=physical_to_base)
-        to_save.attrs = {
-            k: v for k, v in to_save.attrs.items() if k != "physical_to_base"
-        }
+    world_to_base = to_save.attrs.get("world_to_base")
+    if isinstance(world_to_base, xr.DataArray):
+        to_save = to_save.assign(world_to_base=world_to_base)
+        to_save.attrs = {k: v for k, v in to_save.attrs.items() if k != "world_to_base"}
 
     # Sanitize numpy-valued attrs that zarr cannot serialize: the top-level numpy
-    # `physical_to_base` affine, and any per-variable `affines` dicts (e.g. physical_to_sform
+    # `world_to_base` affine, and any per-variable `affines` dicts (e.g. world_to_sform
     # inherited from the fUSI grid a resampled atlas was warped onto). load_atlas restores
     # them to arrays on load. cmap/norm are stripped above, so nothing is dropped here.
     for name in list(to_save.data_vars):
@@ -261,11 +291,11 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
         to_save[name] = var
     to_save.attrs = make_attrs_zarr_safe(to_save.attrs)
 
-    # A nonlinear (displacement-field) physical_to_base transform carries a decorative
+    # A nonlinear (displacement-field) world_to_base transform carries a decorative
     # string `component` coordinate that zarr v3 cannot serialize stably. Replace it with
     # integer indices, which serialize cleanly and keep `.fusi.spacing` defined on load;
     # the transform math uses the dimension order, not the component labels.
-    if "physical_to_base" in to_save.data_vars and "component" in to_save.coords:
+    if "world_to_base" in to_save.data_vars and "component" in to_save.coords:
         to_save = to_save.assign_coords(component=np.arange(to_save.sizes["component"]))
 
     # Write the store first (to_zarr requires the path not to exist yet), then copy the
@@ -305,7 +335,7 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
     -------
     xarray.Dataset
         The loaded atlas Dataset, with `attrs["structures"]` rebuilt into a
-        `StructuresDict`, `attrs["physical_to_base"]` restored to a numpy affine or
+        `StructuresDict`, `attrs["world_to_base"]` restored to a numpy affine or
         displacement-field DataArray, `cmap`/`norm` restored on `annotation.attrs`, and
         `mesh_filename` paths pointing at the bundled meshes.
 
@@ -318,26 +348,46 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
     _check_zarr_suffix(path)
     ds = xr.open_zarr(path, **kwargs)
 
-    # Restore any per-variable `affines` matrices (e.g. physical_to_sform) JSON-encoded on
+    # Restore any per-variable `affines` matrices (e.g. world_to_sform) JSON-encoded on
     # save back to numpy arrays, so they match the arrays a NIfTI-loaded volume carries.
     for name in ds.data_vars:
         restore_affines_in_attrs(ds[name].attrs)
     restore_affines_in_attrs(ds.attrs)
 
-    # Restore the physical_to_base transform to its single attr: a displacement field was
-    # stored as a data variable (lift it back into attrs); a numpy affine was JSON-encoded
-    # as a nested list (convert it back to an array).
-    if "physical_to_base" in ds.data_vars:
-        field = ds["physical_to_base"]
-        ds = ds.drop_vars("physical_to_base")
-        # `component` was that field's dimension coordinate; drop it once it is orphaned so
-        # the loaded atlas keeps only its spatial dims.
+    # Voxel-to-world geometry was stored as attrs["voxel_to_world"] rather than dense
+    # z/y/x coordinate arrays (see save_atlas); rebuild the world coordinates and
+    # VoxelToWorldIndex on each data variable from that affine. `world_to_base`, when
+    # a displacement field, is still a data variable at this point (rebuilt below like
+    # any other) and lives on the same grid/affine as the rest of the atlas, since it
+    # was composed on `reference`'s own grid (see `_compose_world_to_base_transforms`)
+    # -- zarr cannot serialize a custom `VoxelToWorldIndex`, so the field's index, like
+    # every other variable's, must be reconstructed after loading, not merely
+    # preserved.
+    if "voxel_to_world" in ds.attrs:
+        voxel_to_world = np.asarray(ds.attrs.pop("voxel_to_world"), dtype=np.float64)
+        world_coord_attrs = ds.attrs.pop("world_coord_attrs", None)
+        restored_vars = {
+            name: attach_voxel_to_world_index(
+                ds[name], voxel_to_world, world_coord_attrs=world_coord_attrs
+            )
+            for name in ds.data_vars
+        }
+        ds = xr.Dataset(restored_vars, attrs=ds.attrs)
+
+    # Restore the world_to_base transform to its single attr: a displacement field was
+    # stored as a data variable (lift it back into attrs, index already rebuilt above);
+    # a numpy affine was JSON-encoded as a nested list (convert it back to an array).
+    if "world_to_base" in ds.data_vars:
+        field = ds["world_to_base"]
+        ds = ds.drop_vars("world_to_base")
+        # `component` was that field's own extra dimension coordinate; drop it once it
+        # is orphaned so the loaded atlas keeps only its spatial dims.
         if "component" in ds.coords:
             ds = ds.drop_vars("component")
-        ds.attrs["physical_to_base"] = field
-    elif "physical_to_base" in ds.attrs:
-        ds.attrs["physical_to_base"] = np.asarray(
-            ds.attrs["physical_to_base"], dtype=np.float64
+        ds.attrs["world_to_base"] = field
+    elif "world_to_base" in ds.attrs:
+        ds.attrs["world_to_base"] = np.asarray(
+            ds.attrs["world_to_base"], dtype=np.float64
         )
 
     restore_atlas_cmap_and_norm(ds["annotation"])
