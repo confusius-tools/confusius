@@ -1003,6 +1003,16 @@ def test_get_voxel_to_world_affine_raises_without_voxel_to_world_geometry() -> N
         get_voxel_to_world_affine(data)
 
 
+def test_get_voxel_to_world_affine_raises_when_all_voxel_dims_fixed(
+    sample_voxeldata_3d_irregular_voxels,
+) -> None:
+    """No active voxel dims remain once k, j, and i are all fixed by scalar isel."""
+    fully_fixed = sample_voxeldata_3d_irregular_voxels.isel(k=0, j=0, i=0)
+
+    with pytest.raises(ValueError, match="must have a voxel-to-world index"):
+        get_voxel_to_world_affine(fully_fixed)
+
+
 def test_restore_world_coords_rebuilds_geometry_after_expand_dims(
     sample_voxeldata_3d_irregular_voxels,
 ) -> None:

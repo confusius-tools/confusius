@@ -10,6 +10,7 @@ import pytest
 import xarray as xr
 
 from confusius._utils.geometry import (
+    VoxelToWorldIndex,
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
 )
@@ -912,6 +913,30 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         with pytest.raises(ValueError, match="no well-defined spacing"):
             resample_to_axis_aligned_world_grid(data)
 
+    def test_materialize_display_grid_falls_back_to_plain_coords_for_partial_index(
+        self, sample_voxeldata_3d
+    ):
+        """A DataArray with only one active voxel dim left (`k`) still carries its
+        `VoxelToWorldIndex` (fixed `j`/`i` contributions), but has too few active
+        dims to count as `has_voxel_to_world_index`. Materializing for display must
+        fall back to plain, non-indexed coordinates instead of raising.
+        """
+        from confusius.plotting._utils import (
+            _materialize_axis_aligned_world_grid_for_display,
+        )
+
+        profile = sample_voxeldata_3d.isel(j=0, i=0)
+        assert profile.dims == ("k",)
+
+        result = _materialize_axis_aligned_world_grid_for_display(profile)
+
+        assert result.dims == ("k",)
+        assert not any(
+            isinstance(index, VoxelToWorldIndex)
+            for index in result.xindexes.values()
+        )
+        npt.assert_allclose(result.coords["z"].values, profile.coords["z"].values)
+
 
 class TestVolumePlotterAddVolume:
     """Tests for VolumePlotter.add_volume method."""
@@ -1314,6 +1339,19 @@ class TestVolumePlotterAddContours:
         assert len(axes_flat[1].lines) > 0
         assert len(axes_flat[2].lines) == 0
         assert len(axes_flat[3].lines) == 0
+
+    def test_add_contours_rejects_single_slice_mask(
+        self, sample_voxeldata_3d, matplotlib_pyplot
+    ):
+        """add_contours raises for a mask whose k dim was fixed away by scalar isel."""
+        plotter = plot_volume(sample_voxeldata_3d, slice_mode="z", show_colorbar=False)
+        single_slice = sample_voxeldata_3d.isel(k=0)
+        mask_data = np.zeros(single_slice.shape, dtype=int)
+        mask_data[1:3, 1:3] = 1
+        mask = single_slice.copy(data=mask_data)
+
+        with pytest.raises(ValueError, match="requires 3D data"):
+            plotter.add_contours(mask, colors="red")
 
     def test_add_contours_string_rgb_lookup_keys(
         self, sample_voxeldata_3d, matplotlib_pyplot
@@ -1744,6 +1782,20 @@ def _create_deterministic_time_series() -> xr.DataArray:
 
 class TestPlotCarpet:
     """Tests for non-visual plot_carpet behaviour."""
+
+    def test_plot_carpet_accepts_voxeldata_input(
+        self, sample_voxeldata_3dt, matplotlib_pyplot
+    ):
+        """plot_carpet extracts signals via the VoxelData grid-aware path.
+
+        Unlike an already-extracted signals array, a genuine (time, k, j, i)
+        VoxelData array carries a `VoxelToWorldIndex`, so `select_masked_features`
+        must dispatch to `extract_with_mask` rather than the plain-flatten path.
+        """
+        fig, ax = plot_carpet(sample_voxeldata_3dt, standardize=False)
+
+        assert fig is not None
+        assert ax.get_ylabel() == "Voxels"
 
     def test_fontsize_scales_carpet_text_elements(self, matplotlib_pyplot):
         """plot_carpet scales title, label, tick, and colorbar text from fontsize."""

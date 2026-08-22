@@ -1703,11 +1703,9 @@ def _prepare_data_for_nifti(
 
     data = np.transpose(data, target_order)
 
-    nifti_spatial_dims = tuple(reversed(VOXEL_DIMS))
-    for insert_pos, dim in enumerate(nifti_spatial_dims):
-        if dim not in current_dims:
-            data = np.expand_dims(data, axis=insert_pos)
-
+    # save_nifti always canonicalizes data_array via ensure_voxeldata first, which
+    # restores any voxel dim fixed away by a prior scalar isel, so k/j/i are always
+    # present here.
     has_time_axis = "time" in current_dims or bool(extras)
     if has_time_axis and "time" not in current_dims:
         data = np.expand_dims(data, axis=3)

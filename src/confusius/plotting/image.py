@@ -144,16 +144,13 @@ def _validate_voxel_to_world_slice_mode(data: xr.DataArray, slice_mode: str) -> 
 
 
 def _get_voxel_to_world_dim_order(slice_da: xr.DataArray) -> tuple[str, ...]:
-    """Return active voxel-space dimension order implied by the stored affine."""
-    affine = require_scalar_pose_affine(slice_da, "Voxel-to-world plotting")
-    ndim = affine.shape[1] - 1
-    dims = get_voxel_to_world_spatial_dims(slice_da)
-    if len(dims) != ndim:
-        raise ValueError(
-            "Voxel-to-world plotting could not infer voxel dimension order from "
-            f"active dims {dims!r} and affine shape {affine.shape}."
-        )
-    return dims
+    """Return active voxel-space dimension order implied by the stored affine.
+
+    `_fold_fixed_dims_into_affine` always returns an affine whose column count
+    equals the active dims count, so the two are guaranteed to agree here; no
+    mismatch check is needed.
+    """
+    return get_voxel_to_world_spatial_dims(slice_da)
 
 
 def _project_voxel_to_world_plane(

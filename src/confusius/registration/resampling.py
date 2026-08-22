@@ -322,9 +322,10 @@ def resample_like(
         `time` dimension (single-slice recordings use a singleton `k` axis). If a time
         dimension is present, the same transform is applied to all time points.
     reference : xarray.DataArray
-        VoxelData array defining the output grid. Must be spatial-only
-        with dimensions `k`, `j`, `i` (no time dimension). When spatial coordinate
-        `units` metadata is present on both `moving` and `reference`, they must match.
+        VoxelData array defining the output grid. Only its `k`/`j`/`i` grid
+        (`sizes`/`spacing`/`origin`/`direction`) is used, so a `time` dimension, if
+        present, is ignored. When spatial coordinate `units` metadata is present on
+        both `moving` and `reference`, they must match.
     transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
         [`register_volume`][confusius.registration.register_volume]. Maps points from
@@ -359,22 +360,16 @@ def resample_like(
     Returns
     -------
     xarray.DataArray
-        Resampled volume on the grid of `reference`, with `reference`'s coordinates and
-        dimensions, `moving`'s non-spatial attributes, and world-space affines
-        inherited from `reference`. If `moving` had a time dimension, the output will
-        also have a time dimension.
+        Resampled volume on the grid of `reference`, with `reference`'s `k`/`j`/`i`
+        voxel labels and affine, `moving`'s non-spatial attributes, and world-space
+        affines inherited from `reference`. If `moving` had a time dimension, the
+        output will also have a time dimension (`moving`'s, not `reference`'s).
 
     Raises
     ------
     ValueError
-        If `reference` contains a `time` dimension or does not contain the spatial
-        dimensions `k`, `j`, and `i`.
+        If `reference` does not contain the spatial dimensions `k`, `j`, and `i`.
     """
-    if "time" in reference.dims:
-        raise ValueError(
-            f"'reference' must not have a time dimension; got dims {reference.dims}."
-        )
-
     moving = ensure_voxeldata(
         moving,
         require_time=False,

@@ -3283,6 +3283,53 @@ class TestRoundtrip:
         assert sidecar["DelayTime"] == pytest.approx(0.2)
         assert "FrameAcquisitionDuration" not in sidecar
 
+    def test_save_overlapping_acquisition_windows_uses_volume_timing(self, tmp_path):
+        """Regular timing whose duration exceeds TR exports VolumeTiming, not DelayTime.
+
+        BIDS's RepetitionTime/DelayTime model can't represent a negative DelayTime,
+        so overlapping acquisition windows (`volume_acquisition_duration` > TR) must
+        fall back to explicit `VolumeTiming` + `FrameAcquisitionDuration`.
+        """
+        rng = np.random.default_rng(0)
+        da = create_voxeldata(
+            rng.random((4, 4, 3, 2)).astype(np.float32),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": xr.DataArray(
+                    [0.0, 2.4, 4.8, 7.2],
+                    dims=["time"],
+                    attrs={
+                        "units": "s",
+                        "volume_acquisition_reference": "start",
+                        "volume_acquisition_duration": 2.6,
+                    },
+                ),
+                "z": xr.DataArray(
+                    np.arange(4) * 0.1, dims=["z"], attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(3) * 0.1, dims=["y"], attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(2) * 0.1, dims=["x"], attrs={"units": "mm"}
+                ),
+            },
+        )
+
+        output_path = tmp_path / "overlapping_windows.nii.gz"
+        save_nifti(da, output_path)
+
+        with open(tmp_path / "overlapping_windows.json") as f:
+            sidecar = json.load(f)
+
+        assert sidecar["VolumeTiming"] == pytest.approx([0.0, 2.4, 4.8, 7.2])
+        assert sidecar["FrameAcquisitionDuration"] == pytest.approx(2.6)
+        assert "RepetitionTime" not in sidecar
+        assert "DelayTime" not in sidecar
+
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
+        assert loaded.header.structarr["pixdim"][4] == pytest.approx(2.4)
+
     def test_save_warns_when_time_reference_is_missing(self, tmp_path):
         """Saving warns when time reference metadata is absent and onset is assumed."""
         rng = np.random.default_rng(0)

@@ -1396,10 +1396,11 @@ def _collect_voxel_to_world_indexes(data: xr.DataArray) -> list[VoxelToWorldInde
     }
 
     def _sort_key(index: VoxelToWorldIndex) -> int:
-        for dim in index.voxel_dims:
-            if dim in VOXEL_DIMS:
-                return VOXEL_DIMS.index(dim)
-        return len(VOXEL_DIMS)
+        # An index's active voxel_dims are always a nonempty subset of VOXEL_DIMS
+        # (attach_voxel_to_world_index only ever wraps k/j/i); a fully-fixed index
+        # (all voxel dims scalar-isel'd away) is dropped by xarray entirely, so it
+        # never reaches xindexes here.
+        return VOXEL_DIMS.index(index.voxel_dims[0])
 
     return sorted(seen.values(), key=_sort_key)
 

@@ -662,6 +662,24 @@ class TestNonlinearMesh:
         expected[:, 2] -= 0.02
         np.testing.assert_allclose(warped, expected, atol=1e-5)
 
+    def test_resample_like_ignores_reference_time_dimension(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """A `reference` with a `time` dim still resamples, using only its spatial grid."""
+        reference = atlas_ds.atlas.reference
+        with_time = create_voxeldata(
+            reference.data[np.newaxis],
+            dims=["time", "k", "j", "i"],
+            time=[0.0],
+            dt=1.0,
+            voxel_to_world=reference.fusi.affine.voxel_to_world,
+        )
+        resampled = atlas_ds.atlas.resample_like(with_time, np.eye(4))
+        expected = atlas_ds.atlas.resample_like(reference, np.eye(4))
+
+        assert "time" not in resampled["reference"].dims
+        xr.testing.assert_allclose(resampled["reference"], expected["reference"])
+
     def test_nonlinear_atlas_roundtrips_through_zarr(
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:

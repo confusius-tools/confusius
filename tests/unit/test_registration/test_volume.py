@@ -1673,16 +1673,22 @@ class TestResampleLike:
             sample_voxeldata_2dt_registration.coords["time"].values,
         )
 
-    def test_time_dimension_reference_raises(
+    def test_time_dimension_reference_is_ignored(
         self, sample_voxeldata_2dt_registration, sample_voxeldata_2d_registration
     ):
-        """reference with a time dimension raises ValueError."""
-        with pytest.raises(ValueError, match="time"):
-            resample_like(
-                sample_voxeldata_2d_registration,
-                sample_voxeldata_2dt_registration,
-                np.eye(3),
-            )
+        """A `reference` with a time dimension only contributes its spatial grid."""
+        result = resample_like(
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2dt_registration,
+            np.eye(4),
+        )
+        expected = resample_like(
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
+            np.eye(4),
+        )
+        assert "time" not in result.dims
+        assert_allclose(result.values, expected.values)
 
     def test_singleton_reference_dim_without_spacing_raises_helpful_error(self):
         """Thin references without defined spacing are rejected with a repair hint."""
