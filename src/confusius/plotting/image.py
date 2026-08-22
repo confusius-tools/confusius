@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import xarray as xr
 
-from confusius._dims import POSE_DIM, VOXEL_DIMS
+from confusius._dims import CORE_DIMS, POSE_DIM, VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
@@ -97,7 +97,7 @@ def _has_plottable_voxel_to_world_index(data: xr.DataArray) -> bool:
     raising clearly instead of silently doing the wrong thing.
     """
     return has_voxel_to_world_index(data) and all(
-        str(dim) in {"time", POSE_DIM, "k", "j", "i"} for dim in data.dims
+        str(dim) in CORE_DIMS for dim in data.dims
     )
 
 
@@ -1799,7 +1799,10 @@ class VolumePlotter:
                 )
             return self
 
-        mask = ensure_voxeldata(mask, allow_pose=False, allow_extra_dims=False)
+        # Mirror _prepare_slice_inputs' canonicalization of the plotter's own data:
+        # mask can carry an extra facet dim (e.g. "region") matching self.slice_mode,
+        # the same way plot_volume(data, slice_mode="region") facets data itself.
+        mask = ensure_voxeldata(mask)
         _validate_voxel_to_world_slice_mode(mask, self.slice_mode)
         # Always "nearest", regardless of self._resample_interpolation: mask/label
         # data is a set of distinct integer regions, and blending them together

@@ -1338,6 +1338,30 @@ class TestVolumePlotterAddContours:
         assert len(axes_flat[0].lines) > 0
         assert all(len(ax.lines) == 0 for ax in axes_flat[1:])
 
+    def test_add_contours_matches_extra_facet_dim_to_slice_mode(
+        self, make_region_voxeldata, matplotlib_pyplot
+    ):
+        """A mask can carry an extra facet dim (e.g. "region") matching slice_mode.
+
+        Regression test: seed-based connectivity maps facet volume panels by an
+        extra "region" dim (`plot_volume(data, slice_mode="region")`) and overlay
+        each seed's own contour via `add_contours(seed_masks.rename(mask="region"))`
+        -- one contour per matching region panel.
+        """
+        data = make_region_voxeldata(regions=("a", "b", "c"))
+        plotter = plot_volume(data, slice_mode="region", show_colorbar=False)
+
+        mask_data = np.zeros(data.shape, dtype=int)
+        mask_data[0, 0, 1:3, 1:3] = 1
+        mask_data[1, 0, 1:3, 1:3] = 2
+        mask_data[2, 0, 1:3, 1:3] = 3
+        seed_masks = data.copy(data=mask_data)
+
+        plotter.add_contours(seed_masks)
+
+        axes_flat = _axes(plotter).ravel()
+        assert [len(ax.lines) for ax in axes_flat[:3]] == [1, 1, 1]
+
     def test_add_contours_string_rgb_lookup_keys(
         self, sample_voxeldata_3d, matplotlib_pyplot
     ):
