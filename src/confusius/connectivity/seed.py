@@ -9,6 +9,10 @@ import xarray as xr
 from matplotlib.colors import Normalize
 from sklearn.base import BaseEstimator
 
+from confusius._utils.geometry import (
+    get_voxel_to_world_coord_names,
+    update_voxel_to_world_coord_attrs,
+)
 from confusius.extract import extract_with_mask, unmask
 from confusius.extract.labels import extract_with_labels
 from confusius.signal import clean
@@ -340,6 +344,21 @@ class SeedBasedMaps(BaseEstimator):
 
         if maps.sizes.get("region", 0) == 1:
             maps = maps.isel(region=0, drop=False)
+
+        # maps occupies X's exact spatial grid (a voxel-wise reduction changes
+        # values, not geometry), but _compute_correlation_maps' xr.where call
+        # rebuilds index-derived world coordinates from scratch along the way,
+        # dropping their cached attrs even though the VoxelToWorldIndex's own
+        # copy survives untouched. Resync from X, the one input guaranteed
+        # correct (ensure_voxeldata canonicalized it above).
+        maps = update_voxel_to_world_coord_attrs(
+            maps,
+            {
+                name: dict(X.coords[name].attrs)
+                for name in get_voxel_to_world_coord_names(X)
+                if name in X.coords
+            },
+        )
 
         # Annotate with display defaults so plotting functions pick them up without
         # requiring the caller to pass cmap/vmin/vmax explicitly.

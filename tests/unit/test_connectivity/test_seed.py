@@ -42,6 +42,27 @@ def test_seed_maps_support_stacked_labels(
     np.testing.assert_array_equal(mapper.maps_.region, ["motor", "somatosensory"])
 
 
+def test_seed_maps_preserve_world_coord_units(
+    sample_voxeldata_3dt: xr.DataArray,
+    sample_roi_labels: xr.DataArray,
+) -> None:
+    """`maps_`'s world coordinates keep the same `units` attr as the input data.
+
+    Regression test: `_compute_correlation_maps`'s `xr.where` call rebuilds
+    index-derived world coordinates from scratch when broadcasting a
+    lower-dimensional condition/fill against the `region`-dimensioned numerator,
+    dropping their cached `units` attr even though the `VoxelToWorldIndex`'s own
+    stored copy survives untouched.
+    """
+    mapper = SeedBasedMaps(seed_masks=sample_roi_labels).fit(sample_voxeldata_3dt)
+
+    for name in ("z", "y", "x"):
+        assert (
+            mapper.maps_.coords[name].attrs
+            == sample_voxeldata_3dt.coords[name].attrs
+        )
+
+
 def test_precomputed_seed_signal_matches_mask_seed(
     sample_voxeldata_3dt: xr.DataArray,
     sample_roi_labels: xr.DataArray,
