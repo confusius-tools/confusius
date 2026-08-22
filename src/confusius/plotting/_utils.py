@@ -9,7 +9,6 @@ import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.geometry import (
-    VoxelToWorldIndex,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_index_spacing,
@@ -198,7 +197,8 @@ def _materialize_axis_aligned_world_grid_for_display(
     Parameters
     ----------
     data : xarray.DataArray
-        Axis-aligned VoxelData array.
+        Canonical VoxelData array (every caller runs it through `ensure_voxeldata`
+        first, so `has_voxel_to_world_index(data)` is always true here).
 
     Returns
     -------
@@ -208,27 +208,8 @@ def _materialize_axis_aligned_world_grid_for_display(
         coordinates and `voxel_to_world` removed from attrs.
     """
     if not has_axis_aligned_voxel_to_world_index(data):
-        if has_voxel_to_world_index(data):
-            return data
-        if any(
-            isinstance(index, VoxelToWorldIndex) for index in data.xindexes.values()
-        ):
-            coords = {
-                name: (coord.dims, coord.values, coord.attrs)
-                for name, coord in data.coords.items()
-            }
-            result = xr.DataArray(
-                data=data.data,
-                dims=data.dims,
-                coords=coords,
-                name=data.name,
-                attrs=data.attrs.copy(),
-            )
-            return result
-        else:
-            return data
-    else:
-        world_dims = get_voxel_to_world_coord_names(data)
+        return data
+    world_dims = get_voxel_to_world_coord_names(data)
 
     voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
     dim_map = dict(zip(voxel_dims, world_dims, strict=True))

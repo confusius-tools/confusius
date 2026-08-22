@@ -10,7 +10,6 @@ import pytest
 import xarray as xr
 
 from confusius._utils.geometry import (
-    VoxelToWorldIndex,
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
 )
@@ -912,31 +911,6 @@ class TestPlottingUtilsVoxelToWorldHelpers:
 
         with pytest.raises(ValueError, match="no well-defined spacing"):
             resample_to_axis_aligned_world_grid(data)
-
-    def test_materialize_display_grid_falls_back_to_plain_coords_for_partial_index(
-        self, sample_voxeldata_3d
-    ):
-        """A DataArray with only one active voxel dim left (`k`) still carries its
-        `VoxelToWorldIndex` (fixed `j`/`i` contributions), but has too few active
-        dims to count as `has_voxel_to_world_index`. Materializing for display must
-        fall back to plain, non-indexed coordinates instead of raising.
-        """
-        from confusius.plotting._utils import (
-            _materialize_axis_aligned_world_grid_for_display,
-        )
-
-        profile = sample_voxeldata_3d.isel(j=0, i=0)
-        assert profile.dims == ("k",)
-
-        result = _materialize_axis_aligned_world_grid_for_display(profile)
-
-        assert result.dims == ("k",)
-        assert not any(
-            isinstance(index, VoxelToWorldIndex)
-            for index in result.xindexes.values()
-        )
-        npt.assert_allclose(result.coords["z"].values, profile.coords["z"].values)
-
 
 class TestVolumePlotterAddVolume:
     """Tests for VolumePlotter.add_volume method."""
