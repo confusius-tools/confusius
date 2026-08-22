@@ -1214,20 +1214,45 @@ class TestVolumePlotterUtilities:
         assert plotter.figure is None
 
 
+def _mask_voxeldata(data: np.ndarray) -> xr.DataArray:
+    """Wrap a raw `(k, j, i)` int label array as a VoxelData mask.
+
+    Uses the same `z: 1.0`, `y/x: 0.5` mm spacing as the pre-migration plain
+    `(z, y, x)` fixtures these tests replace, so world coordinate values match.
+    """
+    nz, ny, nx = data.shape
+    da = xr.DataArray(
+        data,
+        dims=("k", "j", "i"),
+        coords={"k": np.arange(nz), "j": np.arange(ny), "i": np.arange(nx)},
+    )
+    return attach_voxel_to_world_index(
+        da,
+        np.diag([1.0, 0.5, 0.5, 1.0]),
+        world_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
+
+
 class TestPlotContours:
     """Tests for the plot_contours function."""
 
     def test_invalid_slice_mode_raises(self):
         """plot_contours raises ValueError when slice_mode is not in mask dims."""
-        mask = xr.DataArray(np.zeros((2, 4, 4), dtype=int), dims=["z", "y", "x"])
+        mask = _mask_voxeldata(np.zeros((2, 4, 4), dtype=int))
         with pytest.raises(ValueError, match="slice_mode"):
             plot_contours(mask, slice_mode="t")
 
-    def test_non_3d_mask_raises(self):
-        """plot_contours raises ValueError for non-3D mask."""
-        mask = xr.DataArray(np.zeros((4, 6), dtype=int), dims=["y", "x"])
+    def test_non_3d_mask_raises(self, sample_voxeldata_3dt):
+        """plot_contours raises ValueError for a mask with an unreduced time dim."""
+        mask = sample_voxeldata_3dt.copy(
+            data=np.zeros(sample_voxeldata_3dt.shape, dtype=sample_voxeldata_3dt.dtype)
+        )
         with pytest.raises(ValueError, match="3D"):
-            plot_contours(mask, slice_mode="y")
+            plot_contours(mask, slice_mode="z")
 
     def test_single_axes_object_accepted(self, matplotlib_pyplot):
         """plot_contours accepts a bare Axes object, not only an ndarray of Axes.
@@ -1237,10 +1262,8 @@ class TestPlotContours:
         """
         import matplotlib.pyplot as plt
 
-        mask = xr.DataArray(
-            np.array([[[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]]]),
-            dims=["z", "y", "x"],
-            coords={"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]},
+        mask = _mask_voxeldata(
+            np.array([[[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]]])
         )
         fig, ax = plt.subplots()
 
@@ -1252,15 +1275,7 @@ class TestPlotContours:
         """plot_contours raises ValueError when axes count doesn't match slices."""
         import matplotlib.pyplot as plt
 
-        mask = xr.DataArray(
-            np.ones((3, 4, 4), dtype=int),
-            dims=["z", "y", "x"],
-            coords={
-                "z": [0.0, 1.0, 2.0],
-                "y": [0.0, 0.5, 1.0, 1.5],
-                "x": [0.0, 0.5, 1.0, 1.5],
-            },
-        )
+        mask = _mask_voxeldata(np.ones((3, 4, 4), dtype=int))
         fig, ax = plt.subplots()
 
         with pytest.raises(ValueError, match="must match number of axes"):
@@ -1268,24 +1283,14 @@ class TestPlotContours:
 
     def test_all_zero_mask_returns_without_figure(self, matplotlib_pyplot):
         """plot_contours returns early without creating a figure for all-zero mask."""
-        mask = xr.DataArray(
-            np.zeros((2, 4, 4), dtype=int),
-            dims=["z", "y", "x"],
-            coords={
-                "z": [0.0, 1.0],
-                "y": [0.0, 0.5, 1.0, 1.5],
-                "x": [0.0, 0.5, 1.0, 1.5],
-            },
-        )
+        mask = _mask_voxeldata(np.zeros((2, 4, 4), dtype=int))
         plotter = plot_contours(mask, slice_mode="z")
         assert plotter.figure is None
 
     def test_fontsize_scales_contour_text_elements(self, matplotlib_pyplot):
         """plot_contours scales title, label, and tick text from fontsize."""
-        mask = xr.DataArray(
-            np.array([[[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]]]),
-            dims=["z", "y", "x"],
-            coords={"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]},
+        mask = _mask_voxeldata(
+            np.array([[[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]]])
         )
         plotter = plot_contours(mask, slice_mode="z", fontsize=16)
         ax = _axes(plotter)[0, 0]
@@ -1301,10 +1306,8 @@ class TestPlotContours:
         Selecting a single index (sel(z=0.0)) drops z to a scalar coordinate; it
         should plot like the size-1 z dimension it was selected from.
         """
-        mask = xr.DataArray(
-            np.array([[[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]]]),
-            dims=["z", "y", "x"],
-            coords={"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]},
+        mask = _mask_voxeldata(
+            np.array([[[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]]])
         )
         plotter = plot_contours(mask.sel(z=0.0), slice_mode="z")
         assert _axes(plotter).shape == (1, 1)
@@ -1340,18 +1343,26 @@ class TestVolumePlotterAddContours:
         assert len(axes_flat[2].lines) == 0
         assert len(axes_flat[3].lines) == 0
 
-    def test_add_contours_rejects_single_slice_mask(
+    def test_add_contours_restores_mask_with_scalar_fixed_k(
         self, sample_voxeldata_3d, matplotlib_pyplot
     ):
-        """add_contours raises for a mask whose k dim was fixed away by scalar isel."""
+        """add_contours restores a mask whose k dim was fixed away by scalar isel.
+
+        `ensure_voxeldata` canonicalizes `mask` the same way it does the plotter's
+        own `data`, so a mask coming from e.g. `full_mask.isel(k=0)` still draws on
+        the single z-slice it came from instead of raising.
+        """
         plotter = plot_volume(sample_voxeldata_3d, slice_mode="z", show_colorbar=False)
         single_slice = sample_voxeldata_3d.isel(k=0)
         mask_data = np.zeros(single_slice.shape, dtype=int)
         mask_data[1:3, 1:3] = 1
         mask = single_slice.copy(data=mask_data)
 
-        with pytest.raises(ValueError, match="requires 3D data"):
-            plotter.add_contours(mask, colors="red")
+        plotter.add_contours(mask, colors="red")
+
+        axes_flat = _axes(plotter).ravel()
+        assert len(axes_flat[0].lines) > 0
+        assert all(len(ax.lines) == 0 for ax in axes_flat[1:])
 
     def test_add_contours_string_rgb_lookup_keys(
         self, sample_voxeldata_3d, matplotlib_pyplot

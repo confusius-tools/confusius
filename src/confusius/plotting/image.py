@@ -1519,7 +1519,9 @@ class VolumePlotter:
 
             data2_name = data2.name or "data2"
             _kw: dict[str, Any] = dict(resample_kwargs or {})
-            data2 = resample_like(data2, data1, np.eye(data1.ndim + 1), **_kw)
+            # The identity transform is always spatial-only (3D): resample_like reads
+            # only data1's k/j/i grid, regardless of any time dimension it carries.
+            data2 = resample_like(data2, data1, np.eye(len(VOXEL_DIMS) + 1), **_kw)
             data2.name = data2_name
 
         data1 = self._prepare_slice_inputs(
@@ -1797,6 +1799,7 @@ class VolumePlotter:
                 )
             return self
 
+        mask = ensure_voxeldata(mask, allow_pose=False, allow_extra_dims=False)
         _validate_voxel_to_world_slice_mode(mask, self.slice_mode)
         # Always "nearest", regardless of self._resample_interpolation: mask/label
         # data is a set of distinct integer regions, and blending them together
