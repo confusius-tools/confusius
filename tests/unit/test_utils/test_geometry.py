@@ -87,12 +87,8 @@ def test_pose_dependent_forward_gives_translated_world_coords_per_pose() -> None
     assert result.coords["pose"].dims == ("pose",)
     assert_array_equal(result.coords["pose"].values, [0, 1])
     assert result.coords["z"].dims == ("pose", "k", "j", "i")
-    assert_allclose(
-        result.coords["z"].isel(pose=0, j=0, i=0).values, [0.0, 1.0]
-    )
-    assert_allclose(
-        result.coords["z"].isel(pose=1, j=0, i=0).values, [100.0, 101.0]
-    )
+    assert_allclose(result.coords["z"].isel(pose=0, j=0, i=0).values, [0.0, 1.0])
+    assert_allclose(result.coords["z"].isel(pose=1, j=0, i=0).values, [100.0, 101.0])
 
 
 def test_pose_dependent_forward_supports_rotated_poses() -> None:
@@ -176,12 +172,8 @@ def test_pose_dependent_slice_and_fancy_isel_subset_pose_and_affines() -> None:
 
     reordered = result.isel(pose=[1, 0])
     assert_array_equal(reordered.coords["pose"].values, [1, 0])
-    assert_allclose(
-        reordered.coords["z"].isel(pose=0, j=0, i=0).values, [100.0, 101.0]
-    )
-    assert_allclose(
-        reordered.coords["z"].isel(pose=1, j=0, i=0).values, [0.0, 1.0]
-    )
+    assert_allclose(reordered.coords["z"].isel(pose=0, j=0, i=0).values, [100.0, 101.0])
+    assert_allclose(reordered.coords["z"].isel(pose=1, j=0, i=0).values, [0.0, 1.0])
 
 
 def test_pose_dependent_spatial_isel_subsets_while_pose_stack_remains() -> None:
@@ -201,14 +193,10 @@ def test_pose_affine_stack_validates_shape_length_finiteness_and_scale() -> None
     good = np.stack([np.eye(4), np.eye(4)])
 
     with pytest.raises(ValueError, match="pose_coord must be 1D"):
-        VoxelToWorldTransform(
-            valid_coords, good, pose_coord=np.array([[0, 1]])
-        )
+        VoxelToWorldTransform(valid_coords, good, pose_coord=np.array([[0, 1]]))
 
     with pytest.raises(ValueError, match="must have shape"):
-        VoxelToWorldTransform(
-            valid_coords, good, pose_coord=np.array([0, 1, 2])
-        )
+        VoxelToWorldTransform(valid_coords, good, pose_coord=np.array([0, 1, 2]))
 
     non_finite = good.copy()
     non_finite[0, 0, 0] = np.nan
@@ -220,7 +208,9 @@ def test_pose_affine_stack_validates_shape_length_finiteness_and_scale() -> None
     with pytest.raises(ValueError, match="homogeneous final row"):
         VoxelToWorldTransform(valid_coords, bad_row, pose_coord=np.array([0, 1]))
 
-    mismatched_scale = np.stack([np.diag([1.0, 1.0, 1.0, 1.0]), np.diag([2.0, 1.0, 1.0, 1.0])])
+    mismatched_scale = np.stack(
+        [np.diag([1.0, 1.0, 1.0, 1.0]), np.diag([2.0, 1.0, 1.0, 1.0])]
+    )
     with pytest.raises(ValueError, match="equal spatial scale magnitudes"):
         VoxelToWorldTransform(
             valid_coords, mismatched_scale, pose_coord=np.array([0, 1])
@@ -389,9 +379,7 @@ def test_pose_dependent_concat_merges_pose_labels_and_affines() -> None:
     combined = xr.concat([first, second], dim="pose")
 
     assert_array_equal(combined.coords["pose"].values, [0, 1, 2])
-    assert_allclose(
-        combined.coords["z"].isel(pose=2, j=0, i=0).values, [200.0, 201.0]
-    )
+    assert_allclose(combined.coords["z"].isel(pose=2, j=0, i=0).values, [200.0, 201.0])
 
 
 def test_pose_dependent_concat_rejects_mismatched_spatial_geometry() -> None:
@@ -572,6 +560,70 @@ def test_oblique_coordinate_transform_index_selection_uses_world_coords() -> Non
     assert type(result.xindexes["x"]).__name__ == "VoxelToWorldIndex"
     assert result.coords["x"].dims == ("k", "j", "i")
     assert selected.item() == data.sel(k=2.0, j=3.0, i=3.0).item()
+
+
+def test_sel_resolves_single_decoupled_row_of_otherwise_oblique_affine() -> None:
+    """A single world axis selects independently when only its row is decoupled.
+
+    Regression/feature test for `VoxelToWorldIndex.sel`'s fast path, generalized
+    from "the whole affine is axis-aligned" to "the *requested* world coordinate's
+    own affine row depends on exactly one voxel dimension" (see
+    design/world-mode-resample-scoping.md, Design B): `z` here depends only on
+    `k` (zero cross-terms), while `y`/`x` are genuinely oblique, each depending on
+    both `j` and `i`. `.sel(z=...)` alone must still resolve without requiring
+    `y`/`x` labels, exactly like an ordinary axis-aligned dimension coordinate.
+    """
+    data = xr.DataArray(
+        np.arange(27).reshape(3, 3, 3),
+        dims=("k", "j", "i"),
+        coords={"k": [0, 1, 2], "j": [0, 1, 2], "i": [0, 1, 2]},
+    )
+    voxel_to_world = np.array(
+        [
+            [0.4, 0.0, 0.0, 10.0],
+            [0.0, 0.3, 0.1, 20.0],
+            [0.0, 0.05, 0.25, 30.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    result = attach_voxel_to_world_index(data, voxel_to_world)
+
+    selected = result.sel(z=10.4)
+
+    assert selected.dims == ("j", "i")
+    assert selected.coords["k"].item() == 1
+    assert_array_equal(selected.values, data.isel(k=1).values)
+    # y/x stay derived and oblique -- not reduced to 1D, still depending on both
+    # remaining voxel dims.
+    assert selected.coords["y"].dims == ("j", "i")
+    assert selected.coords["x"].dims == ("j", "i")
+
+
+def test_sel_raises_for_coupled_row_without_the_other_axes_it_depends_on() -> None:
+    """A world axis whose row depends on multiple voxel dims can't select alone.
+
+    Complements `test_sel_resolves_single_decoupled_row_of_otherwise_oblique_affine`:
+    `y` here depends on both `j` and `i`, so it can't resolve independently of
+    them -- the query must fall back to `CoordinateTransformIndex.sel`'s joint
+    lookup, which requires every axis at once and raises when they're missing.
+    """
+    data = xr.DataArray(
+        np.arange(27).reshape(3, 3, 3),
+        dims=("k", "j", "i"),
+        coords={"k": [0, 1, 2], "j": [0, 1, 2], "i": [0, 1, 2]},
+    )
+    voxel_to_world = np.array(
+        [
+            [0.4, 0.0, 0.0, 10.0],
+            [0.0, 0.3, 0.1, 20.0],
+            [0.0, 0.05, 0.25, 30.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    result = attach_voxel_to_world_index(data, voxel_to_world)
+
+    with pytest.raises(ValueError, match="missing labels"):
+        result.sel(y=20.4)
 
 
 def test_affine_geometry_helpers_extract_vectors_scalings_and_orientation() -> None:

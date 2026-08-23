@@ -9,7 +9,9 @@ The derived world coordinates are always exposed lazily via a single joint
 [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex] backed by Xarray's
 `CoordinateTransformIndex`, for both axis-aligned and oblique affines — see
 `VoxelToWorldIndex`'s docstring for why a single shared index (rather than one per
-axis) is required for compatibility with `.stack()`. For axis-aligned affines,
+axis) is required for compatibility with `.stack()`. For any world coordinate whose
+own affine row depends on exactly one voxel dimension (every row, for an
+axis-aligned affine; possibly just one row of an otherwise-oblique affine),
 `VoxelToWorldIndex.sel` reimplements ordinary per-axis `.sel()` (slices, single
 labels) directly against the joint transform, so it stays as ergonomic as a plain
 1D coordinate despite each world coordinate technically depending on every voxel
@@ -410,11 +412,17 @@ class VoxelToWorldIndex(Index):
     ) -> IndexSelResult:
         """Select by world coordinates.
 
-        For axis-aligned geometry, each world coordinate depends on exactly one
-        voxel dimension, so labels are resolved independently per axis (supporting
-        slices and single-axis queries, like an ordinary dimension coordinate).
-        Oblique geometry delegates to `CoordinateTransformIndex.sel`, which only
-        supports point-wise `nearest` queries providing all axes at once.
+        Each *requested* world coordinate is resolved independently per axis
+        (supporting slices and single-axis queries, like an ordinary dimension
+        coordinate) whenever its own affine row depends on exactly one voxel
+        dimension -- true for every row on ordinary axis-aligned geometry, but also
+        true for just one row of an otherwise-oblique affine (e.g. a slice axis
+        pinned to a global direction, as produced by
+        [compute_slice_axis_aligned_grid_geometry][confusius.plotting._utils.compute_slice_axis_aligned_grid_geometry],
+        while the remaining in-plane axes stay genuinely oblique). If any requested
+        row depends on more than one voxel dimension, the whole query instead
+        delegates to `CoordinateTransformIndex.sel`, which only supports point-wise
+        `nearest` queries providing all axes at once.
 
         `pose` is a separate, independently indexed coordinate (see the class
         docstring), so a combined one-call query like `.sel(pose=0, z=..., y=...,
@@ -428,12 +436,13 @@ class VoxelToWorldIndex(Index):
         labels : dict[Any, Any]
             World coordinate labels to select, keyed by world coordinate name.
         method : str, optional
-            Selection method. Unused for axis-aligned geometry (per-axis selection
-            always supports both exact and nearest lookup); forwarded to
-            `CoordinateTransformIndex.sel` for oblique geometry, defaulting to
-            `"nearest"`.
+            Selection method. Unused when every requested axis resolves
+            independently (per-axis selection always supports both exact and
+            nearest lookup); forwarded to `CoordinateTransformIndex.sel` otherwise,
+            defaulting to `"nearest"`.
         tolerance : Any, optional
-            Forwarded to `CoordinateTransformIndex.sel` for oblique geometry.
+            Forwarded to `CoordinateTransformIndex.sel` when the query doesn't
+            resolve independently per axis.
 
         Returns
         -------
@@ -446,8 +455,8 @@ class VoxelToWorldIndex(Index):
             If `data` still carries pose-dependent (stacked) geometry and `labels`
             selects world coordinates; reduce `pose` to a scalar first.
         KeyError
-            If an axis-aligned world coordinate label has no exact match and
-            `method` is not `"nearest"`, or falls outside the axis's range.
+            If an independently-resolved world coordinate label has no exact match
+            and `method` is not `"nearest"`, or falls outside the axis's range.
         """
         transform = self._index.transform
         assert isinstance(transform, VoxelToWorldTransform)
@@ -466,18 +475,36 @@ class VoxelToWorldIndex(Index):
             return IndexSelResult({})
         if not coord_labels:
             return IndexSelResult({})
-        if not _is_axis_aligned_affine(transform.voxel_to_world):
+
+        # Per-axis fast path applies whenever every *requested* world coordinate's
+        # own affine row depends on exactly one voxel dimension -- not just when the
+        # whole affine is axis-aligned. This covers ordinary axis-aligned geometry
+        # (where every row is single-dependency, trivially), but also an oblique
+        # affine with one decoupled row -- e.g. Design B's slice-axis-only resample
+        # (`compute_slice_axis_aligned_grid_geometry`), whose slice axis is pinned to
+        # a global unit vector (zero cross-terms) while the two in-plane axes stay
+        # genuinely oblique. A row with more than one nonzero column can't be
+        # resolved independently of the others, so any such request falls back to
+        # `CoordinateTransformIndex.sel`'s joint nearest-only lookup.
+        linear = np.asarray(transform.voxel_to_world, dtype=np.float64)[:-1, :-1]
+        single_axis: dict[Hashable, tuple[int, int]] = {}
+        for name in coord_labels:
+            row = transform.world_coord_names.index(name)
+            nonzero_columns = np.nonzero(~np.isclose(linear[row], 0.0, atol=1e-12))[0]
+            if nonzero_columns.size == 1:
+                single_axis[name] = (row, int(nonzero_columns[0]))
+        if len(single_axis) != len(coord_labels):
             return self._index.sel(
                 coord_labels, method=method or "nearest", tolerance=tolerance
             )
 
         dim_indexers: dict[Hashable, Any] = {}
-        for column, dim in enumerate(transform._all_dims):
-            name = transform.coord_names[column]
-            if name not in coord_labels or dim not in transform.voxel_coords:
+        for name, (row, column) in single_axis.items():
+            dim = transform._all_dims[column]
+            if dim not in transform.voxel_coords:
                 continue
-            scale = transform.voxel_to_world[column, column]
-            offset = transform.voxel_to_world[column, -1]
+            scale = linear[row, column]
+            offset = transform.voxel_to_world[row, -1]
             voxel_axis = transform.voxel_coords[dim]
             label = coord_labels[name]
             if isinstance(label, slice):
