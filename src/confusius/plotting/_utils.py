@@ -11,7 +11,6 @@ import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.geometry import (
-    get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_index_spacing,
     get_voxel_to_world_spatial_dims,
@@ -243,6 +242,35 @@ def _materialize_axis_aligned_world_grid_for_display(
     return result
 
 
+def _qr_axis_spacing(
+    linear: npt.NDArray[np.float64],
+) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.float64]]:
+    """Return each world row's dominant voxel axis and its spacing, via QR.
+
+    Shared by `compute_oblique_axis_aligned_grid_geometry` and
+    `compute_slice_axis_aligned_grid_geometry`'s `resample_in_plane=True` branch,
+    both of which need the same nilearn `reorder_img`-style per-world-row spacing
+    (see `compute_oblique_axis_aligned_grid_geometry`'s Notes for the rationale).
+
+    Parameters
+    ----------
+    linear : (3, 3) numpy.ndarray
+        Voxel-to-world affine's linear (non-translation) block.
+
+    Returns
+    -------
+    row_to_axis : (3,) numpy.ndarray
+        Index of the orthonormal QR basis vector each world row is most aligned
+        to.
+    axis_spacing : (3,) numpy.ndarray
+        Scale of each orthonormal QR basis vector.
+    """
+    q_basis, r_scale = np.linalg.qr(linear)
+    row_to_axis = np.abs(q_basis).argmax(axis=1)
+    axis_spacing = np.abs(np.diag(r_scale))
+    return row_to_axis, axis_spacing
+
+
 def compute_oblique_axis_aligned_grid_geometry(
     data: xr.DataArray, world_dims: Sequence[str]
 ) -> tuple[list[int], list[float], list[float]]:
@@ -273,6 +301,13 @@ def compute_oblique_axis_aligned_grid_geometry(
         World distance between consecutive voxels along each output world axis.
     origin : list of float
         World location of output voxel position 0 along each output world axis.
+
+    Raises
+    ------
+    ValueError
+        If `data`'s geometry is pose-dependent, if any native voxel dimension has
+        no well-defined (regular) spacing, or if the voxel-to-world affine is
+        singular along a requested world axis.
 
     Notes
     -----
@@ -306,10 +341,9 @@ def compute_oblique_axis_aligned_grid_geometry(
                 f"dimension {voxel_dim!r} has no well-defined spacing "
                 "(irregularly spaced coordinates)."
             )
-    linear = get_voxel_to_world_affine(data)[:3, :3]
-    q_basis, r_scale = np.linalg.qr(linear)
-    row_to_axis = np.abs(q_basis).argmax(axis=1)
-    axis_spacing = np.abs(np.diag(r_scale))
+    affine = require_scalar_pose_affine(data, "Computing axis-aligned grid geometry")
+    linear = affine[:3, :3]
+    row_to_axis, axis_spacing = _qr_axis_spacing(linear)
 
     spacing: list[float] = []
     origin: list[float] = []
@@ -457,12 +491,9 @@ def compute_slice_axis_aligned_grid_geometry(
     if resample_in_plane:
         # Same per-world-axis spacing heuristic as
         # compute_oblique_axis_aligned_grid_geometry's Notes (nilearn's
-        # reorder_img): the scale of whichever orthonormal QR basis vector each
-        # world row is most aligned to -- but keyed by row here (not `world_dims`
-        # order) since the slice row needs picking out first.
-        q_basis, r_scale = np.linalg.qr(linear)
-        row_to_axis = np.abs(q_basis).argmax(axis=1)
-        qr_axis_spacing = np.abs(np.diag(r_scale))
+        # reorder_img) -- but keyed by row here (not `world_dims` order) since
+        # the slice row needs picking out first.
+        row_to_axis, qr_axis_spacing = _qr_axis_spacing(linear)
         output_direction = np.eye(3)
         in_plane_rows = [row for row in range(3) if row != slice_row]
         in_plane_spacing = [
