@@ -368,6 +368,7 @@ def compute_slice_axis_aligned_grid_geometry(
     slice_world_dim: str,
     *,
     slice_axis_grid: SliceAxisGrid | None = None,
+    resample_in_plane: bool = False,
 ) -> tuple[
     npt.NDArray[np.float64],
     Mapping[Hashable, int],
@@ -375,21 +376,24 @@ def compute_slice_axis_aligned_grid_geometry(
     Mapping[Hashable, float],
     SliceAxisGrid,
 ]:
-    """Compute a `resample_volume` target grid that aligns only `slice_world_dim`.
+    """Compute a `resample_volume` target grid that aligns `slice_world_dim`.
 
-    Unlike `compute_oblique_axis_aligned_grid_geometry` (which aligns all 3 world
-    axes to the global frame), this only forces `slice_world_dim` to a fixed
-    global direction and regular spacing -- required so `match_coordinates` can
-    line up panels of the same physical slice across independently-resampled
-    volumes (`slice_axis_grid`, shared across those calls). The other two output
-    axes keep `data`'s own native directions and spacing: an orthonormal basis
-    derived from `data`'s two remaining voxel columns via Gram-Schmidt, fixed
-    against the slice axis's global direction. For axis-aligned `data` this
-    reduces to the identity direction with `data`'s own native in-plane spacing,
-    same as today's whole-grid alignment; the difference only shows for oblique
-    data (in-plane rotation preserved instead of forced upright) or when two
-    volumes sharing `slice_axis_grid` have different native in-plane resolutions
-    (neither gets downsampled to match the other).
+    Unlike `compute_oblique_axis_aligned_grid_geometry` (which always aligns all 3
+    world axes to the global frame), this forces only `slice_world_dim` to a
+    fixed global direction and regular spacing by default -- required so
+    `match_coordinates` can line up panels of the same physical slice across
+    independently-resampled volumes (`slice_axis_grid`, shared across those
+    calls). The other two output axes keep `data`'s own native directions and
+    spacing: an orthonormal basis derived from `data`'s two remaining voxel
+    columns via Gram-Schmidt, fixed against the slice axis's global direction.
+    For axis-aligned `data` this reduces to the identity direction with `data`'s
+    own native in-plane spacing, same as today's whole-grid alignment; the
+    difference only shows for oblique data (in-plane rotation preserved instead
+    of forced upright) or when two volumes sharing `slice_axis_grid` have
+    different native in-plane resolutions (neither gets downsampled to match the
+    other). `resample_in_plane=True` instead forces all 3 axes to the global frame
+    (see its own parameter doc), trading that resolution/geometry preservation
+    for entirely rectangular output cells.
 
     Parameters
     ----------
@@ -402,6 +406,19 @@ def compute_slice_axis_aligned_grid_geometry(
         earlier call on the same plotter. If not provided, derived from `data`'s
         own extent along `slice_world_dim` and returned for the caller to reuse
         on subsequent volumes.
+    resample_in_plane : bool, default: False
+        Whether to also force the two in-plane axes onto the global frame
+        (identity direction), like the slice axis, instead of `data`'s own
+        native in-plane directions. Entirely rectangular output cells either
+        way, but oblique in-plane data now requires a real interpolation for
+        those two axes too (their own native resolution is still used, via the
+        same QR-based per-axis spacing `compute_oblique_axis_aligned_grid_geometry`
+        derives, just now along global instead of native directions) --
+        genuinely different geometry from the default (non-rectangular native
+        cells, no interpolation beyond the slice axis). Useful to avoid
+        alpha-blended pcolormesh's per-cell seam rendering artifact on oblique
+        (non-rectangular) cells (see design/world-mode-resample-scoping.md,
+        Design D), at the cost of that geometry fidelity.
 
     Returns
     -------
@@ -424,8 +441,9 @@ def compute_slice_axis_aligned_grid_geometry(
     ------
     ValueError
         If `data` does not carry voxel-to-world geometry, if its geometry is
-        pose-dependent, or if the two remaining voxel columns are degenerate
-        (collinear with the slice axis or each other) once orthogonalized.
+        pose-dependent, or (`resample_in_plane=False` only) if the two remaining
+        voxel columns are degenerate (collinear with the slice axis or each
+        other) once orthogonalized.
     """
     affine = require_scalar_pose_affine(
         data, "Slice-axis-aligned resampling for display"
@@ -436,36 +454,61 @@ def compute_slice_axis_aligned_grid_geometry(
     slice_row = world_dims.index(slice_world_dim)
     linear = affine[:3, :3]
 
-    dominant_idx = int(np.argmax(np.abs(linear[slice_row])))
-    in_plane_indices = [i for i in range(3) if i != dominant_idx]
+    if resample_in_plane:
+        # Same per-world-axis spacing heuristic as
+        # compute_oblique_axis_aligned_grid_geometry's Notes (nilearn's
+        # reorder_img): the scale of whichever orthonormal QR basis vector each
+        # world row is most aligned to -- but keyed by row here (not `world_dims`
+        # order) since the slice row needs picking out first.
+        q_basis, r_scale = np.linalg.qr(linear)
+        row_to_axis = np.abs(q_basis).argmax(axis=1)
+        qr_axis_spacing = np.abs(np.diag(r_scale))
+        output_direction = np.eye(3)
+        in_plane_rows = [row for row in range(3) if row != slice_row]
+        in_plane_spacing = [
+            float(qr_axis_spacing[row_to_axis[row]]) for row in in_plane_rows
+        ]
+        slice_axis_spacing_default = float(qr_axis_spacing[row_to_axis[slice_row]])
+    else:
+        dominant_idx = int(np.argmax(np.abs(linear[slice_row])))
+        in_plane_indices = [i for i in range(3) if i != dominant_idx]
 
-    e_slice = np.zeros(3)
-    e_slice[slice_row] = 1.0
+        e_slice = np.zeros(3)
+        e_slice[slice_row] = 1.0
 
-    basis = [e_slice]
-    in_plane_spacing: list[float] = []
-    for idx in in_plane_indices:
-        vector = linear[:, idx].astype(np.float64)
-        for existing in basis:
-            vector = vector - (vector @ existing) * existing
-        norm = np.linalg.norm(vector)
-        if np.isclose(norm, 0.0):
+        basis = [e_slice]
+        in_plane_spacing = []
+        for idx in in_plane_indices:
+            vector = linear[:, idx].astype(np.float64)
+            for existing in basis:
+                vector = vector - (vector @ existing) * existing
+            norm = np.linalg.norm(vector)
+            if np.isclose(norm, 0.0):
+                raise ValueError(
+                    f"Cannot align {slice_world_dim!r} for display: voxel "
+                    f"dimension {voxel_dims[idx]!r} has no component left once "
+                    "orthogonalized against the other in-plane axis -- the "
+                    "geometry is degenerate."
+                )
+            basis.append(vector / norm)
+            dim_spacing = voxel_spacing[voxel_dims[idx]]
+            if dim_spacing is None:
+                raise ValueError(
+                    f"Cannot align {slice_world_dim!r} for display: voxel "
+                    f"dimension {voxel_dims[idx]!r} has no well-defined spacing "
+                    "(irregularly spaced coordinates)."
+                )
+            in_plane_spacing.append(dim_spacing)
+
+        output_direction = np.stack(basis, axis=1)  # columns = output k, j, i
+        slice_dim_spacing = voxel_spacing[voxel_dims[dominant_idx]]
+        if slice_dim_spacing is None:
             raise ValueError(
                 f"Cannot align {slice_world_dim!r} for display: voxel dimension "
-                f"{voxel_dims[idx]!r} has no component left once orthogonalized "
-                "against the other in-plane axis -- the geometry is degenerate."
+                f"{voxel_dims[dominant_idx]!r} has no well-defined spacing "
+                "(irregularly spaced coordinates)."
             )
-        basis.append(vector / norm)
-        dim_spacing = voxel_spacing[voxel_dims[idx]]
-        if dim_spacing is None:
-            raise ValueError(
-                f"Cannot align {slice_world_dim!r} for display: voxel dimension "
-                f"{voxel_dims[idx]!r} has no well-defined spacing (irregularly "
-                "spaced coordinates)."
-            )
-        in_plane_spacing.append(dim_spacing)
-
-    output_direction = np.stack(basis, axis=1)  # columns = output k, j, i
+        slice_axis_spacing_default = slice_dim_spacing
 
     # World positions of every sampled voxel, projected onto the new basis, to
     # find each output axis's extent -- cheap array evaluation (the lazy index's
@@ -484,14 +527,7 @@ def compute_slice_axis_aligned_grid_geometry(
         slice_origin = slice_axis_grid.origin
         slice_count = slice_axis_grid.count
     else:
-        slice_dim_spacing = voxel_spacing[voxel_dims[dominant_idx]]
-        if slice_dim_spacing is None:
-            raise ValueError(
-                f"Cannot align {slice_world_dim!r} for display: voxel dimension "
-                f"{voxel_dims[dominant_idx]!r} has no well-defined spacing "
-                "(irregularly spaced coordinates)."
-            )
-        slice_spacing = slice_dim_spacing
+        slice_spacing = slice_axis_spacing_default
         slice_origin = float(projected[0].min())
         n_steps = (float(projected[0].max()) - slice_origin) / slice_spacing
         slice_count = np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1
@@ -528,10 +564,11 @@ def resample_slice_axis_aligned_world_grid(
     slice_world_dim: str,
     *,
     slice_axis_grid: SliceAxisGrid | None = None,
+    resample_in_plane: bool = False,
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float | None = None,
 ) -> tuple[xr.DataArray, SliceAxisGrid | None]:
-    """Resample `data` so only `slice_world_dim` is axis-aligned, for display.
+    """Resample `data` so `slice_world_dim` is axis-aligned, for display.
 
     See `compute_slice_axis_aligned_grid_geometry` for the geometry this builds
     on `resample_volume` with. A no-op (returns `data` unchanged) when `data`
@@ -547,6 +584,12 @@ def resample_slice_axis_aligned_world_grid(
         Shared spacing/origin/count for `slice_world_dim`, established by an
         earlier call on the same plotter. If not provided, derived from `data`'s
         own extent and returned for the caller to reuse on subsequent volumes.
+    resample_in_plane : bool, default: False
+        Whether to also force the two in-plane axes onto the global frame
+        (`compute_slice_axis_aligned_grid_geometry`'s `resample_in_plane`) instead
+        of `data`'s own native in-plane directions -- entirely rectangular
+        output cells, at the cost of geometry/resolution fidelity for oblique
+        in-plane data (see design/world-mode-resample-scoping.md, Design D).
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling. Use `"nearest"` for
         label/mask data, where blending distinct integer labels together is
@@ -559,14 +602,13 @@ def resample_slice_axis_aligned_world_grid(
     Returns
     -------
     result : xarray.DataArray
-        `data` resampled so `slice_world_dim` is axis-aligned and (if
-        `slice_axis_grid` was provided) matches its shared spacing/origin/count;
-        the two in-plane axes keep `data`'s own native spacing and orientation.
-        `data` unchanged if it carries no voxel-to-world geometry, or if it's
-        already fully axis-aligned (nothing to fix, and matplotlib only needs
-        matching world coordinates to overlay correctly, not a matching pixel
-        grid -- see `resample_to_axis_aligned_world_grid`'s identical
-        short-circuit).
+        `data` resampled so `slice_world_dim` (and, if `resample_in_plane`, the two
+        in-plane axes too) is axis-aligned and (if `slice_axis_grid` was
+        provided) matches its shared spacing/origin/count. `data` unchanged if
+        it carries no voxel-to-world geometry, or if it's already fully
+        axis-aligned (nothing to fix, and matplotlib only needs matching world
+        coordinates to overlay correctly, not a matching pixel grid -- see
+        `resample_to_axis_aligned_world_grid`'s identical short-circuit).
     slice_axis_grid : SliceAxisGrid or None
         `slice_axis_grid` unchanged if provided, or the one just established
         from `data`'s own geometry otherwise -- even when `data` was already
@@ -588,7 +630,10 @@ def resample_slice_axis_aligned_world_grid(
 
     direction, sizes, spacing, origin, established_grid = (
         compute_slice_axis_aligned_grid_geometry(
-            data, slice_world_dim, slice_axis_grid=slice_axis_grid
+            data,
+            slice_world_dim,
+            slice_axis_grid=slice_axis_grid,
+            resample_in_plane=resample_in_plane,
         )
     )
     result = resample_volume(
