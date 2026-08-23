@@ -127,11 +127,15 @@ Current development version for the next ConfUSIus release.
   exactly; `load_nifti` composes the full primary qform/sform affine into
   `voxel_to_world` instead of decomposing it into axis-aligned scale/origin
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
-- `plot_volume` (and napari layers) can now slice along either native voxel
-  planes (`k`/`j`/`i`) or world planes (`z`/`y`/`x`), resampling onto an
-  axis-aligned display grid only when slicing by world plane and only for
-  oblique data; `slice_mode="pose"` facets a multi-pose array over its poses
-  with world-coordinate axis labels
+- `plot_volume` (and napari layers) always displays in world space, like
+  nilearn: an axis-aligned world plane (`z`/`y`/`x`), a non-spatial dim (e.g.
+  `slice_mode="pose"` facets a multi-pose array over its poses), or, for
+  oblique data, a projection onto the world axes at full native resolution
+  with no interpolation. `resample_in_plane=True` (`add_volume`,
+  `add_contours`, `plot_volume`, `plot_composite`, `plot_stat_map`) opts into
+  a real in-plane resample instead, trading resolution for entirely
+  rectangular output cells; `transpose=True` swaps which display dim is drawn
+  on rows versus columns
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 - Added [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] to canonicalize
   and validate VoxelData inputs with one call, and added

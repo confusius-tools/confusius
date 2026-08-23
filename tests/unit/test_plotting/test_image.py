@@ -133,10 +133,9 @@ class TestPlotVolume:
         assert "mm" in axes[0].get_xlabel()
         assert "mm" in axes[0].get_ylabel()
 
-    def test_slice_mode_voxel_dim_labels_pose_axis_without_units(
-        self, matplotlib_pyplot
-    ):
-        """Faceting over a voxel dim labels the `pose` axis plainly, without "mm".
+    def test_non_spatial_facet_labels_pose_axis_without_units(self, matplotlib_pyplot):
+        """Faceting over a non-spatial dim labels the `pose` axis plainly, without
+        "mm", when `pose` remains one of the panel's own display axes.
 
         Regression: `pose` isn't a world-space axis (it has no `units`), but
         `_build_axis_label` labeled *any* axis "(mm)" whenever the array carried
@@ -144,35 +143,17 @@ class TestPlotVolume:
         actually being labeled.
         """
         npose = 3
-        affine = np.stack(
-            [
-                np.diag([0.2, 0.1, 0.05, 1.0]),
-                np.array(
-                    [
-                        [0.2, 0.0, 0.0, 1.0],
-                        [0.0, 0.1, 0.0, 0.0],
-                        [0.0, 0.0, 0.05, 0.0],
-                        [0.0, 0.0, 0.0, 1.0],
-                    ]
-                ),
-                np.array(
-                    [
-                        [0.2, 0.0, 0.0, 2.0],
-                        [0.0, 0.1, 0.0, 0.0],
-                        [0.0, 0.0, 0.05, 0.0],
-                        [0.0, 0.0, 0.0, 1.0],
-                    ]
-                ),
-            ]
-        )
+        affine = np.diag([0.2, 0.1, 0.05, 1.0])
         data = create_voxeldata(
             np.random.default_rng(0).random((npose, 1, 6, 8)),
             dims=("pose", "k", "j", "i"),
             pose=np.arange(npose),
             voxel_to_world=affine,
-        )
+        ).isel(k=0, i=0).expand_dims(region=["r0"])
 
-        plotter = plot_volume(data.isel(k=0), slice_mode="i", show_colorbar=False)
+        plotter = plot_volume(
+            data, slice_mode="region", slice_coords=["r0"], show_colorbar=False
+        )
 
         axes = _axes(plotter).ravel()
         assert "mm" in axes[0].get_xlabel()
@@ -656,28 +637,6 @@ class TestPlotVolume:
         with pytest.raises(ValueError, match="non-collinear plane axes"):
             _slice_edges_and_centers(data.isel(k=0), "j", "i")
 
-    def test_voxel_to_world_volume_uses_projected_plane_coordinates(
-        self, matplotlib_pyplot, sample_voxeldata_3d_oblique
-    ):
-        """Voxel-to-world volumes plot native planes in projected in-plane coords."""
-        data = sample_voxeldata_3d_oblique
-        plotter = plot_volume(
-            data,
-            slice_mode="k",
-            slice_coords=[0],
-            show_colorbar=False,
-        )
-
-        ax = _axes(plotter)[0, 0]
-        quadmesh = ax.collections[0]
-        assert quadmesh.get_coordinates().shape == (
-            data.sizes["j"] + 1,
-            data.sizes["i"] + 1,
-            2,
-        )
-        assert ax.get_xlabel() == "i in-plane (mm)"
-        assert ax.get_ylabel() == "j in-plane (mm)"
-
     def test_voxel_to_world_volume_resamples_for_world_slice_mode(
         self, matplotlib_pyplot, sample_voxeldata_3d_oblique
     ):
@@ -687,12 +646,11 @@ class TestPlotVolume:
         axis-aligned resampling, only `slice_mode`'s own world axis is regularized
         for cross-volume position matching -- the two in-plane axes keep the
         volume's own native (here, oblique) resolution, no interpolation, so cells
-        render as true, possibly non-rectangular, world-space quads. But unlike
-        `slice_mode="k"/"j"/"i"` voxel-space slicing, `"world"` display projects
-        onto a *fixed global* basis (Design C), not one derived from this volume's
-        own affine, so two independently oriented volumes overlaid at the same z
-        still align correctly -- hence proper world axis labels (`"y"`/`"x"`), not
-        `"j"/"i" in-plane`.
+        render as true, possibly non-rectangular, world-space quads. Display always
+        projects onto a *fixed global* basis (Design C), not one derived from this
+        volume's own affine, so two independently oriented volumes overlaid at the
+        same z still align correctly -- hence proper world axis labels
+        (`"y"`/`"x"`).
         """
         data = sample_voxeldata_3d_oblique
         z_coord = float(np.asarray(_world_coord_1d(data, "z"), dtype=float).mean())
@@ -940,9 +898,9 @@ class TestVolumePlotterAddVolume:
         Design: design/world-mode-resample-scoping.md, Design C. Two volumes
         sharing the same slice axis (z) but with different in-plane rotations must
         land at their own true, differing world positions when both are displayed
-        with slice_mode="z" (slice_space="world" is implied) -- not at identical
-        display coordinates, which is what a per-volume-derived projection basis
-        (Design B's original mistake) would silently produce, hiding the rotation.
+        with slice_mode="z" -- not at identical display coordinates, which is what
+        a per-volume-derived projection basis (Design B's original mistake) would
+        silently produce, hiding the rotation.
         """
         straight = create_voxeldata(
             np.arange(3 * 5 * 5.0).reshape(3, 5, 5),
@@ -1327,60 +1285,14 @@ class TestNonNumericSliceMode:
         assert titles == [f"region = {region}" for region in regions]
 
 
-class TestTransposeAndSliceSpace:
-    """Tests for `transpose` and `slice_space` with a non-spatial `slice_mode`."""
+class TestTranspose:
+    """Tests for `transpose` and world-space display with a non-spatial `slice_mode`."""
 
-    def test_slice_space_raises_for_conflicting_spatial_slice_mode(self):
-        """`slice_space` conflicting with what a spatial `slice_mode` already
-        forces (world for z/y/x, voxel for k/j/i) raises."""
-        with pytest.raises(ValueError, match="slice_space"):
-            VolumePlotter(slice_mode="z", slice_space="voxel")
-        with pytest.raises(ValueError, match="slice_space"):
-            VolumePlotter(slice_mode="k", slice_space="world")
-
-    def test_slice_space_invalid_value_raises(self):
-        """An unrecognized `slice_space` (e.g. a typo like "voxels") must raise,
-        even for a non-spatial slice_mode where the spatial-mismatch check doesn't
-        apply -- silently accepting it would make it behave like "voxel" (since
-        every consumer only special-cases `== "world"`), masking the typo."""
-        with pytest.raises(ValueError, match="slice_space"):
-            VolumePlotter(
-                slice_mode="region",
-                slice_space="voxels",  # ty: ignore[invalid-argument-type]
-            )
-
-    def test_slice_space_matching_spatial_slice_mode_is_allowed(self):
-        """`slice_space` matching what `slice_mode` already implies is redundant
-        but not an error."""
-        VolumePlotter(slice_mode="z", slice_space="world")
-        VolumePlotter(slice_mode="k", slice_space="voxel")
-
-    def test_slice_space_voxel_keeps_native_voxel_dims(
+    def test_non_spatial_slice_mode_renders_on_world_dims(
         self, make_region_voxeldata, matplotlib_pyplot
     ):
-        """`slice_space="voxel"` keeps panels on native `j`/`i` dims, unresampled."""
-        data = make_region_voxeldata(
-            values=np.arange(2 * 1 * 6 * 8).reshape(2, 1, 6, 8)
-        )
-        plotter = plot_volume(
-            data,
-            slice_mode="region",
-            slice_space="voxel",
-            slice_coords=["a"],
-            show_colorbar=False,
-        )
-
-        ax = _axes(plotter)[0, 0]
-        assert ax.get_xlabel() == "i in-plane (mm)"
-        assert ax.get_ylabel() == "j in-plane (mm)"
-        expected = data.sel(region="a").isel(k=0).transpose("j", "i").values
-        npt.assert_array_equal(ax.collections[0].get_array().data, expected)
-
-    def test_slice_space_world_default_renames_to_world_dims(
-        self, make_region_voxeldata, matplotlib_pyplot
-    ):
-        """`slice_space=None` defaults to `"world"`: panels are exposed on world
-        `y`/`x` dims, same as `slice_mode="z"`/`"y"`/`"x"` already does."""
+        """A non-spatial `slice_mode` always displays in world space: panels are
+        exposed on world `y`/`x` dims, same as `slice_mode="z"`/`"y"`/`"x"`."""
         data = make_region_voxeldata(
             values=np.arange(2 * 1 * 6 * 8).reshape(2, 1, 6, 8)
         )
@@ -1392,14 +1304,12 @@ class TestTransposeAndSliceSpace:
         assert ax.get_xlabel() == "x (mm)"
         assert ax.get_ylabel() == "y (mm)"
 
-    def test_slice_space_world_oblique_non_flat_panel_raises(
-        self, sample_voxeldata_3d_oblique
-    ):
+    def test_oblique_non_flat_panel_raises(self, sample_voxeldata_3d_oblique):
         """A single-slice panel that is oblique to all 3 world axes has no
         well-defined 2D display once resampled onto an axis-aligned world grid
         (its extent spreads across more than one voxel along every world axis), so
-        `slice_space="world"` must raise instead of guessing a thickness -- and
-        must do so before running the (wasted) actual interpolation."""
+        world display must raise instead of guessing a thickness -- and must do so
+        before running the (wasted) actual interpolation."""
         data = sample_voxeldata_3d_oblique.isel(k=[0]).expand_dims(region=["a", "b"])
         with pytest.raises(ValueError, match="would not collapse to a 2D plane"):
             plot_volume(
@@ -1445,49 +1355,6 @@ class TestTransposeAndSliceSpace:
         assert calls["data"] == 1
         assert calls["mask"] == 1
 
-    def test_slice_space_voxel_and_world_agree_for_axis_aligned_geometry(
-        self, make_region_voxeldata, matplotlib_pyplot
-    ):
-        """For axis-aligned (identity-direction) geometry, `slice_space="voxel"`
-        and `"world"` are just two equivalent representations of the same
-        underlying affine -- they must draw the image and any overlaid contours
-        at the exact same position.
-
-        Regression: `_project_voxel_to_world_plane` ("voxel" mode's projected
-        display) anchored its output to a per-call, grid-relative origin instead
-        of the true affine-derived world position, silently disagreeing with
-        "world" mode's absolute coordinates by up to half a voxel spacing even
-        for identity-direction data.
-        """
-        values = np.arange(2 * 1 * 6 * 8).reshape(2, 1, 6, 8)
-        data = make_region_voxeldata(values=values)
-        mask_data = np.zeros(data.shape, dtype=int)
-        mask_data[0, 0, 2:4, 3:6] = 1
-        mask = data.copy(data=mask_data)
-
-        results = {}
-        for slice_space in ("voxel", "world"):
-            plotter = plot_volume(
-                data,
-                slice_mode="region",
-                slice_space=slice_space,
-                slice_coords=["a"],
-                show_colorbar=False,
-            )
-            plotter.add_contours(mask, slice_coords=["a"])
-            ax = _axes(plotter)[0, 0]
-            xs = np.concatenate([line.get_xdata() for line in ax.lines])
-            ys = np.concatenate([line.get_ydata() for line in ax.lines])
-            results[slice_space] = {
-                "xlim": ax.get_xlim(),
-                "ylim": ax.get_ylim(),
-                "contour_x": (xs.min(), xs.max()),
-                "contour_y": (ys.min(), ys.max()),
-            }
-
-        for key in ("xlim", "ylim", "contour_x", "contour_y"):
-            npt.assert_allclose(results["voxel"][key], results["world"][key])
-
     def test_transpose_swaps_row_and_column_display_dims(
         self, make_region_voxeldata, matplotlib_pyplot
     ):
@@ -1498,15 +1365,14 @@ class TestTransposeAndSliceSpace:
         plotter = plot_volume(
             data,
             slice_mode="region",
-            slice_space="voxel",
             transpose=True,
             slice_coords=["a"],
             show_colorbar=False,
         )
 
         ax = _axes(plotter)[0, 0]
-        assert ax.get_xlabel() == "j in-plane (mm)"
-        assert ax.get_ylabel() == "i in-plane (mm)"
+        assert ax.get_xlabel() == "y (mm)"
+        assert ax.get_ylabel() == "x (mm)"
         expected = data.sel(region="a").isel(k=0).transpose("i", "j").values
         npt.assert_array_equal(ax.collections[0].get_array().data, expected)
 
@@ -1722,8 +1588,8 @@ class TestVolumePlotterAddContours:
     def test_world_resample_preserves_each_panels_own_resolution(self):
         """Design: design/world-mode-resample-scoping.md, Design A.
 
-        Each panel resampled under slice_space="world" for a non-spatial
-        slice_mode must keep its own native resolution, never get forced onto
+        Each panel displayed in world space for a non-spatial slice_mode must
+        keep its own native resolution, never get forced onto
         another panel's grid via a shared reference.
 
         Regression: `self._world_grid_reference` used to get set from the
@@ -1751,65 +1617,6 @@ class TestVolumePlotterAddContours:
 
         assert resampled_coarse.shape == (30, 42)
         assert resampled_fine.shape == (90, 126)
-
-    def test_add_contours_slice_space_voxel_lands_within_axes_limits(
-        self, matplotlib_pyplot
-    ):
-        """A mask overlaid with `slice_space="voxel"` must land at the exact same
-        display position `add_volume`'s own pcolormesh draws, even when the
-        background volume has a different native voxel resolution than the
-        overlaid stat map/mask (same real-world scenario `plot_stat_map` +
-        `add_contours` is used for: a coarser-resolution stat map/seed mask over a
-        finer-resolution anatomical background).
-
-        Regression: even in "voxel" mode, a panel is still drawn at its true world
-        position via `_project_voxel_to_world_plane` (never literal voxel-index
-        position) -- but `add_contours` computed contour vertex positions with its
-        own separate, purely rectilinear coordinate lookup (`slice_da.coords[dim]`
-        treated as a flat per-axis LUT), which only happens to be correct once
-        that lookup *is* the real display coordinate (the fully materialized
-        "world" case). Under "voxel" mode the lookup returned raw, unscaled voxel
-        indices while the image itself was drawn in mm -- contours landed
-        completely outside the axes' actual (mm-scaled) view, never visible.
-        """
-        rng = np.random.default_rng(0)
-        regions = ["a", "b"]
-        # stat_map/mask share one native grid (10x14); bg is a different, finer
-        # native grid (30x42) covering the identical physical extent.
-        stat_map = create_voxeldata(
-            rng.random((len(regions), 1, 10, 14)),
-            dims=("region", "k", "j", "i"),
-            voxel_to_world=np.diag([0.2, 0.3, 0.3, 1.0]),
-        ).assign_coords(region=regions)
-        bg = create_voxeldata(
-            rng.random((1, 30, 42)),
-            dims=("k", "j", "i"),
-            voxel_to_world=np.diag([0.2, 0.1, 0.1, 1.0]),
-        )
-        bg_by_region = bg.expand_dims(region=regions)
-
-        mask_data = np.zeros(stat_map.shape, dtype=int)
-        mask_data[0, 0, 3:6, 3:6] = 1
-        mask_data[1, 0, 3:6, 3:6] = 2
-        seed_masks = stat_map.copy(data=mask_data)
-
-        plotter = plot_stat_map(
-            stat_map,
-            bg_volume=bg_by_region,
-            slice_mode="region",
-            slice_space="voxel",
-            show_colorbar=False,
-        )
-        plotter.add_contours(seed_masks)
-
-        axes = _axes(plotter).ravel()
-        for ax in axes[: len(regions)]:
-            assert ax.lines, "contour should have been drawn"
-            xlim, ylim = sorted(ax.get_xlim()), sorted(ax.get_ylim())
-            for line in ax.lines:
-                xdata, ydata = line.get_xdata(), line.get_ydata()
-                assert xdata.min() >= xlim[0] and xdata.max() <= xlim[1]
-                assert ydata.min() >= ylim[0] and ydata.max() <= ylim[1]
 
     def test_add_contours_string_rgb_lookup_keys(
         self, sample_voxeldata_3d, matplotlib_pyplot

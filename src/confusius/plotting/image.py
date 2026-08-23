@@ -103,8 +103,7 @@ def _bilinear_interpolate_grid(
     `VolumePlotter.add_contours` to map contour vertices (produced in fractional
     pixel-index space by `skimage.measure.find_contours`) onto the exact same
     display geometry `pcolormesh` draws, whether that's a simple per-axis lookup
-    (rectilinear/materialized data) or this affine projection (oblique data, or
-    axis-aligned data displayed on native voxel dims via `slice_space="voxel"`).
+    (rectilinear/materialized data) or this affine projection (oblique data).
     Since the underlying transform is affine (linear), this is an exact
     evaluation, not an approximation.
     """
@@ -158,7 +157,6 @@ def _validate_voxel_to_world_slice_mode(data: xr.DataArray, slice_mode: str) -> 
     valid_slice_modes = tuple(
         str(dim) for dim in data.dims if str(dim) not in {"time", *VOXEL_DIMS}
     )
-    valid_slice_modes += tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
     valid_slice_modes += tuple(
         dim
         for dim in get_voxel_to_world_coord_names(data)
@@ -168,9 +166,9 @@ def _validate_voxel_to_world_slice_mode(data: xr.DataArray, slice_mode: str) -> 
         valid_slice_modes += (POSE_DIM,)
     if slice_mode not in valid_slice_modes:
         raise ValueError(
-            "Voxel-to-world plotting supports only native voxel-plane slicing, "
-            "world z/y/x slicing, or pose slicing, got "
-            f"slice_mode={slice_mode!r}. Supported modes: {valid_slice_modes!r}."
+            "Voxel-to-world plotting supports only world z/y/x slicing or pose "
+            f"slicing, got slice_mode={slice_mode!r}. Supported modes: "
+            f"{valid_slice_modes!r}."
         )
     spatial_dims = [dim for dim in data.dims if dim in {"k", "j", "i"}]
     if slice_mode in {"z", "y", "x"} and len(spatial_dims) != 3:
@@ -180,26 +178,8 @@ def _validate_voxel_to_world_slice_mode(data: xr.DataArray, slice_mode: str) -> 
 
 
 def _is_spatial_slice_mode(slice_mode: str) -> bool:
-    """Return whether `slice_mode` names a spatial dim (native voxel or world axis)."""
-    return slice_mode in VOXEL_DIMS or slice_mode in {"z", "y", "x"}
-
-
-def _implied_slice_space(slice_mode: str) -> Literal["voxel", "world"] | None:
-    """Return the display space a spatial `slice_mode` forces, or `None` if it doesn't.
-
-    A native voxel `slice_mode` (`k`/`j`/`i`) forces `"voxel"`: it never triggers a
-    resample, and the eager whole-array rename in `_prepare_slice_inputs` is always
-    discarded for it (the renamed dim no longer matches `self.slice_mode`). A world
-    `slice_mode` (`z`/`y`/`x`) forces `"world"`: slicing by a world coordinate is only
-    meaningful once the data is resampled onto a regular axis-aligned grid along that
-    axis. A non-spatial `slice_mode` (time/pose/an extra dim) doesn't force
-    either -- `slice_space` is free to pick.
-    """
-    if slice_mode in VOXEL_DIMS:
-        return "voxel"
-    if slice_mode in {"z", "y", "x"}:
-        return "world"
-    return None
+    """Return whether `slice_mode` names a world spatial axis (`z`/`y`/`x`)."""
+    return slice_mode in {"z", "y", "x"}
 
 
 def _get_voxel_to_world_dim_order(slice_da: xr.DataArray) -> tuple[str, ...]:
@@ -323,7 +303,7 @@ def _project_voxel_to_world_plane(
         # `pcolormesh`'s edges-based geometry with centers-based interpolation for
         # the same slice -- a per-call, grid-relative origin used to zero each grid
         # at its own first element, introducing a systematic half-pixel offset
-        # between the two); and this frame matches `slice_space="world"`'s
+        # between the two); and this frame matches the fixed-global-basis
         # absolute, affine-derived world coordinates for the same underlying data,
         # since dotting an unshifted world position onto a unit basis vector is
         # exactly that vector's world-space component (only subtracting a nonzero
@@ -871,10 +851,10 @@ class VolumePlotter:
         Whether the x-axis increases to the right.
     resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used whenever a spatial `slice_mode` (`"z"`/`"y"`/`"x"`)
-        resamples oblique voxel-to-world data to align its slice axis for display
-        (`slice_space="world"`'s in-plane display for a non-spatial `slice_mode` is
-        a fixed-global-basis *projection* instead, with no interpolation to
-        configure -- see `slice_space`). Applies to
+        resamples oblique voxel-to-world data to align its slice axis for display.
+        A non-spatial `slice_mode`'s in-plane display is a fixed-global-basis
+        *projection* instead, with no interpolation to configure (see
+        `resample_in_plane` to opt into one). Applies to
         [`add_volume`][confusius.plotting.VolumePlotter.add_volume]; mask data passed
         to [`add_contours`][confusius.plotting.VolumePlotter.add_contours] always
         resamples with `"nearest"` regardless of this setting, since blending
@@ -886,27 +866,6 @@ class VolumePlotter:
         [`resample_volume`][confusius.registration.resample_volume]).
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
-    slice_space : {"voxel", "world"}, optional
-        Display geometry for panels faceted along a non-spatial `slice_mode` (e.g.
-        `"time"`, `"pose"`, or a decomposition/atlas-region dim). `"voxel"` renders
-        each panel's native voxel grid, projected onto an in-plane basis derived
-        from that panel's own affine columns: cells stay rectangular as long as the
-        two displayed voxel axes remain mutually orthogonal in world space (true
-        for the common rotation-plus-anisotropic-spacing case), and become
-        non-rectangular (parallelogram) only if those two axes are genuinely
-        sheared against each other -- but since the basis is per-panel, two
-        independently oriented volumes overlaid on the same axes aren't guaranteed
-        to align. `"world"` instead projects onto a *fixed global* basis (the same
-        world axes for every volume on this plotter, spatial `slice_mode` included)
-        -- cells can still be non-rectangular for oblique data, still no
-        interpolation or resolution loss, but now consistently comparable across
-        volumes: the same true world position always lands at the same display
-        coordinate, regardless of that volume's own native orientation. A spatial
-        `slice_mode` already determines its own display geometry (`"k"`/`"j"`/`"i"`
-        implies `"voxel"`, `"z"`/`"y"`/`"x"` implies `"world"`): passing a value
-        that conflicts with it raises, and passing the matching value is redundant
-        but allowed. If not provided, defaults to what `slice_mode` implies when
-        it's spatial, or to `"world"` for a non-spatial `slice_mode`.
 
     Attributes
     ----------
@@ -937,28 +896,9 @@ class VolumePlotter:
         resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
         resample_fill_value: float | None = None,
         transpose: bool = False,
-        slice_space: Literal["voxel", "world"] | None = None,
     ):
         self.slice_mode = slice_mode
-        implied_slice_space = _implied_slice_space(slice_mode)
-        if slice_space is not None and slice_space not in {"voxel", "world"}:
-            raise ValueError(
-                f"slice_space={slice_space!r} is not valid; must be 'voxel', "
-                "'world', or omitted."
-            )
-        if (
-            slice_space is not None
-            and implied_slice_space is not None
-            and slice_space != implied_slice_space
-        ):
-            raise ValueError(
-                f"slice_space={slice_space!r} conflicts with slice_mode={slice_mode!r}, "
-                f"which already forces slice_space={implied_slice_space!r}. Pass "
-                f"slice_space={implied_slice_space!r}, omit it, or pick a non-spatial "
-                "slice_mode to choose freely."
-            )
         self._transpose = transpose
-        self._slice_space = slice_space
         if axes is not None and not isinstance(axes, np.ndarray):
             axes = np.asarray([[axes]])
         self.axes = axes
@@ -986,18 +926,6 @@ class VolumePlotter:
         self._hover_manager = _HoverManager()
         self._slice_axis_grid: SliceAxisGrid | None = None
 
-    def _resolve_slice_space(self) -> Literal["voxel", "world"]:
-        """Resolve the effective `slice_space`.
-
-        An explicit value is always honored (already validated against
-        `slice_mode` in `__init__`). Otherwise: a spatial `slice_mode` (k/j/i/z/y/x)
-        resolves to whatever it implies (`_implied_slice_space`); a non-spatial
-        `slice_mode` defaults to `"world"`.
-        """
-        if self._slice_space is not None:
-            return self._slice_space
-        return _implied_slice_space(self.slice_mode) or "world"
-
     def _maybe_resample_slices_to_world(
         self,
         slices: list[xr.DataArray],
@@ -1005,12 +933,12 @@ class VolumePlotter:
         interpolation: Literal["linear", "nearest", "bspline"] | None = None,
         fill_value: float | None = None,
     ) -> list[xr.DataArray]:
-        """Regularize each panel for world-space display, per `slice_space`.
+        """Regularize each panel for world-space display.
 
         No-op when `slice_mode` is spatial (its own display geometry is resolved
-        upfront in `_prepare_slice_inputs`/`add_contours`) or `slice_space` resolves
-        to `"voxel"`. `match_coordinates` for a non-spatial `slice_mode` (the only
-        case this function ever runs for) matches panels by the facet's own
+        upfront in `_prepare_slice_inputs`/`add_contours`). `match_coordinates` for
+        a non-spatial `slice_mode` (the only case this function ever runs for)
+        matches panels by the facet's own
         coordinate value (e.g. a region label), never by grid position, so no axis
         needs sharing across volumes here. Contrast with `_prepare_slice_inputs`'s
         whole-array resample for spatial `slice_mode`, where the slice axis's
@@ -1049,13 +977,10 @@ class VolumePlotter:
         list of xarray.DataArray
             The input `slices`: renamed onto 1D `z`/`y`/`x` dims for already
             axis-aligned data, unchanged (native `k`/`j`/`i`, no interpolation) for
-            oblique data, unchanged for anything else (`slice_space="voxel"`, no
-            voxel-to-world geometry, ...).
+            oblique data, unchanged for anything else (no voxel-to-world geometry,
+            ...).
         """
-        if (
-            _is_spatial_slice_mode(self.slice_mode)
-            or self._resolve_slice_space() != "world"
-        ):
+        if _is_spatial_slice_mode(self.slice_mode):
             return slices
         interp = (
             self._resample_interpolation if interpolation is None else interpolation
@@ -1076,9 +1001,7 @@ class VolumePlotter:
                         "space would not collapse to a 2D plane (predicted shape "
                         f"{dict(zip(world_dims, shape, strict=True))}). This happens "
                         "when the panel's spatial geometry is oblique to the world "
-                        "axes and does not lie flat on any world plane. Use "
-                        'slice_space="voxel" to display this panel on its native, '
-                        "unresampled geometry instead."
+                        "axes and does not lie flat on any world plane."
                     )
                 resampled.append(slice_da)
                 continue
@@ -1106,12 +1029,11 @@ class VolumePlotter:
         """Resolve `(world_row, world_col)` for fixed-global-basis world display.
 
         `None, None` whenever the panel doesn't need (or can't use) a global basis:
-        `slice_space` isn't `"world"`, or the panel carries no oblique
-        voxel-to-world geometry left to project (axis-aligned data already gets
-        proper 1D `z`/`y`/`x` dims from `_maybe_resample_slices_to_world`'s
-        materialize step, so the plain-coordinate path in
-        `_slice_edges_and_centers` already labels/projects it correctly without
-        this).
+        it carries no oblique voxel-to-world geometry left to project
+        (axis-aligned data already gets proper 1D `z`/`y`/`x` dims from
+        `_maybe_resample_slices_to_world`'s materialize step, so the
+        plain-coordinate path in `_slice_edges_and_centers` already
+        labels/projects it correctly without this).
 
         See design/world-mode-resample-scoping.md, Design C: the *displayed* world
         axes are always the fixed global unit vectors for the two world dims other
@@ -1139,8 +1061,6 @@ class VolumePlotter:
         world_col : str or None
             World coordinate name for the display column axis, or `None`.
         """
-        if self._resolve_slice_space() != "world":
-            return None, None
         if _is_spatial_slice_mode(self.slice_mode):
             if not slices or not _has_plottable_voxel_to_world_index(slices[0]):
                 return None, None
@@ -1413,7 +1333,7 @@ class VolumePlotter:
         # `.compute()`d confound-regression/correlation result) would be
         # recomputed once per touch, and how many touches happen (hence how slow
         # plotting is) would depend on incidental code-path details like
-        # slice_mode/slice_space rather than on the data.
+        # slice_mode rather than on the data.
         data = data.compute()
         _validate_voxel_to_world_slice_mode(data, self.slice_mode)
         resolved_interpolation = (
@@ -1440,20 +1360,13 @@ class VolumePlotter:
             # axes): oblique in-plane geometry stays on k/j/i, its VoxelToWorldIndex
             # still resolving world coordinates directly for slicing/projection.
             data = _materialize_axis_aligned_world_grid_for_display(resampled_data)
-        elif self._resolve_slice_space() == "world":
+        else:
             # Reached for slice_mode="z"/"y"/"x" only when the whole-array resample
             # above no-opped (index not "plottable" -- an extra facet dim still
-            # present; caught by the ndim check below either way), and for a
-            # non-spatial slice_mode with slice_space="world". slice_mode="k"/"j"/"i"
-            # never reaches here: `_resolve_slice_space` resolves it to "voxel"
-            # (see `_implied_slice_space`), since the rename below would be
-            # discarded by the `self.slice_mode in converted.dims` check regardless
-            # (the renamed dim no longer matches a voxel-named slice_mode).
+            # present; caught by the ndim check below either way), and for any
+            # non-spatial slice_mode.
             converted = _materialize_axis_aligned_world_grid_for_display(data)
             data = converted if self.slice_mode in converted.dims else data
-        # else: slice_space is "voxel" -- keep data on its native k/j/i dims so
-        # panels render the projected voxel plane
-        # (`_project_voxel_to_world_plane`) instead of an eagerly world-renamed grid.
         # A single-index selection (e.g. data.sel(z=6)) drops slice_mode to a scalar
         # coordinate; promote it back to a size-1 dimension so it plots like data.sel(z=[6]).
         if self.slice_mode not in data.dims and _is_scalar_coord(data, self.slice_mode):
@@ -1718,8 +1631,8 @@ class VolumePlotter:
             design/world-mode-resample-scoping.md, Design D), at the cost of
             geometry/resolution fidelity. A per-call choice: unlike the slice
             axis's own discretization, not shared with other volumes on this
-            plotter. No effect for `"voxel"` `slice_space`, a non-spatial
-            `slice_mode`, or already axis-aligned `data`.
+            plotter. No effect for a non-spatial `slice_mode` or already
+            axis-aligned `data`.
         show_titles : bool, default: True
             Whether to display subplot titles.
         show_axis_labels : bool, default: True
@@ -2257,9 +2170,9 @@ class VolumePlotter:
               region_id}` and regions may overlap. The `region` coordinate of the
               output holds the `mask` coordinate values (e.g., region label).
 
-            Drawn on the same display geometry as the plotter's own data --
-            native voxel dims or an axis-aligned world grid, per the plotter's
-            `slice_space` (see [`VolumePlotter`][confusius.plotting.VolumePlotter]).
+            Drawn on the same display geometry as the plotter's own data -- world
+            space, projected or resampled as appropriate (see
+            [`VolumePlotter`][confusius.plotting.VolumePlotter]).
         colors : dict[int | str, str] or str, optional
             Color specification for contour lines.
 
@@ -2471,9 +2384,9 @@ class VolumePlotter:
 
             # Same geometry `add_volume` draws the underlying pcolormesh with (1D
             # rectilinear centers for materialized/world-space data, 2D projected
-            # centers for oblique data or a native-voxel-dims panel under
-            # `slice_space="voxel"`), so contour vertices land exactly on the pixels
-            # they outline instead of a separately reconstructed coordinate lookup.
+            # centers for oblique data), so contour vertices land exactly on the
+            # pixels they outline instead of a separately reconstructed coordinate
+            # lookup.
             x_edges, y_edges, x_centers, y_centers = _slice_edges_and_centers(
                 slice_da, dim_row, dim_col, world_row=world_row, world_col=world_col
             )
@@ -2516,7 +2429,7 @@ class VolumePlotter:
 
             # Hover only supports rectilinear (1D) coordinates, matching add_volume's
             # own `hover_x.ndim == 1 and hover_y.ndim == 1` guard -- a 2D projected
-            # grid (oblique data, or slice_space="voxel") has no hover support yet.
+            # grid (oblique data) has no hover support yet.
             if resolved_roi_labels and self.figure is not None and x_centers.ndim == 1:
                 self._attach_or_update_hover_manager(resolved_roi_labels)
                 self._hover_manager.register_data_to_axis(
@@ -2611,7 +2524,6 @@ def plot_contours(
     slice_mode: str = "z",
     slice_coords: list[Hashable] | None = None,
     transpose: bool = False,
-    slice_space: Literal["voxel", "world"] | None = None,
     fontsize: float | None = None,
     yincrease: bool = False,
     xincrease: bool = True,
@@ -2661,11 +2573,6 @@ def plot_contours(
         all coordinate values along `slice_mode` are used.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
-    slice_space : {"voxel", "world"}, optional
-        Display geometry for panels faceted along a non-spatial `slice_mode`. See
-        [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-        provided, defaults to what `slice_mode` implies when it's spatial, or to
-        `"world"` for a non-spatial `slice_mode`.
     fontsize : float, optional
         Base font size for text elements. Subplot titles use `fontsize` directly; axis
         labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If not provided,
@@ -2744,7 +2651,6 @@ def plot_contours(
         yincrease=yincrease,
         xincrease=xincrease,
         transpose=transpose,
-        slice_space=slice_space,
     )
 
     return plotter.add_contours(
@@ -2766,7 +2672,6 @@ def plot_volume(
     slice_coords: list[Hashable] | None = None,
     slice_mode: str = "z",
     transpose: bool = False,
-    slice_space: Literal["voxel", "world"] | None = None,
     cmap: "str | Colormap | None" = None,
     norm: "Normalize | None" = None,
     vmin: float | None = None,
@@ -2817,11 +2722,6 @@ def plot_volume(
         `"time"`). After slicing, each panel must be 2D.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
-    slice_space : {"voxel", "world"}, optional
-        Display geometry for panels faceted along a non-spatial `slice_mode`. See
-        [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-        provided, defaults to what `slice_mode` implies when it's spatial, or to
-        `"world"` for a non-spatial `slice_mode`.
     cmap : str or matplotlib.colors.Colormap, optional
         Colormap. When not provided, falls back to `data.attrs["cmap"]` if
         present, otherwise `"gray"`.
@@ -2982,7 +2882,6 @@ def plot_volume(
         resample_interpolation=resample_interpolation,
         resample_fill_value=resample_fill_value,
         transpose=transpose,
-        slice_space=slice_space,
     )
 
     return plotter.add_volume(
@@ -3024,7 +2923,6 @@ def plot_composite(
     slice_coords: Sequence[Hashable] | None = None,
     slice_mode: str = "z",
     transpose: bool = False,
-    slice_space: Literal["voxel", "world"] | None = None,
     alpha: "float | npt.NDArray[np.floating] | None" = None,
     show_titles: bool = True,
     show_axis_labels: bool = True,
@@ -3098,11 +2996,6 @@ def plot_composite(
         panel must be 2D.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
-    slice_space : {"voxel", "world"}, optional
-        Display geometry for panels faceted along a non-spatial `slice_mode`. See
-        [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-        provided, defaults to what `slice_mode` implies when it's spatial, or to
-        `"world"` for a non-spatial `slice_mode`.
     alpha : float or numpy.ndarray, optional
         Opacity of the composite image, either a single value or a per-voxel array
         matching the shape of the displayed slices. If not provided, the image is
@@ -3205,7 +3098,6 @@ def plot_composite(
         resample_interpolation=resample_interpolation,
         resample_fill_value=resample_fill_value,
         transpose=transpose,
-        slice_space=slice_space,
     )
 
     return plotter.add_composite(
@@ -3237,7 +3129,6 @@ def plot_stat_map(
     slice_coords: list[Hashable] | None = None,
     slice_mode: str = "z",
     transpose: bool = False,
-    slice_space: Literal["voxel", "world"] | None = None,
     bg_kwargs: "dict[str, Any] | None" = None,
     cmap: "str | Colormap | None" = None,
     norm: "Normalize | None" = None,
@@ -3300,11 +3191,6 @@ def plot_stat_map(
         slicing, each panel must be 2D.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
-    slice_space : {"voxel", "world"}, optional
-        Display geometry for panels faceted along a non-spatial `slice_mode`. See
-        [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-        provided, defaults to what `slice_mode` implies when it's spatial, or to
-        `"world"` for a non-spatial `slice_mode`.
     bg_kwargs : dict, optional
         Additional keyword arguments forwarded to
         [`plot_volume`][confusius.plotting.plot_volume] for the background layer
@@ -3505,7 +3391,6 @@ def plot_stat_map(
             resample_interpolation=resample_interpolation,
             resample_fill_value=resample_fill_value,
             transpose=transpose,
-            slice_space=slice_space,
             **(bg_kwargs or {}),
         )
     else:
@@ -3520,7 +3405,6 @@ def plot_stat_map(
             resample_interpolation=resample_interpolation,
             resample_fill_value=resample_fill_value,
             transpose=transpose,
-            slice_space=slice_space,
         )
 
     resolved_vmin, resolved_vmax, resolved_cmap = _resolve_stat_map_style(

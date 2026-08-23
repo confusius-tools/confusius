@@ -372,7 +372,6 @@ class FUSIPlotAccessor:
         slice_coords: list[Hashable] | None = None,
         slice_mode: str = "z",
         transpose: bool = False,
-        slice_space: Literal["voxel", "world"] | None = None,
         nrows: int | None = None,
         ncols: int | None = None,
         threshold: float | None = None,
@@ -416,11 +415,6 @@ class FUSIPlotAccessor:
             `"time"`). After slicing, each panel must be 2D.
         transpose : bool, default: False
             Whether to swap the row/column display dims of each slice panel.
-        slice_space : {"voxel", "world"}, optional
-            Display geometry for panels faceted along a non-spatial `slice_mode`. See
-            [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-            provided, defaults to what `slice_mode` implies when it's spatial, or to
-            `"world"` for a non-spatial `slice_mode`.
         nrows : int, optional
             Number of rows in the subplot grid. If not provided, computed
             automatically together with `ncols` to produce a near-square layout.
@@ -547,7 +541,6 @@ class FUSIPlotAccessor:
             slice_coords=slice_coords,
             slice_mode=slice_mode,
             transpose=transpose,
-            slice_space=slice_space,
             nrows=nrows,
             ncols=ncols,
             threshold=threshold,
@@ -584,7 +577,6 @@ class FUSIPlotAccessor:
         slice_mode: str = "z",
         slice_coords: list[Hashable] | None = None,
         transpose: bool = False,
-        slice_space: Literal["voxel", "world"] | None = None,
         fontsize: float | None = None,
         yincrease: bool = False,
         xincrease: bool = True,
@@ -621,11 +613,6 @@ class FUSIPlotAccessor:
             coordinate values along `slice_mode` are used.
         transpose : bool, default: False
             Whether to swap the row/column display dims of each slice panel.
-        slice_space : {"voxel", "world"}, optional
-            Display geometry for panels faceted along a non-spatial `slice_mode`. See
-            [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-            provided, defaults to what `slice_mode` implies when it's spatial, or to
-            `"world"` for a non-spatial `slice_mode`.
         fontsize : float, optional
             Base font size for text elements. Subplot titles use `fontsize`
             directly; axis labels use `0.9 * fontsize`; tick labels use
@@ -676,7 +663,6 @@ class FUSIPlotAccessor:
             slice_mode=slice_mode,
             slice_coords=slice_coords,
             transpose=transpose,
-            slice_space=slice_space,
             fontsize=fontsize,
             yincrease=yincrease,
             xincrease=xincrease,
@@ -698,7 +684,6 @@ class FUSIPlotAccessor:
         slice_coords: list[Hashable] | None = None,
         slice_mode: str = "z",
         transpose: bool = False,
-        slice_space: Literal["voxel", "world"] | None = None,
         alpha: "float | npt.NDArray[np.floating] | None" = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
@@ -766,11 +751,6 @@ class FUSIPlotAccessor:
             slicing, each panel must be 2D.
         transpose : bool, default: False
             Whether to swap the row/column display dims of each slice panel.
-        slice_space : {"voxel", "world"}, optional
-            Display geometry for panels faceted along a non-spatial `slice_mode`. See
-            [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-            provided, defaults to what `slice_mode` implies when it's spatial, or to
-            `"world"` for a non-spatial `slice_mode`.
         alpha : float or numpy.ndarray, optional
             Opacity of the composite image, either a single value or a per-voxel
             array matching the shape of the displayed slices. If not provided, the
@@ -856,7 +836,6 @@ class FUSIPlotAccessor:
             slice_coords=slice_coords,
             slice_mode=slice_mode,
             transpose=transpose,
-            slice_space=slice_space,
             alpha=alpha,
             show_titles=show_titles,
             show_axis_labels=show_axis_labels,
@@ -882,7 +861,6 @@ class FUSIPlotAccessor:
         slice_coords: list[Hashable] | None = None,
         slice_mode: str = "z",
         transpose: bool = False,
-        slice_space: Literal["voxel", "world"] | None = None,
         bg_kwargs: "dict[str, Any] | None" = None,
         cmap: "str | Colormap | None" = None,
         norm: "Normalize | None" = None,
@@ -938,11 +916,6 @@ class FUSIPlotAccessor:
             After slicing, each panel must be 2D.
         transpose : bool, default: False
             Whether to swap the row/column display dims of each slice panel.
-        slice_space : {"voxel", "world"}, optional
-            Display geometry for panels faceted along a non-spatial `slice_mode`. See
-            [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-            provided, defaults to what `slice_mode` implies when it's spatial, or to
-            `"world"` for a non-spatial `slice_mode`.
         bg_kwargs : dict, optional
             Additional keyword arguments forwarded to
             [`plot_volume`][confusius.plotting.plot_volume] for the background layer
@@ -1096,7 +1069,6 @@ class FUSIPlotAccessor:
             slice_coords=slice_coords,
             slice_mode=slice_mode,
             transpose=transpose,
-            slice_space=slice_space,
             bg_kwargs=bg_kwargs,
             cmap=cmap,
             norm=norm,

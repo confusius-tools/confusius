@@ -357,37 +357,22 @@ plotter = angio.fusi.scale.db().fusi.plot.volume(
 
 ### Slicing Over a Non-Spatial Dimension
 
-`slice_mode` isn't limited to a spatial axis (`z`/`y`/`x`/`k`/`j`/`i`) — any other dim
-works too, e.g. `time`, `pose`, or a `region` dim such as the one a seed-based
-connectivity map is stacked along (see [below](#statistical-maps) and the [seed-based
-connectivity example](../examples/_built/connectivity/atlas_seed_map.md)). Each requested coordinate
+`slice_mode` isn't limited to a spatial axis (`z`/`y`/`x`) — any other dim works too,
+e.g. `time`, `pose`, or a `region` dim such as the one a seed-based connectivity map is
+stacked along (see [below](#statistical-maps) and the [seed-based connectivity
+example](../examples/_built/connectivity/atlas_seed_map.md)). Each requested coordinate
 along that dim becomes its own panel, the same as slicing over `z`.
 
-When `slice_mode` is itself spatial, it already determines the display: `z`/`y`/`x`
-always resample onto an axis-aligned world grid, `k`/`j`/`i` always show the native
-voxel plane. For a non-spatial `slice_mode`, `slice_space` makes that choice instead:
-
-```python
-plotter = mapper.maps_.fusi.plot.stat_map(
-    bg_volume=bg_by_region,
-    slice_mode="region",
-    slice_space="world",  # or "voxel"
-)
-```
-
-- `"world"` (the default): each panel is displayed in world-aligned position, labeled in
-  mm. For already axis-aligned data this is a cheap dim rename onto a regular world
-  grid — the same display `z`/`y`/`x` slicing produces. For oblique data, no resampling
-  happens at all: the panel's native voxel plane is projected onto the world axes at
-  full native resolution, with no interpolation and no resolution loss — cells stay
-  rectangular only when the panel's in-plane axes are themselves orthogonal in world
-  space; otherwise they render as (correctly positioned) parallelograms.
-- `"voxel"`: each panel keeps its native voxel dims (`k`/`j`/`i`) instead, still labeled
-  in mm but without ever resampling — useful to skip interpolation cost, or to inspect
-  data on the exact grid it was acquired or registered on.
+Display is always in world space, labeled in mm. For already axis-aligned data this is a
+cheap dim rename onto a regular world grid — the same display `z`/`y`/`x` slicing
+produces. For oblique data, no resampling happens at all: the panel's native voxel plane
+is projected onto the world axes at full native resolution, with no interpolation and
+no resolution loss — cells stay rectangular only when the panel's in-plane axes are
+themselves orthogonal in world space; otherwise they render as (correctly positioned)
+parallelograms.
 
 `transpose=True` swaps which of the two remaining spatial dims is drawn on rows versus
-columns, for either case.
+columns.
 
 Oblique data's non-rectangular cells can produce visible seams where panels overlap
 under alpha blending (e.g. a background volume with a statistical overlay). Pass

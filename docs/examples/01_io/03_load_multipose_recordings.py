@@ -129,9 +129,9 @@ print("time origins (pose 0, 3):", (pose0_origin["time"], pose3_origin["time"]))
 #
 # !!! warning "World-coordinate slice modes require a scalar pose"
 #     For the same reason as `.sel`, `plot_volume(..., slice_mode="z")` (or `"y"`/`"x"`)
-#     also raises `ValueError` on pose-dependent data. Slicing along a native voxel dim
-#     (`slice_mode="k"`/`"j"`/`"i"`, as below) or along `pose` itself works fine, since
-#     neither requires picking one affine.
+#     also raises `ValueError` on pose-dependent data, since display is always in
+#     world space. Slicing along `pose` itself works fine, since it doesn't require
+#     picking one affine.
 
 # %% tags=["thumbnail"]
 mean_db = multipose.mean("time").fusi.scale.db().isel(k=0)
@@ -166,7 +166,7 @@ consolidated
 # %%
 plotter = cf.plotting.plot_volume(
     consolidated.mean("time").fusi.scale.db(),
-    slice_mode="k",
+    slice_mode="z",
     cmap="gray",
     cbar_label="Power Doppler (dB)",
     bg_color=bg_color,
