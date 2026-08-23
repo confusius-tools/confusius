@@ -1,10 +1,12 @@
 """Helpers shared between matplotlib- and napari-based plotting code."""
 
 import warnings
-from collections.abc import Hashable, Sequence
+from collections.abc import Hashable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
+import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
@@ -12,6 +14,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_index_spacing,
+    get_voxel_to_world_spatial_dims,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
     require_scalar_pose_affine,
@@ -330,6 +333,275 @@ def compute_oblique_axis_aligned_grid_geometry(
         n_steps = (upper - lower) / dim_spacing
         shape.append(np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1)
     return shape, spacing, origin
+
+
+@dataclass(frozen=True)
+class SliceAxisGrid:
+    """One world axis's regular discretization, shared across volumes on a plotter.
+
+    See design/world-mode-resample-scoping.md, Design B. `slice_world_dim`'s own
+    axis needs a shared spacing/origin/count across every volume drawn on the same
+    plotter for `match_coordinates` to line up panels by physical position -- the
+    two in-plane axes don't (see `compute_slice_axis_aligned_grid_geometry`), so
+    this only ever describes the one sliced axis, never a full grid.
+
+    Attributes
+    ----------
+    world_dim : str
+        World coordinate name (`"z"`/`"y"`/`"x"`) this spec describes.
+    spacing : float
+        World distance between consecutive slices.
+    origin : float
+        World position of the first slice.
+    count : int
+        Number of slices.
+    """
+
+    world_dim: str
+    spacing: float
+    origin: float
+    count: int
+
+
+def compute_slice_axis_aligned_grid_geometry(
+    data: xr.DataArray,
+    slice_world_dim: str,
+    *,
+    slice_axis_grid: SliceAxisGrid | None = None,
+) -> tuple[
+    npt.NDArray[np.float64],
+    Mapping[Hashable, int],
+    Mapping[Hashable, float],
+    Mapping[Hashable, float],
+    SliceAxisGrid,
+]:
+    """Compute a `resample_volume` target grid that aligns only `slice_world_dim`.
+
+    Unlike `compute_oblique_axis_aligned_grid_geometry` (which aligns all 3 world
+    axes to the global frame), this only forces `slice_world_dim` to a fixed
+    global direction and regular spacing -- required so `match_coordinates` can
+    line up panels of the same physical slice across independently-resampled
+    volumes (`slice_axis_grid`, shared across those calls). The other two output
+    axes keep `data`'s own native directions and spacing: an orthonormal basis
+    derived from `data`'s two remaining voxel columns via Gram-Schmidt, fixed
+    against the slice axis's global direction. For axis-aligned `data` this
+    reduces to the identity direction with `data`'s own native in-plane spacing,
+    same as today's whole-grid alignment; the difference only shows for oblique
+    data (in-plane rotation preserved instead of forced upright) or when two
+    volumes sharing `slice_axis_grid` have different native in-plane resolutions
+    (neither gets downsampled to match the other).
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array, oblique or axis-aligned.
+    slice_world_dim : str
+        World coordinate name (`"z"`/`"y"`/`"x"`) to align.
+    slice_axis_grid : SliceAxisGrid, optional
+        Shared spacing/origin/count for `slice_world_dim`, established by an
+        earlier call on the same plotter. If not provided, derived from `data`'s
+        own extent along `slice_world_dim` and returned for the caller to reuse
+        on subsequent volumes.
+
+    Returns
+    -------
+    output_direction : (3, 3) numpy.ndarray
+        Unit world-space direction columns for output `k`/`j`/`i`, read by
+        [`resample_volume`][confusius.registration.resample_volume]. `slice_world_dim`
+        is always output `k`.
+    output_sizes : dict[str, int]
+        Number of voxels along each output axis, keyed by `k`/`j`/`i`.
+    output_spacing : dict[str, float]
+        World distance between output positions, keyed by `k`/`j`/`i`.
+    output_origin : dict[str, float]
+        World location of output position `(0, 0, 0)`, keyed by `z`/`y`/`x`.
+    slice_axis_grid : SliceAxisGrid
+        `slice_axis_grid` unchanged if provided, otherwise the one just
+        established from `data` -- pass this to the next call on the same
+        plotter so every volume's slice axis lines up.
+
+    Raises
+    ------
+    ValueError
+        If `data` does not carry voxel-to-world geometry, if its geometry is
+        pose-dependent, or if the two remaining voxel columns are degenerate
+        (collinear with the slice axis or each other) once orthogonalized.
+    """
+    affine = require_scalar_pose_affine(
+        data, "Slice-axis-aligned resampling for display"
+    )
+    world_dims = get_voxel_to_world_coord_names(data)
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
+    voxel_spacing = get_voxel_to_world_index_spacing(data)
+    slice_row = world_dims.index(slice_world_dim)
+    linear = affine[:3, :3]
+
+    dominant_idx = int(np.argmax(np.abs(linear[slice_row])))
+    in_plane_indices = [i for i in range(3) if i != dominant_idx]
+
+    e_slice = np.zeros(3)
+    e_slice[slice_row] = 1.0
+
+    basis = [e_slice]
+    in_plane_spacing: list[float] = []
+    for idx in in_plane_indices:
+        vector = linear[:, idx].astype(np.float64)
+        for existing in basis:
+            vector = vector - (vector @ existing) * existing
+        norm = np.linalg.norm(vector)
+        if np.isclose(norm, 0.0):
+            raise ValueError(
+                f"Cannot align {slice_world_dim!r} for display: voxel dimension "
+                f"{voxel_dims[idx]!r} has no component left once orthogonalized "
+                "against the other in-plane axis -- the geometry is degenerate."
+            )
+        basis.append(vector / norm)
+        dim_spacing = voxel_spacing[voxel_dims[idx]]
+        if dim_spacing is None:
+            raise ValueError(
+                f"Cannot align {slice_world_dim!r} for display: voxel dimension "
+                f"{voxel_dims[idx]!r} has no well-defined spacing (irregularly "
+                "spaced coordinates)."
+            )
+        in_plane_spacing.append(dim_spacing)
+
+    output_direction = np.stack(basis, axis=1)  # columns = output k, j, i
+
+    # World positions of every sampled voxel, projected onto the new basis, to
+    # find each output axis's extent -- cheap array evaluation (the lazy index's
+    # own affine multiply), no interpolation.
+    world_points = np.stack(
+        [
+            np.asarray(data.coords[dim].values, dtype=np.float64).ravel()
+            for dim in world_dims
+        ],
+        axis=0,
+    )
+    projected = output_direction.T @ world_points
+
+    if slice_axis_grid is not None:
+        slice_spacing = slice_axis_grid.spacing
+        slice_origin = slice_axis_grid.origin
+        slice_count = slice_axis_grid.count
+    else:
+        slice_dim_spacing = voxel_spacing[voxel_dims[dominant_idx]]
+        if slice_dim_spacing is None:
+            raise ValueError(
+                f"Cannot align {slice_world_dim!r} for display: voxel dimension "
+                f"{voxel_dims[dominant_idx]!r} has no well-defined spacing "
+                "(irregularly spaced coordinates)."
+            )
+        slice_spacing = slice_dim_spacing
+        slice_origin = float(projected[0].min())
+        n_steps = (float(projected[0].max()) - slice_origin) / slice_spacing
+        slice_count = np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1
+        slice_axis_grid = SliceAxisGrid(
+            world_dim=slice_world_dim,
+            spacing=slice_spacing,
+            origin=slice_origin,
+            count=slice_count,
+        )
+
+    origins = [slice_origin]
+    sizes = [slice_count]
+    for row, dim_spacing in zip((1, 2), in_plane_spacing, strict=True):
+        row_min = float(projected[row].min())
+        row_max = float(projected[row].max())
+        n_steps = (row_max - row_min) / dim_spacing
+        origins.append(row_min)
+        sizes.append(np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1)
+
+    spacings = [slice_spacing, *in_plane_spacing]
+    output_origin_world = output_direction @ np.array(origins)
+
+    return (
+        output_direction,
+        dict(zip(VOXEL_DIMS, sizes, strict=True)),
+        dict(zip(VOXEL_DIMS, spacings, strict=True)),
+        dict(zip(SPATIAL_DIMS, output_origin_world, strict=True)),
+        slice_axis_grid,
+    )
+
+
+def resample_slice_axis_aligned_world_grid(
+    data: xr.DataArray,
+    slice_world_dim: str,
+    *,
+    slice_axis_grid: SliceAxisGrid | None = None,
+    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    fill_value: float | None = None,
+) -> tuple[xr.DataArray, SliceAxisGrid | None]:
+    """Resample `data` so only `slice_world_dim` is axis-aligned, for display.
+
+    See `compute_slice_axis_aligned_grid_geometry` for the geometry this builds
+    on `resample_volume` with. A no-op (returns `data` unchanged) when `data`
+    doesn't carry voxel-to-world geometry at all.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array, oblique or axis-aligned.
+    slice_world_dim : str
+        World coordinate name (`"z"`/`"y"`/`"x"`) to align.
+    slice_axis_grid : SliceAxisGrid, optional
+        Shared spacing/origin/count for `slice_world_dim`, established by an
+        earlier call on the same plotter. If not provided, derived from `data`'s
+        own extent and returned for the caller to reuse on subsequent volumes.
+    interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolation method used during resampling. Use `"nearest"` for
+        label/mask data, where blending distinct integer labels together is
+        never meaningful.
+    fill_value : float, optional
+        Value assigned to voxels outside `data`'s field of view after
+        resampling. If not provided, defaults to `float(data.min())` (see
+        [`resample_volume`][confusius.registration.resample_volume]).
+
+    Returns
+    -------
+    result : xarray.DataArray
+        `data` resampled so `slice_world_dim` is axis-aligned and (if
+        `slice_axis_grid` was provided) matches its shared spacing/origin/count;
+        the two in-plane axes keep `data`'s own native spacing and orientation.
+        `data` unchanged if it carries no voxel-to-world geometry, or if it's
+        already fully axis-aligned (nothing to fix, and matplotlib only needs
+        matching world coordinates to overlay correctly, not a matching pixel
+        grid -- see `resample_to_axis_aligned_world_grid`'s identical
+        short-circuit).
+    slice_axis_grid : SliceAxisGrid or None
+        `slice_axis_grid` unchanged if provided, or the one just established
+        from `data`'s own geometry otherwise -- even when `data` was already
+        axis-aligned and skipped resampling, so a later oblique volume/mask on
+        the same plotter still has a grid to align its own slice axis to.
+        `None` only when `data` carries no voxel-to-world geometry at all.
+    """
+    if not has_voxel_to_world_index(data):
+        return data, slice_axis_grid
+    if has_axis_aligned_voxel_to_world_index(data):
+        if slice_axis_grid is not None:
+            return data, slice_axis_grid
+        _, _, _, _, established_grid = compute_slice_axis_aligned_grid_geometry(
+            data, slice_world_dim
+        )
+        return data, established_grid
+
+    from confusius.registration import resample_volume
+
+    direction, sizes, spacing, origin, established_grid = (
+        compute_slice_axis_aligned_grid_geometry(
+            data, slice_world_dim, slice_axis_grid=slice_axis_grid
+        )
+    )
+    result = resample_volume(
+        data,
+        np.eye(4, dtype=np.float64),
+        output_sizes=sizes,
+        output_spacing=spacing,
+        output_origin=origin,
+        output_direction=direction,
+        interpolation=interpolation,
+        fill_value=fill_value,
+    )
+    return result, established_grid
 
 
 def resample_to_axis_aligned_world_grid(

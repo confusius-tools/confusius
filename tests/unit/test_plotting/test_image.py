@@ -681,7 +681,14 @@ class TestPlotVolume:
     def test_voxel_to_world_volume_resamples_for_world_slice_mode(
         self, matplotlib_pyplot, sample_voxeldata_3d_oblique
     ):
-        """Voxel-to-world volumes plot world z-slices after axis-aligned resampling."""
+        """World z-slicing forces only the slice axis, keeping in-plane obliqueness.
+
+        Design: design/world-mode-resample-scoping.md, Design B. Unlike full
+        axis-aligned resampling, only `slice_mode`'s own world axis is regularized
+        -- the two in-plane axes keep the volume's own native (here, oblique)
+        orientation, so panels render in projected in-plane coordinates just like
+        `slice_mode="k"/"j"/"i"` voxel-space slicing does.
+        """
         data = sample_voxeldata_3d_oblique
         z_coord = float(np.asarray(_world_coord_1d(data, "z"), dtype=float).mean())
 
@@ -695,30 +702,43 @@ class TestPlotVolume:
         ax = _axes(plotter)[0, 0]
         quadmesh = ax.collections[0]
         assert quadmesh.get_coordinates().ndim == 3
-        assert ax.get_xlabel() == "x (mm)"
-        assert ax.get_ylabel() == "y (mm)"
+        assert ax.get_xlabel() == "i in-plane (mm)"
+        assert ax.get_ylabel() == "j in-plane (mm)"
 
     def test_voxel_to_world_world_resampling_preserves_per_axis_spacing(
         self, sample_voxeldata_3d_oblique
     ):
-        """The first world display grid's per-axis spacing matches a QR
-        decomposition of the voxel-to-world affine (see
-        `compute_oblique_axis_aligned_grid_geometry`'s Notes: this is nilearn's
-        `reorder_img` heuristic, not a naive per-axis affine-column norm -- the two
-        only coincide when voxel axes are close to orthogonal)."""
+        """Only the slice axis (z) is regularized; the in-plane axes stay oblique.
+
+        Design: design/world-mode-resample-scoping.md, Design B. Unlike the old
+        whole-grid alignment (which forced all 3 world axes, per a QR-based
+        heuristic), only `z`'s own spacing is fixed -- to
+        `compute_slice_axis_aligned_grid_geometry`'s own per-axis voxel spacing,
+        not a QR decomposition of the full affine. `y`/`x` are left genuinely
+        oblique: still varying over both in-plane voxel dims, not reducible to a
+        1D per-axis diff at all.
+        """
+        from confusius.plotting._utils import compute_slice_axis_aligned_grid_geometry
+
         data = sample_voxeldata_3d_oblique
+        _, _, expected_spacing, _, _ = compute_slice_axis_aligned_grid_geometry(
+            data, "z"
+        )
 
-        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(data, caller="test")
+        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(
+            data, caller="test"
+        )
 
-        input_affine = get_voxel_to_world_affine(data)
-        q_basis, r_scale = np.linalg.qr(input_affine[:3, :3])
-        row_to_axis = np.abs(q_basis).argmax(axis=1)
-        expected_spacings = np.abs(np.diag(r_scale))[row_to_axis]
-        for row, dim in enumerate(("z", "y", "x")):
-            spacing = float(
-                np.diff(np.asarray(result.coords[dim].values, dtype=float))[0]
-            )
-            assert spacing == pytest.approx(expected_spacings[row])
+        z_spacing = float(np.diff(_world_coord_1d(result, "z"))[0])
+        assert z_spacing == pytest.approx(expected_spacing["k"])
+        for dim in ("y", "x"):
+            coord = np.asarray(result.coords[dim].values, dtype=float)
+            assert coord.ndim > 1
+            # Constant along k (the now-aligned slice axis) -- confirming y/x
+            # depend only on the in-plane j/i voxel dims -- but genuinely varies
+            # across j/i itself, i.e. still a real 2D (oblique) coordinate.
+            npt.assert_allclose(coord[0], coord[1], atol=1e-6)
+            assert not np.allclose(coord[0, 0], coord[0])
 
     def test_axis_aligned_voxel_to_world_world_slice_promotes_world_dims(self):
         """Axis-aligned geometry uses world dims directly for world slicing."""
@@ -729,7 +749,9 @@ class TestPlotVolume:
         )
         data = attach_voxel_to_world_index(data, np.diag([0.4, 0.3, 0.25, 1.0]))
 
-        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(data, caller="test")
+        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(
+            data, caller="test"
+        )
 
         assert result.dims == ("z", "y", "x")
         assert "voxel_to_world" not in result.attrs
@@ -866,6 +888,7 @@ class TestPlottingUtilsVoxelToWorldHelpers:
 
         with pytest.raises(ValueError, match="no well-defined spacing"):
             resample_to_axis_aligned_world_grid(data)
+
 
 class TestVolumePlotterAddVolume:
     """Tests for VolumePlotter.add_volume method."""
@@ -1521,7 +1544,6 @@ class TestVolumePlotterAddContours:
 
         assert resampled_coarse.shape == (30, 42)
         assert resampled_fine.shape == (90, 126)
-        assert plotter._world_grid_reference is None
 
     def test_add_contours_slice_space_voxel_lands_within_axes_limits(
         self, matplotlib_pyplot

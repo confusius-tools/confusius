@@ -26,6 +26,7 @@ from confusius.plotting._hover import (
     _normalize_roi_labels,
 )
 from confusius.plotting._utils import (
+    SliceAxisGrid,
     _auto_fg_color,
     _get_distinct_colors,
     _materialize_axis_aligned_world_grid_for_display,
@@ -34,6 +35,9 @@ from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
     compute_oblique_axis_aligned_grid_geometry,
     sort_coords_for_plot,
+)
+from confusius.plotting._utils import (
+    resample_slice_axis_aligned_world_grid as _shared_resample_slice_axis_aligned_world_grid,
 )
 from confusius.plotting._utils import (
     resample_to_axis_aligned_world_grid as _shared_resample_to_axis_aligned_world_grid,
@@ -305,18 +309,25 @@ def _project_voxel_to_world_plane(
     return x_edges, y_edges, x_centers, y_centers
 
 
-def _resample_to_axis_aligned_world_grid_keep_index(
+def _resample_slice_axis_to_world_grid_keep_index(
     data: xr.DataArray,
     slice_mode: str,
-    reference: xr.DataArray | None = None,
+    slice_axis_grid: SliceAxisGrid | None = None,
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float | None = None,
-) -> xr.DataArray | None:
-    """Resample voxel-to-world data onto an axis-aligned world grid, index intact.
+) -> tuple[xr.DataArray, SliceAxisGrid | None] | None:
+    """Resample voxel-to-world data so only `slice_mode` is axis-aligned.
+
+    Unlike a full-grid resample, the two in-plane axes keep `data`'s own native
+    spacing and orientation (see `SliceAxisGrid`) -- only `slice_mode` itself is
+    forced onto a shared, regular discretization so panels from different
+    volumes/masks line up by physical position.
 
     Returns `None` when `data` doesn't need resampling for `slice_mode` (no
     plottable index, or `slice_mode` isn't a spatial world axis) -- callers fall
-    back to `data` itself in that case.
+    back to `data` itself in that case. The returned `SliceAxisGrid` is `None`
+    when `data` is already axis-aligned on every axis (nothing to resample, so
+    nothing to establish for later volumes to share either).
     """
     if not _has_plottable_voxel_to_world_index(data) or slice_mode not in {
         "z",
@@ -327,8 +338,12 @@ def _resample_to_axis_aligned_world_grid_keep_index(
     world_dims = get_voxel_to_world_coord_names(data)
     if slice_mode not in world_dims:
         return None
-    return _shared_resample_to_axis_aligned_world_grid(
-        data, reference=reference, interpolation=interpolation, fill_value=fill_value
+    return _shared_resample_slice_axis_aligned_world_grid(
+        data,
+        slice_mode,
+        slice_axis_grid=slice_axis_grid,
+        interpolation=interpolation,
+        fill_value=fill_value,
     )
 
 
@@ -692,7 +707,15 @@ def _extract_slices(
             slice_da = data.sel(
                 {slice_mode: coord}, method="nearest" if is_numeric else None
             )
-            actual_coord = slice_da.coords[slice_mode].values.item()
+            # `slice_mode`'s coordinate is usually scalar here (the dim it lived on
+            # was just selected away), but for Design B's oblique-in-plane world
+            # slicing (see VoxelToWorldIndex.sel's per-axis fast path) it stays
+            # derived over the remaining in-plane dims -- constant-valued (that's
+            # exactly what made the single-axis selection possible), just not
+            # collapsed to a true 0D scalar, so `.item()` alone would raise.
+            actual_coord = (
+                np.asarray(slice_da.coords[slice_mode].values).reshape(-1)[0].item()
+            )
         else:
             if not isinstance(coord, numbers.Real):
                 raise ValueError(
@@ -848,7 +871,7 @@ class VolumePlotter:
         self._resample_interpolation = resample_interpolation
         self._resample_fill_value = resample_fill_value
         self._hover_manager = _HoverManager()
-        self._world_grid_reference: xr.DataArray | None = None
+        self._slice_axis_grid: SliceAxisGrid | None = None
 
     def _resolve_slice_space(self) -> Literal["voxel", "world"]:
         """Resolve the effective `slice_space`.
@@ -1201,21 +1224,26 @@ class VolumePlotter:
         resolved_interpolation = (
             self._resample_interpolation if interpolation is None else interpolation
         )
-        resampled = _resample_to_axis_aligned_world_grid_keep_index(
+        resampled = _resample_slice_axis_to_world_grid_keep_index(
             data,
             self.slice_mode,
-            reference=self._world_grid_reference,
+            slice_axis_grid=self._slice_axis_grid,
             interpolation=resolved_interpolation,
             fill_value=self._resample_fill_value,
         )
         if resampled is not None:
-            # Capture the reference before display materialization drops the
-            # VoxelToWorldIndex, so a later resample (e.g. add_contours' mask) can
-            # align to this exact grid via resample_like's affine-aware path
-            # instead of reconstructing spacing from a plain, index-less DataArray.
-            if self._world_grid_reference is None:
-                self._world_grid_reference = resampled
-            data = _materialize_axis_aligned_world_grid_for_display(resampled)
+            resampled_data, slice_axis_grid = resampled
+            # Capture the slice axis's spec so a later volume/mask on this same
+            # plotter (e.g. add_contours' mask) lines up on the same physical
+            # slices -- the two in-plane axes are never shared (each volume keeps
+            # its own native resolution/orientation, see SliceAxisGrid).
+            if self._slice_axis_grid is None:
+                self._slice_axis_grid = slice_axis_grid
+            # A no-op unless resampled_data is fully axis-aligned (e.g. axis-aligned
+            # input, or a slice axis coinciding with one of data's own native
+            # axes): oblique in-plane geometry stays on k/j/i, its VoxelToWorldIndex
+            # still resolving world coordinates directly for slicing/projection.
+            data = _materialize_axis_aligned_world_grid_for_display(resampled_data)
         elif self._resolve_slice_space() == "world":
             # Reached for slice_mode="z"/"y"/"x" only when the whole-array resample
             # above no-opped (index not "plottable" -- an extra facet dim still
@@ -1239,7 +1267,15 @@ class VolumePlotter:
         ]
         if squeeze_dims:
             data = data.squeeze(dim=squeeze_dims)
-        if self.slice_mode not in data.dims:
+        # A spatial slice_mode may stay a non-dimension coordinate rather than a
+        # literal dim: Design B's oblique-in-plane resample keeps data on native
+        # k/j/i dims (only the slice axis is forced axis-aligned; the two in-plane
+        # axes stay genuinely oblique), with the slice world coordinate still
+        # selectable directly through VoxelToWorldIndex.sel's single-axis fast path
+        # (see confusius._utils.geometry.VoxelToWorldIndex.sel) -- `_extract_slices`
+        # below handles this via `.sel` on `data.coords` the same way it already
+        # does for e.g. a "region" slice_mode coordinate.
+        if self.slice_mode not in data.dims and self.slice_mode not in data.coords:
             raise ValueError(
                 f"slice_mode '{self.slice_mode}' is not a dimension of data. "
                 f"Available dimensions: {list(data.dims)}."
