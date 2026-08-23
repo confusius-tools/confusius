@@ -18,6 +18,7 @@ from confusius.plotting import (
     VolumePlotter,
     plot_carpet,
     plot_contours,
+    plot_stat_map,
     plot_volume,
 )
 from confusius.plotting._utils import _materialize_axis_aligned_world_grid_for_display
@@ -700,25 +701,27 @@ class TestPlotVolume:
     def test_voxel_to_world_world_resampling_preserves_per_axis_spacing(
         self, sample_voxeldata_3d_oblique
     ):
-        """The first world display grid keeps each axis's own world spacing."""
-        from confusius.plotting.image import _resample_to_axis_aligned_world_grid
-
+        """The first world display grid's per-axis spacing matches a QR
+        decomposition of the voxel-to-world affine (see
+        `compute_oblique_axis_aligned_grid_geometry`'s Notes: this is nilearn's
+        `reorder_img` heuristic, not a naive per-axis affine-column norm -- the two
+        only coincide when voxel axes are close to orthogonal)."""
         data = sample_voxeldata_3d_oblique
 
-        result = _resample_to_axis_aligned_world_grid(data, "z")
+        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(data, caller="test")
 
         input_affine = get_voxel_to_world_affine(data)
-        for col, dim in enumerate(("z", "y", "x")):
+        q_basis, r_scale = np.linalg.qr(input_affine[:3, :3])
+        row_to_axis = np.abs(q_basis).argmax(axis=1)
+        expected_spacings = np.abs(np.diag(r_scale))[row_to_axis]
+        for row, dim in enumerate(("z", "y", "x")):
             spacing = float(
                 np.diff(np.asarray(result.coords[dim].values, dtype=float))[0]
             )
-            expected_spacing = float(np.linalg.norm(input_affine[:3, col]))
-            assert spacing == pytest.approx(expected_spacing)
+            assert spacing == pytest.approx(expected_spacings[row])
 
     def test_axis_aligned_voxel_to_world_world_slice_promotes_world_dims(self):
         """Axis-aligned geometry uses world dims directly for world slicing."""
-        from confusius.plotting.image import _resample_to_axis_aligned_world_grid
-
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],
@@ -726,36 +729,10 @@ class TestPlotVolume:
         )
         data = attach_voxel_to_world_index(data, np.diag([0.4, 0.3, 0.25, 1.0]))
 
-        result = _resample_to_axis_aligned_world_grid(data, "z")
+        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(data, caller="test")
 
         assert result.dims == ("z", "y", "x")
         assert "voxel_to_world" not in result.attrs
-
-    def test_voxel_to_world_world_slice_mode_outside_available_world_dims_is_noop(
-        self,
-    ):
-        """Requesting a world slice_mode absent from the data's own world dims
-        returns the data unchanged instead of attempting to resample.
-
-        2D voxel-to-world data only exposes `y`/`x` world coordinates; asking to
-        resample onto `z` (a name the data has no geometry for) must be a no-op
-        rather than erroring or fabricating a `z` grid.
-        """
-        from confusius.plotting.image import _resample_to_axis_aligned_world_grid
-
-        data = xr.DataArray(
-            np.arange(3 * 4, dtype=float).reshape(3, 4),
-            dims=["j", "i"],
-            coords={"j": [0, 1, 2], "i": [0, 1, 2, 3]},
-        )
-        data = attach_voxel_to_world_index(
-            data,
-            np.array([[0.3, 0.0, 20.0], [0.0, 0.25, 30.0], [0.0, 0.0, 1.0]]),
-        )
-
-        result = _resample_to_axis_aligned_world_grid(data, "z")
-
-        assert result is data
 
 
 class TestCentersToEdges:
@@ -849,13 +826,17 @@ class TestPlottingUtilsVoxelToWorldHelpers:
 
         # `result` stays on its native voxel dims (k/j/i), still indexed, so its own
         # spacing can be read directly via `.fusi.spacing` instead of diffing a
-        # (possibly multi-dimensional, pre-resample) world coordinate array.
-        expected_spacing = data.fusi.spacing
+        # (possibly multi-dimensional, pre-resample) world coordinate array. Expected
+        # values come from the same QR decomposition the implementation uses (see
+        # `compute_oblique_axis_aligned_grid_geometry`'s Notes), not `data`'s own
+        # per-voxel-dim spacing -- the two only coincide when voxel axes are close
+        # to orthogonal, which this affine's k/j coupling deliberately isn't.
+        q_basis, r_scale = np.linalg.qr(voxel_to_world[:3, :3])
+        row_to_axis = np.abs(q_basis).argmax(axis=1)
+        expected_spacings = np.abs(np.diag(r_scale))[row_to_axis]
         result_spacing = result.fusi.spacing
-        for voxel_dim in ("k", "j", "i"):
-            assert result_spacing[voxel_dim] == pytest.approx(
-                expected_spacing[voxel_dim]
-            )
+        for row, voxel_dim in enumerate(("k", "j", "i")):
+            assert result_spacing[voxel_dim] == pytest.approx(expected_spacings[row])
 
     def test_resample_raises_when_dominant_voxel_dim_is_irregular(self):
         """Resampling onto an axis-aligned world grid raises `ValueError` when the
@@ -1116,6 +1097,190 @@ class TestNonNumericSliceMode:
         assert titles == [f"region = {region}" for region in regions]
 
 
+class TestTransposeAndSliceSpace:
+    """Tests for `transpose` and `slice_space` with a non-spatial `slice_mode`."""
+
+    def test_slice_space_raises_for_conflicting_spatial_slice_mode(self):
+        """`slice_space` conflicting with what a spatial `slice_mode` already
+        forces (world for z/y/x, voxel for k/j/i) raises."""
+        with pytest.raises(ValueError, match="slice_space"):
+            VolumePlotter(slice_mode="z", slice_space="voxel")
+        with pytest.raises(ValueError, match="slice_space"):
+            VolumePlotter(slice_mode="k", slice_space="world")
+
+    def test_slice_space_invalid_value_raises(self):
+        """An unrecognized `slice_space` (e.g. a typo like "voxels") must raise,
+        even for a non-spatial slice_mode where the spatial-mismatch check doesn't
+        apply -- silently accepting it would make it behave like "voxel" (since
+        every consumer only special-cases `== "world"`), masking the typo."""
+        with pytest.raises(ValueError, match="slice_space"):
+            VolumePlotter(
+                slice_mode="region",
+                slice_space="voxels",  # ty: ignore[invalid-argument-type]
+            )
+
+    def test_slice_space_matching_spatial_slice_mode_is_allowed(self):
+        """`slice_space` matching what `slice_mode` already implies is redundant
+        but not an error."""
+        VolumePlotter(slice_mode="z", slice_space="world")
+        VolumePlotter(slice_mode="k", slice_space="voxel")
+
+    def test_slice_space_voxel_keeps_native_voxel_dims(
+        self, make_region_voxeldata, matplotlib_pyplot
+    ):
+        """`slice_space="voxel"` keeps panels on native `j`/`i` dims, unresampled."""
+        data = make_region_voxeldata(
+            values=np.arange(2 * 1 * 6 * 8).reshape(2, 1, 6, 8)
+        )
+        plotter = plot_volume(
+            data,
+            slice_mode="region",
+            slice_space="voxel",
+            slice_coords=["a"],
+            show_colorbar=False,
+        )
+
+        ax = _axes(plotter)[0, 0]
+        assert ax.get_xlabel() == "i in-plane (mm)"
+        assert ax.get_ylabel() == "j in-plane (mm)"
+        expected = data.sel(region="a").isel(k=0).transpose("j", "i").values
+        npt.assert_array_equal(ax.collections[0].get_array().data, expected)
+
+    def test_slice_space_world_default_renames_to_world_dims(
+        self, make_region_voxeldata, matplotlib_pyplot
+    ):
+        """`slice_space=None` defaults to `"world"`: panels are exposed on world
+        `y`/`x` dims, same as `slice_mode="z"`/`"y"`/`"x"` already does."""
+        data = make_region_voxeldata(
+            values=np.arange(2 * 1 * 6 * 8).reshape(2, 1, 6, 8)
+        )
+        plotter = plot_volume(
+            data, slice_mode="region", slice_coords=["a"], show_colorbar=False
+        )
+
+        ax = _axes(plotter)[0, 0]
+        assert ax.get_xlabel() == "x (mm)"
+        assert ax.get_ylabel() == "y (mm)"
+
+    def test_slice_space_world_oblique_non_flat_panel_raises(
+        self, sample_voxeldata_3d_oblique
+    ):
+        """A single-slice panel that is oblique to all 3 world axes has no
+        well-defined 2D display once resampled onto an axis-aligned world grid
+        (its extent spreads across more than one voxel along every world axis), so
+        `slice_space="world"` must raise instead of guessing a thickness -- and
+        must do so before running the (wasted) actual interpolation."""
+        data = sample_voxeldata_3d_oblique.isel(k=[0]).expand_dims(region=["a", "b"])
+        with pytest.raises(ValueError, match="would not collapse to a 2D plane"):
+            plot_volume(
+                data, slice_mode="region", slice_coords=["a"], show_colorbar=False
+            )
+
+    def test_dask_backed_data_and_mask_each_computed_once(self, matplotlib_pyplot):
+        """A dask-backed data/mask array must be computed exactly once through the
+        plotting pipeline, not once per `.values` touch (whole-array materialize,
+        per-panel isel, pcolormesh draw, ...).
+
+        Regression: `_prepare_slice_inputs` never called `.compute()`, so a
+        not-yet-materialized dask array was silently recomputed from scratch on
+        every touch -- for an expensive upstream pipeline (e.g. SeedBasedMaps'
+        confound regression + correlation), this multiplied real cost by however
+        many times incidental code paths happened to touch `.values`.
+        """
+        import dask.array as dask_array
+        from dask import delayed
+
+        calls = {"data": 0, "mask": 0}
+        shape = (2, 1, 6, 8)
+
+        def _make(key):
+            @delayed
+            def _gen():
+                calls[key] += 1
+                return np.arange(np.prod(shape)).reshape(shape).astype(float)
+
+            return dask_array.from_delayed(_gen(), shape=shape, dtype=float)
+
+        affine = np.diag([0.2, 0.1, 0.1, 1.0])
+        data = create_voxeldata(
+            _make("data"), dims=("region", "k", "j", "i"), voxel_to_world=affine
+        ).assign_coords(region=["a", "b"])
+        mask = create_voxeldata(
+            _make("mask"), dims=("region", "k", "j", "i"), voxel_to_world=affine
+        ).assign_coords(region=["a", "b"])
+
+        plotter = plot_volume(data, slice_mode="region", show_colorbar=False)
+        plotter.add_contours(mask)
+
+        assert calls["data"] == 1
+        assert calls["mask"] == 1
+
+    def test_slice_space_voxel_and_world_agree_for_axis_aligned_geometry(
+        self, make_region_voxeldata, matplotlib_pyplot
+    ):
+        """For axis-aligned (identity-direction) geometry, `slice_space="voxel"`
+        and `"world"` are just two equivalent representations of the same
+        underlying affine -- they must draw the image and any overlaid contours
+        at the exact same position.
+
+        Regression: `_project_voxel_to_world_plane` ("voxel" mode's projected
+        display) anchored its output to a per-call, grid-relative origin instead
+        of the true affine-derived world position, silently disagreeing with
+        "world" mode's absolute coordinates by up to half a voxel spacing even
+        for identity-direction data.
+        """
+        values = np.arange(2 * 1 * 6 * 8).reshape(2, 1, 6, 8)
+        data = make_region_voxeldata(values=values)
+        mask_data = np.zeros(data.shape, dtype=int)
+        mask_data[0, 0, 2:4, 3:6] = 1
+        mask = data.copy(data=mask_data)
+
+        results = {}
+        for slice_space in ("voxel", "world"):
+            plotter = plot_volume(
+                data,
+                slice_mode="region",
+                slice_space=slice_space,
+                slice_coords=["a"],
+                show_colorbar=False,
+            )
+            plotter.add_contours(mask, slice_coords=["a"])
+            ax = _axes(plotter)[0, 0]
+            xs = np.concatenate([line.get_xdata() for line in ax.lines])
+            ys = np.concatenate([line.get_ydata() for line in ax.lines])
+            results[slice_space] = {
+                "xlim": ax.get_xlim(),
+                "ylim": ax.get_ylim(),
+                "contour_x": (xs.min(), xs.max()),
+                "contour_y": (ys.min(), ys.max()),
+            }
+
+        for key in ("xlim", "ylim", "contour_x", "contour_y"):
+            npt.assert_allclose(results["voxel"][key], results["world"][key])
+
+    def test_transpose_swaps_row_and_column_display_dims(
+        self, make_region_voxeldata, matplotlib_pyplot
+    ):
+        """`transpose=True` swaps which display dim is row vs column, and the plotted
+        pixel array is reoriented to match (not just the axis labels)."""
+        values = np.arange(2 * 1 * 6 * 8).reshape(2, 1, 6, 8)
+        data = make_region_voxeldata(values=values)
+        plotter = plot_volume(
+            data,
+            slice_mode="region",
+            slice_space="voxel",
+            transpose=True,
+            slice_coords=["a"],
+            show_colorbar=False,
+        )
+
+        ax = _axes(plotter)[0, 0]
+        assert ax.get_xlabel() == "j in-plane (mm)"
+        assert ax.get_ylabel() == "i in-plane (mm)"
+        expected = data.sel(region="a").isel(k=0).transpose("i", "j").values
+        npt.assert_array_equal(ax.collections[0].get_array().data, expected)
+
+
 class TestVolumePlotterUtilities:
     """Tests for VolumePlotter utility methods."""
 
@@ -1323,6 +1488,65 @@ class TestVolumePlotterAddContours:
 
         axes_flat = _axes(plotter).ravel()
         assert [len(ax.lines) for ax in axes_flat[:3]] == [1, 1, 1]
+
+    def test_add_contours_slice_space_voxel_lands_within_axes_limits(
+        self, matplotlib_pyplot
+    ):
+        """A mask overlaid with `slice_space="voxel"` must land at the exact same
+        display position `add_volume`'s own pcolormesh draws, even when the
+        background volume has a different native voxel resolution than the
+        overlaid stat map/mask (same real-world scenario `plot_stat_map` +
+        `add_contours` is used for: a coarser-resolution stat map/seed mask over a
+        finer-resolution anatomical background).
+
+        Regression: even in "voxel" mode, a panel is still drawn at its true world
+        position via `_project_voxel_to_world_plane` (never literal voxel-index
+        position) -- but `add_contours` computed contour vertex positions with its
+        own separate, purely rectilinear coordinate lookup (`slice_da.coords[dim]`
+        treated as a flat per-axis LUT), which only happens to be correct once
+        that lookup *is* the real display coordinate (the fully materialized
+        "world" case). Under "voxel" mode the lookup returned raw, unscaled voxel
+        indices while the image itself was drawn in mm -- contours landed
+        completely outside the axes' actual (mm-scaled) view, never visible.
+        """
+        rng = np.random.default_rng(0)
+        regions = ["a", "b"]
+        # stat_map/mask share one native grid (10x14); bg is a different, finer
+        # native grid (30x42) covering the identical physical extent.
+        stat_map = create_voxeldata(
+            rng.random((len(regions), 1, 10, 14)),
+            dims=("region", "k", "j", "i"),
+            voxel_to_world=np.diag([0.2, 0.3, 0.3, 1.0]),
+        ).assign_coords(region=regions)
+        bg = create_voxeldata(
+            rng.random((1, 30, 42)),
+            dims=("k", "j", "i"),
+            voxel_to_world=np.diag([0.2, 0.1, 0.1, 1.0]),
+        )
+        bg_by_region = bg.expand_dims(region=regions)
+
+        mask_data = np.zeros(stat_map.shape, dtype=int)
+        mask_data[0, 0, 3:6, 3:6] = 1
+        mask_data[1, 0, 3:6, 3:6] = 2
+        seed_masks = stat_map.copy(data=mask_data)
+
+        plotter = plot_stat_map(
+            stat_map,
+            bg_volume=bg_by_region,
+            slice_mode="region",
+            slice_space="voxel",
+            show_colorbar=False,
+        )
+        plotter.add_contours(seed_masks)
+
+        axes = _axes(plotter).ravel()
+        for ax in axes[: len(regions)]:
+            assert ax.lines, "contour should have been drawn"
+            xlim, ylim = sorted(ax.get_xlim()), sorted(ax.get_ylim())
+            for line in ax.lines:
+                xdata, ydata = line.get_xdata(), line.get_ydata()
+                assert xdata.min() >= xlim[0] and xdata.max() <= xlim[1]
+                assert ydata.min() >= ylim[0] and ydata.max() <= ylim[1]
 
     def test_add_contours_string_rgb_lookup_keys(
         self, sample_voxeldata_3d, matplotlib_pyplot

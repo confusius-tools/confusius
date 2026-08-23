@@ -604,6 +604,8 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
             "normalize_strategy": "shared",
             "slice_coords": [1.0],
             "slice_mode": "z",
+            "transpose": False,
+            "slice_space": None,
             "alpha": 0.7,
             "show_titles": False,
             "show_axis_labels": False,

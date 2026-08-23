@@ -12,12 +12,12 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_index_spacing,
-    get_voxel_to_world_spatial_dims,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
     require_scalar_pose_affine,
 )
 from confusius._utils.stack import find_stack_level
+from confusius.validation import ensure_voxeldata
 
 if TYPE_CHECKING:
     from matplotlib.colorbar import Colorbar
@@ -240,6 +240,98 @@ def _materialize_axis_aligned_world_grid_for_display(
     return result
 
 
+def compute_oblique_axis_aligned_grid_geometry(
+    data: xr.DataArray, world_dims: Sequence[str]
+) -> tuple[list[int], list[float], list[float]]:
+    """Compute the axis-aligned grid shape/spacing/origin `data` would resample onto.
+
+    Pure geometry from `data`'s world-coordinate bounds and voxel spacing -- no
+    interpolation. Callers that only need to know the resampled shape (e.g. to
+    reject a panel that won't collapse to a 2D plane) can use this without paying
+    for `resample_volume`'s actual interpolation.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Oblique (non-axis-aligned) VoxelData array. May have a spatial dim already
+        squeezed to a scalar coordinate (e.g. a single-slice panel with `k` isel'd
+        away) -- `ensure_voxeldata` restores it, affine and all, before computing
+        geometry, so the result doesn't depend on whether the caller's dim was
+        literal or scalar (see Notes).
+    world_dims : collections.abc.Sequence of str
+        World coordinate names (`"z"`/`"y"`/`"x"`) to compute grid geometry for, in
+        order.
+
+    Returns
+    -------
+    shape : list of int
+        Number of voxels along each output world axis.
+    spacing : list of float
+        World distance between consecutive voxels along each output world axis.
+    origin : list of float
+        World location of output voxel position 0 along each output world axis.
+
+    Notes
+    -----
+    Per-world-axis spacing comes from a QR decomposition of the full 3x3
+    voxel-to-world linear block, following nilearn's `reorder_img`
+    (`nilearn.image.resampling`): `Q, R = qr(linear)`, then each world row's
+    spacing is `abs(diag(R))[argmax(abs(Q[row]))]` -- the scale of whichever
+    orthonormal basis vector that row is most aligned to. This replaces a simpler,
+    per-row "look at the raw affine row and pick the largest-magnitude voxel
+    column" heuristic, which had a real bug: a spatial dim already squeezed to a
+    scalar coordinate was silently dropped from consideration (its column removed
+    from the linear block, per `get_voxel_to_world_affine`'s docstring, rather than
+    the whole 3-column matrix always being used regardless of array shape), so a
+    single-slice panel's predicted resample shape depended on whether the caller
+    happened to squeeze it before or after handing it here. `ensure_voxeldata`
+    below removes that dependency by always restoring the full, un-folded affine
+    first, then QR decomposes it as a whole -- so the result is the same either
+    way.
+    """
+    data = ensure_voxeldata(data)
+    # QR only needs the affine, not the data's own per-voxel-dim coordinate
+    # spacing -- but `resample_volume` (the eventual consumer of this geometry)
+    # builds a regular-grid SimpleITK image from *all 3* native voxel dims
+    # regardless of which one QR picks as dominant for a given world axis, so an
+    # irregularly spaced dim anywhere still breaks it downstream with an opaque
+    # error. Check all 3 up front for a clear message instead.
+    for voxel_dim, voxel_spacing in get_voxel_to_world_index_spacing(data).items():
+        if voxel_spacing is None:
+            raise ValueError(
+                f"Cannot resample onto an axis-aligned world grid: voxel "
+                f"dimension {voxel_dim!r} has no well-defined spacing "
+                "(irregularly spaced coordinates)."
+            )
+    linear = get_voxel_to_world_affine(data)[:3, :3]
+    q_basis, r_scale = np.linalg.qr(linear)
+    row_to_axis = np.abs(q_basis).argmax(axis=1)
+    axis_spacing = np.abs(np.diag(r_scale))
+
+    spacing: list[float] = []
+    origin: list[float] = []
+    shape: list[int] = []
+    for row, dim in enumerate(world_dims):
+        values = np.asarray(data.coords[dim].values, dtype=np.float64)
+        lower = np.float64(np.min(values)).item()
+        upper = np.float64(np.max(values)).item()
+        dim_spacing = float(axis_spacing[row_to_axis[row]])
+        if dim_spacing == 0.0:
+            raise ValueError(
+                f"Cannot resample {dim!r} onto an axis-aligned world grid: the "
+                "voxel-to-world affine is singular along this axis."
+            )
+        origin.append(lower)
+        spacing.append(dim_spacing)
+        # A relative tolerance absorbs floating-point noise in `upper`/`lower`
+        # (e.g. from composing several affines) that would otherwise push an
+        # exact multiple of `dim_spacing` just over an integer boundary and
+        # `ceil` an extra, out-of-bounds slice onto the grid.
+        n_steps = (upper - lower) / dim_spacing
+        shape.append(np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1)
+    return shape, spacing, origin
+
+
 def resample_to_axis_aligned_world_grid(
     data: xr.DataArray,
     *,
@@ -343,35 +435,9 @@ def resample_to_axis_aligned_world_grid(
         # axis that needs fine spacing is fed by whichever voxel dim actually
         # dominates that row of the affine, not the positionally-matching one.
         # Pick that dominant voxel dim's spacing for each output world axis.
-        voxel_dims = get_voxel_to_world_spatial_dims(data)
-        voxel_spacing = get_voxel_to_world_index_spacing(data)
-        linear = get_voxel_to_world_affine(data)[:3, :3]
-
-        spacing: list[float] = []
-        origin: list[float] = []
-        shape: list[int] = []
-        for row, dim in enumerate(world_dims):
-            values = np.asarray(data.coords[dim].values, dtype=np.float64)
-            lower = np.float64(np.min(values)).item()
-            upper = np.float64(np.max(values)).item()
-            dominant_voxel_dim = voxel_dims[int(np.argmax(np.abs(linear[row])))]
-            dim_spacing = voxel_spacing[dominant_voxel_dim]
-            if dim_spacing is None:
-                raise ValueError(
-                    f"Cannot resample {dim!r} onto an axis-aligned world grid: "
-                    f"dominant voxel dimension {dominant_voxel_dim!r} has no "
-                    "well-defined spacing."
-                )
-            origin.append(lower)
-            spacing.append(dim_spacing)
-            # A relative tolerance absorbs floating-point noise in `upper`/`lower`
-            # (e.g. from composing several affines) that would otherwise push an
-            # exact multiple of `dim_spacing` just over an integer boundary and
-            # `ceil` an extra, out-of-bounds slice onto the grid.
-            n_steps = (upper - lower) / dim_spacing
-            shape.append(
-                np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1
-            )
+        shape, spacing, origin = compute_oblique_axis_aligned_grid_geometry(
+            data, world_dims
+        )
 
         result = resample_volume(
             data,
