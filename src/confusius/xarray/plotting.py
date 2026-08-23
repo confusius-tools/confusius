@@ -419,7 +419,8 @@ class FUSIPlotAccessor:
         slice_space : {"voxel", "world"}, optional
             Display geometry for panels faceted along a non-spatial `slice_mode`. See
             [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-            provided, defaults to `"world"`.
+            provided, defaults to what `slice_mode` implies when it's spatial, or to
+            `"world"` for a non-spatial `slice_mode`.
         nrows : int, optional
             Number of rows in the subplot grid. If not provided, computed
             automatically together with `ncols` to produce a near-square layout.
@@ -623,7 +624,8 @@ class FUSIPlotAccessor:
         slice_space : {"voxel", "world"}, optional
             Display geometry for panels faceted along a non-spatial `slice_mode`. See
             [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-            provided, defaults to `"world"`.
+            provided, defaults to what `slice_mode` implies when it's spatial, or to
+            `"world"` for a non-spatial `slice_mode`.
         fontsize : float, optional
             Base font size for text elements. Subplot titles use `fontsize`
             directly; axis labels use `0.9 * fontsize`; tick labels use
@@ -767,7 +769,8 @@ class FUSIPlotAccessor:
         slice_space : {"voxel", "world"}, optional
             Display geometry for panels faceted along a non-spatial `slice_mode`. See
             [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-            provided, defaults to `"world"`.
+            provided, defaults to what `slice_mode` implies when it's spatial, or to
+            `"world"` for a non-spatial `slice_mode`.
         alpha : float or numpy.ndarray, optional
             Opacity of the composite image, either a single value or a per-voxel
             array matching the shape of the displayed slices. If not provided, the
@@ -938,7 +941,8 @@ class FUSIPlotAccessor:
         slice_space : {"voxel", "world"}, optional
             Display geometry for panels faceted along a non-spatial `slice_mode`. See
             [`VolumePlotter`][confusius.plotting.VolumePlotter] for details. If not
-            provided, defaults to `"world"`.
+            provided, defaults to what `slice_mode` implies when it's spatial, or to
+            `"world"` for a non-spatial `slice_mode`.
         bg_kwargs : dict, optional
             Additional keyword arguments forwarded to
             [`plot_volume`][confusius.plotting.plot_volume] for the background layer

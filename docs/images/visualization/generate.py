@@ -4,8 +4,8 @@ Data is fetched automatically from the Nunez-Elizalde et al. (2022) fUSI-BIDS
 dataset on OSF (https://osf.io/43skw/) via `confusius.datasets`. The first run
 downloads ~30 MB; subsequent runs use the local cache.
 
-Atlas overlays (`napari-labels.png` and `volume-with-contours-*.png`) are generated
-from the Allen CCF labels in the dataset derivatives (`derivatives/allenccf_align`).
+Atlas overlays (`napari-labels.png`) are generated from the Allen CCF labels in the
+dataset derivatives (`derivatives/allenccf_align`).
 You can still override this by setting `ATLAS_MASK_PATH` to a local Zarr or NIfTI
 integer-label mask.
 
@@ -637,31 +637,7 @@ for bg_color, suffix in [("white", "light"), ("black", "dark")]:
 _ok("Saved plot-sliced-volume-3d-light.png and plot-sliced-volume-3d-dark.png")
 
 # ---------------------------------------------------------------------------
-# 7. Volume with atlas contours overlaid (atlas mask required)
-# ---------------------------------------------------------------------------
-
-if atlas_mask is not None:
-    overlay_colors = id_to_rgb if id_to_rgb else "white"
-    for bg_color, suffix in [("white", "light"), ("black", "dark")]:
-        plotter_overlay = mean_vol.fusi.scale.db().fusi.plot.volume(
-            slice_mode="z",
-            cmap="gray",
-            vmin=_MEAN_DB_LIMITS[0],
-            vmax=_MEAN_DB_LIMITS[1],
-            cbar_label="Power Doppler (dB)",
-            bg_color=bg_color,
-        )
-        plotter_overlay.add_contours(atlas_mask, colors=overlay_colors)
-        plotter_overlay.savefig(
-            str(HERE / f"volume-with-contours-{suffix}.png"), **_SAVEFIG_KWARGS
-        )
-        plotter_overlay.close()
-    _ok("Saved volume-with-contours-light.png and volume-with-contours-dark.png")
-else:
-    _warn("Skipping volume-with-contours-*.png (atlas mask unavailable)")
-
-# ---------------------------------------------------------------------------
-# 8. Composite — two acquisitions overlaid as red/cyan (matplotlib)
+# 7. Composite — two acquisitions overlaid as red/cyan (matplotlib)
 # ---------------------------------------------------------------------------
 
 _section("Composite plot")
@@ -690,7 +666,7 @@ for bg_color, suffix in [("white", "light"), ("black", "dark")]:
 _ok("Saved composite-light.png and composite-dark.png")
 
 # ---------------------------------------------------------------------------
-# 9. draw_napari_labels — interactive ROI drawing
+# 8. draw_napari_labels — interactive ROI drawing
 # ---------------------------------------------------------------------------
 
 _section("draw_napari_labels")
@@ -733,7 +709,7 @@ except Exception as exc:
     _warn(f"draw_napari_labels screenshot failed: {exc}")
 
 # ---------------------------------------------------------------------------
-# 10. Carpet plot (matplotlib)
+# 9. Carpet plot (matplotlib)
 # ---------------------------------------------------------------------------
 
 for bg_color, suffix in [("white", "light"), ("black", "dark")]:

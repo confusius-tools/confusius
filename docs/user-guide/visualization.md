@@ -355,6 +355,36 @@ plotter = angio.fusi.scale.db().fusi.plot.volume(
 ![Three selected elevation slices of the angiography volume](../images/visualization/plot-sliced-volume-3d-light.png#only-light)
 ![Three selected elevation slices of the angiography volume](../images/visualization/plot-sliced-volume-3d-dark.png#only-dark)
 
+### Slicing Over a Non-Spatial Dimension
+
+`slice_mode` isn't limited to a spatial axis (`z`/`y`/`x`/`k`/`j`/`i`) — any other dim
+works too, e.g. `time`, `pose`, or a `region` dim such as the one a seed-based
+connectivity map is stacked along (see [below](#statistical-maps) and the [seed-based
+connectivity example](../examples/_built/connectivity/atlas_seed_map.md)). Each requested coordinate
+along that dim becomes its own panel, the same as slicing over `z`.
+
+When `slice_mode` is itself spatial, it already determines the display: `z`/`y`/`x`
+always resample onto an axis-aligned world grid, `k`/`j`/`i` always show the native
+voxel plane. For a non-spatial `slice_mode`, `slice_space` makes that choice instead:
+
+```python
+plotter = mapper.maps_.fusi.plot.stat_map(
+    bg_volume=bg_by_region,
+    slice_mode="region",
+    slice_space="world",  # or "voxel"
+)
+```
+
+- `"world"` (the default): each panel is resampled onto an axis-aligned world grid,
+  labeled in mm — the same display `z`/`y`/`x` slicing produces. Resampling is a cheap
+  dim rename for already axis-aligned data, and a real interpolation for oblique data.
+- `"voxel"`: each panel keeps its native voxel dims (`k`/`j`/`i`) instead, still labeled
+  in mm but without ever resampling — useful to skip interpolation cost, or to inspect
+  data on the exact grid it was acquired or registered on.
+
+`transpose=True` swaps which of the two remaining spatial dims is drawn on rows versus
+columns, for either case.
+
 ### Thresholding
 
 For functional activation maps or data where you want to suppress noise, `threshold`
@@ -475,7 +505,10 @@ example](../examples/_built/connectivity/atlas_seed_map.md), which walks through
 registering a recording to an Allen-space template, resampling the [Allen Mouse Brain
 Atlas][confusius.datasets.fetch_brainglobe_atlas] onto the recording's native grid, and
 computing voxel-wise seed-based correlation maps with
-[`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps].
+[`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps]. `SeedBasedMaps` stacks one map
+per seed along a `region` dim, so the figure is produced with `slice_mode="region"` —
+one panel per seed, faceted over a non-spatial dim as described
+[above](#slicing-over-a-non-spatial-dimension).
 
 ## Overlaying Contours
 
@@ -498,39 +531,37 @@ on the matching panels. Masks produced by
 !!! question "Registering your data to an atlas"
     This example assumes your fUSI data has already been registered to the Allen Mouse
     Brain atlas. See the [Atlases](atlas.md) guide for loading and working with brain
-    atlases, and the [Registration](registration.md) guide for how to obtain the `transform`
-    used in `atlas.atlas.resample_like`.
+    atlases, and the [register a recording to an Allen fUSI
+    template](../examples/_built/registration/register_to_allen_fusi_template.md)
+    example for how to obtain the `transform` used in `atlas.atlas.resample_like` below.
 
 ```python
 from confusius.datasets import fetch_brainglobe_atlas
 
-# Load atlas and resample to fUSI space (see Registration guide).
+# Load atlas and resample to fUSI space (see the registration example linked above).
 atlas = fetch_brainglobe_atlas("allen_mouse_100um")
 atlas_fusi = atlas.atlas.resample_like(mean_vol, transform)
 
 # Step 1: display an average power Doppler volume.
-plotter = cf.plotting.plot_volume(
-    pwd.fusi.scale.db(),
-    slice_mode="z",
-    cmap="gray",
-    vmin=-20,
-    vmax=0,
-    cbar_label="Power Doppler (dB)",
-)
+plotter = cf.plotting.plot_volume(mean_vol.fusi.scale.db(), show_colorbar=False)
 
-# Step 2: overlay contours. Allen colors are read from atlas_mask.attrs["rgb_lookup"]
-# automatically.
+# Step 2: overlay contours. Allen colors are read from
+# atlas_fusi.annotation.attrs["rgb_lookup"] automatically.
 plotter.add_contours(atlas_fusi.annotation)
 ```
 
-![Power Doppler volume with Allen atlas region contours overlaid](../images/visualization/volume-with-contours-light.png#only-light)
-![Power Doppler volume with Allen atlas region contours overlaid](../images/visualization/volume-with-contours-dark.png#only-dark)
+![Power Doppler volume with Allen atlas region contours overlaid](../examples/_built/registration/register_to_allen_fusi_template_thumb_light.png#only-light)
+![Power Doppler volume with Allen atlas region contours overlaid](../examples/_built/registration/register_to_allen_fusi_template_thumb_dark.png#only-dark)
 
-Coordinate matching is done along the plotter's `slice_mode`: world coordinates
-(`z`/`y`/`x`) when `slice_mode` is a physical dim, or voxel indices (`k`/`j`/`i`) when
-it's a native voxel dim, matching contour coordinates with those of the previously
-plotted volume. Slices present in the mask but absent from the volume are skipped with
-a warning.
+This figure is generated in the [register a recording to an Allen fUSI template
+example](../examples/_built/registration/register_to_allen_fusi_template.md), which
+walks through the full registration and atlas-resampling workflow.
+
+Coordinate matching is done along the plotter's `slice_mode`'s own coordinate value —
+world position for `z`/`y`/`x`, voxel index for `k`/`j`/`i`, or the facet's own
+coordinate (e.g. a region label) for a non-spatial `slice_mode` — matching contour
+panels with those of the previously plotted volume. Slices present in the mask but
+absent from the volume are skipped with a warning.
 
 ### Contours-only Grid
 

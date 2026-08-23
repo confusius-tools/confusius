@@ -1489,6 +1489,40 @@ class TestVolumePlotterAddContours:
         axes_flat = _axes(plotter).ravel()
         assert [len(ax.lines) for ax in axes_flat[:3]] == [1, 1, 1]
 
+    def test_world_resample_preserves_each_panels_own_resolution(self):
+        """Design: design/world-mode-resample-scoping.md, Design A.
+
+        Each panel resampled under slice_space="world" for a non-spatial
+        slice_mode must keep its own native resolution, never get forced onto
+        another panel's grid via a shared reference.
+
+        Regression: `self._world_grid_reference` used to get set from the
+        first panel processed on a plotter and reused for every later one,
+        silently downsampling a finer-resolution overlay (e.g. atlas
+        annotations) to a coarser background's resolution -- exactly the
+        `plot_stat_map(..., slice_mode="region") + add_contours(seed_masks)`
+        scenario, where seed_masks (25 um) got downsampled to bg_volume's
+        (100 um) resolution.
+        """
+        coarse = create_voxeldata(
+            np.zeros((1, 30, 42)),
+            dims=("k", "j", "i"),
+            voxel_to_world=np.diag([0.2, 0.1, 0.1, 1.0]),
+        )
+        fine = create_voxeldata(
+            np.zeros((1, 90, 126)),
+            dims=("k", "j", "i"),
+            voxel_to_world=np.diag([0.2, 0.1 / 3, 0.1 / 3, 1.0]),
+        )
+        plotter = VolumePlotter(slice_mode="region")
+
+        resampled_coarse = plotter._maybe_resample_slices_to_world([coarse])[0]
+        resampled_fine = plotter._maybe_resample_slices_to_world([fine])[0]
+
+        assert resampled_coarse.shape == (30, 42)
+        assert resampled_fine.shape == (90, 126)
+        assert plotter._world_grid_reference is None
+
     def test_add_contours_slice_space_voxel_lands_within_axes_limits(
         self, matplotlib_pyplot
     ):
