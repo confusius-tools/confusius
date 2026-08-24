@@ -106,7 +106,6 @@ Current development version for the next ConfUSIus release.
   `attrs["world_coord_attrs"]` round-trip key was renamed to
   `attrs["voxel_to_world_units"]` (a single string)
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
-
 ### :sparkles: Enhancements
 
 - `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
@@ -128,14 +127,11 @@ Current development version for the next ConfUSIus release.
   `voxel_to_world` instead of decomposing it into axis-aligned scale/origin
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 - `plot_volume` (and napari layers) always displays in world space, like
-  nilearn: an axis-aligned world plane (`z`/`y`/`x`), a non-spatial dim (e.g.
-  `slice_mode="pose"` facets a multi-pose array over its poses), or, for
-  oblique data, a projection onto the world axes at full native resolution
-  with no interpolation. `resample_in_plane=True` (`add_volume`,
-  `add_contours`, `plot_volume`, `plot_composite`, `plot_stat_map`) opts into
-  a real in-plane resample instead, trading resolution for entirely
-  rectangular output cells; `transpose=True` swaps which display dim is drawn
-  on rows versus columns
+  nilearn: an axis-aligned world plane (`z`/`y`/`x`), or a non-spatial dim
+  (e.g. `slice_mode="pose"` facets a multi-pose array over its poses).
+  Oblique voxel-to-world data is always resampled onto the world-axis-aligned
+  frame for display, each volume keeping its own native per-axis resolution;
+  `transpose=True` swaps which display dim is drawn on rows versus columns
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 - Added [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] to canonicalize
   and validate VoxelData inputs with one call, and added

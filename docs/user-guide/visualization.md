@@ -365,20 +365,11 @@ along that dim becomes its own panel, the same as slicing over `z`.
 
 Display is always in world space, labeled in mm. For already axis-aligned data this is a
 cheap dim rename onto a regular world grid — the same display `z`/`y`/`x` slicing
-produces. For oblique data, no resampling happens at all: the panel's native voxel plane
-is projected onto the world axes at full native resolution, with no interpolation and
-no resolution loss — cells stay rectangular only when the panel's in-plane axes are
-themselves orthogonal in world space; otherwise they render as (correctly positioned)
-parallelograms.
+produces. For oblique data, each panel is resampled onto the world-axis-aligned grid,
+keeping its own native per-axis resolution, so cells always render rectangular.
 
 `transpose=True` swaps which of the two remaining spatial dims is drawn on rows versus
 columns.
-
-Oblique data's non-rectangular cells can produce visible seams where panels overlap
-under alpha blending (e.g. a background volume with a statistical overlay). Pass
-`resample_in_plane=True` to force the two in-plane axes onto the global world frame too,
-like the slice axis — this requires a real interpolation of the in-plane data (trading
-some resolution/geometry fidelity) but guarantees entirely rectangular output cells.
 
 ### Thresholding
 

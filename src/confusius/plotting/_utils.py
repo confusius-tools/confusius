@@ -180,7 +180,7 @@ def coerce_complex_to_magnitude(data: xr.DataArray, caller: str) -> xr.DataArray
     return data
 
 
-def _materialize_axis_aligned_world_grid_for_display(
+def materialize_axis_aligned_world_grid_for_display(
     data: xr.DataArray,
 ) -> xr.DataArray:
     """Expose axis-aligned voxel-to-world data on plain world `z/y/x` dims.
@@ -188,15 +188,14 @@ def _materialize_axis_aligned_world_grid_for_display(
     Parameters
     ----------
     data : xarray.DataArray
-        Canonical VoxelData array (every caller runs it through `ensure_voxeldata`
-        first, so `has_voxel_to_world_index(data)` is always true here).
+        VoxelData array.
 
     Returns
     -------
     xarray.DataArray
         DataArray whose spatial dimensions are renamed from voxel `k/j/i` to world
-        `z/y/x`, with the linked world coordinates promoted to dimension
-        coordinates and `voxel_to_world` removed from attrs.
+        `z/y/x`, with the linked world coordinates promoted to dimension coordinates and
+        `VoxelToWorldIndex` removed.
     """
     if not has_axis_aligned_voxel_to_world_index(data):
         return data

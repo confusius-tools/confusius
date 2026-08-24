@@ -115,10 +115,10 @@ def qr_axis_spacing(
     """Return each world row's dominant voxel axis and its spacing, via QR.
 
     Shared by `compute_oblique_axis_aligned_grid_geometry` and
-    [`compute_slice_axis_aligned_grid_geometry`][confusius.plotting.image.compute_slice_axis_aligned_grid_geometry]'s
-    `resample_in_plane=True` branch, both of which need the same nilearn
-    `reorder_img`-style per-world-row spacing (see
-    `compute_oblique_axis_aligned_grid_geometry`'s Notes for the rationale).
+    [`compute_slice_axis_aligned_grid_geometry`][confusius.plotting.image.compute_slice_axis_aligned_grid_geometry],
+    both of which need the same nilearn `reorder_img`-style per-world-row
+    spacing (see `compute_oblique_axis_aligned_grid_geometry`'s Notes for the
+    rationale).
 
     Parameters
     ----------

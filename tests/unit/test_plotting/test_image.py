@@ -21,7 +21,7 @@ from confusius.plotting import (
     plot_stat_map,
     plot_volume,
 )
-from confusius.plotting._utils import _materialize_axis_aligned_world_grid_for_display
+from confusius.plotting._utils import materialize_axis_aligned_world_grid_for_display
 from confusius.xarray import create_voxeldata
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
@@ -144,12 +144,16 @@ class TestPlotVolume:
         """
         npose = 3
         affine = np.diag([0.2, 0.1, 0.05, 1.0])
-        data = create_voxeldata(
-            np.random.default_rng(0).random((npose, 1, 6, 8)),
-            dims=("pose", "k", "j", "i"),
-            pose=np.arange(npose),
-            voxel_to_world=affine,
-        ).isel(k=0, i=0).expand_dims(region=["r0"])
+        data = (
+            create_voxeldata(
+                np.random.default_rng(0).random((npose, 1, 6, 8)),
+                dims=("pose", "k", "j", "i"),
+                pose=np.arange(npose),
+                voxel_to_world=affine,
+            )
+            .isel(k=0, i=0)
+            .expand_dims(region=["r0"])
+        )
 
         plotter = plot_volume(
             data, slice_mode="region", slice_coords=["r0"], show_colorbar=False
@@ -567,90 +571,16 @@ class TestPlotVolume:
         with pytest.raises(ValueError, match="must be strictly monotonic"):
             plot_volume(data, slice_mode="z", show_colorbar=False)
 
-    def test_voxel_to_world_slice_geometry_returns_2d_meshes(
-        self, sample_voxeldata_3d_oblique
-    ):
-        """Voxel-to-world slice geometry is projected to 2D corner meshes."""
-        from confusius.plotting.image import _slice_edges_and_centers
-
-        data = sample_voxeldata_3d_oblique.isel(k=0)
-        x_edges, y_edges, x_centers, y_centers = _slice_edges_and_centers(
-            data, "j", "i"
-        )
-
-        assert x_edges.shape == (data.sizes["j"] + 1, data.sizes["i"] + 1)
-        assert y_edges.shape == (data.sizes["j"] + 1, data.sizes["i"] + 1)
-        assert x_centers.shape == (data.sizes["j"], data.sizes["i"])
-        assert y_centers.shape == (data.sizes["j"], data.sizes["i"])
-
-    def test_voxel_to_world_slice_geometry_folds_in_extra_active_dimension(
-        self, sample_voxeldata_3d_oblique
-    ):
-        """Projection folds in a third active (non-row/col) voxel dimension.
-
-        Selecting with a list index (`isel(k=[0])`) keeps `k` as a genuine size-1
-        active dimension rather than fixing it away, unlike a scalar `isel(k=0)`.
-        The projection must still resolve `k`'s world position for every pixel.
-        """
-        from confusius.plotting.image import _slice_edges_and_centers
-
-        data = sample_voxeldata_3d_oblique.isel(k=[0])
-        assert "k" in data.dims
-
-        x_edges, y_edges, x_centers, y_centers = _slice_edges_and_centers(
-            data, "j", "i"
-        )
-
-        assert x_edges.shape == (data.sizes["j"] + 1, data.sizes["i"] + 1)
-        assert y_edges.shape == (data.sizes["j"] + 1, data.sizes["i"] + 1)
-        # The projected origin (row=0, col=0 corner) must reflect k's actual world
-        # contribution, not silently drop it (which would leave the plane collapsed
-        # onto a wrong origin).
-        assert not np.allclose(x_centers, 0.0)
-        assert not np.allclose(y_centers, 0.0)
-
-    def test_voxel_to_world_collinear_plane_axes_raises(self):
-        """Projecting onto collinear in-plane axes raises ValueError.
-
-        When the world-space directions of the two requested display dimensions
-        are parallel, there is no well-defined orthonormal in-plane basis to
-        project onto.
-        """
-        from confusius.plotting.image import _slice_edges_and_centers
-
-        data = xr.DataArray(
-            np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
-            dims=["k", "j", "i"],
-            coords={"k": [0, 1], "j": [0, 1, 2], "i": [0, 1, 2, 3]},
-        )
-        # The i column is exactly twice the j column, so j and i map to parallel
-        # world-space directions.
-        voxel_to_world = np.array(
-            [
-                [0.0, 0.2, 0.4, 10.0],
-                [0.0, 0.1, 0.2, 20.0],
-                [1.0, 0.0, 0.0, 30.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ]
-        )
-        data = attach_voxel_to_world_index(data, voxel_to_world)
-        with pytest.raises(ValueError, match="non-collinear plane axes"):
-            _slice_edges_and_centers(data.isel(k=0), "j", "i")
-
     def test_voxel_to_world_volume_resamples_for_world_slice_mode(
         self, matplotlib_pyplot, sample_voxeldata_3d_oblique
     ):
-        """World z-slicing forces only the slice axis, keeping in-plane obliqueness.
+        """World z-slicing resamples oblique data onto the axis-aligned world grid.
 
-        Design: design/world-mode-resample-scoping.md, Designs B and C. Unlike full
-        axis-aligned resampling, only `slice_mode`'s own world axis is regularized
-        for cross-volume position matching -- the two in-plane axes keep the
-        volume's own native (here, oblique) resolution, no interpolation, so cells
-        render as true, possibly non-rectangular, world-space quads. Display always
-        projects onto a *fixed global* basis (Design C), not one derived from this
-        volume's own affine, so two independently oriented volumes overlaid at the
-        same z still align correctly -- hence proper world axis labels
-        (`"y"`/`"x"`).
+        `slice_mode`'s own world axis is regularized for cross-volume position
+        matching; the two in-plane axes are also forced onto the global frame
+        (each keeping its own native per-axis spacing), so display always shows
+        proper world axis labels (`"y"`/`"x"`) regardless of the source data's
+        in-plane orientation.
         """
         data = sample_voxeldata_3d_oblique
         z_coord = float(np.asarray(_world_coord_1d(data, "z"), dtype=float).mean())
@@ -671,15 +601,12 @@ class TestPlotVolume:
     def test_voxel_to_world_world_resampling_preserves_per_axis_spacing(
         self, sample_voxeldata_3d_oblique
     ):
-        """Only the slice axis (z) is regularized; the in-plane axes stay oblique.
+        """Each of the 3 output axes keeps its own native per-axis spacing.
 
-        Design: design/world-mode-resample-scoping.md, Design B. Unlike the old
-        whole-grid alignment (which forced all 3 world axes, per a QR-based
-        heuristic), only `z`'s own spacing is fixed -- to
-        `compute_slice_axis_aligned_grid_geometry`'s own per-axis voxel spacing,
-        not a QR decomposition of the full affine. `y`/`x` are left genuinely
-        oblique: still varying over both in-plane voxel dims, not reducible to a
-        1D per-axis diff at all.
+        All 3 axes are forced onto the global (world-aligned) frame, but the two
+        in-plane axes are not resampled to match one another or the slice axis --
+        each keeps the spacing `compute_slice_axis_aligned_grid_geometry` derives
+        for it individually.
         """
         from confusius.plotting.image import compute_slice_axis_aligned_grid_geometry
 
@@ -692,16 +619,13 @@ class TestPlotVolume:
             data, caller="test"
         )
 
+        assert result.dims == ("z", "y", "x")
         z_spacing = float(np.diff(_world_coord_1d(result, "z"))[0])
         assert z_spacing == pytest.approx(expected_spacing["k"])
-        for dim in ("y", "x"):
-            coord = np.asarray(result.coords[dim].values, dtype=float)
-            assert coord.ndim > 1
-            # Constant along k (the now-aligned slice axis) -- confirming y/x
-            # depend only on the in-plane j/i voxel dims -- but genuinely varies
-            # across j/i itself, i.e. still a real 2D (oblique) coordinate.
-            npt.assert_allclose(coord[0], coord[1], atol=1e-6)
-            assert not np.allclose(coord[0, 0], coord[0])
+        y_spacing = float(np.diff(_world_coord_1d(result, "y"))[0])
+        x_spacing = float(np.diff(_world_coord_1d(result, "x"))[0])
+        assert y_spacing == pytest.approx(expected_spacing["j"], abs=1e-6)
+        assert x_spacing == pytest.approx(expected_spacing["i"], abs=1e-6)
 
     def test_axis_aligned_voxel_to_world_world_slice_promotes_world_dims(self):
         """Axis-aligned geometry uses world dims directly for world slicing."""
@@ -893,14 +817,13 @@ class TestVolumePlotterAddVolume:
     def test_world_slice_mode_projects_differently_rotated_volumes_consistently(
         self, matplotlib_pyplot
     ):
-        """Design C: world display uses a fixed global basis, not a per-volume one.
+        """World display resamples onto the global frame, not a per-volume one.
 
-        Design: design/world-mode-resample-scoping.md, Design C. Two volumes
-        sharing the same slice axis (z) but with different in-plane rotations must
-        land at their own true, differing world positions when both are displayed
-        with slice_mode="z" -- not at identical display coordinates, which is what
-        a per-volume-derived projection basis (Design B's original mistake) would
-        silently produce, hiding the rotation.
+        Two volumes sharing the same slice axis (z) but with different in-plane
+        rotations must land at their own true, differing world positions when
+        both are displayed with slice_mode="z" -- not at identical display
+        coordinates, which is what a per-volume-derived basis would silently
+        produce, hiding the rotation.
         """
         straight = create_voxeldata(
             np.arange(3 * 5 * 5.0).reshape(3, 5, 5),
@@ -936,43 +859,20 @@ class TestVolumePlotterAddVolume:
         coords_straight = _axes(plotter_straight)[0, 0].collections[0].get_coordinates()
         coords_rotated = _axes(plotter_rotated)[0, 0].collections[0].get_coordinates()
 
-        # A per-volume-local basis (the Design B bug) would make both identical,
-        # each showing "upright" in its own frame. A fixed global basis instead
-        # reveals the true relative rotation: the rotated volume's world footprint
-        # is genuinely wider/different, not a copy of the straight one's.
-        assert not np.allclose(coords_straight, coords_rotated)
+        # A per-volume-local basis would make both identical, each showing
+        # "upright" in its own frame. Resampling onto the fixed global frame
+        # instead reveals the true relative rotation: the rotated volume's world
+        # footprint is genuinely wider/different (even its output grid shape
+        # differs, from the larger axis-aligned bounding box), not a copy of the
+        # straight one's.
+        assert coords_straight.shape != coords_rotated.shape or not np.allclose(
+            coords_straight, coords_rotated
+        )
         assert _axes(plotter_straight)[0, 0].get_xlabel() == "x (mm)"
         assert _axes(plotter_rotated)[0, 0].get_xlabel() == "x (mm)"
 
-        # Ground truth for the actual displayed data: VoxelToWorldIndex's own
-        # forward affine computation (independent of the projection code under
-        # test) already exposes each voxel's true world x/y as coordinates.
-        from confusius.plotting.image import _slice_edges_and_centers
-
-        rotated_slice = rotated.sel(z=0.4, method="nearest")
-        x_edges, y_edges, _, _ = _slice_edges_and_centers(
-            rotated_slice, "j", "i", world_row="y", world_col="x"
-        )
-        # Corner (j=-0.5, i=-0.5) maps through the affine's own linear part to a
-        # specific true world (y, x); the projected mesh corner must match exactly
-        # (a pure projection, no interpolation to introduce any tolerance).
-        expected_world = rotated_affine[:3, :3] @ [1.0, -0.5, -0.5]
-        npt.assert_allclose(x_edges[0, 0], expected_world[2], atol=1e-10)
-        npt.assert_allclose(y_edges[0, 0], expected_world[1], atol=1e-10)
-
-    def test_resample_in_plane_forces_rectangular_cells_for_oblique_data(
-        self, matplotlib_pyplot
-    ):
-        """resample_in_plane=True fully resamples oblique in-plane geometry too.
-
-        Design: design/world-mode-resample-scoping.md, Design D. By default
-        (`resample_in_plane=False`), oblique in-plane data displays via projection
-        (non-rectangular cells, no interpolation beyond the slice axis) -- but
-        that can show a pcolormesh alpha-blending seam artifact on overlapping
-        semi-transparent cells. `resample_in_plane=True` forces a real interpolation
-        onto the global frame for the in-plane axes too, trading geometry
-        fidelity for entirely rectangular cells.
-        """
+    def test_oblique_data_resamples_to_rectangular_cells(self, matplotlib_pyplot):
+        """Display always resamples oblique in-plane geometry onto rectangular cells."""
         theta = np.deg2rad(30)
         rotation = np.array(
             [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]]
@@ -986,44 +886,28 @@ class TestVolumePlotterAddVolume:
             voxel_to_world=affine,
         )
 
-        def _is_rectangular(plotter):
-            coords = plotter.axes[0, 0].collections[0].get_coordinates()
-            x = coords[..., 0]
-            return bool(np.allclose(x, x[0:1, :]))
-
-        default_plotter = VolumePlotter(slice_mode="z").add_volume(
+        plotter = VolumePlotter(slice_mode="z").add_volume(
             data,
             match_coordinates=False,
             show_colorbar=False,
             slice_coords=[0.4],
         )
-        aligned_plotter = VolumePlotter(slice_mode="z").add_volume(
-            data,
-            match_coordinates=False,
-            show_colorbar=False,
-            slice_coords=[0.4],
-            resample_in_plane=True,
-        )
 
-        assert not _is_rectangular(default_plotter)
-        assert _is_rectangular(aligned_plotter)
-        assert _axes(default_plotter)[0, 0].get_xlabel() == "x (mm)"
-        assert _axes(aligned_plotter)[0, 0].get_xlabel() == "x (mm)"
+        coords = _axes(plotter)[0, 0].collections[0].get_coordinates()
+        x = coords[..., 0]
+        assert np.allclose(x, x[0:1, :])
+        assert _axes(plotter)[0, 0].get_xlabel() == "x (mm)"
 
     def test_world_slice_mode_default_slice_coords_handles_single_native_slice(
         self, matplotlib_pyplot
     ):
         """Default slice_coords works for an oblique single-k-slice overlay volume.
 
-        Regression: a spatial `slice_mode` overlay volume that starts as a single
-        native slice (`k` size 1, e.g. a single-plane fUSI recording) gets resampled
-        onto the first volume's shared slice-axis grid (Design B), landing on
-        several `z` positions -- but its `z` coordinate stays derived jointly over
-        all of `(k, j, i)` rather than collapsing to a genuine 1D coordinate
-        (Design C's oblique-in-plane display never renames dims). The default
-        `slice_coords is None` path used to list `data.coords["z"].values` directly,
-        which for this joint coordinate yields one 2D `(j, i)`-shaped sub-array per
-        `k` position instead of one scalar per z -- crashing downstream `.sel`.
+        A spatial `slice_mode` overlay volume that starts as a single native slice
+        (`k` size 1, e.g. a single-plane fUSI recording) gets resampled onto the
+        first volume's shared slice-axis grid, landing on several `z` positions --
+        the default `slice_coords is None` path must list that resampled `z`
+        coordinate's actual values, not the pre-resample single native position.
         """
         fixed = create_voxeldata(
             np.arange(5 * 10 * 10.0).reshape(5, 10, 10),
@@ -1047,10 +931,10 @@ class TestVolumePlotterAddVolume:
         plotter.add_volume(moving, cmap="viridis", alpha=0.5, show_colorbar=False)
 
         # `moving`'s single native slice gets resampled onto `fixed`'s entire
-        # shared slice-axis grid (Design B), so every one of `fixed`'s panels gets
-        # an overlay (filled with `resample_fill_value` outside `moving`'s own
-        # field of view) -- the point here is that this doesn't crash, not the
-        # exact overlay extent.
+        # shared slice-axis grid, so every one of `fixed`'s panels gets an overlay
+        # (filled with `resample_fill_value` outside `moving`'s own field of view)
+        # -- the point here is that this doesn't crash, not the exact overlay
+        # extent.
         n_with_overlay = sum(len(ax.collections) == 2 for ax in plotter.axes.ravel())
         assert n_with_overlay == fixed.sizes["k"]
 
@@ -1059,14 +943,11 @@ class TestVolumePlotterAddVolume:
     ):
         """Two single-k-slice oblique volumes overlay correctly (both k=1).
 
-        Regression: `_prepare_slice_inputs`'s squeeze step used to compare each
-        dim's name against `self.slice_mode` (e.g. `"z"`) to decide what to keep
-        even at size 1 -- but Design B/C's oblique-in-plane spatial display never
-        renames `k` to `self.slice_mode`'s world name (it stays a native voxel
-        dim), so `"k" != "z"` always, and a genuinely size-1 `k` (a single-plane
-        fUSI recording, or a volume resampled onto another single-plane volume's
-        size-1 SliceAxisGrid) got silently squeezed away as if incidental, leaving
-        only 2 real dims and raising "Data must be 3D".
+        Regression: a genuinely size-1 `self.slice_mode` dim (a single-plane fUSI
+        recording, or a volume resampled onto another single-plane volume's
+        size-1 SliceAxisGrid) must survive `_prepare_slice_inputs`'s squeeze step
+        rather than being dropped as if incidental, which would leave only 2 real
+        dims and raise "Data must be 3D".
         """
         fixed = create_voxeldata(
             np.arange(1 * 10 * 10.0).reshape(1, 10, 10),

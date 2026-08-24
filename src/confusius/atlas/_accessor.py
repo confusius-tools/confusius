@@ -784,10 +784,10 @@ def get_atlas_mesh(
 
     if side != "both":
         from confusius.plotting._utils import (
-            _materialize_axis_aligned_world_grid_for_display,
+            materialize_axis_aligned_world_grid_for_display,
         )
 
-        hemispheres_grid = _materialize_axis_aligned_world_grid_for_display(hemispheres)
+        hemispheres_grid = materialize_axis_aligned_world_grid_for_display(hemispheres)
         sel = {
             d: xr.DataArray(vertices_mm[:, i], dims="point")
             for i, d in enumerate("zyx")
