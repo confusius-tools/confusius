@@ -845,6 +845,42 @@ def test_sel_scalar_no_exact_match_on_nonmonotonic_axis_raises_key_error(
         sample_voxeldata_3d_nonmonotonic_voxels.sel(y=5.0)  # No exact match on j.
 
 
+def test_sel_on_fixed_dim_validates_label_against_pinned_plane() -> None:
+    """A world label on a scalar-`isel`'d dim is checked against its pinned plane.
+
+    Regression test: `VoxelToWorldIndex.sel` used to skip any world coordinate
+    whose voxel dim was fixed by a prior scalar `isel`, so a label matching no
+    voxel returned the whole array unchanged instead of raising.
+    """
+    data = xr.DataArray(
+        np.arange(24).reshape(2, 3, 4),
+        dims=("k", "j", "i"),
+        coords={"k": [0, 2], "j": [0, 1, 3], "i": [0, 2, 3, 7]},
+    )
+    voxel_to_world = np.diag([10.0, 2.0, 3.0, 1.0])
+    voxel_to_world[:3, 3] = [5.0, -1.0, 0.5]  # Translation, so z = 10 * k + 5.
+    result = attach_voxel_to_world_index(data, voxel_to_world)
+    fixed = result.isel(k=1)  # Pinned at z = 25.
+
+    xr.testing.assert_identical(fixed.sel(z=25.0), fixed)
+    xr.testing.assert_identical(fixed.sel(z=0.0, method="nearest"), fixed)
+    with pytest.raises(KeyError):
+        fixed.sel(z=5.0)  # k=0's plane: on the original axis, not on `fixed`.
+    with pytest.raises(KeyError):
+        fixed.sel(z=99.0)
+
+
+def test_sel_slice_on_fixed_dim_validates_pinned_plane(
+    sample_voxeldata_3d_irregular_voxels,
+) -> None:
+    """A world slice on a scalar-`isel`'d dim must contain its pinned plane."""
+    fixed = sample_voxeldata_3d_irregular_voxels.isel(k=1)  # Pinned at z = 20.
+
+    xr.testing.assert_identical(fixed.sel(z=slice(10.0, 30.0)), fixed)
+    with pytest.raises(KeyError):
+        fixed.sel(z=slice(0.0, 10.0))
+
+
 def test_sel_slice_out_of_range_selects_nothing_and_step_subsamples(
     sample_voxeldata_3d_irregular_voxels,
 ) -> None:

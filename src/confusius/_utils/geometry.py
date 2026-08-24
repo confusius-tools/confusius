@@ -459,12 +459,32 @@ class VoxelToWorldIndex(Index):
         dim_indexers: dict[Hashable, Any] = {}
         for name, (row, column) in single_axis.items():
             dim = VOXEL_DIMS[column]
-            if dim not in transform.active_voxel_coords:
-                continue
             scale = linear[row, column]
             offset = transform.voxel_to_world[row, -1]
-            voxel_axis = transform.active_voxel_coords[dim]
             label = coord_labels[name]
+            if dim in transform.fixed_voxel_coords:
+                # A scalar `isel` reduced this dim, so the array lies in a single world
+                # plane. Validate the label against that plane instead of silently
+                # dropping it; there is no dimension left to emit an indexer (or an
+                # empty result) for, so a miss must raise.
+                plane = scale * transform.fixed_voxel_coords[dim] + offset
+                if isinstance(label, slice):
+                    hit = pd.Index([plane]).slice_indexer(
+                        label.start, label.stop, label.step
+                    )
+                    matched = len(range(*hit.indices(1))) == 1
+                else:
+                    matched = method == "nearest" or bool(
+                        np.all(np.isclose(label, plane, atol=1e-8))
+                    )
+                if not matched:
+                    raise KeyError(
+                        f"World coordinate {name}={label!r} does not match the "
+                        f"fixed plane {name}={plane!r} (dimension {dim!r} was "
+                        "reduced to a scalar)."
+                    )
+                continue
+            voxel_axis = transform.active_voxel_coords[dim]
             if isinstance(label, slice):
                 values = scale * voxel_axis + offset
                 dim_indexers[dim] = pd.Index(values).slice_indexer(
