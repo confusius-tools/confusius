@@ -930,28 +930,6 @@ def _format_coord(coord: Hashable) -> str:
     return str(coord)
 
 
-def _is_scalar_coord(data: xr.DataArray, name: Hashable) -> bool:
-    """Whether `name` is a scalar (0-dimensional) coordinate of `data`.
-
-    This is the state left after selecting a single index along a dimension
-    (e.g. `data.sel(z=6)`): the dimension is dropped and its coordinate becomes
-    scalar, so it can be promoted back to a size-1 dimension with `expand_dims`.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        The DataArray whose coordinates are inspected.
-    name : hashable
-        The candidate coordinate name.
-
-    Returns
-    -------
-    bool
-        Whether `name` is a coordinate of `data` with zero dimensions.
-    """
-    return name in data.coords and data.coords[name].ndim == 0
-
-
 def _coords_match(
     stored_coord: Hashable, target_coord: Hashable, tolerance: float
 ) -> bool:
@@ -1573,10 +1551,10 @@ class VolumePlotter:
                 fill_value=self._resample_fill_value,
             )
 
-            # Capture the slice axis's spec so a later volume/mask on this same
-            # plotter (e.g. add_contours' mask) lines up on the same physical
-            # slices -- the two in-plane axes are never shared (each volume keeps
-            # its own native resolution/orientation, see SliceAxisGrid).
+            # Capture the slice axis's spec so a later volume/mask on this same plotter
+            # lines up on the same physical slices. The two in-plane axes are never
+            # shared (each volume keeps its own native resolution/orientation, see
+            # SliceAxisGrid).
             if self._slice_axis_grid is None:
                 self._slice_axis_grid = slice_axis_grid
 
@@ -1586,13 +1564,7 @@ class VolumePlotter:
             # still resolving world coordinates directly for slicing/projection.
             data = _materialize_axis_aligned_world_grid_for_display(resampled_data)
         else:
-            converted = _materialize_axis_aligned_world_grid_for_display(data)
-            data = converted if self.slice_mode in converted.dims else data
-
-        # A single-index selection (e.g. data.sel(z=6)) drops slice_mode to a scalar
-        # coordinate; promote it back to a size-1 dimension so it plots like data.sel(z=[6]).
-        if self.slice_mode not in data.dims and _is_scalar_coord(data, self.slice_mode):
-            data = data.expand_dims(self.slice_mode)
+            data = _materialize_axis_aligned_world_grid_for_display(data)
 
         # Which dim must survive squeezing even at size 1: normally self.slice_mode
         # itself, but Design B/C's oblique-in-plane spatial display (see above)
