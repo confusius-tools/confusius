@@ -77,6 +77,33 @@ def sample_voxeldata_3dt_registration(sample_voxeldata_3d_registration):
 
 
 @pytest.fixture
+def sample_voxeldata_2d_extra_dim_registration(sample_voxeldata_2d_registration):
+    """Singleton-k registration DataArray with a `component` and a `time` extra dim.
+
+    Each `(component, time)` slice has a distinct off-centre square so that
+    resampling results can be told apart per slice.
+    """
+    n_components, n_frames = 3, 2
+    base = np.zeros((1, 32, 32), dtype=np.float32)
+    slices = []
+    for c in range(n_components):
+        for _t in range(n_frames):
+            frame = base.copy()
+            offset = 2 * c
+            frame[:, 10 + offset : 18 + offset, 10 + offset : 18 + offset] = 100.0
+            slices.append(frame)
+    data = np.stack(slices, axis=0).reshape(n_components, n_frames, 1, 32, 32)
+    return create_voxeldata(
+        data,
+        dims=("component", "time", "k", "j", "i"),
+        extra_coords={"component": np.arange(n_components)},
+        time=np.arange(n_frames) * 0.1,
+        spacing=(1.0, 0.1, 0.1),
+        origin=(0.0, 0.0, 0.0),
+    )
+
+
+@pytest.fixture
 def translation_transform_2d():
     """2D translation transform with known offset (tx=2, ty=3)."""
     t = sitk.TranslationTransform(2)

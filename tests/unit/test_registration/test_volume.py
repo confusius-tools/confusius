@@ -920,6 +920,29 @@ class TestResampleVolume:
             [grid["output_origin"][name] for name in SPATIAL_DIMS],
         )
 
+    def test_multiple_extra_dims_matches_looped_resample(
+        self,
+        sample_voxeldata_2d_extra_dim_registration,
+        sample_voxeldata_2d_registration,
+    ):
+        """Resampling with `component` + `time` extra dims matches per-slice looping."""
+        moving = sample_voxeldata_2d_extra_dim_registration
+        grid = _resample_volume_grid_kwargs(sample_voxeldata_2d_registration)
+        transform = np.eye(4)
+
+        result = resample_volume(moving, transform, **grid)
+
+        assert result.dims == moving.dims
+        assert_allclose(result.coords["component"].values, moving.coords["component"])
+        assert_allclose(result.coords["time"].values, moving.coords["time"])
+
+        for c in moving.coords["component"].values:
+            for t in moving.coords["time"].values:
+                expected = resample_volume(
+                    moving.sel(component=c, time=t), transform, **grid
+                )
+                assert_allclose(result.sel(component=c, time=t).values, expected.values)
+
     def test_matches_register_volume_resample(self, sample_voxeldata_2d_registration):
         """resample_volume matches register_volume(resample=True) on a shifted image."""
         rng = np.random.default_rng(42)

@@ -139,9 +139,10 @@ def resample_volume(
     Parameters
     ----------
     moving : xarray.DataArray
-        VoxelData array to resample. May be spatial-only or have a `time` dimension
-        (single-slice recordings use a singleton `k` axis). If a time dimension is
-        present, the same transform is applied to all time points.
+        VoxelData array to resample. May be spatial-only, or have any number of
+        extra non-spatial dimensions (`time` and/or others; `pose` is not supported)
+        (single-slice recordings use a singleton `k` axis). The same transform is
+        applied to every slice along the extra dimensions.
     transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
         [`register_volume`][confusius.registration.register_volume].
@@ -188,9 +189,8 @@ def resample_volume(
     Returns
     -------
     xarray.DataArray
-        VoxelData array resampled onto the requested grid, with
-        `moving`'s attributes. If the input had a time dimension, the output will also
-        have a time dimension.
+        VoxelData array resampled onto the requested grid, with `moving`'s attributes
+        and any extra non-spatial dimensions.
 
     Raises
     ------
@@ -206,10 +206,13 @@ def resample_volume(
         moving,
         require_time=False,
         allow_pose=False,
-        allow_extra_dims=False,
+        allow_extra_dims=True,
     )
 
-    has_time = "time" in moving.dims
+    # pose is rejected above, so every non-voxel dim here is either `time` or a
+    # genuine extra dim; both get the same transform and are handled identically.
+    extra_dims = [str(dim) for dim in moving.dims if dim not in VOXEL_DIMS]
+    moving_for_sitk = moving.stack(extra=extra_dims) if extra_dims else moving
     ndim = len(VOXEL_DIMS)
 
     resolved_output_sizes = _resolve_int_grid_mapping(
@@ -248,7 +251,7 @@ def resample_volume(
     else:
         tx = _voxeldata_to_sitk_bspline(transform)
 
-    moving_sitk = voxeldata_to_sitk_image(moving)
+    moving_sitk = voxeldata_to_sitk_image(moving_for_sitk)
 
     resolved_fill_value = fill_value if fill_value is not None else float(moving.min())
 
@@ -285,11 +288,39 @@ def resample_volume(
     voxel_to_world_arr[:ndim, :ndim] = direction @ np.diag(resolved_output_spacing)
     voxel_to_world_arr[:ndim, ndim] = resolved_output_origin
 
+    if extra_dims:
+        # registered_arr has dims (extra, *VOXEL_DIMS); unstack extra back into the
+        # original extra dims before handing off to create_voxeldata.
+        registered = (
+            xr.DataArray(
+                registered_arr,
+                dims=("extra", *VOXEL_DIMS),
+                coords={"extra": moving_for_sitk.coords["extra"]},
+            )
+            .unstack("extra")
+            .transpose(*extra_dims, *VOXEL_DIMS)
+        )
+        data_for_create = registered.values
+        dims_for_create = (*extra_dims, *VOXEL_DIMS)
+        non_time_extra_dims = [dim for dim in extra_dims if dim != "time"]
+        extra_coords = (
+            {dim: moving.coords[dim] for dim in non_time_extra_dims}
+            if non_time_extra_dims
+            else None
+        )
+        time_coord = moving.coords["time"] if "time" in extra_dims else None
+    else:
+        data_for_create = registered_arr
+        dims_for_create = VOXEL_DIMS
+        extra_coords = None
+        time_coord = None
+
     attrs = moving.attrs.copy()
     result = create_voxeldata(
-        registered_arr,
-        dims=("time", *VOXEL_DIMS) if has_time else VOXEL_DIMS,
-        time=moving.coords["time"] if has_time else None,
+        data_for_create,
+        dims=dims_for_create,
+        extra_coords=extra_coords,
+        time=time_coord,
         voxel_to_world=voxel_to_world_arr,
         attrs=attrs,
         name=str(moving.name) if moving.name is not None else None,
@@ -317,14 +348,15 @@ def resample_like(
     Parameters
     ----------
     moving : xarray.DataArray
-        VoxelData array to resample. May be spatial-only or have a
-        `time` dimension (single-slice recordings use a singleton `k` axis). If a time
-        dimension is present, the same transform is applied to all time points.
+        VoxelData array to resample. May be spatial-only, or have any number of
+        extra non-spatial dimensions (`time` and/or others; `pose` is not supported)
+        (single-slice recordings use a singleton `k` axis). The same transform is
+        applied to every slice along the extra dimensions.
     reference : xarray.DataArray
         VoxelData array defining the output grid. Only its `k`/`j`/`i` grid
-        (`sizes`/`spacing`/`origin`/`direction`) is used, so a `time` dimension, if
-        present, is ignored. When spatial coordinate `units` metadata is present on
-        both `moving` and `reference`, they must match.
+        (`sizes`/`spacing`/`origin`/`direction`) is used, so `time` or other extra
+        dimensions, if present, are ignored. When spatial coordinate `units` metadata
+        is present on both `moving` and `reference`, they must match.
     transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
         [`register_volume`][confusius.registration.register_volume]. Maps points from
@@ -361,8 +393,9 @@ def resample_like(
     xarray.DataArray
         Resampled volume on the grid of `reference`, with `reference`'s `k`/`j`/`i`
         voxel labels and affine, `moving`'s non-spatial attributes, and world-space
-        affines inherited from `reference`. If `moving` had a time dimension, the
-        output will also have a time dimension (`moving`'s, not `reference`'s).
+        affines inherited from `reference`. Any extra non-spatial dimensions on
+        `moving` (including `time`) are carried over unchanged (`moving`'s, not
+        `reference`'s).
 
     Raises
     ------
@@ -373,7 +406,7 @@ def resample_like(
         moving,
         require_time=False,
         allow_pose=False,
-        allow_extra_dims=False,
+        allow_extra_dims=True,
     )
     reference = ensure_voxeldata(
         reference,

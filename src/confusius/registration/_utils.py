@@ -312,37 +312,39 @@ def voxeldata_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     """Convert a VoxelData array to a SimpleITK image.
 
     Uses the transpose convention: `da.values.T` is passed to `GetImageFromArray`,
-    so that the first DataArray axis maps to SimpleITK's world x-axis. For data
-    with a time dimension, the time dimension is converted to a vector image channel
+    so that the first DataArray axis maps to SimpleITK's world x-axis. For data with
+    an `extra` dimension, that dimension is converted to a vector image channel
     dimension.
 
     Parameters
     ----------
     da : xarray.DataArray
-        Canonical VoxelData array, optionally with a `time` dimension. Spacing,
-        origin, and direction are derived from its voxel-to-world index.
+        Canonical VoxelData array, optionally with an `extra` dimension (produced by
+        stacking `time`/other non-spatial dims together, since SimpleITK only
+        supports one vector channel dimension). Spacing, origin, and direction are
+        derived from its voxel-to-world index.
 
     Returns
     -------
     SimpleITK.Image
         SimpleITK image with spacing, origin, and direction set from the DataArray's
-        voxel-to-world index. For `time`-stacked input, returns a vector image where
-        time is the vector dimension.
+        voxel-to-world index. For `extra`-stacked input, returns a vector image where
+        `extra` is the vector dimension.
     """
     import SimpleITK as sitk
 
-    has_time = "time" in da.dims
+    has_extra = "extra" in da.dims
     spacing = [float(da.fusi.spacing[dim]) for dim in VOXEL_DIMS]
     origin_dict = da.fusi.origin
     origin_names = get_voxel_to_world_coord_names(da)
     origin = tuple(origin_dict[d] for d in origin_names)
 
-    if has_time:
+    if has_extra:
         data = da.values
-        time_idx = da.dims.index("time")
-        # SimpleITK expects the vector dimension to be the last axis, so move time
+        extra_idx = da.dims.index("extra")
+        # SimpleITK expects the vector dimension to be the last axis, so move extra
         # to the start and let the transpose place it last.
-        data = np.moveaxis(data, time_idx, 0)
+        data = np.moveaxis(data, extra_idx, 0)
         image = sitk.GetImageFromArray(data.T, isVector=True)
     else:
         image = sitk.GetImageFromArray(da.values.T)
