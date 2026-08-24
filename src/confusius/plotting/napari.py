@@ -20,7 +20,6 @@ from confusius._dims import SPATIAL_DIMS
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    has_voxel_to_world_index,
 )
 from confusius._utils.napari import (
     build_direct_label_colormap,
@@ -33,7 +32,7 @@ from confusius.plotting._utils import (
     resample_to_axis_aligned_world_grid,
     sort_coords_for_plot,
 )
-from confusius.timing import ensure_time_acquisition_attrs
+from confusius.validation import ensure_voxeldata
 
 if TYPE_CHECKING:
     from napari import Viewer
@@ -159,9 +158,7 @@ def plot_napari(
         raise ValueError(
             f"Unknown layer_type: {layer_type!r}. Expected 'image' or 'labels'."
         )
-    if not has_voxel_to_world_index(data):
-        raise ValueError("DataArray must have a voxel-to-world index.")
-    data = ensure_time_acquisition_attrs(data)
+    data = ensure_voxeldata(data)
 
     resolved_interpolation = resample_interpolation or (
         "nearest" if layer_type == "labels" else "linear"
@@ -345,8 +342,7 @@ def draw_napari_labels(
     >>> # Convert painted labels to an integer label map DataArray.
     >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
     """
-    if not has_voxel_to_world_index(data):
-        raise ValueError("DataArray must have a voxel-to-world index.")
+    data = ensure_voxeldata(data)
     viewer, _ = plot_napari(data, viewer=viewer, **kwargs)
 
     # Reuse the same spatial scale and translate that plot_napari computed for

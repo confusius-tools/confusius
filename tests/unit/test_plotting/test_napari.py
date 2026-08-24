@@ -193,7 +193,7 @@ class TestPlotNapari:
         """plot_napari raises clearly without a voxel-to-world index."""
         data = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
 
-        with pytest.raises(ValueError, match="voxel-to-world index"):
+        with pytest.raises(ValueError, match="VoxelToWorldIndex"):
             plot_napari(data)
 
     def test_non_uniform_spatial_coords_warn(self, sample_voxeldata_3d, make_napari_viewer):
@@ -351,7 +351,7 @@ class TestDrawNapariLabels:
         """draw_napari_labels raises clearly without a voxel-to-world index."""
         data = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
 
-        with pytest.raises(ValueError, match="voxel-to-world index"):
+        with pytest.raises(ValueError, match="VoxelToWorldIndex"):
             draw_napari_labels(data)
 
     def test_labels_scale_translate_match_image(

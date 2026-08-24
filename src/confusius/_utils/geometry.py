@@ -157,7 +157,8 @@ class VoxelToWorldIndex(Index):
     Parameters
     ----------
     index : xarray.indexes.CoordinateTransformIndex
-        Index wrapping a [VoxelToWorldTransform][confusius._utils.geometry.VoxelToWorldTransform].
+        Index wrapping a
+        [VoxelToWorldTransform][confusius._utils.geometry.VoxelToWorldTransform].
     voxel_to_world : numpy.typing.ArrayLike
         Homogeneous voxel-to-world affine.
     units : str, default: "mm"
@@ -178,10 +179,6 @@ class VoxelToWorldIndex(Index):
     @property
     def voxel_dims(self) -> tuple[str, ...]:
         """Active voxel dimensions.
-
-        Never includes `pose` — see
-        [is_pose_dependent][confusius._utils.geometry.VoxelToWorldIndex.is_pose_dependent]
-        for that.
 
         Returns
         -------
@@ -243,7 +240,7 @@ class VoxelToWorldIndex(Index):
         Returns
         -------
         tuple[Hashable, ...]
-            World coordinate names, in affine row order. Never includes `pose`.
+            World coordinate names, in affine row order.
         """
         transform = self._index.transform
         assert isinstance(transform, VoxelToWorldTransform)
@@ -1707,35 +1704,6 @@ def get_voxel_to_world_direction_matrix(
     return direction * np.asarray(label_signs)
 
 
-def get_affine_axis_vectors(
-    voxel_to_world: npt.ArrayLike,
-    voxel_dims: tuple[str, ...],
-) -> dict[str, npt.NDArray[np.float64]]:
-    """Return the world step vector for one voxel-space unit along each axis.
-
-    Parameters
-    ----------
-    voxel_to_world : (N+1, N+1) numpy.ndarray or (npose, N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel space to world space, or a stack of one
-        such affine per pose. For a stack, the first pose's vectors are returned:
-        direction can differ per pose, but callers of this function only ever need
-        magnitudes (`get_affine_axis_scalings`), which the equal-spatial-scale
-        invariant guarantees are the same for every pose.
-    voxel_dims : tuple[str, ...]
-        Voxel-space dimension names in affine column order.
-
-    Returns
-    -------
-    dict[str, numpy.ndarray]
-        World step vectors keyed by voxel-space dimension name.
-    """
-    affine = np.asarray(voxel_to_world, dtype=np.float64)
-    if affine.ndim == 3:
-        affine = affine[0]
-    linear = affine[:-1, :-1]
-    return {dim: linear[:, i].copy() for i, dim in enumerate(voxel_dims)}
-
-
 def get_affine_axis_scalings(
     voxel_to_world: npt.ArrayLike,
     voxel_dims: tuple[str, ...],
@@ -1744,8 +1712,11 @@ def get_affine_axis_scalings(
 
     Parameters
     ----------
-    voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel space to world space.
+    voxel_to_world : (N+1, N+1) numpy.ndarray or (npose, N+1, N+1) numpy.ndarray
+        Homogeneous affine mapping voxel space to world space, or a stack of one
+        such affine per pose. For a stack, the first pose's scalings are returned;
+        pose-dependent geometry validates equal spatial scale magnitudes across
+        poses before using this helper.
     voxel_dims : tuple[str, ...]
         Voxel-space dimension names in affine column order.
 
@@ -1754,10 +1725,13 @@ def get_affine_axis_scalings(
     dict[str, float]
         Euclidean norms of the affine column vectors, keyed by voxel-space dimension.
     """
-    vectors = get_affine_axis_vectors(voxel_to_world, voxel_dims)
+    affine = np.asarray(voxel_to_world, dtype=np.float64)
+    if affine.ndim == 3:
+        affine = affine[0]
+    linear = affine[:-1, :-1]
     return {
-        dim: np.float64(np.linalg.norm(vector)).item()
-        for dim, vector in vectors.items()
+        dim: np.float64(np.linalg.norm(linear[:, i])).item()
+        for i, dim in enumerate(voxel_dims)
     }
 
 

@@ -11,7 +11,6 @@ from confusius._utils.geometry import (
     VoxelToWorldTransform,
     attach_voxel_to_world_index,
     get_affine_axis_scalings,
-    get_affine_axis_vectors,
     get_affine_direction_matrix,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
@@ -415,7 +414,7 @@ def test_origin_and_direction_require_scalar_pose() -> None:
 def test_spacing_matches_scalar_pose_for_non_unit_scale() -> None:
     """Pose-dependent spacing agrees with a scalar-pose selection for real spacing.
 
-    Regression: `get_affine_axis_vectors` sliced a pose-stacked affine with
+    Regression: `get_affine_axis_scalings` sliced a pose-stacked affine with
     `affine[:-1, :-1]`, which for a 3D array trims the *pose* axis instead of the
     homogeneous row/column, silently returning garbage scalings. Invisible with the
     all-ones scale used by other pose-dependent fixtures in this file, since the
@@ -628,7 +627,7 @@ def test_sel_raises_for_coupled_row_without_the_other_axes_it_depends_on() -> No
         result.sel(y=20.4)
 
 
-def test_affine_geometry_helpers_extract_vectors_scalings_and_orientation() -> None:
+def test_affine_geometry_helpers_extract_scalings_and_orientation() -> None:
     """Affine geometry helpers expose the linear part in world-space form."""
     voxel_to_world = np.array(
         [
@@ -639,14 +638,6 @@ def test_affine_geometry_helpers_extract_vectors_scalings_and_orientation() -> N
         ]
     )
 
-    assert_allclose(
-        get_affine_axis_vectors(voxel_to_world, ("k", "j", "i"))["k"],
-        [2.0, 0.0, 0.0],
-    )
-    assert_allclose(
-        get_affine_axis_vectors(voxel_to_world, ("k", "j", "i"))["j"],
-        [1.0, 3.0, 0.0],
-    )
     scalings = get_affine_axis_scalings(voxel_to_world, ("k", "j", "i"))
     assert scalings.keys() == {"k", "j", "i"}
     assert_allclose(scalings["k"], 2.0)
