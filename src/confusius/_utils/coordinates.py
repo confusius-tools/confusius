@@ -286,19 +286,16 @@ def get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
     ValueError
         If `data` does not carry a voxel-to-world index.
     """
-    from confusius._utils.geometry import (
-        get_voxel_to_world_coord_names,
-        get_voxel_to_world_spatial_dims,
-    )
+    from confusius._dims import WORLD_DIMS
+    from confusius._utils.geometry import get_voxel_to_world_spatial_dims
 
     origin = data.fusi.origin
     voxel_dims = get_voxel_to_world_spatial_dims(data)
-    world_names = get_voxel_to_world_coord_names(data)
     return {
         **origin,
         **{
             voxel_dim: origin[world_name]
-            for voxel_dim, world_name in zip(voxel_dims, world_names, strict=True)
+            for voxel_dim, world_name in zip(voxel_dims, WORLD_DIMS, strict=True)
         },
     }
 

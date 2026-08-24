@@ -7,11 +7,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
-from confusius._dims import VOXEL_DIMS
-from confusius._utils.geometry import (
-    get_voxel_to_world_coord_names,
-    has_axis_aligned_voxel_to_world_index,
-)
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
+from confusius._utils.geometry import has_axis_aligned_voxel_to_world_index
 from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
@@ -203,10 +200,9 @@ def _materialize_axis_aligned_world_grid_for_display(
     """
     if not has_axis_aligned_voxel_to_world_index(data):
         return data
-    world_dims = get_voxel_to_world_coord_names(data)
 
     voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
-    dim_map = dict(zip(voxel_dims, world_dims, strict=True))
+    dim_map = dict(zip(voxel_dims, WORLD_DIMS, strict=True))
     result_dims = tuple(dim_map.get(str(dim), str(dim)) for dim in data.dims)
 
     coords = {}

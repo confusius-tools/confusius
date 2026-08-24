@@ -7,9 +7,8 @@ import numpy as np
 import xarray as xr
 from numpy.typing import NDArray
 
-from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.geometry import (
-    get_voxel_to_world_coord_names,
     get_voxel_to_world_index_spacing,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
@@ -277,7 +276,7 @@ def resample_to_axis_aligned_world_grid(
 
     from confusius.registration import resample_like, resample_volume
 
-    world_dims = get_voxel_to_world_coord_names(data)
+    world_dims = WORLD_DIMS
     if reference is not None:
         if not has_voxel_to_world_index(reference):
             from confusius.xarray import create_voxeldata
@@ -287,7 +286,7 @@ def resample_to_axis_aligned_world_grid(
             # z/y/x rather than the native voxel names create_voxeldata now
             # requires; remap them, leaving any other dim name (time, pose, extras)
             # unchanged.
-            spatial_to_voxel = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
+            spatial_to_voxel = dict(zip(WORLD_DIMS, VOXEL_DIMS, strict=True))
             reference_dims = tuple(
                 spatial_to_voxel.get(str(dim), str(dim)) for dim in reference.dims
             )
@@ -350,7 +349,7 @@ def resample_to_axis_aligned_world_grid(
             np.eye(len(world_dims) + 1, dtype=np.float64),
             output_sizes=dict(zip(VOXEL_DIMS, shape, strict=True)),
             output_spacing=dict(zip(VOXEL_DIMS, spacing, strict=True)),
-            output_origin=dict(zip(SPATIAL_DIMS, origin, strict=True)),
+            output_origin=dict(zip(WORLD_DIMS, origin, strict=True)),
             output_direction=np.eye(len(world_dims), dtype=np.float64),
             interpolation=interpolation,
             fill_value=fill_value,

@@ -16,8 +16,8 @@ import numpy.typing as npt
 import xarray as xr
 from scipy.interpolate import interpn
 
+from confusius._dims import WORLD_DIMS
 from confusius._utils.geometry import (
-    get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
     has_voxel_to_world_index,
 )
@@ -154,7 +154,7 @@ def _compose_world_to_base_transforms(
     # Displacement components and interpolation operate in world space. Build every
     # output-grid position from the requested spacing, origin, and direction rather
     # than the derived N-D world coordinates.
-    dims = list(get_voxel_to_world_coord_names(new_reference))
+    dims = list(WORLD_DIMS)
     voxel_dims = get_voxel_to_world_spatial_dims(new_reference)
     shape = tuple(new_reference.sizes[dim] for dim in voxel_dims)
     spacing = np.asarray(
@@ -210,7 +210,7 @@ def _interpolate_displacement_field(
         with an extra leading `component` dimension.
     points : (N, D) numpy.ndarray
         World points, in the same axis order as
-        `get_voxel_to_world_coord_names(field)`.
+        `confusius._dims.WORLD_DIMS` axis order.
 
     Returns
     -------
@@ -229,7 +229,7 @@ def _interpolate_displacement_field(
     voxel_dims = get_voxel_to_world_spatial_dims(field)
     spacing = field.fusi.spacing
     origin = field.fusi.origin
-    world_dims = get_voxel_to_world_coord_names(field)
+    world_dims = WORLD_DIMS
     shape = [field.sizes[dim] for dim in voxel_dims]
 
     # Pad the field's data by one voxel (edge replication) at each end of every spatial
@@ -382,7 +382,7 @@ def _drop_vertices_outside_grid(
     faces : numpy.ndarray
         Faces whose three vertices all survived, reindexed into the new vertex array.
     """
-    dims = list(get_voxel_to_world_coord_names(reference))
+    dims = list(WORLD_DIMS)
     voxel_dims = list(get_voxel_to_world_spatial_dims(reference))
     spacing = reference.fusi.spacing
     inside = np.ones(len(vertices), dtype=bool)

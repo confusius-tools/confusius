@@ -5,11 +5,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
-from confusius._dims import POSE_DIM
+from confusius._dims import POSE_DIM, WORLD_DIMS
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
     get_voxel_to_world_direction_matrix,
     get_voxel_to_world_index_origin,
     get_voxel_to_world_index_spacing,
@@ -234,7 +233,6 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
         raise ValueError("DataArray must have a voxel-to-world index.")
 
     voxel_dims = get_voxel_to_world_spatial_dims(da)
-    world_coord_names = get_voxel_to_world_coord_names(da)
 
     spacing = get_voxel_to_world_index_spacing(da)
     missing_spacing = [dim for dim in voxel_dims if spacing[dim] is None]
@@ -255,7 +253,7 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
         direction = get_voxel_to_world_direction_matrix(pose_da)
         affine = np.eye(ndim + 1, dtype=np.float64)
         affine[:ndim, :ndim] = direction @ spacing_diag
-        affine[:ndim, ndim] = [origin[name] for name in world_coord_names]
+        affine[:ndim, ndim] = [origin[name] for name in WORLD_DIMS]
         return affine
 
     if POSE_DIM in da.dims and get_voxel_to_world_affine(da).ndim == 3:
@@ -333,15 +331,9 @@ def reindex_voxels_like(
             f"got {shape!r} and {reference_shape!r}."
         )
 
-    world_coord_names = get_voxel_to_world_coord_names(data)
-    reference_world_coord_names = get_voxel_to_world_coord_names(reference)
-    for name, reference_name in zip(
-        world_coord_names, reference_world_coord_names, strict=True
-    ):
+    for name in WORLD_DIMS:
         data_values = data.coords[name].transpose(*voxel_dims).values
-        reference_values = (
-            reference.coords[reference_name].transpose(*voxel_dims).values
-        )
+        reference_values = reference.coords[name].transpose(*voxel_dims).values
         if not np.allclose(data_values, reference_values, atol=atol):
             raise ValueError(
                 f"data and reference are not aligned in world space: coordinate "

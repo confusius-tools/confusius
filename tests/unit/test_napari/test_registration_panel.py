@@ -10,7 +10,7 @@ import pytest
 import xarray as xr
 from qtpy.QtWidgets import QApplication
 
-from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._napari._registration._panel_progress import (
     create_volume_progress_plotter,
     setup_volumewise_progress,
@@ -1258,7 +1258,7 @@ class TestTransforms:
         assert resample_kwargs == {
             "output_sizes": dict(zip(VOXEL_DIMS, input_grid["shape"], strict=True)),
             "output_spacing": dict(zip(VOXEL_DIMS, input_grid["spacing"], strict=True)),
-            "output_origin": dict(zip(SPATIAL_DIMS, input_grid["origin"], strict=True)),
+            "output_origin": dict(zip(WORLD_DIMS, input_grid["origin"], strict=True)),
             "interpolation": "linear",
         }
 

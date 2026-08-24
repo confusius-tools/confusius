@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
+from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.coordinates import get_probe_surface_origin
 from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
@@ -292,7 +292,7 @@ def _validate_spatial_tuple(
     """
     if values is None:
         raise ValueError(f"{name} or voxel_to_world must be provided.")
-    if len(values) != len(SPATIAL_DIMS):
+    if len(values) != len(WORLD_DIMS):
         raise ValueError(f"{name} must have length 3 in z/y/x order.")
     z, y, x = values
     return (
@@ -355,7 +355,7 @@ def _resolve_voxel_to_world(
     if origin is None:
         resolved_origin = get_probe_surface_origin(spatial_sizes, resolved_spacing)
     else:
-        if len(origin) != len(SPATIAL_DIMS):
+        if len(origin) != len(WORLD_DIMS):
             raise ValueError("origin must have length 3 in z/y/x order.")
         resolved_origin = tuple(float(value) for value in origin)
         if not np.all(np.isfinite(resolved_origin)):
@@ -498,7 +498,7 @@ def create_voxeldata(
             f"Length of dims {dims!r} ({len(dims)}) must match the number of array "
             f"dimensions ({len(shape)})."
         )
-    invalid_spatial = sorted(set(dims) & set(SPATIAL_DIMS))
+    invalid_spatial = sorted(set(dims) & set(WORLD_DIMS))
     if invalid_spatial:
         raise ValueError(
             f"dims must use native voxel names {VOXEL_DIMS!r}, not world coordinate "
@@ -611,7 +611,7 @@ def create_voxeldata(
             }
             time = per_pose_time[:, 0]
 
-    forbidden_extra = set(CORE_DIMS) | set(SPATIAL_DIMS)
+    forbidden_extra = set(CORE_DIMS) | set(WORLD_DIMS)
     overlap = sorted(forbidden_extra & set(extra_coords))
     if overlap:
         raise ValueError(

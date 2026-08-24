@@ -8,10 +8,10 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius.io.echoframe import load_echoframe_dat, load_echoframe_metadata
 
-_VOXEL_DIM_BY_WORLD_NAME = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
+_VOXEL_DIM_BY_WORLD_NAME = dict(zip(WORLD_DIMS, VOXEL_DIMS, strict=True))
 
 
 def get_world_coord_1d(data: xr.DataArray, name: str) -> np.ndarray:

@@ -461,11 +461,11 @@ class TestReindexVoxels:
     def test_raises_when_spacing_undefined(self):
         """Irregular voxel-space coordinates without defined spacing raise ValueError."""
         base = xr.DataArray(
-            np.zeros((3, 4)),
-            dims=["j", "i"],
-            coords={"j": [0, 1, 3], "i": np.arange(4)},
+            np.zeros((2, 3, 4)),
+            dims=["k", "j", "i"],
+            coords={"k": [0, 1], "j": [0, 1, 3], "i": np.arange(4)},
         )
-        data = attach_voxel_to_world_index(base, np.eye(3))
+        data = attach_voxel_to_world_index(base, np.eye(4))
         with pytest.raises(ValueError, match="spacing is undefined"):
             data.fusi.affine.reindex_voxels()
 
@@ -576,17 +576,12 @@ class TestReindexVoxelsLike:
             data.fusi.affine.reindex_voxels_like(plain)
 
     def test_raises_on_voxel_dim_mismatch(self):
-        """Different voxel dimensions (e.g. 2D vs. 3D) cannot be reindexed."""
+        """Different active voxel dimensions (e.g. a fixed `k`) cannot be reindexed."""
         reference = self._cropped_strided_reference()
-        base_2d = xr.DataArray(
-            np.zeros((4, 5)),
-            dims=["j", "i"],
-            coords={"j": np.arange(4), "i": np.arange(5)},
-        )
-        data_2d = attach_voxel_to_world_index(base_2d, np.eye(3))
+        data_k_fixed = reference.isel(k=0)
 
         with pytest.raises(ValueError, match="same voxel dimensions"):
-            data_2d.fusi.affine.reindex_voxels_like(reference)
+            data_k_fixed.fusi.affine.reindex_voxels_like(reference)
 
     def test_inplace_updates_and_returns_same_object(self):
         """inplace=True mutates and returns the original DataArray."""
@@ -1031,61 +1026,6 @@ class TestAffineApplyMethod:
         expected = stored @ inv_scale
         np.testing.assert_allclose(
             result.attrs["affines"]["world_to_lab"], expected, atol=1e-12
-        )
-
-    def test_partial_dims_only_updates_present_dims(self):
-        """Only dimensions present in da.dims are updated."""
-        da = self._make_scan(shape=(3, 4), dims=("j", "i"))
-        shift = np.eye(3)
-        shift[:2, 2] = [10.0, 5.0]
-        result = da.fusi.affine.apply(shift)
-        np.testing.assert_allclose(
-            result.coords["y"].values, da.coords["y"].values + 10.0
-        )
-        np.testing.assert_allclose(
-            result.coords["x"].values, da.coords["x"].values + 5.0
-        )
-        assert "z" not in result.coords
-
-    def test_voxel_to_world_accepts_matching_2d_affine_shape(self):
-        """Voxel-to-world 2D scans accept 3x3 world-space transforms."""
-        base = xr.DataArray(
-            np.zeros((3, 4)),
-            dims=["j", "i"],
-            coords={"j": [0, 1, 2], "i": [0, 1, 2, 3]},
-            attrs={"affines": {"world_to_lab": np.eye(3)}},
-        )
-        da = attach_voxel_to_world_index(
-            base,
-            np.array(
-                [
-                    [0.2, 0.05, 10.0],
-                    [0.08, 0.18, 20.0],
-                    [0.0, 0.0, 1.0],
-                ]
-            ),
-        )
-        shift = np.array(
-            [
-                [1.0, 0.0, 3.0],
-                [0.0, 1.0, -4.0],
-                [0.0, 0.0, 1.0],
-            ]
-        )
-
-        result = da.fusi.affine.apply(shift)
-
-        np.testing.assert_allclose(
-            get_voxel_to_world_affine(result), shift @ get_voxel_to_world_affine(da)
-        )
-        np.testing.assert_allclose(
-            result.attrs["affines"]["world_to_lab"], np.linalg.inv(shift)
-        )
-        np.testing.assert_allclose(
-            result.coords["y"].values, da.coords["y"].values + 3.0
-        )
-        np.testing.assert_allclose(
-            result.coords["x"].values, da.coords["x"].values - 4.0
         )
 
     def test_unexpected_affine_shape_is_passed_through(self):

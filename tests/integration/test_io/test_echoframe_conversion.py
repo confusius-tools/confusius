@@ -10,10 +10,10 @@ import xarray as xr
 import zarr
 
 import confusius as cf
-from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius.io.echoframe import convert_echoframe_dat_to_zarr
 
-_VOXEL_DIM_BY_WORLD_NAME = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
+_VOXEL_DIM_BY_WORLD_NAME = dict(zip(WORLD_DIMS, VOXEL_DIMS, strict=True))
 
 
 def get_world_coord_1d(data: xr.DataArray, name: str) -> np.ndarray:

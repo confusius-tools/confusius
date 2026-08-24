@@ -12,7 +12,7 @@ from qtpy.QtCore import QRegularExpression
 from qtpy.QtGui import QValidator
 from qtpy.QtWidgets import QDoubleSpinBox, QSizePolicy, QWidget
 
-from confusius._dims import SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
+from confusius._dims import TIME_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.xarray.scale import db_scale, power_scale
 
@@ -76,10 +76,10 @@ def _get_default_dims_for_ndim(ndim: int) -> tuple[str, ...]:
         Default dimension names compatible with ConfUSIus conventions when possible.
     """
     defaults: dict[int, tuple[str, ...]] = {
-        1: SPATIAL_DIMS[-1:],
-        2: SPATIAL_DIMS[-2:],
-        3: SPATIAL_DIMS,
-        4: (TIME_DIM, *SPATIAL_DIMS),
+        1: WORLD_DIMS[-1:],
+        2: WORLD_DIMS[-2:],
+        3: WORLD_DIMS,
+        4: (TIME_DIM, *WORLD_DIMS),
     }
     return defaults.get(ndim, tuple(f"dim{i}" for i in range(ndim)))
 

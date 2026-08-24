@@ -23,7 +23,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._dims import POSE_DIM, SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
+from confusius._dims import POSE_DIM, TIME_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._napari._qt import find_main_window
 from confusius._napari._signals._manager import SignalsManagerDialog
 from confusius._napari._signals._plotter import SignalPlotter
@@ -719,7 +719,7 @@ class SignalPanel(QWidget):
                 spatial_indices = [
                     i
                     for i, dim in enumerate(da.dims)
-                    if dim in (POSE_DIM, *VOXEL_DIMS, *SPATIAL_DIMS)
+                    if dim in (POSE_DIM, *VOXEL_DIMS, *WORLD_DIMS)
                 ]
                 if not spatial_indices:
                     continue

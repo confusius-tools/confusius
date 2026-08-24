@@ -172,11 +172,11 @@ class TestPlotVolume:
             dims=["j", "i"],
             coords={"j": [0, 1, 2], "i": [0, 1, 2, 3]},
         )
-        data = attach_voxel_to_world_index(
-            data,
-            np.array([[0.3, 0.0, 20.0], [0.0, 0.25, 30.0], [0.0, 0.0, 1.0]]),
-        )
-        with pytest.raises(ValueError, match="missing voxel dimension 'k'"):
+        with pytest.raises(ValueError, match="must have all native voxel dims"):
+            data = attach_voxel_to_world_index(
+                data,
+                np.array([[0.3, 0.0, 20.0], [0.0, 0.25, 30.0], [0.0, 0.0, 1.0]]),
+            )
             plot_volume(data, slice_mode="y")
 
     def test_complex_data_converted_to_magnitude(
@@ -1194,15 +1194,15 @@ class TestVolumePlotterAddVolume:
     def test_dataarray_alpha_dim_mismatch_raises(
         self, sample_voxeldata_3d, matplotlib_pyplot
     ):
-        """Still-3D alpha with a differently-named dimension is rejected explicitly.
+        """Renaming a native voxel dim away from `k`/`j`/`i` is rejected outright.
 
-        Dropping a dimension entirely (e.g. via `.isel(i=0)`) would instead trip the
-        earlier "must be 3D" check in `_prepare_slice_inputs`, not the dims-equality
-        check this test targets, so the mismatch is introduced via `rename` to keep
-        `alpha` 3D.
+        Voxel dims are always exactly `k`/`j`/`i`, so a real VoxelToWorldIndex-backed
+        `alpha` can never legitimately end up with a differently-named voxel
+        dimension; the rejection now happens at `rename` time (geometry layer)
+        rather than in `add_volume`'s own dims-equality check.
         """
-        alpha = sample_voxeldata_3d.rename(i="w")
-        with pytest.raises(ValueError, match="missing voxel dimension 'i'"):
+        with pytest.raises(ValueError, match="must exactly cover"):
+            alpha = sample_voxeldata_3d.rename(i="w")
             VolumePlotter(slice_mode="z").add_volume(
                 sample_voxeldata_3d, match_coordinates=False, alpha=alpha
             )

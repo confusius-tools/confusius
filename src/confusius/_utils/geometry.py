@@ -30,7 +30,7 @@ from xarray import Index, Variable
 from xarray.core.indexing import IndexSelResult
 from xarray.indexes import CoordinateTransform, CoordinateTransformIndex
 
-from confusius._dims import POSE_DIM, SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import POSE_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.coordinates import get_representative_step
 
 
@@ -220,39 +220,12 @@ class VoxelToWorldIndex(Index):
         assert isinstance(transform, VoxelToWorldTransform)
         return dict(transform.fixed_voxel_coords)
 
-    @property
-    def all_voxel_dims(self) -> tuple[str, ...]:
-        """All original voxel dimensions covered by this index (active and fixed).
-
-        Returns
-        -------
-        tuple[str, ...]
-            All original voxel dimension names, in affine column order.
-        """
-        transform = self._index.transform
-        assert isinstance(transform, VoxelToWorldTransform)
-        return transform._all_dims
-
-    @property
-    def world_coord_names(self) -> tuple[Hashable, ...]:
-        """World coordinate names.
-
-        Returns
-        -------
-        tuple[Hashable, ...]
-            World coordinate names, in affine row order.
-        """
-        transform = self._index.transform
-        assert isinstance(transform, VoxelToWorldTransform)
-        return transform.world_coord_names
-
     @classmethod
     def from_affine(
         cls,
-        voxel_coords: Mapping[str, npt.ArrayLike],
+        active_voxel_coords: Mapping[str, npt.ArrayLike],
         voxel_to_world: npt.ArrayLike,
         *,
-        world_coord_names: tuple[Hashable, ...] | None = None,
         units: str = "mm",
         pose_coord: npt.ArrayLike | None = None,
     ) -> Self:
@@ -260,16 +233,13 @@ class VoxelToWorldIndex(Index):
 
         Parameters
         ----------
-        voxel_coords : mapping[str, array-like]
-            Ordered mapping from voxel dimension name to its 1D voxel-space
-            coordinates.
+        active_voxel_coords : mapping[str, array-like]
+            Ordered mapping from voxel dimension name (`k`/`j`/`i`) to its 1D
+            voxel-space coordinates.
         voxel_to_world : numpy.typing.ArrayLike
             Homogeneous affine mapping voxel-space coordinates to world-space
             coordinates, or a stack of `pose_coord`-many such affines with a leading
             pose axis.
-        world_coord_names : tuple[Hashable, ...], optional
-            Names of the world-space coordinates exposed by the index. If not
-            provided, defaults to `("z", "y", "x")` for 3D and `("y", "x")` for 2D.
         units : str, default: "mm"
             Physical unit shared by every derived world coordinate.
         pose_coord : numpy.typing.ArrayLike, optional
@@ -279,18 +249,12 @@ class VoxelToWorldIndex(Index):
         Returns
         -------
         VoxelToWorldIndex
-            Index wrapping the resolved joint transform.
+            Index wrapping the resolved joint transform, always exposing world
+            coordinates `z`/`y`/`x`.
         """
         affine = np.asarray(voxel_to_world, dtype=np.float64)
-        if world_coord_names is None:
-            world_coord_names = (
-                ("y", "x") if len(voxel_coords) == 2 else ("z", "y", "x")
-            )
         transform = VoxelToWorldTransform(
-            voxel_coords,
-            affine,
-            world_coord_names=world_coord_names,
-            pose_coord=pose_coord,
+            active_voxel_coords, affine, pose_coord=pose_coord
         )
         return cls(
             CoordinateTransformIndex(transform),
@@ -332,7 +296,7 @@ class VoxelToWorldIndex(Index):
 
         The default `xarray.Index.rename` only renames the base
         `CoordinateTransform` fields (`dims`, `coord_names`, `dim_size`); it does not
-        touch this module's own transform-specific fields (`voxel_coords`,
+        touch this module's own transform-specific fields (`active_voxel_coords`,
         `fixed_voxel_coords`, and the affine's original dimension order), which would
         otherwise desync from the renamed dimensions.
 
@@ -357,15 +321,13 @@ class VoxelToWorldIndex(Index):
         new_transform = VoxelToWorldTransform(
             {
                 _rename_dim(dim): values
-                for dim, values in transform.voxel_coords.items()
+                for dim, values in transform.active_voxel_coords.items()
             },
             transform.voxel_to_world,
-            tuple(name_dict.get(name, name) for name in transform.world_coord_names),
             fixed_voxel_coords={
                 _rename_dim(dim): value
                 for dim, value in transform.fixed_voxel_coords.items()
             },
-            all_dims=tuple(_rename_dim(dim) for dim in transform._all_dims),
             pose_coord=transform.pose_coord,
         )
         return type(self)(
@@ -458,8 +420,8 @@ class VoxelToWorldIndex(Index):
         transform = self._index.transform
         assert isinstance(transform, VoxelToWorldTransform)
 
-        coord_labels = {
-            name: labels[name] for name in transform.world_coord_names if name in labels
+        coord_labels: dict[Hashable, Any] = {
+            name: labels[name] for name in WORLD_DIMS if name in labels
         }
         if transform.pose_coord is not None:
             if coord_labels:
@@ -486,7 +448,7 @@ class VoxelToWorldIndex(Index):
         linear = np.asarray(transform.voxel_to_world, dtype=np.float64)[:-1, :-1]
         single_axis: dict[Hashable, tuple[int, int]] = {}
         for name in coord_labels:
-            row = transform.world_coord_names.index(name)
+            row = WORLD_DIMS.index(name)
             nonzero_columns = np.nonzero(~np.isclose(linear[row], 0.0, atol=1e-12))[0]
             if nonzero_columns.size == 1:
                 single_axis[name] = (row, int(nonzero_columns[0]))
@@ -497,12 +459,12 @@ class VoxelToWorldIndex(Index):
 
         dim_indexers: dict[Hashable, Any] = {}
         for name, (row, column) in single_axis.items():
-            dim = transform._all_dims[column]
-            if dim not in transform.voxel_coords:
+            dim = VOXEL_DIMS[column]
+            if dim not in transform.active_voxel_coords:
                 continue
             scale = linear[row, column]
             offset = transform.voxel_to_world[row, -1]
-            voxel_axis = transform.voxel_coords[dim]
+            voxel_axis = transform.active_voxel_coords[dim]
             label = coord_labels[name]
             if isinstance(label, slice):
                 values = scale * voxel_axis + offset
@@ -628,14 +590,11 @@ class VoxelToWorldIndex(Index):
         assert isinstance(other_transform, VoxelToWorldTransform)
         if exclude is not None and POSE_DIM in exclude:
             return (
-                self_transform.world_coord_names == other_transform.world_coord_names
-                and self_transform._all_dims == other_transform._all_dims
-                and self_transform.fixed_voxel_coords
-                == other_transform.fixed_voxel_coords
+                self_transform.fixed_voxel_coords == other_transform.fixed_voxel_coords
                 and all(
                     np.array_equal(
-                        self_transform.voxel_coords[dim],
-                        other_transform.voxel_coords[dim],
+                        self_transform.active_voxel_coords[dim],
+                        other_transform.active_voxel_coords[dim],
                     )
                     for dim in self_transform.dims
                     if dim != POSE_DIM
@@ -705,12 +664,12 @@ class VoxelToWorldIndex(Index):
         first = transforms[0]
         for other in transforms[1:]:
             if (
-                other.world_coord_names != first.world_coord_names
-                or other.dims != first.dims
-                or other._all_dims != first._all_dims
+                other.dims != first.dims
                 or other.fixed_voxel_coords != first.fixed_voxel_coords
                 or not all(
-                    np.array_equal(other.voxel_coords[dim], first.voxel_coords[dim])
+                    np.array_equal(
+                        other.active_voxel_coords[dim], first.active_voxel_coords[dim]
+                    )
                     for dim in first.dims
                     if dim != POSE_DIM
                 )
@@ -726,11 +685,9 @@ class VoxelToWorldIndex(Index):
             [transform.voxel_to_world for transform in transforms], axis=0
         )
         new_transform = VoxelToWorldTransform(
-            first.voxel_coords,
+            first.active_voxel_coords,
             new_affine,
-            first.world_coord_names,
             fixed_voxel_coords=first.fixed_voxel_coords,
-            all_dims=first._all_dims,
             pose_coord=new_pose_coord,
         )
         first_index = indexes[0]
@@ -740,6 +697,62 @@ class VoxelToWorldIndex(Index):
             new_affine,
             units=first_index.units,
         )
+
+
+def _validate_voxel_to_world_affine(
+    affine: npt.NDArray[np.float64], ndim: int, *, n_poses: int | None
+) -> None:
+    """Validate a voxel-to-world affine's shape, finiteness, and homogeneous row.
+
+    Parameters
+    ----------
+    affine : (ndim+1, ndim+1) numpy.ndarray or (n_poses, ndim+1, ndim+1) numpy.ndarray
+        Homogeneous affine, or a stack of one such affine per pose.
+    ndim : int
+        Number of spatial dimensions the affine covers.
+    n_poses : int, optional
+        Expected leading pose-stack length. If not provided, `affine` must be a
+        single (pose-independent) affine.
+
+    Raises
+    ------
+    ValueError
+        If `affine`'s shape does not match, if it (or any pose affine, for a
+        pose-stacked `affine`) is not finite or has an invalid homogeneous final row,
+        or if pose affines do not share equal spatial scale magnitudes.
+    """
+    expected_shape = (ndim + 1, ndim + 1)
+    label = "voxel_to_world"
+    if n_poses is not None:
+        expected_shape = (n_poses, *expected_shape)
+        label = f"voxel_to_world for {n_poses} poses"
+    if affine.shape != expected_shape:
+        raise ValueError(
+            f"{label} must have shape {expected_shape}, got {affine.shape}."
+        )
+
+    homogeneous_row = np.zeros(ndim + 1)
+    homogeneous_row[-1] = 1.0
+    valid = np.all(np.isfinite(affine)) and np.allclose(
+        affine[..., -1, :], homogeneous_row
+    )
+    if not valid:
+        subject = "Each pose affine" if n_poses is not None else "voxel_to_world"
+        raise ValueError(
+            f"{subject} must be finite with a valid homogeneous final row."
+        )
+
+    if n_poses is not None and n_poses > 1:
+        scalings = np.stack(
+            [
+                np.array(list(get_affine_axis_scalings(affine[p], VOXEL_DIMS).values()))
+                for p in range(n_poses)
+            ]
+        )
+        if not np.allclose(scalings, scalings[0], rtol=1e-6):
+            raise ValueError(
+                "All pose affines must share equal spatial scale magnitudes."
+            )
 
 
 class VoxelToWorldTransform(CoordinateTransform):
@@ -752,40 +765,32 @@ class VoxelToWorldTransform(CoordinateTransform):
     2. a homogeneous affine that maps voxel-space coordinates to world-space
        coordinates.
 
-    This lets a dense array with dimensions like `(j, i)` or `(k, j, i)` carry
-    irregular voxel-space coordinates such as `i = [0, 2, 3]`, while still exposing
-    exact world coordinates through Xarray's
-    `CoordinateTransformIndex`.
+    This lets a dense array with dimensions `(k, j, i)` carry irregular voxel-space
+    coordinates such as `i = [0, 2, 3]`, while still exposing exact world coordinates
+    through Xarray's `CoordinateTransformIndex`.
 
-    Dimensions can become "fixed" (see `fixed_voxel_coords`) when a scalar `isel`
-    selection removes them as array dimensions. The affine itself is never reduced —
-    it always covers `all_dims`, the full original set of voxel dimensions — so a
-    fixed dimension's contribution to the world coordinates stays exact, and a
-    fixed dimension can later be reinstated (e.g. by
-    [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata]) without any loss of
-    precision.
+    Voxel dimensions are always exactly `(k, j, i)`, and world coordinates are always
+    exactly `(z, y, x)` in that fixed row order. A voxel dimension can become "fixed" (see
+    `fixed_voxel_coords`) when a scalar `isel` selection removes it as an array
+    dimension, but it is never dropped from the affine: the affine itself is never
+    reduced so a fixed dimension's contribution to the world coordinates stays exact,
+    and a fixed dimension can later be reinstated (e.g. by
+    [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata]) without any
+    loss of precision.
 
     Parameters
     ----------
-    voxel_coords : mapping[str, array-like]
-        Ordered mapping from active dimension name to its 1D voxel-space coordinates.
-    voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel-space coordinates to world-space
-        coordinates, covering all of `all_dims` (not just the active `voxel_coords`).
-        The input column order must match `all_dims`. The output row order must match
-        `world_coord_names`.
-    world_coord_names : tuple[Hashable, ...], optional
-        Names of the world-space coordinates exposed by the transform. If not
-        provided, defaults to `("z", "y", "x")` for 3D and `("y", "x")` for 2D.
+    active_voxel_coords : mapping[str, array-like]
+        Ordered mapping from active dimension name `(k, j, i)` to its 1D voxel-space
+        coordinates.
+    voxel_to_world : (4, 4) or (pose, 4, 4) numpy.ndarray
+        Homogeneous affine mapping voxel-space to world-space. The input column order
+        must be `(k, j, i)`. The output row order must be `(z, y, x)`. When `pose_coord`
+        is set, the affine must carry a leading pose axis and have shape `(pose, 4, 4)`,
+        to provide one affine per pose label.
     fixed_voxel_coords : mapping[str, float], optional
         Voxel-space coordinate value pinned for each dimension that was removed as an
         array dimension by a scalar `isel` selection.
-    all_dims : tuple[str, ...], optional
-        Full original voxel dimension order (active and fixed), matching the affine's
-        column order. If not provided, defaults to `tuple(voxel_coords) +
-        tuple(fixed_voxel_coords)`, which is only correct for a from-scratch
-        construction; callers reducing an existing transform must pass the original
-        `all_dims` through unchanged.
     pose_coord : numpy.typing.ArrayLike, optional
         1D pose coordinate labels. Required (and `voxel_to_world` must carry a
         leading pose axis) for pose-dependent geometry; must be left unset for
@@ -794,72 +799,54 @@ class VoxelToWorldTransform(CoordinateTransform):
     Raises
     ------
     ValueError
-        If any voxel coordinate is not 1D, if `all_dims` is inconsistent with
-        `voxel_coords`/`fixed_voxel_coords`, if the affine shape does not match the
-        number of voxel-space dimensions in `all_dims` (and, for pose-dependent
-        geometry, `pose_coord`'s length), if a pose-stacked affine is not finite or
-        has an invalid homogeneous final row, or if pose affines do not share equal
-        spatial scale magnitudes.
+        If any voxel coordinate is not 1D, if `active_voxel_coords` and
+        `fixed_voxel_coords` together do not exactly cover `confusius._dims.VOXEL_DIMS`,
+        if the affine shape does not match (and, for pose-dependent geometry,
+        `pose_coord`'s length), if the affine (or any pose affine, for pose-dependent
+        geometry) is not finite or has an invalid homogeneous final row, or if pose
+        affines do not share equal spatial scale magnitudes.
     """
 
-    voxel_coords: dict[str, npt.NDArray[np.float64]]
+    active_voxel_coords: dict[str, npt.NDArray[np.float64]]
     voxel_to_world: npt.NDArray[np.float64]
     fixed_voxel_coords: dict[str, float]
-    world_coord_names: tuple[Hashable, ...]
     pose_coord: npt.NDArray[Any] | None
 
     def __init__(
         self,
-        voxel_coords: Mapping[str, npt.ArrayLike],
+        active_voxel_coords: Mapping[str, npt.ArrayLike],
         voxel_to_world: npt.ArrayLike,
-        world_coord_names: tuple[Hashable, ...] | None = None,
         *,
         fixed_voxel_coords: Mapping[str, float] | None = None,
-        all_dims: tuple[str, ...] | None = None,
         pose_coord: npt.ArrayLike | None = None,
     ) -> None:
-        voxel_coords_np = {
+        active_voxel_coords_np = {
             str(dim): np.asarray(values, dtype=np.float64)
-            for dim, values in voxel_coords.items()
+            for dim, values in active_voxel_coords.items()
         }
         fixed = {
             str(dim): float(value) for dim, value in (fixed_voxel_coords or {}).items()
         }
-        if all_dims is None:
-            all_dims = (*voxel_coords_np, *fixed)
-        ndim = len(all_dims)
+        ndim = len(VOXEL_DIMS)
 
-        if set(all_dims) != set(voxel_coords_np) | set(fixed) or len(all_dims) != len(
-            voxel_coords_np
-        ) + len(fixed):
-            raise ValueError(
-                f"all_dims {all_dims!r} must exactly cover active dims "
-                f"{tuple(voxel_coords_np)!r} and fixed dims {tuple(fixed)!r}."
-            )
-        if not voxel_coords_np:
+        if not active_voxel_coords_np:
             raise ValueError("VoxelToWorldTransform requires at least one active dim.")
-        if ndim not in {2, 3}:
+        if (
+            set(active_voxel_coords_np) | set(fixed) != set(VOXEL_DIMS)
+            or len(active_voxel_coords_np) + len(fixed) != ndim
+        ):
             raise ValueError(
-                f"VoxelToWorldTransform only supports 2D or 3D inputs, got {ndim}."
+                f"active_voxel_coords {tuple(active_voxel_coords_np)!r} and fixed_voxel_coords "
+                f"{tuple(fixed)!r} together must exactly cover {VOXEL_DIMS!r}."
             )
 
-        for dim, values in voxel_coords_np.items():
+        for dim, values in active_voxel_coords_np.items():
             if values.ndim != 1:
                 raise ValueError(
                     f"Voxel coordinate {dim!r} must be 1D, got shape {values.shape}."
                 )
 
-        if world_coord_names is None:
-            world_coord_names = ("y", "x") if ndim == 2 else ("z", "y", "x")
-
-        if len(world_coord_names) != ndim:
-            raise ValueError(
-                "world_coord_names must have one entry per voxel dimension; got "
-                f"{len(world_coord_names)} names for {ndim} dimensions."
-            )
-
         affine = np.asarray(voxel_to_world, dtype=np.float64)
-        expected_shape = (ndim + 1, ndim + 1)
         pose_coord_np: npt.NDArray[Any] | None = None
         if pose_coord is not None:
             pose_coord_np = np.asarray(pose_coord)
@@ -867,61 +854,19 @@ class VoxelToWorldTransform(CoordinateTransform):
                 raise ValueError(
                     f"pose_coord must be 1D, got shape {pose_coord_np.shape}."
                 )
-            expected_stack_shape = (pose_coord_np.size, *expected_shape)
-            if affine.shape != expected_stack_shape:
-                raise ValueError(
-                    f"voxel_to_world must have shape {expected_stack_shape} for "
-                    f"{pose_coord_np.size} poses, got {affine.shape}."
-                )
-            if not np.all(np.isfinite(affine)):
-                raise ValueError("Pose-dependent voxel_to_world must be finite.")
-            homogeneous_row = np.zeros(ndim + 1)
-            homogeneous_row[-1] = 1.0
-            if not np.allclose(affine[:, -1, :], homogeneous_row):
-                raise ValueError(
-                    "Each pose affine must have a valid homogeneous final row."
-                )
-            if affine.shape[0] > 1:
-                scalings = np.stack(
-                    [
-                        np.array(
-                            list(get_affine_axis_scalings(affine[p], all_dims).values())
-                        )
-                        for p in range(affine.shape[0])
-                    ]
-                )
-                if not np.allclose(scalings, scalings[0], rtol=1e-6):
-                    raise ValueError(
-                        "All pose affines must share equal spatial scale magnitudes."
-                    )
-        elif affine.shape != expected_shape:
-            raise ValueError(
-                f"voxel_to_world must have shape {expected_shape}, got {affine.shape}."
-            )
 
-        dim_size = {dim: len(values) for dim, values in voxel_coords_np.items()}
-        coord_names = tuple(world_coord_names)
+        _validate_voxel_to_world_affine(
+            affine, ndim, n_poses=None if pose_coord_np is None else pose_coord_np.size
+        )
+
+        dim_size = {dim: len(values) for dim, values in active_voxel_coords_np.items()}
         if pose_coord_np is not None:
             dim_size = {POSE_DIM: pose_coord_np.size, **dim_size}
-        # `pose` is deliberately never one of `coord_names`: it stays a plain,
-        # independently indexed dimension coordinate (like k/j/i), not owned by this
-        # transform's index. It still appears in `dim_size` above (and thus in
-        # `self.dims`) purely so `forward()` receives its position when computing
-        # z/y/x -- xarray's CoordinateTransform contract keeps "which dims a transform
-        # depends on" and "which coordinate names it owns" independent, exactly like
-        # k/j/i already work. Owning `pose` as a coordinate name here previously
-        # confused xarray's index bookkeeping: after a scalar `.sel(pose=0)`, xarray's
-        # `_apply_indexes` blindly re-associates every OLD coordinate name (including
-        # `pose`) with the new (pose-independent) index object, leaving a stale `pose
-        # -> index` entry that made alignment against genuinely pose-free arrays
-        # (e.g. an atlas mask) spuriously fail. See VoxelToWorldIndex's docstring.
 
-        super().__init__(coord_names=coord_names, dim_size=dim_size)
-        self.voxel_coords = voxel_coords_np
+        super().__init__(coord_names=WORLD_DIMS, dim_size=dim_size)
+        self.active_voxel_coords = active_voxel_coords_np
         self.voxel_to_world = affine
         self.fixed_voxel_coords = fixed
-        self._all_dims = all_dims
-        self.world_coord_names = tuple(world_coord_names)
         self.pose_coord = pose_coord_np
 
     def forward(self, dim_positions: dict[str, Any]) -> dict[Hashable, Any]:
@@ -935,10 +880,10 @@ class VoxelToWorldTransform(CoordinateTransform):
         Returns
         -------
         dict[Hashable, Any]
-            World-space coordinate values keyed by `self.world_coord_names`.
+            World-space coordinate values keyed by `self.coord_names`.
         """
         active_values = {
-            dim: self.voxel_coords[dim][np.asarray(dim_positions[dim])]
+            dim: self.active_voxel_coords[dim][np.asarray(dim_positions[dim])]
             for dim in self.dims
             if dim != POSE_DIM
         }
@@ -948,12 +893,12 @@ class VoxelToWorldTransform(CoordinateTransform):
             active_values[dim]
             if dim in active_values
             else np.full(shape, self.fixed_voxel_coords[dim], dtype=np.float64)
-            for dim in self._all_dims
+            for dim in VOXEL_DIMS
         ]
         stacked = np.stack([*voxel_values, ones], axis=0).reshape(
-            len(self._all_dims) + 1, -1
+            len(VOXEL_DIMS) + 1, -1
         )
-        num_world = len(self.world_coord_names)
+        num_world = len(self.coord_names)
 
         if self.pose_coord is not None:
             pose_positions = (
@@ -964,12 +909,10 @@ class VoxelToWorldTransform(CoordinateTransform):
             selected_affines = self.voxel_to_world[pose_positions]
             transformed_flat = np.einsum("mij,jm->mi", selected_affines, stacked)
             transformed = transformed_flat.T.reshape((num_world + 1, *shape))
-            return {
-                name: transformed[i] for i, name in enumerate(self.world_coord_names)
-            }
+            return {name: transformed[i] for i, name in enumerate(self.coord_names)}
 
         transformed = (self.voxel_to_world @ stacked).reshape((num_world + 1, *shape))
-        return {name: transformed[i] for i, name in enumerate(self.world_coord_names)}
+        return {name: transformed[i] for i, name in enumerate(self.coord_names)}
 
     def reverse(self, coord_labels: dict[Hashable, Any]) -> dict[str, Any]:
         """Transform world coordinates back into dense array positions.
@@ -999,24 +942,22 @@ class VoxelToWorldTransform(CoordinateTransform):
                 "Reverse world-coordinate lookup requires pose-independent "
                 "geometry; select a scalar pose first."
             )
-        world_values = [
-            np.asarray(coord_labels[name]) for name in self.world_coord_names
-        ]
+        world_values = [np.asarray(coord_labels[name]) for name in self.coord_names]
         shape = np.asarray(world_values[0]).shape
         ones = np.ones(shape, dtype=np.float64)
         stacked = np.stack([*world_values, ones], axis=0).reshape(
-            len(self.world_coord_names) + 1, -1
+            len(self.coord_names) + 1, -1
         )
         voxel_values = (np.linalg.inv(self.voxel_to_world) @ stacked).reshape(
-            (len(self._all_dims) + 1, *shape)
+            (len(VOXEL_DIMS) + 1, *shape)
         )
 
         dim_positions: dict[str, Any] = {}
-        for i, dim in enumerate(self._all_dims):
+        for i, dim in enumerate(VOXEL_DIMS):
             if dim not in self.dims:
                 continue
             dim_positions[dim] = _reverse_lookup_positions(
-                voxel_values[i].reshape(-1), self.voxel_coords[dim]
+                voxel_values[i].reshape(-1), self.active_voxel_coords[dim]
             ).reshape(shape)
         return dim_positions
 
@@ -1049,13 +990,13 @@ class VoxelToWorldTransform(CoordinateTransform):
             or (other_pose is not None and np.array_equal(self_pose, other_pose))
         )
         return (
-            self.world_coord_names == other.world_coord_names
-            and self.dims == other.dims
-            and self._all_dims == other._all_dims
+            self.dims == other.dims
             and self.fixed_voxel_coords == other.fixed_voxel_coords
             and pose_equal
             and all(
-                np.array_equal(self.voxel_coords[dim], other.voxel_coords[dim])
+                np.array_equal(
+                    self.active_voxel_coords[dim], other.active_voxel_coords[dim]
+                )
                 for dim in self.dims
                 if dim != POSE_DIM
             )
@@ -1085,7 +1026,7 @@ class VoxelToWorldTransform(CoordinateTransform):
             nothing is gained by keeping it around as `fixed_voxel_coords`-style
             bookkeeping.
         """
-        new_voxel_coords = dict(self.voxel_coords)
+        new_active_voxel_coords = dict(self.active_voxel_coords)
         new_fixed = dict(self.fixed_voxel_coords)
         new_pose_coord = self.pose_coord
         new_affine = self.voxel_to_world
@@ -1115,9 +1056,9 @@ class VoxelToWorldTransform(CoordinateTransform):
                 continue
             if _is_scalar_indexer(indexer):
                 new_fixed[dim] = float(
-                    self.voxel_coords[dim][_scalar_indexer_value(indexer)]
+                    self.active_voxel_coords[dim][_scalar_indexer_value(indexer)]
                 )
-                del new_voxel_coords[dim]
+                del new_active_voxel_coords[dim]
                 continue
             if isinstance(indexer, Variable):
                 if indexer.ndim != 1:
@@ -1127,18 +1068,16 @@ class VoxelToWorldTransform(CoordinateTransform):
                 indexer = np.asarray(indexer)
             elif not isinstance(indexer, slice | np.ndarray):
                 return None
-            values = self.voxel_coords[dim][indexer]
+            values = self.active_voxel_coords[dim][indexer]
             if np.ndim(values) != 1:
                 return None
-            new_voxel_coords[dim] = values
-        if not new_voxel_coords:
+            new_active_voxel_coords[dim] = values
+        if not new_active_voxel_coords:
             return None
         return type(self)(
-            new_voxel_coords,
+            new_active_voxel_coords,
             new_affine,
-            self.world_coord_names,
             fixed_voxel_coords=new_fixed,
-            all_dims=self._all_dims,
             pose_coord=new_pose_coord,
         )
 
@@ -1181,17 +1120,19 @@ def attach_voxel_to_world_index(
 ) -> xr.DataArray:
     """Attach world coordinates to a DataArray, making it a VoxelData array.
 
-    Voxel dimensions are the native voxel names (`k`/`j`/`i`) present on `data`, in
-    canonical affine input-space column order; each gets the matching fixed world
-    coordinate name (`k`→`z`, `j`→`y`, `i`→`x`), so e.g. a `(k, i)` DataArray gets
-    `z`/`x` world coordinates, not `z`/`y`.
+    `data` must carry all three native voxel dims `k`/`j`/`i` (a lower-dimensional
+    slice is represented as a singleton voxel dim, never a missing one). The
+    resulting world coordinates are always `z`/`y`/`x`: a world coordinate's affine
+    row is, in general (e.g. an oblique/rotated affine), a linear combination of
+    every voxel dimension, so there is no meaningful per-dim `k`->`z` style
+    correspondence to preserve for a partial dim set.
 
     Parameters
     ----------
     data : xarray.DataArray
         Input array that already carries 1D integer voxel-space coordinates on its
-        native voxel dims (`k`/`j`/`i`).
-    voxel_to_world : (N+1, N+1) numpy.ndarray or (npose, N+1, N+1) numpy.ndarray
+        native voxel dims `k`/`j`/`i`.
+    voxel_to_world : (4, 4) numpy.ndarray or (npose, 4, 4) numpy.ndarray
         Homogeneous affine mapping voxel-space coordinates to world-space
         coordinates, or a stack of one such affine per pose. A stack requires `data`
         to have a matching `pose` dimension with a 1D coordinate; a single affine
@@ -1209,24 +1150,20 @@ def attach_voxel_to_world_index(
     Raises
     ------
     ValueError
-        If `data` has no native voxel dims (`k`/`j`/`i`), if their coordinates are
-        not 1D dimension coordinates, or if a pose-stacked `voxel_to_world` is given
-        without a matching `pose` dimension/coordinate on `data`.
+        If `data` does not have all three native voxel dims `k`/`j`/`i`, if their
+        coordinates are not 1D dimension coordinates, or if a pose-stacked
+        `voxel_to_world` is given without a matching `pose` dimension/coordinate on
+        `data`.
     TypeError
         If a voxel dimension's coordinate does not have integer dtype.
     """
-    voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
-    if not voxel_dims:
+    if not all(dim in data.dims for dim in VOXEL_DIMS):
         raise ValueError(
-            f"data must have at least one native voxel dim {VOXEL_DIMS!r}, got dims "
+            f"data must have all native voxel dims {VOXEL_DIMS!r}, got dims "
             f"{data.dims!r}."
         )
-    voxel_to_world_name = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
-    world_coord_names: tuple[Hashable, ...] = tuple(
-        voxel_to_world_name[dim] for dim in voxel_dims
-    )
-    voxel_coords: dict[str, npt.NDArray[np.int64]] = {}
-    for dim in voxel_dims:
+    active_voxel_coords: dict[str, npt.NDArray[np.int64]] = {}
+    for dim in VOXEL_DIMS:
         if dim not in data.coords:
             raise ValueError(
                 f"Voxel dimension {dim!r} must have a matching 1D coordinate."
@@ -1242,7 +1179,7 @@ def attach_voxel_to_world_index(
                 f"Voxel coordinate {dim!r} must have integer dtype (native voxel "
                 f"indices), got {coord.dtype}."
             )
-        voxel_coords[dim] = np.asarray(coord.values, dtype=np.int64)
+        active_voxel_coords[dim] = np.asarray(coord.values, dtype=np.int64)
 
     voxel_to_world_array = np.asarray(voxel_to_world, dtype=np.float64)
 
@@ -1265,12 +1202,11 @@ def attach_voxel_to_world_index(
         pose_coord = data.coords[POSE_DIM].values
 
     base = data.drop_vars(
-        [name for name in world_coord_names if name in data.coords], errors="ignore"
+        [name for name in WORLD_DIMS if name in data.coords], errors="ignore"
     )
     index = VoxelToWorldIndex.from_affine(
-        voxel_coords,
+        active_voxel_coords,
         voxel_to_world_array,
-        world_coord_names=world_coord_names,
         units=units,
         pose_coord=pose_coord,
     )
@@ -1331,8 +1267,8 @@ def _fold_fixed_dims_into_affine(
     return reduced
 
 
-def _collect_voxel_to_world_indexes(data: xr.DataArray) -> list[VoxelToWorldIndex]:
-    """Return the unique `VoxelToWorldIndex` objects present on `data`.
+def get_voxel_to_world_index(data: xr.DataArray) -> VoxelToWorldIndex | None:
+    """Return the `VoxelToWorldIndex` attached to `data`, if any.
 
     Parameters
     ----------
@@ -1341,27 +1277,17 @@ def _collect_voxel_to_world_indexes(data: xr.DataArray) -> list[VoxelToWorldInde
 
     Returns
     -------
-    list[VoxelToWorldIndex]
-        Unique index objects (the same object is registered under multiple
-        coordinate names, e.g. `z`, `y`, and `x`), sorted by each index's voxel
-        dimensions in canonical `VOXEL_DIMS` order. `data` carries at most one, since
-        [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex] always wraps
-        all voxel dimensions jointly.
+    VoxelToWorldIndex or None
+        The index, or `None` if `data` carries no voxel-to-world geometry. `data`
+        carries at most one: xarray only ever registers one index object per
+        coordinate name, and [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]
+        always wraps `z`/`y`/`x` jointly, so the same single object is simply
+        registered three times.
     """
-    seen: dict[int, VoxelToWorldIndex] = {
-        id(index): index
-        for index in data.xindexes.values()
-        if isinstance(index, VoxelToWorldIndex)
-    }
-
-    def _sort_key(index: VoxelToWorldIndex) -> int:
-        # An index's active voxel_dims are always a nonempty subset of VOXEL_DIMS
-        # (attach_voxel_to_world_index only ever wraps k/j/i); a fully-fixed index
-        # (all voxel dims scalar-isel'd away) is dropped by xarray entirely, so it
-        # never reaches xindexes here.
-        return VOXEL_DIMS.index(index.voxel_dims[0])
-
-    return sorted(seen.values(), key=_sort_key)
+    for index in data.xindexes.values():
+        if isinstance(index, VoxelToWorldIndex):
+            return index
+    return None
 
 
 def get_voxel_to_world_affine(data: xr.DataArray) -> npt.NDArray[np.float64]:
@@ -1391,12 +1317,12 @@ def get_voxel_to_world_affine(data: xr.DataArray) -> npt.NDArray[np.float64]:
     ValueError
         If `data` does not carry voxel-to-world geometry.
     """
-    if not has_voxel_to_world_index(data):
+    index = get_voxel_to_world_index(data)
+    if index is None:
         raise ValueError("DataArray must have a voxel-to-world index.")
-    index = _collect_voxel_to_world_indexes(data)[0]
     return _fold_fixed_dims_into_affine(
         index.voxel_to_world,
-        index.all_voxel_dims,
+        VOXEL_DIMS,
         index.voxel_dims,
         index.fixed_voxel_coords,
     )
@@ -1422,9 +1348,10 @@ def get_voxel_to_world_units(data: xr.DataArray) -> str:
     ValueError
         If `data` does not carry voxel-to-world geometry.
     """
-    if not has_voxel_to_world_index(data):
+    index = get_voxel_to_world_index(data)
+    if index is None:
         raise ValueError("DataArray must have a voxel-to-world index.")
-    return _collect_voxel_to_world_indexes(data)[0].units
+    return index.units
 
 
 def restore_voxel_to_world_index(data: xr.DataArray) -> xr.DataArray:
@@ -1445,20 +1372,14 @@ def restore_voxel_to_world_index(data: xr.DataArray) -> xr.DataArray:
         original affine (see
         [VoxelToWorldIndex.fixed_voxel_coords][confusius._utils.geometry.VoxelToWorldIndex.fixed_voxel_coords]).
     """
-    for index in _collect_voxel_to_world_indexes(data):
-        if not (
-            set(index.voxel_dims).issubset(set(VOXEL_DIMS)) and index.fixed_voxel_coords
-        ):
-            continue
-        all_dims = index.all_voxel_dims
-        if any(
-            dim not in data.dims or data.coords[dim].dims != (dim,) for dim in all_dims
-        ):
-            continue
-        return attach_voxel_to_world_index(
-            data, index.voxel_to_world, units=index.units
-        )
-    return data
+    index = get_voxel_to_world_index(data)
+    if index is None or not index.fixed_voxel_coords:
+        return data
+    if any(
+        dim not in data.dims or data.coords[dim].dims != (dim,) for dim in VOXEL_DIMS
+    ):
+        return data
+    return attach_voxel_to_world_index(data, index.voxel_to_world, units=index.units)
 
 
 def has_axis_aligned_voxel_to_world_index(data: xr.DataArray) -> bool:
@@ -1491,16 +1412,14 @@ def has_voxel_to_world_index(data: xr.DataArray) -> bool:
     Returns
     -------
     bool
-        Whether `data` stores a `voxel_to_world` affine and has 2D or 3D voxel-space
-        dimensions drawn from `confusius._dims.VOXEL_DIMS`.
+        Whether `data` has a `VoxelToWorldIndex` attached. Every `VoxelToWorldIndex`
+        always covers all of `confusius._dims.WORLD_DIMS`
+        (`z`/`y`/`x`) jointly, and a fully-fixed one (every voxel dim scalar-`isel`'d
+        away) is never attached in the first place -- xarray drops it, since
+        `VoxelToWorldTransform.isel` returns `None` once no active dim remains -- so
+        presence alone is the only real question.
     """
-    indexes = _collect_voxel_to_world_indexes(data)
-    active_dims = tuple(dim for index in indexes for dim in index.voxel_dims)
-    return (
-        len(active_dims) in {2, 3}
-        and len(set(active_dims)) == len(active_dims)
-        and set(active_dims).issubset(set(VOXEL_DIMS))
-    )
+    return get_voxel_to_world_index(data) is not None
 
 
 def get_voxel_to_world_spatial_dims(data: xr.DataArray) -> tuple[str, ...]:
@@ -1516,44 +1435,10 @@ def get_voxel_to_world_spatial_dims(data: xr.DataArray) -> tuple[str, ...]:
     tuple[str, ...]
         Present voxel-space dimensions in canonical affine column order.
     """
-    indexes = _collect_voxel_to_world_indexes(data)
-    active_dims = tuple(dim for index in indexes for dim in index.voxel_dims)
-    if active_dims and set(active_dims).issubset(set(VOXEL_DIMS)):
-        return active_dims
+    index = get_voxel_to_world_index(data)
+    if index is not None:
+        return index.voxel_dims
     return tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
-
-
-def get_voxel_to_world_coord_names(data: xr.DataArray) -> tuple[str, ...]:
-    """Return world coordinate names exposed by voxel-to-world geometry.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        DataArray to inspect.
-
-    Returns
-    -------
-    tuple[str, ...]
-        World coordinate names in affine row order.
-    """
-    indexes = _collect_voxel_to_world_indexes(data)
-    active_dims = tuple(dim for index in indexes for dim in index.voxel_dims)
-    if (
-        active_dims
-        and len(active_dims) in {2, 3}
-        and set(active_dims).issubset(set(VOXEL_DIMS))
-    ):
-        return tuple(str(name) for index in indexes for name in index.world_coord_names)
-    voxel_dims = get_voxel_to_world_spatial_dims(data)
-    default_names = tuple({"k": "z", "j": "y", "i": "x"}[dim] for dim in voxel_dims)
-    world_coord_names = tuple(
-        name
-        for name, dim in zip(default_names, voxel_dims, strict=True)
-        if name in data.coords and data.coords[name].dims in {voxel_dims, (dim,)}
-    )
-    if len(world_coord_names) == len(voxel_dims):
-        return world_coord_names
-    return default_names
 
 
 def require_scalar_pose_affine(
@@ -1620,7 +1505,6 @@ def get_voxel_to_world_index_origin(data: xr.DataArray) -> dict[str, float]:
     The two coincide only when the voxel coordinates themselves start at zero.
     """
     voxel_dims = get_voxel_to_world_spatial_dims(data)
-    world_coord_names = get_voxel_to_world_coord_names(data)
     first_voxel = np.array(
         [
             np.float64(np.asarray(data.coords[dim].values)[0]).item()
@@ -1631,9 +1515,7 @@ def get_voxel_to_world_index_origin(data: xr.DataArray) -> dict[str, float]:
     )
     affine = require_scalar_pose_affine(data, "Computing the voxel-to-world origin")
     origin = affine @ first_voxel
-    return {
-        name: np.float64(origin[i]).item() for i, name in enumerate(world_coord_names)
-    }
+    return {name: np.float64(origin[i]).item() for i, name in enumerate(WORLD_DIMS)}
 
 
 def get_voxel_to_world_index_spacing(data: xr.DataArray) -> dict[str, float | None]:
@@ -1650,9 +1532,9 @@ def get_voxel_to_world_index_spacing(data: xr.DataArray) -> dict[str, float | No
         World spacing keyed by voxel-space dimension.
     """
     voxel_dims = get_voxel_to_world_spatial_dims(data)
-    voxel_coords = {dim: data.coords[dim].values for dim in voxel_dims}
+    active_voxel_coords = {dim: data.coords[dim].values for dim in voxel_dims}
     return get_voxel_to_world_spacings_from_coords(
-        voxel_coords, get_voxel_to_world_affine(data)
+        active_voxel_coords, get_voxel_to_world_affine(data)
     )
 
 
@@ -1761,14 +1643,14 @@ def get_affine_direction_matrix(
 
 
 def get_voxel_to_world_spacings_from_coords(
-    voxel_coords: Mapping[str, npt.ArrayLike],
+    active_voxel_coords: Mapping[str, npt.ArrayLike],
     voxel_to_world: npt.ArrayLike,
 ) -> dict[str, float | None]:
     """Return world spacing for regularly sampled voxel axes.
 
     Parameters
     ----------
-    voxel_coords : mapping[str, array-like]
+    active_voxel_coords : mapping[str, array-like]
         Ordered mapping from voxel-space dimension name to its 1D coordinates.
     voxel_to_world : (N+1, N+1) numpy.ndarray
         Homogeneous affine mapping voxel space to world space.
@@ -1780,9 +1662,9 @@ def get_voxel_to_world_spacings_from_coords(
         voxel-space coordinate is irregular. For singleton voxel axes, the spacing is
         inferred from one voxel-space unit along that affine column.
     """
-    scalings = get_affine_axis_scalings(voxel_to_world, tuple(voxel_coords))
+    scalings = get_affine_axis_scalings(voxel_to_world, tuple(active_voxel_coords))
     spacings: dict[str, float | None] = {}
-    for dim, values in voxel_coords.items():
+    for dim, values in active_voxel_coords.items():
         values_array = np.asarray(values, dtype=np.float64)
         step, approximate = get_representative_step(values_array)
         if approximate:

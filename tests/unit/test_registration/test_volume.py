@@ -7,16 +7,16 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
-from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius._utils.geometry import (
     get_affine_direction_matrix,
     get_voxel_to_world_affine,
 )
 from confusius.registration._utils import (
-    voxeldata_to_sitk_image,
     get_defined_spatial_spacing,
     initialize_single_slice_rigid_transform,
+    voxeldata_to_sitk_image,
 )
 from confusius.registration.bspline import (
     invert_displacement_field,
@@ -916,8 +916,8 @@ class TestResampleVolume:
             [grid["output_spacing"][dim] for dim in VOXEL_DIMS],
         )
         assert_allclose(
-            [result.fusi.origin[name] for name in SPATIAL_DIMS],
-            [grid["output_origin"][name] for name in SPATIAL_DIMS],
+            [result.fusi.origin[name] for name in WORLD_DIMS],
+            [grid["output_origin"][name] for name in WORLD_DIMS],
         )
 
     def test_multiple_extra_dims_matches_looped_resample(

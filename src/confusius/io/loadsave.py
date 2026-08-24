@@ -10,11 +10,11 @@ import xarray as xr
 import confusius.io.echoframe as _echoframe
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
+from confusius._dims import WORLD_DIMS
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
     get_voxel_to_world_units,
 )
 from confusius.io._utils import (
@@ -154,12 +154,11 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         data_array = ensure_voxeldata(data_array)
         data_array = data_array.copy(deep=False)
         voxel_to_world = get_voxel_to_world_affine(data_array)
-        world_coord_names = get_voxel_to_world_coord_names(data_array)
         units = get_voxel_to_world_units(data_array)
         # `pose` is its own plain, independently indexed coordinate (not owned by the
         # VoxelToWorldIndex -- see its docstring), so dropping the world coordinates
         # here leaves it untouched.
-        data_array = data_array.drop_vars(world_coord_names)
+        data_array = data_array.drop_vars(WORLD_DIMS)
         data_array.attrs = {
             **data_array.attrs,
             "voxel_to_world": voxel_to_world,

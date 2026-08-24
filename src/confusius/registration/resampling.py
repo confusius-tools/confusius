@@ -7,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.geometry import (
     get_voxel_to_world_direction_matrix,
     get_voxel_to_world_units,
@@ -222,7 +222,7 @@ def resample_volume(
         output_spacing, VOXEL_DIMS, "output_spacing"
     )
     resolved_output_origin = _resolve_float_grid_mapping(
-        output_origin, SPATIAL_DIMS, "output_origin"
+        output_origin, WORLD_DIMS, "output_origin"
     )
     direction = np.asarray(output_direction, dtype=np.float64)
     if direction.shape != (ndim, ndim):

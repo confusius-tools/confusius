@@ -13,11 +13,8 @@ import numpy as np
 import xarray as xr
 from scipy.spatial.transform import Rotation
 
-from confusius._dims import VOXEL_DIMS
-from confusius._utils.geometry import (
-    get_voxel_to_world_coord_names,
-    get_voxel_to_world_spatial_dims,
-)
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
+from confusius._utils.geometry import get_voxel_to_world_spatial_dims
 from confusius.validation import ensure_voxeldata
 
 if TYPE_CHECKING:
@@ -109,10 +106,7 @@ def _rotation_matrix_aligning_vectors(
 def _get_voxel_to_world_plane_center(data: xr.DataArray) -> np.ndarray:
     """Return the world center point of a single-slice voxel-to-world volume."""
     return np.array(
-        [
-            float(np.asarray(data.coords[name].values).mean())
-            for name in get_voxel_to_world_coord_names(data)
-        ],
+        [float(np.asarray(data.coords[name].values).mean()) for name in WORLD_DIMS],
         dtype=np.float64,
     )
 
@@ -336,8 +330,7 @@ def voxeldata_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     has_extra = "extra" in da.dims
     spacing = [float(da.fusi.spacing[dim]) for dim in VOXEL_DIMS]
     origin_dict = da.fusi.origin
-    origin_names = get_voxel_to_world_coord_names(da)
-    origin = tuple(origin_dict[d] for d in origin_names)
+    origin = tuple(origin_dict[d] for d in WORLD_DIMS)
 
     if has_extra:
         data = da.values

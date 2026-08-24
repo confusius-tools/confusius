@@ -31,7 +31,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._dims import POSE_DIM, SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
+from confusius._dims import POSE_DIM, TIME_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._napari._registration._metric_plotter import (
     RegistrationMetricPlotter,
 )
@@ -1426,7 +1426,7 @@ class RegistrationPanel(QWidget):
             return
 
         dims = tuple(
-            str(d) for d in source.dims if d in (POSE_DIM, *VOXEL_DIMS, *SPATIAL_DIMS)
+            str(d) for d in source.dims if d in (POSE_DIM, *VOXEL_DIMS, *WORLD_DIMS)
         )
         if not dims:
             self._set_error(f"Layer {layer.name!r} has no spatial dimensions.")
@@ -1434,7 +1434,7 @@ class RegistrationPanel(QWidget):
         # `.fusi.spacing` is keyed by voxel dim (k/j/i); `.fusi.origin` is keyed by
         # world dim (z/y/x) for spatial dims, own name otherwise -- translate below
         # to a dict keyed like `dims` (voxel/own names) either way.
-        voxel_to_world_name = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
+        voxel_to_world_name = dict(zip(VOXEL_DIMS, WORLD_DIMS, strict=True))
         spacings = source.fusi.spacing
         world_origins = source.fusi.origin
         origins = {d: world_origins[voxel_to_world_name.get(d, d)] for d in dims}

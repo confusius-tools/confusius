@@ -244,7 +244,7 @@ def test_transform_checks_spatial_layout(sample_voxeldata_3dt):
 def test_transform_checks_spatial_dimension_names(sample_voxeldata_3dt):
     """transform rejects data missing a native voxel dimension."""
     model = PCA(n_components=4, random_state=0).fit(sample_voxeldata_3dt)
-    bad = sample_voxeldata_3dt.rename({"i": "region"})
+    bad = sample_voxeldata_3dt.drop_vars(["z", "y", "x"]).rename({"i": "region"})
 
     with pytest.raises(ValueError, match="missing voxel dimension"):
         model.transform(bad)

@@ -12,11 +12,11 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._dims import WORLD_DIMS
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_affine_axis_scalings,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
     get_voxel_to_world_units,
 )
@@ -231,8 +231,7 @@ def consolidate_poses(
     # ensure_voxeldata above guarantees da carries a VoxelToWorldIndex, so the voxel dims
     # (and their derived world coordinates) are always available here.
     voxel_dims = list(get_voxel_to_world_spatial_dims(da))
-    world_dims = list(get_voxel_to_world_coord_names(da))
-    voxel_to_world = dict(zip(voxel_dims, world_dims, strict=True))
+    voxel_to_world = dict(zip(voxel_dims, WORLD_DIMS, strict=True))
 
     affine = get_voxel_to_world_affine(da)  # (npose, 4, 4) when pose-dependent.
     if affine.ndim != 3:
@@ -265,7 +264,7 @@ def consolidate_poses(
     # coordinates rather than reconstructing them from a separately stored affine.
     n_sweep = da.sizes[sweep_dim]
     world_positions = []
-    for world_dim in world_dims:
+    for world_dim in WORLD_DIMS:
         coord = da.coords[world_dim]
         if other_voxel_dims:
             coord = coord.isel(dict.fromkeys(other_voxel_dims, 0))

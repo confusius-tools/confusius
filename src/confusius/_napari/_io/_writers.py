@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from confusius._dims import SPATIAL_DIMS, TIME_DIM
+from confusius._dims import TIME_DIM, WORLD_DIMS
 
 _NAPARI_GENERIC_AXIS = re.compile(r"^axis -?\d+$")
 """Matches napari's default generic axis labels (e.g. 'axis -4', 'axis -3', ...)."""
@@ -60,10 +60,10 @@ def _convert_layer_to_voxeldata(data: Any, meta: dict[str, Any]) -> xr.DataArray
     ndim = data_array.ndim
 
     _default_dims: dict[int, tuple[str, ...]] = {
-        1: SPATIAL_DIMS[-1:],  # ("x",)
-        2: SPATIAL_DIMS[-2:],  # ("y", "x")
-        3: SPATIAL_DIMS,  # ("z", "y", "x")
-        4: (TIME_DIM, *SPATIAL_DIMS),  # ("time", "z", "y", "x")
+        1: WORLD_DIMS[-1:],  # ("x",)
+        2: WORLD_DIMS[-2:],  # ("y", "x")
+        3: WORLD_DIMS,  # ("z", "y", "x")
+        4: (TIME_DIM, *WORLD_DIMS),  # ("time", "z", "y", "x")
     }
     raw_labels = meta.get("axis_labels")
     if raw_labels and not all(
@@ -84,8 +84,8 @@ def _convert_layer_to_voxeldata(data: Any, meta: dict[str, Any]) -> xr.DataArray
         for u in raw_units
     ]
 
-    voxel_to_world_name = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
-    world_to_voxel_name = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
+    voxel_to_world_name = dict(zip(VOXEL_DIMS, WORLD_DIMS, strict=True))
+    world_to_voxel_name = dict(zip(WORLD_DIMS, VOXEL_DIMS, strict=True))
     spatial_scale = dict.fromkeys(VOXEL_DIMS, 1.0)
     spatial_translate = dict.fromkeys(VOXEL_DIMS, 0.0)
     spatial_units: list[str] = []

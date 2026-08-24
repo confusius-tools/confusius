@@ -11,10 +11,9 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._dims import POSE_DIM, SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import POSE_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
-    get_voxel_to_world_coord_names,
     get_voxel_to_world_index_spacing,
     get_voxel_to_world_spatial_dims,
     has_axis_aligned_voxel_to_world_index,
@@ -139,8 +138,7 @@ def _validate_slice_mode(data: xr.DataArray, slice_mode: str) -> None:
         If `data` is sliced along an unsupported dimension.
     """
     valid_slice_modes = (
-        tuple(str(dim) for dim in data.dims if str(dim) not in VOXEL_DIMS)
-        + SPATIAL_DIMS
+        tuple(str(dim) for dim in data.dims if str(dim) not in VOXEL_DIMS) + WORLD_DIMS
     )
     if slice_mode not in valid_slice_modes:
         raise ValueError(
@@ -215,7 +213,7 @@ def _project_voxel_to_world_plane(
     col_edges = _centers_to_edges(col_vals)
 
     if world_row is not None and world_col is not None:
-        world_dims = get_voxel_to_world_coord_names(slice_da)
+        world_dims = WORLD_DIMS
         e1 = np.zeros(3)
         e1[world_dims.index(world_col)] = 1.0
         e2 = np.zeros(3)
@@ -387,7 +385,7 @@ def compute_slice_axis_aligned_grid_geometry(
     affine = require_scalar_pose_affine(
         data, "Slice-axis-aligned resampling for display"
     )
-    world_dims = get_voxel_to_world_coord_names(data)
+    world_dims = WORLD_DIMS
     voxel_dims = get_voxel_to_world_spatial_dims(data)
     voxel_spacing = get_voxel_to_world_index_spacing(data)
     slice_row = world_dims.index(slice_world_dim)
@@ -452,7 +450,7 @@ def compute_slice_axis_aligned_grid_geometry(
     world_points = np.stack(
         [
             np.asarray(data.coords[dim].values, dtype=np.float64).ravel()
-            for dim in world_dims
+            for dim in WORLD_DIMS
         ],
         axis=0,
     )
@@ -490,7 +488,7 @@ def compute_slice_axis_aligned_grid_geometry(
         output_direction,
         dict(zip(VOXEL_DIMS, sizes, strict=True)),
         dict(zip(VOXEL_DIMS, spacings, strict=True)),
-        dict(zip(SPATIAL_DIMS, output_origin_world, strict=True)),
+        dict(zip(WORLD_DIMS, output_origin_world, strict=True)),
         slice_axis_grid,
     )
 
@@ -1185,7 +1183,7 @@ class VolumePlotter:
             oblique data, unchanged for anything else (no voxel-to-world geometry,
             ...).
         """
-        if self.slice_mode in SPATIAL_DIMS:
+        if self.slice_mode in WORLD_DIMS:
             return slices
         interp = (
             self._resample_interpolation if interpolation is None else interpolation
@@ -1196,15 +1194,14 @@ class VolumePlotter:
             if has_voxel_to_world_index(
                 slice_da
             ) and not has_axis_aligned_voxel_to_world_index(slice_da):
-                world_dims = get_voxel_to_world_coord_names(slice_da)
                 shape, _, _ = compute_oblique_axis_aligned_grid_geometry(
-                    slice_da, world_dims
+                    slice_da, WORLD_DIMS
                 )
                 if sum(size > 1 for size in shape) != 2:
                     raise ValueError(
                         f"Displaying slice_mode={self.slice_mode!r}'s panel in world "
                         "space would not collapse to a 2D plane (predicted shape "
-                        f"{dict(zip(world_dims, shape, strict=True))}). This happens "
+                        f"{dict(zip(WORLD_DIMS, shape, strict=True))}). This happens "
                         "when the panel's spatial geometry is oblique to the world "
                         "axes and does not lie flat on any world plane."
                     )
@@ -1217,7 +1214,7 @@ class VolumePlotter:
                 fill_value=fill,
             )
             grid = _materialize_axis_aligned_world_grid_for_display(grid)
-            world_dims = [d for d in grid.dims if str(d) in {"z", "y", "x"}]
+            world_dims = [d for d in grid.dims if str(d) in WORLD_DIMS]
             squeeze_dims = [d for d in world_dims if grid.sizes[d] == 1]
             if squeeze_dims:
                 grid = grid.squeeze(dim=squeeze_dims)
@@ -1266,17 +1263,17 @@ class VolumePlotter:
         world_col : str or None
             World coordinate name for the display column axis, or `None`.
         """
-        if self.slice_mode in SPATIAL_DIMS:
+        if self.slice_mode in WORLD_DIMS:
             if not slices or not has_voxel_to_world_index(slices[0]):
                 return None, None
-            world_dims = get_voxel_to_world_coord_names(slices[0])
+            world_dims = WORLD_DIMS
             remaining = [d for d in world_dims if d != self.slice_mode]
             return remaining[0], remaining[1]
         if not has_voxel_to_world_index(data) or has_axis_aligned_voxel_to_world_index(
             data
         ):
             return None, None
-        world_dims = get_voxel_to_world_coord_names(data)
+        world_dims = WORLD_DIMS
         shape, _, _ = compute_oblique_axis_aligned_grid_geometry(data, world_dims)
         collapsed = [d for d, size in zip(world_dims, shape, strict=True) if size == 1]
         if len(collapsed) != 1:
@@ -1541,7 +1538,7 @@ class VolumePlotter:
             self._resample_interpolation if interpolation is None else interpolation
         )
 
-        if self.slice_mode in SPATIAL_DIMS:
+        if self.slice_mode in WORLD_DIMS:
             resampled_data, slice_axis_grid = _resample_slice_axis_aligned_world_grid(
                 data,
                 self.slice_mode,

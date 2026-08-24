@@ -18,9 +18,9 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._dims import WORLD_DIMS
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
     get_voxel_to_world_units,
     has_voxel_to_world_index,
 )
@@ -135,7 +135,7 @@ def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
     # Reported as world dim names (matching the `component` labeling convention used
     # everywhere a displacement field is built, e.g. `_compose_world_to_base_transforms`
     # and `sample_displacement_field_like`), not `reference`'s own (voxel) dims.
-    dims = list(get_voxel_to_world_coord_names(reference))
+    dims = list(WORLD_DIMS)
     spacing = reference.fusi.spacing
     origin = reference.fusi.origin
     resolved_spacing: dict[str, float] = {}

@@ -17,7 +17,7 @@ import numpy.typing as npt
 import xarray as xr
 from pydantic import ValidationError
 
-from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.coordinates import (
     get_coordinate_spacing_info,
     get_representative_step,
@@ -108,7 +108,7 @@ NIfTI axes 0-3 are reserved for `(i, j, k, time)`, so the load side only consult
 sidecar for the 5th, 6th, and 7th NIfTI axes.
 """
 
-_RESERVED_DIM_NAMES: frozenset[str] = frozenset({*VOXEL_DIMS, *SPATIAL_DIMS})
+_RESERVED_DIM_NAMES: frozenset[str] = frozenset({*VOXEL_DIMS, *WORLD_DIMS})
 """Dim names a sidecar `ConfUSIusDim{N}Name` override may never claim.
 
 `k`/`j`/`i` are the native voxel dims and `z`/`y`/`x` are the derived world

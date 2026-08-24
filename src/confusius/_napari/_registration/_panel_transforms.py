@@ -14,7 +14,7 @@ from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtWidgets import QFileDialog
 
-from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._napari._registration._panel_utils import (
     _get_image_display_kwargs_from_layer,
     _get_source_dataarray,
@@ -799,7 +799,7 @@ def apply_selected_transform(panel: RegistrationPanel) -> None:
         transform,
         output_sizes=dict(zip(VOXEL_DIMS, output_grid["shape"], strict=True)),
         output_spacing=dict(zip(VOXEL_DIMS, output_grid["spacing"], strict=True)),
-        output_origin=dict(zip(SPATIAL_DIMS, output_grid["origin"], strict=True)),
+        output_origin=dict(zip(WORLD_DIMS, output_grid["origin"], strict=True)),
         output_direction=np.asarray(output_grid["direction"], dtype=float),
         interpolation=panel._current_resample_interpolation(),
     )
@@ -863,7 +863,7 @@ def apply_selected_inverse_transform(panel: RegistrationPanel) -> None:
         transform,
         output_sizes=dict(zip(VOXEL_DIMS, output_grid["shape"], strict=True)),
         output_spacing=dict(zip(VOXEL_DIMS, output_grid["spacing"], strict=True)),
-        output_origin=dict(zip(SPATIAL_DIMS, output_grid["origin"], strict=True)),
+        output_origin=dict(zip(WORLD_DIMS, output_grid["origin"], strict=True)),
         output_direction=np.asarray(output_grid["direction"], dtype=float),
         interpolation=panel._current_resample_interpolation(),
     )

@@ -48,10 +48,10 @@ def _reference_scores(data, mask, y, radius, estimator, cv):
     """
     from sklearn.base import clone
 
-    from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+    from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 
     dims = tuple(str(d) for d in mask.dims)
-    world_name = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
+    world_name = dict(zip(VOXEL_DIMS, WORLD_DIMS, strict=True))
     # A world coordinate need not be a clean 1D array along a single dim (a general
     # affine can make z/y/x each depend on more than one voxel axis), so broadcast
     # each to the mask's full shape rather than assuming np.meshgrid separability.

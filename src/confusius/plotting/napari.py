@@ -16,7 +16,7 @@ import napari
 import numpy as np
 import xarray as xr
 
-from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, TIME_DIM
+from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM, WORLD_DIMS
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_units,
@@ -465,7 +465,7 @@ def labels_from_layer(
         name: coord
         for name, coord in data.coords.items()
         if set(coord.dims).issubset(spatial_dims)
-        and name not in SPATIAL_DIMS
+        and name not in WORLD_DIMS
         and name not in CORE_DIMS
     }
 

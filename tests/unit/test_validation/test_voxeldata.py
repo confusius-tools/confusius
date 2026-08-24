@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius._utils.geometry import VoxelToWorldIndex, attach_voxel_to_world_index
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.validation import canonicalize_voxeldata, validate_voxeldata
 from confusius.xarray import create_voxeldata
 
@@ -249,35 +249,11 @@ def test_validate_voxeldata_rejects_2d_voxel_to_world_data() -> None:
         dims=("j", "i"),
         coords={"j": [0, 2, 4], "i": [0, 1, 2, 3]},
     )
-    bad = attach_voxel_to_world_index(
-        base,
-        np.array([[3.0, 0.0, 20.0], [0.0, 4.0, 30.0], [0.0, 0.0, 1.0]]),
-    )
-
-    with pytest.raises(ValueError, match="must include all native voxel dimensions"):
-        validate_voxeldata(bad)
-
-
-def test_validate_voxeldata_rejects_voxel_to_world_index_missing_voxel_dim() -> None:
-    """Canonical fUSI geometry must map all `k/j/i` dimensions.
-
-    `attach_voxel_to_world_index` always covers every native voxel dim present on its
-    input, so this deliberately-incomplete state (an index over only `j`/`i` while `k`
-    also exists, uncovered) can no longer be built through it -- construct it directly
-    via the lower-level `VoxelToWorldIndex` instead.
-    """
-    base = xr.DataArray(
-        np.zeros((2, 3, 4), dtype=np.float32),
-        dims=("k", "j", "i"),
-        coords={"k": [0, 1], "j": [0, 2, 4], "i": [0, 1, 2, 3]},
-    )
-    index = VoxelToWorldIndex.from_affine(
-        {"j": base.coords["j"].values, "i": base.coords["i"].values},
-        np.array([[3.0, 0.0, 20.0], [0.0, 4.0, 30.0], [0.0, 0.0, 1.0]]),
-    )
-    bad = base.assign_coords(xr.Coordinates.from_xindex(index))
-
-    with pytest.raises(ValueError, match="must cover native voxel dimensions"):
+    with pytest.raises(ValueError, match="must have all native voxel dims"):
+        bad = attach_voxel_to_world_index(
+            base,
+            np.array([[3.0, 0.0, 20.0], [0.0, 4.0, 30.0], [0.0, 0.0, 1.0]]),
+        )
         validate_voxeldata(bad)
 
 

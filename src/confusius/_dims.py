@@ -5,7 +5,7 @@ module defines them as constants so that IO, processing, validation, and UI code
 reference them without duplicating string literals.
 """
 
-SPATIAL_DIMS: tuple[str, ...] = ("z", "y", "x")
+WORLD_DIMS: tuple[str, ...] = ("z", "y", "x")
 """World spatial dimension names in ConfUSIus order."""
 
 VOXEL_DIMS: tuple[str, ...] = ("k", "j", "i")

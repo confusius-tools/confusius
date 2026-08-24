@@ -8,9 +8,9 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
+from confusius._dims import WORLD_DIMS
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
     get_voxel_to_world_units,
 )
 from confusius.io.loadsave import load, save
@@ -313,9 +313,8 @@ class TestLoadZarr:
         variables = {}
         for da in (power, iq):
             voxel_to_world = get_voxel_to_world_affine(da)
-            world_coord_names = get_voxel_to_world_coord_names(da)
             units = get_voxel_to_world_units(da)
-            da = da.drop_vars(world_coord_names)
+            da = da.drop_vars(WORLD_DIMS)
             da.attrs = {
                 **da.attrs,
                 "voxel_to_world": voxel_to_world,

@@ -79,6 +79,7 @@ def test_rejects_non_voxeldata_input(nmf_3dt_volume):
     """
     data = (
         nmf_3dt_volume.isel(k=0, i=0, drop=True)
+        .drop_vars(["z", "y", "x"])
         .rename({"j": "region"})
         .assign_coords(region=["A", "B", "C", "D", "E", "F"])
     )
@@ -309,7 +310,7 @@ def test_transform_checks_spatial_layout(nmf_3dt_volume):
 def test_transform_checks_spatial_dimension_names(nmf_3dt_volume):
     """transform rejects data missing a native voxel dimension."""
     model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
-    bad = nmf_3dt_volume.rename({"i": "region"})
+    bad = nmf_3dt_volume.drop_vars(["z", "y", "x"]).rename({"i": "region"})
 
     with pytest.raises(ValueError, match="missing voxel dimension"):
         model.transform(bad)

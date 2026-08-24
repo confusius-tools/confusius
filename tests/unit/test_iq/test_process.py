@@ -587,14 +587,18 @@ class TestProcessIqToPowerDoppler:
                 "i": np.arange(6),
             },
         )
-        iq = attach_voxel_to_world_index(
-            base,
-            np.diag([0.1, 0.05, 1.0]),
-        )
         with pytest.raises(
             ValueError,
-            match="must include all native voxel dimensions|missing voxel dimension",
+            match=(
+                "must have all native voxel dims"
+                "|must include all native voxel dimensions"
+                "|missing voxel dimension"
+            ),
         ):
+            iq = attach_voxel_to_world_index(
+                base,
+                np.diag([0.1, 0.05, 1.0]),
+            )
             process_iq_to_power_doppler(iq)
 
     def test_non_complex_data_raises(self, rng):
@@ -1300,14 +1304,18 @@ class TestProcessIqToBmode:
                 "i": np.arange(6),
             },
         )
-        iq = attach_voxel_to_world_index(
-            base,
-            np.diag([0.1, 0.05, 1.0]),
-        )
         with pytest.raises(
             ValueError,
-            match="must include all native voxel dimensions|missing voxel dimension",
+            match=(
+                "must have all native voxel dims"
+                "|must include all native voxel dimensions"
+                "|missing voxel dimension"
+            ),
         ):
+            iq = attach_voxel_to_world_index(
+                base,
+                np.diag([0.1, 0.05, 1.0]),
+            )
             process_iq_to_bmode(iq)
 
     def test_non_complex_data_raises(self, rng):

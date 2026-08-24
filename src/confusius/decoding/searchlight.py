@@ -32,8 +32,7 @@ from sklearn.model_selection import (
     cross_val_score,
 )
 
-from confusius._dims import VOXEL_DIMS
-from confusius._utils.geometry import get_voxel_to_world_coord_names
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.io import is_h5py_backed
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask, unmask
@@ -52,8 +51,8 @@ def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
     Returns
     -------
     numpy.ndarray
-        `(n_masked, n_dims)` array of world coordinates, in the order given by
-        `get_voxel_to_world_coord_names(mask)`.
+        `(n_masked, n_dims)` array of world coordinates, in
+        `confusius._dims.WORLD_DIMS` order.
 
     Notes
     -----
@@ -65,13 +64,12 @@ def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
     anisotropic.
     """
     dims = tuple(str(dim) for dim in mask.dims)
-    coord_names = get_voxel_to_world_coord_names(mask)
     coord_arrays = [
         np.broadcast_to(
             np.asarray(mask.coords[name].transpose(*dims).values, dtype=np.float64),
             mask.shape,
         )
-        for name in coord_names
+        for name in WORLD_DIMS
     ]
 
     flat = np.stack([arr.ravel() for arr in coord_arrays], axis=-1)

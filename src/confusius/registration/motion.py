@@ -166,10 +166,9 @@ def _get_motion_parameter_columns(
     ValueError
         If `params` does not have 6 columns.
     """
-    from confusius._utils.geometry import get_voxel_to_world_coord_names
+    from confusius._dims import WORLD_DIMS
 
-    spatial_dims = get_voxel_to_world_coord_names(reference)
-    axis_index = {dim: i for i, dim in enumerate(spatial_dims)}
+    axis_index = {dim: i for i, dim in enumerate(WORLD_DIMS)}
 
     if params.shape[1] != 6:
         raise ValueError(
@@ -251,15 +250,14 @@ def compute_framewise_displacement(
     affines_validated = _validate_affines(affines)
     n_frames = len(affines_validated)
 
-    from confusius._utils.geometry import get_voxel_to_world_coord_names
+    from confusius._dims import WORLD_DIMS
 
     # World coordinates derived by VoxelToWorldIndex are always dense,
     # reference.shape-matching arrays regardless of axis-alignment (unlike the
     # pre-CTI-migration representation, where axis-aligned world coordinates were
     # 1D per-axis and needed a meshgrid expansion here).
-    spatial_names = get_voxel_to_world_coord_names(reference)
     coord_arrays = [
-        np.asarray(reference.coords[name].values, dtype=float) for name in spatial_names
+        np.asarray(reference.coords[name].values, dtype=float) for name in WORLD_DIMS
     ]
     points = np.stack([array.ravel() for array in coord_arrays], axis=1)
 

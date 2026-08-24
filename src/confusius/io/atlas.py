@@ -9,11 +9,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import xarray as xr
 
+from confusius._dims import WORLD_DIMS
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
     get_voxel_to_world_units,
 )
 from confusius.io._utils import (
@@ -250,9 +250,8 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     # coordinate arrays, since those are cheaply derived from the affine on load and,
     # for oblique geometry, would otherwise duplicate a full dense array per axis.
     voxel_to_world = get_voxel_to_world_affine(to_save["annotation"])
-    world_coord_names = get_voxel_to_world_coord_names(to_save["annotation"])
     units = get_voxel_to_world_units(to_save["annotation"])
-    to_save = to_save.drop_vars(world_coord_names)
+    to_save = to_save.drop_vars(WORLD_DIMS)
     to_save.attrs = {
         **to_save.attrs,
         "voxel_to_world": voxel_to_world,
