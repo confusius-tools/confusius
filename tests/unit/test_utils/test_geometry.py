@@ -816,7 +816,7 @@ def test_sel_resolves_descending_and_nonmonotonic_axis_aligned_axes() -> None:
 def test_sel_scalar_no_exact_match_raises_key_error(
     sample_voxeldata_3d_irregular_voxels,
 ) -> None:
-    """A scalar `.sel` label with no exact match raises instead of snapping.
+    """A scalar `.sel` label with no exact match raises, unless within `tolerance`.
 
     Regression test: monotonic axes reverse-look-up world labels via
     `np.interp`, which clamps out-of-range/non-exact queries to the boundary
@@ -829,6 +829,11 @@ def test_sel_scalar_no_exact_match_raises_key_error(
         result.sel(z=5.0)  # Between k=0 (z=0) and k=2 (z=20): no exact match.
     with pytest.raises(KeyError):
         result.sel(z=999.0)  # Out of range.
+
+    # `tolerance` is in world units: z=5.0 is 5 away from k=0's z=0.
+    assert result.sel(z=5.0, tolerance=6.0).coords["k"].item() == 0
+    with pytest.raises(KeyError):
+        result.sel(z=5.0, tolerance=4.0)
 
 
 def test_sel_scalar_no_exact_match_on_nonmonotonic_axis_raises_key_error(

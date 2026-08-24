@@ -398,9 +398,11 @@ class VoxelToWorldIndex(Index):
             independently (per-axis selection always supports both exact and
             nearest lookup); forwarded to `CoordinateTransformIndex.sel` otherwise,
             defaulting to `"nearest"`.
-        tolerance : Any, optional
-            Forwarded to `CoordinateTransformIndex.sel` when the query doesn't
-            resolve independently per axis.
+        tolerance : float, optional
+            Maximum absolute distance, in world units, between a requested label and
+            the matched voxel's world coordinate. If not provided, `1e-8` absorbs
+            float roundoff only. Forwarded unchanged to `CoordinateTransformIndex.sel`
+            when the query doesn't resolve independently per axis.
 
         Returns
         -------
@@ -413,8 +415,9 @@ class VoxelToWorldIndex(Index):
             If `data` still carries pose-dependent (stacked) geometry and `labels`
             selects world coordinates; reduce `pose` to a scalar first.
         KeyError
-            If an independently-resolved world coordinate label has no exact match
-            and `method` is not `"nearest"`, or falls outside the axis's range.
+            If an independently-resolved world coordinate label is farther than
+            `tolerance` from every voxel and `method` is not `"nearest"`, or falls
+            outside the axis's range by more than `tolerance`.
         """
         transform = self._index.transform
         assert isinstance(transform, VoxelToWorldTransform)
@@ -457,6 +460,8 @@ class VoxelToWorldIndex(Index):
         # Each axis-aligned coordinate resolves on its own voxel dimension. This
         # path supports slices, exact lookup, and nearest lookup.
         dim_indexers: dict[Hashable, Any] = {}
+        if tolerance is None:
+            tolerance = 1e-8
         for name, (row, column) in single_axis.items():
             dim = VOXEL_DIMS[column]
             scale = linear[row, column]
@@ -475,7 +480,10 @@ class VoxelToWorldIndex(Index):
                     matched = len(range(*hit.indices(1))) == 1
                 else:
                     matched = method == "nearest" or bool(
-                        np.all(np.isclose(label, plane, atol=1e-8))
+                        np.all(
+                            np.abs(np.asarray(label, dtype=np.float64) - plane)
+                            <= tolerance
+                        )
                     )
                 if not matched:
                     raise KeyError(
@@ -492,21 +500,23 @@ class VoxelToWorldIndex(Index):
                 )
 
             else:
-                voxel_label = (np.asarray(label) - offset) / scale
+                label_array = np.asarray(label, dtype=np.float64)
+                voxel_label = (label_array - offset) / scale
                 position = _reverse_lookup_positions(voxel_label, voxel_axis)
                 # `np.interp` clamps out-of-domain queries to the boundary sample
-                # instead of raising, so the domain check must run on `voxel_label`
-                # itself rather than on the already-clamped `position`. `atol`
-                # absorbs float roundoff from the `(label - offset) / scale`
-                # division, e.g. an exact grid point landing a ULP outside its
-                # own axis's bounds.
-                atol = 1e-8
-                valid = ~np.isnan(position) & (
-                    (voxel_label >= np.min(voxel_axis) - atol)
-                    & (voxel_label <= np.max(voxel_axis) + atol)
+                # instead of raising, so the domain check runs on the label itself
+                # rather than on the already-clamped `position`. Both checks compare
+                # world coordinates, so `tolerance` means the same distance on every
+                # axis regardless of voxel spacing.
+                world_axis = scale * voxel_axis + offset
+                valid = (
+                    ~np.isnan(position)
+                    & (label_array >= np.min(world_axis) - tolerance)
+                    & (label_array <= np.max(world_axis) + tolerance)
                 )
                 if method != "nearest":
-                    valid &= np.isclose(position, np.rint(position), atol=atol)
+                    snapped = np.rint(np.nan_to_num(position)).astype(int)
+                    valid &= np.abs(label_array - world_axis[snapped]) <= tolerance
                 if not np.all(valid):
                     raise KeyError(
                         f"World coordinate {name}={label!r} not found along "
