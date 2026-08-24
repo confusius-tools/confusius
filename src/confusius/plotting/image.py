@@ -1190,7 +1190,6 @@ class VolumePlotter:
         self,
         data: xr.DataArray,
         *,
-        caller: str,
         interpolation: Literal["linear", "nearest", "bspline"] | None = None,
     ) -> xr.DataArray:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords.
@@ -1205,7 +1204,7 @@ class VolumePlotter:
         collapsed each panel to its own scalar affine.
         """
         data = ensure_voxeldata(data)
-        data = coerce_complex_to_magnitude(data, caller=caller)
+        data = coerce_complex_to_magnitude(data, caller="VolumePlotter")
         # Data is computed here to avoid repeated computations of the same Dask graph
         # downstream (per-panel .isel, etc.).
         data = data.compute()
@@ -1243,12 +1242,16 @@ class VolumePlotter:
                 fill_value=self._resample_fill_value,
             )
 
-        data = materialize_axis_aligned_world_grid_for_display(data)
+        # For `pose`, materializing here (before per-pose `.isel`) would be wrong,
+        # not just redundant: a pose-dependent affine can be individually
+        # axis-aligned per pose while still varying across poses, and materialize's
+        # world-coordinate lookup collapses every non-spatial dim to its first index,
+        # silently mislabeling every other pose with pose 0's world coordinates.
+        # `_resample_pose_slices_to_world_grid` materializes correctly instead, per
+        # panel, after `.isel` has collapsed `pose` to a scalar affine.
+        if self.slice_mode != POSE_DIM:
+            data = materialize_axis_aligned_world_grid_for_display(data)
 
-        # self.slice_mode is now always a literal dim of data (materialized above
-        # for every case except `pose`, where it's untouched until per-panel
-        # resampling), so it must survive squeezing even at size 1 (e.g. a single
-        # slice sharing another volume's size-1 SliceAxisGrid).
         squeeze_dims = [
             d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
         ]
@@ -1416,9 +1419,7 @@ class VolumePlotter:
         # Preprocess alpha exactly like data (squeeze unitary dims, sort coords
         # ascending). Otherwise, an alpha array created from the data could end up
         # with a shape or coordinate mismatch after slicing.
-        alpha = self._prepare_slice_inputs(
-            alpha, caller="VolumePlotter.add_volume (alpha)"
-        )
+        alpha = self._prepare_slice_inputs(alpha)
         if set(alpha.dims) != set(data.dims):
             raise ValueError(
                 f"`alpha` dims {sorted(str(d) for d in alpha.dims)} do not match "
@@ -1559,7 +1560,7 @@ class VolumePlotter:
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
 
-        data = self._prepare_slice_inputs(data, caller="VolumePlotter.add_volume")
+        data = self._prepare_slice_inputs(data)
 
         if slice_coords is None:
             slice_coords = _default_slice_coords(data, self.slice_mode)
@@ -1837,12 +1838,8 @@ class VolumePlotter:
             data2 = resample_like(data2, data1, np.eye(len(VOXEL_DIMS) + 1), **_kw)
             data2.name = data2_name
 
-        data1 = self._prepare_slice_inputs(
-            data1, caller="VolumePlotter.add_composite (data1)"
-        )
-        data2 = self._prepare_slice_inputs(
-            data2, caller="VolumePlotter.add_composite (data2)"
-        )
+        data1 = self._prepare_slice_inputs(data1)
+        data2 = self._prepare_slice_inputs(data2)
 
         if not resample:
             if data1.dims != data2.dims:
@@ -2127,11 +2124,7 @@ class VolumePlotter:
         # `self._resample_interpolation`: mask/label data is a set of distinct
         # integer regions, and blending them together (linear/bspline) would
         # fabricate boundary values that match no real label.
-        mask = self._prepare_slice_inputs(
-            mask,
-            caller="VolumePlotter.add_contours",
-            interpolation="nearest",
-        )
+        mask = self._prepare_slice_inputs(mask, interpolation="nearest")
 
         unique_labels = sorted(
             [label for label in np.unique(mask.values) if label != 0]

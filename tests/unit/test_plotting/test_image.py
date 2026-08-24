@@ -133,6 +133,45 @@ class TestPlotVolume:
         assert "mm" in axes[0].get_xlabel()
         assert "mm" in axes[0].get_ylabel()
 
+    def test_slice_mode_pose_uses_each_poses_own_world_position(
+        self, matplotlib_pyplot
+    ):
+        """Each pose panel is positioned using its own world coordinates.
+
+        Regression: `_prepare_slice_inputs` used to materialize the whole
+        pose-stacked array up front whenever it happened to report
+        axis-aligned (each pose individually diagonal, even with a different
+        origin per pose) -- materializing collapses every non-spatial dim,
+        including `pose`, to its first index when building the new `z`/`y`/`x`
+        dim-coordinates, silently mislabeling every pose with pose 0's world
+        position.
+        """
+        affine = np.stack(
+            [
+                np.diag([0.2, 0.1, 0.05, 1.0]),
+                np.array(
+                    [
+                        [0.2, 0.0, 0.0, 100.0],
+                        [0.0, 0.1, 0.0, 100.0],
+                        [0.0, 0.0, 0.05, 100.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+            ]
+        )
+        data = create_voxeldata(
+            np.random.default_rng(0).random((2, 1, 6, 8)),
+            dims=("pose", "k", "j", "i"),
+            pose=[0, 1],
+            voxel_to_world=affine,
+        )
+
+        plotter = plot_volume(data.isel(k=0), slice_mode="pose", show_colorbar=False)
+
+        axes = _axes(plotter).ravel()
+        assert axes[0].get_xlim()[0] < 10.0
+        assert axes[1].get_xlim()[0] > 90.0
+
     def test_non_spatial_facet_labels_pose_axis_without_units(self, matplotlib_pyplot):
         """Faceting over a non-spatial dim labels the `pose` axis plainly, without
         "mm", when `pose` remains one of the panel's own display axes.
@@ -613,9 +652,7 @@ class TestPlotVolume:
         data = sample_voxeldata_3d_oblique
         _, expected_spacing, _, _ = compute_shared_slice_axis_grid_geometry(data, "z")
 
-        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(
-            data, caller="test"
-        )
+        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(data)
 
         assert result.dims == ("z", "y", "x")
         z_spacing = float(np.diff(_world_coord_1d(result, "z"))[0])
@@ -634,9 +671,7 @@ class TestPlotVolume:
         )
         data = attach_voxel_to_world_index(data, np.diag([0.4, 0.3, 0.25, 1.0]))
 
-        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(
-            data, caller="test"
-        )
+        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(data)
 
         assert result.dims == ("z", "y", "x")
         assert "voxel_to_world" not in result.attrs
