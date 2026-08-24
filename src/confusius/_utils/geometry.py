@@ -1250,7 +1250,6 @@ def attach_voxel_to_world_index(
     voxel_to_world_array = np.asarray(voxel_to_world, dtype=np.float64)
 
     pose_coord = None
-    drop_names = list(world_coord_names)
     if voxel_to_world_array.ndim == 3:
         if POSE_DIM not in data.dims:
             raise ValueError(
@@ -1267,10 +1266,9 @@ def attach_voxel_to_world_index(
                 f"does not match data's {POSE_DIM!r} size {data.sizes[POSE_DIM]}."
             )
         pose_coord = data.coords[POSE_DIM].values
-        drop_names.append(POSE_DIM)
 
     base = data.drop_vars(
-        [name for name in drop_names if name in data.coords], errors="ignore"
+        [name for name in world_coord_names if name in data.coords], errors="ignore"
     )
     index = VoxelToWorldIndex.from_affine(
         voxel_coords,
@@ -1279,14 +1277,7 @@ def attach_voxel_to_world_index(
         units=units,
         pose_coord=pose_coord,
     )
-    result = base.assign_coords(xr.Coordinates.from_xindex(index))
-    if pose_coord is not None:
-        # `pose` is not one of the VoxelToWorldIndex's owned coordinate names (see its
-        # docstring), so it needs reattaching as a plain coordinate here; xarray gives
-        # it its own default index automatically, exactly like k/j/i.
-        result = result.assign_coords({POSE_DIM: (POSE_DIM, pose_coord)})
-
-    return result
+    return base.assign_coords(xr.Coordinates.from_xindex(index))
 
 
 def _fold_fixed_dims_into_affine(

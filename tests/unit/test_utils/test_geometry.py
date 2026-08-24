@@ -257,6 +257,7 @@ def _pose_dependent_data() -> xr.DataArray:
 def test_attach_voxel_to_world_index_accepts_pose_stacked_affine() -> None:
     """`attach_voxel_to_world_index` wires up a per-pose affine stack."""
     data = _pose_dependent_data()
+    data.coords["pose"].attrs["long_name"] = "pose label"
     affine = np.stack(
         [
             np.eye(4),
@@ -275,6 +276,7 @@ def test_attach_voxel_to_world_index_accepts_pose_stacked_affine() -> None:
 
     assert result.coords["z"].dims == ("pose", "k", "j", "i")
     assert_array_equal(result.coords["pose"].values, [0, 1])
+    assert result.coords["pose"].attrs["long_name"] == "pose label"
     assert_allclose(result.coords["z"].isel(pose=1, j=0, i=0).values, [100.0, 101.0])
     assert result.coords["z"].attrs["units"] == "mm"
     assert get_voxel_to_world_affine(result).shape == (2, 4, 4)
