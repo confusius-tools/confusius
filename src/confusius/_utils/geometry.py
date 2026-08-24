@@ -375,13 +375,11 @@ class VoxelToWorldIndex(Index):
         (supporting slices and single-axis queries, like an ordinary dimension
         coordinate) whenever its own affine row depends on exactly one voxel
         dimension -- true for every row on ordinary axis-aligned geometry, but also
-        true for just one row of an otherwise-oblique affine (e.g. a slice axis
-        pinned to a global direction, as produced by
-        [compute_slice_axis_aligned_grid_geometry][confusius.plotting.image.compute_slice_axis_aligned_grid_geometry],
-        while the remaining in-plane axes stay genuinely oblique). If any requested
-        row depends on more than one voxel dimension, the whole query instead
-        delegates to `CoordinateTransformIndex.sel`, which only supports point-wise
-        `nearest` queries providing all axes at once.
+        true for just one row of an otherwise-oblique affine (e.g. a probe swept
+        along a physically world-aligned axis while the other two stay genuinely
+        oblique). If any requested row depends on more than one voxel dimension,
+        the whole query instead delegates to `CoordinateTransformIndex.sel`, which
+        only supports point-wise `nearest` queries providing all axes at once.
 
         `pose` is a separate, independently indexed coordinate (see the class
         docstring), so a combined one-call query like `.sel(pose=0, z=..., y=...,
@@ -439,11 +437,10 @@ class VoxelToWorldIndex(Index):
         # own affine row depends on exactly one voxel dimension -- not just when the
         # whole affine is axis-aligned. This covers ordinary axis-aligned geometry
         # (where every row is single-dependency, trivially), but also an oblique
-        # affine with one decoupled row -- e.g. Design B's slice-axis-only resample
-        # (`compute_slice_axis_aligned_grid_geometry`), whose slice axis is pinned to
-        # a global unit vector (zero cross-terms) while the two in-plane axes stay
-        # genuinely oblique. A row with more than one nonzero column can't be
-        # resolved independently of the others, so any such request falls back to
+        # affine with one decoupled row -- e.g. a probe swept along a physically
+        # world-aligned axis while the other two voxel dimensions stay genuinely
+        # oblique. A row with more than one nonzero column can't be resolved
+        # independently of the others, so any such request falls back to
         # `CoordinateTransformIndex.sel`'s joint nearest-only lookup.
         linear = np.asarray(transform.voxel_to_world, dtype=np.float64)[:-1, :-1]
         single_axis: dict[Hashable, tuple[int, int]] = {}

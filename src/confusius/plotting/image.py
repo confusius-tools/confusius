@@ -23,10 +23,8 @@ from confusius._utils.plotting import (
     blend_red_cyan,
     compute_oblique_axis_aligned_grid_geometry,
     qr_axis_spacing,
+    resample_to_axis_aligned_world_grid,
     scale_min_max,
-)
-from confusius._utils.plotting import (
-    resample_to_axis_aligned_world_grid as _shared_resample_to_axis_aligned_world_grid,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.plotting._hover import (
@@ -123,7 +121,7 @@ class SliceAxisGrid:
     `slice_world_dim`'s own axis needs a shared spacing/origin/count across every
     volume drawn on the same plotter for `match_coordinates` to line up panels by
     physical position -- the two in-plane axes don't (see
-    `compute_slice_axis_aligned_grid_geometry`), so this only ever describes the
+    `compute_shared_slice_axis_grid_geometry`), so this only ever describes the
     one sliced axis, never a full grid.
 
     Attributes
@@ -144,13 +142,12 @@ class SliceAxisGrid:
     count: int
 
 
-def compute_slice_axis_aligned_grid_geometry(
+def compute_shared_slice_axis_grid_geometry(
     data: xr.DataArray,
     slice_world_dim: str,
     *,
     slice_axis_grid: SliceAxisGrid | None = None,
 ) -> tuple[
-    npt.NDArray[np.float64],
     Mapping[Hashable, int],
     Mapping[Hashable, float],
     Mapping[Hashable, float],
@@ -159,15 +156,16 @@ def compute_slice_axis_aligned_grid_geometry(
     """Compute a `resample_volume` target grid axis-aligned to the world frame.
 
     Forces all 3 output axes onto the global (identity) direction, so display
-    cells are always rectangular. `slice_world_dim` is additionally forced to a
-    regular spacing shared across calls (`slice_axis_grid`), required so
-    `match_coordinates` can line up panels of the same physical slice across
-    independently-resampled volumes. The other two output axes keep each
-    volume's own native per-axis spacing (derived via
-    `compute_oblique_axis_aligned_grid_geometry`'s QR-based heuristic, see
-    `qr_axis_spacing`), so a lower-resolution and a higher-resolution volume
-    overlaid on the same plotter each keep their own native in-plane resolution
-    rather than being resampled to match one another.
+    cells are always rectangular -- callers pass `numpy.eye(3)` directly as
+    `resample_volume`'s `output_direction`, since this never derives anything
+    else. `slice_world_dim` is additionally forced to a regular spacing shared
+    across calls (`slice_axis_grid`), required so `match_coordinates` can line up
+    panels of the same physical slice across independently-resampled volumes.
+    The other two output axes keep each volume's own native per-axis spacing
+    (derived via `compute_oblique_axis_aligned_grid_geometry`'s QR-based
+    heuristic, see `qr_axis_spacing`), so a lower-resolution and a
+    higher-resolution volume overlaid on the same plotter each keep their own
+    native in-plane resolution rather than being resampled to match one another.
 
     Parameters
     ----------
@@ -183,10 +181,6 @@ def compute_slice_axis_aligned_grid_geometry(
 
     Returns
     -------
-    output_direction : (3, 3) numpy.ndarray
-        Unit world-space direction columns for output `k`/`j`/`i`, read by
-        [`resample_volume`][confusius.registration.resample_volume]. `slice_world_dim`
-        is always output `k`.
     output_sizes : dict[str, int]
         Number of voxels along each output axis, keyed by `k`/`j`/`i`.
     output_spacing : dict[str, float]
@@ -212,35 +206,20 @@ def compute_slice_axis_aligned_grid_geometry(
     linear = affine[:3, :3]
 
     # Same per-world-axis spacing heuristic as
-    # compute_oblique_axis_aligned_grid_geometry's Notes (nilearn's
-    # reorder_img) -- but keyed by row here (not `world_dims` order) since
-    # the slice row needs picking out first.
+    # compute_oblique_axis_aligned_grid_geometry's Notes (nilearn's reorder_img).
     row_to_axis, qr_spacing = qr_axis_spacing(linear)
-    output_direction = np.eye(3)
-    in_plane_rows = [row for row in range(3) if row != slice_row]
-    in_plane_spacing = [float(qr_spacing[row_to_axis[row]]) for row in in_plane_rows]
-    slice_axis_spacing_default = float(qr_spacing[row_to_axis[slice_row]])
-
-    # World positions of every sampled voxel, projected onto the new basis, to
-    # find each output axis's extent -- cheap array evaluation (the lazy index's
-    # own affine multiply), no interpolation.
-    world_points = np.stack(
-        [
-            np.asarray(data.coords[dim].values, dtype=np.float64).ravel()
-            for dim in WORLD_DIMS
-        ],
-        axis=0,
-    )
-    projected = output_direction.T @ world_points
 
     if slice_axis_grid is not None:
         slice_spacing = slice_axis_grid.spacing
         slice_origin = slice_axis_grid.origin
         slice_count = slice_axis_grid.count
     else:
-        slice_spacing = slice_axis_spacing_default
-        slice_origin = float(projected[0].min())
-        n_steps = (float(projected[0].max()) - slice_origin) / slice_spacing
+        slice_values = np.asarray(
+            data.coords[slice_world_dim].values, dtype=np.float64
+        ).ravel()
+        slice_spacing = float(qr_spacing[row_to_axis[slice_row]])
+        slice_origin = float(slice_values.min())
+        n_steps = (float(slice_values.max()) - slice_origin) / slice_spacing
         slice_count = np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1
         slice_axis_grid = SliceAxisGrid(
             world_dim=slice_world_dim,
@@ -249,28 +228,38 @@ def compute_slice_axis_aligned_grid_geometry(
             count=slice_count,
         )
 
-    origins = [slice_origin]
-    sizes = [slice_count]
-    for row, dim_spacing in zip((1, 2), in_plane_spacing, strict=True):
-        row_min = float(projected[row].min())
-        row_max = float(projected[row].max())
+    # `output_direction` is always the identity (`resample_volume` call site), so
+    # output voxel dim `k`/`j`/`i` maps positionally to world `z`/`y`/`x` --
+    # `materialize_axis_aligned_world_grid_for_display` relies on exactly this
+    # correspondence. Build each output array in that same world-axis order,
+    # regardless of which row `slice_world_dim` happens to be.
+    sizes: list[int] = [0, 0, 0]
+    spacings: list[float] = [0.0, 0.0, 0.0]
+    origins: list[float] = [0.0, 0.0, 0.0]
+    sizes[slice_row] = slice_count
+    spacings[slice_row] = slice_spacing
+    origins[slice_row] = slice_origin
+    for row in range(3):
+        if row == slice_row:
+            continue
+        values = np.asarray(data.coords[world_dims[row]].values, dtype=np.float64)
+        dim_spacing = float(qr_spacing[row_to_axis[row]])
+        row_min = float(values.min())
+        row_max = float(values.max())
         n_steps = (row_max - row_min) / dim_spacing
-        origins.append(row_min)
-        sizes.append(np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1)
-
-    spacings = [slice_spacing, *in_plane_spacing]
-    output_origin_world = output_direction @ np.array(origins)
+        sizes[row] = np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1
+        spacings[row] = dim_spacing
+        origins[row] = row_min
 
     return (
-        output_direction,
         dict(zip(VOXEL_DIMS, sizes, strict=True)),
         dict(zip(VOXEL_DIMS, spacings, strict=True)),
-        dict(zip(WORLD_DIMS, output_origin_world, strict=True)),
+        dict(zip(WORLD_DIMS, origins, strict=True)),
         slice_axis_grid,
     )
 
 
-def _resample_slice_axis_aligned_world_grid(
+def _resample_to_shared_slice_axis_grid(
     data: xr.DataArray,
     slice_world_dim: str,
     *,
@@ -280,7 +269,7 @@ def _resample_slice_axis_aligned_world_grid(
 ) -> tuple[xr.DataArray, SliceAxisGrid | None]:
     """Resample `data` so all 3 spatial axes are world-axis-aligned, for display.
 
-    See `compute_slice_axis_aligned_grid_geometry` for the geometry this builds
+    See `compute_shared_slice_axis_grid_geometry` for the geometry this builds
     on `resample_volume` with. The two in-plane axes keep `data`'s own native
     per-axis spacing (see `SliceAxisGrid`); `slice_world_dim` is additionally
     forced onto a shared, regular discretization so panels from different
@@ -322,19 +311,17 @@ def _resample_slice_axis_aligned_world_grid(
     if has_axis_aligned_voxel_to_world_index(data):
         if slice_axis_grid is not None:
             return data, slice_axis_grid
-        _, _, _, _, established_grid = compute_slice_axis_aligned_grid_geometry(
+        _, _, _, established_grid = compute_shared_slice_axis_grid_geometry(
             data, slice_world_dim
         )
         return data, established_grid
 
     from confusius.registration import resample_volume
 
-    direction, sizes, spacing, origin, established_grid = (
-        compute_slice_axis_aligned_grid_geometry(
-            data,
-            slice_world_dim,
-            slice_axis_grid=slice_axis_grid,
-        )
+    sizes, spacing, origin, established_grid = compute_shared_slice_axis_grid_geometry(
+        data,
+        slice_world_dim,
+        slice_axis_grid=slice_axis_grid,
     )
     result = resample_volume(
         data,
@@ -342,11 +329,80 @@ def _resample_slice_axis_aligned_world_grid(
         output_sizes=sizes,
         output_spacing=spacing,
         output_origin=origin,
-        output_direction=direction,
+        output_direction=np.eye(3, dtype=np.float64),
         interpolation=interpolation,
         fill_value=fill_value,
     )
     return result, established_grid
+
+
+def _resample_to_planar_world_grid(
+    data: xr.DataArray,
+    *,
+    slice_mode: str,
+    interpolation: Literal["linear", "nearest", "bspline"],
+    fill_value: float | None,
+) -> xr.DataArray:
+    """Resample `data` onto an axis-aligned world grid, requiring a flat 2D result.
+
+    Unlike `_resample_to_shared_slice_axis_grid`, no axis is forced onto a
+    shared cross-volume discretization (`SliceAxisGrid`) -- used wherever nothing
+    needs to line up across volumes: a non-pose extra `slice_mode` (its whole
+    array, in `_prepare_slice_inputs`) or a `pose`-faceted panel (per-panel, in
+    `_resample_pose_slices_to_world_grid`, after `.isel` has collapsed a
+    pose-dependent affine to scalar). Since nothing forces one axis flat the way
+    a spatial `slice_mode` does, a cheap collapse-to-a-2D-plane check
+    (`compute_oblique_axis_aligned_grid_geometry`, bounds/spacing arithmetic, no
+    interpolation) runs first for oblique input, raising `ValueError` up front if
+    `data`'s geometry is oblique to the world axes and would not lie flat on any
+    world plane -- display has no meaningful 2D result for a genuinely
+    3D-extended (non-planar) input either, so this avoids paying for an
+    interpolation that can't produce a usable result. Does not materialize the
+    result onto plain `z`/`y`/`x` dims -- callers materialize themselves.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array, oblique or axis-aligned.
+    slice_mode : str
+        The caller's `slice_mode`, named in the collapse-check error message.
+    interpolation : {"linear", "nearest", "bspline"}
+        Interpolation method used during resampling.
+    fill_value : float, optional
+        Value assigned to voxels outside `data`'s field of view after
+        resampling. If not provided, defaults to `float(data.min())` (see
+        [`resample_volume`][confusius.registration.resample_volume]).
+
+    Returns
+    -------
+    xarray.DataArray
+        `data` resampled onto an axis-aligned world grid, or unchanged if it
+        carries no voxel-to-world geometry.
+
+    Raises
+    ------
+    ValueError
+        If `data`'s spatial geometry is oblique to the world axes and would not
+        collapse to a 2D plane.
+    """
+    if has_voxel_to_world_index(data) and not has_axis_aligned_voxel_to_world_index(
+        data
+    ):
+        shape, _, _ = compute_oblique_axis_aligned_grid_geometry(data, WORLD_DIMS)
+        if sum(size > 1 for size in shape) != 2:
+            raise ValueError(
+                f"Displaying slice_mode={slice_mode!r}'s data in world space would "
+                "not collapse to a 2D plane (predicted shape "
+                f"{dict(zip(WORLD_DIMS, shape, strict=True))}). This happens when "
+                "the data's spatial geometry is oblique to the world axes and does "
+                "not lie flat on any world plane."
+            )
+    return resample_to_axis_aligned_world_grid(
+        data,
+        reference=None,
+        interpolation=interpolation,
+        fill_value=fill_value,
+    )
 
 
 def _slice_edges_and_centers(
@@ -357,7 +413,7 @@ def _slice_edges_and_centers(
     """Return 1D edge/center coordinates for the plotted row/column dimensions.
 
     `slice_da` is always already materialized onto plain rectilinear dims by
-    this point (`_prepare_slice_inputs`/`_maybe_resample_slices_to_world` force
+    this point (`_prepare_slice_inputs`/`_resample_pose_slices_to_world_grid` force
     every panel with voxel-to-world geometry onto the axis-aligned world grid
     before display), so a plain per-axis coordinate lookup is always correct.
     """
@@ -765,11 +821,12 @@ class VolumePlotter:
     xincrease : bool, default: True
         Whether the x-axis increases to the right.
     resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
-        Interpolation method used whenever voxel-to-world data is resampled onto
-        the axis-aligned world grid for display -- for a spatial `slice_mode`
-        (`"z"`/`"y"`/`"x"`), oblique data resampled to align its slice axis; for a
-        non-spatial `slice_mode` (e.g. `"region"`), each extracted panel resampled
-        independently. Applies to
+        Interpolation method used whenever oblique voxel-to-world data is
+        resampled onto the axis-aligned world grid for display -- for the whole
+        array upfront when `slice_mode` is spatial (`"z"`/`"y"`/`"x"`) or any
+        other non-`pose` dim (e.g. `"region"`); per-panel, after slicing, when
+        `slice_mode="pose"` (the only dimension that can vary the underlying
+        voxel-to-world geometry). Applies to
         [`add_volume`][confusius.plotting.VolumePlotter.add_volume]; mask data passed
         to [`add_contours`][confusius.plotting.VolumePlotter.add_contours] always
         resamples with `"nearest"` regardless of this setting, since blending
@@ -841,34 +898,33 @@ class VolumePlotter:
         self._hover_manager = _HoverManager()
         self._slice_axis_grid: SliceAxisGrid | None = None
 
-    def _maybe_resample_slices_to_world(
+    def _resample_pose_slices_to_world_grid(
         self,
         slices: list[xr.DataArray],
         *,
         interpolation: Literal["linear", "nearest", "bspline"] | None = None,
         fill_value: float | None = None,
     ) -> list[xr.DataArray]:
-        """Regularize each panel for world-space display.
+        """Regularize each `pose`-faceted panel for world-space display.
 
-        No-op when `slice_mode` is spatial (its own display geometry is resolved
-        upfront in `_prepare_slice_inputs`/`add_contours`). `match_coordinates` for
-        a non-spatial `slice_mode` (the only case this function ever runs for)
-        matches panels by the facet's own coordinate value (e.g. a region label), never
-        by grid position, so no axis needs sharing across volumes here. Contrast with
-        `_prepare_slice_inputs`'s whole-array resample for spatial `slice_mode`, where
-        the slice axis's discretization genuinely must be shared for `match_coordinates`
-        to work.
+        No-op unless `slice_mode` is `pose` (the only case this function ever runs
+        for): every other `slice_mode` -- spatial (`"z"`/`"y"`/`"x"`) or a non-pose
+        extra dim (e.g. `"region"`) -- already has the whole array resampled and
+        materialized upfront in `_prepare_slice_inputs`, since neither case can
+        vary the voxel-to-world affine per panel (only `pose` can, see
+        `require_scalar_pose_affine`). A per-pose affine stack can't be resampled
+        as a whole (`resample_volume` requires a scalar affine), so `pose` is
+        deferred here, per-panel, after `.isel` has collapsed each panel to its own
+        single affine. `match_coordinates` matches these panels by the facet's own
+        coordinate value (e.g. a pose label), never by grid position, so no shared
+        discretization is needed across volumes here -- contrast with
+        `_prepare_slice_inputs`'s spatial-`slice_mode` resample, where the slice
+        axis's discretization genuinely must be shared (`SliceAxisGrid`) for
+        `match_coordinates` to work.
 
-        Every panel is resampled onto the axis-aligned world grid (a no-op resample
-        for already axis-aligned data: `_shared_resample_to_axis_aligned_world_grid`
-        short-circuits) and materialized onto proper 1D `z`/`y`/`x` dims. Before
-        resampling an oblique panel, a cheap collapse-to-a-2D-plane check
-        (`compute_oblique_axis_aligned_grid_geometry`, bounds/spacing arithmetic, no
-        interpolation) runs first, raising `ValueError` up front if the panel's
-        geometry is oblique to the world axes and would not lie flat on any world
-        plane -- display has no meaningful 2D panel for a genuinely 3D-extended
-        (non-planar) panel either, so this avoids paying for an interpolation that
-        can't produce a usable result.
+        Each panel is resampled via `_resample_to_planar_world_grid` (see that
+        function for the collapse-to-a-2D-plane pre-flight check and the no-op
+        short-circuit for already axis-aligned panels), then materialized.
 
         Parameters
         ----------
@@ -893,7 +949,7 @@ class VolumePlotter:
             If a panel's spatial geometry is oblique to the world axes and would
             not collapse to a 2D plane.
         """
-        if self.slice_mode in WORLD_DIMS:
+        if self.slice_mode != POSE_DIM:
             return slices
         interp = (
             self._resample_interpolation if interpolation is None else interpolation
@@ -901,23 +957,9 @@ class VolumePlotter:
         fill = self._resample_fill_value if fill_value is None else fill_value
         resampled = []
         for slice_da in slices:
-            if has_voxel_to_world_index(
-                slice_da
-            ) and not has_axis_aligned_voxel_to_world_index(slice_da):
-                shape, _, _ = compute_oblique_axis_aligned_grid_geometry(
-                    slice_da, WORLD_DIMS
-                )
-                if sum(size > 1 for size in shape) != 2:
-                    raise ValueError(
-                        f"Displaying slice_mode={self.slice_mode!r}'s panel in world "
-                        "space would not collapse to a 2D plane (predicted shape "
-                        f"{dict(zip(WORLD_DIMS, shape, strict=True))}). This happens "
-                        "when the panel's spatial geometry is oblique to the world "
-                        "axes and does not lie flat on any world plane."
-                    )
-            grid = _shared_resample_to_axis_aligned_world_grid(
+            grid = _resample_to_planar_world_grid(
                 slice_da,
-                reference=None,
+                slice_mode=self.slice_mode,
                 interpolation=interp,
                 fill_value=fill,
             )
@@ -969,7 +1011,7 @@ class VolumePlotter:
             Dim displayed on the column (x) axis.
         """
         slices, actual_coords = _extract_slices(data, self.slice_mode, slice_coords)
-        slices = self._maybe_resample_slices_to_world(
+        slices = self._resample_pose_slices_to_world_grid(
             slices, interpolation=interpolation, fill_value=fill_value
         )
         display_dims = (
@@ -1155,6 +1197,12 @@ class VolumePlotter:
 
         Shared by `add_volume`/`add_composite`/`add_contours`. `interpolation` lets a
         mask force `"nearest"` regardless of `self._resample_interpolation`.
+
+        Resamples/materializes the whole array up front for every `slice_mode`
+        except `pose` -- only `pose` can vary the voxel-to-world affine per panel
+        (`require_scalar_pose_affine`), so it's the only case that must wait for
+        `_resample_pose_slices_to_world_grid`'s per-panel resample after `.isel` has
+        collapsed each panel to its own scalar affine.
         """
         data = ensure_voxeldata(data)
         data = coerce_complex_to_magnitude(data, caller=caller)
@@ -1169,7 +1217,7 @@ class VolumePlotter:
         )
 
         if self.slice_mode in WORLD_DIMS:
-            resampled_data, slice_axis_grid = _resample_slice_axis_aligned_world_grid(
+            data, slice_axis_grid = _resample_to_shared_slice_axis_grid(
                 data,
                 self.slice_mode,
                 slice_axis_grid=self._slice_axis_grid,
@@ -1183,29 +1231,30 @@ class VolumePlotter:
             # SliceAxisGrid).
             if self._slice_axis_grid is None:
                 self._slice_axis_grid = slice_axis_grid
+        elif self.slice_mode != POSE_DIM:
+            # Non-pose extra dim (e.g. "region"): slicing along it never touches
+            # the voxel-to-world affine (only `pose` can vary geometry), so unlike
+            # `pose` there's no need to wait for a per-panel `.isel` before
+            # resampling.
+            data = _resample_to_planar_world_grid(
+                data,
+                slice_mode=self.slice_mode,
+                interpolation=resolved_interpolation,
+                fill_value=self._resample_fill_value,
+            )
 
-            # Always axis-aligned by construction of
-            # `_resample_slice_axis_aligned_world_grid`, so this always renames onto
-            # literal 1D z/y/x dims.
-            data = materialize_axis_aligned_world_grid_for_display(resampled_data)
-        else:
-            data = materialize_axis_aligned_world_grid_for_display(data)
+        data = materialize_axis_aligned_world_grid_for_display(data)
 
         # self.slice_mode is now always a literal dim of data (materialized above
-        # for the spatial case, untouched for the non-spatial case), so it must
-        # survive squeezing even at size 1 (e.g. a single slice sharing another
-        # volume's size-1 SliceAxisGrid).
+        # for every case except `pose`, where it's untouched until per-panel
+        # resampling), so it must survive squeezing even at size 1 (e.g. a single
+        # slice sharing another volume's size-1 SliceAxisGrid).
         squeeze_dims = [
             d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
         ]
         if squeeze_dims:
             data = data.squeeze(dim=squeeze_dims)
 
-        if self.slice_mode not in data.dims:
-            raise ValueError(
-                f"slice_mode '{self.slice_mode}' is not a dimension of data. "
-                f"Available dimensions: {list(data.dims)}."
-            )
         if data.ndim != 3:
             raise ValueError(
                 f"Data must be 3D, but got shape {data.shape} with dims "
@@ -1383,7 +1432,7 @@ class VolumePlotter:
                 )
         validate_matching_coordinates(data, alpha, left_name="data", right_name="alpha")
         alpha_da_slices, _ = _extract_slices(alpha, self.slice_mode, slice_coords)
-        alpha_da_slices = self._maybe_resample_slices_to_world(alpha_da_slices)
+        alpha_da_slices = self._resample_pose_slices_to_world_grid(alpha_da_slices)
         alpha_da_slices = [s.transpose(dim_row, dim_col) for s in alpha_da_slices]
         return None, [s.values for s in alpha_da_slices]
 
@@ -1825,8 +1874,8 @@ class VolumePlotter:
 
         input_slices1, _ = _extract_slices(data1, self.slice_mode, slice_coords)
         input_slices2, _ = _extract_slices(data2, self.slice_mode, slice_coords)
-        input_slices1 = self._maybe_resample_slices_to_world(input_slices1)
-        input_slices2 = self._maybe_resample_slices_to_world(input_slices2)
+        input_slices1 = self._resample_pose_slices_to_world_grid(input_slices1)
+        input_slices2 = self._resample_pose_slices_to_world_grid(input_slices2)
 
         if normalize_strategy == "per_volume":
             data1 = data1.copy(data=scale_min_max(data1.values.astype(float)))
@@ -1854,7 +1903,7 @@ class VolumePlotter:
         slices1, actual_coords, dim_row, dim_col = self._extract_display_slices(
             data1, slice_coords
         )
-        slices2 = self._maybe_resample_slices_to_world(
+        slices2 = self._resample_pose_slices_to_world_grid(
             _extract_slices(data2, self.slice_mode, slice_coords)[0]
         )
         slices2 = [s.transpose(dim_row, dim_col) for s in slices2]

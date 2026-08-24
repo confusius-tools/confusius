@@ -605,15 +605,13 @@ class TestPlotVolume:
 
         All 3 axes are forced onto the global (world-aligned) frame, but the two
         in-plane axes are not resampled to match one another or the slice axis --
-        each keeps the spacing `compute_slice_axis_aligned_grid_geometry` derives
+        each keeps the spacing `compute_shared_slice_axis_grid_geometry` derives
         for it individually.
         """
-        from confusius.plotting.image import compute_slice_axis_aligned_grid_geometry
+        from confusius.plotting.image import compute_shared_slice_axis_grid_geometry
 
         data = sample_voxeldata_3d_oblique
-        _, _, expected_spacing, _, _ = compute_slice_axis_aligned_grid_geometry(
-            data, "z"
-        )
+        _, expected_spacing, _, _ = compute_shared_slice_axis_grid_geometry(data, "z")
 
         result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(
             data, caller="test"
@@ -1469,15 +1467,19 @@ class TestVolumePlotterAddContours:
     def test_world_resample_preserves_each_panels_own_resolution(self):
         """Design: design/world-mode-resample-scoping.md, Design A.
 
-        Each panel displayed in world space for a non-spatial slice_mode must
-        keep its own native resolution, never get forced onto
-        another panel's grid via a shared reference.
+        Each pose-faceted panel displayed in world space must keep its own
+        native resolution, never get forced onto another panel's grid via a
+        shared reference. `_resample_pose_slices_to_world_grid`'s per-panel loop is
+        now only exercised for `slice_mode="pose"` -- any other non-spatial
+        `slice_mode` (e.g. `"region"`) is resampled once for the whole array in
+        `_prepare_slice_inputs`, which structurally can't share a reference grid
+        across panels (there's only one array).
 
         Regression: `self._world_grid_reference` used to get set from the
         first panel processed on a plotter and reused for every later one,
         silently downsampling a finer-resolution overlay (e.g. atlas
         annotations) to a coarser background's resolution -- exactly the
-        `plot_stat_map(..., slice_mode="region") + add_contours(seed_masks)`
+        `plot_stat_map(..., slice_mode="pose") + add_contours(seed_masks)`
         scenario, where seed_masks (25 um) got downsampled to bg_volume's
         (100 um) resolution.
         """
@@ -1491,10 +1493,10 @@ class TestVolumePlotterAddContours:
             dims=("k", "j", "i"),
             voxel_to_world=np.diag([0.2, 0.1 / 3, 0.1 / 3, 1.0]),
         )
-        plotter = VolumePlotter(slice_mode="region")
+        plotter = VolumePlotter(slice_mode="pose")
 
-        resampled_coarse = plotter._maybe_resample_slices_to_world([coarse])[0]
-        resampled_fine = plotter._maybe_resample_slices_to_world([fine])[0]
+        resampled_coarse = plotter._resample_pose_slices_to_world_grid([coarse])[0]
+        resampled_fine = plotter._resample_pose_slices_to_world_grid([fine])[0]
 
         assert resampled_coarse.shape == (30, 42)
         assert resampled_fine.shape == (90, 126)
