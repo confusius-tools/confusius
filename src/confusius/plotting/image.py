@@ -136,44 +136,29 @@ def _has_plottable_voxel_to_world_index(data: xr.DataArray) -> bool:
     )
 
 
-def _validate_voxel_to_world_slice_mode(data: xr.DataArray, slice_mode: str) -> None:
-    """Validate slice selection semantics for voxel-to-world data.
+def _validate_slice_mode(data: xr.DataArray, slice_mode: str) -> None:
+    """Validate slice selection semantics for plotting.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Data being sliced for plotting.
+        VoxelData array being sliced for plotting.
     slice_mode : str
         Requested slice dimension.
 
     Raises
     ------
     ValueError
-        If voxel-to-world data is sliced along an unsupported dimension.
+        If `data` is sliced along an unsupported dimension.
     """
-    if not _has_plottable_voxel_to_world_index(data):
-        return
-
-    valid_slice_modes = tuple(
-        str(dim) for dim in data.dims if str(dim) not in {"time", *VOXEL_DIMS}
+    valid_slice_modes = (
+        tuple(str(dim) for dim in data.dims if str(dim) not in VOXEL_DIMS)
+        + SPATIAL_DIMS
     )
-    valid_slice_modes += tuple(
-        dim
-        for dim in get_voxel_to_world_coord_names(data)
-        if dim not in valid_slice_modes
-    )
-    if POSE_DIM in data.dims:
-        valid_slice_modes += (POSE_DIM,)
     if slice_mode not in valid_slice_modes:
         raise ValueError(
-            "Voxel-to-world plotting supports only world z/y/x slicing or pose "
-            f"slicing, got slice_mode={slice_mode!r}. Supported modes: "
-            f"{valid_slice_modes!r}."
-        )
-    spatial_dims = [dim for dim in data.dims if dim in {"k", "j", "i"}]
-    if slice_mode in {"z", "y", "x"} and len(spatial_dims) != 3:
-        raise ValueError(
-            "World z/y/x slicing for voxel-to-world plotting requires 3D data."
+            f"Unsupported slice_mode={slice_mode!r} for plotting. "
+            f"Supported modes: {valid_slice_modes!r}."
         )
 
 
@@ -1309,18 +1294,16 @@ class VolumePlotter:
         per-call choice, not shared/reused across other volumes on this plotter
         the way `self._slice_axis_grid` is.
         """
-        data = ensure_voxeldata(coerce_complex_to_magnitude(data, caller=caller))
-        # `.compute()` is a cheap no-op on an already-eager array, but exactly once
-        # here it matters: without it, every later `.values` access (whole-array
-        # materialize, sort, each per-panel `isel`/pcolormesh draw, ...) would
-        # silently re-run a dask-backed array's graph from scratch, with no
-        # caching in between -- an expensive lazy pipeline (e.g. a not-yet-
-        # `.compute()`d confound-regression/correlation result) would be
-        # recomputed once per touch, and how many touches happen (hence how slow
-        # plotting is) would depend on incidental code-path details like
-        # slice_mode rather than on the data.
+        data = coerce_complex_to_magnitude(data, caller=caller)
+
+        data = ensure_voxeldata(data)
+
+        # Data is computed here to avoid repeated computations of the same Dask graph
+        # downstream (per-panel .isel, etc.).
         data = data.compute()
-        _validate_voxel_to_world_slice_mode(data, self.slice_mode)
+
+        _validate_slice_mode(data, self.slice_mode)
+
         resolved_interpolation = (
             self._resample_interpolation if interpolation is None else interpolation
         )
