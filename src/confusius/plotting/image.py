@@ -14,6 +14,7 @@ import xarray as xr
 from confusius._dims import POSE_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
+    get_affine_axis_scalings,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
     require_scalar_pose_affine,
@@ -725,11 +726,29 @@ def _format_coord(coord: Hashable) -> str:
 def _coords_match(
     stored_coord: Hashable, target_coord: Hashable, tolerance: float
 ) -> bool:
-    """Compare two slice coordinates, using a tolerance for numeric values."""
+    """Compare two slice coordinates, using a tolerance for numeric values.
+
+    Parameters
+    ----------
+    stored_coord : collections.abc.Hashable
+        Coordinate value already recorded for an existing axis.
+    target_coord : collections.abc.Hashable
+        Coordinate value being matched against `stored_coord`.
+    tolerance : float
+        Maximum allowed absolute difference for numeric coordinates. Pass `0.0`
+        to require an exact match (e.g. for a non-spatial `slice_mode`, where
+        nearness has no physical meaning even for a numeric coordinate like a
+        `pose` id).
+
+    Returns
+    -------
+    bool
+        Whether `stored_coord` and `target_coord` are considered the same slice.
+    """
     if isinstance(stored_coord, numbers.Real) and isinstance(
         target_coord, numbers.Real
     ):
-        return abs(float(stored_coord) - float(target_coord)) < tolerance
+        return abs(float(stored_coord) - float(target_coord)) <= tolerance
     return stored_coord == target_coord
 
 
@@ -756,23 +775,73 @@ def _default_slice_coords(data: xr.DataArray, slice_mode: str) -> list[Hashable]
 
 
 def _extract_slices(
-    data: xr.DataArray, slice_mode: str, slice_coords: Sequence[Hashable]
+    data: xr.DataArray,
+    slice_mode: str,
+    slice_coords: Sequence[Hashable],
+    *,
+    slice_spacing: float | None = None,
 ) -> tuple[list[xr.DataArray], list[Hashable]]:
     """Extract 2D slices from `data` along `slice_mode`.
 
-    Numeric coordinates are matched by nearest-neighbour lookup; non-numeric
-    coordinates (e.g. region labels) require an exact match.
+    A spatial `slice_mode` (`"z"`/`"y"`/`"x"`) is matched by nearest-neighbour
+    lookup within `slice_spacing / 2` of the requested coordinate -- physical
+    proximity is meaningful there. Any other `slice_mode` (e.g. `"region"`, a
+    numeric `"pose"` id) always requires an exact match: nearness has no
+    physical meaning for a categorical/discrete facet, so a request for pose 2
+    must never silently return pose 1's data mislabeled as pose 2.
 
-    Returns the slices and their actual snapped coordinate values.
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Data already passed through `_prepare_slice_inputs`.
+    slice_mode : str
+        The dimension/coordinate to extract slices along.
+    slice_coords : collections.abc.Sequence of collections.abc.Hashable
+        Coordinate values to extract.
+    slice_spacing : float, optional
+        `data`'s own world spacing along `slice_mode`, used as the
+        nearest-neighbour tolerance for a spatial `slice_mode`. Ignored (no
+        tolerance, no nearest-matching) for any other `slice_mode`.
+
+    Returns
+    -------
+    slices : list of xarray.DataArray
+        One panel per requested coordinate that had a match; entries with no
+        match within tolerance (spatial) or no exact match (non-spatial) are
+        skipped, with a warning.
+    actual_coords : list of collections.abc.Hashable
+        The actual (snapped) coordinate value for each returned panel.
+
+    Warns
+    -----
+    UserWarning
+        For each requested coordinate with no match.
     """
     slices: list[xr.DataArray] = []
     actual_coords: list[Hashable] = []
     for coord in slice_coords:
         if slice_mode in data.coords:
-            is_numeric = np.issubdtype(data.coords[slice_mode].dtype, np.number)
-            slice_da = data.sel(
-                {slice_mode: coord}, method="nearest" if is_numeric else None
-            )
+            use_nearest = slice_mode in WORLD_DIMS and slice_spacing is not None
+            try:
+                slice_da = data.sel(
+                    {slice_mode: coord},
+                    method="nearest" if use_nearest else None,
+                    tolerance=slice_spacing / 2 if use_nearest else None,
+                )
+            except KeyError:
+                warnings.warn(
+                    f"No slice found for slice_mode={slice_mode!r} coordinate "
+                    f"{coord!r}"
+                    + (
+                        f" within {slice_spacing / 2:g} of any available position"
+                        if use_nearest
+                        else ""
+                    )
+                    + ". This slice will not be plotted.",
+                    UserWarning,
+                    stacklevel=find_stack_level(),
+                )
+                continue
             actual_coord = slice_da.coords[slice_mode].item()
         else:
             if not isinstance(coord, numbers.Real):
@@ -980,6 +1049,7 @@ class VolumePlotter:
         data: xr.DataArray,
         slice_coords: Sequence[Hashable],
         *,
+        slice_spacing: float | None = None,
         interpolation: Literal["linear", "nearest", "bspline"] | None = None,
         fill_value: float | None = None,
     ) -> tuple[list[xr.DataArray], list[Hashable], str, str]:
@@ -992,6 +1062,10 @@ class VolumePlotter:
             Data already passed through `_prepare_slice_inputs`.
         slice_coords : collections.abc.Sequence of collections.abc.Hashable
             Coordinate values along `slice_mode` at which to extract slices.
+        slice_spacing : float, optional
+            `data`'s own world spacing along `slice_mode`, from
+            `_prepare_slice_inputs`. Used as the nearest-neighbour tolerance for
+            a spatial `slice_mode`; ignored otherwise.
         interpolation : {"linear", "nearest", "bspline"}, optional
             Interpolation method for the resample. If not provided, defaults to
             `self._resample_interpolation`.
@@ -1002,15 +1076,18 @@ class VolumePlotter:
         Returns
         -------
         slices : list of xarray.DataArray
-            One 2D (or 2D-plus-unsliced-extra-dim) panel per requested slice coordinate.
+            One 2D (or 2D-plus-unsliced-extra-dim) panel per requested slice
+            coordinate that had a match (see `_extract_slices`).
         actual_coords : list of collections.abc.Hashable
-            The actual coordinate value matched for each panel.
+            The actual coordinate value matched for each returned panel.
         dim_row : str
             Dim displayed on the row (y) axis.
         dim_col : str
             Dim displayed on the column (x) axis.
         """
-        slices, actual_coords = _extract_slices(data, self.slice_mode, slice_coords)
+        slices, actual_coords = _extract_slices(
+            data, self.slice_mode, slice_coords, slice_spacing=slice_spacing
+        )
         slices = self._resample_pose_slices_to_world_grid(
             slices, interpolation=interpolation, fill_value=fill_value
         )
@@ -1083,8 +1160,29 @@ class VolumePlotter:
 
             self._hover_manager.roi_labels.update(roi_labels)
 
+    def _slice_match_tolerance(self, slice_spacing: float | None) -> float:
+        """Cross-volume matching tolerance for `_find_matching_axes`.
+
+        Parameters
+        ----------
+        slice_spacing : float, optional
+            `data`'s own world spacing along `self.slice_mode`, from
+            `_prepare_slice_inputs`.
+
+        Returns
+        -------
+        float
+            `slice_spacing / 2` when `self.slice_mode` is spatial and
+            `slice_spacing` is known, so two volumes at different native
+            resolutions can still overlay; `0.0` (exact match only) otherwise --
+            nearness has no physical meaning for a non-spatial `self.slice_mode`.
+        """
+        if self.slice_mode in WORLD_DIMS and slice_spacing is not None:
+            return slice_spacing / 2
+        return 0.0
+
     def _find_matching_axes(
-        self, actual_coords: list[Hashable], tolerance: float = 1e-6
+        self, actual_coords: list[Hashable], tolerance: float
     ) -> list[tuple[int, int]]:
         """Find axis indices matching the target coordinates.
 
@@ -1095,10 +1193,14 @@ class VolumePlotter:
         ----------
         actual_coords : list[collections.abc.Hashable]
             The actual coordinate values of the slices being plotted.
-        tolerance : float, default: 1e-6
-            Tolerance for matching numeric coordinates, accounting for floating-point
-            precision. Non-numeric coordinates (e.g. region labels) are matched by
-            equality.
+        tolerance : float
+            Tolerance for matching numeric coordinates. For a spatial
+            `slice_mode`, this should be the new volume's own slice spacing
+            halved, so two volumes at different native resolutions can still
+            overlay; `0.0` forces an exact match, appropriate for a non-spatial
+            `slice_mode` (e.g. a `pose` id), where nearness has no physical
+            meaning. Non-numeric coordinates (e.g. region labels) always match by
+            equality regardless of `tolerance`.
 
         Returns
         -------
@@ -1191,17 +1293,47 @@ class VolumePlotter:
         data: xr.DataArray,
         *,
         interpolation: Literal["linear", "nearest", "bspline"] | None = None,
-    ) -> xr.DataArray:
+    ) -> tuple[xr.DataArray, float | None]:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords.
 
         Shared by `add_volume`/`add_composite`/`add_contours`. `interpolation` lets a
         mask force `"nearest"` regardless of `self._resample_interpolation`.
 
         Resamples/materializes the whole array up front for every `slice_mode`
-        except `pose` -- only `pose` can vary the voxel-to-world affine per panel
+        except `pose`; only `pose` can vary the voxel-to-world affine per panel
         (`require_scalar_pose_affine`), so it's the only case that must wait for
         `_resample_pose_slices_to_world_grid`'s per-panel resample after `.isel` has
         collapsed each panel to its own scalar affine.
+
+        Parameters
+        ----------
+        data : xarray.DataArray
+            VoxelData array to prepare for slicing/display.
+        interpolation : {"linear", "nearest", "bspline"}, optional
+            Interpolation method used for any resample this triggers. If not provided,
+            defaults to `self._resample_interpolation`.
+
+        Returns
+        -------
+        data : xarray.DataArray
+            `data` with complex values converted to magnitude; resampled and
+            materialized onto plain `z`/`y`/`x` dims for every `slice_mode` except
+            `pose`; size-1 dims other than `self.slice_mode` squeezed away; and the two
+            display dims sorted into ascending coordinate order.
+        slice_spacing : float, optional
+            `data`'s own world spacing along `self.slice_mode`, captured from its
+            voxel-to-world geometry before materialize strips it. `None` for a
+            non-spatial `self.slice_mode`, where spacing has no meaning.
+
+        Raises
+        ------
+        ValueError
+            If `self.slice_mode` is not a valid dimension/world coordinate of `data`, if
+            the result is not 3D after squeezing, or if `data`'s spatial geometry cannot
+            be resampled for display (e.g. pose-dependent geometry for a spatial
+                                      `self.slice_mode`, or geometry that would not
+                                      collapse to a 2D plane for a non-pose extra
+                                      `self.slice_mode`).
         """
         data = ensure_voxeldata(data)
         data = coerce_complex_to_magnitude(data, caller="VolumePlotter")
@@ -1215,6 +1347,7 @@ class VolumePlotter:
             self._resample_interpolation if interpolation is None else interpolation
         )
 
+        slice_spacing: float | None = None
         if self.slice_mode in WORLD_DIMS:
             data, slice_axis_grid = _resample_to_shared_slice_axis_grid(
                 data,
@@ -1230,6 +1363,24 @@ class VolumePlotter:
             # SliceAxisGrid).
             if self._slice_axis_grid is None:
                 self._slice_axis_grid = slice_axis_grid
+
+            # `data`'s own actual spacing, not `slice_axis_grid.spacing` -- an
+            # already axis-aligned volume keeps its own native grid regardless of
+            # any established SliceAxisGrid (see `_resample_to_shared_slice_axis_grid`),
+            # so the two can differ. Captured here, before materialize strips the
+            # index. Uses `get_affine_axis_scalings` (world distance per one voxel
+            # unit, from the affine alone), not `get_voxel_to_world_index_spacing`
+            # (world distance between the coordinate's *currently present* samples)
+            # -- the latter is wrong here: a caller that already `.sel`/`.isel`'d a
+            # strided or single-slice subset of `data` before handing it to
+            # `add_volume` would report that subset's own sample gap (or `None` for
+            # a single sample) as "spacing", not the affine's true one-voxel
+            # increment.
+            voxel_dim = VOXEL_DIMS[WORLD_DIMS.index(self.slice_mode)]
+            affine = require_scalar_pose_affine(
+                data, "Computing the slice-matching tolerance"
+            )
+            slice_spacing = get_affine_axis_scalings(affine, VOXEL_DIMS)[voxel_dim]
         elif self.slice_mode != POSE_DIM:
             # Non-pose extra dim (e.g. "region"): slicing along it never touches
             # the voxel-to-world affine (only `pose` can vary geometry), so unlike
@@ -1267,7 +1418,7 @@ class VolumePlotter:
         # sorting slice_mode itself would silently reorder panels (e.g. non-monotonic
         # z, or a "region" dim built from an arbitrary list of acronyms).
         display_dims = [d for d in data.dims if d != self.slice_mode]
-        return sort_coords_for_plot(data, display_dims)
+        return sort_coords_for_plot(data, display_dims), slice_spacing
 
     def _resolve_axes_layout(
         self,
@@ -1277,19 +1428,59 @@ class VolumePlotter:
         dim_row: str,
         dim_col: str,
         *,
+        slice_spacing: float | None,
         match_coordinates: bool,
         nrows: int | None,
         ncols: int | None,
         dpi: int | None,
     ) -> list[tuple[int, int]]:
-        """Resolve the per-slice axis assignment, creating the figure if needed."""
+        """Resolve the per-slice axis assignment, creating the figure if needed.
+
+        Parameters
+        ----------
+        data : xarray.DataArray
+            Data already passed through `_prepare_slice_inputs`.
+        n_slices : int
+            Number of panels being placed.
+        actual_coords : list[collections.abc.Hashable]
+            The actual (snapped) coordinate value for each panel.
+        dim_row : str
+            Dim displayed on the row (y) axis.
+        dim_col : str
+            Dim displayed on the column (x) axis.
+        slice_spacing : float, optional
+            `data`'s own world spacing along `self.slice_mode`, used (halved) as
+            the cross-volume matching tolerance for a spatial `self.slice_mode`.
+            Ignored (exact matching) for any other `self.slice_mode`.
+        match_coordinates : bool
+            Whether to match panels onto the existing coordinate-to-axis mapping
+            instead of laying them out sequentially.
+        nrows : int, optional
+            Number of rows when creating a new figure.
+        ncols : int, optional
+            Number of columns when creating a new figure.
+        dpi : int, optional
+            Figure resolution in dots per inch, for a new figure.
+
+        Returns
+        -------
+        list[tuple[int, int]]
+            List of `(axis_flat_idx, slice_idx)` tuples for the panels to draw.
+
+        Raises
+        ------
+        ValueError
+            If `match_coordinates` is `True` but no axes exist yet, or if
+            user-provided axes don't match the number of slices.
+        """
         if match_coordinates:
             if self.axes is None:
                 raise ValueError(
                     "Cannot match coordinates: no existing axes. Either create a "
                     "VolumePlotter with axes or use match_coordinates=False."
                 )
-            matched_indices = self._find_matching_axes(actual_coords)
+            tolerance = self._slice_match_tolerance(slice_spacing)
+            matched_indices = self._find_matching_axes(actual_coords, tolerance)
             matched_slice_indices = {idx for _, idx in matched_indices}
             unmatched_slices = [
                 (idx, actual_coords[idx])
@@ -1418,8 +1609,11 @@ class VolumePlotter:
 
         # Preprocess alpha exactly like data (squeeze unitary dims, sort coords
         # ascending). Otherwise, an alpha array created from the data could end up
-        # with a shape or coordinate mismatch after slicing.
-        alpha = self._prepare_slice_inputs(alpha)
+        # with a shape or coordinate mismatch after slicing. alpha's own spacing is
+        # unused: `validate_matching_coordinates` below guarantees its coordinates
+        # are bit-identical to `data`'s, so extracting it at `data`'s own actual
+        # (already-snapped) coordinates always exact-matches, no tolerance needed.
+        alpha, _ = self._prepare_slice_inputs(alpha)
         if set(alpha.dims) != set(data.dims):
             raise ValueError(
                 f"`alpha` dims {sorted(str(d) for d in alpha.dims)} do not match "
@@ -1560,15 +1754,21 @@ class VolumePlotter:
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
 
-        data = self._prepare_slice_inputs(data)
+        data, slice_spacing = self._prepare_slice_inputs(data)
 
         if slice_coords is None:
             slice_coords = _default_slice_coords(data, self.slice_mode)
 
         unthresholded_slices, actual_coords, dim_row, dim_col = (
-            self._extract_display_slices(data, slice_coords)
+            self._extract_display_slices(
+                data, slice_coords, slice_spacing=slice_spacing
+            )
         )
         n_slices = len(unthresholded_slices)
+        if n_slices == 0:
+            # Every requested slice_coords entry was skipped (already warned by
+            # `_extract_slices`) -- nothing to draw.
+            return self
 
         alpha, alpha_slices = self._prepare_alpha_slices(
             alpha, data, slice_coords=slice_coords, dim_row=dim_row, dim_col=dim_col
@@ -1600,6 +1800,7 @@ class VolumePlotter:
             actual_coords,
             dim_row,
             dim_col,
+            slice_spacing=slice_spacing,
             match_coordinates=match_coordinates,
             nrows=nrows,
             ncols=ncols,
@@ -1838,8 +2039,12 @@ class VolumePlotter:
             data2 = resample_like(data2, data1, np.eye(len(VOXEL_DIMS) + 1), **_kw)
             data2.name = data2_name
 
-        data1 = self._prepare_slice_inputs(data1)
-        data2 = self._prepare_slice_inputs(data2)
+        # data1 is the reference: data2 is either resampled onto data1's exact
+        # grid above (resample=True) or validated coordinate-identical to it below
+        # (resample=False), so data1's spacing is authoritative for both -- data2's
+        # own returned spacing is unused.
+        data1, slice_spacing = self._prepare_slice_inputs(data1)
+        data2, _ = self._prepare_slice_inputs(data2)
 
         if not resample:
             if data1.dims != data2.dims:
@@ -1869,8 +2074,12 @@ class VolumePlotter:
         if slice_coords is None:
             slice_coords = _default_slice_coords(data1, self.slice_mode)
 
-        input_slices1, _ = _extract_slices(data1, self.slice_mode, slice_coords)
-        input_slices2, _ = _extract_slices(data2, self.slice_mode, slice_coords)
+        input_slices1, _ = _extract_slices(
+            data1, self.slice_mode, slice_coords, slice_spacing=slice_spacing
+        )
+        input_slices2, _ = _extract_slices(
+            data2, self.slice_mode, slice_coords, slice_spacing=slice_spacing
+        )
         input_slices1 = self._resample_pose_slices_to_world_grid(input_slices1)
         input_slices2 = self._resample_pose_slices_to_world_grid(input_slices2)
 
@@ -1898,10 +2107,12 @@ class VolumePlotter:
             data2 = data2.copy(data=arr2)
 
         slices1, actual_coords, dim_row, dim_col = self._extract_display_slices(
-            data1, slice_coords
+            data1, slice_coords, slice_spacing=slice_spacing
         )
         slices2 = self._resample_pose_slices_to_world_grid(
-            _extract_slices(data2, self.slice_mode, slice_coords)[0]
+            _extract_slices(
+                data2, self.slice_mode, slice_coords, slice_spacing=slice_spacing
+            )[0]
         )
         slices2 = [s.transpose(dim_row, dim_col) for s in slices2]
         input_slices1 = [s.transpose(dim_row, dim_col) for s in input_slices1]
@@ -1914,6 +2125,7 @@ class VolumePlotter:
             actual_coords,
             dim_row,
             dim_col,
+            slice_spacing=slice_spacing,
             match_coordinates=match_coordinates,
             nrows=nrows,
             ncols=ncols,
@@ -2124,7 +2336,7 @@ class VolumePlotter:
         # `self._resample_interpolation`: mask/label data is a set of distinct
         # integer regions, and blending them together (linear/bspline) would
         # fabricate boundary values that match no real label.
-        mask = self._prepare_slice_inputs(mask, interpolation="nearest")
+        mask, slice_spacing = self._prepare_slice_inputs(mask, interpolation="nearest")
 
         unique_labels = sorted(
             [label for label in np.unique(mask.values) if label != 0]
@@ -2162,12 +2374,13 @@ class VolumePlotter:
         # Always "nearest" for the per-panel world resample too: mask/label data is a
         # set of distinct integer regions, never meaningfully blended.
         slices, actual_coords, dim_row, dim_col = self._extract_display_slices(
-            mask, slice_coords, interpolation="nearest"
+            mask, slice_coords, slice_spacing=slice_spacing, interpolation="nearest"
         )
         n_slices = len(slices)
 
         if match_coordinates:
-            matched_indices = self._find_matching_axes(actual_coords)
+            tolerance = self._slice_match_tolerance(slice_spacing)
+            matched_indices = self._find_matching_axes(actual_coords, tolerance)
 
             matched_slice_indices = {idx for _, idx in matched_indices}
             unmatched_slices = [

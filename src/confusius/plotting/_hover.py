@@ -217,9 +217,7 @@ def _custom_mouse_event_to_message(event):  # pragma: no cover
     return ""
 
 
-def _normalize_roi_labels(
-    roi_labels: dict | None,
-) -> dict[int, str]:
+def _normalize_roi_labels(roi_labels: dict | None) -> dict[int, str]:
     """Coerce a user-provided `roi_labels` dict to `{int: str}`."""
     if not roi_labels:
         return {}

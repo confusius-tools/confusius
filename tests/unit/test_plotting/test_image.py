@@ -4,6 +4,8 @@ These tests use real matplotlib with the Agg backend (non-interactive).
 See conftest.py for the matplotlib_pyplot fixture setup.
 """
 
+import warnings
+
 import numpy as np
 import numpy.testing as npt
 import pytest
@@ -652,11 +654,14 @@ class TestPlotVolume:
         data = sample_voxeldata_3d_oblique
         _, expected_spacing, _, _ = compute_shared_slice_axis_grid_geometry(data, "z")
 
-        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(data)
+        result, slice_spacing = VolumePlotter(slice_mode="z")._prepare_slice_inputs(
+            data
+        )
 
         assert result.dims == ("z", "y", "x")
         z_spacing = float(np.diff(_world_coord_1d(result, "z"))[0])
         assert z_spacing == pytest.approx(expected_spacing["k"])
+        assert slice_spacing == pytest.approx(expected_spacing["k"])
         y_spacing = float(np.diff(_world_coord_1d(result, "y"))[0])
         x_spacing = float(np.diff(_world_coord_1d(result, "x"))[0])
         assert y_spacing == pytest.approx(expected_spacing["j"], abs=1e-6)
@@ -671,7 +676,7 @@ class TestPlotVolume:
         )
         data = attach_voxel_to_world_index(data, np.diag([0.4, 0.3, 0.25, 1.0]))
 
-        result = VolumePlotter(slice_mode="z")._prepare_slice_inputs(data)
+        result, _ = VolumePlotter(slice_mode="z")._prepare_slice_inputs(data)
 
         assert result.dims == ("z", "y", "x")
         assert "voxel_to_world" not in result.attrs
@@ -846,6 +851,91 @@ class TestVolumePlotterAddVolume:
                 sample_voxeldata_3d.sel(z=z_vals[[0, 1, 3]], method="nearest"),
                 cmap="viridis",
             )
+
+    def test_far_off_slice_coord_warns_and_skips_instead_of_mislabeling(
+        self, sample_voxeldata_3d, matplotlib_pyplot
+    ):
+        """A `slice_coords` value far from any real data warns and is skipped.
+
+        Regression: `_extract_slices`'s nearest-neighbour `.sel` had no distance
+        limit, so requesting a coordinate nowhere near any real slice (e.g. `z=0`
+        against a single-slice volume whose real z is `1.0`) silently returned
+        that one slice, mislabeled with whatever coordinate was requested.
+        """
+        single_slice = sample_voxeldata_3d.isel(k=[0])
+        real_z = _world_coord_1d(single_slice, "z")[0]
+        far_off_z = real_z - 10.0
+
+        with pytest.warns(UserWarning, match="No slice found"):
+            plotter = plot_volume(
+                single_slice,
+                slice_mode="z",
+                slice_coords=[far_off_z],
+                show_colorbar=False,
+            )
+        assert plotter.axes is None
+
+    def test_non_spatial_slice_mode_never_nearest_matches(self, matplotlib_pyplot):
+        """A non-spatial `slice_mode` (e.g. `pose`) never nearest-matches.
+
+        Regression: numeric non-spatial coordinates (e.g. an integer `pose` id)
+        were matched by nearest-neighbour like spatial ones, so requesting pose 2
+        when only poses 0/1 exist silently returned pose 1's data mislabeled as
+        pose 2 -- nearness has no physical meaning for a discrete facet.
+        """
+        data = create_voxeldata(
+            np.random.default_rng(0).random((2, 1, 6, 8)),
+            dims=("pose", "k", "j", "i"),
+            pose=[0, 1],
+            spacing=(0.2, 0.1, 0.05),
+            origin=(0.0, 0.0, 0.0),
+        )
+
+        with pytest.warns(UserWarning, match="No slice found"):
+            plotter = plot_volume(
+                data.isel(k=0),
+                slice_mode="pose",
+                slice_coords=[2],
+                show_colorbar=False,
+            )
+        assert plotter.axes is None
+
+    def test_axis_aligned_volumes_with_different_spacing_overlay_without_warning(
+        self, matplotlib_pyplot
+    ):
+        """Two axis-aligned volumes at different native z spacing still overlay.
+
+        Regression: cross-volume matching used a fixed `1e-6` tolerance meant only
+        for floating-point noise, so two axis-aligned volumes with genuinely
+        different (but comparable, physically overlapping) native z resolutions
+        produced spurious "Could not find matching axes" warnings even though
+        their slice positions were physically close.
+        """
+        # z positions: coarse = 0.0, 0.2, 0.4; fine = 0.0, 0.18, 0.36 -- each fine
+        # position is within half of fine's own spacing (0.09) of the coarse
+        # position it should overlay onto.
+        coarse = create_voxeldata(
+            np.random.default_rng(0).random((3, 6, 8)),
+            dims=("k", "j", "i"),
+            spacing=(0.2, 0.1, 0.05),
+            origin=(0.0, 0.0, 0.0),
+        )
+        fine = create_voxeldata(
+            np.random.default_rng(1).random((3, 6, 8)),
+            dims=("k", "j", "i"),
+            spacing=(0.18, 0.1, 0.05),
+            origin=(0.0, 0.0, 0.0),
+        )
+
+        plotter = plot_volume(coarse, slice_mode="z", show_colorbar=False)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            plotter.add_volume(fine, cmap="viridis", show_colorbar=False)
+
+        axes_flat = _axes(plotter).ravel()
+        # 3 panels x 2 collections (coarse + fine overlay) each; the 2x2 grid
+        # auto-sized for 3 panels leaves one unused axis with no collections.
+        assert sum(len(ax.collections) for ax in axes_flat) == 6
 
     def test_world_slice_mode_projects_differently_rotated_volumes_consistently(
         self, matplotlib_pyplot
