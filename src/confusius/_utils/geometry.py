@@ -434,15 +434,10 @@ class VoxelToWorldIndex(Index):
         if not coord_labels:
             return IndexSelResult({})
 
-        # Per-axis fast path applies whenever every *requested* world coordinate's
-        # own affine row depends on exactly one voxel dimension -- not just when the
-        # whole affine is axis-aligned. This covers ordinary axis-aligned geometry
-        # (where every row is single-dependency, trivially), but also an oblique
-        # affine with one decoupled row -- e.g. a probe swept along a physically
-        # world-aligned axis while the other two voxel dimensions stay genuinely
-        # oblique. A row with more than one nonzero column can't be resolved
-        # independently of the others, so any such request falls back to
-        # `CoordinateTransformIndex.sel`'s joint nearest-only lookup.
+        # A requested world coordinate is axis-aligned when its affine row has exactly
+        # one nonzero column. Then it depends on one voxel dimension only. The test is
+        # per row, not per affine: an oblique affine can still have one axis-aligned
+        # row.
         linear = np.asarray(transform.voxel_to_world, dtype=np.float64)[:-1, :-1]
         single_axis: dict[Hashable, tuple[int, int]] = {}
         for name in coord_labels:
@@ -450,11 +445,17 @@ class VoxelToWorldIndex(Index):
             nonzero_columns = np.nonzero(~np.isclose(linear[row], 0.0, atol=1e-12))[0]
             if nonzero_columns.size == 1:
                 single_axis[name] = (row, int(nonzero_columns[0]))
+
+        # If any requested coordinate is not axis-aligned, the whole query goes to
+        # `CoordinateTransformIndex.sel`, which supports only nearest lookup with
+        # all axes given at once.
         if len(single_axis) != len(coord_labels):
             return self._index.sel(
                 coord_labels, method=method or "nearest", tolerance=tolerance
             )
 
+        # Each axis-aligned coordinate resolves on its own voxel dimension. This
+        # path supports slices, exact lookup, and nearest lookup.
         dim_indexers: dict[Hashable, Any] = {}
         for name, (row, column) in single_axis.items():
             dim = VOXEL_DIMS[column]
