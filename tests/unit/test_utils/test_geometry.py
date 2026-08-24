@@ -858,6 +858,39 @@ def test_sel_slice_out_of_range_selects_nothing_and_step_subsamples(
     assert_array_equal(stepped.coords["i"].values, [0.0, 3.0])
 
 
+def test_sel_slice_follows_pandas_label_slice_semantics(
+    sample_voxeldata_3d_irregular_voxels,
+) -> None:
+    """Direction-reversed and negative-step world slices match plain xarray."""
+    result = sample_voxeldata_3d_irregular_voxels
+
+    assert result.sel(x=slice(21.0, 0.0)).sizes["i"] == 0
+    assert result.sel(x=slice(21.0, 0.0, 2)).sizes["i"] == 0
+    assert result.sel(x=slice(0.0, 21.0, -1)).sizes["i"] == 0
+
+
+def test_sel_slice_on_descending_world_axis_follows_pandas_semantics() -> None:
+    """Label slices on a descending world axis match pandas index semantics.
+
+    Reversing a voxel dim with a `::-1` isel makes its derived world axis strictly
+    descending. Pandas label slicing on a descending index selects `slice(high, low)` in
+    index order and returns empty for the direction-reversed request, and the delegated
+    `pandas.Index.slice_indexer` must preserve both behaviors.
+    """
+    data = create_voxeldata(
+        np.arange(4.0).reshape(1, 1, 4),
+        dims=("k", "j", "i"),
+        spacing=(1.0, 1.0, 1.0),
+    )
+    # x is now strictly descending: [1.5, 0.5, -0.5, -1.5].
+    result = data.isel(i=slice(None, None, -1))
+
+    high_to_low = result.sel(x=slice(1.5, -0.5))
+    assert_array_equal(high_to_low.coords["i"].values, [3, 2, 1])
+
+    assert result.sel(x=slice(-0.5, 1.5)).sizes["i"] == 0
+
+
 def test_sel_plain_slice_without_step_selects_contiguous_range(
     sample_voxeldata_3d_irregular_voxels,
 ) -> None:
@@ -1250,5 +1283,3 @@ def test_attach_voxel_to_world_index_sets_custom_units() -> None:
     assert get_voxel_to_world_units(da) == "um"
     for name in ("z", "y", "x"):
         assert da.coords[name].attrs["units"] == "um"
-
-

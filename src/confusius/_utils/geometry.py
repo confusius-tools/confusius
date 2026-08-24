@@ -25,6 +25,7 @@ from typing import Any, Self, cast
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 import xarray as xr
 from xarray import Index, Variable
 from xarray.core.indexing import IndexSelResult
@@ -465,16 +466,10 @@ class VoxelToWorldIndex(Index):
             label = coord_labels[name]
             if isinstance(label, slice):
                 values = scale * voxel_axis + offset
-                start = np.nanmin(values) if label.start is None else label.start
-                stop = np.nanmax(values) if label.stop is None else label.stop
-                lower, upper = sorted((start, stop))
-                hits = np.nonzero((values >= lower) & (values <= upper))[0]
-                if hits.size == 0:
-                    dim_indexers[dim] = slice(0, 0)
-                elif label.step is None:
-                    dim_indexers[dim] = slice(hits[0], hits[-1] + 1)
-                else:
-                    dim_indexers[dim] = hits[:: label.step]
+                dim_indexers[dim] = pd.Index(values).slice_indexer(
+                    label.start, label.stop, label.step
+                )
+
             else:
                 voxel_label = (np.asarray(label) - offset) / scale
                 position = _reverse_lookup_positions(voxel_label, voxel_axis)
