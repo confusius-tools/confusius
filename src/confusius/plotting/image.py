@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import xarray as xr
 
-from confusius._dims import CORE_DIMS, POSE_DIM, VOXEL_DIMS
+from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
@@ -177,21 +177,6 @@ def _validate_voxel_to_world_slice_mode(data: xr.DataArray, slice_mode: str) -> 
         )
 
 
-def _is_spatial_slice_mode(slice_mode: str) -> bool:
-    """Return whether `slice_mode` names a world spatial axis (`z`/`y`/`x`)."""
-    return slice_mode in {"z", "y", "x"}
-
-
-def _get_voxel_to_world_dim_order(slice_da: xr.DataArray) -> tuple[str, ...]:
-    """Return active voxel-space dimension order implied by the stored affine.
-
-    `_fold_fixed_dims_into_affine` always returns an affine whose column count
-    equals the active dims count, so the two are guaranteed to agree here; no
-    mismatch check is needed.
-    """
-    return get_voxel_to_world_spatial_dims(slice_da)
-
-
 def _project_voxel_to_world_plane(
     slice_da: xr.DataArray,
     dim_row: str,
@@ -241,7 +226,7 @@ def _project_voxel_to_world_plane(
         collinear in world space (no well-defined in-plane basis).
     """
     affine = require_scalar_pose_affine(slice_da, "Voxel-to-world plotting")
-    dim_order = _get_voxel_to_world_dim_order(slice_da)
+    dim_order = get_voxel_to_world_spatial_dims(slice_da)
     linear = affine[:-1, :-1]
 
     row_vals = (
@@ -938,11 +923,11 @@ class VolumePlotter:
         No-op when `slice_mode` is spatial (its own display geometry is resolved
         upfront in `_prepare_slice_inputs`/`add_contours`). `match_coordinates` for
         a non-spatial `slice_mode` (the only case this function ever runs for)
-        matches panels by the facet's own
-        coordinate value (e.g. a region label), never by grid position, so no axis
-        needs sharing across volumes here. Contrast with `_prepare_slice_inputs`'s
-        whole-array resample for spatial `slice_mode`, where the slice axis's
-        discretization genuinely must be shared for `match_coordinates` to work.
+        matches panels by the facet's own coordinate value (e.g. a region label), never
+        by grid position, so no axis needs sharing across volumes here. Contrast with
+        `_prepare_slice_inputs`'s whole-array resample for spatial `slice_mode`, where
+        the slice axis's discretization genuinely must be shared for `match_coordinates`
+        to work.
 
         For already axis-aligned data, this still resamples (a no-op resample:
         `_shared_resample_to_axis_aligned_world_grid` short-circuits) purely to get
@@ -980,7 +965,7 @@ class VolumePlotter:
             oblique data, unchanged for anything else (no voxel-to-world geometry,
             ...).
         """
-        if _is_spatial_slice_mode(self.slice_mode):
+        if self.slice_mode in SPATIAL_DIMS:
             return slices
         interp = (
             self._resample_interpolation if interpolation is None else interpolation
@@ -1061,7 +1046,7 @@ class VolumePlotter:
         world_col : str or None
             World coordinate name for the display column axis, or `None`.
         """
-        if _is_spatial_slice_mode(self.slice_mode):
+        if self.slice_mode in SPATIAL_DIMS:
             if not slices or not _has_plottable_voxel_to_world_index(slices[0]):
                 return None, None
             world_dims = get_voxel_to_world_coord_names(slices[0])
@@ -1537,6 +1522,54 @@ class VolumePlotter:
         )
         self._set_ax_lims(ax, current_xlim, current_ylim)
 
+    def _prepare_alpha_slices(
+        self,
+        alpha: "float | xr.DataArray | None",
+        data: xr.DataArray,
+        *,
+        slice_coords: Sequence[Hashable],
+        dim_row: Hashable,
+        dim_col: Hashable,
+    ) -> "tuple[float | None, list[np.ndarray] | None]":
+        """Validate and slice a per-voxel `alpha`, or pass a scalar through.
+
+        `data` is assumed already processed by `_prepare_slice_inputs`. Returns
+        `(alpha, alpha_slices)`: exactly one is non-`None` -- `alpha_slices` for a
+        per-voxel DataArray input, the (possibly `None`) scalar `alpha` otherwise.
+        """
+        if alpha is not None and not isinstance(alpha, (int, float, xr.DataArray)):
+            raise TypeError(
+                "`alpha` must be a scalar or a DataArray, not "
+                f"{type(alpha).__name__}; a bare array carries no coordinates, so "
+                "it cannot be validated or aligned against `data`."
+            )
+
+        if not isinstance(alpha, xr.DataArray):
+            return alpha, None
+
+        # Preprocess alpha exactly like data (squeeze unitary dims, sort coords
+        # ascending). Otherwise, an alpha array created from the data could end up
+        # with a shape or coordinate mismatch after slicing.
+        alpha = self._prepare_slice_inputs(
+            alpha, caller="VolumePlotter.add_volume (alpha)"
+        )
+        if set(alpha.dims) != set(data.dims):
+            raise ValueError(
+                f"`alpha` dims {sorted(str(d) for d in alpha.dims)} do not match "
+                f"`data` dims {sorted(str(d) for d in data.dims)}."
+            )
+        for dim in data.dims:
+            if alpha.sizes[dim] != data.sizes[dim]:
+                raise ValueError(
+                    f"`alpha` size along '{dim}' ({alpha.sizes[dim]}) does not "
+                    f"match `data` size ({data.sizes[dim]})."
+                )
+        validate_matching_coordinates(data, alpha, left_name="data", right_name="alpha")
+        alpha_da_slices, _ = _extract_slices(alpha, self.slice_mode, slice_coords)
+        alpha_da_slices = self._maybe_resample_slices_to_world(alpha_da_slices)
+        alpha_da_slices = [s.transpose(dim_row, dim_col) for s in alpha_da_slices]
+        return None, [s.values for s in alpha_da_slices]
+
     def add_volume(
         self,
         data: xr.DataArray,
@@ -1674,6 +1707,7 @@ class VolumePlotter:
         resolved_roi_labels = _normalize_roi_labels(
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
+
         data = self._prepare_slice_inputs(
             data, caller="VolumePlotter.add_volume", resample_in_plane=resample_in_plane
         )
@@ -1686,40 +1720,9 @@ class VolumePlotter:
         )
         n_slices = len(unthresholded_slices)
 
-        if alpha is not None and not isinstance(alpha, (int, float, xr.DataArray)):
-            raise TypeError(
-                "`alpha` must be a scalar or a DataArray, not "
-                f"{type(alpha).__name__}; a bare array carries no coordinates, so "
-                "it cannot be validated or aligned against `data`."
-            )
-
-        alpha_slices: list[np.ndarray] | None = None
-        if isinstance(alpha, xr.DataArray):
-            # Preprocess alpha exactly like data (squeeze unitary dims, sort coords
-            # ascending). Otherwise, an alpha array created from the data could end up
-            # with a shape or coordinate mismatch after slicing.
-            alpha = self._prepare_slice_inputs(
-                alpha, caller="VolumePlotter.add_volume (alpha)"
-            )
-            if set(alpha.dims) != set(data.dims):
-                raise ValueError(
-                    f"`alpha` dims {sorted(str(d) for d in alpha.dims)} do not match "
-                    f"`data` dims {sorted(str(d) for d in data.dims)}."
-                )
-            for dim in data.dims:
-                if alpha.sizes[dim] != data.sizes[dim]:
-                    raise ValueError(
-                        f"`alpha` size along '{dim}' ({alpha.sizes[dim]}) does not "
-                        f"match `data` size ({data.sizes[dim]})."
-                    )
-            validate_matching_coordinates(
-                data, alpha, left_name="data", right_name="alpha"
-            )
-            alpha_da_slices, _ = _extract_slices(alpha, self.slice_mode, slice_coords)
-            alpha_da_slices = self._maybe_resample_slices_to_world(alpha_da_slices)
-            alpha_da_slices = [s.transpose(dim_row, dim_col) for s in alpha_da_slices]
-            alpha_slices = [s.values for s in alpha_da_slices]
-            alpha = None
+        alpha, alpha_slices = self._prepare_alpha_slices(
+            alpha, data, slice_coords=slice_coords, dim_row=dim_row, dim_col=dim_col
+        )
 
         norm = _resolve_norm(
             slices=unthresholded_slices,
@@ -1760,7 +1763,6 @@ class VolumePlotter:
         plotted_quadmesh = None
 
         axes_flat = self.axes.ravel()
-
         for axis_idx, slice_idx in plot_indices:
             ax = axes_flat[axis_idx]
             arr = thresholded_slices[slice_idx]
