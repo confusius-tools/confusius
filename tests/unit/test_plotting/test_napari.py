@@ -12,6 +12,7 @@ from confusius._utils.geometry import (
     has_voxel_to_world_index,
 )
 from confusius.plotting import draw_napari_labels, labels_from_layer, plot_napari
+from confusius.xarray import create_voxeldata
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
 
@@ -87,7 +88,9 @@ class TestPlotNapari:
 
         assert layer.metadata["xarray"].dims == ("k", "j", "i")
         assert has_voxel_to_world_index(layer.metadata["xarray"])
-        assert layer.metadata["source_xarray"] is data
+        # `source_xarray` is the canonicalized copy of `data` (plot_napari always
+        # canonicalizes its input), not the original object -- compare by value.
+        xr.testing.assert_identical(layer.metadata["source_xarray"], data)
         assert tuple(layer.axis_labels) == ("z", "y", "x")
         npt.assert_allclose(layer.translate, [10.0, 20.0, 30.0], rtol=1e-5)
         # The displayed layer is actually resampled onto an axis-aligned grid,
@@ -114,8 +117,9 @@ class TestPlotNapari:
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
 
-        assert layer.metadata["xarray"] is data
-        assert layer.metadata["source_xarray"] is data
+        # Both are canonicalized copies of `data`, not the original object.
+        xr.testing.assert_identical(layer.metadata["xarray"], data)
+        xr.testing.assert_identical(layer.metadata["source_xarray"], data)
         assert tuple(layer.axis_labels) == ("z", "y", "x")
         npt.assert_allclose(layer.scale, [0.4, 0.3, 0.25], rtol=1e-5)
         npt.assert_allclose(layer.translate, [0.0, 0.0, 0.0], rtol=1e-5)
@@ -185,7 +189,8 @@ class TestPlotNapari:
             show_scale_bar=False,
         )
 
-        assert layer.metadata["xarray"] is labels
+        # `xarray` is the canonicalized copy of `labels`, not the original object.
+        xr.testing.assert_identical(layer.metadata["xarray"], labels)
         viewer.close()
 
     def test_invalid_layer_type_raises(self, sample_voxeldata_3d) -> None:
@@ -235,14 +240,14 @@ class TestPlotNapari:
     def test_labels_without_viewer_create_one_and_cast_to_int(
         self, make_napari_viewer, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        labels = attach_voxel_to_world_index(
-            xr.DataArray(
-                np.array([[0.0, 1.0], [2.0, 0.0]], dtype=np.float32),
-                dims=["j", "i"],
-                coords={"j": [0, 1], "i": [0, 1]},
-            ),
-            np.eye(3),
-        )
+        # A single 2D slice: singleton `k` restored as a scalar coordinate, matching
+        # what `.isel(k=0)` produces from a real 3D VoxelData array.
+        labels = create_voxeldata(
+            np.array([[[0.0, 1.0], [2.0, 0.0]]], dtype=np.float32),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+        ).isel(k=0)
         viewer = make_napari_viewer()
         monkeypatch.setattr("confusius.plotting.napari.napari.Viewer", lambda: viewer)
 
@@ -280,8 +285,13 @@ class TestPlotNapari:
     def test_non_monotonic_coords_are_sorted_before_napari(
         self, sample_voxeldata_3d, make_napari_viewer
     ):
-        """plot_napari sorts non-monotonic spatial coordinates before display."""
-        data = sample_voxeldata_3d.copy().isel(j=[2, 0, 1], i=[3, 1, 2, 0])
+        """plot_napari sorts non-monotonic spatial coordinates before display.
+
+        Voxel dims may run in either direction and still be valid VoxelData (the
+        affine, not coordinate direction, encodes orientation), so reversing `j`/`i`
+        keeps `data` valid while still requiring the pre-display sort.
+        """
+        data = sample_voxeldata_3d.copy().isel(j=slice(None, None, -1), i=slice(None, None, -1))
 
         viewer = make_napari_viewer()
         _, layer = plot_napari(
@@ -313,15 +323,15 @@ class TestPlotNapari:
         bar) at one labelled and one background voxel.
         """
         roi_labels = {7: "somatosensory", 42: "visual"}
-        labels = attach_voxel_to_world_index(
-            xr.DataArray(
-                np.array([[0, 0, 0, 0], [0, 7, 7, 0], [0, 7, 42, 0], [0, 0, 42, 0]]),
-                dims=["j", "i"],
-                coords={"j": [0, 1, 2, 3], "i": [0, 1, 2, 3]},
-                attrs={"roi_labels": roi_labels},
-            ),
-            np.diag([0.5, 0.5, 1.0]),
-        )
+        # A single 2D slice: singleton `k` restored as a scalar coordinate, matching
+        # what `.isel(k=0)` produces from a real 3D VoxelData array.
+        labels = create_voxeldata(
+            np.array([[[0, 0, 0, 0], [0, 7, 7, 0], [0, 7, 42, 0], [0, 0, 42, 0]]]),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 0.5, 0.5),
+            origin=(0.0, 0.0, 0.0),
+            attrs={"roi_labels": roi_labels},
+        ).isel(k=0)
 
         viewer = make_napari_viewer()
         _, layer = plot_napari(
