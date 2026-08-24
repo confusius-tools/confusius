@@ -10,16 +10,16 @@ model can't represent oblique geometry; axis-aligned data needs no resampling.
 """
 
 import warnings
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import napari
 import numpy as np
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS
+from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, TIME_DIM
 from confusius._utils.geometry import (
-    attach_voxel_to_world_index,
     get_voxel_to_world_affine,
+    get_voxel_to_world_units,
 )
 from confusius._utils.napari import (
     build_direct_label_colormap,
@@ -33,6 +33,7 @@ from confusius.plotting._utils import (
     sort_coords_for_plot,
 )
 from confusius.validation import ensure_voxeldata
+from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
     from napari import Viewer
@@ -168,8 +169,8 @@ def plot_napari(
         data, interpolation=resolved_interpolation, fill_value=resample_fill_value
     )
 
-    all_dims = list(data.dims)
-    time_dim = "time" if "time" in all_dims else None
+    all_dims = [str(dim) for dim in data.dims]
+    time_dim = TIME_DIM if TIME_DIM in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
 
     data = sort_coords_for_plot(data, spatial_dims)
@@ -343,36 +344,32 @@ def draw_napari_labels(
     >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
     """
     data = ensure_voxeldata(data)
-    viewer, _ = plot_napari(data, viewer=viewer, **kwargs)
+    viewer, image_layer = plot_napari(data, viewer=viewer, **kwargs)
+    display_data = cast(xr.DataArray, image_layer.metadata["xarray"])
 
-    # Reuse the same spatial scale and translate that plot_napari computed for
-    # the image layer so the Labels layer overlays correctly.
-    all_dims = list(data.dims)
-    time_dim = "time" if "time" in all_dims else None
-    spatial_dims = [d for d in all_dims if d != time_dim]
+    all_dims = [str(dim) for dim in display_data.dims]
+    time_dim = TIME_DIM if TIME_DIM in all_dims else None
+    spatial_dims = [dim for dim in all_dims if dim != time_dim]
+    spatial_indices = [all_dims.index(dim) for dim in spatial_dims]
+    scale, translate, axis_labels, all_units, _, _ = get_napari_scale_translate_units(
+        display_data
+    )
 
-    spacing = data.fusi.spacing
-    origin = data.fusi.origin
-    world_dim = {"k": "z", "j": "y", "i": "x"}
-    spatial_scale = [
-        s if (s := spacing[dim]) is not None else 1.0 for dim in spatial_dims
-    ]
-    spatial_translate = [
-        origin[world_dim.get(dim, dim)]
-        if world_dim.get(dim, dim) in origin
-        else (
-            np.float64(data.coords[dim].values[0]).item() if dim in data.coords else 0.0
-        )
-        for dim in spatial_dims
-    ]
-    spatial_shape = tuple(data.sizes[d] for d in spatial_dims)
+    labels_array = np.zeros(
+        tuple(display_data.sizes[dim] for dim in spatial_dims), dtype=np.int32
+    )
+    labels_kwargs: dict[str, Any] = {
+        "scale": [scale[i] for i in spatial_indices],
+        "translate": [translate[i] for i in spatial_indices],
+        "axis_labels": [axis_labels[i] for i in spatial_indices],
+        "metadata": {"xarray": display_data, "source_xarray": data},
+    }
+    units = [all_units[i] for i in spatial_indices]
+    if any(unit is not None for unit in units):
+        labels_kwargs["units"] = units
 
-    labels_array = np.zeros(spatial_shape, dtype=np.int32)
     labels_layer = viewer.add_labels(  # type: ignore
-        labels_array,
-        scale=spatial_scale,
-        translate=spatial_translate,
-        name=labels_layer_name,
+        labels_array, name=labels_layer_name, **labels_kwargs
     )
 
     return viewer, labels_layer
@@ -405,20 +402,24 @@ def labels_from_layer(
     Returns
     -------
     xarray.DataArray
-        Stacked integer DataArray with dims `["mask", *spatial_dims]`, where the
-        `mask` coordinate holds each unique non-zero label integer. Each layer
-        `mask=k` has values `k` where the user painted label `k` and `0` elsewhere.
-        This format is directly compatible with
+        Stacked integer VoxelData array where the `mask` coordinate holds each unique
+        non-zero label integer. Each layer has values `m` where the user painted label
+        `m` and `0` elsewhere. This format is directly compatible with
         [`extract_with_labels`][confusius.extract.extract_with_labels],
         [`plot_contours`][confusius.plotting.plot_contours], and
         [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours],
-        and can be sliced by label (e.g. `label_map.sel(mask=2)`) for per-label
-        display. The `attrs` dict carries:
+        and can be sliced by label (e.g. `label_map.sel(mask=2)`) for per-label display.
+        The `attrs` dict carries:
 
-        - `"long_name"` — human-readable name.
-        - `"labels_layer_name"` — name of the source napari layer.
-        - `"rgb_lookup"` — `dict[int, list[int]]` mapping each non-zero
-          label to its `[r, g, b]` color (0–255) as painted in napari.
+        - `"long_name"`: "Drawn label map"
+        - `"labels_layer_name"`: name of the source napari layer.
+        - `"rgb_lookup"`: `dict[int, list[int]]` mapping each non-zero label to its
+          `[r, g, b]` color (0–255) as painted in napari.
+
+    Raises
+    ------
+    ValueError
+        If `labels_layer` does not contain any non-zero labels.
 
     Notes
     -----
@@ -444,19 +445,28 @@ def labels_from_layer(
     >>> from confusius.extract import extract_with_labels
     >>> signals = extract_with_labels(pwd, label_map)
     """
-    all_dims = list(data.dims)
-    time_dim = "time" if "time" in all_dims else None
-    spatial_dims = [d for d in all_dims if d != time_dim]
+    data = ensure_voxeldata(data)
 
-    # Copy only the plain (non-world) coordinates. `z`/`y`/`x` are excluded here since
-    # they are derived by `data`'s VoxelToWorldIndex, not stored plain arrays; copying
-    # them via .items() would materialize dense coordinate arrays and lose the index
-    # (see AGENTS.md: world coordinates are never stored directly). The index is
-    # reattached below via attach_voxel_to_world_index instead.
-    coords = {
+    label_array = np.asarray(labels_layer.data)
+    all_dims = [str(dim) for dim in data.dims]
+    time_dim = TIME_DIM if TIME_DIM in all_dims else None
+    spatial_dims = [d for d in all_dims if d != time_dim]
+    if label_array.shape != tuple(data.sizes[dim] for dim in spatial_dims):
+        metadata_data = getattr(labels_layer, "metadata", {}).get("xarray")
+        if isinstance(metadata_data, xr.DataArray):
+            data = ensure_voxeldata(metadata_data)
+            all_dims = [str(dim) for dim in data.dims]
+            time_dim = TIME_DIM if TIME_DIM in all_dims else None
+            spatial_dims = [d for d in all_dims if d != time_dim]
+
+    # Copy auxiliary spatial coordinates only. Native voxel coords and `pose` are
+    # passed through `create_voxeldata`; derived `z`/`y`/`x` are rebuilt from the index.
+    aux_coords = {
         name: coord
         for name, coord in data.coords.items()
-        if set(coord.dims).issubset(spatial_dims) and name not in SPATIAL_DIMS
+        if set(coord.dims).issubset(spatial_dims)
+        and name not in SPATIAL_DIMS
+        and name not in CORE_DIMS
     }
 
     # Build a color lookup from the napari layer so downstream consumers
@@ -464,7 +474,6 @@ def labels_from_layer(
     # label with exactly the color the user painted in the viewer.
     # get_color() returns RGBA in [0, 1] for any non-zero label and works for
     # both the default CyclicLabelColormap and any DirectLabelColormap.
-    label_array = np.asarray(labels_layer.data)
     unique_labels = np.unique(label_array)
     unique_labels = unique_labels[unique_labels != 0]
     rgb_lookup: dict[int, list[int]] = {}
@@ -480,24 +489,26 @@ def labels_from_layer(
     # mask coordinate holding integer label IDs. This allows per-label slicing
     # (e.g. label_map.sel(mask=2)) and is directly accepted by
     # extract_with_labels, plot_contours, and add_contours.
-    layers = [np.where(label_array == k, k, 0).astype(np.int32) for k in unique_labels]
-    stacked = (
-        np.stack(layers, axis=0)
-        if len(layers) > 0
-        else np.empty((0, *label_array.shape), dtype=np.int32)
-    )
+    if len(unique_labels) == 0:
+        raise ValueError("labels_layer does not contain any non-zero labels.")
 
-    label_map = xr.DataArray(
+    layers = [np.where(label_array == k, k, 0).astype(np.int32) for k in unique_labels]
+    stacked = np.stack(layers, axis=0)
+
+    label_map = create_voxeldata(
         stacked,
         dims=["mask", *spatial_dims],
-        coords={"mask": unique_labels.astype(np.int32), **coords},
+        extra_coords={"mask": unique_labels.astype(np.int32)},
+        pose=data.coords.get(POSE_DIM) if POSE_DIM in spatial_dims else None,
+        k=data.coords.get("k") if "k" in spatial_dims else None,
+        j=data.coords.get("j") if "j" in spatial_dims else None,
+        i=data.coords.get("i") if "i" in spatial_dims else None,
+        voxel_to_world=get_voxel_to_world_affine(data),
+        units=get_voxel_to_world_units(data),
         attrs={
             "long_name": "Drawn label map",
             "labels_layer_name": labels_layer.name,
             "rgb_lookup": rgb_lookup,
         },
     )
-    # Reattach the voxel-to-world index from `data` rather than copying its derived
-    # z/y/x coordinate values (see comment above `coords`), so `label_map` stays
-    # a VoxelData array.
-    return attach_voxel_to_world_index(label_map, get_voxel_to_world_affine(data))
+    return label_map.assign_coords(aux_coords) if aux_coords else label_map

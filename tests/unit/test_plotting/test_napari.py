@@ -58,7 +58,10 @@ class TestPlotNapari:
         """4D layer scale uses fusi.spacing for all dims, including time."""
         viewer = make_napari_viewer()
         _, layer = plot_napari(
-            sample_voxeldata_3dt, viewer=viewer, show_colorbar=False, show_scale_bar=False
+            sample_voxeldata_3dt,
+            viewer=viewer,
+            show_colorbar=False,
+            show_scale_bar=False,
         )
 
         # time: origin=10.0 spacing=0.5; z: origin=1.0 spacing=0.2;
@@ -196,7 +199,9 @@ class TestPlotNapari:
         with pytest.raises(ValueError, match="VoxelToWorldIndex"):
             plot_napari(data)
 
-    def test_non_uniform_spatial_coords_warn(self, sample_voxeldata_3d, make_napari_viewer):
+    def test_non_uniform_spatial_coords_warn(
+        self, sample_voxeldata_3d, make_napari_viewer
+    ):
         data = attach_voxel_to_world_index(
             sample_voxeldata_3d.assign_coords(j=[2, 3, 5, 6, 7, 9]),
             get_voxel_to_world_affine(sample_voxeldata_3d),
@@ -211,7 +216,9 @@ class TestPlotNapari:
             )
         viewer.close()
 
-    def test_image_attrs_cmap_is_forwarded(self, sample_voxeldata_3d, make_napari_viewer):
+    def test_image_attrs_cmap_is_forwarded(
+        self, sample_voxeldata_3d, make_napari_viewer
+    ):
         data = sample_voxeldata_3d.copy()
         data.attrs["cmap"] = "magma"
         viewer = make_napari_viewer()
@@ -265,7 +272,9 @@ class TestPlotNapari:
             )
 
         assert np.issubdtype(np.asarray(layer.data).dtype, np.floating)
-        npt.assert_allclose(np.asarray(layer.data), np.abs(sample_voxeldata_iq_3dt.data))
+        npt.assert_allclose(
+            np.asarray(layer.data), np.abs(sample_voxeldata_iq_3dt.data)
+        )
         viewer.close()
 
     def test_non_monotonic_coords_are_sorted_before_napari(
@@ -370,6 +379,30 @@ class TestDrawNapariLabels:
         npt.assert_allclose(labels_layer.translate, [1.0, 2.0, 3.0], rtol=1e-5)
         viewer.close()
 
+    def test_oblique_labels_match_resampled_image_layer(
+        self, sample_voxeldata_3d_oblique, make_napari_viewer
+    ):
+        """Labels overlay uses the same displayed grid as the image layer."""
+        viewer = make_napari_viewer()
+        _, labels_layer = draw_napari_labels(
+            sample_voxeldata_3d_oblique,
+            viewer=viewer,
+            show_colorbar=False,
+            show_scale_bar=False,
+        )
+        image_layer = viewer.layers[0]
+
+        assert labels_layer.data.shape == image_layer.data.shape
+        npt.assert_allclose(labels_layer.scale, image_layer.scale, rtol=1e-5)
+        npt.assert_allclose(labels_layer.translate, image_layer.translate, rtol=1e-5)
+        assert tuple(labels_layer.axis_labels) == tuple(image_layer.axis_labels)
+        painted = np.asarray(labels_layer.data)
+        painted[0, 0, 0] = 1
+        label_map = labels_from_layer(labels_layer, sample_voxeldata_3d_oblique)
+        assert label_map.shape[1:] == labels_layer.data.shape
+        assert has_voxel_to_world_index(label_map)
+        viewer.close()
+
     def test_strips_time_dim_from_labels_shape(
         self, sample_voxeldata_3dt, make_napari_viewer
     ):
@@ -389,9 +422,7 @@ class TestDrawNapariLabels:
 class TestLabelsFromLayer:
     """Tests for labels_from_layer."""
 
-    def test_no_labels_returns_empty_mask_stack(
-        self, sample_voxeldata_3d, make_napari_viewer
-    ) -> None:
+    def test_no_labels_raises(self, sample_voxeldata_3d, make_napari_viewer) -> None:
         viewer = make_napari_viewer()
         _, labels_layer = draw_napari_labels(
             sample_voxeldata_3d,
@@ -399,9 +430,8 @@ class TestLabelsFromLayer:
             show_colorbar=False,
             show_scale_bar=False,
         )
-        result = labels_from_layer(labels_layer, sample_voxeldata_3d)
-        assert result.dims == ("mask", "k", "j", "i")
-        assert result.sizes["mask"] == 0
+        with pytest.raises(ValueError, match="non-zero labels"):
+            labels_from_layer(labels_layer, sample_voxeldata_3d)
         viewer.close()
 
     def test_multiple_labels_stack_as_sorted_disjoint_slices(
