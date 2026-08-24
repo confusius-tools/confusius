@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import xarray as xr
 
-from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import POSE_DIM, SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
@@ -119,21 +119,6 @@ def _bilinear_interpolate_grid(
     top = grid[row0, col0] * (1 - frac_col) + grid[row0, col1] * frac_col
     bottom = grid[row1, col0] * (1 - frac_col) + grid[row1, col1] * frac_col
     return top * (1 - frac_row) + bottom * frac_row
-
-
-def _has_plottable_voxel_to_world_index(data: xr.DataArray) -> bool:
-    """Return whether `data` carries voxel-to-world geometry metadata.
-
-    `pose` is allowed here (unlike most single-grid geometry helpers) so that
-    world-coordinate axis labels/ticks are used for `slice_mode="pose"` faceting;
-    functions that actually need one grid (e.g. resampling onto an axis-aligned
-    world grid) still require a scalar pose via
-    [require_scalar_pose_affine][confusius._utils.geometry.require_scalar_pose_affine],
-    raising clearly instead of silently doing the wrong thing.
-    """
-    return has_voxel_to_world_index(data) and all(
-        str(dim) in CORE_DIMS for dim in data.dims
-    )
 
 
 def _validate_slice_mode(data: xr.DataArray, slice_mode: str) -> None:
@@ -304,17 +289,13 @@ def _resample_slice_axis_to_world_grid_keep_index(
     `resample_in_plane=True` also forces the in-plane axes onto the global frame
     (see `compute_slice_axis_aligned_grid_geometry`'s own parameter doc).
 
-    Returns `None` when `data` doesn't need resampling for `slice_mode` (no
-    plottable index, or `slice_mode` isn't a spatial world axis) -- callers fall
-    back to `data` itself in that case. The returned `SliceAxisGrid` is `None`
-    when `data` is already axis-aligned on every axis (nothing to resample, so
-    nothing to establish for later volumes to share either).
+    Returns `None` when `data` doesn't need resampling for `slice_mode` (`slice_mode`
+    isn't a spatial world axis) -- callers fall back to `data` itself in that case.
+    The returned `SliceAxisGrid` is `None` when `data` is already axis-aligned on
+    every axis (nothing to resample, so nothing to establish for later volumes to
+    share either).
     """
-    if not _has_plottable_voxel_to_world_index(data) or slice_mode not in {
-        "z",
-        "y",
-        "x",
-    }:
+    if slice_mode not in SPATIAL_DIMS:
         return None
     world_dims = get_voxel_to_world_coord_names(data)
     if slice_mode not in world_dims:
@@ -346,7 +327,7 @@ def _slice_edges_and_centers(
     fixed-global-basis mode (see its docstring); if not provided, the basis is
     derived from `slice_da`'s own affine instead.
     """
-    if _has_plottable_voxel_to_world_index(slice_da):
+    if has_voxel_to_world_index(slice_da):
         return _project_voxel_to_world_plane(
             slice_da, dim_row, dim_col, world_row=world_row, world_col=world_col
         )
@@ -655,7 +636,7 @@ def _build_axis_label(
         da = ensure_voxeldata(da)
     except (TypeError, ValueError):
         pass
-    if dim != POSE_DIM and _has_plottable_voxel_to_world_index(da):
+    if dim != POSE_DIM and has_voxel_to_world_index(da):
         return f"{dim} in-plane (mm)"
 
     label = dim
@@ -1032,7 +1013,7 @@ class VolumePlotter:
             World coordinate name for the display column axis, or `None`.
         """
         if self.slice_mode in SPATIAL_DIMS:
-            if not slices or not _has_plottable_voxel_to_world_index(slices[0]):
+            if not slices or not has_voxel_to_world_index(slices[0]):
                 return None, None
             world_dims = get_voxel_to_world_coord_names(slices[0])
             remaining = [d for d in world_dims if d != self.slice_mode]
@@ -1294,10 +1275,8 @@ class VolumePlotter:
         per-call choice, not shared/reused across other volumes on this plotter
         the way `self._slice_axis_grid` is.
         """
-        data = coerce_complex_to_magnitude(data, caller=caller)
-
         data = ensure_voxeldata(data)
-
+        data = coerce_complex_to_magnitude(data, caller=caller)
         # Data is computed here to avoid repeated computations of the same Dask graph
         # downstream (per-panel .isel, etc.).
         data = data.compute()
@@ -1307,6 +1286,7 @@ class VolumePlotter:
         resolved_interpolation = (
             self._resample_interpolation if interpolation is None else interpolation
         )
+
         resampled = _resample_slice_axis_to_world_grid_keep_index(
             data,
             self.slice_mode,
@@ -1330,9 +1310,8 @@ class VolumePlotter:
             data = _materialize_axis_aligned_world_grid_for_display(resampled_data)
         else:
             # Reached for slice_mode="z"/"y"/"x" only when the whole-array resample
-            # above no-opped (index not "plottable" -- an extra facet dim still
-            # present; caught by the ndim check below either way), and for any
-            # non-spatial slice_mode.
+            # above no-opped (slice_mode isn't one of data's world dims, e.g. 2D
+            # data missing that axis), and for any non-spatial slice_mode.
             converted = _materialize_axis_aligned_world_grid_for_display(data)
             data = converted if self.slice_mode in converted.dims else data
         # A single-index selection (e.g. data.sel(z=6)) drops slice_mode to a scalar
