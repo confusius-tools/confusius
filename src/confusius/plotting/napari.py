@@ -26,10 +26,10 @@ from confusius._utils.napari import (
     build_roi_labels_features,
     get_napari_scale_translate_units,
 )
+from confusius._utils.plotting import resample_to_axis_aligned_world_grid
 from confusius._utils.stack import find_stack_level
 from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
-    resample_to_axis_aligned_world_grid,
     sort_coords_for_plot,
 )
 from confusius.validation import ensure_voxeldata

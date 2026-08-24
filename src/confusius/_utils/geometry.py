@@ -415,7 +415,7 @@ class VoxelToWorldIndex(Index):
         dimension -- true for every row on ordinary axis-aligned geometry, but also
         true for just one row of an otherwise-oblique affine (e.g. a slice axis
         pinned to a global direction, as produced by
-        [compute_slice_axis_aligned_grid_geometry][confusius.plotting._utils.compute_slice_axis_aligned_grid_geometry],
+        [compute_slice_axis_aligned_grid_geometry][confusius.plotting.image.compute_slice_axis_aligned_grid_geometry],
         while the remaining in-plane axes stay genuinely oblique). If any requested
         row depends on more than one voxel dimension, the whole query instead
         delegates to `CoordinateTransformIndex.sel`, which only supports point-wise

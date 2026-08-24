@@ -681,7 +681,7 @@ class TestPlotVolume:
         oblique: still varying over both in-plane voxel dims, not reducible to a
         1D per-axis diff at all.
         """
-        from confusius.plotting._utils import compute_slice_axis_aligned_grid_geometry
+        from confusius.plotting.image import compute_slice_axis_aligned_grid_geometry
 
         data = sample_voxeldata_3d_oblique
         _, _, expected_spacing, _, _ = compute_slice_axis_aligned_grid_geometry(
@@ -759,7 +759,7 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         """A plain reference DataArray missing one world coordinate falls back to
         an origin of 0.0 and spacing of 1.0 for that axis, instead of raising.
         """
-        from confusius.plotting._utils import resample_to_axis_aligned_world_grid
+        from confusius._utils.plotting import resample_to_axis_aligned_world_grid
 
         data = sample_voxeldata_3d_oblique
         # `z` is a real dimension but carries no coordinate values at all.
@@ -790,7 +790,7 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         by zero downstream. Assert the exact spacing values (matching
         `.fusi.spacing`), not just that resampling doesn't crash.
         """
-        from confusius.plotting._utils import resample_to_axis_aligned_world_grid
+        from confusius._utils.plotting import resample_to_axis_aligned_world_grid
 
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
@@ -828,7 +828,7 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         voxel dimension dominating a world axis has irregularly spaced coordinates,
         since no single spacing value can represent it on the output grid.
         """
-        from confusius.plotting._utils import resample_to_axis_aligned_world_grid
+        from confusius._utils.plotting import resample_to_axis_aligned_world_grid
 
         data = xr.DataArray(
             np.arange(3 * 3 * 4, dtype=float).reshape(3, 3, 4),

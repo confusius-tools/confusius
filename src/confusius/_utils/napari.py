@@ -176,7 +176,7 @@ def convert_dataarray_to_layer_data(
     layer_type : {"image", "labels"}
         Napari layer type inferred from `da.dtype`.
     """
-    from confusius.plotting._utils import resample_to_axis_aligned_world_grid
+    from confusius._utils.plotting import resample_to_axis_aligned_world_grid
 
     # Resampling an oblique input onto an axis-aligned world grid keeps the
     # voxel-to-world index (see resample_to_axis_aligned_world_grid); already
