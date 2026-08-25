@@ -1,65 +1,30 @@
-"""Tests for IQ data validation utilities."""
+"""Tests for IQ-related VoxelData validation options."""
 
 import numpy as np
 import pytest
 import xarray as xr
 
-from confusius.validation import validate_iq_dataarray
+from confusius.validation import validate_voxeldata
+from confusius.xarray import create_voxeldata
 
 
-class TestValidateIqDataArray:
-    """Tests for `validate_iq_dataarray`."""
+class TestValidateVoxeldataVelocityAttrs:
+    """Tests for `validate_voxeldata(require_velocity_attrs=True)`."""
 
     @pytest.fixture
     def valid_iq_dataarray(self) -> xr.DataArray:
-        """Create a valid IQ DataArray with all required attributes."""
-        return xr.DataArray(
+        """Create a valid VoxelData array with velocity metadata."""
+        return create_voxeldata(
             np.ones((10, 4, 6, 8), dtype=np.complex64),
-            dims=("time", "z", "y", "x"),
-            coords={
-                "time": np.arange(10),
-                "z": np.arange(4),
-                "y": np.arange(6),
-                "x": np.arange(8),
-            },
+            dims=("time", "k", "j", "i"),
+            time=xr.DataArray(np.arange(10) * 0.1, dims=("time",), attrs={"units": "s"}),
             attrs={
                 "transmit_frequency": 15.625e6,
                 "beamforming_sound_velocity": 1540.0,
             },
+            spacing=(0.1, 0.05, 0.05),
+            origin=(0.0, 0.0, 0.0),
         )
-
-    def test_wrong_dimensions_raises(self, valid_iq_dataarray: xr.DataArray) -> None:
-        """DataArray with wrong dimensions raises `ValueError`."""
-        iq = valid_iq_dataarray.rename({"time": "t"})
-
-        with pytest.raises(ValueError, match="must have a 'time' dimension"):
-            validate_iq_dataarray(iq)
-
-    def test_missing_coordinates_raises(self) -> None:
-        """Missing required coordinates raises `ValueError`."""
-        iq = xr.DataArray(
-            np.ones((10, 4, 6, 8), dtype=np.complex64),
-            dims=("time", "z", "y", "x"),
-            coords={
-                "time": np.arange(10),
-                "z": np.arange(4),
-                "y": np.arange(6),
-            },
-            attrs={
-                "transmit_frequency": 15.625e6,
-                "beamforming_sound_velocity": 1540.0,
-            },
-        )
-
-        with pytest.raises(ValueError, match="Missing required coordinate"):
-            validate_iq_dataarray(iq)
-
-    def test_non_complex_data_raises(self, valid_iq_dataarray: xr.DataArray) -> None:
-        """Non-complex IQ data raises `TypeError`."""
-        iq = valid_iq_dataarray.real
-
-        with pytest.raises(TypeError, match="Expected complex-valued data"):
-            validate_iq_dataarray(iq)
 
     @pytest.mark.parametrize(
         "missing_attr",
@@ -76,28 +41,33 @@ class TestValidateIqDataArray:
         del iq.attrs[missing_attr]
 
         with pytest.raises(ValueError, match="Missing required DataArray attributes"):
-            validate_iq_dataarray(iq, require_attrs=True)
+            validate_voxeldata(iq, require_velocity_attrs=True)
 
     def test_require_attrs_false_skips_attribute_validation(
         self, valid_iq_dataarray: xr.DataArray
     ) -> None:
-        """`require_attrs=False` skips attribute validation."""
+        """`require_velocity_attrs=False` skips attribute validation."""
         iq = valid_iq_dataarray.copy()
         del iq.attrs["transmit_frequency"]
 
-        validate_iq_dataarray(iq, require_attrs=False)
+        validate_voxeldata(iq, require_velocity_attrs=False)
 
-    def test_multiple_missing_attributes_in_error_message(
+    def test_require_dtype_rejects_non_complex_data(
         self, valid_iq_dataarray: xr.DataArray
     ) -> None:
-        """Error message lists all missing attributes."""
+        """`require_dtype` validates the DataArray dtype."""
+        iq = valid_iq_dataarray.real
+
+        with pytest.raises(TypeError, match="Expected data dtype compatible"):
+            validate_voxeldata(iq, require_dtype=np.complexfloating)
+
+    @pytest.mark.parametrize("value", [0.0, -1.0, np.nan, np.inf, "bad"])
+    def test_velocity_attrs_must_be_positive_finite(
+        self, valid_iq_dataarray: xr.DataArray, value: float | str
+    ) -> None:
+        """Velocity attributes must be positive finite numbers."""
         iq = valid_iq_dataarray.copy()
-        del iq.attrs["transmit_frequency"]
-        del iq.attrs["beamforming_sound_velocity"]
+        iq.attrs["transmit_frequency"] = value
 
-        with pytest.raises(ValueError) as exc_info:
-            validate_iq_dataarray(iq, require_attrs=True)
-
-        error_msg = str(exc_info.value)
-        assert "transmit_frequency" in error_msg
-        assert "beamforming_sound_velocity" in error_msg
+        with pytest.raises(ValueError, match="transmit_frequency must be positive and finite"):
+            validate_voxeldata(iq, require_velocity_attrs=True)

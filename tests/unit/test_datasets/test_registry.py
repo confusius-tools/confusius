@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-
 from confusius.datasets import list_datasets
 from confusius.datasets._registry import _REGISTRY
-
 
 # ---------------------------------------------------------------------------
 # _REGISTRY

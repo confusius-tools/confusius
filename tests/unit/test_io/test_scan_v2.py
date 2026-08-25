@@ -9,10 +9,11 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius.io.scan import (
-    PHYSICAL_TO_PROBE_PERMUTATION,
     _SCAN_V2_OFFSETS,
     SCAN_V2_MAGIC,
+    WORLD_TO_PROBE_PERMUTATION,
     load_bps,
     load_scan,
 )
@@ -23,6 +24,20 @@ _SIZE_Z = 3
 _N_TIME = 5
 _NPOSE = 1
 _NBLOCK = 1
+
+_VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
+
+
+def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = da.coords[name]
+    dim = _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
+
+
 _DT = 0.4
 _DX_M = 0.00011
 _DY_M = 0.0004
@@ -199,12 +214,13 @@ def _write_scan_v2(
             _ACQ_DEPTH_START if depth_start is None else depth_start,
             corrupt=corrupt_acquisition,
         )
-    elif depth_start is not None:
-        # Just an adjacent (start, end) depth-range pair for the span-search.
-        depth_end = depth_start + (size_z - 1) * _DZ_M * 1e3
-        head_bytes = struct.pack("<dd", depth_start, depth_end)
     else:
-        head_bytes = b""
+        pose = (5.0, *_POSE[1:]) if corrupt_acquisition == "pose" else (0.0,) * 6
+        head_bytes = struct.pack(f"<{n_time}I", *range(n_time))
+        head_bytes += struct.pack("<6d", *pose) + struct.pack("<Q", 1) + bytes(8)
+        if depth_start is not None:
+            depth_end = depth_start + (size_z - 1) * _DZ_M * 1e3
+            head_bytes += struct.pack("<dd", depth_start, depth_end)
 
     string_bytes = bytearray()
     for text in strings:
@@ -354,8 +370,8 @@ class TestLoadScanV2:
     """Tests for load_scan dispatching to the binary v2 loader."""
 
     def test_dims(self, scan_v2: xr.DataArray) -> None:
-        """Single-pose v2 produces dims (time, z, y, x)."""
-        assert scan_v2.dims == ("time", "z", "y", "x")
+        """Single-pose v2 produces voxel-to-world dims (time, k, j, i)."""
+        assert scan_v2.dims == ("time", "k", "j", "i")
 
     def test_shape(self, scan_v2: xr.DataArray) -> None:
         """Shape maps Iconeus (sizeY, sizeZ, sizeX) to ConfUSIus (z, y, x)."""
@@ -381,21 +397,26 @@ class TestLoadScanV2:
         assert scan_v2.coords["time"].attrs["units"] == "s"
         assert scan_v2.coords["time"].attrs["volume_acquisition_reference"] == "end"
 
-    def test_spatial_voxdim(self, scan_v2: xr.DataArray) -> None:
-        """Voxel dimensions come from the header spacings, in mm."""
-        np.testing.assert_allclose(scan_v2.coords["x"].attrs["voxdim"], _DX_M * 1e3)
-        np.testing.assert_allclose(scan_v2.coords["z"].attrs["voxdim"], _DY_M * 1e3)
-        np.testing.assert_allclose(scan_v2.coords["y"].attrs["voxdim"], _DZ_M * 1e3)
+    def test_elevation_spacing_from_header(self, scan_v2: xr.DataArray) -> None:
+        """Elevation (z, singleton) spacing comes from the header spacing, in mm.
+
+        The elevation axis has a single voxel, so its spacing can't be recovered
+        from coordinate steps -- it must come from the voxel-to-world affine
+        itself, matching the `y_voxel_m` header field.
+        """
+        affine = get_voxel_to_world_affine(scan_v2)
+        spacing_z = np.linalg.norm(affine[:3, 0])
+        np.testing.assert_allclose(spacing_z, _DY_M * 1e3)
 
     def test_lateral_coord_centered(self, scan_v2: xr.DataArray) -> None:
         """Lateral (x) coordinate is centered on zero with correct spacing."""
         expected = (np.arange(_SIZE_X) - (_SIZE_X - 1) / 2) * _DX_M * 1e3
-        np.testing.assert_allclose(scan_v2.coords["x"].values, expected)
+        np.testing.assert_allclose(_world_coord_1d(scan_v2, "x"), expected)
 
     def test_depth_coord_from_zero(self, scan_v2: xr.DataArray) -> None:
         """Depth (y) coordinate starts at zero when no depth range is in the header."""
         expected = np.arange(_SIZE_Z) * _DZ_M * 1e3
-        np.testing.assert_allclose(scan_v2.coords["y"].values, expected)
+        np.testing.assert_allclose(_world_coord_1d(scan_v2, "y"), expected)
 
     def test_depth_origin_recovered(self, tmp_path: Path) -> None:
         """Depth (y) origin is recovered from an embedded depth-range pair."""
@@ -403,22 +424,22 @@ class TestLoadScanV2:
         _write_scan_v2(path, _raw_payload(), depth_start=1.0)
         da = load_scan(path)
         expected = 1.0 + np.arange(_SIZE_Z) * _DZ_M * 1e3
-        np.testing.assert_allclose(da.coords["y"].values, expected)
+        np.testing.assert_allclose(_world_coord_1d(da, "y"), expected)
 
     def test_single_depth_voxel_zero_origin(self, tmp_path: Path) -> None:
         """A single-depth-voxel file has no span to match, so the origin is zero."""
         path = tmp_path / "scan_v2_depth1.scan"
         _write_scan_v2(path, _raw_payload(size_z=1), size_z=1)
         da = load_scan(path)
-        np.testing.assert_array_equal(da.coords["y"].values, [0.0])
+        np.testing.assert_array_equal(_world_coord_1d(da, "y"), [0.0])
 
     def test_spatial_units_mm(self, scan_v2: xr.DataArray) -> None:
         """Spatial coordinates are in mm."""
         for dim in ("x", "y", "z"):
             assert scan_v2.coords[dim].attrs["units"] == "mm"
 
-    def test_no_physical_to_lab(self, scan_v2: xr.DataArray) -> None:
-        """v2 carries an empty affines dict (no physical_to_lab yet)."""
+    def test_no_probe_to_lab(self, scan_v2: xr.DataArray) -> None:
+        """v2 carries an empty affines dict (no probe_to_lab yet)."""
         assert scan_v2.attrs["affines"] == {}
 
     def test_scan_format_attr(self, scan_v2: xr.DataArray) -> None:
@@ -462,33 +483,16 @@ class TestLoadScanV2:
 
 
 class TestLoadScanV2Multipose:
-    """Tests for multi-pose v2 files (inferred layout)."""
+    """Multi-pose v2 files are currently unsupported.
 
-    def test_dims(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose v2 produces dims (time, pose, z, y, x)."""
-        da = load_scan(scan_v2_multipose_path)
-        assert da.dims == ("time", "pose", "z", "y", "x")
+    How v2 encodes per-pose geometry isn't known yet, and ConfUSIus requires a
+    `pose` dimension to carry a genuine per-pose voxel-to-world affine.
+    """
 
-    def test_shape(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose shape keeps pose and maps elevation to z."""
-        da = load_scan(scan_v2_multipose_path)
-        assert da.shape == (_N_TIME, 2, 2, _SIZE_Z, _SIZE_X)
-
-    def test_pose_coord(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose v2 has an integer pose coordinate."""
-        da = load_scan(scan_v2_multipose_path)
-        np.testing.assert_array_equal(da.coords["pose"].values, np.arange(2))
-
-    def test_scan_mode_attr(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose v2 with time is reported as 4Dscan."""
-        da = load_scan(scan_v2_multipose_path)
-        assert da.attrs["iconeus_scan_mode"] == "4Dscan"
-
-    def test_values(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose loaded values match the swapped payload."""
-        da = load_scan(scan_v2_multipose_path)
-        expected = _expected_confusius(_raw_payload(size_y=2, npose=2))
-        np.testing.assert_array_equal(da.values, expected)
+    def test_raises(self, scan_v2_multipose_path: Path) -> None:
+        """Loading a multi-pose v2 file raises a clear, actionable error."""
+        with pytest.raises(ValueError, match="multiple poses"):
+            load_scan(scan_v2_multipose_path)
 
 
 class TestLoadScanV2Multiblock:
@@ -497,7 +501,7 @@ class TestLoadScanV2Multiblock:
     def test_shape_folds_block_into_time(self, scan_v2_multiblock_path: Path) -> None:
         """nblock_repeat is merged into time: T = n_time * nblock_repeat."""
         da = load_scan(scan_v2_multiblock_path)
-        assert da.dims == ("time", "z", "y", "x")
+        assert da.dims == ("time", "k", "j", "i")
         assert da.shape == (_N_TIME * 2, _SIZE_Y, _SIZE_Z, _SIZE_X)
 
     def test_values(self, scan_v2_multiblock_path: Path) -> None:
@@ -556,29 +560,47 @@ class TestLoadScanV2Acquisition:
         assert scan_v2_acq.attrs["svd_low_cutoff"] == _SVD_CUTOFF
         assert scan_v2_acq.attrs["power_doppler_integration_window"] == _PD_WINDOW
 
-    def test_physical_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
-        """physical_to_lab is built from the 6DOF pose, matching the v1 permutation."""
+    def test_probe_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
+        """probe_to_lab (folded into the primary affine) is built from the 6DOF pose.
+
+        probe_to_lab is no longer exposed separately in attrs (ConfUSIus world
+        coordinates for SCAN data are already lab space -- it is folded into the
+        primary voxel-to-world affine at construction). This reconstructs the known
+        local (pre-fold) affine from the fixture's own voxel-size/depth-origin
+        constants and checks probe_to_lab @ local == the loaded primary affine.
+        """
         tx, ty, tz, _, _, rz = _POSE
         cz, sz = math.cos(rz), math.sin(rz)
         probe_to_lab = np.eye(4)
         probe_to_lab[:3, :3] = [[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]]
         probe_to_lab[:3, 3] = (tx, ty, tz)
-        perm = np.asarray(PHYSICAL_TO_PROBE_PERMUTATION)
-        expected = perm.T @ probe_to_lab @ perm
-        expected[:3, 3] *= 1e3
+        perm = np.asarray(WORLD_TO_PROBE_PERMUTATION)
+        probe_to_lab = perm.T @ probe_to_lab @ perm
+        probe_to_lab[:3, 3] *= 1e3
 
-        affine = np.asarray(scan_v2_acq.attrs["affines"]["physical_to_lab"])
-        np.testing.assert_allclose(affine, expected, atol=1e-9)
+        local_affine = np.eye(4)
+        local_affine[:3, :3] = np.diag([_DY_M * 1e3, _DZ_M * 1e3, _DX_M * 1e3])
+        local_affine[:3, 3] = [
+            -((_SIZE_Y - 1) / 2) * _DY_M * 1e3,
+            _ACQ_DEPTH_START,
+            -((_SIZE_X - 1) / 2) * _DX_M * 1e3,
+        ]
 
-    def test_affine_skipped_on_implausible_pose(self, tmp_path: Path) -> None:
-        """An implausible pose yields no affine, but other fields still load."""
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(scan_v2_acq),
+            probe_to_lab @ local_affine,
+            atol=1e-9,
+        )
+        assert "probe_to_lab" not in scan_v2_acq.attrs.get("affines", {})
+
+    def test_implausible_pose_raises(self, tmp_path: Path) -> None:
+        """An implausible v2 pose fails loading instead of using probe geometry."""
         path = tmp_path / "scan_v2_badpose.scan"
         _write_scan_v2(
             path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
         )
-        da = load_scan(path)
-        assert "probe_model" in da.attrs
-        assert "physical_to_lab" not in da.attrs["affines"]
+        with pytest.raises(ValueError, match="probe-pose block"):
+            load_scan(path)
 
     def test_acquisition_absent_when_block_missing(self, scan_v2: xr.DataArray) -> None:
         """Without a valid acquisition block, probe/sequence fields are not emitted.
@@ -621,28 +643,30 @@ class TestLoadScanV2WithBPS:
         _write_scan_v2(path, _raw_payload(), acquisition=True)
         return path
 
-    def test_physical_to_brain_composed(
+    def test_world_to_brain_composed(
         self, scan_v2_acq_path: Path, bps_path: Path
     ) -> None:
-        """bps_path adds a physical_to_brain affine composed from physical_to_lab."""
-        physical_to_lab = np.asarray(
-            load_scan(scan_v2_acq_path).attrs["affines"]["physical_to_lab"]
-        )
+        """bps_path adds a world_to_brain affine mapping world (already lab) to brain.
+
+        ConfUSIus world coordinates are already lab space (probe_to_lab is folded
+        into the primary voxel-to-world affine at construction), so world_to_brain
+        no longer composes with a separately stored probe_to_lab.
+        """
         da = load_scan(scan_v2_acq_path, bps_path=bps_path)
-        expected = np.linalg.inv(load_bps(bps_path)) @ physical_to_lab
+        expected = np.linalg.inv(load_bps(bps_path))
         np.testing.assert_allclose(
-            da.attrs["affines"]["physical_to_brain"], expected, atol=1e-12
+            da.attrs["affines"]["world_to_brain"], expected, atol=1e-12
         )
 
-    def test_bps_rejected_without_affine(self, tmp_path: Path, bps_path: Path) -> None:
-        """bps_path raises when no physical_to_lab affine could be built."""
+    def test_implausible_pose_rejected_before_bps(
+        self, tmp_path: Path, bps_path: Path
+    ) -> None:
+        """v2 files with implausible pose fail loading, with or without bps_path."""
         path = tmp_path / "scan_v2_noaffine.scan"
         _write_scan_v2(
             path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
         )
-        with pytest.raises(
-            ValueError, match="no physical_to_lab affine could be built"
-        ):
+        with pytest.raises(ValueError, match="probe-pose block"):
             load_scan(path, bps_path=bps_path)
 
 

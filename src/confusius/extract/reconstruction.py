@@ -1,7 +1,15 @@
-"""Reconstruction of fUSI DataArrays from N-D signals using masks."""
+"""Reconstruction of VoxelData arrays from N-D signals using masks."""
 
 import numpy as np
 import xarray as xr
+
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_units,
+)
+from confusius.validation import ensure_voxeldata
+from confusius.validation.mask import check_mask_dtype
 
 
 def unmask(
@@ -12,7 +20,7 @@ def unmask(
     attrs: dict | None = None,
     fill_value: float = 0.0,
 ) -> xr.DataArray:
-    """Reconstruct a fUSI DataArray from N-D signals using a mask.
+    """Reconstruct a VoxelData array from N-D signals using a mask.
 
     Parameters
     ----------
@@ -28,10 +36,11 @@ def unmask(
           coordinates.
 
     mask : xarray.DataArray
-        Mask used for the original extraction. Provides spatial dimensions and
-        coordinates for reconstruction. Must be either boolean dtype, or integer dtype
-        with exactly one non-zero value (0 = background, one region id = foreground).
-        Spatial dimensions and coordinates must match the original data.
+        VoxelData mask used for the original extraction. Provides spatial dimensions,
+        coordinates, and `VoxelToWorldIndex` for reconstruction. Must be either
+        boolean dtype, or integer dtype with exactly one non-zero value (0 =
+        background, one region id = foreground). Spatial dimensions and coordinates
+        must match the original data.
     new_dims : list of str, optional
         Names for leading dimensions when `signals` is a Numpy array. Must match the
         number of leading dimensions `(ndim - 1)`. If not provided, uses `["dim_0",
@@ -48,44 +57,49 @@ def unmask(
     Returns
     -------
     xarray.DataArray
-        Reconstructed DataArray with shape `(..., z, y, x)` where spatial
-        coordinates come from the mask.
+        Reconstructed VoxelData array with shape `(..., *mask.dims)`, where spatial
+        dimensions, coordinates, and the derived world `z`/`y`/`x` coordinates come
+        from the mask.
 
     Raises
     ------
     ValueError
-        If `signals` shape doesn't match `mask`, or if `new_dims`/`new_dims_coords`
-        are inconsistent with `signals` shape.
+        If `mask` isn't a valid VoxelData array, if `signals` shape doesn't match
+        `mask`, or if `new_dims`/`new_dims_coords` are inconsistent with `signals`
+        shape.
+    TypeError
+        If `mask` is not boolean dtype (or a single-label integer dtype).
 
     Examples
     --------
-    >>> import xarray as xr
     >>> import numpy as np
     >>> from confusius.extract import extract_with_mask, unmask
-    >>> from sklearn.decomposition import PCA
+    >>> from confusius.xarray import create_voxeldata
+    >>> from sklearn.cluster import KMeans
     >>>
-    >>> # Load data and mask
-    >>> data = xr.open_zarr("recording.zarr")["power_doppler"]
-    >>> mask = xr.open_zarr("brain_mask.zarr")["mask"]
-    >>>
-    >>> # Extract signals
-    >>> signals = extract_with_mask(data, mask)
-    >>>
-    >>> # Apply PCA
-    >>> pca = PCA(n_components=5)
-    >>> components = pca.fit_transform(signals.values)  # (time, 5)
-    >>>
-    >>> # Unmask - 2D case
-    >>> spatial_pca = unmask(
-    ...     components.T,  # (5, n_voxels)
-    ...     mask,
-    ...     new_dims=["component"],
+    >>> data = create_voxeldata(
+    ...     np.random.rand(10, 4, 5, 6),
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.5,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> spatial_pca.dims
-    ("component", "z", "y", "x")
+    >>> mask = create_voxeldata(
+    ...     np.random.rand(4, 5, 6) > 0.5, dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+    ... )
     >>>
-    >>> # Unmask - 3D case with custom coords
-    >>> pose_data = np.random.randn(5, 3, n_voxels)  # (component, pose, space)
+    >>> # Extract signals into a (time, space) matrix, then cluster voxel time-courses.
+    >>> # Clustering needs the flat voxel axis as samples, so this can't be done
+    >>> # directly on the gridded (k, j, i) array.
+    >>> signals = extract_with_mask(data, mask)
+    >>> labels = KMeans(n_clusters=3, n_init="auto").fit_predict(signals.values.T)
+    >>>
+    >>> # Unmask - reconstruct the cluster labels as a spatial map, no extra dims
+    >>> cluster_map = unmask(labels, mask, fill_value=-1)
+    >>> cluster_map.dims
+    ('k', 'j', 'i')
+    >>>
+    >>> # Unmask - two extra dims, with custom coords
+    >>> pose_data = np.random.randn(5, 3, signals.sizes["space"])  # (component, pose, space)
     >>> spatial_pose = unmask(
     ...     pose_data,
     ...     mask,
@@ -93,25 +107,13 @@ def unmask(
     ...     new_dims_coords={"component": [1, 2, 3, 4, 5], "pose": [0, 1, 2]},
     ... )
     >>> spatial_pose.dims
-    ("component", "pose", "z", "y", "x")
+    ('component', 'pose', 'k', 'j', 'i')
     """
+    mask = ensure_voxeldata(mask, allow_extra_dims=True)
+    check_mask_dtype(mask, "mask")
     mask_values = mask.values
-    if np.issubdtype(mask_values.dtype, np.bool_):
-        pass
-    elif np.issubdtype(mask_values.dtype, np.integer):
-        non_zero = np.unique(mask_values[mask_values != 0])
-        if len(non_zero) > 1:
-            raise TypeError(
-                "mask has integer dtype with multiple distinct non-zero values. "
-                "A mask must be boolean or have exactly one non-zero label "
-                "(0 = background, one region id = foreground)."
-            )
-    else:
-        raise TypeError(
-            f"mask must be boolean dtype or a single-label integer dtype, got {mask_values.dtype}."
-        )
 
-    n_voxels_mask = int(np.count_nonzero(mask_values))
+    n_voxels_mask = np.int64(np.count_nonzero(mask_values)).item()
 
     if isinstance(signals, np.ndarray):
         if signals.shape[-1] != n_voxels_mask:
@@ -184,7 +186,7 @@ def unmask(
 
         output_data = np.full(output_shape, fill_value, dtype=signals.dtype)
 
-        n_extra = int(np.prod([signals.sizes[d] for d in extra_dims]))
+        n_extra = np.int64(np.prod([signals.sizes[d] for d in extra_dims])).item()
         output_flat = output_data.reshape(n_extra, -1)
         signals_flat = signals.values.reshape(n_extra, -1)
         output_flat[:, mask_flat] = signals_flat
@@ -202,9 +204,12 @@ def unmask(
 
         coords = {d: mask.coords[d] for d in spatial_dims}
 
-    return xr.DataArray(
+    result = xr.DataArray(
         output_data,
         dims=output_dims,
         coords=coords,
         attrs=attrs if attrs is not None else {},
+    )
+    return attach_voxel_to_world_index(
+        result, get_voxel_to_world_affine(mask), units=get_voxel_to_world_units(mask)
     )

@@ -7,6 +7,7 @@ from numpy.testing import assert_allclose
 from scipy import stats as sp_stats
 
 from confusius.qc import compute_dvars
+from confusius.xarray import create_voxeldata
 
 
 def generate_ar1_signals(
@@ -216,13 +217,10 @@ class TestInputValidation:
         with pytest.raises(ValueError, match="more than 1 timepoint"):
             compute_dvars(signals)
 
-    def test_3d_input_raises(self):
-        """3D input (without time dimension) must raise ValueError."""
-        data = np.random.standard_normal((10, 10, 10))
-        signals = xr.DataArray(data, dims=["z", "y", "x"])
-
+    def test_3d_input_raises(self, sample_voxeldata_3d):
+        """3D VoxelData without time dimension must raise ValueError."""
         with pytest.raises(ValueError, match="must have a 'time' dimension"):
-            compute_dvars(signals)
+            compute_dvars(sample_voxeldata_3d)
 
 
 class TestNDInput:
@@ -241,14 +239,15 @@ class TestNDInput:
         for t in range(1, n_time):
             data[t] = ar1_coef * data[t - 1] + rng.standard_normal(shape[1:])
 
-        signals_4d = xr.DataArray(
+        signals_4d = create_voxeldata(
             data,
-            dims=["time", "z", "y", "x"],
-            coords={"time": np.arange(n_time) * 0.1},
+            dims=("time", "k", "j", "i"),
+            time=np.arange(n_time) * 0.1,
+            spacing=(1.0, 1.0, 1.0),
         )
 
         # Flatten to 2D
-        signals_2d = signals_4d.stack(space=["z", "y", "x"])
+        signals_2d = signals_4d.stack(space=("k", "j", "i"))
 
         # Compute DVARS on both
         dvars_nd = compute_dvars(

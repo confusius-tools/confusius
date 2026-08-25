@@ -1,426 +1,190 @@
-"""Tests for extract.extract_with_mask and extract.unmask."""
+"""Tests for mask extraction and reconstruction."""
 
 import numpy as np
 import pytest
 import xarray as xr
 
-from confusius import extract
-
-
-class TestWithMask:
-    """Tests for extract.extract_with_mask function."""
-
-    def test_float_mask_rejected(self, sample_3dt_volume):
-        """Test that float mask raises TypeError."""
-        mask = xr.DataArray(
-            np.random.rand(*sample_3dt_volume.shape[1:]),
-            dims=["z", "y", "x"],
-        )
-
-        with pytest.raises(TypeError, match="single-label integer dtype"):
-            extract.extract_with_mask(sample_3dt_volume, mask)
-
-    def test_multi_label_integer_mask_rejected(self, sample_3dt_volume):
-        """Test that integer mask with more than one non-zero value raises TypeError."""
-        mask_data = np.zeros(sample_3dt_volume.shape[1:], dtype=np.int32)
-        mask_data[0, 0, 0] = 1
-        mask_data[0, 0, 1] = 2
-        mask = xr.DataArray(mask_data, dims=["z", "y", "x"])
-
-        with pytest.raises(TypeError, match="2 distinct non-zero"):
-            extract.extract_with_mask(sample_3dt_volume, mask)
-
-    def test_integer_mask_selects_nonzero_voxels(self):
-        """Test that an integer mask (0 / region_id) selects the same voxels as the
-        equivalent boolean mask."""
-        data = xr.DataArray(
-            np.arange(60).reshape(3, 4, 5),
-            dims=["z", "y", "x"],
-        )
-        bool_mask_data = np.zeros((3, 4, 5), dtype=bool)
-        bool_mask_data[0, 1, 2] = True
-        bool_mask_data[1, 2, 3] = True
-        bool_mask_data[2, 3, 4] = True
-
-        bool_mask = xr.DataArray(bool_mask_data, dims=["z", "y", "x"])
-        int_mask = xr.DataArray(
-            bool_mask_data.astype(np.int32) * 385, dims=["z", "y", "x"]
-        )
-
-        result_bool = extract.extract_with_mask(data, bool_mask)
-        result_int = extract.extract_with_mask(data, int_mask)
-
-        np.testing.assert_array_equal(result_bool.values, result_int.values)
-
-    def test_insufficient_spatial_dims(self):
-        """Test that mask with dimension not in data raises error."""
-        data = xr.DataArray(
-            np.random.randn(10),
-            dims=["time"],
-        )
-
-        mask = xr.DataArray([True, False, True], dims=["x"])
-
-        with pytest.raises(ValueError, match="missing spatial dimensions.*'x'"):
-            extract.extract_with_mask(data, mask)
-
-    def test_values_correctness(self):
-        """Test that extracted values match original data."""
-        data = xr.DataArray(
-            np.arange(60).reshape(3, 4, 5),
-            dims=["z", "y", "x"],
-        )
-
-        mask_data = np.zeros((3, 4, 5), dtype=bool)
-        mask_data[0, 1, 2] = True
-        mask_data[1, 2, 3] = True
-        mask_data[2, 3, 4] = True
-
-        mask = xr.DataArray(mask_data, dims=["z", "y", "x"])
-
-        signals = extract.extract_with_mask(data, mask)
-
-        expected_values = [
-            data.values[0, 1, 2],
-            data.values[1, 2, 3],
-            data.values[2, 3, 4],
-        ]
-        np.testing.assert_array_equal(signals.values, expected_values)
-
-    def test_2d_signals(self):
-        """Test extraction from 2D signals (time, space) with 1D mask."""
-        data = xr.DataArray(
-            np.arange(20).reshape(4, 5),
-            dims=["time", "space"],
-            coords={"time": [0, 1, 2, 3], "space": [0, 1, 2, 3, 4]},
-        )
-
-        mask = xr.DataArray(
-            [True, False, True, True, False],
-            dims=["space"],
-            coords={"space": [0, 1, 2, 3, 4]},
-        )
-
-        signals = extract.extract_with_mask(data, mask)
-
-        assert signals.dims == ("time", "space")
-        assert signals.shape == (4, 3)
-        np.testing.assert_array_equal(
-            signals.values,
-            [[0, 2, 3], [5, 7, 8], [10, 12, 13], [15, 17, 18]],
-        )
-
-    def test_near_equal_coords_extract_expected_voxels(self):
-        """Test near-equal coordinates still extract the expected masked voxels."""
-        data = xr.DataArray(
-            np.random.default_rng(0).normal(size=(3, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "z": np.array([0.0, 1.0]),
-                "y": np.array([0.0, 1.0, 2.0]),
-                "x": np.array([0.0, 1.0, 2.0, 3.0]),
-            },
-        )
-
-        mask = xr.DataArray(
-            np.array(
-                [
-                    [[1, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 0]],
-                    [[0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]],
-                ],
-                dtype=np.int32,
-            ),
-            dims=["z", "y", "x"],
-            coords={
-                "z": np.array([0.0, np.nextafter(1.0, 2.0)]),
-                "y": np.array(
-                    [0.0, np.nextafter(1.0, 2.0), np.nextafter(2.0, 3.0)]
-                ),
-                "x": np.array(
-                    [
-                        0.0,
-                        np.nextafter(1.0, 2.0),
-                        np.nextafter(2.0, 3.0),
-                        np.nextafter(3.0, 4.0),
-                    ]
-                ),
-            },
-        )
-
-        signals = extract.extract_with_mask(data, mask)
-
-        assert signals.sizes["space"] == int(np.count_nonzero(mask.values))
-
-    def test_alignment_with_missing_values_raises(self, monkeypatch):
-        """Test extraction fails if aligned mask still contains missing values."""
-        data = xr.DataArray(
-            np.arange(6).reshape(2, 3),
-            dims=["time", "space"],
-            coords={"space": [0, 1, 2]},
-        )
-        mask = xr.DataArray([True, False, True], dims=["space"], coords={"space": [0, 1, 2]})
-
-        original_reindex_like = xr.DataArray.reindex_like
-
-        def broken_reindex_like(self, other):
-            aligned = original_reindex_like(self, other)
-            return xr.DataArray(
-                np.array([True, np.nan, False], dtype=object),
-                dims=aligned.dims,
-                coords=aligned.coords,
-            )
-
-        monkeypatch.setattr(xr.DataArray, "reindex_like", broken_reindex_like)
-
-        with pytest.raises(ValueError, match="could not be aligned"):
-            extract.extract_with_mask(data, mask)
-
-    def test_unstack_coords_are_ordered_after_extract(self):
-        """Test unstack produces ordered spatial coordinates after extract."""
-        data = xr.DataArray(
-            np.arange(2 * 2 * 3 * 4).reshape(2, 2, 3, 4),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "z": [0.0, 1.0],
-                "y": [2.0, 0.0, 1.0],
-                "x": [3.0, 1.0, 2.0, 0.0],
-            },
-        )
-        mask = xr.DataArray(
-            np.array(
-                [
-                    [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 0, 0]],
-                    [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 1]],
-                ],
-                dtype=bool,
-            ),
-            dims=["z", "y", "x"],
-            coords={
-                "z": [0.0, 1.0],
-                "y": [2.0, 0.0, 1.0],
-                "x": [3.0, 1.0, 2.0, 0.0],
-            },
-        )
-
-        signals = extract.extract_with_mask(data, mask)
-        unstacked = signals.unstack("space")
-
-        assert np.all(np.diff(unstacked.coords["z"].values) > 0)
-        assert np.all(np.diff(unstacked.coords["y"].values) > 0)
-        assert np.all(np.diff(unstacked.coords["x"].values) > 0)
-
-
-class TestUnmask:
-    """Tests for extract.unmask function."""
-
-    def test_basic_unmask_1d(self):
-        """Test unmasking 1D signals to 3D."""
-        mask_data = np.zeros((5, 6, 7), dtype=bool)
-        mask_data.flat[:10] = True
-        mask = xr.DataArray(
-            mask_data,
-            dims=["z", "y", "x"],
-            coords={
-                "z": np.arange(5) * 0.4,
-                "y": np.arange(6) * 0.05,
-                "x": np.arange(7) * 0.1,
-            },
-        )
-
-        signals = np.arange(10) * 10.0
-
-        result = extract.unmask(signals, mask)
-
-        assert result.shape == (5, 6, 7)
-        assert result.dims == ("z", "y", "x")
-
-        np.testing.assert_array_equal(
-            result.coords["z"].values, mask.coords["z"].values
-        )
-
-        assert result.values.flat[0] == 0.0
-        assert result.values.flat[1] == 10.0
-
-        assert result.values.flat[10] == 0.0
-
-    def test_basic_unmask_2d(self):
-        """Test unmasking 2D signals (features, voxels) to 4D."""
-        mask_data = np.zeros((5, 6, 7), dtype=bool)
-        mask_data.flat[:10] = True
-        mask = xr.DataArray(mask_data, dims=["z", "y", "x"])
-
-        signals = np.arange(30).reshape(3, 10) * 1.0
-
-        result = extract.unmask(signals, mask, new_dims=["component"])
-
-        assert result.shape == (3, 5, 6, 7)
-        assert result.dims == ("component", "z", "y", "x")
-
-        assert "component" in result.coords
-        np.testing.assert_array_equal(result.coords["component"].values, [0, 1, 2])
-
-        assert result.values[0, 0, 0, 0] == 0.0
-        assert result.values[1, 0, 0, 1] == 11.0
-        assert result.values[2, 0, 1, 2] == 29.0
-        assert result.values[0, 3, 3, 3] == 0.0
-
-    def test_integer_mask_with_dataarray_signals(self):
-        """Test unmasking DataArray signals with integer mask values."""
-        data = xr.DataArray(
-            np.arange(2 * 3 * 4 * 5).reshape(2, 3, 4, 5),
-            dims=["time", "z", "y", "x"],
-        )
-
-        bool_mask_data = np.zeros((3, 4, 5), dtype=bool)
-        bool_mask_data.flat[[0, 3, 7, 10, 18, 29, 41]] = True
-        int_mask = xr.DataArray(
-            bool_mask_data.astype(np.int32) * 385,
-            dims=["z", "y", "x"],
-        )
-
-        signals = extract.extract_with_mask(data, int_mask)
-        restored = extract.unmask(signals, int_mask)
-
-        mask_flat = bool_mask_data.ravel()
-        original_masked = data.values.reshape(2, -1)[:, mask_flat]
-        restored_masked = restored.values.reshape(2, -1)[:, mask_flat]
-
-        np.testing.assert_array_equal(original_masked, restored_masked)
-
-    def test_integer_mask_with_numpy_signals(self):
-        """Test unmasking NumPy signals with integer mask values."""
-        bool_mask_data = np.zeros((2, 3, 4), dtype=bool)
-        bool_mask_data.flat[[0, 2, 5, 7, 11]] = True
-        int_mask = xr.DataArray(
-            bool_mask_data.astype(np.int32) * 9,
-            dims=["z", "y", "x"],
-        )
-
-        signals = np.arange(15).reshape(3, 5)
-        result = extract.unmask(signals, int_mask, new_dims=["component"])
-
-        assert result.shape == (3, 2, 3, 4)
-        assert result.dims == ("component", "z", "y", "x")
-
-        mask_flat = bool_mask_data.ravel()
-        restored_masked = result.values.reshape(3, -1)[:, mask_flat]
-        np.testing.assert_array_equal(restored_masked, signals)
-
-    def test_shape_validation(self):
-        """Test that shape mismatches raise errors."""
-        mask_data = np.zeros((5, 6, 7), dtype=bool)
-        mask_data.flat[:10] = True
-        mask = xr.DataArray(mask_data, dims=["z", "y", "x"])
-
-        signals = np.arange(5)
-
-        with pytest.raises(ValueError, match="doesn't match"):
-            extract.unmask(signals, mask)
-
-    def test_dataarray_space_size_validation(self):
-        """Test that DataArray space size mismatches raise errors."""
-        mask_data = np.zeros((2, 3, 4), dtype=bool)
-        mask_data.flat[:5] = True
-        mask = xr.DataArray(mask_data, dims=["z", "y", "x"])
-
-        signals = xr.DataArray(
-            np.arange(8).reshape(2, 4),
-            dims=["time", "space"],
-        )
-
-        with pytest.raises(ValueError, match="Size of 'space' dimension"):
-            extract.unmask(signals, mask)
-
-    def test_float_mask_rejected(self):
-        """Test that float masks are rejected by unmask."""
-        mask = xr.DataArray(np.array([0.0, 1.0, 0.0]), dims=["space"])
-        signals = np.array([1.0])
-
-        with pytest.raises(TypeError, match="single-label integer dtype"):
-            extract.unmask(signals, mask)
-
-    def test_multi_label_integer_mask_rejected(self):
-        """Test that multi-label integer masks are rejected by unmask."""
-        mask = xr.DataArray(np.array([0, 1, 2], dtype=np.int32), dims=["space"])
-        signals = np.array([1.0, 2.0])
-
-        with pytest.raises(TypeError, match="multiple distinct non-zero values"):
-            extract.unmask(signals, mask)
-
-    def test_fill_value(self):
-        """Test custom fill value."""
-        mask_data = np.zeros((3, 4, 5), dtype=bool)
-        mask_data.flat[:5] = True
-        mask = xr.DataArray(mask_data, dims=["z", "y", "x"])
-
-        signals = np.arange(5) * 1.0
-
-        result = extract.unmask(signals, mask, fill_value=np.nan)
-
-        assert np.isnan(result.values.flat[5])
-
-
-class TestRoundTrip:
-    """Tests for extraction and unmasking round-trip."""
-
-    def test_extract_unmask_roundtrip(self):
-        """Test that extract -> unmask preserves values at masked positions."""
-        data = xr.DataArray(
-            np.random.randn(10, 5, 6, 7),
-            dims=["time", "z", "y", "x"],
-        )
-
-        mask = xr.DataArray(
-            np.random.rand(5, 6, 7) > 0.5,
-            dims=["z", "y", "x"],
-        )
-
-        signals = extract.extract_with_mask(data, mask)
-
-        restored = extract.unmask(signals.values, mask)
-
-        mask_flat = mask.values.flatten()
-        original_masked = data.values.reshape(10, -1)[:, mask_flat]
-        restored_masked = restored.values.reshape(10, -1)[:, mask_flat]
-
-        np.testing.assert_array_almost_equal(original_masked, restored_masked)
-
-        non_mask_flat = ~mask_flat
-        assert np.all(restored.values.reshape(10, -1)[:, non_mask_flat] == 0.0)
-
-    def test_unmask_dataarray_and_ndarray_match(self):
-        """Test DataArray and ndarray unmask paths reconstruct the same volume."""
-        data = xr.DataArray(
-            np.random.randn(3, 2, 3, 4),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "z": [0.0, 1.0],
-                "y": [2.0, 0.0, 1.0],
-                "x": [3.0, 1.0, 2.0, 0.0],
-            },
-        )
-        mask = xr.DataArray(
-            np.array(
-                [
-                    [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 0, 0]],
-                    [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 1]],
-                ],
-                dtype=bool,
-            ),
-            dims=["z", "y", "x"],
-            coords={
-                "z": [0.0, 1.0],
-                "y": [2.0, 0.0, 1.0],
-                "x": [3.0, 1.0, 2.0, 0.0],
-            },
-        )
-
-        signals = extract.extract_with_mask(data, mask)
-        restored_da = extract.unmask(signals, mask, fill_value=np.nan)
-        restored_np = extract.unmask(signals.values, mask, fill_value=np.nan)
-
-        np.testing.assert_allclose(
-            restored_da.values,
-            restored_np.values,
-            equal_nan=True,
-        )
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_units,
+    has_voxel_to_world_index,
+)
+from confusius.extract import extract_with_mask, unmask
+
+
+def test_extract_with_mask_selects_expected_voxels(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
+    """Extraction retains the masked voxel signals and spatial index."""
+    mask = make_sample_voxeldata_mask()
+    mask.data[0, 1, 2] = True
+    mask.data[1, 2, 3] = True
+
+    signals = extract_with_mask(sample_voxeldata_3dt, mask)
+
+    assert signals.dims == ("time", "space")
+    assert signals.indexes["space"].names == ["k", "j", "i"]
+    assert list(signals.indexes["space"]) == [(0, 1, 2), (1, 2, 3)]
+    np.testing.assert_array_equal(
+        signals.values,
+        sample_voxeldata_3dt.values[:, [0, 1], [1, 2], [2, 3]],
+    )
+
+
+def test_extract_with_mask_restores_scalar_voxel_dim(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
+    """`data` with a scalar-reduced voxel dim (e.g. from `.isel(k=0)`) is canonicalized.
+
+    `.isel(k=0)` collapses `k` to a scalar coordinate, dropping the dim itself, which
+    only `ensure_voxeldata` restores -- exercises that `extract_with_mask`
+    canonicalizes `data` itself rather than relying on `ensure_mask`'s internal
+    (and discarded) canonicalization of it.
+    """
+    single_k = sample_voxeldata_3dt.isel(k=0)
+    mask = make_sample_voxeldata_mask().isel(k=[0])
+    mask.data[0, 1, 2] = True
+
+    signals = extract_with_mask(single_k, mask)
+
+    assert signals.dims == ("time", "space")
+    np.testing.assert_array_equal(
+        signals.values, sample_voxeldata_3dt.values[:, 0, [1], [2]]
+    )
+
+
+def test_extract_with_mask_accepts_single_label_integer_mask(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
+    """A single non-zero integer label has the same selection as a boolean mask."""
+    boolean_mask = make_sample_voxeldata_mask()
+    boolean_mask.data[0, 1, 2] = True
+    integer_mask = boolean_mask.astype(np.int32) * 7
+
+    expected = extract_with_mask(sample_voxeldata_3dt, boolean_mask)
+    result = extract_with_mask(sample_voxeldata_3dt, integer_mask)
+
+    xr.testing.assert_identical(result, expected)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "values", "message"),
+    [
+        (float, (1.0,), "single-label integer dtype"),
+        (np.int32, (1, 2), "2 distinct non-zero"),
+    ],
+)
+def test_extract_with_mask_rejects_invalid_mask_values(
+    sample_voxeldata_3dt: xr.DataArray,
+    make_sample_voxeldata_mask,
+    dtype: type[np.generic] | type[float],
+    values: tuple[float, ...],
+    message: str,
+) -> None:
+    """Only boolean and single-label integer masks are accepted."""
+    mask = make_sample_voxeldata_mask(dtype)
+    mask.data.flat[: len(values)] = values
+
+    with pytest.raises(TypeError, match=message):
+        extract_with_mask(sample_voxeldata_3dt, mask)
+
+
+def test_extract_with_mask_rejects_misaligned_coordinates(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
+    """Extraction rejects a mask whose affine differs from data's.
+
+    The mask's voxel-space (k/j/i) coordinates match data's exactly; only the
+    voxel_to_world affine (origin shifted) differs, so this specifically exercises
+    that affine mismatches are caught, not just voxel-coordinate mismatches.
+    """
+    mask = make_sample_voxeldata_mask()
+    mask.data[0, 1, 2] = True
+    shifted_affine = get_voxel_to_world_affine(sample_voxeldata_3dt).copy()
+    shifted_affine[:3, 3] += 1.0
+    mask = attach_voxel_to_world_index(
+        mask.drop_vars(("z", "y", "x")),
+        shifted_affine,
+        units=get_voxel_to_world_units(sample_voxeldata_3dt),
+    )
+
+    with pytest.raises(ValueError, match="does not share data's voxel grid"):
+        extract_with_mask(sample_voxeldata_3dt, mask)
+
+
+def test_extract_with_mask_preserves_dask_laziness(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
+    """Dask-backed fUSI data remain lazy after extraction."""
+    mask = make_sample_voxeldata_mask()
+    mask.data[0, 1, 2] = True
+    chunked = sample_voxeldata_3dt.chunk({"time": 2})
+
+    result = extract_with_mask(chunked, mask)
+
+    assert hasattr(result.data, "chunks")
+    xr.testing.assert_identical(
+        result.compute(), extract_with_mask(sample_voxeldata_3dt, mask)
+    )
+
+
+def test_unmask_reconstructs_masked_fusi_grid(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
+    """Extraction followed by reconstruction preserves selected voxel signals."""
+    mask = make_sample_voxeldata_mask()
+    mask.data[0, 1, 2] = True
+    mask.data[1, 2, 3] = True
+
+    signals = extract_with_mask(sample_voxeldata_3dt, mask)
+    restored = unmask(signals, mask)
+
+    assert restored.dims == sample_voxeldata_3dt.dims
+    assert has_voxel_to_world_index(restored)
+    np.testing.assert_allclose(
+        get_voxel_to_world_affine(restored), get_voxel_to_world_affine(mask)
+    )
+    assert get_voxel_to_world_units(restored) == get_voxel_to_world_units(mask)
+    np.testing.assert_array_equal(
+        restored.coords["time"].values, sample_voxeldata_3dt.coords["time"].values
+    )
+    np.testing.assert_array_equal(
+        restored.values[:, mask.values], sample_voxeldata_3dt.values[:, mask.values]
+    )
+    assert np.all(restored.values[:, ~mask.values] == 0.0)
+
+
+def test_unmask_rejects_invalid_mask_dtype(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
+    """Reconstruction rejects masks that are neither boolean nor integer."""
+    mask = make_sample_voxeldata_mask(float)
+    mask.data[0, 1, 2] = 1.0
+
+    with pytest.raises(TypeError, match="single-label integer dtype"):
+        unmask(np.array([1.0]), mask)
+
+
+def test_unmask_rejects_non_voxeldata_mask() -> None:
+    """unmask requires a VoxelData mask; it always reconstructs a VoxelData array."""
+    mask = xr.DataArray(
+        [[False, True], [True, False]],
+        dims=("row", "column"),
+        coords={"row": ["a", "b"], "column": [0, 1]},
+    )
+
+    with pytest.raises(ValueError, match="missing voxel dimension"):
+        unmask(np.array([3.0, 7.0]), mask)
+
+
+def test_unmask_validates_signal_space_size(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
+    """Reconstruction requires one value for every selected voxel."""
+    mask = make_sample_voxeldata_mask()
+    mask.data[0, 1, 2] = True
+    mask.data[1, 2, 3] = True
+
+    with pytest.raises(ValueError, match="doesn't match"):
+        unmask(np.array([1.0]), mask)

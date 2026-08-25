@@ -10,6 +10,7 @@ import pytest
 import xarray as xr
 from qtpy.QtWidgets import QApplication
 
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._napari._registration._panel_progress import (
     create_volume_progress_plotter,
     setup_volumewise_progress,
@@ -39,6 +40,7 @@ from confusius.registration import (
     resample_like,
     resample_volume,
 )
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
@@ -85,19 +87,18 @@ def _FakeDiagnostics(
 
 
 def _make_bspline_transform() -> xr.DataArray:
-    return xr.DataArray(
-        np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
-        dims=["component", "y", "x"],
-        coords={
-            "component": xr.DataArray(["y", "x"], dims=["component"]),
-            "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-            "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
-        },
+    # fUSI DataArrays always carry all three spatial dims (k singleton for 2D data),
+    # matching what sitk_bspline_to_dataarray produces in practice.
+    return create_voxeldata(
+        np.arange(3 * 1 * 3 * 4, dtype=float).reshape(3, 1, 3, 4),
+        dims=("component", "k", "j", "i"),
+        extra_coords={"component": np.array(["k", "j", "i"], dtype=np.str_)},
+        spacing=(1.0, 0.2, 0.1),
+        origin=(0.0, 0.0, 0.0),
         attrs={
             "transform_type": "bspline_transform",
             "order": 3,
-            "direction": [[1.0, 0.0], [0.0, 1.0]],
-            "affines": {"bspline_initialization": np.eye(3).tolist()},
+            "affines": {"bspline_initialization": np.eye(4).tolist()},
         },
     )
 
@@ -182,11 +183,13 @@ class TestTransformPayloads:
         roundtripped = _deserialize_bspline_dataarray(payload)
 
         np.testing.assert_array_equal(
-            roundtripped.coords["component"].values, ["y", "x"]
+            roundtripped.coords["component"].values, ["k", "j", "i"]
         )
-        np.testing.assert_allclose(roundtripped.coords["y"].values, [0.0, 0.2, 0.4])
         np.testing.assert_allclose(
-            roundtripped.coords["x"].values, [0.0, 0.1, 0.2, 0.3]
+            roundtripped.coords["y"].isel(k=0, i=0).values, [0.0, 0.2, 0.4]
+        )
+        np.testing.assert_allclose(
+            roundtripped.coords["x"].isel(k=0, j=0).values, [0.0, 0.1, 0.2, 0.3]
         )
         np.testing.assert_allclose(roundtripped.values, transform.values)
 
@@ -234,7 +237,7 @@ class TestOperationMode:
         registration_panel._learning_rate_auto_check.setChecked(False)
         assert registration_panel._learning_rate_edit.isEnabled()
 
-    def test_volumewise_learning_rate_defaults_to_fixed_0_01(self, registration_panel):
+    def test_volumewise_learning_rate_defaults_to_fixed_value(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
 
         assert registration_panel._learning_rate_auto_check.isHidden()
@@ -295,7 +298,7 @@ class TestOperationMode:
         assert registration_panel._transform_combo.currentText() == "rigid"
         assert registration_panel._scale_combo.currentText() == "decibel"
         assert registration_panel._learning_rate_edit.minimum() == pytest.approx(1e-10)
-        assert registration_panel._learning_rate_edit.value() == pytest.approx(1.0)
+        assert registration_panel._learning_rate_edit.value() == pytest.approx(0.01)
         assert registration_panel._convergence_min_edit.minimum() == pytest.approx(
             1e-10
         )
@@ -309,18 +312,13 @@ class TestOperationMode:
     def test_scale_preprocessing_resets_gamma_for_previews(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = xr.DataArray(
-            np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+        moving_data = create_voxeldata(
+            np.ones((4, 6), dtype=np.float32), dims=("j", "i"), spacing=(1.0, 0.2, 0.1)
         )
-        fixed = xr.DataArray(
+        fixed = create_voxeldata(
             2 * np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords=moving_data.coords,
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")
         fixed_layer = real_viewer.add_image(fixed.values, name="fixed")
@@ -357,19 +355,15 @@ class TestOperationMode:
     def test_create_volume_progress_plotter_preserves_camera_view(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = xr.DataArray(
+        moving_data = create_voxeldata(
             np.ones((5, 4, 6), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords={
-                "z": xr.DataArray(np.arange(5) * 0.3, dims=["z"]),
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("k", "j", "i"),
+            spacing=(0.3, 0.2, 0.1),
         )
-        fixed = xr.DataArray(
+        fixed = create_voxeldata(
             2 * np.ones((5, 4, 6), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords=moving_data.coords,
+            dims=("k", "j", "i"),
+            spacing=(0.3, 0.2, 0.1),
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")
         fixed_layer = real_viewer.add_image(fixed.values, name="fixed")
@@ -443,30 +437,18 @@ class TestRunRegistration:
     def test_mask_buttons_create_layers_matching_reference_grid(
         self, viewer, registration_panel
     ):
-        moving = xr.DataArray(
+        moving = create_voxeldata(
             np.zeros((2, 4, 6, 8), dtype=np.float32),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(2), dims=["time"]),
-                "z": xr.DataArray(
-                    1.0 + np.arange(4) * 0.3, dims=["z"], attrs={"units": "mm"}
-                ),
-                "y": xr.DataArray(
-                    2.0 + np.arange(6) * 0.2, dims=["y"], attrs={"units": "mm"}
-                ),
-                "x": xr.DataArray(
-                    3.0 + np.arange(8) * 0.1, dims=["x"], attrs={"units": "mm"}
-                ),
-            },
+            dims=("time", "k", "j", "i"),
+            time=np.arange(2),
+            spacing=(0.3, 0.2, 0.1),
+            origin=(1.0, 2.0, 3.0),
         )
-        fixed = xr.DataArray(
+        fixed = create_voxeldata(
             np.zeros((3, 5, 7), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords={
-                "z": xr.DataArray(10.0 + np.arange(3) * 0.5, dims=["z"]),
-                "y": xr.DataArray(20.0 + np.arange(5) * 0.4, dims=["y"]),
-                "x": xr.DataArray(30.0 + np.arange(7) * 0.25, dims=["x"]),
-            },
+            dims=("k", "j", "i"),
+            spacing=(0.5, 0.4, 0.25),
+            origin=(10.0, 20.0, 30.0),
         )
         viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
         viewer.add_image(fixed.values, name="fixed", metadata={"xarray": fixed})
@@ -487,8 +469,44 @@ class TestRunRegistration:
         assert tuple(fixed_mask.axis_labels) == ("z", "y", "x")
         np.testing.assert_allclose(fixed_mask.scale, (0.5, 0.4, 0.25))
         np.testing.assert_allclose(fixed_mask.translate, (10.0, 20.0, 30.0))
-        # Fixed fixture coords carry no units attr: napari defaults to pixel.
-        assert tuple(str(u) for u in fixed_mask.units) == ("pixel",) * 3
+        # create_voxeldata always sets "mm" world-coordinate units by default.
+        assert tuple(str(u) for u in fixed_mask.units) == ("millimeter",) * 3
+
+    def test_mask_buttons_use_affine_spacing_and_origin_for_oblique_reference(
+        self, viewer, registration_panel
+    ):
+        """Mask scale/translate come from the affine, not raw coordinate diffs.
+
+        Regression test: with an oblique (non-axis-aligned) voxel-to-world index,
+        per-dimension coordinate differences give the wrong spacing/origin -- only
+        the affine itself (via `.fusi.spacing`/`.fusi.origin`) is correct.
+        """
+        # Swap k/j in the direction matrix: still a valid affine, but off-diagonal,
+        # so `_is_axis_aligned_affine` treats it as oblique.
+        direction = np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        moving = create_voxeldata(
+            np.zeros((4, 6, 8), dtype=np.float32),
+            dims=("k", "j", "i"),
+            spacing=(0.3, 0.2, 0.1),
+            origin=(1.0, 2.0, 3.0),
+            direction=direction,
+        )
+        viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        registration_panel._moving_combo.setCurrentText("moving")
+
+        registration_panel._new_moving_mask_btn.click()
+
+        moving_mask = viewer.layers["Moving mask"]
+        expected_spacing = moving.fusi.spacing
+        expected_origin = moving.fusi.origin
+        world_dim = {"k": "z", "j": "y", "i": "x"}
+        np.testing.assert_allclose(
+            moving_mask.scale, [expected_spacing[d] for d in ("k", "j", "i")]
+        )
+        np.testing.assert_allclose(
+            moving_mask.translate,
+            [expected_origin[world_dim[d]] for d in ("k", "j", "i")],
+        )
 
     def test_mask_buttons_require_selected_reference_layer(
         self, viewer, registration_panel
@@ -504,26 +522,19 @@ class TestRunRegistration:
     def test_between_scan_run_uses_selected_initial_transform(
         self, viewer, registration_panel, monkeypatch
     ):
-        moving = xr.DataArray(
+        moving = create_voxeldata(
             np.zeros((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
         )
-        fixed = xr.DataArray(
+        fixed = create_voxeldata(
             np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
         )
-        affine = np.array(
-            [[1.0, 0.0, 0.5], [0.0, 1.0, -0.25], [0.0, 0.0, 1.0]],
-            dtype=float,
-        )
+        affine = np.eye(4, dtype=float)
+        affine[1, 3] = 0.5
+        affine[2, 3] = -0.25
         transform_payload = make_affine_transform_payload(
             affine,
             reference=fixed,
@@ -600,20 +611,17 @@ class TestRunRegistration:
     def test_between_scan_run_uses_selected_manual_napari_transform(
         self, viewer, registration_panel, monkeypatch
     ):
-        moving = xr.DataArray(
+        moving = create_voxeldata(
             np.zeros((2, 4, 6, 8), dtype=np.float32),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(2), dims=["time"]),
-                "z": xr.DataArray(np.arange(4) * 0.3, dims=["z"]),
-                "y": xr.DataArray(np.arange(6) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
-            },
+            dims=("time", "k", "j", "i"),
+            time=np.arange(2),
+            spacing=(0.3, 0.2, 0.1),
         )
-        fixed = xr.DataArray(
+        fixed = create_voxeldata(
             np.ones((2, 4, 6, 8), dtype=np.float32),
-            dims=["time", "z", "y", "x"],
-            coords=moving.coords,
+            dims=("time", "k", "j", "i"),
+            time=np.arange(2),
+            spacing=(0.3, 0.2, 0.1),
         )
 
         moving_layer = viewer.add_image(
@@ -690,7 +698,7 @@ class TestRunRegistration:
             ]
         )
         np.testing.assert_allclose(kwargs["initialization"], expected)
-        assert args[0].dims == ("z", "y", "x")
+        assert args[0].dims == ("k", "j", "i")
         assert registration_panel._worker is not None
 
     @pytest.mark.parametrize(
@@ -733,15 +741,11 @@ class TestRunRegistration:
         )
 
         if within_scan:
-            moving = xr.DataArray(
+            moving = create_voxeldata(
                 np.zeros((2, 4, 6, 8), dtype=np.float32),
-                dims=["time", "z", "y", "x"],
-                coords={
-                    "time": xr.DataArray(np.arange(2), dims=["time"]),
-                    "z": xr.DataArray(np.arange(4) * 0.3, dims=["z"]),
-                    "y": xr.DataArray(np.arange(6) * 0.2, dims=["y"]),
-                    "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
-                },
+                dims=("time", "k", "j", "i"),
+                time=np.arange(2),
+                spacing=(0.3, 0.2, 0.1),
             )
             viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
             registration_panel._time_series_radio.setChecked(True)
@@ -752,20 +756,12 @@ class TestRunRegistration:
                 lambda *_args, **_kwargs: None,
             )
         else:
-            moving = xr.DataArray(
+            moving = create_voxeldata(
                 np.zeros((4, 6, 8), dtype=np.float32),
-                dims=["z", "y", "x"],
-                coords={
-                    "z": xr.DataArray(np.arange(4) * 0.3, dims=["z"]),
-                    "y": xr.DataArray(np.arange(6) * 0.2, dims=["y"]),
-                    "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
-                },
+                dims=("k", "j", "i"),
+                spacing=(0.3, 0.2, 0.1),
             )
-            fixed = xr.DataArray(
-                np.ones((4, 6, 8), dtype=np.float32),
-                dims=["z", "y", "x"],
-                coords=moving.coords,
-            )
+            fixed = moving.copy(data=np.ones((4, 6, 8), dtype=np.float32))
             viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
             viewer.add_image(fixed.values, name="fixed", metadata={"xarray": fixed})
             viewer.add_labels(np.ones((4, 6, 8), dtype=np.int32), name="fixed mask")
@@ -845,25 +841,13 @@ class TestValidation:
         )
 
     def test_between_scans_accepts_time_series_by_averaging(
-        self, viewer, registration_panel
+        self, viewer, registration_panel, sample_voxeldata_3dt
     ):
-        moving = xr.DataArray(
-            np.zeros((3, 4, 6), dtype=np.float32),
-            dims=["time", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(3), dims=["time"]),
-                "y": xr.DataArray(np.arange(4), dims=["y"]),
-                "x": xr.DataArray(np.arange(6), dims=["x"]),
-            },
+        moving = sample_voxeldata_3dt.copy(
+            data=np.zeros(sample_voxeldata_3dt.shape, dtype=np.float32)
         )
-        fixed = xr.DataArray(
-            np.ones((3, 4, 6), dtype=np.float32),
-            dims=["time", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(3), dims=["time"]),
-                "y": xr.DataArray(np.arange(4), dims=["y"]),
-                "x": xr.DataArray(np.arange(6), dims=["x"]),
-            },
+        fixed = sample_voxeldata_3dt.copy(
+            data=np.ones(sample_voxeldata_3dt.shape, dtype=np.float32)
         )
         viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
         viewer.add_image(fixed.values, name="fixed", metadata={"xarray": fixed})
@@ -876,13 +860,10 @@ class TestValidation:
 
 class TestTransforms:
     def test_affine_payload_roundtrip(self, tmp_path):
-        reference = xr.DataArray(
+        reference = create_voxeldata(
             np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
         )
         payload = make_affine_transform_payload(
             np.eye(3),
@@ -902,70 +883,47 @@ class TestTransforms:
 
         assert loaded["source_layer_name"] == "moving"
         assert loaded["name"] == "moving → fixed (rigid)"
-        assert get_output_grid_from_payload(loaded)["shape"] == [4, 6]
+        assert get_output_grid_from_payload(loaded)["shape"] == [1, 4, 6]
         input_grid = get_input_grid_from_payload(loaded)
         assert input_grid is not None
-        assert input_grid["shape"] == [4, 6]
+        assert input_grid["shape"] == [1, 4, 6]
         np.testing.assert_array_equal(
             get_affine_transform_from_payload(loaded), np.eye(3)
         )
 
-    def test_bspline_payload_roundtrip(self, tmp_path):
-        reference = xr.DataArray(
-            np.ones((3, 4), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
-            },
+    def test_bspline_payload_missing_voxel_to_world_index_is_rejected(self):
+        reference = create_voxeldata(
+            np.ones((3, 4), dtype=np.float32), dims=("j", "i"), spacing=(1.0, 0.2, 0.1)
         )
-        transform = _make_bspline_transform()
-        payload = make_bspline_transform_payload(
-            transform,
-            reference=reference,
-            source=reference,
-            source_layer_name="moving",
-            target_layer_name="fixed",
-            operation="register_volume",
-            transform_model="bspline",
-            metric="correlation",
-            diagnostics=_FakeDiagnostics(),
+        # A B-spline control-point grid must be a canonical, voxel-to-world-index-backed
+        # DataArray; a plain DataArray with world-named dims and no index is rejected.
+        transform = xr.DataArray(
+            np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+            dims=["component", "y", "x"],
+            coords={"component": xr.DataArray(["y", "x"], dims=["component"])},
+            attrs={"transform_type": "bspline_transform", "order": 3},
         )
 
-        path = tmp_path / "bspline.nii.gz"
-        with pytest.warns(UserWarning, match="Dimension 'z' has no coordinate"):
-            save_transform_payload(path, payload)
-        loaded = load_transform_payload(path)
-
-        assert loaded["name"] == "moving → fixed (bspline)"
-        assert loaded["kind"] == "bspline"
-        assert get_output_grid_from_payload(loaded)["shape"] == [3, 4]
-        input_grid = get_input_grid_from_payload(loaded)
-        assert input_grid is not None
-        assert input_grid["shape"] == [3, 4]
-        roundtripped = get_bspline_transform_from_payload(loaded)
-        np.testing.assert_array_equal(
-            roundtripped.coords["component"].values,
-            transform.coords["component"].values,
-        )
-        np.testing.assert_allclose(
-            roundtripped.coords["y"].values, transform.coords["y"].values
-        )
-        np.testing.assert_allclose(
-            roundtripped.coords["x"].values, transform.coords["x"].values
-        )
-        np.testing.assert_allclose(roundtripped.values, transform.values)
+        with pytest.raises(ValueError, match="native voxel dimensions"):
+            make_bspline_transform_payload(
+                transform,
+                reference=reference,
+                source=reference,
+                source_layer_name="moving",
+                target_layer_name="fixed",
+                operation="register_volume",
+                transform_model="bspline",
+                metric="correlation",
+                diagnostics=_FakeDiagnostics(),
+            )
 
     def test_bspline_transform_is_not_offered_for_initialization(
         self, viewer, registration_panel
     ):
-        moving = xr.DataArray(
+        moving = create_voxeldata(
             np.zeros((3, 4), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
         )
         payload = make_bspline_transform_payload(
             _make_bspline_transform(),
@@ -1000,13 +958,10 @@ class TestTransforms:
     def test_apply_transform_uses_bspline_payload(
         self, viewer, registration_panel, monkeypatch
     ):
-        moving = xr.DataArray(
+        moving = create_voxeldata(
             np.arange(12, dtype=np.float32).reshape(3, 4),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
         )
         transform = _make_bspline_transform().astype(float)
         payload = make_bspline_transform_payload(
@@ -1033,17 +988,11 @@ class TestTransforms:
         _install_immediate_thread_worker(monkeypatch)
 
         output_grid = get_output_grid_from_payload(payload)
-        expected = xr.DataArray(
+        expected = create_voxeldata(
             np.full(output_grid["shape"], 7.0, dtype=np.float32),
-            dims=output_grid["dims"],
-            coords={
-                dim: xr.DataArray(
-                    output_grid["origin"][i]
-                    + np.arange(output_grid["shape"][i]) * output_grid["spacing"][i],
-                    dims=[dim],
-                )
-                for i, dim in enumerate(output_grid["dims"])
-            },
+            dims=("k", "j", "i"),
+            spacing=output_grid["spacing"],
+            origin=output_grid["origin"],
         )
 
         def _fake_resample_volume(*args: Any, **kwargs: Any) -> xr.DataArray:
@@ -1067,20 +1016,10 @@ class TestTransforms:
     def test_apply_transform_layers_keep_grid_units_and_singleton_spacing(
         self, viewer, registration_panel, monkeypatch
     ):
-        def _mm_coord(values, dim, voxdim=None):
-            attrs = {"units": "mm"}
-            if voxdim is not None:
-                attrs["voxdim"] = voxdim
-            return xr.DataArray(values, dims=[dim], attrs=attrs)
-
-        target = xr.DataArray(
+        target = create_voxeldata(
             np.zeros((1, 5, 7), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords={
-                "z": _mm_coord([0.0], "z", voxdim=0.4),
-                "y": _mm_coord(np.arange(5) * 0.3, "y"),
-                "x": _mm_coord(np.arange(7) * 0.3, "x"),
-            },
+            dims=("k", "j", "i"),
+            spacing=(0.4, 0.3, 0.3),
         )
         moving = target.copy()
         payload = make_affine_transform_payload(
@@ -1116,32 +1055,34 @@ class TestTransforms:
             np.testing.assert_allclose(layer.scale, (0.4, 0.3, 0.3))
             assert tuple(str(u) for u in layer.units) == ("millimeter",) * 3
             result = layer.metadata["xarray"]
-            assert result.coords["z"].attrs["voxdim"] == pytest.approx(0.4)
             assert result.coords["y"].attrs["units"] == "mm"
 
     def test_apply_inverse_transform_uses_inverse_affine_and_input_grid(
         self, viewer, registration_panel, monkeypatch
     ):
-        source = xr.DataArray(
-            np.zeros((20, 20), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(20) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(20) * 0.1, dims=["x"]),
-            },
+        source = create_voxeldata(
+            np.zeros((2, 20, 20), dtype=np.float32),
+            dims=("k", "j", "i"),
+            spacing=(0.3, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
-        source.values[5:10, 6:11] = 1.0
+        source.values[:, 5:10, 6:11] = 1.0
         affine = np.array(
-            [[1.0, 0.0, -0.4], [0.0, 1.0, 0.3], [0.0, 0.0, 1.0]],
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, -0.4],
+                [0.0, 0.0, 1.0, 0.3],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
             dtype=float,
         )
         target = resample_volume(
             source,
             affine,
-            shape=[source.sizes["y"], source.sizes["x"]],
-            spacing=[0.2, 0.1],
-            origin=[0.0, 0.0],
-            dims=["y", "x"],
+            output_sizes=source.sizes,
+            output_spacing={"k": 0.3, "j": 0.2, "i": 0.1},
+            output_origin={"z": 0.0, "y": 0.0, "x": 0.0},
+            output_direction=np.eye(3),
             interpolation="nearest",
         )
         payload = make_affine_transform_payload(
@@ -1173,7 +1114,7 @@ class TestTransforms:
 
         layer = viewer.layers["target → source"]
         result = layer.metadata["xarray"]
-        np.testing.assert_allclose(result.values, source.values)
+        np.testing.assert_allclose(result.values, source.values, atol=1e-6)
         assert tuple(result.dims) == tuple(source.dims)
         np.testing.assert_allclose(result.coords["y"], source.coords["y"])
         np.testing.assert_allclose(result.coords["x"], source.coords["x"])
@@ -1183,21 +1124,15 @@ class TestTransforms:
     def test_apply_inverse_transform_uses_approximate_inverse_bspline_and_input_grid(
         self, viewer, registration_panel, monkeypatch
     ):
-        source = xr.DataArray(
+        source = create_voxeldata(
             np.arange(12, dtype=np.float32).reshape(3, 4),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
         )
-        target = xr.DataArray(
+        target = create_voxeldata(
             np.arange(30, dtype=np.float32).reshape(5, 6),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(5) * 0.3, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.15, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.3, 0.15),
         )
         bspline = _make_bspline_transform().astype(float)
         payload = make_bspline_transform_payload(
@@ -1244,17 +1179,11 @@ class TestTransforms:
             },
             attrs={"type": "displacement_field_transform"},
         )
-        expected = xr.DataArray(
+        expected = create_voxeldata(
             np.full(input_grid["shape"], 9.0, dtype=np.float32),
-            dims=input_grid["dims"],
-            coords={
-                dim: xr.DataArray(
-                    input_grid["origin"][i]
-                    + np.arange(input_grid["shape"][i]) * input_grid["spacing"][i],
-                    dims=[dim],
-                )
-                for i, dim in enumerate(input_grid["dims"])
-            },
+            dims=("k", "j", "i"),
+            spacing=input_grid["spacing"],
+            origin=input_grid["origin"],
         )
 
         def _fake_sample_displacement_field(
@@ -1298,11 +1227,14 @@ class TestTransforms:
         assert calls["invert_field"] is inverse_field
         assert calls["resample_args"][0] is target
         assert calls["resample_args"][1] is inverse_field
-        assert calls["resample_kwargs"] == {
-            "shape": input_grid["shape"],
-            "spacing": input_grid["spacing"],
-            "origin": input_grid["origin"],
-            "dims": input_grid["dims"],
+        resample_kwargs = calls["resample_kwargs"]
+        np.testing.assert_allclose(
+            resample_kwargs.pop("output_direction"), input_grid["direction"]
+        )
+        assert resample_kwargs == {
+            "output_sizes": dict(zip(VOXEL_DIMS, input_grid["shape"], strict=True)),
+            "output_spacing": dict(zip(VOXEL_DIMS, input_grid["spacing"], strict=True)),
+            "output_origin": dict(zip(WORLD_DIMS, input_grid["origin"], strict=True)),
             "interpolation": "linear",
         }
 
@@ -1320,14 +1252,11 @@ class TestVolumewiseProgress:
     def test_setup_updates_progress_bar_and_output_layer(
         self, viewer, registration_panel
     ):
-        moving = xr.DataArray(
+        moving = create_voxeldata(
             np.linspace(-2.0, 3.0, 3 * 4 * 6, dtype=np.float32).reshape(3, 4, 6),
-            dims=["time", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(3), dims=["time"]),
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("time", "j", "i"),
+            time=np.arange(3, dtype=float),
+            spacing=(1.0, 0.2, 0.1),
         )
         moving_layer = viewer.add_image(
             moving.values,
@@ -1351,13 +1280,10 @@ class TestVolumewiseProgress:
             np.full(moving.shape, float(moving.min()), dtype=np.float32),
         )
 
-        frame = xr.DataArray(
+        frame = create_voxeldata(
             np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
         )
         progress.frame_completed(1, frame, _FakeDiagnostics(n_iterations=2))
 
@@ -1372,13 +1298,11 @@ class TestFinishedCallbacks:
     def test_volume_result_adds_new_layer_with_transform_metadata(
         self, viewer, registration_panel
     ):
-        fixed = xr.DataArray(
+        fixed = create_voxeldata(
             np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         registered = fixed.copy()
         transform = np.eye(3)
@@ -1418,13 +1342,11 @@ class TestFinishedCallbacks:
     def test_volume_result_adds_bspline_transform_metadata(
         self, viewer, registration_panel
     ):
-        fixed = xr.DataArray(
+        fixed = create_voxeldata(
             np.ones((3, 4), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         registered = fixed.copy()
         transform = _make_bspline_transform()
@@ -1459,24 +1381,20 @@ class TestFinishedCallbacks:
     def test_volume_result_replaces_preview_layer(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = xr.DataArray(
+        moving_data = create_voxeldata(
             np.zeros((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         moving = real_viewer.add_image(
             np.zeros((4, 6), dtype=np.float32), name="moving"
         )
-        fixed = xr.DataArray(
+        fixed = create_voxeldata(
             np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         fixed_layer = real_viewer.add_image(
             np.ones((4, 6), dtype=np.float32), name="fixed"
@@ -1529,25 +1447,23 @@ class TestFinishedCallbacks:
     def test_create_volume_progress_plotter_applies_initial_transform_to_preview_layers(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = xr.DataArray(
-            np.arange(24, dtype=np.float32).reshape(4, 6),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+        moving_data = create_voxeldata(
+            np.arange(24, dtype=np.float32).reshape(1, 4, 6),
+            dims=("k", "j", "i"),
+            spacing=(0.2, 0.2, 0.1),
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")
-        fixed = xr.DataArray(
-            np.zeros((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords=moving_data.coords,
-        )
+        fixed = moving_data.copy(data=np.zeros((1, 4, 6), dtype=np.float32))
         fixed_layer = real_viewer.add_image(
-            np.zeros((4, 6), dtype=np.float32), name="fixed"
+            np.zeros((1, 4, 6), dtype=np.float32), name="fixed"
         )
         initial_transform = np.array(
-            [[1.0, 0.0, 0.2], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.2],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
             dtype=float,
         )
 
@@ -1575,24 +1491,20 @@ class TestFinishedCallbacks:
     def test_progress_layer_data_updates_on_iteration(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = xr.DataArray(
+        moving_data = create_voxeldata(
             np.zeros((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         moving = real_viewer.add_image(
             np.zeros((4, 6), dtype=np.float32), name="moving"
         )
-        fixed = xr.DataArray(
+        fixed = create_voxeldata(
             np.zeros((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         fixed_layer = real_viewer.add_image(
             np.zeros((4, 6), dtype=np.float32), name="fixed"
@@ -1608,7 +1520,7 @@ class TestFinishedCallbacks:
             scale_mode="off",
         )
 
-        next_arr = np.full((4, 6), 0.5, dtype=np.float32)
+        next_arr = np.full((1, 4, 6), 0.5, dtype=np.float32)
         update_progress_layer(real_registration_panel, next_arr)
         np.testing.assert_array_equal(
             np.asarray(real_viewer.layers["Registered (rigid)"].data), next_arr
@@ -1626,14 +1538,12 @@ class TestFinishedCallbacks:
         assert "Registered (rigid)" not in {layer.name for layer in real_viewer.layers}
 
     def test_volumewise_result_adds_registered_layer(self, viewer, registration_panel):
-        moving = xr.DataArray(
+        moving = create_voxeldata(
             np.zeros((3, 4, 6), dtype=np.float32),
-            dims=["time", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(3), dims=["time"]),
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("time", "j", "i"),
+            time=np.arange(3, dtype=float),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         moving_layer = viewer.add_image(
             moving.values,
@@ -1648,12 +1558,8 @@ class TestFinishedCallbacks:
             scale_mode="off",
         )
 
-        registered = xr.DataArray(
-            np.ones((3, 4, 6), dtype=np.float32),
-            dims=["time", "y", "x"],
-            coords=moving.coords,
-            attrs={"motion_params": object()},
-        )
+        registered = moving.copy(data=np.ones((3, 1, 4, 6), dtype=np.float32))
+        registered.attrs["motion_params"] = object()
         payload = {
             "operation": "register_volumewise",
             "moving_layer_name": "series",
@@ -1682,13 +1588,11 @@ class TestFinishedCallbacks:
         )
 
     def test_unique_transform_and_result_names(self, viewer, registration_panel):
-        fixed = xr.DataArray(
+        fixed = create_voxeldata(
             np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("j", "i"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         payload = {
             "operation": "register_volume",

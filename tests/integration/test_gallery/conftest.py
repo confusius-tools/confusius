@@ -18,7 +18,7 @@ class GalleryPaths(NamedTuple):
 
 @pytest.fixture
 def gallery_paths(tmp_path: Path) -> GalleryPaths:
-    """Set up a minimal ``docs/examples`` tree with default thumb assets."""
+    """Set up a minimal `docs/examples` tree with default thumb assets."""
     examples_root = tmp_path / "docs" / "examples"
     built_dir = examples_root / "_built"
     cache_root = tmp_path / ".cache" / "gallery"

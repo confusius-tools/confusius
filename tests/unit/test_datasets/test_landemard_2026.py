@@ -176,72 +176,75 @@ def test_fetch_returns_immediately_when_all_cached(tmp_path, mock_get_index):
 # ---------------------------------------------------------------------------
 
 
-def _downloaded_paths(mock_retrieve) -> set[str]:
-    """Return the set of file basenames passed to pooch.retrieve."""
-    return {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+def _downloaded_paths(mock_retrieve, bids_dir: Path) -> set[str]:
+    """Return BIDS-relative paths requested from pooch.retrieve."""
+    return {
+        (Path(c.kwargs["path"]) / c.kwargs["fname"]).relative_to(bids_dir).as_posix()
+        for c in mock_retrieve.call_args_list
+    }
 
 
 def test_fetch_dataset_filter_rawdata_only(tmp_path, mock_get_index, mock_retrieve):
     fetch_landemard_2026(data_dir=tmp_path, datasets=["rawdata"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # Rawdata files included.
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
     # Top-level metadata always included.
     assert "dataset_description.json" in downloaded
     # Derivatives excluded.
-    assert "Atlas_alignment_ALD001.npz" not in downloaded
-    assert "Compact_data_regions_ALD001.npz" not in downloaded
+    assert "derivatives/atlas_mapping/sub-ALD001/Atlas_alignment_ALD001.npz" not in downloaded
+    assert "derivatives/processed_data/Compact_data_regions_ALD001.npz" not in downloaded
 
 
 def test_fetch_dataset_filter_atlas_mapping(tmp_path, mock_get_index, mock_retrieve):
     fetch_landemard_2026(data_dir=tmp_path, datasets=["atlas_mapping"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # Matching derivative included.
-    assert "Atlas_alignment_ALD001.npz" in downloaded
-    assert "Atlas_alignment_ALD002.npz" in downloaded
+    assert "derivatives/atlas_mapping/sub-ALD001/Atlas_alignment_ALD001.npz" in downloaded
+    assert "derivatives/atlas_mapping/sub-ALD002/Atlas_alignment_ALD002.npz" in downloaded
     assert "dataset_description.json" in downloaded
     # Non-matching derivative excluded.
-    assert "Compact_data_regions_ALD001.npz" not in downloaded
+    assert "derivatives/processed_data/Compact_data_regions_ALD001.npz" not in downloaded
     # Rawdata excluded.
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
 
 
 def test_fetch_dataset_filter_processed_data(tmp_path, mock_get_index, mock_retrieve):
     fetch_landemard_2026(data_dir=tmp_path, datasets=["processed_data"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "Compact_data_regions_ALD001.npz" in downloaded
-    assert "Compact_data_regions_ALD002.npz" in downloaded
-    assert "Atlas_alignment_ALD001.npz" not in downloaded
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "derivatives/processed_data/Compact_data_regions_ALD001.npz" in downloaded
+    assert "derivatives/processed_data/Compact_data_regions_ALD002.npz" in downloaded
+    assert "derivatives/atlas_mapping/sub-ALD001/Atlas_alignment_ALD001.npz" not in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
 
 
 def test_fetch_dataset_filter_combined(tmp_path, mock_get_index, mock_retrieve):
     """`datasets` may combine rawdata and a derivative name in a single call."""
     fetch_landemard_2026(data_dir=tmp_path, datasets=["rawdata", "atlas_mapping"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
-    assert "Atlas_alignment_ALD001.npz" in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
+    assert "derivatives/atlas_mapping/sub-ALD001/Atlas_alignment_ALD001.npz" in downloaded
     # Non-listed derivative still excluded.
-    assert "Compact_data_regions_ALD001.npz" not in downloaded
+    assert "derivatives/processed_data/Compact_data_regions_ALD001.npz" not in downloaded
 
 
 def test_fetch_subject_filter(tmp_path, mock_get_index, mock_retrieve):
     fetch_landemard_2026(data_dir=tmp_path, subjects=["ALD001"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # Matching subject included (rawdata and derivatives).
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
-    assert "Atlas_alignment_ALD001.npz" in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
+    assert "derivatives/atlas_mapping/sub-ALD001/Atlas_alignment_ALD001.npz" in downloaded
     # Non-matching subject excluded.
-    assert "sub-ALD002_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
-    assert "Atlas_alignment_ALD002.npz" not in downloaded
+    assert "sub-ALD002/fusi/sub-ALD002_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
+    assert "derivatives/atlas_mapping/sub-ALD002/Atlas_alignment_ALD002.npz" not in downloaded
     # Dataset-level processed_data files pass through (no sub-* directory).
-    assert "Compact_data_regions_ALD001.npz" in downloaded
-    assert "Compact_data_regions_ALD002.npz" in downloaded
+    assert "derivatives/processed_data/Compact_data_regions_ALD001.npz" in downloaded
+    assert "derivatives/processed_data/Compact_data_regions_ALD002.npz" in downloaded
     # Top-level metadata always included.
     assert "dataset_description.json" in downloaded
 
@@ -250,44 +253,44 @@ def test_fetch_acq_filter(tmp_path, mock_get_index, mock_retrieve):
     """`acqs` keeps matching acquisitions and files with no acq entity."""
     fetch_landemard_2026(data_dir=tmp_path, acqs=["ref04"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # Matching acquisition included.
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
     # Non-matching acquisition excluded (ref11 prefix not requested).
-    assert "sub-ALD001_task-awake_acq-ref11_run-1_pwd.nii.gz" not in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref11_run-1_pwd.nii.gz" not in downloaded
     # Files with no acq entity pass through.
-    assert "sub-ALD001_scans.tsv" in downloaded
-    assert "sub-ALD001_pwd.nii.gz" in downloaded
-    assert "sub-ALD001_task-awake_pwd.nii.gz" in downloaded
-    assert "Atlas_alignment_ALD001.npz" in downloaded
+    assert "sub-ALD001/sub-ALD001_scans.tsv" in downloaded
+    assert "sub-ALD001/angio/sub-ALD001_pwd.nii.gz" in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_pwd.nii.gz" in downloaded
+    assert "derivatives/atlas_mapping/sub-ALD001/Atlas_alignment_ALD001.npz" in downloaded
 
 
 def test_fetch_acq_filter_includes_sidecars(tmp_path, mock_get_index, mock_retrieve):
     """`acqs` keeps all sidecar files (e.g. physio) for the matching acquisition."""
     fetch_landemard_2026(data_dir=tmp_path, acqs=["ref11"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-ALD001_task-awake_acq-ref11_run-1_pwd.nii.gz" in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref11_run-1_pwd.nii.gz" in downloaded
     assert (
-        "sub-ALD001_task-awake_acq-ref11_run-1_recording-wheel_physio.tsv.gz"
+        "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref11_run-1_recording-wheel_physio.tsv.gz"
         in downloaded
     )
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
 
 
 def test_fetch_datatype_filter_fusi_only(tmp_path, mock_get_index, mock_retrieve):
     """`datatypes=["fusi"]` excludes angio files but keeps files without a datatype."""
     fetch_landemard_2026(data_dir=tmp_path, datatypes=["fusi"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # fusi files included.
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
     # angio files excluded.
-    assert "sub-ALD001_pwd.nii.gz" not in downloaded
-    assert "sub-ALD001_pwd.json" not in downloaded
+    assert "sub-ALD001/angio/sub-ALD001_pwd.nii.gz" not in downloaded
+    assert "sub-ALD001/angio/sub-ALD001_pwd.json" not in downloaded
     # Files with no datatype layer pass through.
-    assert "sub-ALD001_scans.tsv" in downloaded
-    assert "Atlas_alignment_ALD001.npz" in downloaded
+    assert "sub-ALD001/sub-ALD001_scans.tsv" in downloaded
+    assert "derivatives/atlas_mapping/sub-ALD001/Atlas_alignment_ALD001.npz" in downloaded
     # Top-level metadata always included.
     assert "dataset_description.json" in downloaded
 
@@ -296,11 +299,11 @@ def test_fetch_datatype_filter_angio_only(tmp_path, mock_get_index, mock_retriev
     """`datatypes=["angio"]` keeps angio files and excludes fusi files."""
     fetch_landemard_2026(data_dir=tmp_path, datatypes=["angio"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-ALD001_pwd.nii.gz" in downloaded
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-ALD001/angio/sub-ALD001_pwd.nii.gz" in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
     # Files with no datatype layer still pass through.
-    assert "sub-ALD001_scans.tsv" in downloaded
+    assert "sub-ALD001/sub-ALD001_scans.tsv" in downloaded
 
 
 def test_fetch_combined_subject_and_acq_filters(
@@ -311,11 +314,11 @@ def test_fetch_combined_subject_and_acq_filters(
         data_dir=tmp_path, subjects=["ALD001"], acqs=["ref04"], datatypes=["fusi"]
     )
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
-    assert "sub-ALD001_task-awake_acq-ref11_run-1_pwd.nii.gz" not in downloaded
-    assert "sub-ALD002_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
-    assert "Atlas_alignment_ALD001.npz" in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref11_run-1_pwd.nii.gz" not in downloaded
+    assert "sub-ALD002/fusi/sub-ALD002_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
+    assert "derivatives/atlas_mapping/sub-ALD001/Atlas_alignment_ALD001.npz" in downloaded
 
 
 def test_fetch_invalid_dataset_raises(tmp_path):
@@ -332,18 +335,18 @@ def test_fetch_accepts_string_datasets(tmp_path, mock_get_index, mock_retrieve):
     """A single string is accepted and normalized to a list."""
     fetch_landemard_2026(data_dir=tmp_path, datasets="rawdata")
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
-    assert "Atlas_alignment_ALD001.npz" not in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
+    assert "derivatives/atlas_mapping/sub-ALD001/Atlas_alignment_ALD001.npz" not in downloaded
 
 
 def test_fetch_accepts_string_subjects(tmp_path, mock_get_index, mock_retrieve):
     """A single string is accepted and normalized to a list."""
     fetch_landemard_2026(data_dir=tmp_path, subjects="ALD001")
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
-    assert "sub-ALD002_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
+    assert "sub-ALD002/fusi/sub-ALD002_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
 
 
 def test_fetch_accepts_string_acqs_and_datatypes(
@@ -352,10 +355,10 @@ def test_fetch_accepts_string_acqs_and_datatypes(
     """`acqs` and `datatypes` strings are normalized to lists."""
     fetch_landemard_2026(data_dir=tmp_path, acqs="ref04", datatypes="fusi")
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
-    assert "sub-ALD001_task-awake_acq-ref11_run-1_pwd.nii.gz" not in downloaded
-    assert "sub-ALD001_pwd.nii.gz" not in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
+    assert "sub-ALD001/fusi/sub-ALD001_task-awake_acq-ref11_run-1_pwd.nii.gz" not in downloaded
+    assert "sub-ALD001/angio/sub-ALD001_pwd.nii.gz" not in downloaded
 
 
 # ---------------------------------------------------------------------------
@@ -420,9 +423,9 @@ def test_fetch_raises_after_max_retries(tmp_path, mock_get_index):
             side_effect=always_fails,
         ) as mock_retrieve,
         patch("confusius.datasets._pooch.time.sleep"),
+        pytest.raises(requests.exceptions.ReadTimeout),
     ):
-        with pytest.raises(requests.exceptions.ReadTimeout):
-            fetch_landemard_2026(data_dir=tmp_path)
+        fetch_landemard_2026(data_dir=tmp_path)
 
     assert mock_retrieve.call_count == _MAX_DOWNLOAD_RETRIES
 

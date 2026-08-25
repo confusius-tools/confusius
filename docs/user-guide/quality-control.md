@@ -165,7 +165,7 @@ from confusius.qc import compute_cv
 
 # Compute CV on the full spatial DataArray directly.
 cv = compute_cv(pwd)
-# cv has dims (z, y, x) — the time dimension is reduced.
+# cv has dims (k, j, i) — the time dimension is reduced.
 ```
 
 ### Visualizing

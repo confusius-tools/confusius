@@ -91,8 +91,8 @@ def interpolate_samples(
     ----------
     signals : (time, ...) xarray.DataArray
         Array to interpolate. Must have a `time` dimension and `time` coordinates.
-        Can be any shape, e.g., extracted signals `(time, voxels)`, full 3D+t imaging
-        data `(time, z, y, x)`, or confounds `(time, n_confounds)`.
+        Can be any shape, e.g., extracted signals `(time, space)` or VoxelData array
+        `(time, k, j, i)`.
     sample_mask : (time,) xarray.DataArray
         Boolean sample mask indicating which timepoints to keep (`True`) vs.
         interpolate (`False`). Must have a `time` dimension matching `signals`.
@@ -221,8 +221,7 @@ def censor_samples(
     ----------
     signals : (time, ...) xarray.DataArray
         Array to censor. Must have a `time` dimension. Can be any shape, e.g.,
-        extracted signals `(time, space)`, full 3D+t imaging data `(time, z, y,
-        x)`, or confounds `(time, n_confounds)`.
+        extracted signals `(time, space)` or VoxelData array `(time, k, j, i)`.
     sample_mask : (time,) xarray.DataArray
         Boolean sample mask indicating which timepoints to keep (`True`) vs. remove
         (`False`). Must have a `time` dimension matching `signals`. If both
