@@ -2035,6 +2035,41 @@ class TestPlotVolumeVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
+    def test_plot_volume_overlay_rotated_translated_moving(
+        self, matplotlib_pyplot, reproducible_baseline_voxeldata
+    ):
+        """Regression baseline for #391: an overlaid volume rotated + translated
+        by a non-integer number of voxels (mirroring a rigid-registration
+        fixed/moving pair) must be phase-locked to the first volume's in-plane
+        grid, not merely resampled at the same resolution -- a phase mismatch
+        would show as visible fringing/misalignment between the two volumes'
+        cells at their shared edges.
+        """
+        # Small enough that `moving` still overlaps most of `fixed`'s own extent
+        # (0.35 x 0.25 mm) -- otherwise the two volumes wouldn't share any cell
+        # edges for a phase mismatch to show up at.
+        fixed = reproducible_baseline_voxeldata
+        theta = np.deg2rad(2.0)
+        world_transform = np.array(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, np.cos(theta), -np.sin(theta), 0.12],
+                [0.0, np.sin(theta), np.cos(theta), 0.13],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        moving = fixed.fusi.affine.apply(world_transform)
+
+        plotter = plot_volume(fixed, slice_mode="z")
+        plotter.add_volume(moving, cmap="hot", alpha=0.5)
+
+        return plotter.figure
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
     def test_plot_volume_threshold(
         self, matplotlib_pyplot, reproducible_baseline_voxeldata
     ):
