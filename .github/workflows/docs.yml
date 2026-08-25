@@ -305,13 +305,13 @@ jobs:
           git -C /tmp/confusius-docs config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Deploy dev docs
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        if: github.ref == 'refs/heads/main'
         working-directory: /tmp/confusius-docs
-        run: uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --push --update-aliases dev latest
+        run: uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --push --update-aliases dev
 
       - name: Deploy release docs
         if: startsWith(github.ref, 'refs/tags/v')
         working-directory: /tmp/confusius-docs
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --push "$VERSION"
+          uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --push --update-aliases "$VERSION" latest
