@@ -17,6 +17,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_index_origin,
     get_voxel_to_world_index_spacing,
     get_voxel_to_world_spacings_from_coords,
+    get_voxel_to_world_spatial_dims,
     get_voxel_to_world_units,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
@@ -1324,3 +1325,61 @@ def test_attach_voxel_to_world_index_sets_custom_units() -> None:
     assert get_voxel_to_world_units(da) == "um"
     for name in ("z", "y", "x"):
         assert da.coords[name].attrs["units"] == "um"
+
+
+def test_rename_world_coord_keeps_transform_consistent() -> None:
+    """Renaming a derived world coordinate name goes through `VoxelToWorldIndex.rename`
+    and keeps the wrapped transform (and its other world coordinates) intact.
+    """
+    da = attach_voxel_to_world_index(
+        xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=("k", "j", "i"),
+            coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
+        ),
+        np.diag([10.0, 2.0, 3.0, 1.0]),
+    )
+
+    renamed = da.rename(z="zz")
+
+    assert "zz" in renamed.coords
+    assert "z" not in renamed.coords
+    assert_allclose(renamed.coords["zz"].values, da.coords["z"].values)
+    assert_allclose(renamed.coords["y"].values, da.coords["y"].values)
+
+
+def test_attach_voxel_to_world_index_rejects_pose_dim_with_shared_affine() -> None:
+    """A `pose` dimension always requires a per-pose affine stack, even for a
+    single (4, 4) shared affine.
+    """
+    data = xr.DataArray(
+        np.zeros((2, 2, 3, 4)),
+        dims=("pose", "k", "j", "i"),
+        coords={
+            "k": np.arange(2),
+            "j": np.arange(3),
+            "i": np.arange(4),
+            "pose": [0, 1],
+        },
+    )
+
+    with pytest.raises(ValueError, match="single shared \\(4, 4\\) affine"):
+        attach_voxel_to_world_index(data, np.eye(4))
+
+
+def test_has_axis_aligned_voxel_to_world_index_false_without_index() -> None:
+    """`has_axis_aligned_voxel_to_world_index` is `False` for a plain DataArray with
+    no `VoxelToWorldIndex` attached at all, not just for an oblique one.
+    """
+    plain = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
+
+    assert has_axis_aligned_voxel_to_world_index(plain) is False
+
+
+def test_get_voxel_to_world_spatial_dims_falls_back_without_index() -> None:
+    """Without a `VoxelToWorldIndex`, `get_voxel_to_world_spatial_dims` falls back
+    to whichever native voxel dims are present on `data.dims`.
+    """
+    plain = xr.DataArray(np.zeros((2, 4)), dims=("k", "i"))
+
+    assert get_voxel_to_world_spatial_dims(plain) == ("k", "i")

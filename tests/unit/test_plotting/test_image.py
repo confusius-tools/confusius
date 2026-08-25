@@ -22,6 +22,7 @@ from confusius.plotting import (
     plot_contours,
     plot_volume,
 )
+from confusius.plotting._utils import materialize_axis_aligned_world_grid_for_display
 from confusius.xarray import create_voxeldata
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
@@ -739,6 +740,32 @@ class TestCentersToEdges:
 class TestPlottingUtilsVoxelToWorldHelpers:
     """Tests for shared voxel-to-world display helpers in `plotting._utils`."""
 
+    def test_resample_with_plain_reference_missing_a_world_dim_defaults_grid(
+        self, sample_voxeldata_3d_oblique
+    ):
+        """A plain reference DataArray missing one world coordinate falls back to
+        an origin of 0.0 and spacing of 1.0 for that axis, instead of raising.
+        """
+        from confusius._utils.plotting import resample_to_axis_aligned_world_grid
+
+        data = sample_voxeldata_3d_oblique
+        # `z` is a real dimension but carries no coordinate values at all.
+        reference = xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=["z", "y", "x"],
+            coords={"y": [0.0, 1.0, 2.0], "x": [0.0, 1.0, 2.0, 3.0]},
+        )
+
+        result = resample_to_axis_aligned_world_grid(data, reference=reference)
+
+        # `result` stays on its native voxel dims (k/j/i), still indexed; "z" is a
+        # derived (dense, index-materialized) world coordinate here, not a plain 1D
+        # dimension coordinate, so read the fallback origin/spacing off the index via
+        # `.fusi` instead of diffing `.coords["z"].values` directly.
+        assert result.sizes["k"] == 2
+        assert result.fusi.origin["z"] == pytest.approx(0.0)
+        assert result.fusi.spacing["k"] == pytest.approx(1.0)
+
     def test_resample_derives_spacing_from_affine_not_materialized_array_axis(self):
         """Resampled spacing matches the voxel-to-world affine, not a naive diff
         along the materialized (k, j, i)-shaped world-coordinate array's last axis.
@@ -805,6 +832,49 @@ class TestPlottingUtilsVoxelToWorldHelpers:
 
         with pytest.raises(ValueError, match="no well-defined spacing"):
             resample_to_axis_aligned_world_grid(data)
+
+    def test_singular_affine_raises_for_dominant_axis(self):
+        """`compute_oblique_axis_aligned_grid_geometry` raises `ValueError` when a
+        world axis's dominant QR-decomposed spacing is zero (a singular
+        voxel-to-world affine along that axis), instead of dividing by zero.
+        """
+        from confusius._utils.plotting import compute_oblique_axis_aligned_grid_geometry
+
+        data = xr.DataArray(
+            np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+            dims=["k", "j", "i"],
+            coords={"k": [0, 1], "j": [0, 1, 2], "i": [0, 1, 2, 3]},
+        )
+        # `i` contributes nothing to any world axis -- the affine's linear block
+        # is singular, so QR gives a zero spacing for whichever world row it
+        # dominates.
+        data = attach_voxel_to_world_index(
+            data,
+            np.array(
+                [
+                    [0.4, 0.1, 0.0, 10.0],
+                    [0.2, 0.3, 0.0, 20.0],
+                    [0.0, 0.0, 0.0, 30.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+        )
+
+        with pytest.raises(ValueError, match="affine is singular along this axis"):
+            compute_oblique_axis_aligned_grid_geometry(data, ("z", "y", "x"))
+
+    def test_materialize_world_grid_is_a_no_op_without_axis_aligned_index(
+        self, sample_voxeldata_3d_oblique
+    ):
+        """`materialize_axis_aligned_world_grid_for_display` returns `data` unchanged
+        when it has no axis-aligned `VoxelToWorldIndex` (oblique geometry here).
+        """
+        result = materialize_axis_aligned_world_grid_for_display(
+            sample_voxeldata_3d_oblique
+        )
+
+        assert result is sample_voxeldata_3d_oblique
+
 
 class TestVolumePlotterAddVolume:
     """Tests for VolumePlotter.add_volume method."""

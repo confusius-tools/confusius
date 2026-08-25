@@ -320,6 +320,26 @@ class TestConsolidatePoses:
         with pytest.raises(ValueError, match="no 'pose' dimension"):
             consolidate_poses(scan_2d)
 
+    def test_pose_dim_without_pose_dependent_index_raises(
+        self, scan_3d: xr.DataArray
+    ) -> None:
+        """consolidate_poses raises ValueError when a `pose` dimension is present but
+        the primary `VoxelToWorldIndex` is not itself pose-dependent (a `(4, 4)`
+        shared affine, not a `(npose, 4, 4)` stack) -- e.g. per-pose geometry instead
+        lives in a secondary, named affine in `attrs["affines"]`.
+
+        Distinct from `test_non_pose_dependent_primary_geometry_raises` below, which
+        does have a genuine `(npose, 4, 4)` stack, just with numerically identical
+        poses.
+        """
+        # Reduce the primary geometry to a single pose-independent affine, then
+        # reinstate a plain (non-geometry) `pose` dimension of size 1, mimicking data
+        # whose real per-pose geometry lives elsewhere (`attrs["affines"]`).
+        da = scan_3d.isel(pose=0).expand_dims(pose=[0])
+
+        with pytest.raises(ValueError, match="no pose-dependent primary geometry"):
+            consolidate_poses(da)
+
     def test_irregular_positions_raises(self, scan_3d_irregular_path: Path) -> None:
         """consolidate_poses raises ValueError when positions are not regularly spaced."""
         da = load_scan(scan_3d_irregular_path)
