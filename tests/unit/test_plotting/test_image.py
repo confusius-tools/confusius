@@ -953,6 +953,72 @@ class TestVolumePlotterAddVolumePhaseLock:
             phase_residual = (float(moving_coord[0]) - float(fixed_coord[0])) % spacing
             assert min(phase_residual, spacing - phase_residual) > 0.01
 
+    def test_axis_aligned_but_phase_mismatched_panel_is_still_resampled(
+        self, sample_voxeldata_3d
+    ):
+        """Regression for #391 (real allen_mouse_100um + Huang 2025 template
+        repro): a *non-oblique* panel -- no rotation, same world origin -- at
+        a different resolution must still be resampled onto a phase-locked
+        grid, not returned unchanged just because it's already axis-aligned.
+
+        Calls `_resample_to_planar_world_grid` directly (as
+        `_resample_pose_slices_to_world_grid` does per pose panel) so the
+        axis-aligned-but-mismatched branch is exercised deterministically --
+        going through `add_volume` can instead take the oblique branch, since
+        `.isel(pose=...)` can leave enough floating-point noise for
+        `has_axis_aligned_voxel_to_world_index` to read `False`, even though
+        the end result is numerically the same either way.
+        """
+        from collections.abc import Hashable
+
+        from confusius._utils.geometry import has_axis_aligned_voxel_to_world_index
+        from confusius._utils.plotting import AxisPhase
+        from confusius.plotting.image import _resample_to_planar_world_grid
+
+        fixed = sample_voxeldata_3d.isel(k=[0])
+        moving_affine = fixed.fusi.affine.voxel_to_world.copy()
+        moving_affine[1, 1] /= 2.0  # halve j (y) spacing
+        moving_affine[2, 2] /= 2.0  # halve i (x) spacing
+        moving = create_voxeldata(
+            np.random.default_rng(11).random((1, 12, 16)),
+            dims=("k", "j", "i"),
+            voxel_to_world=moving_affine,
+        )
+        assert has_axis_aligned_voxel_to_world_index(moving)
+
+        axis_origins: dict[Hashable, AxisPhase] = {
+            world_dim: AxisPhase(
+                origin=float(_world_coord_1d(fixed, world_dim)[0]),
+                spacing=float(np.diff(_world_coord_1d(fixed, world_dim))[0]),
+            )
+            for world_dim in ("y", "x")
+        }
+        result, _ = _resample_to_planar_world_grid(
+            moving,
+            slice_mode="pose",
+            interpolation="linear",
+            fill_value=None,
+            axis_origins=axis_origins,
+        )
+
+        assert result is not moving
+        for world_dim in ("y", "x"):
+            phase = axis_origins[world_dim]
+            result_coord = _world_coord_1d(result, world_dim)
+            # moving's own spacing is half the reference's -- resampling must
+            # preserve its own resolution, only the origin gets phase-locked.
+            spacing = float(np.diff(result_coord)[0])
+            assert spacing == pytest.approx(phase.spacing / 2.0)
+            # Cell *edges*, not centers, are what get phase-locked (see
+            # snap_origin_to_phase) -- checking edge congruence is the correct
+            # invariant at a resolution ratio other than 1.
+            own_edge = float(result_coord[0]) - spacing / 2.0
+            phase_edge = phase.origin - phase.spacing / 2.0
+            phase_residual = (own_edge - phase_edge) % spacing
+            assert min(phase_residual, spacing - phase_residual) == pytest.approx(
+                0.0, abs=1e-6
+            )
+
 
 class TestVolumePlotterAddVolume:
     """Tests for VolumePlotter.add_volume method."""
