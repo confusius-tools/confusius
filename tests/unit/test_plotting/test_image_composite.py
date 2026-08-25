@@ -10,6 +10,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
 )
 from confusius.plotting import VolumePlotter, plot_composite
+from confusius.registration import resample_like
 from confusius.xarray import create_voxeldata
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
@@ -89,10 +90,17 @@ class TestAddCompositeResample:
             data1, data2, resample=True
         )
 
-        # All panels should be rendered at data1's (y, x) shape.
         rgb0 = _axes(plotter)[0, 0].collections[0].get_array()
         assert rgb0.shape == (data1.sizes["j"], data1.sizes["i"], 3)
-        # And we should get one panel per data1 z-slice.
+
+        expected_data2 = resample_like(data2, data1, np.eye(4))
+        expected_cyan = expected_data2.values.astype(float)
+        expected_cyan = (expected_cyan - expected_cyan.min()) / (
+            expected_cyan.max() - expected_cyan.min()
+        )
+        npt.assert_allclose(rgb0[..., 1], expected_cyan[0], atol=1e-6)
+        npt.assert_allclose(rgb0[..., 2], expected_cyan[0], atol=1e-6)
+
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == data1.sizes["k"]
 
