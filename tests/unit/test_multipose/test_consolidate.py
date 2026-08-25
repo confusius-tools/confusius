@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 import xarray as xr
 
@@ -16,6 +17,62 @@ _SIZE_Y = 1
 _T = 5
 
 
+def _make_rotated_sweep(
+    npose: int = 3, n_k: int = 2
+) -> tuple[xr.DataArray, npt.NDArray[np.float64]]:
+    """Build a pose stack whose voxel axes are rotated 30 degrees about world x.
+
+    Poses step along the rotated `k` column by `n_k` voxels, so they tile without
+    gaps in ascending order.
+
+    Returns
+    -------
+    da : xarray.DataArray
+        `(pose, k, j, i)` VoxelData with a pose-dependent primary geometry.
+    linear : (3, 3) numpy.ndarray
+        Shared linear block (rotation @ spacing) of every pose's affine.
+    """
+    theta = np.deg2rad(30)
+    rotation = np.array(
+        [
+            [np.cos(theta), -np.sin(theta), 0.0],
+            [np.sin(theta), np.cos(theta), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    linear = rotation @ np.diag([0.4, 0.1, 0.1])
+    affines = np.zeros((npose, 4, 4))
+    for pose in range(npose):
+        affines[pose, :3, :3] = linear
+        affines[pose, :3, 3] = [1.0, 2.0, 3.0] + pose * n_k * linear[:, 0]
+        affines[pose, 3, 3] = 1.0
+    da = create_voxeldata(
+        np.random.default_rng(0).random((npose, n_k, 3, 4)),
+        dims=("pose", "k", "j", "i"),
+        pose=np.arange(npose),
+        voxel_to_world=affines,
+    )
+    return da, linear
+
+
+def _assert_world_positions_preserved(
+    source: xr.DataArray, result: xr.DataArray
+) -> None:
+    """Check that every source voxel keeps its world position after consolidation.
+
+    Source poses must already be sorted along the sweep and tile without gaps, so
+    the consolidated sweep index is `pose * n_sweep + sweep_index` and the source
+    world coordinates reshape directly onto the result's voxel grid.
+    """
+    for world_dim in ("z", "y", "x"):
+        expected = source.coords[world_dim].values.reshape(
+            result.coords[world_dim].shape
+        )
+        np.testing.assert_allclose(
+            result.coords[world_dim].values, expected, atol=1e-12
+        )
+
+
 # ---------------------------------------------------------------------------
 # Tests: consolidate_poses
 # ---------------------------------------------------------------------------
@@ -24,22 +81,52 @@ _T = 5
 class TestConsolidatePoses:
     """Tests for consolidate_poses."""
 
-    def test_probe_to_lab_consolidated_rotation_orthogonal(
-        self, scan_3d: xr.DataArray
+    @pytest.mark.parametrize("fixture_name", ["scan_3d", "scan_4d"])
+    def test_scan_preserves_world_positions(
+        self, fixture_name: str, request: pytest.FixtureRequest
     ) -> None:
-        """Consolidated affine is 4x4 with an orthogonal rotation block.
+        """Every SCAN voxel keeps its lab-space world position after consolidation."""
+        da = request.getfixturevalue(fixture_name)
+        result = consolidate_poses(da)
+        assert get_voxel_to_world_affine(result).shape == (4, 4)
+        _assert_world_positions_preserved(da, result)
 
-        Normalized to unit-length axes first: the affine itself also carries
-        per-axis voxel scale, so its raw columns aren't orthonormal.
+    def test_rotated_geometry_preserves_world_positions(self) -> None:
+        """Rotated per-pose geometry survives consolidation in the output affine.
+
+        The output voxel-to-world affine must carry the input's rotation, not just
+        per-axis spacings: with a rotated frame, every voxel would otherwise land at
+        a wrong world position.
         """
-        result = consolidate_poses(scan_3d)
-        A = get_voxel_to_world_affine(result)
-        assert A.shape == (4, 4)
-        R = A[:3, :3]
-        R_normalized = R / np.linalg.norm(R, axis=0, keepdims=True)
-        # R_normalized^T @ R_normalized should be the identity for an orthogonal
-        # (axis-aligned or rotated) frame.
-        np.testing.assert_allclose(R_normalized.T @ R_normalized, np.eye(3), atol=1e-10)
+        da, linear = _make_rotated_sweep()
+
+        result = consolidate_poses(da)
+
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(result)[:3, :3], linear, atol=1e-12
+        )
+        _assert_world_positions_preserved(da, result)
+
+    def test_linked_per_pose_affine_follows_output_geometry(self) -> None:
+        """A per-pose secondary `L @ primary[p]` consolidates to `L @ output`.
+
+        The consolidated secondary must stay a left-link of the geometry actually
+        attached to the output (its VoxelToWorldIndex), rotation included, so both
+        keep describing the same voxels.
+        """
+        da, _ = _make_rotated_sweep()
+        link = np.eye(4)
+        link[:3, :3] = [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+        link[:3, 3] = [5.0, -2.0, 1.0]
+        da.attrs["affines"] = {"world_to_linked": link @ get_voxel_to_world_affine(da)}
+
+        result = consolidate_poses(da)
+
+        np.testing.assert_allclose(
+            result.attrs["affines"]["world_to_linked"],
+            link @ get_voxel_to_world_affine(result),
+            atol=1e-12,
+        )
 
     def test_no_spurious_probe_to_lab_in_attrs(self, scan_3d: xr.DataArray) -> None:
         """Consolidation doesn't inject a probe_to_lab attrs entry that never existed.

@@ -15,7 +15,6 @@ import xarray as xr
 from confusius._dims import WORLD_DIMS
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
-    get_affine_axis_scalings,
     get_voxel_to_world_affine,
     get_voxel_to_world_spatial_dims,
     get_voxel_to_world_units,
@@ -199,9 +198,11 @@ def consolidate_poses(
     -------
     xarray.DataArray
         VoxelData array with `pose` merged into the swept voxel dimension, sorted by
-        world position. The consolidated coordinate holds the projection of each
-        voxel's world position onto the sweep axis, expressed in the same units as
-        the input coordinate. For inputs whose `time` coordinate is itself
+        world position. Every voxel keeps its world position: the output
+        voxel-to-world affine carries over the input's non-swept columns (including
+        any rotation), uses one regular step along the detected sweep axis for the
+        swept column, and is anchored at the first sorted voxel. For inputs whose
+        `time` coordinate is itself
         pose-dependent (`(time, pose)`-shaped -- see
         [stack_poses][confusius.multipose.stack_poses]), a consolidated `slice_time`
         with dims `("time", <sweep_dim>)` is included: each slice inherits the
@@ -231,7 +232,6 @@ def consolidate_poses(
     # ensure_voxeldata above guarantees da carries a VoxelToWorldIndex, so the voxel dims
     # (and their derived world coordinates) are always available here.
     voxel_dims = list(get_voxel_to_world_spatial_dims(da))
-    voxel_to_world = dict(zip(voxel_dims, WORLD_DIMS, strict=True))
 
     affine = get_voxel_to_world_affine(da)  # (npose, 4, 4) when pose-dependent.
     if affine.ndim != 3:
@@ -252,13 +252,8 @@ def consolidate_poses(
         )
 
     sweep_dim = _detect_sweep_dim(t, rotations[0], voxel_dims)
-    sweep_data_dim = sweep_dim
-    spatial_dims = voxel_dims
-    output_spatial_dims = spatial_dims
-    world_sweep_dim = voxel_to_world[sweep_dim]
+    sweep_col = voxel_dims.index(sweep_dim)
     other_voxel_dims = [d for d in voxel_dims if d != sweep_dim]
-    sweep_coord_attrs = dict(da.coords[world_sweep_dim].attrs)
-    sweep_col = spatial_dims.index(sweep_dim)
 
     # Read exact per-(pose, sweep) world positions directly from da's own world
     # coordinates rather than reconstructing them from a separately stored affine.
@@ -306,110 +301,26 @@ def consolidate_poses(
     pose_idx = sorted_flat // n_sweep
     sweep_idx = sorted_flat % n_sweep
 
-    # Replace the SVD-derived projections with a regular arithmetic grid anchored at
-    # proj_sorted[0]. The regularity check above ensures this is within rtol of the
-    # actual positions; using a perfect grid avoids floating-point accumulation errors
-    # that would otherwise cause napari (which renders voxel k at origin + k * scale)
-    # and resample_like (which reconstructs coords as origin + k * spacing) to disagree
-    # with the coordinate array values.
-    n_consolidated = len(proj_sorted)
-    proj_regular: npt.NDArray[np.float64] = (
-        proj_sorted[0] + np.arange(n_consolidated) * mean_spacing
-    )
-
-    new_sweep = xr.Variable(sweep_dim, proj_regular, attrs=sweep_coord_attrs)
-
-    # After merging, sweep_dim is the projection along sweep_axis (already in affine/
-    # world-space units), so the sweep column becomes sweep_axis. The other spatial
-    # columns are
-    # constant across poses; the translation is the perpendicular component of the first
-    # sorted pose's translation.
-    t0 = t[pose_idx[0]]
-    t_perp = t0 - np.dot(t0, sweep_axis) * sweep_axis
-    other_cols = [c for c in range(3) if c != sweep_col]
-
-    # Assemble a candidate rotation matrix and orthogonalise it via QR decomposition.
-    # This guarantees a non-singular result: sweep_axis (SVD-derived) may not be
-    # perfectly orthogonal to the columns taken from affine[0], which would otherwise
-    # produce a singular matrix.  QR preserves the column ordering, so we place
-    # sweep_axis in the sweep column and the pose-0 vectors in the remaining columns,
-    # then decompose.  We fix signs afterward so each QR column points in the same
-    # half-space as the corresponding candidate column, preserving the orientation of
-    # the original per-pose affines.
-    candidate: npt.NDArray[np.float64] = np.empty((3, 3), dtype=np.float64)
-    candidate[:, sweep_col] = sweep_axis
-    # affine[0, :3, other_cols] has shape (len(other_cols), 3) due to advanced
-    # indexing; transpose to (3, len(other_cols)) before assigning.
-    candidate[:, other_cols] = affine[0, :3, other_cols].T
-    q, _ = np.linalg.qr(candidate)
-    # Fix column signs: each QR column should agree in direction with the original
-    # candidate column (positive dot product).
-    for col in range(3):
-        if np.dot(q[:, col], candidate[:, col]) < 0:
-            q[:, col] = -q[:, col]
-
+    # Output voxel-to-world affine. The swept column is one regular step along the
+    # sweep axis (the regularity check above ensures this is within rtol of the
+    # actual positions, and a perfect grid avoids floating-point accumulation
+    # errors); the other columns are constant across poses (checked above) and carry
+    # over from the input; the origin is the world position of the first sorted
+    # (pose, sweep) voxel. Every voxel thus keeps its world position through the
+    # merge, including any rotation of the input geometry.
     new_affine: npt.NDArray[np.float64] = np.eye(4, dtype=np.float64)
-    new_affine[:3, :3] = q
-    new_affine[:3, 3] = t_perp
+    new_affine[:3, :3] = rotations[0]
+    new_affine[:3, sweep_col] = sweep_axis * mean_spacing
+    new_affine[:3, 3] = lab_pos_flat[sorted_flat[0]]
 
-    other_output_dims = [d for d in output_spatial_dims if d != sweep_dim]
     new_affines = _consolidate_linked_affines(
         da.attrs.get("affines", {}), affine, new_affine
     )
     new_attrs = {**da.attrs, "affines": new_affines}
-    base_coords: dict[str, Any] = {str(sweep_dim): new_sweep}
-    for output_dim in other_output_dims:
-        coord_name = voxel_to_world.get(output_dim, output_dim)
-        if coord_name in da.coords:
-            coord = da.coords[coord_name]
-            other_coord_dims = [str(d) for d in coord.dims if d != output_dim]
-            if other_coord_dims:
-                # World coordinates are (k, j, i)-shaped (backed by a single joint
-                # VoxelToWorldIndex covering all voxel dims), but only genuinely vary
-                # along output_dim for axis-aligned geometry; reduce the other voxel
-                # dims to get a 1D coordinate for the output.
-                coord = coord.isel(dict.fromkeys(other_coord_dims, 0))
-            base_coords[str(output_dim)] = xr.DataArray(
-                np.asarray(coord.values),
-                dims=[str(output_dim)],
-                attrs=dict(coord.attrs),
-            )
-
-    output_spatial_dim_names = tuple(str(dim) for dim in output_spatial_dims)
-
-    # Non-sweep axes keep their pre-consolidation affine columns untouched, so their
-    # true world spacing is that column's Euclidean norm (get_affine_axis_scalings) --
-    # the affine is ground truth regardless of axis length, unlike diffing a single
-    # named world coordinate. For an oblique geometry (e.g. SCAN data where a voxel
-    # axis is not aligned with its "own" named world axis), diffing only that one
-    # coordinate component picks up a near-zero cross term instead of the axis's real
-    # magnitude, and a singleton axis has no diff to take at all.
-    other_axis_scalings = get_affine_axis_scalings(affine[0], tuple(spatial_dims))
-
-    def _attach_output_cti(result: xr.DataArray) -> xr.DataArray:
-        origins: list[float] = []
-        spacings: list[float] = []
-        for voxel_dim in output_spatial_dims:
-            coord = result.coords[voxel_dim]
-            values = np.asarray(coord.values, dtype=np.float64)
-            origins.append(float(values[0]))
-            if voxel_dim == sweep_dim:
-                # mean_spacing is the SVD-projected, pose-merged spacing -- finer
-                # than any single pre-consolidation affine column, and well-defined
-                # even when the consolidated axis ends up with a single sample.
-                spacing = mean_spacing
-            else:
-                spacing = other_axis_scalings[voxel_dim]
-            spacings.append(spacing)
-            result = result.assign_coords(
-                {voxel_dim: np.arange(result.sizes[voxel_dim])}
-            )
-        voxel_to_world_affine = np.eye(len(output_spatial_dim_names) + 1)
-        voxel_to_world_affine[:-1, :-1] = np.diag(spacings)
-        voxel_to_world_affine[:-1, -1] = origins
-        return attach_voxel_to_world_index(
-            result, voxel_to_world_affine, units=get_voxel_to_world_units(da)
-        )
+    base_coords: dict[str, Any] = {
+        sweep_dim: np.arange(len(sorted_flat)),
+        **{dim: np.arange(da.sizes[dim]) for dim in other_voxel_dims},
+    }
 
     # Use xarray's vectorized isel to select (pose, sweep_dim) pairs simultaneously.
     # This stays dask-backed; dask does not support multi-axis fancy indexing via
@@ -420,7 +331,7 @@ def consolidate_poses(
     data = da.isel(
         {
             "pose": xr.DataArray(pose_idx, dims=[_consolidated]),
-            sweep_data_dim: xr.DataArray(sweep_idx, dims=[_consolidated]),
+            sweep_dim: xr.DataArray(sweep_idx, dims=[_consolidated]),
         }
     ).data
 
@@ -459,24 +370,28 @@ def consolidate_poses(
                 slice_time_attrs,
             )
         coords.update(base_coords)
-        out_dims = ["time", sweep_dim] + other_output_dims
-        return _attach_output_cti(
+        out_dims = ["time", sweep_dim] + other_voxel_dims
+        return attach_voxel_to_world_index(
             xr.DataArray(
                 data,
                 dims=out_dims,
                 coords=coords,
                 attrs=new_attrs,
                 name="scan_data",
-            )
+            ),
+            new_affine,
+            units=get_voxel_to_world_units(da),
         )
 
-    out_dims = [sweep_dim] + other_output_dims
-    return _attach_output_cti(
+    out_dims = [sweep_dim] + other_voxel_dims
+    return attach_voxel_to_world_index(
         xr.DataArray(
             data,
             dims=out_dims,
             coords=base_coords,
             attrs=new_attrs,
             name="scan_data",
-        )
+        ),
+        new_affine,
+        units=get_voxel_to_world_units(da),
     )
