@@ -1358,10 +1358,8 @@ class VolumePlotter:
 
         _validate_slice_mode(data, self.slice_mode)
 
-        # Squeeze a unitary pose dim first (still stored as a stacked affine),
-        # then require the rest be pose-independent -- pose always means
-        # distinct probe positions, so a non-pose slice_mode can't proceed with
-        # more than one left un-reduced.
+        # pose always means distinct probe positions, so a non-pose slice_mode can't
+        # proceed with more than one left un-reduced.
         if self.slice_mode != POSE_DIM:
             if POSE_DIM in data.dims and data.sizes[POSE_DIM] == 1:
                 data = data.squeeze(dim=POSE_DIM)
@@ -1407,13 +1405,13 @@ class VolumePlotter:
                 fill_value=self._resample_fill_value,
             )
 
-        # For `pose`, materializing here (before per-pose `.isel`) would be wrong,
-        # not just redundant: a pose-dependent affine can be individually
-        # axis-aligned per pose while still varying across poses, and materialize's
-        # world-coordinate lookup collapses every non-spatial dim to its first index,
-        # silently mislabeling every other pose with pose 0's world coordinates.
-        # `_resample_pose_slices_to_world_grid` materializes correctly instead, per
-        # panel, after `.isel` has collapsed `pose` to a scalar affine.
+        # For `pose`, materializing here (before per-pose `.isel`) would be wrong:
+        # A pose-dependent affine can be individually axis-aligned per pose while still
+        # varying across poses, and materialize's world-coordinate lookup collapses
+        # every non-spatial dim to its first index, silently mislabeling every other
+        # pose with pose 0's world coordinates. `_resample_pose_slices_to_world_grid`
+        # materializes correctly instead, per panel, after `.isel` has collapsed `pose`
+        # to a scalar affine.
         if self.slice_mode != POSE_DIM:
             data = materialize_axis_aligned_world_grid_for_display(data)
 
