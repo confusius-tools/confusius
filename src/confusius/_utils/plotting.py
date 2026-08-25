@@ -1,6 +1,6 @@
 """Plotting helpers shared across the plotting/napari modules and registration views."""
 
-from collections.abc import Sequence
+from collections.abc import Hashable, Mapping, Sequence
 from typing import Literal
 
 import numpy as np
@@ -139,8 +139,50 @@ def qr_axis_spacing(
     return row_to_axis, axis_spacing
 
 
+def snap_origin_to_phase(origin: float, spacing: float, phase_origin: float) -> float:
+    """Shift `origin` to the nearest lower point congruent to `phase_origin`.
+
+    Used to phase-lock an independently-computed display grid's origin to a
+    reference grid's, so two overlaid volumes' cells coincide whenever `spacing`
+    evenly divides the reference's own spacing (e.g. matching resolutions, or an
+    integer-upsampled overlay) -- without moving `origin` anywhere near
+    `phase_origin` itself, which may sit far away in world space (e.g. a
+    different session's probe placement). When the two spacings don't share an
+    integer ratio, this still minimizes the phase offset to less than `spacing`,
+    rather than leaving it at an arbitrary bounding-box-derived value.
+
+    Parameters
+    ----------
+    origin : float
+        World position of the grid's own first sample, before snapping.
+    spacing : float
+        World distance between consecutive samples of this grid.
+    phase_origin : float
+        World position that should be exactly reachable by stepping `spacing`
+        from the result (mod `spacing`), i.e. the reference grid's own origin.
+
+    Returns
+    -------
+    float
+        `origin`, shifted down by less than `spacing` so that
+        `(result - phase_origin) % spacing == 0`.
+    """
+    offset = (origin - phase_origin) % spacing
+    # `origin` is already (near) an exact multiple of `spacing` away from
+    # `phase_origin` -- floating-point noise in `%` can then land `offset` close
+    # to `spacing` instead of close to `0` (e.g. `1.0 % 0.2` lands near `0.2`,
+    # not `0.0`, since `0.2` has no exact binary representation), which would
+    # otherwise shift `origin` down by a spurious extra step.
+    if spacing - offset < 1e-6 * spacing:
+        offset = 0.0
+    return origin - offset
+
+
 def compute_oblique_axis_aligned_grid_geometry(
-    data: xr.DataArray, world_dims: Sequence[str]
+    data: xr.DataArray,
+    world_dims: Sequence[str],
+    *,
+    axis_origins: "Mapping[Hashable, float] | None" = None,
 ) -> tuple[list[int], list[float], list[float]]:
     """Compute the axis-aligned grid shape/spacing/origin `data` would resample onto.
 
@@ -160,6 +202,13 @@ def compute_oblique_axis_aligned_grid_geometry(
     world_dims : collections.abc.Sequence of str
         World coordinate names (`"z"`/`"y"`/`"x"`) to compute grid geometry for, in
         order.
+    axis_origins : mapping of collections.abc.Hashable to float, optional
+        Reference origin per world axis, established by an earlier call on the
+        same plotter. When given for a world axis, that axis's own bounding-box
+        origin is shifted (by less than its own spacing) to be congruent with
+        the reference, via `snap_origin_to_phase`, so cells from two volumes at
+        matching (or evenly divisible) resolutions land on the same grid instead
+        of merely overlapping. Axes not present in the mapping are unaffected.
 
     Returns
     -------
@@ -226,6 +275,8 @@ def compute_oblique_axis_aligned_grid_geometry(
                 f"Cannot resample {dim!r} onto an axis-aligned world grid: the "
                 "voxel-to-world affine is singular along this axis."
             )
+        if axis_origins is not None and dim in axis_origins:
+            lower = snap_origin_to_phase(lower, dim_spacing, axis_origins[dim])
         origin.append(lower)
         spacing.append(dim_spacing)
         # A relative tolerance absorbs floating-point noise in `upper`/`lower`
@@ -243,6 +294,7 @@ def resample_to_axis_aligned_world_grid(
     reference: xr.DataArray | None = None,
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float | None = None,
+    axis_origins: "Mapping[Hashable, float] | None" = None,
 ) -> xr.DataArray:
     """Resample voxel-to-world data onto an axis-aligned world grid for display.
 
@@ -262,6 +314,11 @@ def resample_to_axis_aligned_world_grid(
         Value assigned to voxels outside `data`'s field of view after resampling.
         If not provided, defaults to `float(data.min())` (see
         [`resample_volume`][confusius.registration.resample_volume]).
+    axis_origins : mapping of collections.abc.Hashable to float, optional
+        Reference origin per world axis to phase-lock the synthesized grid to,
+        forwarded to `compute_oblique_axis_aligned_grid_geometry`. Ignored when
+        `reference` is given, since a reference grid already fully determines the
+        output positions. Only meaningful when `data` is oblique.
 
     Returns
     -------
@@ -341,7 +398,7 @@ def resample_to_axis_aligned_world_grid(
         # dominates that row of the affine, not the positionally-matching one.
         # Pick that dominant voxel dim's spacing for each output world axis.
         shape, spacing, origin = compute_oblique_axis_aligned_grid_geometry(
-            data, world_dims
+            data, world_dims, axis_origins=axis_origins
         )
 
         result = resample_volume(

@@ -876,6 +876,84 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         assert result is sample_voxeldata_3d_oblique
 
 
+class TestVolumePlotterAddVolumePhaseLock:
+    """Regression tests for #391: an overlaid volume's independently-resampled
+    display grid must be phase-locked to the first volume plotted on the same
+    `VolumePlotter`, not merely at the same resolution.
+
+    Mirrors a real rigid-registration workflow: two volumes covering the same
+    physical region, one rotated and translated (by a non-integer number of
+    voxels) relative to the other but at matching in-plane resolution --
+    exactly the case where the two volumes' grid cells should coincide.
+    """
+
+    @pytest.fixture
+    def rotated_translated_pair(self, sample_voxeldata_3d):
+        """`sample_voxeldata_3d` and a copy rotated+shifted in the y/x plane.
+
+        The shift (0.37 mm in y, 0.22 mm in x) is deliberately not a multiple of
+        either axis's own spacing (0.1 mm / 0.05 mm), so an independently
+        computed bounding-box origin for the rotated copy would land out of
+        phase with the original's grid.
+        """
+        theta = np.deg2rad(2.0)
+        world_transform = np.array(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, np.cos(theta), -np.sin(theta), 0.37],
+                [0.0, np.sin(theta), np.cos(theta), 0.22],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        fixed = sample_voxeldata_3d
+        moving = fixed.fusi.affine.apply(world_transform)
+        return fixed, moving
+
+    def test_overlaid_volume_in_plane_cells_coincide_with_first_volume(
+        self, matplotlib_pyplot, rotated_translated_pair
+    ):
+        """The two in-plane axes' origins land on the same grid after overlay."""
+        fixed, moving = rotated_translated_pair
+
+        plotter = plot_volume(fixed, slice_mode="z", show_colorbar=False)
+        plotter.add_volume(moving, show_colorbar=False)
+
+        fixed_prepped, _ = plotter._prepare_slice_inputs(fixed)
+        moving_prepped, _ = plotter._prepare_slice_inputs(moving)
+
+        for world_dim in ("y", "x"):
+            fixed_coord = _world_coord_1d(fixed_prepped, world_dim)
+            moving_coord = _world_coord_1d(moving_prepped, world_dim)
+            spacing = float(np.diff(fixed_coord)[0])
+            assert float(np.diff(moving_coord)[0]) == pytest.approx(spacing)
+
+            phase_residual = (float(moving_coord[0]) - float(fixed_coord[0])) % spacing
+            # Congruent mod spacing means the residual is ~0 or ~spacing (the
+            # boundary float `%` can land on either side of).
+            assert min(phase_residual, spacing - phase_residual) == pytest.approx(
+                0.0, abs=1e-6
+            )
+
+    def test_without_phase_lock_the_grids_are_measurably_out_of_phase(
+        self, rotated_translated_pair
+    ):
+        """Sanity check that the fixture's shift isn't accidentally already
+        in-phase -- i.e. that the regression test above is actually exercising
+        `snap_origin_to_phase`, not passing by coincidence."""
+        from confusius._utils.plotting import resample_to_axis_aligned_world_grid
+
+        fixed, moving = rotated_translated_pair
+        fixed_grid = resample_to_axis_aligned_world_grid(fixed, reference=None)
+        moving_grid = resample_to_axis_aligned_world_grid(moving, reference=None)
+
+        for world_dim in ("y", "x"):
+            fixed_coord = _world_coord_1d(fixed_grid, world_dim)
+            moving_coord = _world_coord_1d(moving_grid, world_dim)
+            spacing = float(np.diff(fixed_coord)[0])
+            phase_residual = (float(moving_coord[0]) - float(fixed_coord[0])) % spacing
+            assert min(phase_residual, spacing - phase_residual) > 0.01
+
+
 class TestVolumePlotterAddVolume:
     """Tests for VolumePlotter.add_volume method."""
 
