@@ -462,10 +462,9 @@ def create_voxeldata(
         3x3 direction matrix in world `z/y/x` row and voxel `k/j/i` column order.
     voxel_to_world : numpy.typing.ArrayLike, optional
         4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order,
-        or an `(npose, 4, 4)` stack of one such affine per pose. A stack requires a
-        `pose` dimension in `dims` with a matching length, and is mutually exclusive
-        with `spacing`/`origin`/`direction` — per-pose geometry can only be supplied
-        this way, there is no parallel per-pose `spacing`/`origin`/`direction` API.
+        or an `(npose, 4, 4)` stack of one such affine per pose when a `pose` dimension
+        is present in `dims`. Mutually exclusive with `spacing`, `origin`, and
+        `direction`.
     units : str, default: "mm"
         Physical unit shared by every derived world coordinate.
     name : str, optional
@@ -484,8 +483,9 @@ def create_voxeldata(
     ValueError
         If `dims` uses world `z`/`y`/`x` names instead of native voxel names, if a
         pose-stacked `voxel_to_world` is given without a matching `pose` dimension,
-        or if dimensions, coordinates, geometry, timing, or VoxelData validation otherwise
-        fail.
+        if `dims` has a `pose` dimension and `voxel_to_world` is not a matching
+        per-pose stack, or if dimensions, coordinates, geometry, timing, or
+        VoxelData validation otherwise fail.
     """
     dims = tuple(str(dim) for dim in dims)
     shape = np.shape(data)

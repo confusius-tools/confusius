@@ -1419,7 +1419,8 @@ class TestSaveNifti:
         da = _create_voxeldata(
             np.zeros((2, 2, 3, 4)),
             dims=("pose", "k", "j", "i"),
-            spacing=(1.0, 1.0, 1.0),
+            pose=[0, 1],
+            voxel_to_world=np.stack([np.eye(4), np.eye(4)]),
         )
 
         with pytest.raises(ValueError, match="'pose'"):

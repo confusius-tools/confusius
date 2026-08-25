@@ -384,14 +384,17 @@ class TestConsolidatePoses:
         """
         npose = 3
         data = np.random.default_rng(11).random((npose, 2, 4, 3))
+        # A genuine per-pose stack (satisfying create_voxeldata's pose invariant)
+        # where every pose is numerically identical -- not really pose-dependent.
+        affine = np.diag([0.2, 0.2, 0.2, 1.0])
         da = create_voxeldata(
             data,
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
-            spacing=(0.2, 0.2, 0.2),
+            voxel_to_world=np.broadcast_to(affine, (npose, 4, 4)).copy(),
         )
 
-        with pytest.raises(ValueError, match="no pose-dependent primary geometry"):
+        with pytest.raises(ValueError, match="poses have identical world positions"):
             consolidate_poses(da)
 
     def test_single_pose_raises(self) -> None:

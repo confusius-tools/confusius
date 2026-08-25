@@ -135,6 +135,31 @@ class TestPlotVolume:
         assert "mm" in axes[0].get_xlabel()
         assert "mm" in axes[0].get_ylabel()
 
+    def test_spatial_slice_mode_squeezes_singleton_pose_dependent_affine(
+        self, matplotlib_pyplot
+    ):
+        """A single-pose `pose` dim with a technically stacked affine is squeezed
+        away before spatial slicing, not rejected.
+
+        Regression: `stack_poses`-style construction always produces a per-pose
+        `(npose, 4, 4)` affine, even for a single real pose -- a `(1, 4, 4)`
+        affine is still "pose-dependent" by shape (`affine.ndim == 3`), even
+        though there is only one pose and no genuine ambiguity to resolve.
+        Spatial `slice_mode` must not reject this squeeze-friendly case.
+        """
+        affine = np.diag([0.2, 0.1, 0.05, 1.0])[np.newaxis]
+        data = create_voxeldata(
+            np.random.default_rng(0).random((1, 2, 3, 4)),
+            dims=("pose", "k", "j", "i"),
+            pose=[0],
+            voxel_to_world=affine,
+        )
+
+        plotter = plot_volume(data, slice_mode="z", show_colorbar=False)
+
+        axes = _axes(plotter).ravel()
+        assert sum(len(ax.collections) for ax in axes) > 0
+
     def test_slice_mode_pose_uses_each_poses_own_world_position(
         self, matplotlib_pyplot
     ):
@@ -190,7 +215,7 @@ class TestPlotVolume:
                 np.random.default_rng(0).random((npose, 1, 6, 8)),
                 dims=("pose", "k", "j", "i"),
                 pose=np.arange(npose),
-                voxel_to_world=affine,
+                voxel_to_world=np.broadcast_to(affine, (npose, 4, 4)).copy(),
             )
             .isel(k=0, i=0)
             .expand_dims(region=["r0"])
@@ -887,8 +912,9 @@ class TestVolumePlotterAddVolume:
             np.random.default_rng(0).random((2, 1, 6, 8)),
             dims=("pose", "k", "j", "i"),
             pose=[0, 1],
-            spacing=(0.2, 0.1, 0.05),
-            origin=(0.0, 0.0, 0.0),
+            voxel_to_world=np.broadcast_to(
+                np.diag([0.2, 0.1, 0.05, 1.0]), (2, 4, 4)
+            ).copy(),
         )
 
         with pytest.warns(UserWarning, match="No slice found"):

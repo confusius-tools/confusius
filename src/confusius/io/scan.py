@@ -452,7 +452,7 @@ def load_scan(
         - v1 `3Dscan` → `(pose, k, j, i)`.
         - v1 `4Dscan` → `(time, pose, k, j, i)`.
         - v2 single-pose → `(time, k, j, i)`.
-        - v2 multi-pose → `(time, pose, k, j, i)`.
+        - v2 multi-pose is currently unsupported (see Raises).
 
         World coordinates `z`, `y`, `x` are in millimeters. The `time` coordinate is in
         seconds. For v1 `4Dscan`, `time` is pose-dependent (`(time, pose)`-shaped),
@@ -463,8 +463,9 @@ def load_scan(
     ValueError
         If `path` does not exist or is not a file, if the file is neither an
         HDF5-based SCAN (v1) nor a binary SCAN v2 file, if a v2 file's experimental
-        `probe_to_lab` affine cannot be built, or if a v1 `acquisitionMode` is not one
-        of `"2Dscan"`, `"3Dscan"`, or `"4Dscan"`.
+        `probe_to_lab` affine cannot be built, if a v1 `acquisitionMode` is not one
+        of `"2Dscan"`, `"3Dscan"`, or `"4Dscan"`, or if a v2 file has multiple poses
+        (currently unsupported -- how v2 encodes per-pose geometry isn't known yet).
 
     Notes
     -----
@@ -477,8 +478,12 @@ def load_scan(
     the v2 equivalent of SCAN v1's `probeToLab`; this interpretation is experimental
     (validated on a single near-identity pose, assumed axis order and Euler convention),
     and loading fails if the pose block is implausible.
-    Multi-pose / multi-block v2 layouts are inferred by analogy with v1 and have not
-    been validated against real files. Provenance strings are mapped to v1-style
+    Multi-pose v2 files are rejected: the currently reverse-engineered v2 header
+    recovers only one 6DOF probe pose regardless of `npose`, since how v2 encodes
+    per-pose geometry isn't known yet, and ConfUSIus requires a `pose` dimension to
+    carry a genuine per-pose voxel-to-world affine.
+    Multi-block (`nblockRepeat > 1`) layouts are inferred by analogy with v1 and have
+    not been validated against real files. Provenance strings are mapped to v1-style
     `iconeus_*` fields heuristically (by position, with the hex-encoded serial/hardware
     strings as anchors); the three still-unidentified plain-string slots are exposed as
     `iconeus_unknown1`, `iconeus_unknown2`, and `iconeus_unknown3`.
@@ -972,6 +977,15 @@ def _load_scan_v2(
     npose = meta["npose"]
     nblock_repeat = meta["nblock_repeat"]
 
+    if npose > 1:
+        raise ValueError(
+            "Loading SCAN v2 files with multiple poses is not currently supported: "
+            "how v2 encodes per-pose geometry isn't known yet, and ConfUSIus "
+            "requires a pose dimension to carry a genuine per-pose voxel-to-world "
+            "affine. Please get in touch on Discord or open an issue if you need "
+            "this."
+        )
+
     n_elements = size_x * size_y * size_z * n_time * npose * nblock_repeat
     if meta["payload_bytes"] != n_elements * 8:
         raise ValueError(
@@ -1000,21 +1014,17 @@ def _load_scan_v2(
     sq = _fold_block_repeat_into_time(raw_lazy, npose, nblock_repeat)
     data_lazy = _swap_depth_elevation_axes(sq)
 
-    if npose == 1:
-        data_lazy = da.squeeze(data_lazy, axis=1)
-        dims: tuple[str, ...] = ("time", "k", "j", "i")
-        pose = None
-    else:
-        dims = ("time", "pose", "k", "j", "i")
-        pose = np.arange(npose)
+    # npose > 1 is rejected above.
+    data_lazy = da.squeeze(data_lazy, axis=1)
+    dims: tuple[str, ...] = ("time", "k", "j", "i")
+    pose = None
 
     time_coord = _build_scan_v2_time_coord(meta, n_time_total)
     voxel_to_probe = _build_scan_v2_voxel_to_probe(meta)
     attrs = _build_scan_v2_attrs(header, npose, n_time_total)
     acquisition = _read_scan_v2_acquisition(header, n_time, meta["depth_start_mm"])
     attrs.update(acquisition)
-    # Lab is the canonical VoxelData world frame for SCAN data. v2 only recovers one
-    # 6DOF probe pose regardless of npose, so there is nothing to stack.
+    # Lab is the canonical VoxelData world frame for SCAN data.
     voxel_to_world = _build_scan_v2_probe_to_lab(header, n_time) @ voxel_to_probe
 
     data_array = create_voxeldata(

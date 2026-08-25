@@ -1157,9 +1157,9 @@ def attach_voxel_to_world_index(
         native voxel dims `k`/`j`/`i`.
     voxel_to_world : (4, 4) numpy.ndarray or (npose, 4, 4) numpy.ndarray
         Homogeneous affine mapping voxel-space coordinates to world-space
-        coordinates, or a stack of one such affine per pose. A stack requires `data`
-        to have a matching `pose` dimension with a 1D coordinate; a single affine
-        applies to every pose (or to no pose dimension at all).
+        coordinates, or a stack of one such affine per pose. A `pose` dimension
+        always represents distinct probe positions, so its presence always
+        requires a matching per-pose affine stack, even for a single pose.
     units : str, default: "mm"
         Physical unit shared by every derived world coordinate.
 
@@ -1174,9 +1174,10 @@ def attach_voxel_to_world_index(
     ------
     ValueError
         If `data` does not have all three native voxel dims `k`/`j`/`i`, if their
-        coordinates are not 1D dimension coordinates, or if a pose-stacked
+        coordinates are not 1D dimension coordinates, if a pose-stacked
         `voxel_to_world` is given without a matching `pose` dimension/coordinate on
-        `data`.
+        `data`, or if `data` has a `pose` dimension and `voxel_to_world` is not a
+        matching per-pose stack.
     TypeError
         If a voxel dimension's coordinate does not have integer dtype.
     """
@@ -1223,6 +1224,14 @@ def attach_voxel_to_world_index(
                 f"does not match data's {POSE_DIM!r} size {data.sizes[POSE_DIM]}."
             )
         pose_coord = data.coords[POSE_DIM].values
+    elif POSE_DIM in data.dims:
+        raise ValueError(
+            f"data has a {POSE_DIM!r} dimension but voxel_to_world is a single "
+            "shared (4, 4) affine; every pose must carry its own affine, e.g. "
+            "voxel_to_world=affine[np.newaxis] for a single pose. If this isn't "
+            "really a distinct probe position, use a different dimension name than "
+            "'pose'."
+        )
 
     base = data.drop_vars(
         [name for name in WORLD_DIMS if name in data.coords], errors="ignore"

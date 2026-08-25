@@ -483,33 +483,16 @@ class TestLoadScanV2:
 
 
 class TestLoadScanV2Multipose:
-    """Tests for multi-pose v2 files (inferred layout)."""
+    """Multi-pose v2 files are currently unsupported.
 
-    def test_dims(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose v2 produces voxel-to-world dims (time, pose, k, j, i)."""
-        da = load_scan(scan_v2_multipose_path)
-        assert da.dims == ("time", "pose", "k", "j", "i")
+    How v2 encodes per-pose geometry isn't known yet, and ConfUSIus requires a
+    `pose` dimension to carry a genuine per-pose voxel-to-world affine.
+    """
 
-    def test_shape(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose shape keeps pose and maps elevation to z."""
-        da = load_scan(scan_v2_multipose_path)
-        assert da.shape == (_N_TIME, 2, 2, _SIZE_Z, _SIZE_X)
-
-    def test_pose_coord(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose v2 has an integer pose coordinate."""
-        da = load_scan(scan_v2_multipose_path)
-        np.testing.assert_array_equal(da.coords["pose"].values, np.arange(2))
-
-    def test_scan_mode_attr(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose v2 with time is reported as 4Dscan."""
-        da = load_scan(scan_v2_multipose_path)
-        assert da.attrs["iconeus_scan_mode"] == "4Dscan"
-
-    def test_values(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose loaded values match the swapped payload."""
-        da = load_scan(scan_v2_multipose_path)
-        expected = _expected_confusius(_raw_payload(size_y=2, npose=2))
-        np.testing.assert_array_equal(da.values, expected)
+    def test_raises(self, scan_v2_multipose_path: Path) -> None:
+        """Loading a multi-pose v2 file raises a clear, actionable error."""
+        with pytest.raises(ValueError, match="multiple poses"):
+            load_scan(scan_v2_multipose_path)
 
 
 class TestLoadScanV2Multiblock:

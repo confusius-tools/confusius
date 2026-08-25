@@ -333,8 +333,9 @@ class TestCorrectSliceTiming:
                 pose_time_vals, dims=["time", "pose"], attrs=timing_attrs
             ),
             pose=np.arange(npose),
-            spacing=(0.1, 0.3, 0.4),
-            origin=(0.0, 0.0, 0.0),
+            voxel_to_world=np.broadcast_to(
+                np.diag([0.1, 0.3, 0.4, 1.0]), (npose, 4, 4)
+            ).copy(),
         )
 
         da_consolidated = create_voxeldata(

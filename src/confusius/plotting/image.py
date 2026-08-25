@@ -14,7 +14,8 @@ import xarray as xr
 from confusius._dims import POSE_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
-    get_affine_axis_scalings,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_index_spacing,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
     require_scalar_pose_affine,
@@ -312,6 +313,7 @@ def _resample_to_shared_slice_axis_grid(
     if has_axis_aligned_voxel_to_world_index(data):
         if slice_axis_grid is not None:
             return data, slice_axis_grid
+
         _, _, _, established_grid = compute_shared_slice_axis_grid_geometry(
             data, slice_world_dim
         )
@@ -386,9 +388,7 @@ def _resample_to_planar_world_grid(
         If `data`'s spatial geometry is oblique to the world axes and would not
         collapse to a 2D plane.
     """
-    if has_voxel_to_world_index(data) and not has_axis_aligned_voxel_to_world_index(
-        data
-    ):
+    if not has_axis_aligned_voxel_to_world_index(data):
         shape, _, _ = compute_oblique_axis_aligned_grid_geometry(data, WORLD_DIMS)
         if sum(size > 1 for size in shape) != 2:
             raise ValueError(
@@ -1209,10 +1209,27 @@ class VolumePlotter:
         """
         matched = []
         for slice_idx, target_coord in enumerate(actual_coords):
+            best_axis_idx: int | None = None
+            best_distance = math.inf
             for stored_coord, axis_idx in self._coord_to_axis.items():
-                if _coords_match(stored_coord, target_coord, tolerance):
-                    matched.append((axis_idx, slice_idx))
-                    break
+                if not _coords_match(stored_coord, target_coord, tolerance):
+                    continue
+                # Among several stored coordinates within tolerance (e.g. a wide
+                # spacing-derived tolerance spanning multiple existing axes), pick
+                # the closest one -- not merely the first one encountered in dict
+                # (insertion/ascending) order, which can otherwise steal a nearby
+                # axis that another, more distant slice actually belongs to.
+                distance = (
+                    abs(float(stored_coord) - float(target_coord))
+                    if isinstance(stored_coord, numbers.Real)
+                    and isinstance(target_coord, numbers.Real)
+                    else 0.0
+                )
+                if distance < best_distance:
+                    best_distance = distance
+                    best_axis_idx = axis_idx
+            if best_axis_idx is not None:
+                matched.append((best_axis_idx, slice_idx))
         return matched
 
     @property
@@ -1331,9 +1348,8 @@ class VolumePlotter:
             If `self.slice_mode` is not a valid dimension/world coordinate of `data`, if
             the result is not 3D after squeezing, or if `data`'s spatial geometry cannot
             be resampled for display (e.g. pose-dependent geometry for a spatial
-                                      `self.slice_mode`, or geometry that would not
-                                      collapse to a 2D plane for a non-pose extra
-                                      `self.slice_mode`).
+            `self.slice_mode`, or geometry that would not collapse to a 2D plane for a
+            non-pose extra `self.slice_mode`).
         """
         data = ensure_voxeldata(data)
         data = coerce_complex_to_magnitude(data, caller="VolumePlotter")
@@ -1342,6 +1358,21 @@ class VolumePlotter:
         data = data.compute()
 
         _validate_slice_mode(data, self.slice_mode)
+
+        # Squeeze a unitary pose dim first (still stored as a stacked affine).
+        # A pose dim's affine is always shaped as a stack, even when every pose
+        # is numerically identical, so check equality across poses -- not shape.
+        if self.slice_mode != POSE_DIM:
+            if POSE_DIM in data.dims and data.sizes[POSE_DIM] == 1:
+                data = data.squeeze(dim=POSE_DIM)
+            affine = get_voxel_to_world_affine(data)
+            if affine.ndim == 3 and not np.allclose(affine, affine[0]):
+                raise ValueError(
+                    f"Cannot use slice_mode={self.slice_mode!r} on data whose poses "
+                    "have different world geometry. Use slice_mode='pose' to facet "
+                    "over poses, or select a single pose first, e.g. "
+                    "`data.isel(pose=0)`."
+                )
 
         resolved_interpolation = (
             self._resample_interpolation if interpolation is None else interpolation
@@ -1368,19 +1399,9 @@ class VolumePlotter:
             # already axis-aligned volume keeps its own native grid regardless of
             # any established SliceAxisGrid (see `_resample_to_shared_slice_axis_grid`),
             # so the two can differ. Captured here, before materialize strips the
-            # index. Uses `get_affine_axis_scalings` (world distance per one voxel
-            # unit, from the affine alone), not `get_voxel_to_world_index_spacing`
-            # (world distance between the coordinate's *currently present* samples)
-            # -- the latter is wrong here: a caller that already `.sel`/`.isel`'d a
-            # strided or single-slice subset of `data` before handing it to
-            # `add_volume` would report that subset's own sample gap (or `None` for
-            # a single sample) as "spacing", not the affine's true one-voxel
-            # increment.
+            # index.
             voxel_dim = VOXEL_DIMS[WORLD_DIMS.index(self.slice_mode)]
-            affine = require_scalar_pose_affine(
-                data, "Computing the slice-matching tolerance"
-            )
-            slice_spacing = get_affine_axis_scalings(affine, VOXEL_DIMS)[voxel_dim]
+            slice_spacing = get_voxel_to_world_index_spacing(data)[voxel_dim]
         elif self.slice_mode != POSE_DIM:
             # Non-pose extra dim (e.g. "region"): slicing along it never touches
             # the voxel-to-world affine (only `pose` can vary geometry), so unlike

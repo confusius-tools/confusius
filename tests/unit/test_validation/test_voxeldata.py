@@ -501,7 +501,9 @@ def _make_pose_dependent_time_volume() -> xr.DataArray:
         dims=("time", "pose", "k", "j", "i"),
         time=time_values,
         pose=np.arange(npose),
-        spacing=(2.0, 3.0, 4.0),
+        voxel_to_world=np.broadcast_to(
+            np.diag([2.0, 3.0, 4.0, 1.0]), (npose, 4, 4)
+        ).copy(),
     )
 
 

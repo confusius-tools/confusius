@@ -26,8 +26,11 @@ else gridded in space. A VoxelData array is **always**:
 - Backed by a `VoxelToWorldIndex` attached to `z`/`y`/`x`
   (`confusius._utils.geometry.VoxelToWorldIndex`/`VoxelToWorldTransform`), which
   lazily derives those world coordinates from `k`/`j`/`i` via the voxel-to-world affine:
-  either one affine shared by all data or one affine per `pose`. World coordinates
-  are never stored directly—always this index's output.
+  one affine shared by all data, or one affine per `pose`. A `pose` dim always
+  represents distinct probe positions, so its presence always requires one affine
+  per pose, even for a single pose — a shared affine is only valid with no `pose`
+  dim at all. World coordinates are never stored directly—always this index's
+  output.
 
 Every 3D spatial array in the codebase must be VoxelData. Use these terms
 consistently in code, docstrings, and docs:
