@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius.plotting import VolumePlotter, plot_stat_map
+from confusius.plotting import VolumePlotter, plot_stat_map, plot_volume
 from confusius.xarray import create_voxeldata
 
 
@@ -290,6 +290,72 @@ class TestPlotStatMap:
         norm = rendered[0].collections[0].norm
         assert norm.vmax == 10.0
         assert norm.vmin == -10.0
+
+
+class TestVolumePlotterAddStatMap:
+    """Tests for `VolumePlotter.add_stat_map`, the overlay-only counterpart of
+    `plot_stat_map` used to add a stat map onto an already-built plotter."""
+
+    def test_returns_self_for_chaining(self, sample_voxeldata_3d, matplotlib_pyplot):
+        stat_map = _signed_stat_map(sample_voxeldata_3d)
+        plotter = plot_volume(sample_voxeldata_3d, show_colorbar=False)
+        result = plotter.add_stat_map(stat_map)
+        assert result is plotter
+
+    def test_matches_plot_stat_map_style_and_data(
+        self, sample_voxeldata_3d, matplotlib_pyplot
+    ):
+        """add_stat_map(bg-plotter, stat_map) and plot_stat_map(stat_map,
+        bg_volume=bg) resolve the same cmap/range/drawn data for equivalent
+        inputs."""
+        stat_map = _signed_stat_map(sample_voxeldata_3d)
+
+        via_plot_stat_map = plot_stat_map(
+            stat_map, bg_volume=sample_voxeldata_3d, slice_mode="z"
+        )
+        via_add_stat_map = plot_volume(
+            sample_voxeldata_3d, slice_mode="z", show_colorbar=False
+        ).add_stat_map(stat_map)
+
+        expected = _axes(via_plot_stat_map).ravel()[0].collections[-1]
+        actual = _axes(via_add_stat_map).ravel()[0].collections[-1]
+        assert actual.cmap.name == expected.cmap.name
+        assert actual.norm.vmin == expected.norm.vmin
+        assert actual.norm.vmax == expected.norm.vmax
+        np.testing.assert_array_equal(
+            actual.get_array().data, expected.get_array().data
+        )
+
+    def test_threshold_masks_overlay(self, sample_voxeldata_3d, matplotlib_pyplot):
+        stat_map = _signed_stat_map(sample_voxeldata_3d)
+        plotter = plot_volume(sample_voxeldata_3d, show_colorbar=False).add_stat_map(
+            stat_map, threshold=9.0, threshold_mode="lower"
+        )
+        overlay = _axes(plotter).ravel()[0].collections[-1]
+        assert np.ma.is_masked(overlay.get_array())
+
+    def test_auto_range_uses_sequential_range_and_viridis_for_nonneg_data(
+        self, sample_voxeldata_3d, matplotlib_pyplot
+    ):
+        stat_map = _nonneg_stat_map(sample_voxeldata_3d)
+        plotter = plot_volume(sample_voxeldata_3d, show_colorbar=False).add_stat_map(
+            stat_map
+        )
+        overlay = _axes(plotter).ravel()[0].collections[-1]
+        assert overlay.cmap.name.startswith("viridis")
+        assert overlay.norm.vmin == 0.0
+        assert overlay.norm.vmax == 10.0
+
+    def test_without_background_plots_stat_map_alone(
+        self, sample_voxeldata_3d, matplotlib_pyplot
+    ):
+        stat_map = _signed_stat_map(sample_voxeldata_3d)
+        plotter = VolumePlotter(slice_mode="z").add_stat_map(
+            stat_map, match_coordinates=False
+        )
+        rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
+        assert len(rendered) == stat_map.sizes["k"]
+        assert all(len(ax.collections) == 1 for ax in rendered)
 
 
 class TestStatMapAccessor:

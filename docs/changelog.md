@@ -108,6 +108,13 @@ Current development version for the next ConfUSIus release.
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 ### :sparkles: Enhancements
 
+- Added [`VolumePlotter.add_stat_map`][confusius.plotting.VolumePlotter.add_stat_map],
+  the overlay-only counterpart of
+  [`plot_stat_map`][confusius.plotting.plot_stat_map]: adds a statistical map to an
+  already-built plotter (e.g. one built with
+  [`add_composite`][confusius.plotting.VolumePlotter.add_composite]), picking the
+  colormap and range automatically based on the sign of the data
+  ([#391](https://github.com/confusius-tools/confusius/pull/391)).
 - `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
   support pose-dependent voxel-to-world geometry: a `(npose, 4, 4)` affine
   stack, one per pose, instead of one affine shared by every pose. New
