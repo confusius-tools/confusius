@@ -12,7 +12,7 @@ from confusius._utils.io import is_h5py_backed
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
-from confusius.validation import validate_fusi_dataarray
+from confusius.validation import ensure_voxeldata
 
 if TYPE_CHECKING:
     from threading import Event
@@ -50,7 +50,7 @@ def register_volumewise(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data to register.
+        VoxelData array with a `time` dimension to register.
     reference_time : int, default: 0
         Index of the time point to use as registration target.
     n_jobs : int, default: -1
@@ -72,8 +72,8 @@ def register_volumewise(
     learning_rate : float or "auto", default: 0.01
         Optimizer step size in normalised units (after `SetOptimizerScalesFromPhysicalShift`).
         `"auto"` re-estimates the rate at every iteration. A float uses that
-        value directly; if registration diverges or fails to converge, reduce
-        it.
+        value directly; increase it for large inter-volume shifts, or reduce it if
+        registration creates motion in otherwise stable data.
     number_of_iterations : int, default: 100
         Maximum number of optimizer iterations.
     convergence_minimum_value : float, default: 1e-6
@@ -91,7 +91,7 @@ def register_volumewise(
         - `None`: uses the identity transform.
 
     optimizer_weights : list of float, optional
-        Per-parameter weights applied on top of the auto-estimated physical shift
+        Per-parameter weights applied on top of the auto-estimated world shift
         scales. If not provided, identity weights are used. A list is passed directly to
         SimpleITK's `SetOptimizerWeights`; its length must match the number of transform
         parameters (3 for 2D rigid, 6 for 3D rigid, 6 for 2D affine, 12 for 3D affine).
@@ -189,13 +189,11 @@ def register_volumewise(
         )
 
     data_moved = data.transpose("time", ...)
-
-    validate_fusi_dataarray(
+    data_moved = ensure_voxeldata(
         data_moved,
         require_time=True,
         allow_pose=False,
         allow_extra_dims=False,
-        minimum_spatial_dims=2,
     )
 
     n_frames = data_moved.sizes["time"]

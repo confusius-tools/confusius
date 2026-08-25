@@ -23,7 +23,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._dims import SPATIAL_DIMS_WITH_POSE, TIME_DIM
+from confusius._dims import POSE_DIM, TIME_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._napari._qt import find_main_window
 from confusius._napari._signals._manager import SignalsManagerDialog
 from confusius._napari._signals._plotter import SignalPlotter
@@ -717,7 +717,9 @@ class SignalPanel(QWidget):
             da = layer.metadata.get("xarray")
             if da is not None:
                 spatial_indices = [
-                    i for i, dim in enumerate(da.dims) if dim in SPATIAL_DIMS_WITH_POSE
+                    i
+                    for i, dim in enumerate(da.dims)
+                    if dim in (POSE_DIM, *VOXEL_DIMS, *WORLD_DIMS)
                 ]
                 if not spatial_indices:
                     continue

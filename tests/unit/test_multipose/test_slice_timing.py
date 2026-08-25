@@ -6,6 +6,8 @@ import xarray as xr
 from scipy.interpolate import interp1d
 
 from confusius.multipose import correct_slice_timings
+from confusius.multipose._utils import build_consolidated_time_coordinate
+from confusius.xarray import create_voxeldata
 
 
 def _make_consolidated_da(
@@ -32,15 +34,6 @@ def _make_consolidated_da(
         },
     )
 
-    z_vals = np.arange(nz) * 0.2
-    z_coord = xr.DataArray(z_vals, dims=["z"], attrs={"units": "mm"})
-
-    y_vals = np.arange(ny) * 0.3
-    y_coord = xr.DataArray(y_vals, dims=["y"], attrs={"units": "mm"})
-
-    x_vals = np.arange(nx) * 0.4
-    x_coord = xr.DataArray(x_vals, dims=["x"], attrs={"units": "mm"})
-
     if slice_offsets is None:
         slice_offsets = np.linspace(0, tr * 0.8, nz)
 
@@ -48,32 +41,39 @@ def _make_consolidated_da(
     for t in range(ntime):
         slice_time_vals[t, :] = time_vals[t] + slice_offsets
 
-    slice_time_coord = xr.DataArray(
-        slice_time_vals,
-        dims=["time", "z"],
-        attrs={"units": "s", "volume_acquisition_reference": "start"},
-    )
+    # Slice duration cannot exceed the spacing between consecutive slices, so infer
+    # it from the offsets themselves rather than hardcoding `tr`.
+    sorted_diffs = np.diff(np.sort(slice_offsets))
+    slice_duration = float(sorted_diffs.min()) if sorted_diffs.size else 0.0
 
-    return xr.DataArray(
+    result = create_voxeldata(
         data,
-        dims=("time", "z", "y", "x"),
-        coords={
-            "time": time_coord,
-            "z": z_coord,
-            "y": y_coord,
-            "x": x_coord,
-            "slice_time": slice_time_coord,
-        },
-        attrs={"affines": {"physical_to_lab": np.eye(4)}},
+        dims=("time", "k", "j", "i"),
+        time=time_coord,
+        spacing=(0.2, 0.3, 0.4),
+        origin=(0.0, 0.0, 0.0),
+        attrs={"affines": {"world_to_lab": np.eye(4)}},
         name="scan_data",
+    )
+    return result.assign_coords(
+        slice_time=xr.DataArray(
+            slice_time_vals,
+            dims=["time", "k"],
+            attrs={
+                "units": "s",
+                "volume_acquisition_reference": "start",
+                "volume_acquisition_duration": slice_duration,
+            },
+        )
     )
 
 
 def _naive_correct_slice_timings(
-    da: xr.DataArray, timing_coord_name: str
+    da: xr.DataArray, timing_coord_name: str, target_times: np.ndarray | None = None
 ) -> np.ndarray:
     """Reference: naive per-voxel interp1d loop, equivalent to the pre-apply_ufunc impl."""
-    target_times = da.coords["time"].values
+    if target_times is None:
+        target_times = da.coords["time"].values
     timing_values = da.coords[timing_coord_name].values
     sweep_dim = da.coords[timing_coord_name].dims[1]
     sweep_dim_idx = da.dims.index(sweep_dim)
@@ -106,7 +106,7 @@ class TestCorrectSliceTiming:
     def test_raises_missing_time_dim(self) -> None:
         """Raises ValueError if DataArray has no time dimension."""
         da = xr.DataArray(
-            np.random.random((5, 3, 2)),
+            np.zeros((5, 3, 2)),
             dims=("z", "y", "x"),
             coords={"z": np.arange(5), "y": np.arange(3), "x": np.arange(2)},
         )
@@ -121,37 +121,26 @@ class TestCorrectSliceTiming:
             correct_slice_timings(da_chunked)
 
     def test_raises_missing_timing_coord(self) -> None:
-        """Raises ValueError if DataArray has no slice_time or pose_time coordinate."""
-        da = xr.DataArray(
-            np.random.random((5, 3, 2, 2)),
-            dims=("time", "z", "y", "x"),
-            coords={
-                "time": np.arange(5),
-                "z": np.arange(3),
-                "y": np.arange(2),
-                "x": np.arange(2),
-            },
-        )
+        """Raises ValueError if DataArray has neither slice_time nor pose-dependent time."""
+        da = _make_consolidated_da(ntime=5, nz=3, ny=2, nx=2).drop_vars("slice_time")
         with pytest.raises(
-            ValueError, match="neither 'slice_time' nor 'pose_time' coordinate"
+            ValueError, match="neither a 'slice_time' coordinate nor a pose-dependent"
         ):
             correct_slice_timings(da)
 
     def test_raises_invalid_slice_time_dims(self) -> None:
         """Raises ValueError if slice_time has wrong dimensions."""
-        da = xr.DataArray(
-            np.random.random((5, 3, 2, 2)),
-            dims=("time", "z", "y", "x"),
-            coords={
-                "time": [0, 1, 2, 3, 4],
-                "z": [0, 1, 2],
-                "y": [0, 1],
-                "x": [0, 1],
-                "slice_time": xr.DataArray(
-                    np.random.random((3, 5)),
-                    dims=("z", "time"),
-                ),
-            },
+        da = _make_consolidated_da(ntime=5, nz=3, ny=2, nx=2).drop_vars("slice_time")
+        da = da.assign_coords(
+            slice_time=xr.DataArray(
+                np.zeros((5, 3, 2)),
+                dims=("time", "k", "j"),
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": 0.2,
+                },
+            )
         )
         with pytest.raises(ValueError, match="dims \\('time', <sweep_dim>\\)"):
             correct_slice_timings(da)
@@ -193,23 +182,29 @@ class TestCorrectSliceTiming:
             data[:, s, 0, 0] = np.sin(2 * np.pi * freq * acq_times)
             slice_time_vals[:, s] = acq_times
 
-        da = xr.DataArray(
+        da = create_voxeldata(
             data,
-            dims=("time", "z", "y", "x"),
-            coords={
-                "time": xr.DataArray(
-                    time_vals,
-                    dims=["time"],
-                    attrs={"units": "s", "volume_acquisition_reference": "start"},
-                ),
-                "z": xr.DataArray(np.arange(nz) * 0.2, dims=["z"]),
-                "y": xr.DataArray([0.0], dims=["y"]),
-                "x": xr.DataArray([0.0], dims=["x"]),
-                "slice_time": xr.DataArray(
-                    slice_time_vals, dims=["time", "z"], attrs={"units": "s"}
-                ),
-            },
-            attrs={"affines": {"physical_to_lab": np.eye(4)}},
+            dims=("time", "k", "j", "i"),
+            time=xr.DataArray(
+                time_vals,
+                dims=["time"],
+                attrs={"units": "s", "volume_acquisition_reference": "start"},
+            ),
+            spacing=(0.2, 0.1, 0.1),
+            origin=(0.0, 0.0, 0.0),
+            attrs={"affines": {"world_to_lab": np.eye(4)}},
+        ).assign_coords(
+            slice_time=xr.DataArray(
+                slice_time_vals,
+                dims=["time", "k"],
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": float(
+                        np.diff(np.sort(slice_offsets)).min()
+                    ),
+                },
+            )
         )
 
         result = correct_slice_timings(da, method="linear")
@@ -249,92 +244,106 @@ class TestCorrectSliceTiming:
         assert "slice_time" not in result.coords
         assert result.dims == da.dims
         for coord in da.coords:
-            if coord != "slice_time":
+            if coord not in {"slice_time", "z", "y", "x"}:
                 np.testing.assert_array_equal(
                     result.coords[coord].values, da.coords[coord].values
                 )
 
-    def test_pose_time_path_matches_reference(self, scan_4d: xr.DataArray) -> None:
-        """pose_time path matches naive per-voxel interp1d reference.
+    def test_pose_dependent_time_path_matches_reference(
+        self, scan_4d: xr.DataArray
+    ) -> None:
+        """Pose-dependent time path matches naive per-voxel interp1d reference.
 
-        Also verifies that pose_time is dropped and all other coords are preserved.
+        Also verifies that `time` is replaced by a consolidated 1D coordinate and all
+        other coords are preserved.
         """
         da = scan_4d
         result = correct_slice_timings(da)
 
-        np.testing.assert_allclose(
-            result.values, _naive_correct_slice_timings(da, "pose_time"), atol=1e-12
+        base_time_coord = xr.DataArray(
+            da.coords["time"].isel(pose=0).values,
+            dims=["time"],
+            attrs=dict(da.coords["time"].attrs),
         )
-        assert "pose_time" not in result.coords
+        target_time_coord = build_consolidated_time_coordinate(
+            base_time_coord, da.coords["time"].values, dict(da.coords["time"].attrs)
+        )
+        np.testing.assert_allclose(
+            result.values,
+            _naive_correct_slice_timings(da, "time", target_time_coord.values),
+            atol=1e-12,
+        )
+        assert result.coords["time"].dims == ("time",)
         assert result.dims == da.dims
         for coord in da.coords:
-            if coord != "pose_time":
+            if coord not in {"time", "z", "y", "x"}:
                 np.testing.assert_array_equal(
                     result.coords[coord].values, da.coords[coord].values
                 )
 
     @pytest.mark.parametrize("reference", ["start", "center", "end"])
-    def test_pose_time_and_slice_time_equivalent(self, reference: str) -> None:
-        """pose_time and slice_time paths give identical corrections for any reference.
+    def test_pose_dependent_time_and_slice_time_equivalent(
+        self, reference: str
+    ) -> None:
+        """Pose-dependent time and slice_time paths give identical corrections.
 
-        Both paths use the same actual per-pose acquisition times (pose_time_vals) and
-        the same `time` coordinate, so the interpolation target and source are identical
-        regardless of which reference point the `time` coordinate uses.
+        Both paths use the same actual per-pose acquisition times (pose_time_vals);
+        the consolidated path's `time` coordinate is derived from them with the same
+        [build_consolidated_time_coordinate][confusius.multipose._utils.build_consolidated_time_coordinate]
+        helper the pose-dependent path uses internally, so both should agree.
         """
         ntime, npose = 20, 4
         tr = 0.2
         rng = np.random.default_rng(7)
         data = rng.random((ntime, npose, 2, 3))
 
-        # Volume onset times (always start-referenced internally).
         onset_vals = np.arange(ntime) * tr
-        # Shift the `time` coordinate to the chosen reference point.
-        ref_offsets = {"start": 0.0, "center": 0.5, "end": 1.0}
-        time_vals = onset_vals + ref_offsets[reference] * tr
         # Acquisition time for pose p at volume t is the onset plus p * (TR / npose).
         pose_time_vals = onset_vals[:, None] + np.arange(npose) * (tr / npose)
+        timing_attrs = {
+            "units": "s",
+            "volume_acquisition_reference": reference,
+            "volume_acquisition_duration": tr / npose,
+        }
 
-        time_coord = xr.DataArray(
-            time_vals,
-            dims=["time"],
-            attrs={"units": "s", "volume_acquisition_reference": reference},
+        base_time_coord = xr.DataArray(
+            pose_time_vals[:, 0], dims=["time"], attrs=timing_attrs
         )
-        timing_attrs = {"units": "s"}
+        time_coord = build_consolidated_time_coordinate(
+            base_time_coord, pose_time_vals, timing_attrs
+        )
 
-        da_unconsolidated = xr.DataArray(
+        affines = np.broadcast_to(
+            np.diag([0.1, 0.3, 0.4, 1.0]), (npose, 4, 4)
+        ).copy()
+        affines[:, 0, 3] = np.arange(npose)
+        da_unconsolidated = create_voxeldata(
             data[:, :, None],
-            dims=("time", "pose", "z", "y", "x"),
-            coords={
-                "time": time_coord,
-                "pose": np.arange(npose),
-                "z": np.array([0.0]),
-                "y": np.arange(2) * 0.3,
-                "x": np.arange(3) * 0.4,
-                "pose_time": xr.DataArray(
-                    pose_time_vals, dims=["time", "pose"], attrs=timing_attrs
-                ),
-            },
+            dims=("time", "pose", "k", "j", "i"),
+            time=xr.DataArray(
+                pose_time_vals, dims=["time", "pose"], attrs=timing_attrs
+            ),
+            pose=np.arange(npose),
+            voxel_to_world=affines,
         )
 
-        da_consolidated = xr.DataArray(
+        da_consolidated = create_voxeldata(
             data,
-            dims=("time", "z", "y", "x"),
-            coords={
-                "time": time_coord,
-                "z": np.arange(npose) * 0.5,
-                "y": np.arange(2) * 0.3,
-                "x": np.arange(3) * 0.4,
-                "slice_time": xr.DataArray(
-                    pose_time_vals, dims=["time", "z"], attrs=timing_attrs
-                ),
-            },
+            dims=("time", "k", "j", "i"),
+            time=time_coord,
+            spacing=(0.5, 0.3, 0.4),
+            origin=(0.0, 0.0, 0.0),
+        ).assign_coords(
+            slice_time=xr.DataArray(
+                pose_time_vals, dims=["time", "k"], attrs=timing_attrs
+            )
         )
 
         result_unconsolidated = correct_slice_timings(da_unconsolidated)
         result_consolidated = correct_slice_timings(da_consolidated)
 
         np.testing.assert_allclose(
-            result_unconsolidated.squeeze("z").values,
+            result_unconsolidated.squeeze("k").values,
             result_consolidated.values,
             atol=1e-12,
         )
@@ -347,7 +356,7 @@ class TestCorrectSliceTiming:
         """Output is dask-backed and numerically identical to the eager result."""
         pytest.importorskip("dask.array")
         da = consolidated_scan_4d
-        da_dask = da.chunk({"z": 1})
+        da_dask = da.chunk({"k": 1})
         eager_result = correct_slice_timings(da)
         lazy_result = correct_slice_timings(da_dask)
         assert hasattr(lazy_result.data, "dask"), "Output should be dask-backed."

@@ -20,8 +20,7 @@ def standardize(
     ----------
     signals : (time, ...) xarray.DataArray
         Array to standardize. Must have a `time` dimension. Can be any shape, e.g.,
-        extracted signals `(time, space)`, full 3D+t imaging data `(time, z, y,
-        x)`, or regional signals `(time, region)`.
+        extracted signals `(time, space)` or VoxelData array `(time, k, j, i)`.
     method : {"zscore", "psc"}, default: "zscore"
         Standardization method:
 
@@ -77,7 +76,7 @@ def standardize(
     if "time" not in signals.dims:
         raise ValueError("signals must have a 'time' dimension")
 
-    validate_time_series(signals, "standardization", check_time_chunks=False)
+    validate_time_series(signals, "standardization", require_unchunked_time=False)
 
     mean = signals.mean(dim="time")
     result = signals - mean

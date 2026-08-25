@@ -1,8 +1,9 @@
 """Utilities for loading and saving NIfTI files.
 
-This module provides functions to load NIfTI neuroimaging files as lazy Xarray
-DataArrays using nibabel's proxy arrays and Dask for out-of-core processing. Following
-ConfUSIus conventions, data is stored with dimensions `(time, z, y, x)`.
+This module provides functions to load NIfTI neuroimaging files as lazy
+VoxelData arrays using nibabel's proxy arrays and Dask for out-of-core
+processing. Following the VoxelData model, data is stored with native voxel dimensions
+`(..., time, k, j, i)` and VoxelToWorldIndex-derived world coordinates `z`, `y`, `x`.
 """
 
 import json
@@ -16,16 +17,18 @@ import numpy.typing as npt
 import xarray as xr
 from pydantic import ValidationError
 
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.coordinates import (
-    get_affine_in_axis_aligned_space,
-    get_axis_aligned_affine,
     get_coordinate_spacing_info,
     get_representative_step,
 )
+from confusius._utils.geometry import (
+    get_voxel_to_world_affine,
+    get_voxel_to_world_index_spacing,
+    get_voxel_to_world_units,
+)
 from confusius._utils.stack import find_stack_level
 from confusius.bids import (
-    DIM_TO_SLICE_ENCODING_DIRECTION,
-    SLICE_ENCODING_DIRECTION_TO_DIM,
     create_bids_slice_timing_from_coordinate,
     create_slice_time_coordinate_from_bids,
     from_bids,
@@ -35,7 +38,15 @@ from confusius.bids.mapping import CONFUSIUS_INTERNAL_FIELDS
 from confusius.bids.validation import format_validation_error, validate_metadata
 from confusius.io.utils import check_path
 from confusius.registration.affines import decompose_affine
-from confusius.timing import convert_time_reference, convert_time_units
+from confusius.timing import (
+    TIMING_REFERENCE_FACTORS,
+    VolumeAcquisitionReference,
+    convert_time_reference,
+    convert_time_units,
+)
+from confusius.validation import ensure_voxeldata
+from confusius.xarray.affine import reindex_voxels
+from confusius.xarray.create import create_voxeldata
 
 if TYPE_CHECKING:
     import nibabel as nib
@@ -43,10 +54,13 @@ if TYPE_CHECKING:
 NiftiVersion: TypeAlias = Literal[1, 2]
 """Type alias for NIfTI file format version."""
 
-_NIFTI_DIM_ORDER = ("x", "y", "z", "time", "dim4", "dim5", "dim6")
+_NIFTI_DIM_ORDER = ("i", "j", "k", "time", "dim4", "dim5", "dim6")
 """ConfUSIus and NIfTI dimension mapping.
 
-Maps ConfUSIus dimension names to their NIfTI axis order.
+Maps ConfUSIus dimension names to their NIfTI axis order. NIfTI axes 0/1/2 (the
+standard spatial axis slots) are named with the native voxel dims `i`/`j`/`k`
+directly -- `load_nifti` never names a raw axis `x`/`y`/`z`; naming world
+coordinates is `create_voxeldata`'s job, not the NIfTI loader's.
 """
 
 _NIFTI_TO_CONFUSIUS_SPACE_UNITS: dict[str, str] = {
@@ -90,8 +104,16 @@ _TIME_ATTRS_TO_SECONDS: frozenset[str] = frozenset(
 _RESOLVABLE_NIFTI_AXES: frozenset[int] = frozenset({4, 5, 6})
 """NIfTI axis indices (0-based) whose dim name can be overridden by the sidecar.
 
-NIfTI axes 0-3 are reserved for `(x, y, z, time)`, so the load side only consults the
+NIfTI axes 0-3 are reserved for `(i, j, k, time)`, so the load side only consults the
 sidecar for the 5th, 6th, and 7th NIfTI axes.
+"""
+
+_RESERVED_DIM_NAMES: frozenset[str] = frozenset({*VOXEL_DIMS, *WORLD_DIMS})
+"""Dim names a sidecar `ConfUSIusDim{N}Name` override may never claim.
+
+`k`/`j`/`i` are the native voxel dims and `z`/`y`/`x` are the derived world
+coordinate names; both are reserved for the canonical spatial axes so an extra
+(non-spatial) axis can never collide with them.
 """
 
 _NIFTI_EXTRA_DIM_NAMES: tuple[str, ...] = ("dim4", "dim5", "dim6")
@@ -203,31 +225,60 @@ class _NiftiHeaderExtractor:
 
 def _select_affines(
     header: "nib.nifti1.Nifti1Header | nib.nifti2.Nifti2Header",
+    *,
+    coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
 ) -> tuple[npt.NDArray[np.floating] | None, npt.NDArray[np.floating] | None]:
     """Select primary and secondary affine matrices from a NiBabel header.
 
-    Sform is preferred over qform when both codes are positive. When both are
-    valid, the qform is returned as the secondary affine so that scanner-space
-    coordinates can be stored alongside the template-space primary coordinates.
-    When both codes are zero, `(None, None)` is returned.
+    In `"auto"` mode, sform is preferred over qform when both codes are positive.
+    When both are valid, the qform is returned as the secondary affine so that
+    scanner-space coordinates can be stored alongside the template-space primary
+    coordinates. When both codes are zero, `(None, None)` is returned. In `"sform"`
+    or `"qform"` mode, the requested form must be valid -- it is *forced*, not
+    preferred, so there is no other form to silently fall back to.
 
     Parameters
     ----------
     header : nibabel.nifti1.Nifti1Header or nibabel.nifti2.Nifti2Header
         NiBabel NIfTI header.
+    coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
+        Header affine to use as the primary coordinate-defining geometry.
 
     Returns
     -------
     primary_affine : (4, 4) numpy.ndarray or None
-        Primary affine for computing spatial coordinates, or `None` when both
-        sform and qform codes are zero.
+        Primary affine for computing spatial coordinates, or `None` when
+        `coordinate_affine="auto"` and both sform and qform codes are zero.
     secondary_affine : (4, 4) numpy.ndarray or None
-        Qform affine when both sform and qform codes are positive; `None` otherwise.
+        The other form's affine when it is also valid; `None` otherwise.
+
+    Raises
+    ------
+    ValueError
+        If `coordinate_affine` is `"sform"` or `"qform"` and that form's code is
+        zero.
     """
+    # nibabel's get_sform/get_qform(coded=True) returns affine=None exactly when
+    # code == 0 (never independently), so checking the code alone is sufficient.
     sform, sform_code = header.get_sform(coded=True)
     qform, qform_code = header.get_qform(coded=True)
-    sform_valid = sform_code > 0 and sform is not None
-    qform_valid = qform_code > 0 and qform is not None
+    sform_valid = sform_code > 0
+    qform_valid = qform_code > 0
+
+    if coordinate_affine == "sform":
+        if not sform_valid:
+            raise ValueError(
+                "coordinate_affine='sform' was requested, but sform_code is 0 in "
+                "the NIfTI header. Use coordinate_affine='qform' or 'auto' instead."
+            )
+        return sform, (qform if qform_valid else None)
+    if coordinate_affine == "qform":
+        if not qform_valid:
+            raise ValueError(
+                "coordinate_affine='qform' was requested, but qform_code is 0 in "
+                "the NIfTI header. Use coordinate_affine='sform' or 'auto' instead."
+            )
+        return qform, (sform if sform_valid else None)
 
     if sform_valid:
         return sform, (qform if qform_valid else None)
@@ -411,25 +462,35 @@ def _load_nifti_with_nibabel(
     return img, _NiftiHeaderExtractor(img.header)
 
 
-def _create_spatial_coords_from_nifti(
+def _resolve_spatial_geometry_from_nifti(
     img: "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
     extractor: "_NiftiHeaderExtractor",
     dims: tuple[str, ...],
-) -> tuple[dict[str, xr.DataArray], dict[str, Any]]:
-    """Create spatial coordinate arrays and affine attributes from a NIfTI image.
+    *,
+    coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
+) -> tuple[
+    npt.NDArray[np.floating],
+    str,
+    dict[str, Any],
+]:
+    """Resolve spatial geometry from a NIfTI image's header affine.
 
     Selects the primary affine (sform preferred over qform when both are valid)
-    and builds one coordinate per spatial dimension. When a valid affine is
-    available, each axis starts at `affine[col, 3]` (origin) and is stepped by
-    the true voxel size (from `decompose_affine`). The physical coordinate frame
-    is defined by the primary affine's translation and zoom; every affine
-    (primary and secondary) is re-expressed against that shared frame and stored
-    in the returned attributes, so a secondary qform keeps its relationship to
-    the physical coordinates.
+    and derives the full voxel-to-world affine plus its shared unit, ready to
+    pass straight to `attach_voxel_to_world_index` as `voxel_to_world=`/`units=`.
+    When a valid affine is available, `voxel_to_world`
+    carries it exactly (any rotation/shear included) -- no axis-aligned-only
+    decomposition. The world coordinate frame is defined by the primary
+    affine's translation and zoom; every affine (primary and secondary) is
+    re-expressed against that shared frame, so a secondary qform keeps its
+    relationship to the world coordinates.
 
-    When both sform and qform codes are zero, coordinates are built from
-    pixdim only (origin 0, step = voxel size). A warning is emitted and no
-    `"affines"` entry is added to the returned attributes.
+    With `coordinate_affine="auto"` and both sform and qform codes zero,
+    `voxel_to_world` is built from pixdim only (origin 0, step = voxel size). A
+    warning is emitted and no `"affines"` entry is added to `extra_attrs`. With an
+    explicit `coordinate_affine="sform"`/`"qform"`, that form is forced: if its code
+    is zero, `_select_affines` raises instead of silently falling back to pixdim or
+    to the other form.
 
     Parameters
     ----------
@@ -438,21 +499,42 @@ def _create_spatial_coords_from_nifti(
     extractor : _NiftiHeaderExtractor
         Header extractor for `img`.
     dims : tuple[str, ...]
-        Dimension names in NIfTI order `(x, y, z[, time])`.
+        Dimension names in NIfTI order `(i, j, k[, time, ...])`.
+    coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
+        Header affine to use as the primary coordinate-defining geometry.
 
     Returns
     -------
-    coords : dict[str, xarray.DataArray]
-        Spatial coordinate DataArrays keyed by name (`"x"`, `"y"`, `"z"`).
+    voxel_to_world : (4, 4) numpy.ndarray
+        Primary voxel-to-world affine in ConfUSIus world `z`/`y`/`x` row and
+        native voxel `k`/`j`/`i` column order.
+    units : str
+        Physical unit shared by every world coordinate, from the header's
+        `xyzt_units` field when declared, otherwise `"mm"`.
     extra_attrs : dict[str, Any]
         Affine-derived DataArray attributes. Contains `"affines"` when a valid
-        affine is present; empty otherwise.
+        secondary affine is present; empty otherwise.
+
+    Raises
+    ------
+    ValueError
+        If `coordinate_affine` is `"sform"` or `"qform"` and that form's code is
+        zero.
     """
     voxel_sizes = extractor.get_voxel_dimensions()
     space_unit, _ = extractor.get_unit_strings()
-    primary_affine, secondary_affine = _select_affines(img.header)
+    units = space_unit if space_unit is not None else "mm"
+    primary_affine, secondary_affine = _select_affines(
+        img.header,
+        coordinate_affine=coordinate_affine,
+    )
 
-    coords: dict[str, xr.DataArray] = {}
+    # (native voxel dim name, world coordinate name), in NIfTI axis order
+    # (0, 1, 2). `voxel_sizes`/`img.shape` stay keyed/indexed by NIfTI's own
+    # (x, y, z) axis order since that reflects the header layout, not a
+    # DataArray dim name.
+    axes = (("i", "x"), ("j", "y"), ("k", "z"))
+
     extra_attrs: dict[str, Any] = {}
 
     if primary_affine is None:
@@ -464,69 +546,55 @@ def _create_spatial_coords_from_nifti(
             "the true spatial orientation of the data.",
             stacklevel=find_stack_level(),
         )
-        for col, dim in enumerate(("x", "y", "z")):
-            if dim not in dims:
+        nifti_affine = np.eye(4, dtype=np.float64)
+        for col, (voxel_dim, header_dim) in enumerate(axes):
+            if voxel_dim not in dims:
                 continue
-            coord_attrs: dict[str, Any] = {}
-            if space_unit is not None:
-                coord_attrs["units"] = space_unit
-            step = voxel_sizes.get(dim, 1.0)
-            if dim in voxel_sizes:
-                coord_attrs["voxdim"] = voxel_sizes[dim]
-            coords[dim] = xr.DataArray(
-                step * np.arange(img.shape[col]),
-                dims=[dim],
-                attrs=coord_attrs,
-            )
+            step = voxel_sizes.get(header_dim, 1.0)
+            nifti_affine[col, col] = step
+        voxel_to_world = nifti_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
+        return voxel_to_world, units, extra_attrs
+
+    # Determine which form is primary the same way `_select_affines` did, so the
+    # secondary form (when present) gets the correct name -- an explicit
+    # coordinate_affine="qform" makes sform the *secondary* form, not qform.
+    _, sform_code = img.header.get_sform(coded=True)
+    sform_valid = sform_code > 0
+    if coordinate_affine == "sform":
+        primary_prefix = "sform"
+    elif coordinate_affine == "qform":
+        primary_prefix = "qform"
     else:
-        # Sform is preferred; when both codes are positive, qform is secondary.
-        _, sform_code = img.header.get_sform(coded=True)
-        primary_prefix = "sform" if sform_code > 0 else "qform"
+        primary_prefix = "sform" if sform_valid else "qform"
+    secondary_prefix = "qform" if primary_prefix == "sform" else "sform"
 
-        # The physical coordinate frame is defined once by the primary affine's
-        # axis-aligned decomposition: origin T (translation) and voxel spacing Z (true
-        # zoom from decompose_affine). Every stored affine is re-expressed against this
-        # single frame, so a secondary affine (e.g. qform when sform is primary) keeps its
-        # relationship to the physical coordinates instead of being built from its own,
-        # inconsistent decomposition.
-        T, _, Z, _ = decompose_affine(primary_affine)
+    # The voxel-to-world index represents the full primary affine (any
+    # rotation/shear included) exactly, so it becomes `voxel_to_world`
+    # directly -- no axis-aligned-only decomposition, and no separate rotation
+    # residual to store for the primary form (unlike an independent-1D-coordinate
+    # model, which could only absorb an axis-aligned translation and zoom). A
+    # missing spatial dim (e.g. a genuinely 2D scan) needs no special handling
+    # either: `create_voxeldata` drops that affine column itself, which is
+    # exactly equivalent to evaluating the affine at voxel-index 0 along that
+    # axis (index 0 zeroes out that column's contribution).
+    #
+    # The primary form has no named `attrs["affines"]` entry: it is not a
+    # separately tracked relationship, it *is* the array's own world frame,
+    # so on save it always mirrors the current `voxel_to_world` (see
+    # `_build_selected_nifti_affine`'s `affine_key=None` fallback). Only the
+    # secondary form is a genuinely distinct, named relationship, so only it
+    # gets one: secondary = world_to_<secondary> @ primary, so
+    # world_to_<secondary> = secondary @ inv(primary).
+    voxel_to_world = primary_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
+    if secondary_affine is not None:
+        world_to_secondary = secondary_affine @ np.linalg.inv(primary_affine)
+        extra_attrs["affines"] = {
+            f"world_to_{secondary_prefix}": world_to_secondary[[2, 1, 0, 3]][
+                :, [2, 1, 0, 3]
+            ]
+        }
 
-        affines_dict: dict[str, npt.NDArray[np.floating]] = {}
-        nifti_affines: list[tuple[npt.NDArray[np.floating], str]] = [
-            (primary_affine, primary_prefix),
-        ]
-        if secondary_affine is not None:
-            nifti_affines.append((secondary_affine, "qform"))
-
-        for affine, prefix in nifti_affines:
-            # Re-express this form's voxel->world affine against the primary physical
-            # frame (in NIfTI x, y, z order), then permute to ConfUSIus (z, y, x) by
-            # swapping rows and columns 0 <-> 2. For the primary form this reduces to
-            # the orientation-only affine [[D, T - D @ T]].
-            A_nifti = get_affine_in_axis_aligned_space(affine, T, Z)
-            A_physical = A_nifti[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
-            affines_dict[f"physical_to_{prefix}"] = A_physical
-
-        for col, dim in enumerate(("x", "y", "z")):
-            if dim not in dims:
-                continue
-            coord_attrs: dict[str, Any] = {}
-            if space_unit is not None:
-                coord_attrs["units"] = space_unit
-            coord_attrs["voxdim"] = float(Z[col])
-
-            # Coordinates encode the primary translation (T[col]) plus the
-            # primary zoom (Z[col], the true voxel spacing along this axis).
-            coords[dim] = xr.DataArray(
-                T[col] + Z[col] * np.arange(img.shape[col]),
-                dims=[dim],
-                attrs=coord_attrs,
-            )
-
-        if affines_dict:
-            extra_attrs["affines"] = affines_dict
-
-    return coords, extra_attrs
+    return voxel_to_world, units, extra_attrs
 
 
 def _validate_volume_timing_length(
@@ -695,9 +763,12 @@ def _create_temporal_coords_from_nifti(
             if volume_duration > 0:
                 time_attrs["volume_acquisition_duration"] = volume_duration
             elif delay_time > 0:
+                # `create_voxeldata` backfills a missing duration from the time
+                # coordinate's own regular spacing (the repetition time).
                 warnings.warn(
                     "DelayTime is greater than or equal to RepetitionTime, so "
-                    "`time.attrs['volume_acquisition_duration']` cannot be inferred.",
+                    "`time.attrs['volume_acquisition_duration']` cannot be inferred. "
+                    "Using median temporal spacing instead.",
                     stacklevel=find_stack_level(),
                 )
         time_values = delay + sampling_period_sidecar * np.arange(n_time)
@@ -827,7 +898,7 @@ def _create_scalar_temporal_coords_from_nifti(
 
     if "slice_timing" in attrs and "slice_encoding_direction" in attrs:
         slice_encoding_direction = str(attrs["slice_encoding_direction"])
-        if slice_encoding_direction not in SLICE_ENCODING_DIRECTION_TO_DIM:
+        if slice_encoding_direction.removesuffix("-") not in VOXEL_DIMS:
             return coords, attrs
         attrs.pop("slice_encoding_direction")
 
@@ -842,7 +913,7 @@ def _create_scalar_temporal_coords_from_nifti(
         if slice_encoding_direction.endswith("-"):
             slice_timing = slice_timing[::-1]
 
-        spatial_dim = SLICE_ENCODING_DIRECTION_TO_DIM[slice_encoding_direction]
+        spatial_dim = slice_encoding_direction.removesuffix("-")
         coords["slice_time"] = xr.DataArray(
             time_value + slice_timing,
             dims=[spatial_dim],
@@ -854,7 +925,7 @@ def _create_scalar_temporal_coords_from_nifti(
 
 def _get_volume_acquisition_reference(
     attrs: dict[str, Any], *, coord_name: str, warn_on_missing: bool = False
-) -> Literal["start", "center", "end"]:
+) -> VolumeAcquisitionReference:
     """Return a coordinate timing reference, defaulting to onset timing.
 
     When the reference is missing, ConfUSIus assumes timestamps correspond to the start
@@ -897,7 +968,7 @@ def _get_volume_acquisition_reference(
             )
         return "start"
 
-    if reference not in {"start", "center", "end"}:
+    if reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown {coord_name} volume_acquisition_reference: {reference!r}. "
             "Must be 'start', 'center', or 'end'."
@@ -917,12 +988,15 @@ def _resolve_nifti_extra_dims(
 
     For each NIfTI extra-dim axis (4, 5, 6) with a `dim{N}_name` entry in the sidecar
     attrs (where `N` is the 0-based NIfTI axis), the corresponding placeholder name in
-    `nifti_dims` is replaced by the sidecar value.
+    `nifti_dims` is replaced by the sidecar value -- unless that value is a reserved
+    canonical spatial name (`k`/`j`/`i`/`z`/`y`/`x`, see `_RESERVED_DIM_NAMES`), in
+    which case the override is rejected, a warning is emitted, and the default
+    `dim{N}` placeholder name is kept instead.
 
     Parameters
     ----------
     nifti_dims : tuple[str, ...]
-        NIfTI axis order, e.g. `("x", "y", "z", "time", "dim4", "dim5", "dim6")`.
+        NIfTI axis order, e.g. `("i", "j", "k", "time", "dim4", "dim5", "dim6")`.
     attrs : dict[str, Any]
         DataArray attributes merged from the NIfTI header and sidecar.
 
@@ -936,6 +1010,12 @@ def _resolve_nifti_extra_dims(
     extra_coord_attrs : dict[str, dict[str, Any]]
         Mapping from resolved extra dim name to its coordinate attrs, sourced
         from `dim{N}_attrs` in the sidecar.
+
+    Warns
+    -----
+    UserWarning
+        If a sidecar `dim{N}_name` entry names a reserved canonical spatial dim
+        (`k`/`j`/`i`/`z`/`y`/`x`). The override is ignored in that case.
     """
     resolved: list[str] = []
     extra_coord_values: dict[str, npt.NDArray[np.generic]] = {}
@@ -944,6 +1024,14 @@ def _resolve_nifti_extra_dims(
     for nifti_axis, dim_name in enumerate(nifti_dims):
         if nifti_axis in _RESOLVABLE_NIFTI_AXES:
             sidecar_name = attrs.get(f"dim{nifti_axis}_name")
+            if sidecar_name is not None and str(sidecar_name) in _RESERVED_DIM_NAMES:
+                warnings.warn(
+                    f"Sidecar dim{nifti_axis}_name {sidecar_name!r} is a reserved "
+                    "canonical spatial dim name and cannot be used for an extra "
+                    f"axis. Falling back to the default {dim_name!r} name.",
+                    stacklevel=find_stack_level(),
+                )
+                sidecar_name = None
             if sidecar_name is not None:
                 resolved.append(str(sidecar_name))
                 sidecar_coords = attrs.get(f"dim{nifti_axis}_coordinates")
@@ -991,7 +1079,7 @@ def _build_extra_dim_coords(
         NIfTI axis with 0-based index `N`.
     nifti_axis_sizes : tuple[int, ...]
         Size of the data along each NIfTI axis, in NIfTI order
-        `(x, y, z, time, *extras)`. Used to size the fallback coord.
+        `(i, j, k, time, *extras)`. Used to size the fallback coord.
 
     Returns
     -------
@@ -1000,7 +1088,7 @@ def _build_extra_dim_coords(
     """
     coords: dict[str, xr.DataArray] = {}
     for nifti_axis, dim_name in enumerate(nifti_dims):
-        if dim_name in ("x", "y", "z", "time"):
+        if dim_name in VOXEL_DIMS or dim_name == "time":
             continue
         coord_attrs = dict(extra_coord_attrs.get(dim_name, {}))
         if dim_name in extra_coord_values:
@@ -1050,34 +1138,6 @@ def _pop_extra_dim_attrs(attrs: dict[str, Any]) -> None:
         attrs.pop(key, None)
 
 
-def _squeeze_synthetic_singleton_dims(
-    data_array: xr.DataArray, *, drop_time: bool
-) -> xr.DataArray:
-    """Drop singleton `time` axis that was inserted only for NIfTI layout.
-
-    Singleton spatial axes (`x`, `y`, `z`) are preserved: the loader cannot
-    distinguish a real singleton spatial axis from one that was inserted on
-    save to fit NIfTI's canonical axis slots, so keeping them is the only safe
-    choice.
-
-    Parameters
-    ----------
-    data_array : xarray.DataArray
-        Loaded array in ConfUSIus dimension order.
-    drop_time : bool
-        Whether to drop a singleton `time` dimension.
-
-    Returns
-    -------
-    xarray.DataArray
-        `data_array` with a synthetic singleton `time` dimension removed when
-        `drop_time` is `True`.
-    """
-    if not (drop_time and "time" in data_array.dims and data_array.sizes["time"] == 1):
-        return data_array
-    return data_array.squeeze(dim="time", drop=True)
-
-
 def _reverse_chunk_spec(
     chunks: int | tuple[int, ...] | str | None, ndim: int
 ) -> int | tuple[int, ...] | str | None:
@@ -1110,13 +1170,17 @@ def _reverse_chunk_spec(
 
 
 def load_nifti(
-    path: str | Path, chunks: int | tuple[int, ...] | str | None = "auto"
+    path: str | Path,
+    chunks: int | tuple[int, ...] | str | None = "auto",
+    *,
+    coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
 ) -> xr.DataArray:
-    """Load a NIfTI file as a lazy Xarray DataArray.
+    """Load a NIfTI file as a lazy VoxelData array.
 
     Loads NIfTI files using nibabel's proxy arrays for memory-efficient access, wrapping
     the data in Dask arrays for chunked, parallel processing. The data is transposed to
-    ConfUSIus conventions with dimensions `(time, z, y, x)`.
+    ConfUSIus conventions with voxel-space dimensions `(time, k, j, i)` and derived
+    world coordinates `z`, `y`, `x`.
 
     A BIDS-style JSON sidecar file is loaded automatically when present. For files
     inside a BIDS dataset, matching sidecars are inherited from the dataset root to the
@@ -1127,7 +1191,7 @@ def load_nifti(
     path : str or pathlib.Path
         Path to the NIfTI file (`.nii` or `.nii.gz`).
     chunks : int or tuple[int, ...] or str or None, default: "auto"
-        How to chunk the array. Must be one of the following forms:
+        How to chunk the array. Must be one of the following forms.
 
         - A blocksize like `1000`.
         - A blockshape like `(1000, 1000)`.
@@ -1140,51 +1204,68 @@ def load_nifti(
           determined.
         - `-1` or `None` as a blocksize indicate the size of the corresponding
           dimension.
+    coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
+        Header affine to use as the primary coordinate-defining geometry.
+
+        - `"auto"` prefers sform when both sform and qform are valid, and falls
+          back to qform when only qform is valid.
+        - `"sform"` forces the sform to define the in-memory coordinate geometry.
+        - `"qform"` forces the qform to define the in-memory coordinate geometry.
+
+        The non-selected valid header affine is still preserved in
+        `data_array.attrs["affines"]` as a world-to-world transform.
 
     Returns
     -------
     xarray.DataArray
-        Lazy DataArray with dimensions in ConfUSIus order. Data is wrapped in a Dask
-        array for out-of-core computation.
+        Lazy VoxelData array with voxel-space dimensions in ConfUSIus
+        order (`k`, `j`, `i` plus optional `time`) and world coordinates `z`, `y`,
+        `x`. Data is wrapped
+        in a Dask array for out-of-core computation.
 
     Notes
     -----
-    Physical-to-world affines are stored in `da.attrs["affines"]`, a dict keyed by
+    In memory, the coordinate-defining geometry uses native voxel dimensions `k`, `j`,
+    `i` and derived world coordinates `z`, `y`, `x`. `coordinate_affine` controls which
+    NIfTI header affine defines that voxel-to-world mapping.
+
+    World-to-world affines are stored in `da.attrs["affines"]`, a dict keyed by
     affine name. Each value is a 4×4 affine in ConfUSIus `(z, y, x)` convention that
-    maps **physical coordinates** (as stored in `da.coords`) to world-space
-    coordinates. Apply as `da.attrs["affines"]["physical_to_sform"] @ np.array([pz, py,
+    maps **world coordinates** (as stored in `da.coords`) to world-space
+    coordinates. Apply as `da.attrs["affines"]["world_to_sform"] @ np.array([pz, py,
     px, 1.0])` to get `[wz, wy, wx, 1]`, where `pz`, `py`, `px` come from
     `da.coords["z"]`, `da.coords["y"]`, `da.coords["x"]` respectively.
 
     Unlike the NIfTI affine (which maps voxel *indices* to world space), the
-    `physical_to_*` affines are invariant to any slicing or downsampling because they
-    operate on physical positions, not grid indices.
+    `world_to_*` affines are invariant to any slicing or downsampling because they
+    operate on world positions, not grid indices.
 
-    Affine selection follows NIfTI conventions:
+    With `coordinate_affine="auto"`, affine selection follows NIfTI conventions:
 
     - If `sform_code > 0`: sform is used as the primary affine; a
-      `"physical_to_sform"` entry is written. When `qform_code > 0` as well, a
-      `"physical_to_qform"` entry is also stored as secondary.
+      `"world_to_sform"` entry is written. When `qform_code > 0` as well, a
+      `"world_to_qform"` entry is also stored as secondary.
     - Else, if only `qform_code > 0`: qform is used as the primary affine; only
-      `"physical_to_qform"` is written.
+      `"world_to_qform"` is written.
     - If both codes are zero: a warning is emitted, coordinates are built from
       `pixdim` only (origin 0, step = voxel size), and no `"affines"` entry is
       stored in `da.attrs`.
 
+    Choosing `coordinate_affine="sform"` or `"qform"` *forces* that header affine:
+    unlike `"auto"`, there is no fallback to the other form or to `pixdim` when the
+    requested affine is not valid -- `load_nifti` raises `ValueError` instead.
+
     The raw integer form codes are stored as `da.attrs["qform_code"]` and
     `da.attrs["sform_code"]` (only when > 0) so that a save/load roundtrip can
     reproduce the original NIfTI header codes.
-
-    Voxel dimensions are stored in their native header units as a `voxdim`
-    attribute on each spatial coordinate array, consistent with the `units`
-    attribute of that coordinate.
 
     Examples
     --------
     >>> import confusius as cf
     >>> da = cf.io.load_nifti("brain.nii.gz")
     >>> print(da.dims)
-    ("time", "z", "y", "x")
+    ("time", "k", "j", "i")
+    >>> da = cf.io.load_nifti("brain.nii.gz", coordinate_affine="qform")
     """
     path = check_path(path, type="file")
 
@@ -1200,7 +1281,7 @@ def load_nifti(
     # da.from_array then copies while building the graph.
     # NIfTI stores data with shape (x, y, z, time) in column-major order. ArrayProxy has
     # no .T, so we build the Dask array in that native order and transpose afterward
-    # (a metadata-only Dask op) to reach ConfUSIus order (time, z, y, x).
+    # (a metadata-only Dask op) to reach ConfUSIus order (time, k, j, i).
     from nibabel.arrayproxy import ArrayProxy
 
     proxy = img.dataobj
@@ -1213,18 +1294,22 @@ def load_nifti(
         meta=np.empty((), dtype=proxy.dtype),
     ).T
 
-    # NIfTI dim order is (x, y, z, time, ...); ConfUSIus order is the reverse.
+    # NIfTI dim order is (i, j, k, time, ...); ConfUSIus order is the reverse.
     nifti_dims = _NIFTI_DIM_ORDER[: dask_arr.ndim]
 
     # Apply sidecar names to the anonymous extra NIfTI axes (`dim4`, `dim5`, `dim6`) so
-    # downstream code sees semantic dim names instead of placeholders.
+    # downstream code sees semantic dim names instead of placeholders. Names colliding
+    # with a reserved canonical spatial name (k/j/i/z/y/x) are rejected with a warning.
     nifti_dims, extra_coord_values, extra_coord_attrs = _resolve_nifti_extra_dims(
         nifti_dims, attrs
     )
     _pop_extra_dim_attrs(attrs)
 
-    spatial_coords, affine_attrs = _create_spatial_coords_from_nifti(
-        img=img, extractor=extractor, dims=nifti_dims
+    voxel_to_world, units, affine_attrs = _resolve_spatial_geometry_from_nifti(
+        img=img,
+        extractor=extractor,
+        dims=nifti_dims,
+        coordinate_affine=coordinate_affine,
     )
     # Merge NIfTI-header-derived affines with any pre-existing affines (e.g. loaded
     # from the sidecar) so sidecar entries like `bspline_initialization` are not
@@ -1241,32 +1326,66 @@ def load_nifti(
         tuple(int(s) for s in img.shape),
     )
 
-    has_extra_dims = any(dim not in ("x", "y", "z", "time") for dim in nifti_dims)
+    has_extra_dims = any(dim not in VOXEL_DIMS and dim != "time" for dim in nifti_dims)
     has_explicit_time_metadata = any(key in attrs for key in _TEMPORAL_METADATA_KEYS)
 
+    # `time_coord` feeds `create_voxeldata`'s `time=` parameter and is only
+    # meaningful when `time` is a real dimension; `scalar_time_coord` and
+    # `slice_time_coord` are non-dimension coordinates attached after the fact
+    # (a scalar `time` has no dimension of its own, and `slice_time` is not one
+    # of `create_voxeldata`'s recognized coordinates).
+    time_coord: xr.DataArray | None = None
+    scalar_time_coord: xr.DataArray | None = None
+    slice_time_coord: xr.DataArray | None = None
     if "time" in nifti_dims:
         temporal_coords, attrs = _create_temporal_coords_from_nifti(
             img=img, extractor=extractor, attrs=attrs
         )
-        coords = {**spatial_coords, **extra_coords, **temporal_coords}
+        time_coord = temporal_coords["time"]
+        slice_time_coord = temporal_coords.get("slice_time")
     else:
         scalar_temporal_coords, attrs = _create_scalar_temporal_coords_from_nifti(
             extractor=extractor, attrs=attrs
         )
-        coords = {**spatial_coords, **extra_coords, **scalar_temporal_coords}
+        scalar_time_coord = scalar_temporal_coords.get("time")
+        slice_time_coord = scalar_temporal_coords.get("slice_time")
 
     nifti_name = path.with_suffix("").stem if path.suffix == ".gz" else path.stem
-    data_array = xr.DataArray(
-        dask_arr, dims=nifti_dims[::-1], coords=coords, attrs=attrs, name=nifti_name
-    )
 
-    drop_synthetic_time = (
-        "time" in data_array.dims
-        and data_array.sizes["time"] == 1
+    # Build the canonical array in one `create_voxeldata` call, regardless of
+    # how many spatial dims are actually present -- it pads any missing k/j/i to a
+    # singleton itself, so every loaded array ends up indexed, never a bare
+    # DataArray. The singleton-squeeze must happen first, directly on the Dask array
+    # and dims bookkeeping, since `create_voxeldata` validates immediately on
+    # construction and cannot accept a synthetic singleton `time` axis.
+    create_dims = list(nifti_dims[::-1])
+    create_data = dask_arr
+    if (
+        "time" in create_dims
+        and dask_arr.shape[create_dims.index("time")] == 1
         and has_extra_dims
         and not has_explicit_time_metadata
+    ):
+        time_axis = create_dims.index("time")
+        create_data = create_data.squeeze(axis=time_axis)
+        create_dims.pop(time_axis)
+        time_coord = None
+
+    data_array = create_voxeldata(
+        create_data,
+        dims=create_dims,
+        time=time_coord,
+        extra_coords=extra_coords,
+        voxel_to_world=voxel_to_world,
+        units=units,
+        attrs=attrs,
+        name=nifti_name,
     )
-    return _squeeze_synthetic_singleton_dims(data_array, drop_time=drop_synthetic_time)
+    if scalar_time_coord is not None:
+        data_array = data_array.assign_coords(time=scalar_time_coord)
+    if slice_time_coord is not None:
+        data_array = data_array.assign_coords(slice_time=slice_time_coord)
+    return data_array
 
 
 def _infer_repetition_time(
@@ -1319,7 +1438,11 @@ def _infer_frame_acquisition_duration(
     """
     duration = time_attrs.get("volume_acquisition_duration")
     if isinstance(duration, int | float) and duration > 0:
-        return float(duration)
+        return float(
+            convert_time_units(
+                duration, time_attrs.get("units"), "s", raise_on_unknown=True
+            )
+        )
 
     if time_values is not None and len(time_values) >= 2:
         time_step, non_uniform = get_representative_step(time_values)
@@ -1366,7 +1489,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
     slice_time_coord = data_array.coords["slice_time"]
     if len(slice_time_coord.dims) == 1:
         spatial_dim = slice_time_coord.dims[0]
-        if spatial_dim not in DIM_TO_SLICE_ENCODING_DIRECTION:
+        if spatial_dim not in VOXEL_DIMS:
             return {}
 
         if "time" not in data_array.coords:
@@ -1439,7 +1562,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
 
         return {
             "SliceTiming": (slice_time_seconds - volume_onset_seconds).tolist(),
-            "SliceEncodingDirection": DIM_TO_SLICE_ENCODING_DIRECTION[spatial_dim],
+            "SliceEncodingDirection": spatial_dim,
         }
 
     if len(slice_time_coord.dims) != 2 or "time" not in slice_time_coord.dims:
@@ -1452,7 +1575,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
         return {}
 
     spatial_dims = [dim for dim in slice_time_coord.dims if dim != "time"]
-    if len(spatial_dims) != 1 or spatial_dims[0] not in DIM_TO_SLICE_ENCODING_DIRECTION:
+    if len(spatial_dims) != 1 or spatial_dims[0] not in VOXEL_DIMS:
         return {}
 
     if "time" not in data_array.coords:
@@ -1535,50 +1658,6 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
     }
 
 
-def _build_nifti_affine(
-    transform: npt.NDArray[np.floating] | None,
-    T: npt.NDArray[np.floating],
-    Z: npt.NDArray[np.floating],
-) -> npt.NDArray[np.floating]:
-    """Reconstruct a NIfTI affine from a stored ConfUSIus physical-to-world transform.
-
-    Reverses the ConfUSIus `(z, y, x)` permutation, then composes the physical-to-world
-    transform with the voxel-to-physical map built from the origin `T` and spacing `Z`
-    to rebuild the full NIfTI affine. Falls back to a diagonal affine when no transform
-    is given.
-
-    Parameters
-    ----------
-    transform : (4, 4) numpy.ndarray or None
-        Physical-to-world affine in ConfUSIus `(z, y, x)` convention, or `None` to use a
-        fallback diagonal affine.
-    T : (3,) numpy.ndarray
-        Origin of the physical coordinates for each NIfTI axis `(x, y, z)`, in the
-        spatial units of the DataArray coordinates.
-    Z : (3,) numpy.ndarray
-        Voxel spacing for each NIfTI axis `(x, y, z)`, in the spatial units of the
-        DataArray coordinates.
-
-    Returns
-    -------
-    numpy.ndarray of shape (4, 4)
-        Full NIfTI affine mapping voxel indices to world-space coordinates.
-    """
-    if transform is not None:
-        # Compose the full physical-to-world transform with the voxel-to-physical
-        # map (origin T, spacing Z). Taking only the 3x3 block and substituting T
-        # for the translation would drop a secondary form's own origin, corrupting
-        # e.g. a qform whose origin differs from the primary (coordinate) origin.
-        A_nifti = np.asarray(transform)[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
-        out = A_nifti @ get_axis_aligned_affine(T, Z)
-    else:
-        out = np.eye(4)
-        out[:3, :3] = np.diag(Z)
-        out[:3, 3] = T
-
-    return out
-
-
 def _build_extra_dim_sidecar_metadata(data_array: xr.DataArray) -> dict[str, Any]:
     """Build sidecar entries for non-time, non-spatial extra dimensions.
 
@@ -1603,7 +1682,7 @@ def _build_extra_dim_sidecar_metadata(data_array: xr.DataArray) -> dict[str, Any
         dimensions.
     """
     current_dims = tuple(str(dim) for dim in data_array.dims)
-    _, extras = _split_nifti_dims(current_dims)
+    extras = [d for d in current_dims if d not in (*VOXEL_DIMS, "time")]
 
     extra_metadata: dict[str, Any] = {}
     for extra_index, dim_name in enumerate(extras):
@@ -1655,29 +1734,6 @@ def _coord_starts_at_zero_with_regular_spacing(
     return bool(np.allclose(numeric_coord_values, expected, rtol=1e-5, atol=0.0))
 
 
-def _split_nifti_dims(current_dims: tuple[str, ...]) -> tuple[list[str], list[str]]:
-    """Split DataArray dims into canonical and extra groups for NIfTI layout.
-
-    Canonical dims are those in `_NIFTI_DIM_ORDER[:4]`; extras are the remaining dims
-    in their original order.
-
-    Parameters
-    ----------
-    current_dims : tuple[str, ...]
-        DataArray dimension names in their current order.
-
-    Returns
-    -------
-    canonical_dims : list[str]
-        Canonical NIfTI dims in fixed order: `x`, `y`, `z`, `time`.
-    extra_dims : list[str]
-        Non-canonical dims, preserving their input order.
-    """
-    canonical_dims = list(_NIFTI_DIM_ORDER[:4])
-    extras = [d for d in current_dims if d not in canonical_dims]
-    return canonical_dims, extras
-
-
 def _prepare_data_for_nifti(
     data_array: xr.DataArray,
 ) -> tuple[np.ndarray, bool, list[str]]:
@@ -1691,9 +1747,8 @@ def _prepare_data_for_nifti(
     Returns
     -------
     data : numpy.ndarray
-        Array reordered to NIfTI axis order. Missing spatial axes are inserted
-        as singletons. The 4th NIfTI axis is present when `time` is a real
-        dimension or when a synthetic singleton time axis is needed so non-time
+        Array reordered to NIfTI axis order. The 4th NIfTI axis is present when
+        `time` is a real dimension or when a synthetic singleton time axis is needed so non-time
         extra axes land at NIfTI axes 4, 5, 6. Boolean arrays are cast to
         `uint8` because NIfTI does not support `bool` payload dtypes.
     has_time_axis : bool
@@ -1714,7 +1769,8 @@ def _prepare_data_for_nifti(
     data = np.asarray(data_array)
     current_dims = tuple(str(dim) for dim in data_array.dims)
 
-    canonical_order, extras = _split_nifti_dims(current_dims)
+    canonical_order = [*reversed(VOXEL_DIMS), "time"]
+    extras = [d for d in current_dims if d not in canonical_order]
     if len(extras) > _MAX_NIFTI_EXTRA_DIMS:
         raise ValueError(
             f"Cannot save DataArray with {len(extras)} extra (non-spatial, "
@@ -1734,10 +1790,9 @@ def _prepare_data_for_nifti(
 
     data = np.transpose(data, target_order)
 
-    for insert_pos, dim in enumerate(("x", "y", "z")):
-        if dim not in current_dims:
-            data = np.expand_dims(data, axis=insert_pos)
-
+    # save_nifti always canonicalizes data_array via ensure_voxeldata first, which
+    # restores any voxel dim fixed away by a prior scalar isel, so k/j/i are always
+    # present here.
     has_time_axis = "time" in current_dims or bool(extras)
     if has_time_axis and "time" not in current_dims:
         data = np.expand_dims(data, axis=3)
@@ -1751,48 +1806,24 @@ def _prepare_data_for_nifti(
 def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
     """Return signed spatial spacings for NIfTI header serialization.
 
+    `data_array` is always a VoxelData array here: `save_nifti`
+    (the only caller)
+    calls `ensure_voxeldata` before reaching this point, so spacing always comes from the
+    `VoxelToWorldIndex` -- there is no plain-coordinate fallback to consider.
+
     Parameters
     ----------
     data_array : xarray.DataArray
-        Array being serialized.
+        VoxelData array being serialized.
 
     Returns
     -------
     list[float]
         Signed spatial spacings for the NIfTI `x`, `y`, and `z` axes.
-
-    Warns
-    -----
-    UserWarning
-        If spatial spacing is non-uniform or undefined and a best-effort fallback is
-        needed for the NIfTI header.
     """
-    spatial_spacings: list[float] = []
-    for dim in ("x", "y", "z"):
-        spacing = get_coordinate_spacing_info(
-            dim, data_array, uniformity_tolerance=1e-2
-        )
-        if spacing.value is not None:
-            spatial_spacings.append(float(spacing.value))
-        elif spacing.median is not None:
-            spatial_spacings.append(float(spacing.median))
-            warnings.warn(
-                f"Coordinate '{dim}' has non-uniform spacing. NIfTI stores one "
-                f"constant spacing per axis, so using the median step "
-                f"{spacing.median:.4g} for the header and affine; positions "
-                "along this axis may be approximate.",
-                stacklevel=find_stack_level(),
-            )
-        else:
-            spatial_spacings.append(1.0)
-            if spacing.warn_msg is not None:
-                warnings.warn(
-                    f"{spacing.warn_msg} Falling back to unit spacing for NIfTI "
-                    f"axis '{dim}'.",
-                    stacklevel=find_stack_level(),
-                )
-
-    return spatial_spacings
+    voxel_spacings = get_voxel_to_world_index_spacing(data_array)
+    spacings = [voxel_spacings.get(dim) for dim in reversed(VOXEL_DIMS)]
+    return [1.0 if spacing is None else float(spacing) for spacing in spacings]
 
 
 def _build_nifti_timing_metadata(
@@ -1851,15 +1882,35 @@ def _build_nifti_timing_metadata(
             )
 
         tr_spacing, delay = _infer_repetition_time(time_values_seconds)
-        if tr_spacing is not None:
+        delay_time = (
+            tr_spacing - frame_acquisition_duration
+            if tr_spacing is not None and frame_acquisition_duration is not None
+            else None
+        )
+        if (
+            delay_time is not None
+            and delay_time < 0
+            and not np.isclose(delay_time, 0.0)
+        ):
+            # `volume_acquisition_duration` exceeds the repetition time (overlapping
+            # acquisition windows): BIDS's RepetitionTime/DelayTime model can't
+            # represent a negative DelayTime, so fall back to explicit VolumeTiming +
+            # FrameAcquisitionDuration instead of silently dropping the duration.
+            # Sampling is still regular, so pixdim[4] keeps the true repetition time.
+            tr_pixdim = tr_spacing
+            timing_metadata["VolumeTiming"] = time_values_seconds.tolist()
+            timing_metadata["FrameAcquisitionDuration"] = frame_acquisition_duration
+        elif tr_spacing is not None:
             tr_pixdim = tr_spacing
             timing_metadata["RepetitionTime"] = tr_spacing
             if not np.isclose(delay, 0.0):
                 timing_metadata["DelayAfterTrigger"] = delay
-            if frame_acquisition_duration is not None:
-                delay_time = tr_spacing - frame_acquisition_duration
-                if delay_time > 0 and not np.isclose(delay_time, 0.0):
-                    timing_metadata["DelayTime"] = delay_time
+            if (
+                delay_time is not None
+                and delay_time > 0
+                and not np.isclose(delay_time, 0.0)
+            ):
+                timing_metadata["DelayTime"] = delay_time
         else:
             tr_pixdim = 0.0
             if len(time_values_seconds) >= 2:
@@ -1928,7 +1979,6 @@ def _resolve_nifti_xform_code(
     *,
     form_name: Literal["qform", "sform"],
     code: int | None,
-    has_affine: bool,
 ) -> int:
     """Resolve the NIfTI qform/sform code to write.
 
@@ -1940,16 +1990,15 @@ def _resolve_nifti_xform_code(
         Name of the NIfTI xform field being resolved.
     code : int, optional
         Explicit qform/sform code override.
-    has_affine : bool
-        Whether a stored affine was selected for this xform field.
 
     Returns
     -------
     int
         Resolved xform code. Explicit `code` takes precedence, then the corresponding
-        `data_array.attrs["<form_name>_code"]` value when present. Otherwise qform
-        defaults to `1`, while sform defaults to `1` only when an affine is available
-        and `0` when no sform affine will be written.
+        `data_array.attrs["<form_name>_code"]` value when present. Otherwise defaults
+        to `2` (`NIFTI_XFORM_ALIGNED_ANAT`), since `voxel_to_world` no longer
+        necessarily represents any one specific reference frame (e.g. scanner space)
+        once transforms such as registration have been applied.
     """
     if code is not None:
         return code
@@ -1958,57 +2007,63 @@ def _resolve_nifti_xform_code(
     if attr_name in data_array.attrs:
         return int(data_array.attrs[attr_name])
 
-    if form_name == "qform":
-        return 1
+    return 2
 
-    return 1 if has_affine else 0
+
+def _build_nifti_voxel_to_world_affine(
+    data_array: xr.DataArray,
+) -> npt.NDArray[np.floating]:
+    """Build the NIfTI voxel-to-world affine for serialized grid geometry.
+
+    `reindex_voxels` computes exactly this: a dense-position-to-world affine,
+    replacing each voxel dim's coordinate with `0, 1, ..., dim - 1`. Its own
+    validation raises for irregular coordinates, but with a generic message, so
+    that case is checked explicitly first for a clear NIfTI-specific error. An
+    empty voxel coordinate needs no such check here: `save_nifti` validates `data_array`
+    via `ensure_voxeldata` before calling this, which already rejects zero-length
+    dimensions.
+    """
+    voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data_array.dims)
+    for dim in voxel_dims:
+        coord = np.asarray(data_array.coords[dim].values, dtype=np.float64)
+        if coord.size > 1:
+            _, approximate = get_representative_step(coord)
+            if approximate:
+                raise ValueError(
+                    "Saving voxel-to-world data to NIfTI requires regularly sampled "
+                    f"voxel coordinates, but {dim!r} is irregular."
+                )
+
+    confusius_affine = get_voxel_to_world_affine(reindex_voxels(data_array))
+    return confusius_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
 
 
 def _build_selected_nifti_affine(
     data_array: xr.DataArray,
     *,
-    spatial_spacings: list[float],
     stored_affines: dict[str, Any],
     affine_key: str | None,
 ) -> npt.NDArray[np.floating]:
-    """Build a NIfTI header affine from a selected stored affine key.
+    """Build a NIfTI header affine from voxel geometry plus an optional transform."""
+    voxel_to_world = _build_nifti_voxel_to_world_affine(data_array)
+    if affine_key is None:
+        return voxel_to_world
 
-    Parameters
-    ----------
-    data_array : xarray.DataArray
-        Array being serialized.
-    spatial_spacings : list[float]
-        Spatial spacings for the NIfTI `x`, `y`, and `z` axes.
-    stored_affines : dict[str, Any]
-        Affines stored in `data_array.attrs["affines"]`.
-    affine_key : str, optional
-        Key of the stored ConfUSIus physical-to-world affine to encode. When `None`, a
-        diagonal NIfTI affine is built directly from coordinate origin and spacing.
+    transform = _validate_affine_matrix(stored_affines[affine_key], name=affine_key)
+    return np.asarray(transform)[[2, 1, 0, 3]][:, [2, 1, 0, 3]] @ voxel_to_world
 
-    Returns
-    -------
-    (4, 4) numpy.ndarray
-        NIfTI voxel-to-world affine in NIfTI axis order.
-    """
-    origin = np.array(
-        [
-            float(data_array.coords[dim][0]) if dim in data_array.coords else 0.0
-            for dim in ("x", "y", "z")
-        ]
-    )
-    spacings = np.array(spatial_spacings)
-    transform = (
-        _validate_affine_matrix(stored_affines[affine_key], name=affine_key)
-        if affine_key is not None
-        else None
-    )
-    return _build_nifti_affine(transform, origin, spacings)
+
+def _nifti_affine_has_shear(
+    affine: npt.NDArray[np.floating], *, atol: float = 1e-8
+) -> bool:
+    """Whether a NIfTI-order affine contains shear and cannot be stored in qform."""
+    _, _, _, shear = decompose_affine(np.asarray(affine, dtype=np.float64))
+    return not np.allclose(shear, 0.0, atol=atol)
 
 
 def _prepare_nifti_xforms(
     data_array: xr.DataArray,
     *,
-    spatial_spacings: list[float],
     qform: str | None,
     sform: str | None,
     qform_code: int | None,
@@ -2027,8 +2082,6 @@ def _prepare_nifti_xforms(
     ----------
     data_array : xarray.DataArray
         Array being serialized.
-    spatial_spacings : list[float]
-        Spatial spacings for the NIfTI `x`, `y`, and `z` axes.
     qform : str, optional
         Explicit affine key to use for qform serialization.
     sform : str, optional
@@ -2059,11 +2112,12 @@ def _prepare_nifti_xforms(
     selected_keys = {"qform": qform, "sform": sform}
     explicit_codes = {"qform": qform_code, "sform": sform_code}
     default_affine_keys = {
-        "qform": "physical_to_qform",
-        "sform": "physical_to_sform",
+        "qform": "world_to_qform",
+        "sform": "world_to_sform",
     }
     resolved_codes: dict[str, int] = {}
     header_affines: dict[str, npt.NDArray[np.floating] | None] = {}
+    resolved_keys: dict[str, str | None] = {}
     written_header_affine_keys: set[str] = set()
 
     for form_name in ("qform", "sform"):
@@ -2073,17 +2127,16 @@ def _prepare_nifti_xforms(
             selected_key=selected_keys[form_name],
             default_key=default_affine_keys[form_name],
         )
+        resolved_keys[form_name] = resolved_key
         resolved_code = _resolve_nifti_xform_code(
             data_array,
             form_name=form_name,
             code=explicit_codes[form_name],
-            has_affine=resolved_key is not None,
         )
 
         header_affines[form_name] = (
             _build_selected_nifti_affine(
                 data_array,
-                spatial_spacings=spatial_spacings,
                 stored_affines=stored_affines,
                 affine_key=resolved_key,
             )
@@ -2095,9 +2148,44 @@ def _prepare_nifti_xforms(
         if resolved_code > 0 and resolved_key is not None:
             written_header_affine_keys.add(resolved_key)
 
-    # We're guaranteed that qform isn't None since we always build a fallback affine for
-    # it.
     assert header_affines["qform"] is not None
+    if resolved_codes["qform"] > 0 and _nifti_affine_has_shear(header_affines["qform"]):
+        resolved_codes["qform"] = 0
+        qform_key = resolved_keys["qform"]
+        if qform_key is not None:
+            written_header_affine_keys.discard(qform_key)
+
+        if resolved_keys["sform"] is None:
+            # sform has no explicit/stored source of its own (it was only going to
+            # fall back to raw voxel_to_world), so it's safe to rescue the sheared
+            # geometry into it instead of overwriting a deliberately requested sform.
+            warnings.warn(
+                "The coordinate-defining affine contains shear, which NIfTI qform "
+                "cannot represent. Writing this geometry to sform instead and "
+                "disabling qform.",
+                stacklevel=find_stack_level(),
+            )
+            header_affines["sform"] = header_affines["qform"].copy()
+            resolved_codes["sform"] = _resolve_nifti_xform_code(
+                data_array,
+                form_name="sform",
+                code=explicit_codes["sform"],
+            )
+            if qform_key is not None:
+                written_header_affine_keys.add(qform_key)
+        else:
+            # sform is already spoken for by an explicit/stored affine of its own, so
+            # the sheared qform geometry can't be rescued there without overwriting
+            # it. It is simply disabled and dropped from the NIfTI header; it
+            # remains available via the ConfUSIusAffines sidecar under its own key.
+            warnings.warn(
+                "The coordinate-defining affine contains shear, which NIfTI qform "
+                "cannot represent, and sform is already used for a different "
+                "affine. Disabling qform; the sheared geometry is not written to "
+                "the NIfTI header (it remains recorded in the ConfUSIusAffines "
+                "sidecar).",
+                stacklevel=find_stack_level(),
+            )
     return (
         stored_affines,
         header_affines["qform"],
@@ -2170,7 +2258,7 @@ def _build_nifti_sidecar_metadata(
     sidecar_attrs = {
         k: v
         for k, v in data_array.attrs.items()
-        if k not in ("sform_code", "qform_code", "affines")
+        if k not in ("sform_code", "qform_code", "affines", "voxel_to_world")
     }
     if "time" in data_array.coords:
         from_unit = data_array.coords["time"].attrs.get("units")
@@ -2276,33 +2364,30 @@ def _create_nifti_image(
     # Setting the qform also sets several parameters in the NIfTI header:
     # the pixdim[1:4] (from zooms), qoffset_xyz (from translation), qfac (from
     # determinant of the rotation block) and quatern_bcd (from the quaternion
-    # representation).
-    # obs.: qform is always valid at this point.
-    nifti_img.header.set_qform(qform_affine, code=resolved_qform_code)
+    # representation). When qform_code is 0, leave qform unset rather than letting
+    # nibabel silently strip an unrepresentable shear.
+    if resolved_qform_code > 0:
+        nifti_img.header.set_qform(qform_affine, code=resolved_qform_code)
+    else:
+        nifti_img.header.set_qform(None, code=0)
 
     if sform_affine is not None:
         nifti_img.header.set_sform(sform_affine, code=resolved_sform_code)
     else:
         nifti_img.header.set_sform(None, code=0)
 
-    spatial_units = set()
-    for dim in ("x", "y", "z"):
-        if dim in data_array.coords and "units" in data_array.coords[dim].attrs:
-            spatial_units.add(data_array.coords[dim].attrs["units"])
-    if len(spatial_units) > 1:
-        warnings.warn(
-            f"Spatial dimensions have different units: {spatial_units}. "
-            f"NIfTI only supports a single spatial unit; using the first one found.",
-            stacklevel=find_stack_level(),
+    # When qform is disabled (for example because the coordinate-defining affine
+    # contains shear and was promoted to sform), keep the header voxel sizes tied to
+    # the coordinate spacing we chose for serialization. Do not do this when qform is
+    # active: qform owns pixdim[1:4], including signed-axis handling via qfac.
+    if resolved_qform_code == 0:
+        nifti_img.header.structarr["pixdim"][1:4] = np.asarray(
+            np.abs(spacings[:3]), dtype=np.float32
         )
 
-    space_unit_nib = None
-    for dim in ("x", "y", "z"):
-        if dim in data_array.coords and "units" in data_array.coords[dim].attrs:
-            confusius_unit = data_array.coords[dim].attrs["units"]
-            space_unit_nib = _CONFUSIUS_TO_NIFTI_SPACE_UNITS.get(confusius_unit)
-            break
-
+    space_unit_nib = _CONFUSIUS_TO_NIFTI_SPACE_UNITS.get(
+        get_voxel_to_world_units(data_array)
+    )
     if space_unit_nib is not None:
         nifti_img.header.set_xyzt_units(xyz=space_unit_nib, t="sec")
 
@@ -2319,7 +2404,7 @@ def save_nifti(
     qform_code: int | None = None,
     sform_code: int | None = None,
 ) -> None:
-    """Save an Xarray DataArray to NIfTI format.
+    """Save a VoxelData array to NIfTI format.
 
     Saves the DataArray to a NIfTI file and always writes a BIDS-style JSON sidecar
     alongside it. The data is transposed to NIfTI convention `(x, y, z, time)` before
@@ -2328,7 +2413,7 @@ def save_nifti(
     Parameters
     ----------
     data_array : xarray.DataArray
-        DataArray to save.
+        VoxelData array to save.
     path : str or pathlib.Path
         Output path for the NIfTI file, with `.nii` or `.nii.gz` extension. If
         `.nii.gz` is used, the file will be saved in compressed format.
@@ -2337,21 +2422,27 @@ def save_nifti(
         larger files and arrays with dimension sizes greater than 32,767.
     qform : str, optional
         Key in `data_array.attrs["affines"]` to write into the NIfTI qform. When not
-        provided, `"physical_to_qform"` is used if present; otherwise qform falls back
-        to a diagonal affine derived from voxel spacing.
+        provided, `"world_to_qform"` is used if present; otherwise qform falls back
+        to the coordinate-defining voxel geometry (`voxel_to_world`) directly.
+
+        If the coordinate-defining affine contains shear, qform writing is disabled
+        because the NIfTI qform cannot represent shear. In that case, the geometry is
+        written to sform instead.
     sform : str, optional
         Key in `data_array.attrs["affines"]` to write into the NIfTI sform. When not
-        provided, `"physical_to_sform"` is used if present; otherwise no sform is
-        written.
+        provided, `"world_to_sform"` is used if present; otherwise sform also falls
+        back to `voxel_to_world` directly (like qform), unless disabled via
+        `sform_code=0` or `attrs["sform_code"] = 0`.
     qform_code : int, optional
         NIfTI qform code to write. When provided, takes precedence over
         `data_array.attrs["qform_code"]`. When not provided, the value from
-        `attrs["qform_code"]` is used if present; otherwise defaults to `1`.
+        `attrs["qform_code"]` is used if present; otherwise defaults to `2`
+        (`NIFTI_XFORM_ALIGNED_ANAT`).
     sform_code : int, optional
         NIfTI sform code to write. When provided, takes precedence over
         `data_array.attrs["sform_code"]`. When not provided, the value from
-        `attrs["sform_code"]` is used if present; otherwise defaults to `1` when a
-        sform affine is available, or `0` when no sform affine is written.
+        `attrs["sform_code"]` is used if present; otherwise defaults to `2`
+        (`NIFTI_XFORM_ALIGNED_ANAT`).
 
     Notes
     -----
@@ -2367,13 +2458,21 @@ def save_nifti(
     Examples
     --------
     >>> import confusius as cf
-    >>> import xarray as xr
     >>> import numpy as np
-    >>> da = xr.DataArray(np.random.rand(10, 32, 1, 64),
-    ...                   dims=["time", "z", "y", "x"])
+    >>> da = cf.xarray.create_voxeldata(
+    ...     np.random.rand(10, 1, 32, 64),
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.5,
+    ...     spacing=(0.4, 0.1, 0.1),
+    ... )
     >>> cf.io.save_nifti(da, "output.nii.gz")
-    >>> cf.io.save_nifti(da, "output.nii.gz", sform="physical_to_template")
+    >>> da.attrs["affines"] = {"world_to_template": np.eye(4)}
+    >>> cf.io.save_nifti(da, "output.nii.gz", sform="world_to_template")
     """
+    # NIfTI exposes only one spatial qform/sform, so it cannot represent per-pose
+    # geometry (or even a shared affine ambiguously labeled per pose). Callers must
+    # select one pose first, e.g. `save_nifti(data.isel(pose=0), path)`.
+    data_array = ensure_voxeldata(data_array, allow_pose=False)
     path = Path(path)
     if not path.name.endswith(".nii") and not path.name.endswith(".nii.gz"):
         raise ValueError("Output file must have .nii or .nii.gz extension.")
@@ -2404,7 +2503,6 @@ def save_nifti(
         written_header_affine_keys,
     ) = _prepare_nifti_xforms(
         data_array,
-        spatial_spacings=spatial_spacings,
         qform=qform,
         sform=sform,
         qform_code=qform_code,

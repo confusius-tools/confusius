@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -16,8 +17,8 @@ from nbclient import NotebookClient
 OnCellExecuted = Callable[..., None]
 """Hook invoked after each cell finishes.
 
-nbclient calls it as ``hook(cell=..., cell_index=..., execute_reply=...)``; the
-callable must accept those keyword arguments (typically via ``**kwargs``).
+nbclient calls it as `hook(cell=..., cell_index=..., execute_reply=...)`; the
+callable must accept those keyword arguments (typically via `**kwargs`).
 """
 
 _THEME_COMMON_PRE: list[str] = [
@@ -85,7 +86,7 @@ def execute_example(
     theme: Literal["light", "dark"] | None = None,
     on_cell_executed: OnCellExecuted | None = None,
 ) -> tuple[nbformat.NotebookNode, float]:
-    """Execute one percent-format ``.py`` example end-to-end."""
+    """Execute one percent-format `.py` example end-to-end."""
     notebook = read_example(source)
     if theme is not None:
         notebook.cells.insert(0, _theme_setup_cell(theme))
@@ -105,16 +106,18 @@ def execute_example(
     # a normal Jupyter notebook would show after a failed run. A broken
     # example therefore degrades to "renders with a visible traceback"
     # instead of aborting the whole gallery build.
-    client = NotebookClient(
-        notebook,
-        km=kernel_manager,
-        timeout=timeout,
-        on_cell_executed=on_cell_executed,
-        allow_errors=True,
-    )
-    client.owns_km = True
+    with tempfile.TemporaryDirectory(prefix="confusius-gallery-") as working_dir:
+        client = NotebookClient(
+            notebook,
+            km=kernel_manager,
+            timeout=timeout,
+            on_cell_executed=on_cell_executed,
+            allow_errors=True,
+            resources={"metadata": {"path": working_dir}},
+        )
+        client.owns_km = True
 
-    start = time.perf_counter()
-    client.execute()
-    elapsed = time.perf_counter() - start
+        start = time.perf_counter()
+        client.execute()
+        elapsed = time.perf_counter() - start
     return notebook, elapsed

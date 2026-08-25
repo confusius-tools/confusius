@@ -15,8 +15,8 @@ import numpy as np
 import pytest
 
 from confusius._napari._video._video_panel import (
-    VideoPanel,
     _IRREGULAR_TIME_WARNING,
+    VideoPanel,
     _VideoArray,
     _VideoEntry,
 )
@@ -47,8 +47,8 @@ class _FakeVideo:
 def _inject_fake_video(panel, fv, *, frame_step=1, name="Video: test"):
     """Inject a _FakeVideo into an already-constructed VideoPanel.
 
-    Creates a `_VideoEntry`, appends it to ``panel._videos``, and returns
-    it so tests can build/access the layer via ``panel._rebuild_entry``.
+    Creates a `_VideoEntry`, appends it to `panel._videos`, and returns
+    it so tests can build/access the layer via `panel._rebuild_entry`.
     """
     is_rgb = len(fv.frame_shape) == 3 and fv.frame_shape[2] in (3, 4)
     entry = _VideoEntry(
@@ -223,12 +223,12 @@ class TestComputeSpatialParams:
         panel._ref_layer = None
         assert panel._compute_spatial_scale(2, 48) == 1.0
 
-    def test_scale_matches_scan_height(self, panel, sample_3dt_volume):
+    def test_scale_matches_scan_height(self, panel, sample_voxeldata_3dt):
         """Scale is isotropic, derived from the vertical axis extent."""
         # vertical_dim=2 -> "y" coord.
         scale = panel._compute_spatial_scale(2, 48)
 
-        y_coords = sample_3dt_volume.coords["y"].values.astype(np.float64)
+        y_coords = sample_voxeldata_3dt.coords["y"].values.astype(np.float64)
         y_min, y_max = y_coords.min(), y_coords.max()
         y_step = float(np.median(np.diff(y_coords)))
         expected_scale = (y_max - y_min + abs(y_step)) / 48
@@ -238,11 +238,11 @@ class TestComputeSpatialParams:
         panel._axis_labels = ("time", "z", "foo", "bar")
         assert panel._compute_spatial_scale(2, 48) == 1.0
 
-    def test_scale_z_vertical(self, panel, sample_3dt_volume):
+    def test_scale_z_vertical(self, panel, sample_voxeldata_3dt):
         """When z is the vertical axis, scale uses z-coordinates."""
         scale = panel._compute_spatial_scale(1, 48)  # dim 1 = "z".
 
-        z_coords = sample_3dt_volume.coords["z"].values.astype(np.float64)
+        z_coords = sample_voxeldata_3dt.coords["z"].values.astype(np.float64)
         z_min, z_max = z_coords.min(), z_coords.max()
         z_step = float(np.median(np.diff(z_coords)))
         expected_scale = (z_max - z_min + abs(z_step)) / 48
@@ -252,25 +252,25 @@ class TestComputeSpatialParams:
         panel._ref_layer = None
         assert panel._compute_axis_center_translate(2, 48, 0.5) == 0.0
 
-    def test_center_translate_centers_video_on_fusi(self, panel, sample_3dt_volume):
+    def test_center_translate_centers_video_on_fusi(self, panel, sample_voxeldata_3dt):
         """Video centre pixel lands on the fUSI coordinate midpoint."""
         scale = panel._compute_spatial_scale(2, 48)
         translate = panel._compute_axis_center_translate(2, 48, scale)
 
-        y_coords = sample_3dt_volume.coords["y"].values.astype(np.float64)
+        y_coords = sample_voxeldata_3dt.coords["y"].values.astype(np.float64)
         center_y = (float(y_coords.min()) + float(y_coords.max())) / 2
         expected_translate = center_y - scale * (48 - 1) / 2
         assert translate == pytest.approx(expected_translate)
         # Centre video pixel lands on the fUSI centre.
         assert translate + scale * (48 - 1) / 2 == pytest.approx(center_y)
 
-    def test_center_translate_horizontal_axis(self, panel, sample_3dt_volume):
+    def test_center_translate_horizontal_axis(self, panel, sample_voxeldata_3dt):
         """Horizontal (x) axis centering uses the x-coordinate midpoint."""
         scale = panel._compute_spatial_scale(2, 48)
         video_w = 64
         translate_h = panel._compute_axis_center_translate(3, video_w, scale)
 
-        x_coords = sample_3dt_volume.coords["x"].values.astype(np.float64)
+        x_coords = sample_voxeldata_3dt.coords["x"].values.astype(np.float64)
         center_x = (float(x_coords.min()) + float(x_coords.max())) / 2
         expected = center_x - scale * (video_w - 1) / 2
         assert translate_h == pytest.approx(expected)
@@ -288,14 +288,14 @@ def viewer(make_napari_viewer):
 
 
 @pytest.fixture
-def fusi_layer(viewer, sample_3dt_volume):
+def fusi_layer(viewer, sample_voxeldata_3dt):
     """Add the sample 4D volume to the viewer as a real image layer.
 
     Returns the napari layer, which carries axis_labels, scale, translate,
     and xarray metadata -- the same state a real fUSI scan would have.
     """
     _, layer = plot_napari(
-        sample_3dt_volume,
+        sample_voxeldata_3dt,
         viewer=viewer,
         show_colorbar=False,
         show_scale_bar=False,
@@ -304,16 +304,16 @@ def fusi_layer(viewer, sample_3dt_volume):
 
 
 @pytest.fixture
-def panel(viewer, fusi_layer, sample_3dt_volume):
+def panel(viewer, fusi_layer, sample_voxeldata_3dt):
     """VideoPanel wired to a real viewer that already has a fUSI layer."""
     p = VideoPanel(viewer)
 
     # Set reference layer and scan metadata (normally done by _add_video).
     p._ref_layer = fusi_layer
-    p._axis_labels = tuple(sample_3dt_volume.dims)
+    p._axis_labels = tuple(sample_voxeldata_3dt.dims)
     p._units = list(getattr(fusi_layer, "units", [None] * fusi_layer.ndim))
     p._n_pad = max(fusi_layer.ndim - 3, 0)
-    p._fusi_time_idx = list(sample_3dt_volume.dims).index("time")
+    p._fusi_time_idx = list(sample_voxeldata_3dt.dims).index("time")
     order = viewer.dims.order
     p._displayed_dims = (order[-2], order[-1])
 
@@ -325,7 +325,7 @@ def loaded_panel(panel, viewer):
     """Panel with a fake RGB video injected and the video layer built.
 
     This is the closest to "user clicked Add" without actual file I/O.
-    The loaded entry is accessible via ``panel._videos[0]``.
+    The loaded entry is accessible via `panel._videos[0]`.
     """
     fv = _FakeVideo(n_frames=10, h=48, w=64, rgb=True)
     entry = _inject_fake_video(panel, fv)
@@ -351,16 +351,18 @@ class TestReferenceWarning:
         assert warnings_seen == []
 
     def test_irregular_reference_warns(
-        self, panel, viewer, sample_3dt_volume, monkeypatch
+        self, panel, viewer, sample_voxeldata_3dt, monkeypatch
     ):
         warnings_seen: list[str] = []
         monkeypatch.setattr(
             "confusius._napari._video._video_panel.show_warning",
             warnings_seen.append,
         )
-        time_values = sample_3dt_volume.coords["time"].values.astype(np.float64).copy()
+        time_values = sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
         time_values[2:] += 0.02
-        irregular = sample_3dt_volume.assign_coords(time=("time", time_values))
+        irregular = sample_voxeldata_3dt.assign_coords(
+            time=("time", time_values, sample_voxeldata_3dt.coords["time"].attrs)
+        )
         with pytest.warns(UserWarning, match="non-uniform spacing"):
             _, irregular_layer = plot_napari(
                 irregular,
@@ -374,7 +376,7 @@ class TestReferenceWarning:
         assert warnings_seen == [_IRREGULAR_TIME_WARNING]
 
     def test_add_video_warns_for_irregular_reference(
-        self, panel, viewer, sample_3dt_volume, monkeypatch, tmp_path
+        self, panel, viewer, sample_voxeldata_3dt, monkeypatch, tmp_path
     ):
         warnings_seen: list[str] = []
         monkeypatch.setattr(
@@ -389,9 +391,11 @@ class TestReferenceWarning:
             "confusius._napari._video._video_panel.VideoReaderNP",
             lambda *_args, **_kwargs: _FakeVideo(n_frames=10, h=48, w=64, rgb=True),
         )
-        time_values = sample_3dt_volume.coords["time"].values.astype(np.float64).copy()
+        time_values = sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
         time_values[2:] += 0.02
-        irregular = sample_3dt_volume.assign_coords(time=("time", time_values))
+        irregular = sample_voxeldata_3dt.assign_coords(
+            time=("time", time_values, sample_voxeldata_3dt.coords["time"].attrs)
+        )
         with pytest.warns(UserWarning, match="non-uniform spacing"):
             _, irregular_layer = plot_napari(
                 irregular,
@@ -476,9 +480,9 @@ class TestFrameStep:
         arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6), step=3)
         # 12 frames with step 3: indices 0, 3, 6, 9 -> 4 logical frames.
         assert arr.shape == (4, 4, 6)
-        # Logical frame 0 -> physical frame 0.
+        # Logical frame 0 -> world frame 0.
         np.testing.assert_array_equal(arr[0], fv[0])
-        # Logical frame 2 -> physical frame 6.
+        # Logical frame 2 -> world frame 6.
         np.testing.assert_array_equal(arr[2], fv[6])
 
     def test_rebuild_time_scale_reflects_frame_step(self, loaded_panel, viewer):
@@ -592,7 +596,7 @@ class TestTimeOverlayVideoSync:
         is correct because the layer's time scale encodes the frame step.
 
         With scale = frame_step / fps, napari's world coordinate at
-        ``dims.point[time_idx]`` is already in physical seconds.
+        `dims.point[time_idx]` is already in world seconds.
         """
         from confusius._napari._time_overlay import _TimeOverlay
 

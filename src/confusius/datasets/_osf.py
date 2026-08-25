@@ -57,11 +57,33 @@ class OsfFileInfo(TypedDict):
     md5: str | None
 
 
+def _iter_osf_pages(url: str):
+    """Yield OSF API items across paginated file listings.
+
+    Parameters
+    ----------
+    url : str
+        First OSF API listing URL.
+
+    Yields
+    ------
+    dict
+        OSF API `data` entries.
+    """
+    next_url: str | None = url
+    while next_url is not None:
+        resp = requests.get(next_url)
+        resp.raise_for_status()
+        payload = resp.json()
+        yield from payload["data"]
+        next_url = payload.get("links", {}).get("next")
+
+
 def resolve_index_url(project_id: str, bids_root: str) -> str:
     """Return the OSF download URL for a dataset's index file.
 
-    Makes two OSF API calls: one to locate the BIDS root folder within the
-    project's osfstorage, and one to locate `dataset_index.json` inside it.
+    Makes OSF API calls to locate the BIDS root folder within the project's osfstorage,
+    then locate `dataset_index.json` inside it.
 
     Parameters
     ----------
@@ -81,11 +103,9 @@ def resolve_index_url(project_id: str, bids_root: str) -> str:
     RuntimeError
         If the BIDS root folder or the index file is not found on OSF.
     """
-    resp = requests.get(f"https://api.osf.io/v2/nodes/{project_id}/files/osfstorage/")
-    resp.raise_for_status()
-
     folder_url = None
-    for item in resp.json()["data"]:
+    storage_url = f"https://api.osf.io/v2/nodes/{project_id}/files/osfstorage/"
+    for item in _iter_osf_pages(storage_url):
         if item["attributes"]["name"] == bids_root:
             folder_url = item["relationships"]["files"]["links"]["related"]["href"]
             break
@@ -95,10 +115,7 @@ def resolve_index_url(project_id: str, bids_root: str) -> str:
             f"Could not find the {bids_root!r} folder on OSF (project {project_id})."
         )
 
-    resp = requests.get(folder_url)
-    resp.raise_for_status()
-
-    for item in resp.json()["data"]:
+    for item in _iter_osf_pages(folder_url):
         if item["attributes"]["name"] == _INDEX_FILENAME:
             return item["links"]["download"]
 

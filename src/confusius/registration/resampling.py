@@ -1,36 +1,121 @@
 """Volume resampling utilities for fUSI data."""
 
-from collections.abc import Sequence
-from typing import Literal
+from collections.abc import Hashable, Mapping
+from typing import Literal, SupportsFloat, SupportsIndex
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
+from confusius._utils.geometry import (
+    get_voxel_to_world_direction_matrix,
+    get_voxel_to_world_units,
+)
 from confusius.registration._utils import (
-    dataarray_to_sitk_image,
     replace_affines_attr,
     set_sitk_thread_count,
+    voxeldata_to_sitk_image,
 )
 from confusius.registration.bspline import (
-    _dataarray_to_sitk_bspline,
-    _dataarray_to_sitk_displacement_field,
+    _voxeldata_to_sitk_bspline,
+    _voxeldata_to_sitk_displacement_field,
 )
-from confusius.validation import (
-    validate_fusi_dataarray,
-    validate_matching_spatial_units,
-)
+from confusius.validation import ensure_voxeldata, validate_matching_spatial_units
+from confusius.xarray.affine import reindex_voxels_like
+from confusius.xarray.create import create_voxeldata
+
+
+def _require_grid_keys(
+    values: Mapping[Hashable, object], keys: tuple[str, ...], name: str
+) -> None:
+    """Validate that a grid mapping contains all required keys.
+
+    Parameters
+    ----------
+    values : mapping of hashable to object
+        Mapping to validate.
+    keys : tuple of str
+        Required keys.
+    name : str
+        Parameter name used in validation errors.
+
+    Raises
+    ------
+    ValueError
+        If any required key is missing.
+    """
+    missing = [key for key in keys if key not in values]
+    if missing:
+        raise ValueError(f"{name} is missing required key(s): {missing!r}.")
+
+
+def _resolve_int_grid_mapping(
+    values: Mapping[Hashable, SupportsIndex], keys: tuple[str, ...], name: str
+) -> list[int]:
+    """Return grid values from a keyed mapping.
+
+    Parameters
+    ----------
+    values : mapping of hashable to typing.SupportsIndex
+        Mapping containing integer-like entries for every key in `keys`.
+    keys : tuple of str
+        Keys to extract in order.
+    name : str
+        Parameter name used in validation errors.
+
+    Returns
+    -------
+    list of int
+        Values extracted in `keys` order.
+
+    Raises
+    ------
+    ValueError
+        If any required key is missing.
+    """
+    _require_grid_keys(values, keys, name)
+    return [int(values[key]) for key in keys]
+
+
+def _resolve_float_grid_mapping(
+    values: Mapping[Hashable, SupportsFloat | SupportsIndex],
+    keys: tuple[str, ...],
+    name: str,
+) -> list[float]:
+    """Return float grid values from a keyed mapping.
+
+    Parameters
+    ----------
+    values : mapping of hashable to typing.SupportsFloat or typing.SupportsIndex
+        Mapping containing numeric entries for every key in `keys`.
+    keys : tuple of str
+        Keys to extract in order.
+    name : str
+        Parameter name used in validation errors.
+
+    Returns
+    -------
+    list of float
+        Values extracted in `keys` order.
+
+    Raises
+    ------
+    ValueError
+        If any required key is missing.
+    """
+    _require_grid_keys(values, keys, name)
+    return [float(values[key]) for key in keys]
 
 
 def resample_volume(
     moving: xr.DataArray,
     transform: "npt.NDArray[np.floating] | xr.DataArray",
     *,
-    shape: Sequence[int],
-    spacing: Sequence[float],
-    origin: Sequence[float],
-    dims: Sequence[str],
+    output_sizes: Mapping[Hashable, SupportsIndex],
+    output_spacing: Mapping[Hashable, SupportsFloat | SupportsIndex],
+    output_origin: Mapping[Hashable, SupportsFloat | SupportsIndex],
+    output_direction: npt.ArrayLike,
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float | None = None,
     sitk_threads: int = -1,
@@ -41,19 +126,30 @@ def resample_volume(
     another DataArray, use [`resample_like`][confusius.registration.resample_like]
     instead.
 
+    The output grid is specified as position-anchored `sizes`/`spacing`/`origin`/
+    `direction` metadata (matching what a SimpleITK image expects), not as a single
+    affine. A DataArray's `voxel_to_world` affine is defined in terms of its voxel
+    coordinate values, which stay unchanged across cropping or striding; it does not
+    generally describe where the array's position `(0, ..., 0)` sits, or the world
+    distance between consecutive positions, once the array has been cropped or
+    strided. Use `reference.fusi.spacing`/`reference.fusi.origin` (as
+    [`resample_like`][confusius.registration.resample_like] does) to derive a
+    position-anchored grid from an existing DataArray.
+
     Parameters
     ----------
     moving : xarray.DataArray
-        2D or 3D spatial DataArray to resample, or 3D+t or 2D+t DataArray with a time
-        dimension. If a time dimension is present, the same transform is applied to
-        all time points.
-    transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
+        VoxelData array to resample. May be spatial-only, or have any number of
+        extra non-spatial dimensions (`time` and/or others; `pose` is not supported)
+        (single-slice recordings use a singleton `k` axis). The same transform is
+        applied to every slice along the extra dimensions.
+    transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
         [`register_volume`][confusius.registration.register_volume].
 
-        - **Affine** (`numpy.ndarray`): homogeneous matrix of shape `(N+1, N+1)`
-          mapping output (fixed) physical coordinates to moving physical coordinates
-          (pull/inverse convention).
+        - **Affine** (`numpy.ndarray`): homogeneous `(4, 4)` matrix mapping output
+          (fixed) world coordinates to moving world coordinates (pull/inverse
+          convention).
         - **B-spline** (`xarray.DataArray`): control-point DataArray with `attrs["type"]
           == "bspline_transform"` as returned by `register_volume(transform="bspline")`.
         - **Displacement field** (`xarray.DataArray`): dense field with
@@ -62,15 +158,20 @@ def resample_volume(
           or
           [`invert_displacement_field`][confusius.registration.invert_displacement_field].
 
-    shape : sequence of int
-        Number of voxels along each output axis, in DataArray dimension order.
-    spacing : sequence of float
-        Voxel spacing along each output axis, in DataArray dimension order.
-    origin : sequence of float
-        Physical origin (first voxel centre) along each output axis, in DataArray
-        dimension order.
-    dims : sequence of str
-        Dimension names of the output DataArray.
+    output_sizes : mapping of str to int
+        Number of voxels along each output voxel axis, read by `k`/`j`/`i` keys.
+        `reference.sizes` can be passed directly.
+    output_spacing : mapping of str to float
+        World distance between consecutive voxel positions along each output voxel
+        axis, read by `k`/`j`/`i` keys. `reference.fusi.spacing` can be passed
+        directly.
+    output_origin : mapping of str to float
+        World location of output voxel position `(0, 0, 0)`, read by `z`/`y`/`x`
+        keys. `reference.fusi.origin` can be passed directly.
+    output_direction : numpy.typing.ArrayLike
+        `(3, 3)` matrix whose columns are the unit world-space direction of each
+        output voxel axis, in native `k/j/i` column order. `reference.fusi.direction`
+        can be passed directly.
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
     fill_value : float, optional
@@ -88,31 +189,46 @@ def resample_volume(
     Returns
     -------
     xarray.DataArray
-        Resampled volume on the specified grid with `moving`'s attributes. If the input
-        had a time dimension, the output will also have a time dimension. This low-level
-        function does not infer world-space affines for the output grid.
+        VoxelData array resampled onto the requested grid, with `moving`'s attributes
+        and any extra non-spatial dimensions.
 
     Raises
     ------
     ValueError
-        If `moving` is not 2D, 3D+t, 3D, or 3D+t.
-    ValueError
-        If `transform` is a numpy array whose shape does not match the spatial image
-        dimensionality.
+        If `transform` is a numpy array whose shape does not match the spatial
+        dimensionality, if `output_direction` has the wrong shape, or if
+        `output_sizes`, `output_spacing`, or `output_origin` is missing a required
+        key.
     """
     import SimpleITK as sitk
 
-    has_time = "time" in moving.dims
-    spatial_dims = [str(d) for d in moving.dims if str(d) != "time"]
-    ndim = len(spatial_dims)
-
-    validate_fusi_dataarray(
+    moving = ensure_voxeldata(
         moving,
         require_time=False,
         allow_pose=False,
-        allow_extra_dims=False,
-        minimum_spatial_dims=2,
+        allow_extra_dims=True,
     )
+
+    # pose is rejected above, so every non-voxel dim here is either `time` or a
+    # genuine extra dim; both get the same transform and are handled identically.
+    extra_dims = [str(dim) for dim in moving.dims if dim not in VOXEL_DIMS]
+    moving_for_sitk = moving.stack(extra=extra_dims) if extra_dims else moving
+    ndim = len(VOXEL_DIMS)
+
+    resolved_output_sizes = _resolve_int_grid_mapping(
+        output_sizes, VOXEL_DIMS, "output_sizes"
+    )
+    resolved_output_spacing = _resolve_float_grid_mapping(
+        output_spacing, VOXEL_DIMS, "output_spacing"
+    )
+    resolved_output_origin = _resolve_float_grid_mapping(
+        output_origin, WORLD_DIMS, "output_origin"
+    )
+    direction = np.asarray(output_direction, dtype=np.float64)
+    if direction.shape != (ndim, ndim):
+        raise ValueError(
+            f"output_direction must have shape ({ndim}, {ndim}), got {direction.shape}."
+        )
 
     if isinstance(transform, np.ndarray):
         expected_shape = (ndim + 1, ndim + 1)
@@ -130,20 +246,21 @@ def resample_volume(
         tx.SetTranslation(transform[:ndim, ndim].tolist())
     elif transform.attrs.get("type") == "displacement_field_transform":
         tx = sitk.DisplacementFieldTransform(
-            _dataarray_to_sitk_displacement_field(transform)
+            _voxeldata_to_sitk_displacement_field(transform)
         )
     else:
-        tx = _dataarray_to_sitk_bspline(transform)
+        tx = _voxeldata_to_sitk_bspline(transform)
 
-    moving_sitk = dataarray_to_sitk_image(moving)
+    moving_sitk = voxeldata_to_sitk_image(moving_for_sitk)
 
     resolved_fill_value = fill_value if fill_value is not None else float(moving.min())
 
     # SimpleITK will automatically create a vector output if the input is a vector
     # image.
-    ref = sitk.Image(list(shape), sitk.sitkFloat32)
-    ref.SetSpacing(list(spacing))
-    ref.SetOrigin(list(origin))
+    ref = sitk.Image(resolved_output_sizes, sitk.sitkFloat32)
+    ref.SetSpacing(resolved_output_spacing)
+    ref.SetOrigin(resolved_output_origin)
+    ref.SetDirection(direction.ravel().tolist())
 
     if interpolation == "nearest":
         sitk_interpolation = sitk.sitkNearestNeighbor
@@ -167,22 +284,48 @@ def resample_volume(
         # image.
         registered_arr = sitk.GetArrayFromImage(result_sitk).T
 
-    coords = {
-        d: np.array(origin[i]) + np.arange(shape[i]) * np.array(spacing[i])
-        for i, d in enumerate(dims)
-    }
+    voxel_to_world_arr = np.eye(ndim + 1, dtype=np.float64)
+    voxel_to_world_arr[:ndim, :ndim] = direction @ np.diag(resolved_output_spacing)
+    voxel_to_world_arr[:ndim, ndim] = resolved_output_origin
 
-    if has_time:
-        coords["time"] = moving.coords["time"].values
-        dims = ["time"] + list(dims)
+    if extra_dims:
+        # registered_arr has dims (extra, *VOXEL_DIMS); unstack extra back into the
+        # original extra dims before handing off to create_voxeldata.
+        registered = (
+            xr.DataArray(
+                registered_arr,
+                dims=("extra", *VOXEL_DIMS),
+                coords={"extra": moving_for_sitk.coords["extra"]},
+            )
+            .unstack("extra")
+            .transpose(*extra_dims, *VOXEL_DIMS)
+        )
+        data_for_create = registered.values
+        dims_for_create = (*extra_dims, *VOXEL_DIMS)
+        non_time_extra_dims = [dim for dim in extra_dims if dim != "time"]
+        extra_coords = (
+            {dim: moving.coords[dim] for dim in non_time_extra_dims}
+            if non_time_extra_dims
+            else None
+        )
+        time_coord = moving.coords["time"] if "time" in extra_dims else None
+    else:
+        data_for_create = registered_arr
+        dims_for_create = VOXEL_DIMS
+        extra_coords = None
+        time_coord = None
 
-    result = xr.DataArray(
-        registered_arr,
-        coords=coords,
-        dims=dims,
-        attrs=moving.attrs.copy(),
+    attrs = moving.attrs.copy()
+    result = create_voxeldata(
+        data_for_create,
+        dims=dims_for_create,
+        extra_coords=extra_coords,
+        time=time_coord,
+        voxel_to_world=voxel_to_world_arr,
+        attrs=attrs,
+        name=str(moving.name) if moving.name is not None else None,
     )
-    return result
+    return result.fusi.affine.set_units(get_voxel_to_world_units(moving))
 
 
 def resample_like(
@@ -191,27 +334,33 @@ def resample_like(
     transform: "npt.NDArray[np.floating] | xr.DataArray",
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float | None = None,
+    default_value: float | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto the grid of a reference DataArray.
 
     Convenience wrapper around
-    [`resample_volume`][confusius.registration.resample_volume] that extracts the output
-    grid (`shape`, `spacing`, `origin`) from `reference`'s coordinates.
+    [`resample_volume`][confusius.registration.resample_volume] that extracts the
+    position-anchored output grid (`sizes`, `spacing`, `origin`, `direction`) from
+    `reference`'s coordinates via the `fusi` accessor, so the grid is correct even if
+    `reference` has been cropped or strided from a larger DataArray.
 
     Parameters
     ----------
     moving : xarray.DataArray
-        2D or 3D spatial DataArray to resample, or 3D+t DataArray with a time dimension.
-        If a time dimension is present, the same transform is applied to all time points.
+        VoxelData array to resample. May be spatial-only, or have any number of
+        extra non-spatial dimensions (`time` and/or others; `pose` is not supported)
+        (single-slice recordings use a singleton `k` axis). The same transform is
+        applied to every slice along the extra dimensions.
     reference : xarray.DataArray
-        DataArray defining the output grid. Must be 2D or 3D spatial (no time dimension).
-        When spatial coordinate `units` metadata is present on both `moving` and
-        `reference`, they must match.
-    transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
+        VoxelData array defining the output grid. Only its `k`/`j`/`i` grid
+        (`sizes`/`spacing`/`origin`/`direction`) is used, so `time` or other extra
+        dimensions, if present, are ignored. When spatial coordinate `units` metadata
+        is present on both `moving` and `reference`, they must match.
+    transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
         [`register_volume`][confusius.registration.register_volume]. Maps points from
-        the reference physical space to moving physical space (pull/inverse convention).
+        the reference world space to moving world space (pull/inverse convention).
 
         - **Affine** (`numpy.ndarray`): homogeneous matrix whose translation entries
           are expressed in the same physical units as `moving` and `reference`.
@@ -229,41 +378,41 @@ def resample_like(
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
         for dB data where 0 is maximum intensity).
-    sitk_threads : int, default: os.cpu_count() or 1
-        Number of threads SimpleITK may use for the `Resample` call.
-        Defaults to all available CPUs.
+    default_value : float, optional
+        Alias for `fill_value` kept for compatibility with older branch code. If both
+        values are provided, `fill_value` takes precedence.
+    sitk_threads : int, default: -1
+        Number of threads SimpleITK may use internally. Negative values resolve to
+        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
+        means all minus one, and so on. You may want to set this to a lower value or
+        `1` when running multiple registrations in parallel (e.g. with joblib) to
+        avoid over-subscribing the CPU.
 
     Returns
     -------
     xarray.DataArray
-        Resampled volume on the grid of `reference`, with `reference`'s coordinates and
-        dimensions, `moving`'s non-spatial attributes, and physical-space affines
-        inherited from `reference`. If `moving` had a time dimension, the output will
-        also have a time dimension.
+        Resampled volume on the grid of `reference`, with `reference`'s `k`/`j`/`i`
+        voxel labels and affine, `moving`'s non-spatial attributes, and world-space
+        affines inherited from `reference`. Any extra non-spatial dimensions on
+        `moving` (including `time`) are carried over unchanged (`moving`'s, not
+        `reference`'s).
 
     Raises
     ------
     ValueError
-        If `reference` contains a `time` dimension or is not 2D or 3D.
+        If `reference` does not contain the spatial dimensions `k`, `j`, and `i`.
     """
-    if "time" in reference.dims:
-        raise ValueError(
-            f"'reference' must not have a time dimension; got dims {reference.dims}."
-        )
-
-    validate_fusi_dataarray(
+    moving = ensure_voxeldata(
         moving,
         require_time=False,
         allow_pose=False,
-        allow_extra_dims=False,
-        minimum_spatial_dims=2,
+        allow_extra_dims=True,
     )
-    validate_fusi_dataarray(
+    reference = ensure_voxeldata(
         reference,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
-        minimum_spatial_dims=2,
     )
     validate_matching_spatial_units((("moving", moving), ("reference", reference)))
     if isinstance(transform, xr.DataArray):
@@ -271,25 +420,25 @@ def resample_like(
             (("transform", transform), ("reference", reference))
         )
 
-    grid = get_grid_kwargs_from_dataarray(reference)
-    dims = grid["dims"]
+    output_direction = get_voxel_to_world_direction_matrix(reference)
 
     result = resample_volume(
         moving,
         transform,
-        **grid,
+        output_sizes=reference.sizes,
+        output_spacing=reference.fusi.spacing,
+        output_origin=reference.fusi.origin,
+        output_direction=output_direction,
         interpolation=interpolation,
-        fill_value=fill_value,
+        fill_value=fill_value if fill_value is not None else default_value,
         sitk_threads=sitk_threads,
     )
 
-    # Overwrite the reconstructed arithmetic coordinates with reference's exact
-    # coordinate arrays. resample_volume rebuilds coords as origin + k * spacing, which
-    # can diverge from the reference coordinates by floating-point accumulation errors.
-    # Those sub-epsilon differences break xarray coordinate alignment (e.g. plot_volume)
-    # that uses strict tolerances to match coordinates across DataArrays.
-    result = result.assign_coords(
-        {d: reference.coords[d] for d in dims if d in reference.coords}
-    )
+    # resample_volume builds a fresh, position-anchored grid (dense zero-based voxel
+    # labels), which physically matches reference's grid but not necessarily its
+    # voxel labels (e.g. reference may itself be cropped or strided from a larger
+    # array). Adopt reference's own labels and affine so the two are directly
+    # alignable by voxel label as well as by world position.
+    result = reindex_voxels_like(result, reference)
     replace_affines_attr(result, reference)
     return result

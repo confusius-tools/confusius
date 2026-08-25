@@ -24,6 +24,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius.io.utils import check_path
+from confusius.xarray.create import create_voxeldata
 
 SCAN_V2_MAGIC = b"scan"
 """Magic bytes at offset 0 identifying a binary SCAN v2 file."""
@@ -127,20 +128,20 @@ def _read_f64(buffer: bytes, offset: int) -> float:
     return float(struct.unpack_from("<d", buffer, offset)[0])
 
 
-PHYSICAL_TO_PROBE_PERMUTATION: npt.NDArray[np.float64] = np.array(
+WORLD_TO_PROBE_PERMUTATION: npt.NDArray[np.float64] = np.array(
     [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
 )
-"""Permutation matrix that maps ConfUSIus physical to probe physical.
+"""Permutation matrix that maps ConfUSIus world to probe world.
 
-ConfUSIus input (z_conf, y_conf, x_conf, 1) is mapped to the probe physical (x_probe,
+ConfUSIus input (z_conf, y_conf, x_conf, 1) is mapped to the probe world (x_probe,
 y_probe, z_probe, 1):
 
   x_probe =  x_conf      (lateral, same direction)
   y_probe =  z_conf      (elevation, same direction)
   z_probe = -y_conf      (axial depth, sign flip: y_conf = -z_probe > 0)
 
-Its transpose maps probe physical (x_probe, y_probe, z_probe, 1) back to ConfUSIus
-physical (z_conf, y_conf, x_conf, 1):
+Its transpose maps probe world (x_probe, y_probe, z_probe, 1) back to ConfUSIus
+world (z_conf, y_conf, x_conf, 1):
 
   z_conf =  y_probe      (elevation)
   y_conf = -z_probe      (depth, sign flip)
@@ -191,94 +192,22 @@ def _read_scan_scalar(h5: h5py.File, path: str) -> float:
     return float(h5[path][()].flat[0])
 
 
-def _coords_from_voxels_to_probe(
-    voxels_to_probe: npt.NDArray[np.float64],
-    size_x: int,
-    size_y: int,
-    size_z: int,
-) -> dict[str, xr.DataArray]:
-    """Build spatial coordinate arrays in millimeters from `voxelsToProbe`.
-
-    The `voxelsToProbe` affine maps one-indexed (probably because MATLAB-based) voxel
-    integer indices `(ix, iy, iz)` to physical probe coordinates in meters. Coordinates
-    are multiplied by `1e3` to convert to millimeters, consistent with all other
-    ConfUSIus loaders.
-
-    Dimension mapping (probe -> ConfUSIus):
-
-    - Probe `x_probe` (lateral, row 0) -> ConfUSIus `x`.
-    - Probe `y_probe` (elevation, row 1) -> ConfUSIus `z`.
-    - Probe `z_probe` (axial depth, row 2, negative diagonal) -> ConfUSIus `y`
-      with a sign flip so that `y` is always positive and increases with depth.
-
-    Parameters
-    ----------
-    voxels_to_probe : (4, 4) numpy.ndarray
-        `voxelsToProbe` affine from a SCAN files (units meters).
-    size_x : int
-        Number of lateral voxels.
-    size_y : int
-        Number of elevation voxels per position (`sizeY`).
-    size_z : int
-        Number of axial voxels (`sizeZ`).
-
-    Returns
-    -------
-    dict[str, xarray.DataArray]
-        Coordinate DataArrays keyed by `"x"`, `"y"`, and `"z"`.
-    """
-    # MATLAB-based voxelsToProbe uses one-indexed voxels; Python uses zero-indexed. Add
-    # 1 to voxel indices before applying the affine.
-    x_vals = 1e3 * (
-        voxels_to_probe[0, 0] * (np.arange(size_x) + 1) + voxels_to_probe[0, 3]
-    )
-    z_vals = 1e3 * (
-        voxels_to_probe[1, 1] * (np.arange(size_y) + 1) + voxels_to_probe[1, 3]
-    )
-    # v2p[2,2] is negative (-dz), so negating gives positive depth values.
-    y_vals = 1e3 * (
-        -(voxels_to_probe[2, 2] * (np.arange(size_z) + 1) + voxels_to_probe[2, 3])
-    )
-
-    x_voxdim = float(1e3 * abs(voxels_to_probe[0, 0]))
-    z_voxdim = float(1e3 * abs(voxels_to_probe[1, 1]))
-    y_voxdim = float(1e3 * abs(voxels_to_probe[2, 2]))
-
-    coords: dict[str, xr.DataArray] = {
-        "x": xr.DataArray(
-            x_vals, dims=["x"], attrs={"units": "mm", "voxdim": x_voxdim}
-        ),
-        "z": xr.DataArray(
-            z_vals, dims=["z"], attrs={"units": "mm", "voxdim": z_voxdim}
-        ),
-        "y": xr.DataArray(
-            y_vals, dims=["y"], attrs={"units": "mm", "voxdim": y_voxdim}
-        ),
-    }
-    return coords
-
-
-def _build_physical_to_lab(
+def _build_probe_to_lab(
     probe_to_lab: npt.NDArray[np.float64],
 ) -> npt.NDArray[np.float64]:
-    """Convert `probeToLab` to a ConfUSIus `physical_to_lab` affine in mm.
+    """Convert `probeToLab` to a ConfUSIus `probe_to_lab` affine in mm.
 
-    `probeToLab` maps probe physical `(x_probe, y_probe, z_probe, 1)` to Iconeus lab
+    `probeToLab` maps probe coordinates `(x_probe, y_probe, z_probe, 1)` to Iconeus lab
     space `(x_lab, y_lab, z_lab, 1)` in meters. The Iconeus lab frame is a fixed scanner
-    frame; `probeToLab` carries any rotation of the probe within it.
+    frame; `probeToLab` carries any translation and rotation of the probe within it.
 
-    We want `physical_to_lab` to map ConfUSIus physical `(z_conf, y_conf, x_conf, 1)`
-    (elevation, depth, lateral) to **ConfUSIus-ordered** lab space `(z_lab, y_lab,
-    x_lab)` in millimeters, using the same permutation `P` that maps between the two
-    physical spaces:
+    `probe_to_lab` maps ConfUSIus-ordered probe coordinates `(z_probe, y_probe, x_probe,
+    1)` (elevation, depth, lateral) to **ConfUSIus-ordered** lab coordinates `(z_lab,
+    y_lab, x_lab)` in millimeters, using the permutation `P`:
 
     ```python
-    physical_to_lab = PHYSICAL_TO_PROBE_PERMUTATION^T @ probeToLab @ PHYSICAL_TO_PROBE_PERMUTATION
+    probe_to_lab = WORLD_TO_PROBE_PERMUTATION^T @ probeToLab @ WORLD_TO_PROBE_PERMUTATION
     ```
-
-    This produces a ConfUSIus-ordered affine whose rotation block is identity for a
-    non-rotated probe, making it directly usable in napari and other tools that expect
-    `(z, y, x)` axis order.
 
     Parameters
     ----------
@@ -288,14 +217,119 @@ def _build_physical_to_lab(
     Returns
     -------
     numpy.ndarray
-        `physical_to_lab` affine(s) in millimeters. Shape matches input: `(4, 4)` for
+        `probe_to_lab` affine(s) in millimeters. Shape matches input: `(4, 4)` for
         `2Dscan` or `(npose, 4, 4)` for `3Dscan`/`4Dscan`.
     """
-    physical_to_lab = (
-        PHYSICAL_TO_PROBE_PERMUTATION.T @ probe_to_lab @ PHYSICAL_TO_PROBE_PERMUTATION
+    probe_to_lab = (
+        WORLD_TO_PROBE_PERMUTATION.T @ probe_to_lab @ WORLD_TO_PROBE_PERMUTATION
     )
-    physical_to_lab[..., :3, 3] *= 1e3
-    return physical_to_lab
+    probe_to_lab[..., :3, 3] *= 1e3
+    return probe_to_lab
+
+
+def _build_voxel_to_probe(
+    voxels_to_probe: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """Convert `voxelsToProbe` into a zero-based ConfUSIus `voxel_to_probe` affine.
+
+    Parameters
+    ----------
+    voxels_to_probe : (4, 4) numpy.ndarray
+        SCAN `voxelsToProbe` affine mapping one-based probe voxel coordinates to probe
+        coordinates in metres.
+
+    Returns
+    -------
+    (4, 4) numpy.ndarray
+        Affine mapping zero-based ConfUSIus voxel coordinates `(k, j, i)` to
+        ConfUSIus-ordered probe coordinates `(z, y, x)` in millimetres.
+    """
+    conf_voxel_to_probe_voxel = np.array(
+        [
+            [0.0, 0.0, 1.0, 1.0],
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    metres_to_mm = np.diag([1e3, 1e3, 1e3, 1.0])
+    return (
+        metres_to_mm
+        @ WORLD_TO_PROBE_PERMUTATION.T
+        @ np.asarray(voxels_to_probe, dtype=np.float64)
+        @ conf_voxel_to_probe_voxel
+    )
+
+
+def _swap_depth_elevation_axes(arr):
+    """Swap the last two spatial axes to reach ConfUSIus `(..., k, j, i)` order.
+
+    Scan payloads store their last three axes as (depth, elevation, lateral);
+    ConfUSIus order is (elevation=`k`, depth=`j`, lateral=`i`). Only the depth/
+    elevation pair needs swapping, regardless of how many leading (`time`/`pose`)
+    axes precede them.
+
+    Parameters
+    ----------
+    arr : dask.array.Array
+        Array whose last 3 axes are `(depth, elevation, lateral)`.
+
+    Returns
+    -------
+    dask.array.Array
+        `arr` with its last two axes swapped.
+    """
+    axes = list(range(arr.ndim))
+    axes[-3], axes[-2] = axes[-2], axes[-3]
+    return da.transpose(arr, axes)
+
+
+def _fold_block_repeat_into_time(raw_lazy, npose: int, nblock_repeat: int):
+    """Fold a `nblock_repeat` axis into `time`, shared by SCAN v1 `4Dscan` and v2.
+
+    Both formats store repeated sub-blocks along axis 2 rather than as part of
+    `time` directly; folding them in gives a single, longer `time` axis.
+
+    Parameters
+    ----------
+    raw_lazy : dask.array.Array
+        Raw array with dims `(n_time, npose, nblock_repeat, z, y, x)`.
+    npose : int
+        Number of robot positions.
+    nblock_repeat : int
+        Number of repeated sub-blocks per time point.
+
+    Returns
+    -------
+    dask.array.Array
+        Array with dims `(n_time * nblock_repeat, npose, z, y, x)`.
+    """
+    if nblock_repeat == 1:
+        return da.squeeze(raw_lazy, axis=2)
+    n_time_total = raw_lazy.shape[0] * nblock_repeat
+    transposed = da.transpose(raw_lazy, [0, 2, 1, 3, 4, 5])
+    return transposed.reshape(n_time_total, npose, *raw_lazy.shape[3:])
+
+
+def _scan_time_attrs(duration: float) -> dict[str, Any]:
+    """Return the standard `time` coordinate attrs for a scan volume.
+
+    Parameters
+    ----------
+    duration : float
+        Volume acquisition duration in seconds.
+
+    Returns
+    -------
+    dict[str, Any]
+        `units`/`volume_acquisition_reference`/`volume_acquisition_duration` attrs.
+    """
+    return {
+        "units": "s",
+        "volume_acquisition_reference": "end",
+        "volume_acquisition_duration": duration,
+    }
 
 
 def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
@@ -307,26 +341,24 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     The Iconeus lab frame is a fixed scanner frame; `probeToLab` carries any rotation
     of the probe within it.
 
-    To compose this affine with the rest of the ConfUSIus pipeline we re-express
-    the lab side as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)` in
-    millimeters, matching the convention used by `physical_to_lab` (see
-    `_build_physical_to_lab`). The brain side is left in its original axis order
-    (the brain coordinate units are not declared by the BPS format and are
-    therefore not converted).
+    To compose this affine with the rest of the ConfUSIus pipeline we re-express the lab
+    side as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)` in millimeters. The
+    brain side is left in its original axis order (the brain coordinate units are not
+    declared by the BPS format and are therefore not converted).
 
     The change of basis from ConfUSIus-ordered millimeter lab coordinates to
     Iconeus-ordered meter lab coordinates is
 
     ```
-    confusius_lab_to_iconeus_lab = mm_to_m @ PHYSICAL_TO_PROBE_PERMUTATION
+    confusius_lab_to_iconeus_lab = mm_to_m @ WORLD_TO_PROBE_PERMUTATION
     ```
 
-    `PHYSICAL_TO_PROBE_PERMUTATION` permutes the axes from ConfUSIus order `(z, y, x)`
-    to probe / Iconeus-lab order `(x, y, z)`, and `mm_to_m = diag(1e-3, 1e-3, 1e-3, 1)`
+    `WORLD_TO_PROBE_PERMUTATION` permutes the axes from ConfUSIus order `(z, y, x)` to
+    probe / Iconeus-lab order `(x, y, z)`, and `mm_to_m = diag(1e-3, 1e-3, 1e-3, 1)`
     rescales the translation column. The returned affine is then
 
     ```
-    brain_to_confusius_lab = inv(confusius_lab_to_iconeus_lab) @ BrainToLab
+    brain_to_lab = inv(confusius_lab_to_iconeus_lab) @ BrainToLab
     ```
 
     Parameters
@@ -346,22 +378,22 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
         brain_to_lab = f["BrainToLab"][:]
 
     mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
-    confusius_lab_to_iconeus_lab = mm_to_m @ PHYSICAL_TO_PROBE_PERMUTATION
+    confusius_lab_to_iconeus_lab = mm_to_m @ WORLD_TO_PROBE_PERMUTATION
 
-    brain_to_confusius_lab = np.linalg.inv(confusius_lab_to_iconeus_lab) @ brain_to_lab
-    return brain_to_confusius_lab
+    brain_to_lab = np.linalg.inv(confusius_lab_to_iconeus_lab) @ brain_to_lab
+    return brain_to_lab
 
 
-def _add_physical_to_brain(affines: dict[str, Any], bps_path: str | Path) -> None:
-    """Compose a `physical_to_brain` affine from a BPS sidecar and store it in `affines`.
+def _add_world_to_brain(affines: dict[str, Any], bps_path: str | Path) -> None:
+    """Compose a `world_to_brain` affine from a BPS sidecar and store it in `affines`.
 
-    Requires `affines["physical_to_lab"]` to be present. The composition matches both the
-    v1 and v2 loaders: `physical_to_brain = inv(load_bps(bps_path)) @ physical_to_lab`.
+    ConfUSIus world coordinates for SCAN data are already lab space, so
+    `world_to_brain = inv(load_bps(bps_path))`.
 
     Parameters
     ----------
     affines : dict
-        The DataArray's `affines` attribute; mutated in place to add `physical_to_brain`.
+        The DataArray's `affines` attribute; mutated in place to add `world_to_brain`.
     bps_path : str or pathlib.Path
         Path to the BPS file (`.bps`).
 
@@ -371,9 +403,7 @@ def _add_physical_to_brain(affines: dict[str, Any], bps_path: str | Path) -> Non
         `affines` is updated in place.
     """
     brain_to_lab = load_bps(bps_path)
-    affines["physical_to_brain"] = (
-        np.linalg.inv(brain_to_lab) @ affines["physical_to_lab"]
-    )
+    affines["world_to_brain"] = np.linalg.inv(brain_to_lab)
 
 
 def load_scan(
@@ -381,7 +411,7 @@ def load_scan(
     bps_path: str | Path | None = None,
     chunks: int | tuple[int, ...] | str | None = "auto",
 ) -> xr.DataArray:
-    """Load an Iconeus SCAN file as a lazy Xarray DataArray.
+    """Load an Iconeus SCAN file as a lazy VoxelData array.
 
     SCAN files (`.scan`) come in two on-disk formats, both handled here:
 
@@ -391,8 +421,8 @@ def load_scan(
       `.compute()`) before the handle is garbage-collected.
     - **v2**: a flat binary file (variable-length header + little-endian `float64`
       payload). The returned DataArray wraps a NumPy memmap via a Dask array. Support is
-      **experimental** (see Notes), including its `physical_to_lab` affine and, when a
-      `bps_path` is given, `physical_to_brain`.
+      **experimental** (see Notes), including its `probe_to_lab` affine and, when a
+      `bps_path` is given, `world_to_brain`.
 
     `load_scan` sniffs the format automatically and dispatches accordingly.
 
@@ -401,10 +431,8 @@ def load_scan(
     path : str or pathlib.Path
         Path to the SCAN file (`.scan`).
     bps_path : str or pathlib.Path, optional
-        Path to the corresponding BPS file (`.bps`). If provided, a `physical_to_brain`
-        affine is added to `da.attrs["affines"]`. For v2 files this requires the
-        (experimental) `physical_to_lab` affine to have been built; if it could not be,
-        passing `bps_path` raises.
+        Path to the corresponding BPS file (`.bps`). If provided, a `world_to_brain`
+        affine is added to `da.attrs["affines"]`.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
         Dask chunk specification passed to `dask.array.from_array`. Accepted forms:
 
@@ -418,25 +446,26 @@ def load_scan(
     Returns
     -------
     xarray.DataArray
-        Lazy DataArray with dimensions and coordinates:
+        Lazy VoxelData array with dimensions and coordinates:
 
-        - v1 `2Dscan` → `(time, z, y, x)`.
-        - v1 `3Dscan` → `(pose, z, y, x)`.
-        - v1 `4Dscan` → `(time, pose, z, y, x)`.
-        - v2 single-pose → `(time, z, y, x)`.
-        - v2 multi-pose → `(time, pose, z, y, x)`.
+        - v1 `2Dscan` → `(time, k, j, i)`.
+        - v1 `3Dscan` → `(pose, k, j, i)`.
+        - v1 `4Dscan` → `(time, pose, k, j, i)`.
+        - v2 single-pose → `(time, k, j, i)`.
+        - v2 multi-pose is currently unsupported (see Raises).
 
-        All spatial coordinates are in millimeters. The `time` coordinate is in
-        seconds. For v1 `4Dscan`, a `pose_time` non-dimension coordinate of shape
-        `(time, pose)` stores the actual per-pose acquisition timestamps.
+        World coordinates `z`, `y`, `x` are in millimeters. The `time` coordinate is in
+        seconds. For v1 `4Dscan`, `time` is pose-dependent (`(time, pose)`-shaped),
+        holding each pose's own acquisition timestamps directly.
 
     Raises
     ------
     ValueError
         If `path` does not exist or is not a file, if the file is neither an
-        HDF5-based SCAN (v1) nor a binary SCAN v2 file, if `bps_path` is passed for a
-        v2 file whose `physical_to_lab` affine could not be built, or if a v1
-        `acquisitionMode` is not one of `"2Dscan"`, `"3Dscan"`, or `"4Dscan"`.
+        HDF5-based SCAN (v1) nor a binary SCAN v2 file, if a v2 file's experimental
+        `probe_to_lab` affine cannot be built, if a v1 `acquisitionMode` is not one
+        of `"2Dscan"`, `"3Dscan"`, or `"4Dscan"`, or if a v2 file has multiple poses
+        (currently unsupported -- how v2 encodes per-pose geometry isn't known yet).
 
     Notes
     -----
@@ -444,13 +473,17 @@ def load_scan(
     number of example files. Data, temporal geometry, and voxel spacing are recovered.
     The depth (`y`) origin is read from the header when the depth range can be located;
     the lateral (`x`) and elevation (`z`) origins are not encoded, so those axes are
-    centered on zero (correct spacing, arbitrary origin). A `physical_to_lab` affine is
+    centered on zero (correct spacing, arbitrary origin). A `probe_to_lab` affine is
     built from a header block interpreted as a 6DOF probe pose (translation + rotation),
     the v2 equivalent of SCAN v1's `probeToLab`; this interpretation is experimental
-    (validated on a single near-identity pose, assumed axis order and Euler convention)
-    and is omitted if the block cannot be validated.
-    Multi-pose / multi-block v2 layouts are inferred by analogy with v1 and have not
-    been validated against real files. Provenance strings are mapped to v1-style
+    (validated on a single near-identity pose, assumed axis order and Euler convention),
+    and loading fails if the pose block is implausible.
+    Multi-pose v2 files are rejected: the currently reverse-engineered v2 header
+    recovers only one 6DOF probe pose regardless of `npose`, since how v2 encodes
+    per-pose geometry isn't known yet, and ConfUSIus requires a `pose` dimension to
+    carry a genuine per-pose voxel-to-world affine.
+    Multi-block (`nblockRepeat > 1`) layouts are inferred by analogy with v1 and have
+    not been validated against real files. Provenance strings are mapped to v1-style
     `iconeus_*` fields heuristically (by position, with the hex-encoded serial/hardware
     strings as anchors); the three still-unidentified plain-string slots are exposed as
     `iconeus_unknown1`, `iconeus_unknown2`, and `iconeus_unknown3`.
@@ -463,16 +496,20 @@ def load_scan(
     subset is parsed from a structured block whose layout is anchor-validated against the
     depth origin; if that check fails, those fields are omitted rather than guessed.
 
-    The `physical_to_lab` affine stored in `da.attrs["affines"]` maps ConfUSIus physical
-    coordinates `(z, y, x)` to **ConfUSIus-ordered** Iconeus lab coordinates (mm). Apply
-    as `da.attrs["affines"]["physical_to_lab"] @ np.array([z, y, x, 1.0])`. For
-    multi-pose files the shape is `(npose, 4, 4)`; index with `da.coords["pose"].values`
-    after `isel`.
+    ConfUSIus world coordinates `(z, y, x)` for SCAN data are **ConfUSIus-ordered
+    Iconeus lab coordinates** (mm): a fixed scanner frame shared by every pose, used
+    as the canonical world frame because it is the one frame that is physically
+    meaningful across poses. For multi-pose files, `da`'s voxel-to-world geometry is
+    itself pose-dependent (a `(npose, 4, 4)` affine stack, one per
+    `da.coords["pose"]` label — see
+    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]); world
+    selection therefore requires reducing `pose` to a scalar first, e.g.
+    `da.isel(pose=0).sel(z=..., y=..., x=...)` or `da.isel(pose=0)`.
 
-    If `bps_path` is provided, a `physical_to_brain` affine is stored in
-    `da.attrs["affines"]["physical_to_brain"]` that maps ConfUSIus physical coordinates
-    `(z, y, x)` to Iconeus' brain coordinates. Apply as
-    `da.attrs["affines"]["physical_to_brain"] @ np.array([z, y, x, 1.0])`.
+    If `bps_path` is provided, a `world_to_brain` affine is stored in
+    `da.attrs["affines"]["world_to_brain"]` that maps ConfUSIus world coordinates
+    (already lab space, as above) to Iconeus' brain coordinates. Apply as
+    `da.attrs["affines"]["world_to_brain"] @ np.array([z, y, x, 1.0])`.
 
     Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
     (`device_serial_number`, `software_version`) and Iconeus-specific fields
@@ -502,14 +539,7 @@ def load_scan(
             ) from error
 
         if bps_path is not None:
-            affines = data_array.attrs["affines"]
-            if "physical_to_lab" not in affines:
-                raise ValueError(
-                    "bps_path was given but no physical_to_lab affine could be built "
-                    "for this SCAN v2 file (the 6DOF probe-pose block was missing or "
-                    "implausible), so the BPS transform cannot be composed."
-                )
-            _add_physical_to_brain(affines, bps_path)
+            _add_world_to_brain(data_array.attrs["affines"], bps_path)
         return data_array
 
     raise ValueError(
@@ -524,14 +554,14 @@ def _load_scan_v1(
     bps_path: str | Path | None,
     chunks: int | tuple[int, ...] | str | None,
 ) -> xr.DataArray:
-    """Load an HDF5-based Iconeus SCAN (v1) file as a lazy DataArray.
+    """Load an HDF5-based Iconeus SCAN (v1) file as a lazy VoxelData array.
 
     Parameters
     ----------
     path : pathlib.Path
         Path to the v1 SCAN file, already validated as HDF5.
     bps_path : str or pathlib.Path, optional
-        Path to the corresponding BPS file (`.bps`). If provided, a `physical_to_brain`
+        Path to the corresponding BPS file (`.bps`). If provided, a `world_to_brain`
         affine is added to `da.attrs["affines"]`.
     chunks : int or tuple[int, ...] or str or None
         Dask chunk specification passed to `dask.array.from_array`.
@@ -539,7 +569,8 @@ def _load_scan_v1(
     Returns
     -------
     xarray.DataArray
-        Lazy DataArray whose dims depend on the file's `acquisitionMode`. See
+        Lazy VoxelData array whose dims depend on the file's
+        `acquisitionMode`. See
         `load_scan` for the full contract.
 
     Raises
@@ -553,9 +584,6 @@ def _load_scan_v1(
     try:
         mode = _read_scan_str(h5, "/acqMetaData/acquisitionMode")
 
-        size_x = int(_read_scan_scalar(h5, "/acqMetaData/imgDim/sizeX"))
-        size_y = int(_read_scan_scalar(h5, "/acqMetaData/imgDim/sizeY"))
-        size_z = int(_read_scan_scalar(h5, "/acqMetaData/imgDim/sizeZ"))
         npose = int(_read_scan_scalar(h5, "/acqMetaData/imgDim/npose"))
         nblock_repeat = int(_read_scan_scalar(h5, "/acqMetaData/imgDim/nblockRepeat"))
 
@@ -566,13 +594,14 @@ def _load_scan_v1(
             h5["/acqMetaData/probeToLab"][()], dtype=np.float64
         )
 
-        spatial_coords = _coords_from_voxels_to_probe(
-            voxels_to_probe, size_x, size_y, size_z
-        )
-        physical_to_lab = _build_physical_to_lab(probe_to_lab)
+        voxel_to_probe = _build_voxel_to_probe(voxels_to_probe)
+        probe_to_lab = _build_probe_to_lab(probe_to_lab)
+        # Lab is the canonical VoxelData world frame for SCAN data, so composing these
+        # physical transforms produces the VoxelData geometry directly.
+        voxel_to_world = probe_to_lab @ voxel_to_probe
 
         attrs: dict[str, Any] = {
-            "affines": {"physical_to_lab": physical_to_lab},
+            "affines": {},
             "device_serial_number": _read_scan_str(h5, "/scanMetaData/Machine_SN"),
             "software_version": _read_scan_str(h5, "/scanMetaData/Neuroscan_version"),
             "iconeus_scan_mode": mode,
@@ -586,12 +615,17 @@ def _load_scan_v1(
         raw_lazy = da.from_array(h5["/Data"], chunks=chunks, asarray=False)
 
         if mode == "2Dscan":
-            data_array = _load_2dscan(h5, raw_lazy, spatial_coords, attrs)
+            data_array = _load_2dscan(h5, raw_lazy, attrs, voxel_to_world)
         elif mode == "3Dscan":
-            data_array = _load_3dscan(raw_lazy, spatial_coords, attrs, npose)
+            data_array = _load_3dscan(raw_lazy, attrs, npose, voxel_to_world)
         elif mode == "4Dscan":
             data_array = _load_4dscan(
-                h5, raw_lazy, spatial_coords, attrs, npose, nblock_repeat
+                h5,
+                raw_lazy,
+                attrs,
+                npose,
+                nblock_repeat,
+                voxel_to_world,
             )
         else:
             raise ValueError(
@@ -601,7 +635,7 @@ def _load_scan_v1(
 
         data_array.name = attrs["iconeus_scan"] or path.stem
         if bps_path is not None:
-            _add_physical_to_brain(data_array.attrs["affines"], bps_path)
+            _add_world_to_brain(data_array.attrs["affines"], bps_path)
     except Exception:
         h5.close()
         raise
@@ -612,213 +646,67 @@ def _load_scan_v1(
 def _load_2dscan(
     h5: h5py.File,
     raw_lazy: da.Array,
-    spatial_coords: dict[str, xr.DataArray],
     attrs: dict[str, Any],
+    voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build a DataArray for `2Dscan` mode.
-
-    Raw shape (h5py, C-order): `(nblockRepeat, sizeZ, sizeY, sizeX)`. Output dims:
-    `(time, z, y, x)`.
-
-    `nblockRepeat` is the number of time frames; the HDF5 file stores depth (`sizeZ`)
-    before elevation (`sizeY`), while ConfUSIus uses `(z=elevation, y=depth)`, so axes 1
-    and 2 are swapped.
-
-    The `h5` handle is kept open because `raw_lazy` wraps an h5py dataset; it must
-    remain open until the Dask graph is computed.
-
-    Parameters
-    ----------
-    h5 : h5py.File
-        Open HDF5 file handle.
-    raw_lazy : dask.array.Array
-        Lazy Dask array wrapping `/Data`.
-    spatial_coords : dict[str, xarray.DataArray]
-        Spatial coordinate arrays for `x`, `z`, `y`.
-    attrs : dict
-        Provenance and affine attributes.
-
-    Returns
-    -------
-    xarray.DataArray
-        DataArray with dims `(time, z, y, x)`.
-    """
-    # Swap depth (axis 1) and elevation (axis 2): HDF5 order is (sizeZ, sizeY),
-    # ConfUSIus order is (z=elevation, y=depth).
-    data_lazy = da.transpose(raw_lazy, [0, 2, 1, 3])
-
-    # The orientation of the time array is inconsistent across file versions; squeeze
-    # handles both (1, T) and (T, 1).
+    """Build a VoxelData array for `2Dscan` mode."""
+    data_lazy = _swap_depth_elevation_axes(raw_lazy)
     time: npt.NDArray[np.float64] = np.array(
         h5["/acqMetaData/time"][()], dtype=np.float64
     ).squeeze()
-
-    # Iconeus SCAN files store end-referenced timestamps.
-    time_attrs: dict[str, Any] = {
-        "units": "s",
-        "volume_acquisition_reference": "end",
-        # Infer per-pose duration from the earliest time point recorded. Since
-        # timestamps are end-referenced, the minimum timestamp corresponds to the
-        # duration of the first acquired volume.
-        "volume_acquisition_duration": time.min(),
-    }
-
-    coords: dict[str, Any] = {
-        "time": xr.DataArray(time, dims=["time"], attrs=time_attrs),
-        **spatial_coords,
-    }
-
-    return xr.DataArray(
-        data_lazy, dims=["time", "z", "y", "x"], coords=coords, attrs=attrs
+    time_attrs = _scan_time_attrs(float(time.min()))
+    return create_voxeldata(
+        data_lazy,
+        dims=("time", "k", "j", "i"),
+        time=xr.DataArray(time, dims=["time"], attrs=time_attrs),
+        voxel_to_world=voxel_to_world,
+        attrs=attrs,
     )
 
 
 def _load_3dscan(
     raw_lazy: da.Array,
-    spatial_coords: dict[str, xr.DataArray],
     attrs: dict[str, Any],
     npose: int,
+    voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build a DataArray for `3Dscan` mode.
-
-    Raw shape (h5py, C-order): `(npose, nblockRepeat, sizeZ, sizeY, sizeX)`. Output
-    dims: `(pose, z, y, x)`.
-
-    `nblockRepeat` is always 1 in practice for anatomical 3D scans, so it is squeezed
-    away. The HDF5 file stores depth (`sizeZ`) before elevation (`sizeY`), while
-    ConfUSIus uses `(z=elevation, y=depth)`, so axes 1 and 2 (after the squeeze) are
-    swapped.
-
-    The `3Dscan` `acqMetaData/time` array (shape `(npose, 1)`) holds one timestamp per
-    robot position. For anatomical scans these are often all zero and carry no
-    physiological meaning; they are intentionally not exposed as a coordinate. Use
-    `4Dscan` mode when per-block timing is required.
-
-    `raw_lazy` wraps an open h5py dataset; the caller must keep the file handle open
-    until the Dask graph is computed.
-
-    Parameters
-    ----------
-    raw_lazy : dask.array.Array
-        Lazy Dask array wrapping `/Data`.
-    spatial_coords : dict[str, xarray.DataArray]
-        Spatial coordinate arrays for `x`, `z`, `y`.
-    attrs : dict
-        Provenance and affine attributes.
-    npose : int
-        Number of robot positions.
-
-    Returns
-    -------
-    xarray.DataArray
-        DataArray with dims `(pose, z, y, x)`.
-    """
-    # axis=1 is nblockRepeat=1; squeeze it away before transposing.
+    """Build a VoxelData array for `3Dscan` mode."""
     sq = da.squeeze(raw_lazy, axis=1)
-    # Swap depth (axis 1) and elevation (axis 2): HDF5 order is (sizeZ, sizeY),
-    # ConfUSIus order is (z=elevation, y=depth).
-    data_lazy = da.transpose(sq, [0, 2, 1, 3])
-
-    pose_vals = np.arange(npose)
-    coords: dict[str, Any] = {
-        "pose": xr.DataArray(pose_vals, dims=["pose"]),
-        **spatial_coords,
-    }
-
-    return xr.DataArray(
-        data_lazy, dims=["pose", "z", "y", "x"], coords=coords, attrs=attrs
+    data_lazy = _swap_depth_elevation_axes(sq)
+    return create_voxeldata(
+        data_lazy,
+        dims=("pose", "k", "j", "i"),
+        pose=np.arange(npose),
+        voxel_to_world=voxel_to_world,
+        attrs=attrs,
     )
 
 
 def _load_4dscan(
     h5: h5py.File,
     raw_lazy: da.Array,
-    spatial_coords: dict[str, xr.DataArray],
     attrs: dict[str, Any],
     npose: int,
     nblock_repeat: int,
+    voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build a DataArray for `4Dscan` mode.
-
-    Raw shape (h5py, C-order): `(nscanRepeat, npose, nblockRepeat, sizeZ, sizeY,
-    sizeX)`. Output dims: `(time, pose, z, y, x)`.
-
-    `nblockRepeat` is a per-pose repetition count. When `nblockRepeat > 1`, the
-    `nscanRepeat` and `nblockRepeat` axes are combined into a single `time` axis of
-    length `nscanRepeat * nblockRepeat` by transposing to
-    `(nscanRepeat, nblockRepeat, npose, sizeZ, sizeY, sizeX)` and reshaping. When
-    `nblockRepeat == 1` the axis is simply squeezed away.
-
-    The HDF5 file stores depth (`sizeZ`) before elevation (`sizeY`), while ConfUSIus
-    uses `(z=elevation, y=depth)`, so those two spatial axes are swapped.
-
-    The `h5` handle is kept open because `raw_lazy` wraps an h5py dataset; it must
-    remain open until the Dask graph is computed.
-
-    Parameters
-    ----------
-    h5 : h5py.File
-        Open HDF5 file handle.
-    raw_lazy : dask.array.Array
-        Lazy Dask array wrapping `/Data`.
-    spatial_coords : dict[str, xarray.DataArray]
-        Spatial coordinate arrays for `x`, `z`, `y`.
-    attrs : dict
-        Provenance and affine attributes.
-    npose : int
-        Number of robot positions.
-    nblock_repeat : int
-        Number of block repeats per scan repeat (`nblockRepeat` from the file).
-
-    Returns
-    -------
-    xarray.DataArray
-        DataArray with dims `(time, pose, z, y, x)`.
-    """
-    nscan_repeat = raw_lazy.shape[0]
-    n_time = nscan_repeat * nblock_repeat
-
-    if nblock_repeat == 1:
-        # axis=2 is the nblockRepeat=1 singleton; squeeze it away.
-        sq = da.squeeze(raw_lazy, axis=2)
-    else:
-        # Transpose to (nscanRepeat, nblockRepeat, npose, sizeZ, sizeY, sizeX),
-        # then reshape to (n_time, npose, sizeZ, sizeY, sizeX).
-        transposed = da.transpose(raw_lazy, [0, 2, 1, 3, 4, 5])
-        sq = transposed.reshape(n_time, npose, *raw_lazy.shape[3:])
-
-    # Swap depth (axis 2) and elevation (axis 3): HDF5 order is (sizeZ, sizeY),
-    # ConfUSIus order is (z=elevation, y=depth).
-    data_lazy = da.transpose(sq, [0, 1, 3, 2, 4])
-
-    # Raw time shape is (npose * nscanRepeat * nblockRepeat, 1) or its transpose;
-    # squeeze normalizes both orientations before reshaping.
+    """Build a VoxelData array for `4Dscan` mode."""
+    n_time = raw_lazy.shape[0] * nblock_repeat
+    sq = _fold_block_repeat_into_time(raw_lazy, npose, nblock_repeat)
+    data_lazy = _swap_depth_elevation_axes(sq)
     time_raw: npt.NDArray[np.float64] = (
         np.array(h5["/acqMetaData/time"][()], dtype=np.float64)
         .squeeze()
         .reshape(n_time, npose)
     )
-
-    # Iconeus SCAN files store end-referenced timestamps.
-    block_time = time_raw.max(axis=1)
-    time_attrs: dict[str, Any] = {
-        "units": "s",
-        "volume_acquisition_reference": "end",
-        # Infer per-pose duration from the earliest time point recorded. Since
-        # timestamps are end-referenced, the minimum timestamp corresponds to the
-        # duration of the first acquired volume.
-        "volume_acquisition_duration": time_raw.min(),
-    }
-
-    coords: dict[str, Any] = {
-        "time": xr.DataArray(block_time, dims=["time"], attrs=time_attrs),
-        "pose": xr.DataArray(np.arange(npose), dims=["pose"]),
-        "pose_time": xr.DataArray(time_raw, dims=["time", "pose"], attrs=time_attrs),
-        **spatial_coords,
-    }
-
-    return xr.DataArray(
-        data_lazy, dims=["time", "pose", "z", "y", "x"], coords=coords, attrs=attrs
+    time_attrs = _scan_time_attrs(float(time_raw.min()))
+    return create_voxeldata(
+        data_lazy,
+        dims=("time", "pose", "k", "j", "i"),
+        time=xr.DataArray(time_raw, dims=["time", "pose"], attrs=time_attrs),
+        pose=np.arange(npose),
+        voxel_to_world=voxel_to_world,
+        attrs=attrs,
     )
 
 
@@ -1032,7 +920,7 @@ def _load_scan_v2(
     path: Path,
     chunks: int | tuple[int, ...] | str | None,
 ) -> xr.DataArray:
-    """Load a binary Iconeus SCAN v2 file as a lazy DataArray (experimental).
+    """Load a binary Iconeus SCAN v2 file as a lazy VoxelData array.
 
     The v2 format is a flat binary file: a variable-length header followed by a
     little-endian `float64` power-Doppler payload. Field offsets were reverse-engineered
@@ -1046,8 +934,8 @@ def _load_scan_v2(
     nblock_repeat)`; the payload is C-ordered as
     `(n_time, npose, nblock_repeat, size_z, size_y, size_x)`. Output dims:
 
-    - single-pose → `(time, z, y, x)`.
-    - multi-pose → `(time, pose, z, y, x)`.
+    - single-pose → `(time, k, j, i)`.
+    - multi-pose → `(time, pose, k, j, i)`.
 
     where ConfUSIus `z` is elevation (`size_y`) and `y` is depth (`size_z`), so those two
     payload axes are swapped. `nblock_repeat > 1` is folded into `time`, as in the v1
@@ -1063,9 +951,11 @@ def _load_scan_v2(
     Returns
     -------
     xarray.DataArray
-        Lazy DataArray with dims `(time, z, y, x)` or `(time, pose, z, y, x)` and
-        millimeter spatial coordinates (depth origin from the header when found;
-        lateral/elevation centered on zero — see `load_scan` Notes).
+        Lazy VoxelData array with dims `(time, k, j, i)` or
+        `(time, pose, k, j, i)` and
+        world coordinates derived from a `VoxelToWorldIndex` affine (depth origin
+        from the header when found; lateral/elevation centered on zero — see
+        `load_scan` Notes).
 
     Raises
     ------
@@ -1086,6 +976,15 @@ def _load_scan_v2(
     n_time = meta["n_time"]
     npose = meta["npose"]
     nblock_repeat = meta["nblock_repeat"]
+
+    if npose > 1:
+        raise ValueError(
+            "Loading SCAN v2 files with multiple poses is not currently supported: "
+            "how v2 encodes per-pose geometry isn't known yet, and ConfUSIus "
+            "requires a pose dimension to carry a genuine per-pose voxel-to-world "
+            "affine. Please get in touch on Discord or open an issue if you need "
+            "this."
+        )
 
     n_elements = size_x * size_y * size_z * n_time * npose * nblock_repeat
     if meta["payload_bytes"] != n_elements * 8:
@@ -1112,33 +1011,31 @@ def _load_scan_v2(
     raw_lazy = da.from_array(memmap, chunks=chunks)
 
     n_time_total = n_time * nblock_repeat
-    if nblock_repeat == 1:
-        sq = da.squeeze(raw_lazy, axis=2)
-    else:
-        # Fold nblock_repeat into time: (n_time, nblock, npose, z, y, x) -> (T, npose, ...).
-        transposed = da.transpose(raw_lazy, [0, 2, 1, 3, 4, 5])
-        sq = transposed.reshape(n_time_total, npose, size_z, size_y, size_x)
+    sq = _fold_block_repeat_into_time(raw_lazy, npose, nblock_repeat)
+    data_lazy = _swap_depth_elevation_axes(sq)
 
-    # Swap depth (size_z) and elevation (size_y): payload order is (depth, elevation),
-    # ConfUSIus order is (z=elevation, y=depth).
-    data_lazy = da.transpose(sq, [0, 1, 3, 2, 4])
+    # npose > 1 is rejected above.
+    data_lazy = da.squeeze(data_lazy, axis=1)
+    dims: tuple[str, ...] = ("time", "k", "j", "i")
+    pose = None
 
-    if npose == 1:
-        data_lazy = da.squeeze(data_lazy, axis=1)
-        dims = ["time", "z", "y", "x"]
-    else:
-        dims = ["time", "pose", "z", "y", "x"]
-
-    coords = _build_scan_v2_coords(meta, n_time_total, npose)
+    time_coord = _build_scan_v2_time_coord(meta, n_time_total)
+    voxel_to_probe = _build_scan_v2_voxel_to_probe(meta)
     attrs = _build_scan_v2_attrs(header, npose, n_time_total)
     acquisition = _read_scan_v2_acquisition(header, n_time, meta["depth_start_mm"])
-    physical_to_lab = acquisition.pop("_physical_to_lab", None)
     attrs.update(acquisition)
-    if physical_to_lab is not None:
-        attrs["affines"]["physical_to_lab"] = physical_to_lab
+    # Lab is the canonical VoxelData world frame for SCAN data.
+    voxel_to_world = _build_scan_v2_probe_to_lab(header, n_time) @ voxel_to_probe
 
-    data_array = xr.DataArray(data_lazy, dims=dims, coords=coords, attrs=attrs)
-    data_array.name = attrs.get("iconeus_scan") or path.stem
+    data_array = create_voxeldata(
+        data_lazy,
+        dims=dims,
+        time=time_coord,
+        pose=pose,
+        voxel_to_world=voxel_to_world,
+        attrs=attrs,
+        name=attrs.get("iconeus_scan") or path.stem,
+    )
     return data_array
 
 
@@ -1206,10 +1103,8 @@ def _build_rotation_matrix(rx: float, ry: float, rz: float) -> npt.NDArray[np.fl
     return rot_z @ rot_y @ rot_x
 
 
-def _build_scan_v2_physical_to_lab(
-    header: bytes, n_time: int
-) -> npt.NDArray[np.float64] | None:
-    """Build a `physical_to_lab` affine from the SCAN v2 6DOF probe-pose block.
+def _build_scan_v2_probe_to_lab(header: bytes, n_time: int) -> npt.NDArray[np.float64]:
+    """Build a `probe_to_lab` affine from the SCAN v2 6DOF probe-pose block.
 
     The 64-byte orientation block preceding the frequency block holds eight `float64`
     slots; the first six are interpreted as a rigid probe pose `(tx, ty, tz, rx, ry, rz)`
@@ -1218,7 +1113,7 @@ def _build_scan_v2_physical_to_lab(
     interpretation validated on a single near-identity example; the axis order and Euler
     convention are assumed.
 
-    The resulting `probeToLab` is converted to a ConfUSIus-ordered `physical_to_lab`
+    The resulting `probeToLab` is converted to a ConfUSIus-ordered `probe_to_lab`
     affine (millimeters) with the same permutation used by the v1 loader, so it is
     directly comparable to v1 output.
 
@@ -1231,23 +1126,26 @@ def _build_scan_v2_physical_to_lab(
 
     Returns
     -------
-    (4, 4) numpy.ndarray or None
-        The `physical_to_lab` affine in millimeters, or `None` if the pose values are
-        implausible.
+    (4, 4) numpy.ndarray
+        The `probe_to_lab` affine in millimeters.
+
+    Raises
+    ------
+    ValueError
+        If the pose values are implausible.
     """
-    # The caller only invokes this after validating the acquisition block, which lies
-    # after the pose block, so `pose_offset` is guaranteed to be in range.
+    # The fixed header-size checks already guarantee the pose block is in range.
     pose_offset = _SCAN_V2_OFFSETS["time_coords"] + 12 * n_time
     tx, ty, tz, rx, ry, rz = struct.unpack_from("<6d", header, pose_offset)
     if any(abs(t) >= 1.0 for t in (tx, ty, tz)) or any(
         abs(a) > 2 * np.pi for a in (rx, ry, rz)
     ):
-        return None
+        raise ValueError("SCAN v2 probe-pose block is missing or implausible.")
 
     probe_to_lab = np.eye(4, dtype=np.float64)
     probe_to_lab[:3, :3] = _build_rotation_matrix(rx, ry, rz)
     probe_to_lab[:3, 3] = (tx, ty, tz)
-    return _build_physical_to_lab(probe_to_lab)
+    return _build_probe_to_lab(probe_to_lab)
 
 
 def _read_scan_v2_acquisition(
@@ -1289,9 +1187,7 @@ def _read_scan_v2_acquisition(
     -------
     dict
         Acquisition attributes that could be recovered; fields whose block could not be
-        validated are simply absent. When the block validates, a private
-        `_physical_to_lab` key holds the pose-derived affine for the caller to move into
-        `attrs["affines"]`.
+        validated are simply absent.
     """
     o = _SCAN_V2_OFFSETS
 
@@ -1340,26 +1236,40 @@ def _read_scan_v2_acquisition(
         )
         result["plane_wave_angles"] = angles.tolist()
 
-    # The depth anchor confirms the n_time-derived layout, so the 6DOF pose block (in the
-    # same region) can be trusted; expose the affine it yields under a private key that
-    # the caller moves into `attrs["affines"]`.
-    physical_to_lab = _build_scan_v2_physical_to_lab(header, n_time)
-    if physical_to_lab is not None:
-        result["_physical_to_lab"] = physical_to_lab
-
     return result
 
 
-def _build_scan_v2_coords(
-    meta: dict[str, Any], n_time_total: int, npose: int
-) -> dict[str, xr.DataArray]:
-    """Build coordinate DataArrays for a SCAN v2 volume.
+def _build_scan_v2_voxel_to_probe(meta: dict[str, Any]) -> npt.NDArray[np.float64]:
+    """Build a v2 affine from ConfUSIus voxel coordinates to probe space.
 
-    Spatial coordinates use the header voxel spacings (converted to millimeters). The
-    v2 header does not encode a lateral/elevation origin, so those axes (`x`, `z`) are
-    centered on zero. The depth (`y`) origin is recovered from the header when possible
-    (see `_find_scan_v2_depth_start`) and otherwise defaults to zero. Spacing is exact;
-    lateral/elevation absolute position is not (see `load_scan` Notes).
+    Parameters
+    ----------
+    meta : dict
+        Parsed SCAN v2 header fields.
+
+    Returns
+    -------
+    (4, 4) numpy.ndarray
+        Affine mapping `(k, j, i)` voxel coordinates to `(z, y, x)` probe
+        coordinates in millimeters.
+    """
+    dx_mm = meta["x_voxel_m"] * 1e3
+    dz_mm = meta["y_voxel_m"] * 1e3
+    dy_mm = meta["z_voxel_m"] * 1e3
+    size_x = meta["size_x"]
+    size_y = meta["size_y"]
+    x0 = -((size_x - 1) / 2) * dx_mm
+    z0 = -((size_y - 1) / 2) * dz_mm
+    y0 = meta.get("depth_start_mm", 0.0)
+
+    voxel_to_probe = np.eye(4, dtype=np.float64)
+    voxel_to_probe[:3, :3] = np.diag([dz_mm, dy_mm, dx_mm])
+    voxel_to_probe[:3, 3] = [z0, y0, x0]
+    return voxel_to_probe
+
+
+def _build_scan_v2_time_coord(meta: dict[str, Any], n_time_total: int) -> xr.DataArray:
+    """Build the `time` coordinate DataArray for a SCAN v2 volume.
 
     Parameters
     ----------
@@ -1367,29 +1277,12 @@ def _build_scan_v2_coords(
         Parsed header fields from `_read_scan_v2_header`.
     n_time_total : int
         Number of time points after folding `nblock_repeat` into time.
-    npose : int
-        Number of robot positions.
 
     Returns
     -------
-    dict[str, xarray.DataArray]
-        Coordinate DataArrays keyed by `"time"`, `"x"`, `"y"`, `"z"`, and `"pose"` when
-        `npose > 1`.
+    xarray.DataArray
+        `time` coordinate.
     """
-    # Iconeus voxel axes map to ConfUSIus as: x_voxel=lateral->x, y_voxel=elevation->z,
-    # z_voxel=depth->y.
-    dx_mm = meta["x_voxel_m"] * 1e3
-    dz_mm = meta["y_voxel_m"] * 1e3
-    dy_mm = meta["z_voxel_m"] * 1e3
-
-    size_x = meta["size_x"]
-    size_y = meta["size_y"]
-    size_z = meta["size_z"]
-
-    x_vals = (np.arange(size_x) - (size_x - 1) / 2) * dx_mm
-    z_vals = (np.arange(size_y) - (size_y - 1) / 2) * dz_mm
-    y_vals = meta.get("depth_start_mm", 0.0) + np.arange(size_z) * dy_mm
-
     time_vals = meta["time_coords"]
     if time_vals.size != n_time_total:
         # nblock_repeat > 1 (unobserved): the header only stores n_time timestamps, so
@@ -1397,23 +1290,8 @@ def _build_scan_v2_coords(
         # ends at dt) to stay consistent with volume_acquisition_reference below.
         time_vals = meta["dt"] * (np.arange(n_time_total) + 1)
 
-    time_attrs: dict[str, Any] = {
-        "units": "s",
-        "volume_acquisition_reference": "end",
-        "volume_acquisition_duration": float(time_vals.min())
-        if time_vals.size
-        else 0.0,
-    }
-
-    coords: dict[str, xr.DataArray] = {
-        "time": xr.DataArray(time_vals, dims=["time"], attrs=time_attrs),
-        "x": xr.DataArray(x_vals, dims=["x"], attrs={"units": "mm", "voxdim": dx_mm}),
-        "z": xr.DataArray(z_vals, dims=["z"], attrs={"units": "mm", "voxdim": dz_mm}),
-        "y": xr.DataArray(y_vals, dims=["y"], attrs={"units": "mm", "voxdim": dy_mm}),
-    }
-    if npose > 1:
-        coords["pose"] = xr.DataArray(np.arange(npose), dims=["pose"])
-    return coords
+    time_attrs = _scan_time_attrs(float(time_vals.min()) if time_vals.size else 0.0)
+    return xr.DataArray(time_vals, dims=["time"], attrs=time_attrs)
 
 
 def _build_scan_v2_attrs(

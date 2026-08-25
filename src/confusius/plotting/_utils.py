@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
+from confusius._utils.geometry import has_axis_aligned_voxel_to_world_index
 from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
@@ -176,6 +178,56 @@ def coerce_complex_to_magnitude(data: xr.DataArray, caller: str) -> xr.DataArray
         )
         return xr.ufuncs.abs(data)
     return data
+
+
+def materialize_axis_aligned_world_grid_for_display(
+    data: xr.DataArray,
+) -> xr.DataArray:
+    """Expose axis-aligned voxel-to-world data on plain world `z/y/x` dims.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array.
+
+    Returns
+    -------
+    xarray.DataArray
+        DataArray whose spatial dimensions are renamed from voxel `k/j/i` to world
+        `z/y/x`, with the linked world coordinates promoted to dimension coordinates and
+        `VoxelToWorldIndex` removed.
+    """
+    if not has_axis_aligned_voxel_to_world_index(data):
+        return data
+
+    voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
+    dim_map = dict(zip(voxel_dims, WORLD_DIMS, strict=True))
+    result_dims = tuple(dim_map.get(str(dim), str(dim)) for dim in data.dims)
+
+    coords = {}
+    for dim in data.dims:
+        result_dim = dim_map.get(str(dim), str(dim))
+        if str(dim) in dim_map:
+            source_coord = data.coords[result_dim]
+            indexers = {d: 0 for d in source_coord.dims if d != dim}
+            coords[result_dim] = (result_dim, source_coord.isel(indexers).values)
+        elif str(dim) in data.coords:
+            coords[result_dim] = (result_dim, data.coords[str(dim)].values)
+
+    result = xr.DataArray(
+        data=data.data,
+        dims=result_dims,
+        coords=coords,
+        name=data.name,
+        attrs=data.attrs.copy(),
+    )
+    for dim in data.dims:
+        result_dim = dim_map.get(str(dim), str(dim))
+        source_coord = (
+            data.coords[result_dim] if str(dim) in dim_map else data.coords[str(dim)]
+        )
+        result.coords[result_dim].attrs = dict(source_coord.attrs)
+    return result
 
 
 def sort_coords_for_plot(

@@ -12,7 +12,7 @@ import pytest
 import xarray as xr
 
 from confusius.plotting import plot_napari
-
+from confusius.xarray import create_voxeldata
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -41,22 +41,20 @@ class TestTimeDimIndex:
         viewer.add_image(np.zeros((4, 6, 8)), metadata={"xarray": None})
         assert qc_panel._time_dim_index() == 0
 
-    def test_finds_time_dim_from_xarray_layer(
-        self, viewer, qc_panel, sample_3dt_volume
-    ):
+    def test_finds_time_dim_from_xarray_layer(self, viewer, qc_panel, sample_voxeldata_3dt):
         plot_napari(
-            sample_3dt_volume,
+            sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
         )
-        assert qc_panel._time_dim_index() == list(sample_3dt_volume.dims).index("time")
+        assert qc_panel._time_dim_index() == list(sample_voxeldata_3dt.dims).index("time")
 
 
 class TestCurrentTimeWorld:
-    def test_returns_world_coordinate(self, viewer, qc_panel, sample_3dt_volume):
+    def test_returns_world_coordinate(self, viewer, qc_panel, sample_voxeldata_3dt):
         plot_napari(
-            sample_3dt_volume,
+            sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
@@ -68,15 +66,11 @@ class TestCurrentTimeWorld:
     def test_consistent_with_video_layer(self, rng, viewer, qc_panel):
         """World coordinate is correct even when a video layer is also loaded."""
         time_coords = np.array([0.0, 0.5, 1.0, 1.5, 2.0])
-        da = xr.DataArray(
+        da = create_voxeldata(
             rng.random((5, 4, 6, 8)).astype(np.float32),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(time_coords, dims=["time"], attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(4) * 0.2, dims=["z"]),
-                "y": xr.DataArray(np.arange(6) * 0.1, dims=["y"]),
-                "x": xr.DataArray(np.arange(8) * 0.05, dims=["x"]),
-            },
+            dims=("time", "k", "j", "i"),
+            time=xr.DataArray(time_coords, dims=["time"], attrs={"units": "s"}),
+            spacing=(0.2, 0.1, 0.05),
         )
         plot_napari(da, viewer=viewer, show_colorbar=False, show_scale_bar=False)
         # Add a plain image layer without xarray metadata (simulates a video).

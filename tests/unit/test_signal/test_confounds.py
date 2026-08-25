@@ -9,9 +9,9 @@ from numpy.testing import assert_allclose
 from confusius.signal import regress_confounds
 
 
-def test_regress_confounds_basic(sample_timeseries):
+def test_regress_confounds_basic(make_sample_timeseries):
     """Test basic confound regression removes confound effects."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
 
     # Create a simple confound (linear trend)
     confound = xr.DataArray(
@@ -38,9 +38,9 @@ def test_regress_confounds_basic(sample_timeseries):
         assert abs(corr) < 0.1  # Should be close to 0
 
 
-def test_regress_confounds_multiple_confounds(sample_timeseries):
+def test_regress_confounds_multiple_confounds(make_sample_timeseries):
     """Test regression with multiple confounds."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
 
     # Create multiple confounds (without constant to avoid issues)
     time = np.arange(100)
@@ -191,7 +191,7 @@ def test_regress_confounds_rank_deficient():
         assert abs(dot_product) < 1e-10
 
 
-def test_regress_confounds_invalid_time_dimension(sample_timeseries):
+def test_regress_confounds_invalid_time_dimension(make_sample_timeseries):
     """Test error when signals have no time dimension."""
     signals = xr.DataArray(
         np.random.randn(50, 10),
@@ -207,9 +207,9 @@ def test_regress_confounds_invalid_time_dimension(sample_timeseries):
         regress_confounds(signals, confounds)
 
 
-def test_regress_confounds_mismatched_time(sample_timeseries):
+def test_regress_confounds_mismatched_time(make_sample_timeseries):
     """Test error when confounds time dimension doesn't match."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
     confounds = xr.DataArray(
         np.random.randn(50, 3),
         dims=["time", "confound"],
@@ -220,26 +220,26 @@ def test_regress_confounds_mismatched_time(sample_timeseries):
         regress_confounds(signals, confounds)
 
 
-def test_regress_confounds_invalid_type(sample_timeseries):
+def test_regress_confounds_invalid_type(make_sample_timeseries):
     """Test error when confounds is not numpy array or xarray."""
-    signals = sample_timeseries()
+    signals = make_sample_timeseries()
 
     with pytest.raises(TypeError, match="must be an xarray.DataArray"):
         regress_confounds(signals, "invalid")  # ty: ignore[invalid-argument-type]
 
 
-def test_regress_confounds_confounds_missing_time_dimension(sample_timeseries):
+def test_regress_confounds_confounds_missing_time_dimension(make_sample_timeseries):
     """Test error when confounds have no time dimension."""
-    signals = sample_timeseries()
+    signals = make_sample_timeseries()
     confounds = xr.DataArray(np.random.randn(10, 3), dims=["sample", "confound"])
 
     with pytest.raises(ValueError, match="must have a 'time' dimension"):
         regress_confounds(signals, confounds)
 
 
-def test_regress_confounds_wrong_dimensions(sample_timeseries):
+def test_regress_confounds_wrong_dimensions(make_sample_timeseries):
     """Test error when confounds have wrong number of dimensions."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
     confounds = xr.DataArray(
         np.random.randn(100, 3, 2),
         dims=["time", "confound", "extra"],
@@ -250,9 +250,9 @@ def test_regress_confounds_wrong_dimensions(sample_timeseries):
         regress_confounds(signals, confounds)
 
 
-def test_regress_confounds_single_confound_1d(sample_timeseries):
+def test_regress_confounds_single_confound_1d(make_sample_timeseries):
     """Test with 1D confound array."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
     confound = xr.DataArray(
         np.random.randn(100),
         dims=["time"],
@@ -265,19 +265,19 @@ def test_regress_confounds_single_confound_1d(sample_timeseries):
 
 
 def test_regress_confounds_mismatched_time_length_without_coordinates(
-    sample_timeseries,
+    make_sample_timeseries,
 ):
     """Test shape mismatch path when confounds have no time coordinates."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
     confounds = xr.DataArray(np.random.randn(50, 3), dims=["time", "confound"])
 
     with pytest.raises(ValueError, match="does not match signals time dimension"):
         regress_confounds(signals, confounds)
 
 
-def test_regress_confounds_xarray_confounds(sample_timeseries):
+def test_regress_confounds_xarray_confounds(make_sample_timeseries):
     """Test with xarray DataArray confounds."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
 
     # Create confounds as xarray DataArray
     confounds = xr.DataArray(
@@ -291,9 +291,9 @@ def test_regress_confounds_xarray_confounds(sample_timeseries):
     assert cleaned.shape == signals.shape
 
 
-def test_regress_confounds_accepts_small_time_coordinate_drift(sample_timeseries):
+def test_regress_confounds_accepts_small_time_coordinate_drift(make_sample_timeseries):
     """Small numeric drift in time coordinates is tolerated."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
     confounds = xr.DataArray(
         np.random.randn(100, 3),
         dims=["time", "confound"],
@@ -305,9 +305,9 @@ def test_regress_confounds_accepts_small_time_coordinate_drift(sample_timeseries
     assert cleaned.shape == signals.shape
 
 
-def test_regress_confounds_xarray_time_mismatch(sample_timeseries):
+def test_regress_confounds_xarray_time_mismatch(make_sample_timeseries):
     """Test error when xarray confounds time coordinates mismatch signals."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
 
     confounds = xr.DataArray(
         np.random.randn(100, 3),
@@ -319,34 +319,34 @@ def test_regress_confounds_xarray_time_mismatch(sample_timeseries):
         regress_confounds(signals, confounds)
 
 
-def test_regress_confounds_4d_imaging(sample_3dt_volume):
+def test_regress_confounds_4d_imaging(sample_voxeldata_3dt):
     """Test on 4D imaging data (time, z, y, x)."""
     # Create confounds matching time dimension
-    n_time = sample_3dt_volume.sizes["time"]
+    n_time = sample_voxeldata_3dt.sizes["time"]
     confounds = xr.DataArray(
         np.random.randn(n_time, 6),
         dims=["time", "confound"],
-        coords={"time": sample_3dt_volume.coords["time"]},
+        coords={"time": sample_voxeldata_3dt.coords["time"]},
     )
 
     # Should work on 4D data
-    cleaned = regress_confounds(sample_3dt_volume, confounds)
+    cleaned = regress_confounds(sample_voxeldata_3dt, confounds)
 
     # Check shape preserved
-    assert cleaned.dims == sample_3dt_volume.dims
-    assert cleaned.shape == sample_3dt_volume.shape
+    assert cleaned.dims == sample_voxeldata_3dt.dims
+    assert cleaned.shape == sample_voxeldata_3dt.shape
 
     # Check coordinates preserved
-    for dim in sample_3dt_volume.dims:
+    for dim in sample_voxeldata_3dt.dims:
         assert_allclose(
             cleaned.coords[dim].values,
-            sample_3dt_volume.coords[dim].values,
+            sample_voxeldata_3dt.coords[dim].values,
         )
 
 
-def test_regress_confounds_nonleading_time_axis(sample_timeseries):
+def test_regress_confounds_nonleading_time_axis(make_sample_timeseries):
     """Test confound regression when time is not the leading axis."""
-    signals = sample_timeseries(n_time=100, n_voxels=20)
+    signals = make_sample_timeseries(n_time=100, n_voxels=20)
     confounds = xr.DataArray(
         np.random.randn(100, 3),
         dims=["time", "confound"],
@@ -360,9 +360,9 @@ def test_regress_confounds_nonleading_time_axis(sample_timeseries):
     assert_allclose(result.values, expected.values)
 
 
-def test_regress_confounds_dask_compatibility(sample_timeseries):
+def test_regress_confounds_dask_compatibility(make_sample_timeseries):
     """Test confound regression works with Dask-backed arrays."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
 
     # Convert to Dask
     dask_data = da.from_array(signals.values, chunks=(100, 25))  # type: ignore[arg-type]
@@ -389,9 +389,9 @@ def test_regress_confounds_dask_compatibility(sample_timeseries):
     assert cleaned_computed.shape == signals.shape
 
 
-def test_regress_confounds_dask_chunked_time(sample_timeseries):
+def test_regress_confounds_dask_chunked_time(make_sample_timeseries):
     """Test error when time dimension is chunked."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
 
     # Chunk along time (which is invalid)
     dask_data = da.from_array(signals.values, chunks=(50, 25))  # type: ignore[arg-type]
@@ -491,9 +491,9 @@ def test_regress_confounds_zero_variance_confounds():
     assert cleaned.shape == signals.shape
 
 
-def test_regress_confounds_reference_implementation(sample_timeseries):
+def test_regress_confounds_reference_implementation(make_sample_timeseries):
     """Compare against naive OLS implementation without standardization."""
-    signals = sample_timeseries(n_time=100, n_voxels=50)
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
     confounds = xr.DataArray(
         np.random.randn(100, 6),
         dims=["time", "confound"],

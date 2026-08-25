@@ -7,6 +7,35 @@ import pytest
 import xarray as xr
 
 import confusius  # noqa: F401  # Import to register accessor.
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+)
+from confusius.xarray import create_voxeldata
+
+
+def _make_voxel_to_world_volume() -> xr.DataArray:
+    """Create a small voxel-to-world volume for accessor tests."""
+    base = xr.DataArray(
+        np.zeros((2, 3, 4)),
+        dims=["k", "j", "i"],
+        coords={
+            "k": [0, 1],
+            "j": [0, 2, 4],
+            "i": [0, 1, 2, 3],
+        },
+    )
+    return attach_voxel_to_world_index(
+        base,
+        np.array(
+            [
+                [2.0, 1.0, 0.0, 10.0],
+                [0.0, 3.0, 0.0, 20.0],
+                [0.0, 0.0, 4.0, 30.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        ),
+    )
 
 
 class TestFUSIAccessor:
@@ -161,128 +190,474 @@ class TestFUSIAccessor:
 class TestOrigin:
     """Tests for fusi.origin."""
 
-    def test_returns_correct_origin(self):
-        """Returns the first coordinate value for each dimension."""
-        data = xr.DataArray(
-            np.zeros((10, 20)),
-            dims=["y", "x"],
-            coords={"y": np.arange(10) * 0.2 + 1.0, "x": np.arange(20) * 0.1 + 5.0},
-        )
-        assert data.fusi.origin == {"y": pytest.approx(1.0), "x": pytest.approx(5.0)}
-
-    def test_zero_origin(self):
-        """Returns 0.0 when coordinates start at zero."""
+    def test_origin_raises_without_voxel_to_world_index(self):
+        """A plain DataArray without a voxel-to-world index raises ValueError."""
         data = xr.DataArray(
             np.zeros((10, 20)),
             dims=["y", "x"],
             coords={"y": np.arange(10) * 0.2, "x": np.arange(20) * 0.1},
         )
-        assert data.fusi.origin == {"y": pytest.approx(0.0), "x": pytest.approx(0.0)}
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            _ = data.fusi.origin
 
-    def test_missing_coord_warns_and_returns_zero(self):
-        """Missing coordinate warns and falls back to 0.0."""
-        data = xr.DataArray(np.zeros((5, 10)), dims=["y", "x"])
-        with pytest.warns(UserWarning, match="no coordinate"):
-            origin = data.fusi.origin
-        assert origin["y"] == pytest.approx(0.0)
-        assert origin["x"] == pytest.approx(0.0)
+    def test_voxel_to_world_origin_uses_first_sampled_voxel(self):
+        """Voxel-to-world origin is the world location of array index zero."""
+        data = _make_voxel_to_world_volume().expand_dims(time=[0.0, 0.5])
 
-    def test_spacing_dim_order_preserved(self):
-        """Returned dict keys follow DataArray dimension order."""
-        data = xr.DataArray(
-            np.zeros((5, 10, 20)),
-            dims=["z", "y", "x"],
+        assert data.fusi.origin == {
+            "time": pytest.approx(0.0),
+            "z": pytest.approx(10.0),
+            "y": pytest.approx(20.0),
+            "x": pytest.approx(30.0),
+        }
+
+    def test_voxel_to_world_origin_respects_nonzero_voxel_coords(self):
+        """Voxel-to-world origin uses the first sampled voxel coords, not affine translation."""
+        base = xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=["k", "j", "i"],
             coords={
-                "z": np.arange(5) * 0.5 + 2.0,
-                "y": np.arange(10) * 0.2 + 1.0,
-                "x": np.arange(20) * 0.1,
+                "k": [10, 11],
+                "j": [5, 7, 9],
+                "i": [100, 101, 102, 103],
             },
         )
-        assert list(data.fusi.origin.keys()) == ["z", "y", "x"]
-
-    def test_single_point_coordinate(self):
-        """Single-point coordinate returns its value as origin."""
-        data = xr.DataArray(
-            np.zeros((1, 10)),
-            dims=["z", "x"],
-            coords={"z": [3.5], "x": np.arange(10) * 0.1},
+        data = attach_voxel_to_world_index(
+            base,
+            np.array(
+                [
+                    [2.0, 0.0, 0.0, 10.0],
+                    [0.0, 3.0, 0.0, 20.0],
+                    [0.0, 0.0, 4.0, 30.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
         )
-        assert data.fusi.origin["z"] == pytest.approx(3.5)
+
+        assert data.fusi.origin == {
+            "z": pytest.approx(30.0),
+            "y": pytest.approx(35.0),
+            "x": pytest.approx(430.0),
+        }
 
     """Tests for fusi.spacing."""
 
-    @pytest.fixture
-    def uniform_2d_data(self):
-        """2D DataArray with uniform spacing."""
-        return xr.DataArray(
+    def test_spacing_raises_without_voxel_to_world_index(self):
+        """A plain DataArray without a voxel-to-world index raises ValueError."""
+        data = xr.DataArray(
             np.zeros((10, 20)),
             dims=["y", "x"],
             coords={"y": np.arange(10) * 0.2, "x": np.arange(20) * 0.1},
         )
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            _ = data.fusi.spacing
 
-    def test_returns_correct_spacing(self, uniform_2d_data):
-        """Returns correct spacing values for uniformly spaced coordinates."""
-        assert uniform_2d_data.fusi.spacing == {
-            "y": pytest.approx(0.2),
-            "x": pytest.approx(0.1),
-        }
+    def test_voxel_to_world_spacing_uses_world_step_lengths(self):
+        """Voxel-to-world spacing comes from voxel steps and affine column norms."""
+        data = _make_voxel_to_world_volume().expand_dims(time=[0.0, 0.5])
 
-    def test_includes_all_dims(self):
-        """All dimensions, including time, are included."""
-        data = xr.DataArray(
-            np.zeros((5, 10)),
-            dims=["time", "x"],
-            coords={"time": np.arange(5) * 0.5, "x": np.arange(10) * 0.1},
-        )
         assert data.fusi.spacing == {
             "time": pytest.approx(0.5),
-            "x": pytest.approx(0.1),
+            "k": pytest.approx(2.0),
+            "j": pytest.approx(2.0 * np.sqrt(10.0)),
+            "i": pytest.approx(4.0),
         }
 
-    def test_non_uniform_warns_and_returns_none(self):
-        """Non-uniform coordinate raises UserWarning and returns None."""
-        coords = np.array([0.0, 0.1, 0.3, 0.7])
-        data = xr.DataArray(np.zeros(4), dims=["x"], coords={"x": coords})
-        with pytest.warns(UserWarning, match="non-uniform"):
-            spacing = data.fusi.spacing
-        assert spacing["x"] is None
+    def test_2d_time_spacing_checked_across_poses(self):
+        """A 2D (time, pose) `time` coordinate's spacing must hold for every pose.
 
-    def test_single_point_with_voxdim_uses_attr(self):
-        """Single-point coordinate uses voxdim attribute when present."""
-        y_coord = xr.DataArray([0.0], dims=["y"], attrs={"voxdim": 0.3})
-        data = xr.DataArray(
-            np.zeros((1, 10)),
-            dims=["y", "x"],
-            coords={"y": y_coord, "x": np.arange(10) * 0.1},
+        Regression: naively reducing other dims to index 0 before computing steps
+        would silently report only pose 0's own time spacing, without checking that
+        it actually holds for the other poses too -- unlike equal spatial scale
+        across poses, which is an enforced construction-time invariant, not an
+        unchecked assumption.
+        """
+        npose = 3
+        n_time = 5
+        affine = np.stack([np.eye(4) for _ in range(npose)])
+
+        matching_time = np.stack(
+            [np.arange(n_time) * 2.4 + p * 0.6 for p in range(npose)], axis=1
         )
-        spacing = data.fusi.spacing
-        assert spacing["y"] == pytest.approx(0.3)
-        assert spacing["x"] == pytest.approx(0.1)
-
-    def test_single_point_without_voxdim_warns_and_returns_none(self):
-        """Single-point coordinate without voxdim warns and returns None."""
-        data = xr.DataArray(
-            np.zeros((1, 10)),
-            dims=["y", "x"],
-            coords={"y": [0.0], "x": np.arange(10) * 0.1},
+        matching = create_voxeldata(
+            np.zeros((n_time, npose, 2, 3, 4)),
+            dims=("time", "pose", "k", "j", "i"),
+            time=matching_time,
+            pose=np.arange(npose),
+            voxel_to_world=affine,
         )
-        with pytest.warns(UserWarning, match="single coordinate point"):
-            spacing = data.fusi.spacing
-        assert spacing["y"] is None
-        assert spacing["x"] == pytest.approx(0.1)
+        assert matching.fusi.spacing["time"] == pytest.approx(2.4)
 
-    def test_dim_order_preserved(self):
-        """Returned dict keys follow DataArray dimension order."""
-        data = xr.DataArray(
-            np.zeros((5, 10, 20)),
-            dims=["z", "y", "x"],
+        mismatched_time = np.stack(
+            [np.arange(n_time) * 2.4, np.arange(n_time) * 2.4, np.arange(n_time) * 3.0],
+            axis=1,
+        )
+        mismatched = create_voxeldata(
+            np.zeros((n_time, npose, 2, 3, 4)),
+            dims=("time", "pose", "k", "j", "i"),
+            time=mismatched_time,
+            pose=np.arange(npose),
+            voxel_to_world=affine,
+        )
+        assert mismatched.fusi.spacing["time"] is None
+
+    def test_direction_without_index_raises(self):
+        """`.fusi.direction` raises clearly without a voxel-to-world index."""
+        data = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
+
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            _ = data.fusi.direction
+
+    def test_voxel_to_world_direction_returns_orientation_matrix(self):
+        """Voxel-to-world direction is the normalized affine linear part."""
+        data = _make_voxel_to_world_volume()
+
+        np.testing.assert_allclose(
+            data.fusi.direction,
+            np.array(
+                [
+                    [1.0, 1.0 / np.sqrt(10.0), 0.0],
+                    [0.0, 3.0 / np.sqrt(10.0), 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+        )
+
+    def test_voxel_to_world_direction_flags_descending_voxel_coordinate(self):
+        """A descending voxel coordinate (e.g. a flipped axis) negates its column.
+
+        The affine's own orientation says nothing about a specific array's voxel
+        coordinate direction, since it maps coordinate *values* to world space, not
+        dense array positions -- `.fusi.direction` must fold that sign in itself so
+        it's directly usable, paired with `.fusi.spacing` (a magnitude) and
+        `.fusi.origin`, as a dense-position `(origin, spacing, direction)` grid (the
+        convention SimpleITK and `reindex_voxels` both expect).
+        """
+        base = xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=["k", "j", "i"],
+            coords={"k": [0, 1], "j": [0, 1, 2], "i": [3, 2, 1, 0]},
+        )
+        data = attach_voxel_to_world_index(base, np.eye(4))
+
+        np.testing.assert_allclose(
+            data.fusi.direction,
+            np.array(
+                [
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, -1.0],
+                ]
+            ),
+        )
+
+
+class TestReindexVoxels:
+    """Tests for fusi.reindex_voxels."""
+
+    def test_rebases_voxel_coords_to_dense_positions(self):
+        """Voxel coordinates become 0, 1, ..., dim - 1 after reindexing."""
+        data = _make_voxel_to_world_volume()
+        result = data.fusi.affine.reindex_voxels()
+        for dim in ("k", "j", "i"):
+            np.testing.assert_array_equal(
+                result.coords[dim].values, np.arange(data.sizes[dim], dtype=float)
+            )
+
+    def test_preserves_world_coordinates(self):
+        """World (z/y/x) coordinates are unchanged by reindexing."""
+        data = _make_voxel_to_world_volume()
+        result = data.fusi.affine.reindex_voxels()
+        for name in ("z", "y", "x"):
+            np.testing.assert_allclose(
+                result.coords[name].values, data.coords[name].values
+            )
+
+    def test_preserves_data_values(self):
+        """Array content is unchanged by reindexing."""
+        data = _make_voxel_to_world_volume()
+        data.values[:] = np.arange(data.size).reshape(data.shape)
+        result = data.fusi.affine.reindex_voxels()
+        np.testing.assert_array_equal(result.values, data.values)
+
+    def test_affine_maps_dense_positions_to_world(self):
+        """The rebuilt affine maps position (0, 0, 0) to the array's actual origin."""
+        data = _make_voxel_to_world_volume()
+        cropped = data.isel(k=slice(1, 2), j=slice(1, 3), i=slice(2, 4))
+        result = cropped.fusi.affine.reindex_voxels()
+        affine = get_voxel_to_world_affine(result)
+        origin = affine @ np.array([0.0, 0.0, 0.0, 1.0])
+        np.testing.assert_allclose(
+            origin[:3],
+            [cropped.fusi.origin[name] for name in ("z", "y", "x")],
+        )
+
+    def test_preserves_world_coordinates_with_descending_voxel_dim(self):
+        """A flipped (descending) voxel dim reindexes to a negative-scale affine.
+
+        Regression test: rebuilding the affine from spacing (a magnitude) and the
+        affine's own orientation, without accounting for the array's own voxel
+        coordinate direction, silently produced the wrong world coordinates for a
+        descending dim (world position increased with array position instead of
+        decreasing).
+        """
+        base = xr.DataArray(
+            np.arange(2 * 3 * 4.0).reshape(2, 3, 4),
+            dims=["k", "j", "i"],
+            coords={"k": [0, 1], "j": [0, 1, 2], "i": [3, 2, 1, 0]},
+        )
+        data = attach_voxel_to_world_index(base, np.eye(4))
+        result = data.fusi.affine.reindex_voxels()
+        np.testing.assert_allclose(
+            result.coords["x"].isel(k=0, j=0).values,
+            data.coords["x"].isel(k=0, j=0).values,
+        )
+
+    def test_pose_dependent_reindexes_every_pose_at_once(self):
+        """Pose-dependent geometry reindexes every pose's affine independently."""
+        affine = np.stack(
+            [
+                np.eye(4),
+                np.array(
+                    [
+                        [1.0, 0.0, 0.0, 100.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+            ]
+        )
+        base = xr.DataArray(
+            np.zeros((2, 2, 3, 4)),
+            dims=("pose", "k", "j", "i"),
             coords={
-                "z": np.arange(5) * 0.5,
-                "y": np.arange(10) * 0.2,
-                "x": np.arange(20) * 0.1,
+                "pose": [0, 1],
+                "k": np.arange(2),
+                "j": np.arange(3),
+                "i": np.arange(4),
             },
         )
-        assert list(data.fusi.spacing.keys()) == ["z", "y", "x"]
+        data = attach_voxel_to_world_index(base, affine)
+        cropped = data.isel(k=slice(1, 2), j=slice(1, 3))
+
+        result = cropped.fusi.affine.reindex_voxels()
+
+        assert result.coords["pose"].dims == ("pose",)
+        np.testing.assert_array_equal(result.coords["pose"].values, [0, 1])
+        np.testing.assert_array_equal(result.coords["k"].values, [0.0])
+        np.testing.assert_allclose(result.coords["z"].values, cropped.coords["z"].values)
+        np.testing.assert_allclose(result.coords["y"].values, cropped.coords["y"].values)
+        np.testing.assert_allclose(result.coords["x"].values, cropped.coords["x"].values)
+        assert get_voxel_to_world_affine(result).shape == (2, 4, 4)
+        np.testing.assert_array_equal(result.values, cropped.values)
+
+    def test_raises_without_voxel_to_world_geometry(self):
+        """A plain DataArray without voxel-to-world geometry raises ValueError."""
+        data = xr.DataArray(np.zeros((2, 3)), dims=["j", "i"])
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            data.fusi.affine.reindex_voxels()
+
+    def test_raises_when_spacing_undefined(self):
+        """Irregular voxel-space coordinates without defined spacing raise ValueError."""
+        base = xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=["k", "j", "i"],
+            coords={"k": [0, 1], "j": [0, 1, 3], "i": np.arange(4)},
+        )
+        data = attach_voxel_to_world_index(base, np.eye(4))
+        with pytest.raises(ValueError, match="spacing is undefined"):
+            data.fusi.affine.reindex_voxels()
+
+    def test_inplace_updates_and_returns_same_object(self):
+        """inplace=True mutates and returns the original DataArray."""
+        data = _make_voxel_to_world_volume()
+        cropped = data.isel(k=slice(1, 2), j=slice(1, 3), i=slice(2, 4))
+
+        returned = cropped.fusi.affine.reindex_voxels(inplace=True)
+
+        assert returned is cropped
+        for dim in ("k", "j", "i"):
+            np.testing.assert_array_equal(
+                cropped.coords[dim].values, np.arange(cropped.sizes[dim], dtype=float)
+            )
+
+
+class TestReindexVoxelsLike:
+    """Tests for fusi.reindex_voxels_like."""
+
+    def _cropped_strided_reference(self) -> xr.DataArray:
+        """A voxel-to-world array cropped and strided from a larger one."""
+        base = xr.DataArray(
+            np.arange(4 * 20 * 20, dtype=np.float64).reshape(4, 20, 20),
+            dims=("k", "j", "i"),
+            coords={
+                "k": np.arange(4),
+                "j": np.arange(20),
+                "i": np.arange(20),
+            },
+        )
+        base = attach_voxel_to_world_index(base, np.diag([1.0, 1.0, 1.0, 1.0]))
+        return base.isel(k=slice(1, 3), j=slice(2, 10, 2), i=slice(1, 15, 3))
+
+    def test_relabels_onto_reference_voxel_coords(self):
+        """Voxel coordinates and affine become reference's after reindexing."""
+        reference = self._cropped_strided_reference()
+        data = reference.fusi.affine.reindex_voxels()
+
+        result = data.fusi.affine.reindex_voxels_like(reference)
+
+        for dim in ("k", "j", "i"):
+            np.testing.assert_array_equal(
+                result.coords[dim].values, reference.coords[dim].values
+            )
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(result), get_voxel_to_world_affine(reference)
+        )
+
+    def test_preserves_data_values_and_world_coordinates(self):
+        """Array content and world coordinates are unchanged by reindexing."""
+        reference = self._cropped_strided_reference()
+        data = reference.fusi.affine.reindex_voxels()
+
+        result = data.fusi.affine.reindex_voxels_like(reference)
+
+        np.testing.assert_array_equal(result.values, data.values)
+        for name in ("z", "y", "x"):
+            np.testing.assert_allclose(
+                result.coords[name].values, data.coords[name].values
+            )
+
+    def test_preserves_reference_coord_attrs(self):
+        """Reindexed world coordinates carry reference's attrs (e.g. units)."""
+        reference = self._cropped_strided_reference()
+        data = reference.fusi.affine.reindex_voxels()
+
+        result = data.fusi.affine.reindex_voxels_like(reference)
+
+        assert result.coords["z"].attrs["units"] == "mm"
+
+    def test_raises_on_shape_mismatch(self):
+        """Different voxel grid shapes cannot be reindexed onto each other."""
+        reference = self._cropped_strided_reference()
+        data = reference.isel(i=slice(0, -1)).fusi.affine.reindex_voxels()
+
+        with pytest.raises(ValueError, match="same voxel grid shape"):
+            data.fusi.affine.reindex_voxels_like(reference)
+
+    def test_raises_when_not_physically_aligned(self):
+        """Data occupying a different world grid than reference raises."""
+        reference = self._cropped_strided_reference()
+        misaligned = reference.fusi.affine.reindex_voxels().fusi.affine.apply(
+            np.array(
+                [
+                    [1.0, 0.0, 0.0, 100.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            )
+        )
+
+        with pytest.raises(ValueError, match="not aligned in world space"):
+            misaligned.fusi.affine.reindex_voxels_like(reference)
+
+    def test_raises_without_voxel_to_world_geometry(self):
+        """Either side lacking voxel-to-world geometry raises ValueError."""
+        reference = self._cropped_strided_reference()
+        data = reference.fusi.affine.reindex_voxels()
+        plain = xr.DataArray(np.zeros((2, 4, 5)), dims=["k", "j", "i"])
+
+        with pytest.raises(ValueError, match="data must have a voxel-to-world index"):
+            plain.fusi.affine.reindex_voxels_like(reference)
+        with pytest.raises(
+            ValueError, match="reference must have a voxel-to-world index"
+        ):
+            data.fusi.affine.reindex_voxels_like(plain)
+
+    def test_raises_on_voxel_dim_mismatch(self):
+        """Different active voxel dimensions (e.g. a fixed `k`) cannot be reindexed."""
+        reference = self._cropped_strided_reference()
+        data_k_fixed = reference.isel(k=0)
+
+        with pytest.raises(ValueError, match="same voxel dimensions"):
+            data_k_fixed.fusi.affine.reindex_voxels_like(reference)
+
+    def test_inplace_updates_and_returns_same_object(self):
+        """inplace=True mutates and returns the original DataArray."""
+        reference = self._cropped_strided_reference()
+        data = reference.fusi.affine.reindex_voxels()
+
+        returned = data.fusi.affine.reindex_voxels_like(reference, inplace=True)
+
+        assert returned is data
+        for dim in ("k", "j", "i"):
+            np.testing.assert_array_equal(
+                data.coords[dim].values, reference.coords[dim].values
+            )
+
+
+class TestAffineSetVoxelToWorldMethod:
+    """Tests for fusi.affine.set_voxel_to_world."""
+
+    def _make_data(self) -> xr.DataArray:
+        return xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=["k", "j", "i"],
+            coords={
+                "k": [0, 1],
+                "j": [0, 1, 2],
+                "i": [0, 1, 2, 3],
+            },
+        )
+
+    def test_replaces_geometry_with_new_affine(self):
+        """The resulting voxel_to_world affine matches the one supplied."""
+        data = self._make_data()
+        affine = np.array(
+            [
+                [2.0, 0.0, 0.0, 10.0],
+                [0.0, 3.0, 0.0, 20.0],
+                [0.0, 0.0, 4.0, 30.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        result = data.fusi.affine.set_voxel_to_world(affine)
+        np.testing.assert_allclose(get_voxel_to_world_affine(result), affine)
+        # World coordinates are broadcast over all voxel dims; spot-check one
+        # voxel per axis against the affine applied by hand.
+        assert result.coords["z"].isel(k=1, j=0, i=0).item() == pytest.approx(12.0)
+        assert result.coords["y"].isel(k=0, j=1, i=0).item() == pytest.approx(23.0)
+        assert result.coords["x"].isel(k=0, j=0, i=1).item() == pytest.approx(34.0)
+
+    def test_inplace_updates_and_returns_same_object(self):
+        """inplace=True mutates and returns the original DataArray."""
+        data = self._make_data()
+        affine = np.diag([2.0, 3.0, 4.0, 1.0])
+
+        returned = data.fusi.affine.set_voxel_to_world(affine, inplace=True)
+
+        assert returned is data
+        np.testing.assert_allclose(get_voxel_to_world_affine(data), affine)
+        assert data.coords["z"].isel(k=1, j=0, i=0).item() == pytest.approx(2.0)
+
+    def test_units_defaults_to_mm_for_first_attachment(self):
+        """`units` defaults to `"mm"` when the DataArray had no prior geometry."""
+        data = self._make_data()
+        result = data.fusi.affine.set_voxel_to_world(np.eye(4))
+        assert result.fusi.affine.units == "mm"
+
+    def test_units_carries_over_when_not_given(self):
+        """`units` defaults to the existing unit when replacing an affine."""
+        data = self._make_data().fusi.affine.set_voxel_to_world(np.eye(4), units="um")
+        result = data.fusi.affine.set_voxel_to_world(np.diag([2.0, 3.0, 4.0, 1.0]))
+        assert result.fusi.affine.units == "um"
+
+    def test_units_can_be_overridden(self):
+        """`units` replaces the existing unit when explicitly given."""
+        data = self._make_data().fusi.affine.set_voxel_to_world(np.eye(4), units="um")
+        result = data.fusi.affine.set_voxel_to_world(np.eye(4), units="mm")
+        assert result.fusi.affine.units == "mm"
 
 
 class TestAffineToMethod:
@@ -293,9 +668,7 @@ class TestAffineToMethod:
         """Seeded random number generator."""
         return np.random.default_rng(42)
 
-    def _make_scan(
-        self, affine: np.ndarray, via: str = "physical_to_lab"
-    ) -> xr.DataArray:
+    def _make_scan(self, affine: np.ndarray, via: str = "world_to_lab") -> xr.DataArray:
         return xr.DataArray(
             np.zeros((4, 4, 4)),
             attrs={"affines": {via: affine}},
@@ -306,7 +679,7 @@ class TestAffineToMethod:
         affine = np.eye(4)
         a = self._make_scan(affine)
         b = self._make_scan(affine)
-        result = a.fusi.affine.to(b, via="physical_to_lab")
+        result = a.fusi.affine.to(b, via="world_to_lab")
         np.testing.assert_allclose(result, np.eye(4), atol=1e-12)
 
     def test_known_relative_transform(self):
@@ -330,7 +703,7 @@ class TestAffineToMethod:
         a = self._make_scan(a_affine)
         b = self._make_scan(b_affine)
         expected = np.linalg.inv(b_affine) @ a_affine
-        result = a.fusi.affine.to(b, via="physical_to_lab")
+        result = a.fusi.affine.to(b, via="world_to_lab")
         np.testing.assert_allclose(result, expected, atol=1e-12)
 
     def test_inverse_is_consistent(self, rng):
@@ -351,16 +724,16 @@ class TestAffineToMethod:
         a = self._make_scan(a_affine)
         b = self._make_scan(b_affine)
 
-        a_to_b = a.fusi.affine.to(b, via="physical_to_lab")
-        b_to_a = b.fusi.affine.to(a, via="physical_to_lab")
+        a_to_b = a.fusi.affine.to(b, via="world_to_lab")
+        b_to_a = b.fusi.affine.to(a, via="world_to_lab")
         np.testing.assert_allclose(a_to_b, np.linalg.inv(b_to_a), atol=1e-12)
 
     def test_custom_via_key(self):
-        """Works with a via key other than physical_to_lab."""
+        """Works with a via key other than world_to_lab."""
         affine = np.eye(4)
-        a = self._make_scan(affine, via="physical_to_mri")
-        b = self._make_scan(affine, via="physical_to_mri")
-        result = a.fusi.affine.to(b, via="physical_to_mri")
+        a = self._make_scan(affine, via="world_to_mri")
+        b = self._make_scan(affine, via="world_to_mri")
+        result = a.fusi.affine.to(b, via="world_to_mri")
         np.testing.assert_allclose(result, np.eye(4), atol=1e-12)
 
     def test_missing_affines_on_self_raises(self):
@@ -368,19 +741,19 @@ class TestAffineToMethod:
         a = xr.DataArray(np.zeros((2, 2)))
         b = self._make_scan(np.eye(4))
         with pytest.raises(ValueError, match="self does not have"):
-            a.fusi.affine.to(b, via="physical_to_lab")
+            a.fusi.affine.to(b, via="world_to_lab")
 
     def test_missing_affines_on_other_raises(self):
         """Raises ValueError when other has no affines in attrs."""
         a = self._make_scan(np.eye(4))
         b = xr.DataArray(np.zeros((2, 2)))
         with pytest.raises(ValueError, match="other does not have"):
-            a.fusi.affine.to(b, via="physical_to_lab")
+            a.fusi.affine.to(b, via="world_to_lab")
 
     def test_missing_via_key_raises(self):
         """Raises KeyError when via key is absent from the affines dict."""
-        a = self._make_scan(np.eye(4), via="physical_to_lab")
-        b = self._make_scan(np.eye(4), via="physical_to_lab")
+        a = self._make_scan(np.eye(4), via="world_to_lab")
+        b = self._make_scan(np.eye(4), via="world_to_lab")
         with pytest.raises(KeyError):
             a.fusi.affine.to(b, via="nonexistent_key")
 
@@ -389,29 +762,8 @@ class TestAffineToMethod:
         affine = np.eye(4)
         a = self._make_scan(affine)
         b = self._make_scan(affine)
-        result = a.fusi.affine.to(b, via="physical_to_lab")
+        result = a.fusi.affine.to(b, via="world_to_lab")
         assert result.shape == (4, 4)
-
-
-def _assert_affine_round_trip(result, orientation, applied, old):
-    """Check `orientation @ new_physical == applied @ old_physical` at sample voxels.
-
-    A 3D affine is fixed by four affinely independent points, so a handful of
-    representative voxels (the origin, one step along each axis, plus an interior
-    point) is a complete reference comparison.
-    """
-    iz, iy, ix = [0, 2, 0, 0, 1], [0, 0, 3, 0, 2], [0, 0, 0, 4, 3]
-    ones = np.ones(len(iz))
-    old_pts = np.stack([old["z"][iz], old["y"][iy], old["x"][ix], ones])
-    new_pts = np.stack(
-        [
-            result.coords["z"].values[iz],
-            result.coords["y"].values[iy],
-            result.coords["x"].values[ix],
-            ones,
-        ]
-    )
-    np.testing.assert_allclose(orientation @ new_pts, applied @ old_pts, atol=1e-10)
 
 
 class TestAffineApplyMethod:
@@ -420,36 +772,36 @@ class TestAffineApplyMethod:
     def _make_scan(
         self,
         shape: tuple[int, ...] = (3, 4, 5),
-        dims: tuple[str, ...] = ("z", "y", "x"),
+        dims: tuple[str, ...] = ("k", "j", "i"),
         spacing: tuple[float, ...] = (1.0, 1.0, 1.0),
         origin: tuple[float, ...] = (0.0, 0.0, 0.0),
         affines: dict | None = None,
     ) -> xr.DataArray:
-        coords = {
-            dim: np.arange(n) * sp + orig
-            for dim, n, sp, orig in zip(dims, shape, spacing, origin)
-        }
-        return xr.DataArray(
+        coords = {dim: np.arange(n) for dim, n in zip(dims, shape)}
+        affine = np.eye(len(dims) + 1)
+        affine[:-1, :-1] = np.diag(spacing[: len(dims)])
+        affine[:-1, -1] = origin[: len(dims)]
+        base = xr.DataArray(
             np.zeros(shape),
             dims=list(dims),
             coords=coords,
             attrs={"affines": affines} if affines is not None else {},
         )
+        return attach_voxel_to_world_index(base, affine)
 
     def test_identity_leaves_coords_unchanged(self):
-        """Applying the identity affine leaves coords unchanged and orientation I."""
+        """Applying the identity affine leaves coords unchanged."""
         da = self._make_scan(origin=(1.0, 2.0, 3.0))
-        result, orientation = da.fusi.affine.apply(np.eye(4))
+        result = da.fusi.affine.apply(np.eye(4))
         for dim in ("z", "y", "x"):
             np.testing.assert_allclose(result.coords[dim].values, da.coords[dim].values)
-        np.testing.assert_allclose(orientation, np.eye(4))
 
     def test_pure_translation_shifts_coords(self):
         """A pure translation shifts all coordinate arrays by the given amount."""
         da = self._make_scan()
         shift = np.eye(4)
         shift[:3, 3] = [10.0, 5.0, -3.0]
-        result, _ = da.fusi.affine.apply(shift)
+        result = da.fusi.affine.apply(shift)
         np.testing.assert_allclose(
             result.coords["z"].values, da.coords["z"].values + 10.0
         )
@@ -464,7 +816,7 @@ class TestAffineApplyMethod:
         """A diagonal scaling matrix scales coordinate values."""
         da = self._make_scan(spacing=(1.0, 1.0, 1.0))
         scale = np.diag([2.0, 3.0, 0.5, 1.0])
-        result, _ = da.fusi.affine.apply(scale)
+        result = da.fusi.affine.apply(scale)
         np.testing.assert_allclose(
             result.coords["z"].values, da.coords["z"].values * 2.0
         )
@@ -476,7 +828,7 @@ class TestAffineApplyMethod:
         )
 
     def test_single_axis_flip_negates_only_that_coord(self):
-        """A sign flip on any single axis negates only that axis, orientation I.
+        """A sign flip on any single axis negates only that axis.
 
         Regression: a y- or x-axis flip must negate y or x (not z). A diagonal
         affine is axis-aligned regardless of which axis carries the sign, so the
@@ -487,7 +839,7 @@ class TestAffineApplyMethod:
         for axis, flipped in enumerate(("z", "y", "x")):
             flip = np.eye(4)
             flip[axis, axis] = -1.0
-            result, orientation = base.fusi.affine.apply(flip)
+            result = base.fusi.affine.apply(flip)
             for dim in ("z", "y", "x"):
                 expected = (
                     -base.coords[dim].values
@@ -495,37 +847,25 @@ class TestAffineApplyMethod:
                     else base.coords[dim].values
                 )
                 np.testing.assert_allclose(result.coords[dim].values, expected)
-            np.testing.assert_allclose(orientation, np.eye(4))
 
     def test_multi_axis_flip_negates_flipped_coords(self):
-        """A multi-axis sign flip is diagonal: negates each flipped axis, orientation I."""
+        """A multi-axis sign flip is diagonal: negates each flipped axis."""
         da = self._make_scan(spacing=(1.0, 1.0, 1.0), origin=(1.0, 2.0, 3.0))
         flip = np.diag([-1.0, -1.0, 1.0, 1.0])
-        result, orientation = da.fusi.affine.apply(flip)
+        result = da.fusi.affine.apply(flip)
         np.testing.assert_allclose(result.coords["z"].values, -da.coords["z"].values)
         np.testing.assert_allclose(result.coords["y"].values, -da.coords["y"].values)
         np.testing.assert_allclose(result.coords["x"].values, da.coords["x"].values)
-        np.testing.assert_allclose(orientation, np.eye(4))
 
-    def test_scaling_updates_voxdim_attrs(self):
-        """A scaling affine rescales each coord's `voxdim` by the absolute zoom.
-
-        Regression: `voxdim` used to be copied verbatim, leaving a stale voxel
-        size after any zooming affine (and hence a wrong pixdim/qform when the
-        scan is saved to NIfTI).
-        """
+    def test_scaling_updates_affine_derived_spacing(self):
+        """A scaling affine rescales each axis's affine-derived spacing by the
+        absolute zoom (and hence the pixdim/qform written on NIfTI save)."""
         da = self._make_scan()
-        voxdims = {"z": 0.1, "y": 0.2, "x": 0.3}
-        for dim, voxdim in voxdims.items():
-            da.coords[dim].attrs["voxdim"] = voxdim
         scale = np.diag([2.0, 3.0, -0.5, 1.0])
-        result, _ = da.fusi.affine.apply(scale)
-        for dim, zoom in zip(("z", "y", "x"), (2.0, 3.0, 0.5)):
-            assert result.coords[dim].attrs["voxdim"] == pytest.approx(
-                voxdims[dim] * zoom
-            )
-            # The input scan's voxdim must not be mutated.
-            assert da.coords[dim].attrs["voxdim"] == voxdims[dim]
+        result = da.fusi.affine.apply(scale)
+        output_affine = get_voxel_to_world_affine(result)
+        for col, expected in zip(range(3), (2.0, 3.0, 0.5)):
+            assert np.linalg.norm(output_affine[:3, col]) == pytest.approx(expected)
 
     def test_wrong_shape_raises_value_error(self):
         """Affines with shape other than (4, 4) raise ValueError."""
@@ -533,12 +873,88 @@ class TestAffineApplyMethod:
         with pytest.raises(ValueError, match="shape"):
             da.fusi.affine.apply(np.eye(3))
 
+    def test_raises_without_voxel_to_world_geometry(self):
+        """A plain DataArray without voxel-to-world geometry raises ValueError."""
+        da = xr.DataArray(np.zeros((2, 3)), dims=["j", "i"])
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            da.fusi.affine.apply(np.eye(3))
+
+    def _make_pose_dependent_scan(self) -> xr.DataArray:
+        """Build a pose-dependent (2, 2, 3, 4) DataArray for `apply` broadcast tests."""
+        affine = np.stack(
+            [
+                np.eye(4),
+                np.array(
+                    [
+                        [1.0, 0.0, 0.0, 100.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+            ]
+        )
+        base = xr.DataArray(
+            np.zeros((2, 2, 3, 4)),
+            dims=("pose", "k", "j", "i"),
+            coords={
+                "pose": [0, 1],
+                "k": np.arange(2),
+                "j": np.arange(3),
+                "i": np.arange(4),
+            },
+        )
+        return attach_voxel_to_world_index(base, affine)
+
+    def test_single_affine_broadcasts_over_every_pose(self):
+        """A single (4, 4) world-space affine broadcasts over every pose."""
+        da = self._make_pose_dependent_scan()
+        shift = np.eye(4)
+        shift[:3, -1] = [5.0, 0.0, 0.0]
+
+        result = da.fusi.affine.apply(shift)
+
+        np.testing.assert_allclose(
+            result.coords["z"].isel(pose=0, j=0, i=0).values,
+            da.coords["z"].isel(pose=0, j=0, i=0).values + 5.0,
+        )
+        np.testing.assert_allclose(
+            result.coords["z"].isel(pose=1, j=0, i=0).values,
+            da.coords["z"].isel(pose=1, j=0, i=0).values + 5.0,
+        )
+
+    def test_pose_stacked_affine_applies_per_pose(self):
+        """A pose-stacked world-space affine applies a distinct transform per pose."""
+        da = self._make_pose_dependent_scan()
+        shift = np.eye(4)
+        shift[:3, -1] = [5.0, 0.0, 0.0]
+        stacked = np.stack([shift, np.eye(4)])
+
+        result = da.fusi.affine.apply(stacked)
+
+        np.testing.assert_allclose(
+            result.coords["z"].isel(pose=0, j=0, i=0).values,
+            da.coords["z"].isel(pose=0, j=0, i=0).values + 5.0,
+        )
+        np.testing.assert_allclose(
+            result.coords["z"].isel(pose=1, j=0, i=0).values,
+            da.coords["z"].isel(pose=1, j=0, i=0).values,
+        )
+
+    def test_pose_stacked_affine_wrong_pose_length_raises(self):
+        """A pose-stacked affine with a mismatched pose count raises ValueError."""
+        da = self._make_pose_dependent_scan()
+        wrong_length = np.stack([np.eye(4), np.eye(4), np.eye(4)])
+
+        with pytest.raises(ValueError, match="shape"):
+            da.fusi.affine.apply(wrong_length)
+
     def test_string_key_looks_up_stored_affine(self):
         """A string `affine` is resolved from `attrs["affines"]` before applying."""
         shift = np.eye(4)
         shift[:3, 3] = [10.0, 5.0, -3.0]
-        da = self._make_scan(affines={"physical_to_lab": shift})
-        result, _ = da.fusi.affine.apply("physical_to_lab")
+        da = self._make_scan(affines={"world_to_lab": shift})
+        result = da.fusi.affine.apply("world_to_lab")
         np.testing.assert_allclose(
             result.coords["z"].values, da.coords["z"].values + 10.0
         )
@@ -549,17 +965,29 @@ class TestAffineApplyMethod:
             result.coords["x"].values, da.coords["x"].values - 3.0
         )
 
+    def test_string_key_applied_dropped_from_result(self):
+        """Applying by key drops that key: composing it with itself is always
+        identity, so the entry carries no information after applying."""
+        shift = np.eye(4)
+        shift[:3, 3] = [10.0, 5.0, -3.0]
+        da = self._make_scan(
+            affines={"world_to_lab": shift, "world_to_atlas": np.eye(4)}
+        )
+        result = da.fusi.affine.apply("world_to_lab")
+        assert "world_to_lab" not in result.attrs["affines"]
+        assert "world_to_atlas" in result.attrs["affines"]
+
     def test_string_key_missing_affines_attr_raises_value_error(self):
         """A string `affine` raises ValueError when `da` has no `affines` attr."""
         da = self._make_scan()
         with pytest.raises(ValueError, match="does not have an 'affines' entry"):
-            da.fusi.affine.apply("physical_to_lab")
+            da.fusi.affine.apply("world_to_lab")
 
     def test_string_key_not_found_raises_key_error(self):
         """A string `affine` absent from `attrs["affines"]` raises KeyError."""
-        da = self._make_scan(affines={"physical_to_lab": np.eye(4)})
-        with pytest.raises(KeyError, match="physical_to_mri"):
-            da.fusi.affine.apply("physical_to_mri")
+        da = self._make_scan(affines={"world_to_lab": np.eye(4)})
+        with pytest.raises(KeyError, match="world_to_mri"):
+            da.fusi.affine.apply("world_to_mri")
 
     def test_stored_affines_updated_single(self):
         """Stored (4, 4) affines are updated by M_new = M_old @ inv(affine)."""
@@ -571,13 +999,13 @@ class TestAffineApplyMethod:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        da = self._make_scan(affines={"physical_to_lab": stored})
+        da = self._make_scan(affines={"world_to_lab": stored})
         shift = np.eye(4)
         shift[:3, 3] = [1.0, 2.0, 3.0]
-        result, _ = da.fusi.affine.apply(shift)
+        result = da.fusi.affine.apply(shift)
         expected = stored @ np.linalg.inv(shift)
         np.testing.assert_allclose(
-            result.attrs["affines"]["physical_to_lab"], expected, atol=1e-12
+            result.attrs["affines"]["world_to_lab"], expected, atol=1e-12
         )
 
     def test_stored_affines_updated_per_pose_stack(self):
@@ -591,40 +1019,21 @@ class TestAffineApplyMethod:
             stored[i, :3, :3] = q
             stored[i, :3, 3] = rng.standard_normal(3)
             stored[i, 3, 3] = 1.0
-        da = self._make_scan(affines={"physical_to_lab": stored})
+        da = self._make_scan(affines={"world_to_lab": stored})
         scale = np.diag([2.0, 1.0, 1.0, 1.0])
-        result, _ = da.fusi.affine.apply(scale)
+        result = da.fusi.affine.apply(scale)
         inv_scale = np.linalg.inv(scale)
         expected = stored @ inv_scale
         np.testing.assert_allclose(
-            result.attrs["affines"]["physical_to_lab"], expected, atol=1e-12
+            result.attrs["affines"]["world_to_lab"], expected, atol=1e-12
         )
-
-    def test_partial_dims_only_updates_present_dims(self):
-        """Only dimensions present in da.dims are updated."""
-        # 2-D scan with only z and y (no x).
-        da = xr.DataArray(
-            np.zeros((3, 4)),
-            dims=["z", "y"],
-            coords={"z": np.arange(3) * 1.0, "y": np.arange(4) * 1.0},
-        )
-        shift = np.eye(4)
-        shift[:3, 3] = [10.0, 5.0, 99.0]  # x-shift should have no effect.
-        result, _ = da.fusi.affine.apply(shift)
-        np.testing.assert_allclose(
-            result.coords["z"].values, da.coords["z"].values + 10.0
-        )
-        np.testing.assert_allclose(
-            result.coords["y"].values, da.coords["y"].values + 5.0
-        )
-        assert "x" not in result.coords
 
     def test_unexpected_affine_shape_is_passed_through(self):
         """Unexpected stored affine shapes are kept unchanged."""
         weird = np.array([1.0, 2.0, 3.0])
         da = self._make_scan(affines={"weird": weird})
 
-        result, _ = da.fusi.affine.apply(np.eye(4))
+        result = da.fusi.affine.apply(np.eye(4))
 
         np.testing.assert_allclose(result.attrs["affines"]["weird"], weird)
 
@@ -635,17 +1044,14 @@ class TestAffineApplyMethod:
         shift = np.eye(4)
         shift[0, 3] = 2.0
 
-        returned, _ = da.fusi.affine.apply(shift, inplace=True)
+        returned = da.fusi.affine.apply(shift, inplace=True)
 
         assert returned is da
         np.testing.assert_allclose(da.coords["z"].values, original_z + 2.0)
 
-    def test_rotation_returns_round_trip_orientation(self):
-        """A rotation absorbs zoom/translation into coords and returns the
-        residual orientation, mapping new physical coords to the affine's world."""
+    def test_rotation_composes_fully_into_voxel_to_world(self):
+        """A rotation composes fully into `voxel_to_world` (no residual)."""
         da = self._make_scan(shape=(3, 4, 5), spacing=(1.0, 1.0, 1.0))
-        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
-        # 90 deg rotation in the z-y plane, zoom [2, 3, 4], translation [1, 2, 3].
         affine = np.array(
             [
                 [0.0, -3.0, 0.0, 1.0],
@@ -654,27 +1060,24 @@ class TestAffineApplyMethod:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        result, orientation = da.fusi.affine.apply(affine)
-        _assert_affine_round_trip(result, orientation, affine, old)
+        result = da.fusi.affine.apply(affine)
+        np.testing.assert_allclose(get_voxel_to_world_affine(result), affine)
 
-    def test_shear_returns_round_trip_orientation(self):
-        """A shear is axis-mixing (identity rotation, nonzero off-diagonal) and
-        returns a residual orientation that round-trips."""
+    def test_shear_composes_fully_into_voxel_to_world(self):
+        """A shear (identity rotation, nonzero off-diagonal) composes fully too."""
         da = self._make_scan(shape=(3, 4, 5), spacing=(1.0, 1.0, 1.0))
-        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
         shear = np.eye(4)
-        shear[0, 1] = 0.5  # z depends on y: off-diagonal, axis-mixing.
-        result, orientation = da.fusi.affine.apply(shear)
-        _assert_affine_round_trip(result, orientation, shear, old)
+        shear[0, 1] = 0.5
+        result = da.fusi.affine.apply(shear)
+        np.testing.assert_allclose(get_voxel_to_world_affine(result), shear)
 
     def test_axis_permutation_does_not_introduce_spurious_coord_flip(self):
-        """A mixing affine absorbs unsigned zoom only, leaving reflections in orientation."""
+        """A mixing affine composes fully, including any reflection."""
         da = self._make_scan(
             shape=(3, 4, 5),
             spacing=(1.0, 1.0, 1.0),
             origin=(10.0, 20.0, 30.0),
         )
-        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
         affine = np.array(
             [
                 [0.0, 1.0, 0.0, 0.0],
@@ -683,21 +1086,17 @@ class TestAffineApplyMethod:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        result, orientation = da.fusi.affine.apply(affine)
+        result = da.fusi.affine.apply(affine)
 
-        np.testing.assert_allclose(result.coords["z"].values, da.coords["z"].values)
-        np.testing.assert_allclose(result.coords["y"].values, da.coords["y"].values)
-        np.testing.assert_allclose(result.coords["x"].values, da.coords["x"].values)
-        _assert_affine_round_trip(result, orientation, affine, old)
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(result), affine @ get_voxel_to_world_affine(da)
+        )
 
     def test_mixing_affine_reexpresses_existing_stored_affine(self):
         """Existing stored affines stay valid after an axis-mixing affine."""
         stored = np.eye(4)
         stored[:3, 3] = [5.0, 6.0, 7.0]
-        da = self._make_scan(
-            spacing=(1.0, 1.0, 1.0), affines={"physical_to_lab": stored}
-        )
-        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
+        da = self._make_scan(spacing=(1.0, 1.0, 1.0), affines={"world_to_lab": stored})
         affine = np.array(
             [
                 [0.0, -1.0, 0.0, 0.0],
@@ -706,8 +1105,7 @@ class TestAffineApplyMethod:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        result, _ = da.fusi.affine.apply(affine)
-        # lab position is frame-independent: M @ new_physical == stored @ old_physical.
-        _assert_affine_round_trip(
-            result, result.attrs["affines"]["physical_to_lab"], stored, old
+        result = da.fusi.affine.apply(affine)
+        np.testing.assert_allclose(
+            result.attrs["affines"]["world_to_lab"], stored @ np.linalg.inv(affine)
         )

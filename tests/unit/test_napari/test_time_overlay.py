@@ -11,6 +11,7 @@ import xarray as xr
 
 from confusius._napari._time_overlay import _TimeOverlay
 from confusius.plotting import plot_napari
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
@@ -39,18 +40,12 @@ def _make_4d_da(
     """Create a minimal 4D DataArray with the given time coordinates."""
     shape = (len(time_coords), 4, 6, 8)
     data = rng.random(shape).astype(np.float32)
-    z0, y0, x0 = spatial_translate
-    return xr.DataArray(
+    return create_voxeldata(
         data,
-        dims=["time", "z", "y", "x"],
-        coords={
-            "time": xr.DataArray(
-                time_coords, dims=["time"], attrs={"units": time_units}
-            ),
-            "z": xr.DataArray(z0 + np.arange(4) * 0.2, dims=["z"]),
-            "y": xr.DataArray(y0 + np.arange(6) * 0.1, dims=["y"]),
-            "x": xr.DataArray(x0 + np.arange(8) * 0.05, dims=["x"]),
-        },
+        dims=("time", "k", "j", "i"),
+        time=xr.DataArray(time_coords, dims=["time"], attrs={"units": time_units}),
+        spacing=(0.2, 0.1, 0.05),
+        origin=spatial_translate,
     )
 
 
@@ -78,12 +73,12 @@ class TestTimeOverlay:
         assert "ms" in viewer.text_overlay.text
 
     def test_updates_text_when_time_step_changes(
-        self, sample_3dt_volume, make_napari_viewer
+        self, sample_voxeldata_3dt, make_napari_viewer
     ) -> None:
         """Changing the time slider updates the overlay text."""
         viewer = make_napari_viewer()
         _, _ = plot_napari(
-            sample_3dt_volume,
+            sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
@@ -95,7 +90,7 @@ class TestTimeOverlay:
 
         viewer.dims.set_current_step(overlay._time_idx, 3)
 
-        expected_time = float(sample_3dt_volume.coords["time"].values[3])
+        expected_time = float(sample_voxeldata_3dt.coords["time"].values[3])
         expected = f"{expected_time:.2f} s"
         assert viewer.text_overlay.text == expected
         assert viewer.text_overlay.visible
@@ -105,7 +100,7 @@ class TestTimeOverlay:
     ) -> None:
         """Overlay must show the actual xarray coordinate, not the linear approximation.
 
-        When time spacing is non-uniform, napari's ``dims.point`` uses a linear
+        When time spacing is non-uniform, napari's `dims.point` uses a linear
         scale/translate approximation (median spacing) that diverges from the
         true coordinate values. The overlay should display the real coordinate
         so it stays consistent with the signal plotter's x-axis cursor.
@@ -233,12 +228,12 @@ class TestTimeOverlay:
         assert overlay._ref_layer is layer_a
 
     def test_deactivates_when_time_layer_is_removed(
-        self, sample_3dt_volume, make_napari_viewer
+        self, sample_voxeldata_3dt, make_napari_viewer
     ) -> None:
         """Removing the only time-aware layer hides and clears the overlay."""
         viewer = make_napari_viewer()
         _, layer = plot_napari(
-            sample_3dt_volume,
+            sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,

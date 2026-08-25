@@ -25,5 +25,5 @@ def cache_key(
 
 
 def cache_dir(root: Path, key: str) -> Path:
-    """Return the cache directory for ``key`` rooted at ``root``."""
+    """Return the cache directory for `key` rooted at `root`."""
     return root / key
