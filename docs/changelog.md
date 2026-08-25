@@ -108,6 +108,15 @@ Current development version for the next ConfUSIus release.
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 ### :sparkles: Enhancements
 
+- [`clean`][confusius.signal.clean],
+  [`regress_confounds`][confusius.signal.regress_confounds],
+  [`censor_samples`][confusius.signal.censor_samples], and
+  [`interpolate_samples`][confusius.signal.interpolate_samples] now accept NumPy
+  `confounds` and `sample_mask` (time along the first axis); they take the signals'
+  `time` coordinates and warn since alignment cannot be verified.
+  [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] now also accepts
+  `confounds` as a `(time, n_confounds)` DataArray, validated against the run's `time`
+  coordinates ([#394](https://github.com/confusius-tools/confusius/pull/394)).
 - `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
   support pose-dependent voxel-to-world geometry: a `(npose, 4, 4)` affine
   stack, one per pose, instead of one affine shared by every pose. New

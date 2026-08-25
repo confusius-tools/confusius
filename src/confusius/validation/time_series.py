@@ -1,11 +1,15 @@
 """Time series validation utilities."""
 
+import warnings
 from typing import Literal, overload
 
+import numpy as np
 import xarray as xr
 
 from confusius._dims import TIME_DIM
 from confusius._utils.coordinates import get_coordinate_spacing_info
+from confusius._utils.stack import find_stack_level
+from confusius.validation.coordinates import validate_matching_coordinates
 
 
 def validate_required_time_dimension(data: xr.DataArray) -> None:
@@ -194,3 +198,80 @@ def validate_time_series(
     return time_axis, validate_uniform_time(
         time_series, operation_name, uniformity_tolerance
     )
+
+
+def ensure_time_aligned(
+    signals: xr.DataArray, value: xr.DataArray | np.ndarray, name: str
+) -> xr.DataArray:
+    """Return `value` as a DataArray aligned with `signals` along `time`.
+
+    A DataArray `value` is validated against `signals`: it must have a `time`
+    dimension, and when both carry `time` coordinates these must match. A NumPy
+    `value` is assumed to be ordered like `signals` along its first axis and is wrapped
+    in a DataArray carrying the `time` coordinates of `signals`.
+
+    Parameters
+    ----------
+    signals : (time, ...) xarray.DataArray
+        Signals defining the `time` grid.
+    value : (time, ...) xarray.DataArray or numpy.ndarray
+        Array to align. A NumPy array must be 1D `(time,)` or 2D `(time, n)`; its
+        second axis is named `confound`.
+    name : str
+        Name of `value` used in error and warning messages.
+
+    Returns
+    -------
+    (time, ...) xarray.DataArray
+        `value` itself when it is a DataArray, otherwise a DataArray wrapping it.
+
+    Raises
+    ------
+    TypeError
+        If `value` is neither an xarray.DataArray nor a NumPy array.
+    ValueError
+        If a DataArray `value` has no `time` dimension or its `time` coordinates do not
+        match those of `signals`, or if a NumPy `value` is not 1D or 2D or its first
+        axis does not match the number of timepoints in `signals`.
+
+    Warns
+    -----
+    UserWarning
+        If `value` is a NumPy array, since alignment with `signals` cannot be verified.
+    """
+    if isinstance(value, xr.DataArray):
+        if TIME_DIM not in value.dims:
+            raise ValueError(f"{name} must have a 'time' dimension")
+        if TIME_DIM in signals.coords and TIME_DIM in value.coords:
+            try:
+                validate_matching_coordinates(signals, value, TIME_DIM)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{name} time coordinates do not match signals time coordinates"
+                ) from exc
+        return value
+
+    if not isinstance(value, np.ndarray):
+        raise TypeError(
+            f"{name} must be an xarray.DataArray or numpy.ndarray, "
+            f"got {type(value).__name__}"
+        )
+    if value.ndim not in (1, 2):
+        raise ValueError(f"{name} must be 1D or 2D, got {value.ndim}D")
+    n_time = signals.sizes[TIME_DIM]
+    if value.shape[0] != n_time:
+        raise ValueError(
+            f"{name} length ({value.shape[0]}) must match number of timepoints "
+            f"({n_time})"
+        )
+
+    warnings.warn(
+        f"{name} is a NumPy array, so its alignment with signals cannot be verified; "
+        "assuming it is ordered like signals along 'time' and using the 'time' "
+        "coordinates of signals.",
+        stacklevel=find_stack_level(),
+    )
+    coords = {TIME_DIM: signals.coords[TIME_DIM]} if TIME_DIM in signals.coords else {}
+    return xr.DataArray(
+        value, dims=(TIME_DIM, "confound")[: value.ndim], coords=coords
+    ).reset_coords(drop=True)

@@ -634,3 +634,44 @@ def test_clean_rejects_invalid_filter_method(make_sample_timeseries):
             low_cutoff=0.1,
             filter_method="invalid",  # ty: ignore[invalid-argument-type]
         )
+
+
+@pytest.mark.parametrize("filter_method", ["butterworth", "cosine"])
+def test_clean_numpy_inputs_match_dataarray_inputs(
+    make_sample_timeseries, rng, filter_method
+):
+    """Test NumPy sample_mask/confounds match aligned DataArrays through every step."""
+    signals = make_sample_timeseries(n_time=100, sampling_rate=100.0)
+    signals[5, 0] = np.nan
+    mask_values = np.ones(100, dtype=bool)
+    mask_values[[10, 25, 26, 60]] = False
+    confound_values = rng.standard_normal((100, 2))
+    confound_values[40, 1] = np.nan
+    sample_mask = xr.DataArray(
+        mask_values, dims=["time"], coords={"time": signals.coords["time"]}
+    )
+    confounds = xr.DataArray(
+        confound_values,
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"]},
+    )
+
+    def run(sample_mask, confounds):
+        return clean(
+            signals,
+            detrend_order=1,
+            low_cutoff=1.0,
+            filter_method=filter_method,
+            ensure_finite=True,
+            standardize_method="zscore",
+            sample_mask=sample_mask,
+            confounds=confounds,
+        )
+
+    expected = run(sample_mask, confounds)
+    with pytest.warns(UserWarning, match="cannot be verified") as record:
+        result = run(mask_values, confound_values)
+
+    # One warning per NumPy argument; downstream steps receive DataArrays.
+    assert sum("cannot be verified" in str(w.message) for w in record) == 2
+    xr.testing.assert_allclose(result, expected)

@@ -15,19 +15,21 @@ from confusius._utils.mask import validate_spatial_or_feature_mask
 from confusius.signal._utils import remove_zero_variance_voxels
 from confusius.signal.detrending import detrend as detrend_signals
 from confusius.signal.standardization import standardize
-from confusius.validation import validate_time_series
-from confusius.validation.coordinates import validate_matching_coordinates
+from confusius.validation import ensure_time_aligned, validate_time_series
 
 
-def _validate_confounds(signals: xr.DataArray, confounds: xr.DataArray) -> np.ndarray:
+def _validate_confounds(
+    signals: xr.DataArray, confounds: xr.DataArray | np.ndarray
+) -> np.ndarray:
     """Validate confounds array matches signals.
 
     Parameters
     ----------
     signals : xarray.DataArray
         Signals with 'time' dimension.
-    confounds : xarray.DataArray
-        Confound regressors to validate.
+    confounds : xarray.DataArray or numpy.ndarray
+        Confound regressors to validate. A NumPy array is assumed aligned with
+        `signals` along its first axis.
 
     Returns
     -------
@@ -39,23 +41,14 @@ def _validate_confounds(signals: xr.DataArray, confounds: xr.DataArray) -> np.nd
     ValueError
         If confounds have incorrect shape or time dimension mismatch.
     TypeError
-        If confounds are not an xarray.DataArray.
+        If confounds are neither an xarray.DataArray nor a NumPy array.
+
+    Warns
+    -----
+    UserWarning
+        If `confounds` is a NumPy array, since alignment cannot be verified.
     """
-    if not isinstance(confounds, xr.DataArray):
-        raise TypeError(
-            f"confounds must be an xarray.DataArray, got {type(confounds).__name__}"
-        )
-
-    if "time" not in confounds.dims:
-        raise ValueError("confounds DataArray must have a 'time' dimension")
-    if "time" in signals.coords and "time" in confounds.coords:
-        try:
-            validate_matching_coordinates(signals, confounds, "time")
-        except ValueError as exc:
-            raise ValueError(
-                "confounds time coordinates do not match signals time coordinates"
-            ) from exc
-
+    confounds = ensure_time_aligned(signals, confounds, "confounds")
     confounds_da = confounds.transpose("time", ...)
     confounds_values = confounds_da.values
 
@@ -197,7 +190,7 @@ def _regress_confounds_wrapper(data, axis, confounds, standardize_confounds):
 
 def regress_confounds(
     signals: xr.DataArray,
-    confounds: xr.DataArray,
+    confounds: xr.DataArray | np.ndarray,
     standardize_confounds: bool = True,
 ) -> xr.DataArray:
     """Remove confounds from signals via linear regression.
@@ -218,10 +211,13 @@ def regress_confounds(
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
             `data.chunk({'time': -1})`.
 
-    confounds : (time, n_confounds) xarray.DataArray
+    confounds : (time, n_confounds) xarray.DataArray or numpy.ndarray
         Confound regressors to remove. Can have shape `(time,)` for a single
-        confound. The time dimension and coordinates must match the signals within
-        the default coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`).
+        confound. For a DataArray, the time dimension and coordinates must match the
+        signals within the default coordinate-comparison tolerance (`rtol=1e-5`,
+        `atol=1e-8`). A NumPy array is assumed aligned with `signals` along its first
+        axis and takes its `time` coordinates, with a warning since alignment cannot
+        be verified.
     standardize_confounds : bool, default: True
         Whether to z-score confounds before regression. If `False`, confounds are
         divided by their maximum absolute value for numerical stability without
@@ -239,7 +235,12 @@ def regress_confounds(
         If `signals` does not have a `time` dimension, or if `confounds` have
         mismatched time dimension or invalid shape.
     TypeError
-        If `confounds` is not an xarray DataArray.
+        If `confounds` is neither an xarray.DataArray nor a NumPy array.
+
+    Warns
+    -----
+    UserWarning
+        If `confounds` is a NumPy array, since alignment cannot be verified.
 
     Notes
     -----

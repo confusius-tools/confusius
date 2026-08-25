@@ -7,21 +7,22 @@ import xarray as xr
 from xarray.core.types import InterpOptions
 
 from confusius._utils.stack import find_stack_level
-from confusius.validation.coordinates import validate_matching_coordinates
+from confusius.validation import ensure_time_aligned
 
 
 def _validate_sample_mask(
-    signals: xr.DataArray, sample_mask: xr.DataArray
+    signals: xr.DataArray, sample_mask: xr.DataArray | np.ndarray
 ) -> np.ndarray:
-    """Validate `sample_mask` DataArray and convert to boolean Numpy array.
+    """Validate `sample_mask` and convert to boolean Numpy array.
 
     Parameters
     ----------
     signals : xarray.DataArray
         Input signals with time dimension.
-    sample_mask : xarray.DataArray
-        Boolean sample mask (`True` = keep, `False` = censor). Must have a `time`
-        dimension matching signals.
+    sample_mask : xarray.DataArray or numpy.ndarray
+        Boolean sample mask (`True` = keep, `False` = censor). A DataArray must have a
+        `time` dimension matching signals; a NumPy array is assumed aligned with
+        signals.
 
     Returns
     -------
@@ -31,31 +32,20 @@ def _validate_sample_mask(
     Raises
     ------
     TypeError
-        If `sample_mask` is not an xarray.DataArray.
+        If `sample_mask` is neither an xarray.DataArray nor a NumPy array.
     ValueError
         If `sample_mask` has wrong dtype, length, missing time dimension, or mismatched
         coordinates.
-    """
-    if not isinstance(sample_mask, xr.DataArray):
-        raise TypeError(
-            f"sample_mask must be an xarray.DataArray, got {type(sample_mask).__name__}"
-        )
 
-    if "time" not in sample_mask.dims:
-        raise ValueError("sample_mask must have a 'time' dimension")
+    Warns
+    -----
+    UserWarning
+        If `sample_mask` is a NumPy array, since alignment cannot be verified.
+    """
+    sample_mask = ensure_time_aligned(signals, sample_mask, "sample_mask")
 
     n_timepoints = signals.sizes["time"]
-    mask_values = sample_mask.values
-
-    mask_values = np.asarray(mask_values)
-
-    if "time" in signals.coords and "time" in sample_mask.coords:
-        try:
-            validate_matching_coordinates(signals, sample_mask, "time")
-        except ValueError as exc:
-            raise ValueError(
-                "sample_mask time coordinates do not match signals time coordinates"
-            ) from exc
+    mask_values = np.asarray(sample_mask.values)
 
     if mask_values.dtype != bool:
         raise ValueError(
@@ -76,7 +66,7 @@ def _validate_sample_mask(
 
 def interpolate_samples(
     signals: xr.DataArray,
-    sample_mask: xr.DataArray,
+    sample_mask: xr.DataArray | np.ndarray,
     method: InterpOptions = "linear",
     **kwargs,
 ) -> xr.DataArray:
@@ -93,12 +83,13 @@ def interpolate_samples(
         Array to interpolate. Must have a `time` dimension and `time` coordinates.
         Can be any shape, e.g., extracted signals `(time, space)` or VoxelData array
         `(time, k, j, i)`.
-    sample_mask : (time,) xarray.DataArray
+    sample_mask : (time,) xarray.DataArray or numpy.ndarray
         Boolean sample mask indicating which timepoints to keep (`True`) vs.
-        interpolate (`False`). Must have a `time` dimension matching `signals`.
-        If both `signals` and `sample_mask` have `time` coordinates, they must match
-        within the default coordinate-comparison tolerance (`rtol=1e-5`,
-        `atol=1e-8`).
+        interpolate (`False`). A DataArray must have a `time` dimension matching
+        `signals`; if both have `time` coordinates, they must match within the default
+        coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`). A NumPy array is
+        assumed aligned with `signals` and takes its `time` coordinates, with a warning
+        since alignment cannot be verified.
     method : {"linear", "nearest", "zero", "slinear", "quadratic", "cubic", "quintic", \
             "polynomial", "pchip", "barycentric", "krogh", "akima", "makima"}, \
             default: "linear"
@@ -123,7 +114,7 @@ def interpolate_samples(
     ValueError
         If `signals` doesn't have a `time` dimension or `time` coordinates.
     TypeError
-        If `sample_mask` is not an xarray.DataArray.
+        If `sample_mask` is neither an xarray.DataArray nor a NumPy array.
     ValueError
         If `sample_mask` has wrong dtype, length, missing time dimension, or mismatched
         coordinates.
@@ -134,6 +125,8 @@ def interpolate_samples(
     -----
     UserWarning
         If all samples are marked as good (no interpolation needed).
+    UserWarning
+        If `sample_mask` is a NumPy array, since alignment cannot be verified.
 
     Notes
     -----
@@ -209,7 +202,7 @@ def interpolate_samples(
 
 def censor_samples(
     signals: xr.DataArray,
-    sample_mask: xr.DataArray,
+    sample_mask: xr.DataArray | np.ndarray,
 ) -> xr.DataArray:
     """Remove censored samples from signals.
 
@@ -222,11 +215,13 @@ def censor_samples(
     signals : (time, ...) xarray.DataArray
         Array to censor. Must have a `time` dimension. Can be any shape, e.g.,
         extracted signals `(time, space)` or VoxelData array `(time, k, j, i)`.
-    sample_mask : (time,) xarray.DataArray
+    sample_mask : (time,) xarray.DataArray or numpy.ndarray
         Boolean sample mask indicating which timepoints to keep (`True`) vs. remove
-        (`False`). Must have a `time` dimension matching `signals`. If both
-        `signals` and `sample_mask` have `time` coordinates, they must match within
-        the default coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`).
+        (`False`). A DataArray must have a `time` dimension matching `signals`; if
+        both have `time` coordinates, they must match within the default
+        coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`). A NumPy array is
+        assumed aligned with `signals` and takes its `time` coordinates, with a warning
+        since alignment cannot be verified.
 
     Returns
     -------
@@ -240,7 +235,7 @@ def censor_samples(
     ValueError
         If `signals` doesn't have a `time` dimension or `time` coordinates.
     TypeError
-        If `sample_mask` is not an xarray.DataArray.
+        If `sample_mask` is neither an xarray.DataArray nor a NumPy array.
     ValueError
         If `sample_mask` has wrong dtype, length, missing time dimension, or mismatched
         coordinates.
@@ -251,6 +246,8 @@ def censor_samples(
     -----
     UserWarning
         If all samples are kept (no censoring performed).
+    UserWarning
+        If `sample_mask` is a NumPy array, since alignment cannot be verified.
 
     Examples
     --------

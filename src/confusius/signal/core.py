@@ -12,7 +12,7 @@ from confusius.signal.confounds import regress_confounds
 from confusius.signal.detrending import detrend as detrend_signals
 from confusius.signal.filters import filter_butterworth
 from confusius.signal.standardization import standardize
-from confusius.validation import validate_time_series
+from confusius.validation import ensure_time_aligned, validate_time_series
 
 
 def _interpolate_non_finite(data: xr.DataArray, *, name: str) -> xr.DataArray:
@@ -190,10 +190,10 @@ def clean(
     high_cutoff: float | None = None,
     filter_method: Literal["butterworth", "cosine"] = "butterworth",
     filter_kwargs: dict | None = None,
-    confounds: xr.DataArray | None = None,
+    confounds: xr.DataArray | np.ndarray | None = None,
     standardize_confounds: bool = True,
     ensure_finite: bool = False,
-    sample_mask: xr.DataArray | None = None,
+    sample_mask: xr.DataArray | np.ndarray | None = None,
     interpolate_method: InterpOptions = "linear",
     interpolate_kwargs: dict | None = None,
 ) -> xr.DataArray:
@@ -247,11 +247,14 @@ def clean(
         [`filter_butterworth`][confusius.signal.filter_butterworth] when
         `filter_method="butterworth"` and
         [`filter_cosine`][confusius.signal.filter_cosine] when `filter_method="cosine"`.
-    confounds : (time, n_confounds) xarray.DataArray, optional
+    confounds : (time, n_confounds) xarray.DataArray or numpy.ndarray, optional
         Confound regressors to remove. Can have shape `(time,)` for a single
         confound. When provided, confounds are detrended and filtered along with
-        signals before regression. The time dimension and coordinates must match the
-        signals exactly. If not provided, no confound regression is applied.
+        signals before regression. For a DataArray, the time dimension and
+        coordinates must match the signals. A NumPy array is assumed aligned with
+        `signals` along its first axis and takes its `time` coordinates, with a
+        warning since alignment cannot be verified. If not provided, no confound
+        regression is applied.
     standardize_confounds : bool, default: True
         Whether to z-score confounds before regression. If `False`, confounds are
         divided by their maximum absolute value for numerical stability without
@@ -262,11 +265,12 @@ def clean(
         `confounds` before cleaning by interpolating each series along `time` and
         filling boundary gaps from the nearest finite sample. If `False`, non-finite
         values are left unchanged.
-    sample_mask : (time,) xarray.DataArray, optional
+    sample_mask : (time,) xarray.DataArray or numpy.ndarray, optional
         Boolean sample mask indicating which timepoints to keep (`True`) vs. remove
-        (`False`). Must have a `time` dimension matching `signals`. If both
-        `signals` and `sample_mask` have `time` coordinates, they must match exactly.
-        If not provided, no scrubbing is applied.
+        (`False`). A DataArray must have a `time` dimension matching `signals`; if
+        both have `time` coordinates, they must match. A NumPy array is assumed
+        aligned with `signals` and takes its `time` coordinates, with a warning since
+        alignment cannot be verified. If not provided, no scrubbing is applied.
     interpolate_method : {"linear", "nearest", "zero", "slinear", "quadratic", \
             "cubic", "quintic", "polynomial", "pchip", "barycentric", "krogh", \
             "akima", "makima"}, default: "linear"
@@ -291,6 +295,12 @@ def clean(
     xarray.DataArray
         Cleaned signals.
 
+    Warns
+    -----
+    UserWarning
+        If `confounds` or `sample_mask` is a NumPy array, since alignment with
+        `signals` cannot be verified.
+
     References
     ----------
     [^1]:
@@ -299,6 +309,11 @@ def clean(
         2358–76. DOI.org (Crossref), <https://doi.org/10.1002/hbm.24528>.
     """
     validate_time_series(signals, operation_name="clean", require_unchunked_time=False)
+
+    if sample_mask is not None:
+        sample_mask = ensure_time_aligned(signals, sample_mask, "sample_mask")
+    if confounds is not None:
+        confounds = ensure_time_aligned(signals, confounds, "confounds")
 
     if filter_kwargs is not None and not isinstance(filter_kwargs, dict):
         raise TypeError("filter_kwargs must be a dict or None")

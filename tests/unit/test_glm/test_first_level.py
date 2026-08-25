@@ -84,6 +84,32 @@ class TestFirstLevelModelFit:
         assert_allclose(dm["motion_x"].to_numpy(), confounds["motion_x"].to_numpy())
         assert_allclose(dm["motion_y"].to_numpy(), confounds["motion_y"].to_numpy())
 
+    def test_fit_with_dataarray_confounds(self, fusi_data, events, rng):
+        """DataArray confounds match the DataFrame path and are checked against time."""
+        values = rng.standard_normal((200, 2))
+        names = ["motion_x", "motion_y"]
+        frame = pd.DataFrame(values, columns=names)
+        confounds = xr.DataArray(
+            values,
+            dims=["time", "confound"],
+            coords={"time": fusi_data.coords["time"], "confound": names},
+        )
+        expected = FirstLevelModel(noise_model="ols").fit(
+            fusi_data, events=events, confounds=frame
+        )
+        model = FirstLevelModel(noise_model="ols").fit(
+            fusi_data, events=events, confounds=confounds
+        )
+        pd.testing.assert_frame_equal(
+            model.design_matrices_[0], expected.design_matrices_[0]
+        )
+
+        misaligned = confounds.assign_coords(time=confounds.coords["time"] + 1.0)
+        with pytest.raises(ValueError, match="time coordinates do not match"):
+            FirstLevelModel(noise_model="ols").fit(
+                fusi_data, events=events, confounds=misaligned
+            )
+
     def test_sklearn_is_fitted(self, fusi_data, events):
         model = FirstLevelModel(noise_model="ols")
         assert not model.__sklearn_is_fitted__()

@@ -2,6 +2,7 @@
 
 import dask.array as da
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
@@ -220,12 +221,43 @@ def test_regress_confounds_mismatched_time(make_sample_timeseries):
         regress_confounds(signals, confounds)
 
 
-def test_regress_confounds_invalid_type(make_sample_timeseries):
-    """Test error when confounds is not numpy array or xarray."""
+@pytest.mark.parametrize(
+    "confounds", ["invalid", [0.0] * 100, pd.DataFrame(np.zeros((100, 2)))]
+)
+def test_regress_confounds_invalid_type(make_sample_timeseries, confounds):
+    """Test error when confounds is neither a DataArray nor a NumPy array."""
     signals = make_sample_timeseries()
 
-    with pytest.raises(TypeError, match="must be an xarray.DataArray"):
-        regress_confounds(signals, "invalid")  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match="must be an xarray.DataArray or numpy.ndarray"):
+        regress_confounds(signals, confounds)
+
+
+@pytest.mark.parametrize("n_confounds", [None, 3])
+def test_regress_confounds_numpy_matches_dataarray(
+    make_sample_timeseries, rng, n_confounds
+):
+    """Test NumPy confounds warn and match the aligned DataArray result."""
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
+    values = rng.standard_normal((100,) if n_confounds is None else (100, n_confounds))
+    confounds = xr.DataArray(
+        values,
+        dims=["time"] if n_confounds is None else ["time", "confound"],
+        coords={"time": signals.coords["time"]},
+    )
+    expected = regress_confounds(signals, confounds)
+
+    with pytest.warns(UserWarning, match="cannot be verified"):
+        result = regress_confounds(signals, values)
+
+    xr.testing.assert_allclose(result, expected)
+
+
+def test_regress_confounds_numpy_rejects_3d(make_sample_timeseries):
+    """Test NumPy confounds must be 1D or 2D."""
+    signals = make_sample_timeseries(n_time=100)
+
+    with pytest.raises(ValueError, match="confounds must be 1D or 2D"):
+        regress_confounds(signals, np.zeros((100, 2, 2)))
 
 
 def test_regress_confounds_confounds_missing_time_dimension(make_sample_timeseries):

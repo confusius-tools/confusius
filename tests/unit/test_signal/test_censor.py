@@ -147,12 +147,34 @@ def test_interpolate_missing_time_coords(make_sample_timeseries):
         interpolate_samples(signals, sample_mask)
 
 
-def test_interpolate_rejects_non_dataarray_mask(make_sample_timeseries):
-    """Test sample_mask must be an xarray.DataArray."""
+def test_interpolate_rejects_non_array_mask(make_sample_timeseries):
+    """Test sample_mask must be an xarray.DataArray or a NumPy array."""
     signals = make_sample_timeseries(n_time=100)
 
-    with pytest.raises(TypeError, match="sample_mask must be an xarray.DataArray"):
-        interpolate_samples(signals, np.ones(100, dtype=bool))  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match="must be an xarray.DataArray or numpy.ndarray"):
+        interpolate_samples(signals, [True] * 100)  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize("func", [interpolate_samples, censor_samples])
+def test_numpy_mask_matches_dataarray_mask(
+    func, make_sample_timeseries, sample_mask_with_gaps
+):
+    """Test a NumPy sample_mask warns and matches the aligned DataArray result."""
+    signals = make_sample_timeseries(n_time=100)
+    expected = func(signals, sample_mask_with_gaps)
+
+    with pytest.warns(UserWarning, match="cannot be verified"):
+        result = func(signals, sample_mask_with_gaps.values)
+
+    xr.testing.assert_allclose(result, expected)
+
+
+def test_numpy_mask_rejects_wrong_length(make_sample_timeseries):
+    """Test a NumPy sample_mask length must match the time dimension."""
+    signals = make_sample_timeseries(n_time=100)
+
+    with pytest.raises(ValueError, match=r"sample_mask length \(99\) must match"):
+        censor_samples(signals, np.ones(99, dtype=bool))
 
 
 def test_interpolate_rejects_mask_without_time_dimension(make_sample_timeseries):
