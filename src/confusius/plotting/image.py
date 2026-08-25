@@ -14,7 +14,6 @@ import xarray as xr
 from confusius._dims import POSE_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
-    get_voxel_to_world_affine,
     get_voxel_to_world_index_spacing,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
@@ -1359,20 +1358,14 @@ class VolumePlotter:
 
         _validate_slice_mode(data, self.slice_mode)
 
-        # Squeeze a unitary pose dim first (still stored as a stacked affine).
-        # A pose dim's affine is always shaped as a stack, even when every pose
-        # is numerically identical, so check equality across poses -- not shape.
+        # Squeeze a unitary pose dim first (still stored as a stacked affine),
+        # then require the rest be pose-independent -- pose always means
+        # distinct probe positions, so a non-pose slice_mode can't proceed with
+        # more than one left un-reduced.
         if self.slice_mode != POSE_DIM:
             if POSE_DIM in data.dims and data.sizes[POSE_DIM] == 1:
                 data = data.squeeze(dim=POSE_DIM)
-            affine = get_voxel_to_world_affine(data)
-            if affine.ndim == 3 and not np.allclose(affine, affine[0]):
-                raise ValueError(
-                    f"Cannot use slice_mode={self.slice_mode!r} on data whose poses "
-                    "have different world geometry. Use slice_mode='pose' to facet "
-                    "over poses, or select a single pose first, e.g. "
-                    "`data.isel(pose=0)`."
-                )
+            require_scalar_pose_affine(data, f"slice_mode={self.slice_mode!r}")
 
         resolved_interpolation = (
             self._resample_interpolation if interpolation is None else interpolation

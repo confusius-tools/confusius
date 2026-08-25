@@ -199,23 +199,24 @@ class TestPlotVolume:
         assert axes[0].get_xlim()[0] < 10.0
         assert axes[1].get_xlim()[0] > 90.0
 
-    def test_non_spatial_facet_labels_pose_axis_without_units(self, matplotlib_pyplot):
-        """Faceting over a non-spatial dim labels the `pose` axis plainly, without
-        "mm", when `pose` remains one of the panel's own display axes.
+    def test_non_spatial_facet_labels_extra_dim_axis_without_units(
+        self, matplotlib_pyplot
+    ):
+        """Faceting over a non-spatial dim labels a non-world display axis
+        plainly, without "mm", when that axis remains one of the panel's own
+        display axes.
 
-        Regression: `pose` isn't a world-space axis (it has no `units`), but
-        `_build_axis_label` labeled *any* axis "(mm)" whenever the array carried
-        plottable voxel-to-world geometry at all, regardless of which dim was
-        actually being labeled.
+        Regression: a non-world axis (e.g. a plain extra facet dim) isn't a
+        world-space axis (it has no `units`), but `_build_axis_label` labeled
+        *any* axis "(mm)" whenever the array carried plottable voxel-to-world
+        geometry at all, regardless of which dim was actually being labeled.
         """
-        npose = 3
-        affine = np.diag([0.2, 0.1, 0.05, 1.0])
         data = (
             create_voxeldata(
-                np.random.default_rng(0).random((npose, 1, 6, 8)),
-                dims=("pose", "k", "j", "i"),
-                pose=np.arange(npose),
-                voxel_to_world=np.broadcast_to(affine, (npose, 4, 4)).copy(),
+                np.random.default_rng(0).random((3, 1, 6, 8)),
+                dims=("channel", "k", "j", "i"),
+                spacing=(0.2, 0.1, 0.05),
+                origin=(0.0, 0.0, 0.0),
             )
             .isel(k=0, i=0)
             .expand_dims(region=["r0"])
@@ -227,7 +228,7 @@ class TestPlotVolume:
 
         axes = _axes(plotter).ravel()
         assert "mm" in axes[0].get_xlabel()
-        assert axes[0].get_ylabel() == "pose"
+        assert axes[0].get_ylabel() == "channel"
 
     def test_non_3d_data_raises(self, sample_voxeldata_3dt):
         """plot_volume raises ValueError for 4D data with no unitary dimensions."""
