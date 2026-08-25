@@ -65,7 +65,7 @@ def fetch_template_pepe_mariani_2026(
     """Fetch the Pepe, Mariani et al. (2026) mouse fUSI template.
 
     Downloads the template from OSF on first call, caches it locally, and returns the
-    loaded NIfTI as an Xarray DataArray.
+    loaded NIfTI as a VoxelData array.
 
     Parameters
     ----------
@@ -82,7 +82,7 @@ def fetch_template_pepe_mariani_2026(
     Returns
     -------
     xarray.DataArray
-        Template with `physical_to_sform` affine transform required for resampling to
+        Template with `world_to_sform` affine transform required for resampling to
         the Allen Mouse Brain atlas space.
 
     References
@@ -111,7 +111,11 @@ def fetch_template_pepe_mariani_2026(
         with quiet_pooch_logger():
             retrieve_with_retries(url, dest, logger=pooch.get_logger())
 
-    da = load(dest)
+    # `qform` gives scanner-space coordinates (corresponding to a head-fixed setup),
+    # which simplifies manual registration initialization. The Allen CCF transform is
+    # then available separately via `attrs["affines"]["world_to_sform"]` for
+    # resampling.
+    da = load(dest, coordinate_affine="qform")
     da.attrs["citation"] = plain_citation(_CITATION)
 
     if print_citation:

@@ -9,6 +9,8 @@ import pytest
 import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
+from confusius.xarray import create_voxeldata
+
 
 @pytest.fixture(scope="module")
 def obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
@@ -103,36 +105,31 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
     hemispheres_data[:, :, :2] = 2  # right (RL < 0.1 mm mesh midline)
     hemispheres_data[:, :, 2:] = 1  # left  (RL >= 0.1 mm mesh midline)
 
-    coords = {
-        dim: (
-            np.arange(shape[i]) * resolution_mm,
-            {"voxdim": resolution_mm, "units": "mm"},
-        )
-        for i, dim in enumerate(["z", "y", "x"])
-    }
-
     rgb_lookup: dict[int, list[int]] = {
         997: [200, 200, 200],
         10: [255, 0, 0],
         20: [0, 255, 0],
     }
 
-    reference_da = xr.DataArray(
+    reference_da = create_voxeldata(
         np.ones(shape, dtype=np.float32),
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
+        dims=["k", "j", "i"],
+        spacing=(resolution_mm, resolution_mm, resolution_mm),
+        origin=(0.0, 0.0, 0.0),
         attrs={"cmap": "gray"},
     )
-    annotation_da = xr.DataArray(
+    annotation_da = create_voxeldata(
         annotation_data,
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
+        dims=["k", "j", "i"],
+        spacing=(resolution_mm, resolution_mm, resolution_mm),
+        origin=(0.0, 0.0, 0.0),
         attrs={"rgb_lookup": rgb_lookup},
     )
-    hemispheres_da = xr.DataArray(
+    hemispheres_da = create_voxeldata(
         hemispheres_data,
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
+        dims=["k", "j", "i"],
+        spacing=(resolution_mm, resolution_mm, resolution_mm),
+        origin=(0.0, 0.0, 0.0),
         attrs={"left": 1, "right": 2},
     )
 
@@ -148,6 +145,6 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
             "species": "Mus musculus",
             "orientation": "asr",
             "structures": StructuresDict(structure_list),
-            "physical_to_base": np.eye(4),
+            "world_to_base": np.eye(4),
         },
     )

@@ -215,8 +215,7 @@ def clean(
     ----------
     signals : (time, ...) xarray.DataArray
         Signals to clean. Must have a `time` dimension. Can be any shape, e.g.,
-        extracted signals `(time, voxels)`, full 3D+t imaging data `(time, z, y,
-        x)`, or regional signals `(time, regions)`.
+        extracted signals `(time, space)` or VoxelData array `(time, k, j, i)`.
 
         !!! warning "Chunking along time is not supported"
             The `time` dimension must NOT be chunked, except when using

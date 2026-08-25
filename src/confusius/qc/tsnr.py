@@ -24,7 +24,7 @@ def compute_tsnr(signals: xr.DataArray) -> xr.DataArray:
     ----------
     signals : (time, ...) xarray.DataArray
         Signals to compute tSNR from. Must have a `time` dimension. Additional
-        dimensions represent spatial locations (e.g., `space`, `z`/`y`/`x`).
+        dimensions represent spatial locations (e.g., `space`, `k`/`j`/`i`).
 
     Returns
     -------
@@ -110,7 +110,7 @@ def compute_cv(signals: xr.DataArray) -> xr.DataArray:
     ----------
     signals : (time, ...) xarray.DataArray
         Signals to compute CV from. Must have a `time` dimension. Additional
-        dimensions represent spatial locations (e.g., `space`, `z`/`y`/`x`).
+        dimensions represent spatial locations (e.g., `space`, `k`/`j`/`i`).
 
     Returns
     -------

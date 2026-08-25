@@ -364,7 +364,7 @@ class QCPlotsWidget(QWidget):
         Parameters
         ----------
         time_val : float
-            Physical time value (or frame index) to position the cursor at.
+            World time value (or frame index) to position the cursor at.
         """
         self._current_time_val = time_val
         if not self._cursor_timer.isActive():

@@ -1,4 +1,4 @@
-"""Principal component decomposition for `(time, ...)` fUSI DataArrays."""
+"""Principal component decomposition for VoxelData arrays."""
 
 from typing import Literal
 
@@ -11,7 +11,7 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class PCA(_BaseFUSIDecomposer):
-    """Principal component analysis (PCA) for fUSI data.
+    """Principal component analysis (PCA) for VoxelData arrays.
 
     Linear dimensionality reduction using singular value decomposition (SVD) of the data
     to project it to a lower dimensional space. The input data is centered but not
@@ -101,15 +101,16 @@ class PCA(_BaseFUSIDecomposer):
     mode : {"temporal", "spatial"}, default: "temporal"
         Whether to fit PCA along temporal or spatial orientation:
 
-        - `"temporal"`: fit on `(time, voxels)`. The principal axes are
+        - `"temporal"`: fit on `(time, space)`. The principal axes are
           spatial maps; the projected components are temporal time courses that capture
           dominant variance across voxels.
-        - `"spatial"`: fit on `(voxels, time)`. The principal axes are time courses; the
+        - `"spatial"`: fit on `(space, time)`. The principal axes are time courses; the
           projected components are spatial maps that capture dominant variance across
           time.
     mask : xarray.DataArray, optional
-        Boolean spatial mask selecting voxels to include during fitting and projection.
-        Must match the spatial dimensions and coordinates of the input data.
+        Boolean VoxelData mask selecting which voxels to include during fitting and
+        projection. Must match the non-`time` dimensions of the input data in the
+        same order.
 
     Attributes
     ----------
@@ -149,9 +150,6 @@ class PCA(_BaseFUSIDecomposer):
         of the covariance matrix of `X`.
     n_features_in_ : int
         Number of features seen during fit.
-    feature_names_in_ : (n_features_in_,) numpy.ndarray
-        Feature names seen during fit. Defined only when flattened feature labels are
-        all strings.
 
     References
     ----------
@@ -163,13 +161,15 @@ class PCA(_BaseFUSIDecomposer):
     Examples
     --------
     >>> import numpy as np
-    >>> import xarray as xr
     >>> from confusius.decomposition import PCA
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> rng = np.random.default_rng(0)
-    >>> data = xr.DataArray(
+    >>> data = create_voxeldata(
     ...     rng.standard_normal((200, 5, 10, 20)),
-    ...     dims=["time", "z", "y", "x"],
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.1,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>>
     >>> pca = PCA(n_components=5, random_state=0)
@@ -178,7 +178,7 @@ class PCA(_BaseFUSIDecomposer):
     ('time', 'component')
     >>> reconstructed = pca.inverse_transform(signals)
     >>> reconstructed.dims
-    ('time', 'z', 'y', 'x')
+    ('time', 'k', 'j', 'i')
     """
 
     _signals_long_name = "PCA signals"
@@ -211,12 +211,12 @@ class PCA(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "PCA":
-        """Fit PCA on `(time, ...)` fUSI data.
+        """Fit PCA on a VoxelData array.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input fUSI data.
+            VoxelData array.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
 
@@ -240,7 +240,7 @@ class PCA(_BaseFUSIDecomposer):
                 f"mode must be 'temporal' or 'spatial', got '{self.mode}'."
             )
 
-        X_proc, spatial_dims, feature_mask = self._prepare_data(
+        X_proc, spatial_dims, mask = self._prepare_data(
             X,
             check_layout=False,
             operation_name="PCA.fit",
@@ -257,14 +257,13 @@ class PCA(_BaseFUSIDecomposer):
             random_state=self.random_state,
         )
 
-        self._store_fit_metadata(X, X_proc, spatial_dims, feature_mask)
+        self._store_fit_metadata(X, X_proc, spatial_dims, mask)
 
         if self.mode == "temporal":
             self._fit_temporal(pca, X_proc)
         else:
             self._fit_spatial(pca, X_proc)
 
-        self._store_feature_names(X)
         return self
 
     def _fit_temporal(

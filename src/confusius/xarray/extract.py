@@ -8,38 +8,44 @@ import xarray as xr
 class FUSIExtractAccessor:
     """Xarray accessor for signal extraction operations.
 
-    Provides convenient methods for extracting signals from N-D fUSI data by flattening
-    spatial dimensions, and reconstructing N-D volumes from processed signals.
+    Provides convenient methods for extracting signals from VoxelData arrays by
+    flattening spatial dimensions, and reconstructing VoxelData arrays from processed
+    signals.
 
     Parameters
     ----------
     xarray_obj : xarray.DataArray
-        The DataArray to wrap.
+        DataArray to wrap. Extraction methods expect a VoxelData array;
+        `unmask` expects an already-extracted signals array.
 
     Examples
     --------
-    >>> import xarray as xr
     >>> import numpy as np
+    >>> from confusius.xarray import create_voxeldata
     >>>
-    >>> # 3D+t data: (time, z, y, x)
-    >>> data = xr.DataArray(
+    >>> # 3D+t data: (time, k, j, i), native voxel dims with world z/y/x derived
+    >>> # from the attached VoxelToWorldIndex.
+    >>> data = create_voxeldata(
     ...     np.random.randn(100, 10, 20, 30),
-    ...     dims=["time", "z", "y", "x"],
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=1.0,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> mask = xr.DataArray(
+    >>> mask = create_voxeldata(
     ...     np.random.rand(10, 20, 30) > 0.5,
-    ...     dims=["z", "y", "x"],
+    ...     dims=("k", "j", "i"),
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>>
     >>> # Extract signals
     >>> signals = data.fusi.extract.with_mask(mask)
     >>> signals.dims
-    ("time", "space")
+    ('time', 'space')
     >>>
     >>> # Reconstruct full spatial volume from signals
     >>> reconstructed = signals.fusi.extract.unmask(mask)
     >>> reconstructed.dims
-    ("time", "z", "y", "x")
+    ('time', 'k', 'j', 'i')
     """
 
     def __init__(self, xarray_obj: xr.DataArray) -> None:
@@ -59,12 +65,12 @@ class FUSIExtractAccessor:
         labels : xarray.DataArray
             Integer label map in one of two formats:
 
-            - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+            - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
               labeled `0`; each unique non-zero integer identifies a distinct,
               non-overlapping region. The `regions` coordinate of the output holds the
               integer label values.
             - **Stacked mask format**: Has a leading `mask` dimension followed by
-              spatial dims, e.g. `(mask, z, y, x)`. Each layer has values in `{0,
+              spatial dims, e.g. `(mask, k, j, i)`. Each layer has values in `{0,
               region_id}` and regions may overlap. The `region` coordinate of the
               output holds the `mask` coordinate values (e.g., region label).
 
@@ -88,9 +94,9 @@ class FUSIExtractAccessor:
 
             For example:
 
-            - `(time, z, y, x)` → `(time, region)`
-            - `(time, pose, z, y, x)` → `(time, pose, region)`
-            - `(z, y, x)` → `(region,)`
+            - `(time, k, j, i)` → `(time, region)`
+            - `(time, pose, k, j, i)` → `(time, pose, region)`
+            - `(k, j, i)` → `(region,)`
 
         Raises
         ------
@@ -170,31 +176,31 @@ class FUSIExtractAccessor:
         """Reconstruct N-D volume from masked signals.
 
         Reconstructs the full spatial volume from a DataArray of signals, which must
-        have a `voxels` dimension. This is a convenience wrapper around
+        have a `space` dimension. This is a convenience wrapper around
         `confusius.extract.unmask()`.
 
         Parameters
         ----------
         mask : xarray.DataArray
-            Boolean mask used for the original extraction. Provides spatial dimensions
-            and coordinates for reconstruction.
+            Boolean VoxelData mask array used for the original extraction.
+            Provides native voxel dimensions and VoxelData geometry for reconstruction.
         fill_value : float, default: 0.0
             Value to fill in non-masked voxels.
 
         Returns
         -------
         xarray.DataArray
-            Reconstructed DataArray with shape `(..., z, y, x)` where spatial
-            coordinates come from the mask.
+            Reconstructed VoxelData array with shape `(..., k, j, i)`
+            where native voxel dimensions and VoxelData geometry come from the mask.
 
         Examples
         --------
         >>> signals = data.fusi.extract.with_mask(mask)
         >>> signals.dims
-        ("time", "space")
+        ('time', 'space')
         >>> reconstructed = signals.fusi.extract.unmask(mask)
         >>> reconstructed.dims
-        ("time", "z", "y", "x")
+        ('time', 'k', 'j', 'i')
         """
         from confusius.extract.reconstruction import unmask
 

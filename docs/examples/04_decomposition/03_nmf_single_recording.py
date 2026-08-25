@@ -95,18 +95,18 @@ data_nmf = xr.concat(
 # ## Fit temporal NMF
 #
 # [`NMF`][confusius.decomposition.NMF] wraps the familiar scikit-learn
-# [`NMF`][sklearn.decomposition.NMF] estimator while preserving fUSI DataArray metadata
-# and coordinates. With `mode="temporal"` (the default), it fits on `(time, voxels)`
+# [`NMF`][sklearn.decomposition.NMF] estimator while preserving VoxelData array metadata
+# and coordinates. With `mode="temporal"` (the default), it fits on `(time, space)`
 # and returns:
 #
 # - [`maps_`][confusius.decomposition.NMF]: non-negative spatial maps. Because we split
 #   the input into positive and negative channels, the maps here have shape
-#   `(component, sign, z, y, x)`.
+#   `(component, sign, k, j, i)`.
 # - [`fit_transform`][confusius.decomposition.NMF.fit_transform]: non-negative time
 #   courses of shape `(time, component)`.
 
 # %%
-nmf_t = cf.decomposition.NMF(n_components=10, random_state=0, max_iter=500)
+nmf_t = cf.decomposition.NMF(n_components=10, random_state=0, max_iter=1000)
 signals = nmf_t.fit_transform(data_nmf)
 signals
 
@@ -178,7 +178,7 @@ _ = fig.suptitle(
 # ## Spatial NMF
 #
 # [`NMF`][confusius.decomposition.NMF] also accepts `mode="spatial"`, which transposes
-# the data to `(voxels, time)` before fitting. The output convention is identical to
+# the data to `(space, time)` before fitting. The output convention is identical to
 # temporal mode — [`maps_`][confusius.decomposition.NMF] still holds the non-negative
 # spatial maps (here with `pos`/`neg` channels) and
 # [`fit_transform`][confusius.decomposition.NMF.fit_transform] returns their
@@ -188,7 +188,7 @@ _ = fig.suptitle(
 
 # %%
 nmf_s = cf.decomposition.NMF(
-    n_components=10, mode="spatial", random_state=0, max_iter=500
+    n_components=10, mode="spatial", random_state=0, max_iter=1000
 )
 signals_s = nmf_s.fit_transform(data_nmf)
 signals_s

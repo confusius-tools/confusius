@@ -1,8 +1,8 @@
 """Coordinate spacing and origin helpers shared across modules."""
 
 import warnings
-from collections.abc import Sequence
-from typing import TypedDict, cast
+from collections.abc import Mapping, Sequence
+from typing import TypedDict
 
 import numpy as np
 import numpy.typing as npt
@@ -60,8 +60,8 @@ class CoordinateSpacingInfo:
     Parameters
     ----------
     value : float or None
-        Exact spacing when the coordinate is uniform or a single-point coord with a
-        `voxdim` attribute. `None` otherwise.
+        Exact spacing when the coordinate is uniform. `None` otherwise, including for
+        single-point coordinates.
     median : float or None
         Median consecutive difference for numeric coordinates with two or more points.
         Available for both uniform and non-uniform coordinates; `None` for missing,
@@ -91,10 +91,9 @@ def get_coordinate_spacing_info(
     """Compute coordinate spacing information for a single dimension.
 
     Shared implementation used by
-    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]
-    and
     [`get_coordinate_spacings_best_effort`][confusius._utils.coordinates.get_coordinate_spacings_best_effort]
-    to avoid duplicating the uniformity check and median computation.
+    and other coordinate-spacing consumers to avoid duplicating the uniformity check
+    and median computation.
 
     Parameters
     ----------
@@ -127,76 +126,59 @@ def get_coordinate_spacing_info(
     ):
         return CoordinateSpacingInfo(value=None, median=None, warn_msg=None)
 
-    if len(coord) < 2:
-        if "voxdim" in coord.attrs:
-            return CoordinateSpacingInfo(
-                value=float(coord.attrs["voxdim"]), median=None, warn_msg=None
-            )
+    # A coordinate named after its dim is not necessarily 1D (e.g. a pose-dependent
+    # array's "time" coordinate can be genuinely (time, pose)-shaped, holding each
+    # pose's own real timestamps -- see confusius.multipose.stack_poses). Compute the
+    # step along `dim` independently for every combination of the other dims'
+    # values (flattened into columns) rather than trusting just one slice: an
+    # answer this function reports as "the" spacing for `dim` must actually hold
+    # for all of them, the same way equal spatial scale across poses is an
+    # enforced invariant for voxel-to-world affines, not an assumption.
+    other_dims = [d for d in coord.dims if d != dim]
+    dim_axis = coord.dims.index(dim)
+
+    if coord.shape[dim_axis] < 2:
         return CoordinateSpacingInfo(
             value=None,
             median=None,
             warn_msg=(
-                f"Dimension '{dim}' has a single coordinate point and no "
-                "'voxdim' attribute; spacing is undefined."
+                f"Dimension '{dim}' has a single coordinate point; spacing is "
+                "undefined."
             ),
         )
 
-    representative_step, is_approximate = get_representative_step(
-        coord.values, uniformity_tolerance=uniformity_tolerance
-    )
+    values = np.moveaxis(coord.values, dim_axis, 0).reshape(coord.shape[dim_axis], -1)
 
-    if not is_approximate:
-        return CoordinateSpacingInfo(
-            value=representative_step, median=representative_step, warn_msg=None
+    steps: list[float] = []
+    for column in range(values.shape[1]):
+        step, is_approximate = get_representative_step(
+            values[:, column], uniformity_tolerance=uniformity_tolerance
         )
-    return CoordinateSpacingInfo(
-        value=None,
-        median=representative_step,
-        warn_msg=f"Coordinate '{dim}' has non-uniform sampling; spacing is undefined.",
-    )
+        assert step is not None  # values.shape[0] >= 2, checked above.
+        if is_approximate:
+            return CoordinateSpacingInfo(
+                value=None,
+                median=float(np.median(steps + [step])),
+                warn_msg=(
+                    f"Coordinate '{dim}' has non-uniform sampling; spacing is "
+                    "undefined."
+                ),
+            )
+        steps.append(step)
 
+    if other_dims and not np.allclose(
+        steps, steps[0], rtol=uniformity_tolerance, atol=0.0
+    ):
+        return CoordinateSpacingInfo(
+            value=None,
+            median=float(np.median(steps)),
+            warn_msg=(
+                f"Coordinate '{dim}' spacing along '{dim}' differs across "
+                f"{other_dims!r}; spacing is undefined."
+            ),
+        )
 
-def get_coordinate_spacings(
-    data: xr.DataArray, uniformity_tolerance: float = 1e-2
-) -> dict[str, float | None]:
-    """Compute coordinate spacing for all dimensions of a DataArray.
-
-    For each dimension:
-
-    - If the coordinate has two or more points and is uniformly sampled, returns the
-      median step size.
-    - If the coordinate has a single point, returns the `voxdim` coordinate attribute
-      if present, otherwise `None` with a warning.
-    - If the coordinate is missing or has non-uniform spacing, returns `None` with a
-      warning.
-    - If the coordinate doesn't have int or float dtype, returns `None` without a
-      warning.
-
-    Uniformity is assessed per-interval: each consecutive difference must satisfy
-    `|diff - median| <= uniformity_tolerance * |median|`.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        DataArray whose coordinate spacing to compute.
-    uniformity_tolerance : float, default: 1e-2
-        Maximum allowed per-interval relative deviation from the median consecutive
-        difference. Coordinates with any interval exceeding this threshold are
-        considered non-uniform.
-
-    Returns
-    -------
-    dict[str, float | None]
-        Spacing per dimension in DataArray dimension order. `None` indicates that
-        spacing is undefined for that dimension.
-    """
-    result: dict[str, float | None] = {}
-    for dim in (str(d) for d in data.dims):
-        r = get_coordinate_spacing_info(dim, data, uniformity_tolerance)
-        if r.warn_msg is not None:
-            warnings.warn(r.warn_msg, stacklevel=find_stack_level())
-        result[dim] = r.value
-    return result
+    return CoordinateSpacingInfo(value=steps[0], median=steps[0], warn_msg=None)
 
 
 def get_coordinate_spacings_best_effort(
@@ -204,14 +186,13 @@ def get_coordinate_spacings_best_effort(
 ) -> tuple[dict[str, float], list[str]]:
     """Compute coordinate spacing, falling back to median diff for non-uniform dims.
 
-    Like
-    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]
-    but instead of returning `None` for non-uniform coordinates it returns the median
-    consecutive difference as a best-effort approximation. This is appropriate when a
-    single representative spacing is required (e.g. for napari's `scale` parameter) even
-    though the coordinate is not perfectly uniform. No warnings are emitted; the caller
-    is responsible for issuing context-appropriate messages for the dims listed in
-    `non_uniform`.
+    For each dimension, returns the median step size if the coordinate has two or
+    more points and is uniformly sampled. Otherwise it returns the median
+    consecutive difference as a best-effort approximation rather than `None`. This
+    is appropriate when a single representative spacing is required (e.g. for
+    napari's `scale` parameter) even though the coordinate is not perfectly
+    uniform. No warnings are emitted; the caller is responsible for issuing
+    context-appropriate messages for the dims listed in `non_uniform`.
 
     Parameters
     ----------
@@ -225,8 +206,7 @@ def get_coordinate_spacings_best_effort(
     -------
     spacing : dict[str, float]
         Spacing per dimension. Always a `float`; never `None`. Falls back to
-        `1.0` only for dimensions with truly missing, non-numeric, or
-        single-point-without-voxdim coordinates.
+        `1.0` for dimensions with missing, non-numeric, or single-point coordinates.
     non_uniform : list[str]
         Names of dimensions whose coordinates were non-uniform. The median diff
         was used as the spacing for these dims.
@@ -246,7 +226,7 @@ def get_coordinate_spacings_best_effort(
 
 
 def get_coordinate_origins(data: xr.DataArray) -> dict[str, float]:
-    """Return the physical origin (first coordinate value) for each dimension.
+    """Return the world origin (first coordinate value) for each dimension.
 
     For each dimension, returns the first coordinate value. If a coordinate is missing,
     falls back to `0.0` with a warning. If a coordinate is non-numeric (e.g.
@@ -282,6 +262,44 @@ def get_coordinate_origins(data: xr.DataArray) -> dict[str, float]:
     return result
 
 
+def get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
+    """Return `data.fusi.origin`, re-keyed by dimension name for voxel-to-world data.
+
+    `data.fusi.origin` keys voxel-to-world spatial dims by their world coordinate
+    name (e.g. `"z"`), not by the native voxel dimension name (e.g. `"k"`) used
+    elsewhere (e.g. `data.fusi.spacing`, `data.dims`). This aligns the two
+    conventions, keeping any non-spatial dims (e.g. `time`) as `data.fusi.origin`
+    already keys them.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array.
+
+    Returns
+    -------
+    dict[str, float]
+        Origin keyed by `data`'s own dimension names.
+
+    Raises
+    ------
+    ValueError
+        If `data` does not carry a voxel-to-world index.
+    """
+    from confusius._dims import WORLD_DIMS
+    from confusius._utils.geometry import get_voxel_to_world_spatial_dims
+
+    origin = data.fusi.origin
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
+    return {
+        **origin,
+        **{
+            voxel_dim: origin[world_name]
+            for voxel_dim, world_name in zip(voxel_dims, WORLD_DIMS, strict=True)
+        },
+    }
+
+
 class GridKwargs(TypedDict):
     """Output grid specification for SimpleITK-based resampling.
 
@@ -301,24 +319,23 @@ def get_grid_info_from_dataarray(
     *,
     error_prefix: str = "Cannot build grid kwargs because spacing is undefined",
 ) -> GridKwargs:
-    """Return the resampling grid specification extracted from a DataArray.
+    """Return the resampling grid specification extracted from a VoxelData array.
 
-    Bundles the `shape`, `spacing`, `origin`, and `dims` that a DataArray defines into
-    the keyword arguments expected by SimpleITK-based resampling helpers such as
-    [`resample_volume`][confusius.registration.resample_volume] and
-    [`sample_displacement_field`][confusius.registration.sample_displacement_field].
-    Spacing comes from
-    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]
-    and origin from
-    [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins],
-    both computed over all of `data`'s dimensions so that their warning behaviour is
-    preserved. Each requested dimension must have defined spacing; singleton
-    dimensions require `voxdim` coordinate metadata.
+    Bundles the `shape`, `spacing`, `origin`, and `dims` that a VoxelData array
+    defines into one `dims`-ordered specification, reconciling
+    [`data.fusi.spacing`][confusius.xarray.accessors.FUSIAccessor.spacing] (keyed by
+    native voxel dimension name) with
+    [`data.fusi.origin`][confusius.xarray.accessors.FUSIAccessor.origin] (keyed by
+    world coordinate name for spatial dimensions, dimension name otherwise) into a
+    single triple per dimension. Non-spatial origins fall back to
+    [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins].
+    Each requested dimension must have defined spacing; a singleton non-spatial
+    dimension has no defined spacing.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Spatial reference DataArray.
+        VoxelData array.
     dims : sequence[str], optional
         Dimensions to extract, in the desired output order. Must be a subset of
         `data`'s dimensions. If not provided, all of `data`'s dimensions are used.
@@ -335,21 +352,26 @@ def get_grid_info_from_dataarray(
     Raises
     ------
     ValueError
-        If spacing is undefined for any requested dimension.
+        If `data` is not a valid VoxelData array, or if spacing is undefined for any
+        requested dimension.
     """
+    from confusius.validation.voxeldata import ensure_voxeldata
+
+    data = ensure_voxeldata(data)
     dims = [str(dim) for dim in data.dims] if dims is None else list(dims)
-    spacings = get_coordinate_spacings(data)
-    origins = get_coordinate_origins(data)
+
+    spacings = data.fusi.spacing
+    origin = get_dim_keyed_origin(data)
     missing_spacing = [dim for dim in dims if spacings[dim] is None]
     if missing_spacing:
         raise ValueError(
             f"{error_prefix} for dimensions {missing_spacing!r}. Provide regular "
-            "coordinates or `voxdim` metadata for singleton coordinates."
+            "(2+ point, uniformly sampled) coordinates for these dimensions."
         )
     return {
         "shape": [int(data.sizes[dim]) for dim in dims],
-        "spacing": [cast(float, spacings[dim]) for dim in dims],
-        "origin": [origins[dim] for dim in dims],
+        "spacing": [float(spacings[dim]) for dim in dims],
+        "origin": [float(origin[dim]) for dim in dims],
         "dims": dims,
     }
 
@@ -378,49 +400,28 @@ def get_axis_aligned_affine(
     return affine
 
 
-def get_affine_in_axis_aligned_space(
-    affine: npt.NDArray[np.floating],
-    translation: npt.NDArray[np.floating],
-    zoom: npt.NDArray[np.floating],
-) -> npt.NDArray[np.float64]:
-    """Change an affine's input space to axis-aligned physical coordinates.
+def get_probe_surface_origin(
+    sizes: Mapping[str, int], spacing: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    """Return the default world origin for ConfUSIus probe geometry.
 
-    `affine` is assumed to map coordinates from a reference space, such as voxel
-    indices, to an output space. `translation` and `zoom` define an axis-aligned affine
-    that maps coordinates in the same reference space as `affine` to physical
-    coordinates:
-
-    ```python
-    physical = diag(zoom) @ voxel + translation
-    ```
-
-    This function returns a transform that maps axis-aligned physical coordinates to the
-    same output coordinate system:
-
-    ```python
-    result = affine @ inv(get_axis_aligned_affine(translation, zoom))
-    ```
-
-    Thus, for any voxel coordinate `v`:
-
-    ```python
-    result @ physical(v) == affine @ v
-    ```
+    Elevation (`k`) and lateral (`i`) are centered on the probe; depth (`j`) is
+    referenced to the probe surface, starting half a voxel below it.
 
     Parameters
     ----------
-    affine : (4, 4) or (..., 4, 4) numpy.ndarray
-        Affine(s) to re-express. Leading batch axes are preserved.
-    translation : (3,) numpy.ndarray
-        Translation of the axis-aligned reference frame.
-    zoom : (3,) numpy.ndarray
-        Per-axis scale of the axis-aligned reference frame.
+    sizes : mapping[str, int]
+        Spatial voxel sizes keyed by native `k`/`j`/`i` dimension name.
+    spacing : tuple[float, float, float]
+        World spacing in `z`/`y`/`x` order.
 
     Returns
     -------
-    (4, 4) or (..., 4, 4) numpy.ndarray
-        Transform from axis-aligned physical coordinates to the same output coordinate
-        system as `affine`.
+    tuple[float, float, float]
+        Default origin in `z`/`y`/`x` order.
     """
-    inv_reference = np.linalg.inv(get_axis_aligned_affine(translation, zoom))
-    return np.asarray(affine, dtype=np.float64) @ inv_reference
+    return (
+        -spacing[0] * (sizes["k"] - 1) / 2,
+        spacing[1] / 2,
+        -spacing[2] * (sizes["i"] - 1) / 2,
+    )

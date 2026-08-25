@@ -41,8 +41,39 @@ The fastest way to get started is to fetch a single subject from the Nunez-Eliza
 ...     / "fusi"
 ...     / "sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz"
 ... )
->>> pwd.dims
-('time', 'z', 'y', 'x')
+>>> pwd
+<xarray.DataArray 'sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd' (
+                                                                             time: 750,
+                                                                             k: 1,
+                                                                             j: 125,
+                                                                             i: 80)> Size: 30MB
+dask.array<transpose, shape=(750, 1, 125, 80), dtype=float32, chunksize=(750, 1, 125, 80), chunktype=numpy.ndarray>
+Coordinates:
+  * time     (time) float64 6kB 10.65 10.95 11.25 11.55 ... 234.8 235.1 235.4
+  * k        (k) int64 8B 0
+  * j        (j) int64 1kB 0 1 2 3 4 5 6 7 8 ... 117 118 119 120 121 122 123 124
+  * i        (i) int64 640B 0 1 2 3 4 5 6 7 8 9 ... 71 72 73 74 75 76 77 78 79
+  * z        (k, j, i) float64 80kB 0.9 0.9 0.9 0.9 0.9 ... 0.9 0.9 0.9 0.9 0.9
+  * y        (k, j, i) float64 80kB 2.996 2.996 2.996 ... 8.988 8.988 8.988
+  * x        (k, j, i) float64 80kB -3.95 -3.85 -3.75 -3.65 ... 3.75 3.85 3.95
+Indexes:
+  ┌ z        VoxelToWorldIndex
+  │ y
+  └ x
+Attributes: (12/24)
+    qform_code:                          1
+    manufacturer:                        Verasonics
+    manufacturers_model_name:            Vantage 128
+    software_version:                    Alan Urban Technology & Consulting (...
+    probe_manufacturer:                  Vermon
+    probe_type:                          linear
+    ...                                  ...
+    task_description:                    Spontaneous activity without explici...
+    depth:                               [0.0, 5.991680000000001]
+    transmit_frequency:                  15625000.0
+    compound_sampling_frequency:         500.0
+    plane_wave_angles:                   [-10.0, -7.9, -5.8, -3.6999999999999...
+    probe_voltage:                       25.0
 ```
 
 
@@ -353,7 +384,7 @@ for nii in sorted((bids_root / "sub-CR020").rglob("*_pwd.nii.gz")):
 ```
 
 See the [I/O guide](io.md) for loading NIfTI, Zarr, and Iconeus SCAN files into
-Xarray DataArrays.
+VoxelData arrays.
 
 ### Refreshing the Dataset Index
 
@@ -377,17 +408,14 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
     **~16.3 MB**.
 
     Use [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] to
-    download and load the template directly:
+    download and load the template directly. The Huang 2025 template is already
+    resampled to the Allen space:
 
     ```python
     from confusius.datasets import fetch_brainglobe_atlas, fetch_template_huang_2025
 
     template = fetch_template_huang_2025()
     atlas = fetch_brainglobe_atlas("allen_mouse_50um")
-    resampled_atlas = atlas.atlas.resample_like(
-        template,
-        template.attrs["affines"]["physical_to_sform"],
-    )
     ```
 
 === "Pepe Mariani 2026"
@@ -396,8 +424,12 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
     distributed as a single NIfTI on [OSF (43tu9)](https://osf.io/43tu9/). Total size:
     **~5.5 MB**.
 
-    Use [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026] to
-    download and load the template directly:
+    Use
+    [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026]
+    to download and load the template directly. The Pepe, Mariani 2026 template isn't
+    resampled to the Allen space to retain the typical orientation from preclinical
+    head-fixed setups. However, the `sform` NIfTI affine contains the transformation
+    necessary to resample to the Allen space:
 
     ```python
     from confusius.datasets import fetch_brainglobe_atlas, fetch_template_pepe_mariani_2026
@@ -406,7 +438,7 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
     atlas = fetch_brainglobe_atlas("allen_mouse_100um")
     resampled_atlas = atlas.atlas.resample_like(
         template,
-        template.attrs["affines"]["physical_to_sform"],
+        template.attrs["affines"]["world_to_sform"],
     )
     ```
 

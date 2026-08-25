@@ -1,14 +1,14 @@
 # %% [markdown]
-# # Create a fUSI DataArray from a MAT file
+# # Create a VoxelData array from a MAT file
 #
 # This example downloads a power Doppler MAT file from the public dataset accompanying
 # [Rabut *et al.* (2024)](https://doi.org/10.1126/scitranslmed.adj3143)[^1] and wraps it
-# in a ConfUSIus [DataArray][xarray.DataArray] with
-# [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray].
+# in a VoxelData array with
+# [`create_voxeldata`][confusius.xarray.create_voxeldata].
 #
 # Since MAT files can contain any custom data, ConfUSIus cannot read them directly. The
 # point of this example is to show the shortest path from a lab-specific MAT file array
-# plus metadata to the standard ConfUSIus DataArray representation. This example then
+# plus metadata to a VoxelData array. This example then
 # reproduces figure 4D from Rabut *et al.* (2024) using a simple general linear model.
 
 # %%
@@ -61,12 +61,11 @@ if not mat_path.exists():
 # ## Load the power Doppler array and metadata
 #
 # This MAT file v7.3 is HDF5-backed, so we use [`h5py.File`][h5py.File] to open it. We
-# transpose the Doppler array to `(time, y, x)` and flip the lateral axis to match the
-# orientation of the original paper figures.
+# flip the lateral axis to match the orientation of the original paper figures.
 
 # %%
 with h5py.File(mat_path, "r") as mat:
-    doppler = np.flip(mat["dop"][()].astype("float32").transpose(0, 2, 1), axis=2)
+    doppler = np.flip(mat["dop"][()].astype("float32"), axis=1)
     task = mat["task"][:, 0].astype("float32")
     timestamps = mat["timestamps"][0]
     wavelength = float(mat["UF/Lambda"][0, 0])
@@ -76,29 +75,30 @@ print(run_label)
 print(f"Data shape: {doppler.shape}")
 
 # %% [markdown]
-# ## Wrap the raw array with [`create_fusi_dataarray`][cf.create_fusi_dataarray]
+# ## Wrap the raw array with [`create_voxeldata`][cf.xarray.create_voxeldata]
 #
-# After transposing the MATLAB array, the Doppler movie is `(time, y, x)`. ConfUSIus
-# adds the missing singleton `z` axis and returns the canonical `(time, z, y, x)`
-# layout. The timestamps have small acquisition jitter, so we pass them as an exact
+# The MATLAB array is `(time, i, j)` natively: 128 lateral positions matching the probe
+# pitch, and 240 depth samples. ConfUSIus adds the missing singleton `k` axis and
+# returns the canonical `(time, k, j, i)` layout, with `z`/`y`/`x` attached as world
+# coordinates. The timestamps have small acquisition jitter, so we pass them as an exact
 # coordinate. Following the authors' analysis code, we use the acoustic wavelength from
-# `UF.Lambda` for axial spacing and the 0.3 mm probe pitch for lateral spacing. We keep
-# depths between 10 and 30 mm to focus on the part of the image with good SNR.
+# `UF.Lambda` for axial (`y`) spacing and the 0.3 mm probe pitch for lateral (`x`)
+# spacing. With no explicit `x0`/`y0`, ConfUSIus applies its default convention of using
+# the probe surface as the origin. See the [Spatial
+# Conventions](../../../user-guide/voxeldata.md) guide for details.
 
 # %%
-dy = wavelength
-dx = 0.3
-y = dy / 2 + np.arange(doppler.shape[1]) * dy
-x = dx / 2 + np.arange(doppler.shape[2]) * dx
-
-power_doppler = cf.create_fusi_dataarray(
+power_doppler = cf.create_voxeldata(
     doppler,
-    dims=("time", "y", "x"),
-    coords={"time": timestamps, "y": y, "x": x},
-    dz=1.0,
+    dims=("time", "i", "j"),
+    time=timestamps,
+    spacing=(1.0, wavelength, 0.3),
     name="power_doppler",
     attrs={"source": RECORD_DOI, "source_member": MEMBER},
-).sel(y=slice(10, 30))
+)
+
+# We crop depths between 10 and 30 mm to focus on the part of the image with good SNR.
+power_doppler = power_doppler.sel(y=slice(10.0, 30.0))
 
 time_step = float(np.median(np.diff(timestamps)))
 power_doppler = cf.timing.resample_to_uniform_time(power_doppler, step=time_step)
@@ -211,8 +211,8 @@ plotter = z_map.fusi.plot.stat_map(
 # clearly than the whole-plane average.
 
 # %%
-active_signal = scaled.where(active_voxels).mean(("z", "y", "x"))
-mean_signal = scaled.mean(("z", "y", "x"))
+active_signal = scaled.where(active_voxels).mean(("k", "j", "i"))
+mean_signal = scaled.mean(("k", "j", "i"))
 fig, ax = plt.subplots(figsize=(9, 4), facecolor=bg_color)
 mean_signal.plot(ax=ax, color="#808080", label="Whole-plane mean")
 active_signal.plot(ax=ax, color="#d93a54", label="Top task-positive voxels")

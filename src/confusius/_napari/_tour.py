@@ -810,7 +810,7 @@ def build_default_tour(
             title="Layer Saving",
             body=(
                 "Save any napari layer from here. <b>Coordinates from</b> is useful "
-                "when exporting labels or derived maps: it allows reusing the physical "
+                "when exporting labels or derived maps: it allows reusing the world "
                 "coordinates from a ConfUSIus-loaded image layer."
             ),
             anchor="left",

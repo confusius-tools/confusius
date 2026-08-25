@@ -8,7 +8,12 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.geometry import (
+    get_voxel_to_world_affine,
+    get_voxel_to_world_units,
+)
 from confusius._utils.stack import find_stack_level
+from confusius.iq._utils import ensure_iq_voxeldata
 from confusius.iq.clutter_filters import (
     clutter_filter_butterworth,
     clutter_filter_svd_from_cumulative_energy,
@@ -20,13 +25,9 @@ from confusius.timing import (
     VolumeAcquisitionReference,
     convert_time_reference,
     get_representative_time_step,
-    get_time_coord_to_seconds_factor,
 )
-from confusius.validation import (
-    ensure_fusi,
-    ensure_iq,
-    validate_mask,
-)
+from confusius.validation import ensure_voxeldata, validate_mask
+from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -73,23 +74,75 @@ def _format_clutter_filter_spec(
     return f"{label} [{low}, {high}{closing}"
 
 
+def _attach_iq_output_geometry(
+    result: "np.ndarray | da.Array",
+    iq: xr.DataArray,
+    *,
+    name: str,
+    time: xr.DataArray,
+    attrs: dict[str, Any],
+) -> xr.DataArray:
+    """Build a processed-IQ output DataArray, carrying over `iq`'s voxel-to-world geometry.
+
+    Processing only ever resamples the `time` axis (via sliding windows); the spatial
+    voxel dims and their sizes are always unchanged from `iq`. Copying `iq.coords["z"]`
+    (etc.) directly into a fresh `xr.DataArray(coords=...)` call would silently drop
+    the `VoxelToWorldIndex` backing those derived coordinates, so the voxel dims are
+    reattached explicitly here via `attach_voxel_to_world_index`.
+
+    Parameters
+    ----------
+    result : numpy.ndarray or dask.array.Array
+        Output array with dims matching `iq.dims`, spatial sizes matching `iq`, and a
+        (possibly different) `time` size matching `time`.
+    iq : xarray.DataArray
+        Source IQ data the output derives its spatial geometry from.
+    name : str
+        Name for the output DataArray.
+    time : xarray.DataArray
+        Output `time` coordinate.
+    attrs : dict[str, Any]
+        Attributes for the output DataArray.
+
+    Returns
+    -------
+    xarray.DataArray
+        Output DataArray with `iq`'s voxel-to-world geometry (native voxel dims and
+        derived world coordinates) reattached.
+    """
+    return create_voxeldata(
+        result,
+        dims=tuple(str(dim) for dim in iq.dims),
+        dt=time.attrs["volume_acquisition_duration"],
+        t0=float(np.asarray(time.values)[0]),
+        pose=iq.coords["pose"] if "pose" in iq.dims else None,
+        k=iq.coords["k"],
+        j=iq.coords["j"],
+        i=iq.coords["i"],
+        voxel_to_world=get_voxel_to_world_affine(iq),
+        units=get_voxel_to_world_units(iq),
+        name=name,
+        attrs=attrs,
+    ).assign_coords(time=time)
+
+
 def _normalize_spatial_kernel(
     spatial_kernel: int | tuple[int, int, int] | list[int],
     spatial_shape: tuple[int, int, int] | None = None,
 ) -> tuple[int, int, int]:
-    """Return a validated `(z, y, x)` median-filter kernel.
+    """Return a validated `(k, j, i)` median-filter kernel.
 
     Parameters
     ----------
     spatial_kernel : int or tuple[int, int, int] or list[int]
-        Median-filter kernel size as a scalar or explicit `(z, y, x)` sizes.
+        Median-filter kernel size as a scalar or explicit `(k, j, i)` sizes.
     spatial_shape : tuple[int, int, int], optional
         Spatial data shape used to clip each kernel axis to the available size.
 
     Returns
     -------
     tuple[int, int, int]
-        Validated odd kernel sizes for `(z, y, x)`.
+        Validated odd kernel sizes for `(k, j, i)`.
 
     Raises
     ------
@@ -120,61 +173,6 @@ def _normalize_spatial_kernel(
         kernel[0] + 1 if kernel[0] % 2 == 0 else kernel[0],
         kernel[1] + 1 if kernel[1] % 2 == 0 else kernel[1],
         kernel[2] + 1 if kernel[2] % 2 == 0 else kernel[2],
-    )
-
-
-def _get_volume_acquisition_duration(iq: xr.DataArray) -> float:
-    """Return the input IQ volume acquisition duration in coordinate units.
-
-    Prefers the explicit `volume_acquisition_duration` stored on the time coordinate.
-    Falls back to the scanner provenance attribute `compound_sampling_frequency`, then
-    to the representative time step of the `time` coordinate.
-
-    Parameters
-    ----------
-    iq : xarray.DataArray
-        Input IQ data array.
-
-    Returns
-    -------
-    float
-        Volume acquisition duration in the same units as the `time` coordinate.
-    """
-    duration = iq.coords["time"].attrs.get("volume_acquisition_duration")
-    if isinstance(duration, int | float) and duration > 0:
-        return float(duration)
-
-    compound_sampling_frequency = iq.attrs.get("compound_sampling_frequency")
-    if (
-        isinstance(compound_sampling_frequency, int | float)
-        and compound_sampling_frequency > 0
-    ):
-        warnings.warn(
-            "Using `compound_sampling_frequency` to infer `volume_acquisition_duration`. "
-            "Prefer an explicit `volume_acquisition_duration` on the time coordinate.",
-            stacklevel=find_stack_level(),
-        )
-        return 1.0 / (
-            float(compound_sampling_frequency) * get_time_coord_to_seconds_factor(iq)
-        )
-
-    time_step, approximate = get_representative_time_step(iq)
-    if time_step is not None:
-        warning = (
-            "Using the representative `time` coordinate spacing to infer "
-            "`volume_acquisition_duration`. Prefer an explicit "
-            "`volume_acquisition_duration` on the time coordinate."
-        )
-        if approximate:
-            warning += " Since timings are irregular, the inferred duration is based on a median approximation."
-        warnings.warn(warning, stacklevel=find_stack_level())
-        return float(time_step)
-
-    raise ValueError(
-        "Cannot determine volume acquisition duration: neither "
-        "`volume_acquisition_duration` in the time coordinate attributes nor "
-        "`compound_sampling_frequency` in the DataArray attributes nor enough `time` "
-        "coordinate values are available."
     )
 
 
@@ -279,16 +277,8 @@ def _compute_clutter_filter_window_metadata(
         Representative clutter-filter window stride in the input time-coordinate
         units.
     """
-    iq_time_reference = iq.coords["time"].attrs.get(
-        "volume_acquisition_reference", "start"
-    )
-    if iq_time_reference not in TIMING_REFERENCE_FACTORS:
-        raise ValueError(
-            f"Unknown volume_acquisition_reference: {iq_time_reference!r}. Must be "
-            "'start', 'center', or 'end'."
-        )
-
-    iq_volume_duration = _get_volume_acquisition_duration(iq)
+    iq_time_reference = iq.time.volume_acquisition_reference
+    iq_volume_duration = iq.time.volume_acquisition_duration
     iq_volume_timings = np.asarray(iq.coords["time"].values)
     window_starts = convert_time_reference(
         iq_volume_timings,
@@ -368,20 +358,11 @@ def _compute_inner_window_metadata(
         description=duration_description,
     )
 
-    output_reference = iq.coords["time"].attrs.get(
-        "volume_acquisition_reference", "start"
-    )
-    if output_reference not in TIMING_REFERENCE_FACTORS:
-        raise ValueError(
-            f"Unknown volume_acquisition_reference: {output_reference!r}. Must be "
-            "'start', 'center', or 'end'."
-        )
-
     if output_timings.size > 1:
         output_starts = convert_time_reference(
             output_timings,
             output_durations,
-            from_reference=output_reference,
+            from_reference=iq.time.volume_acquisition_reference,
             to_reference="start",
         )
         if inner_windows_per_outer_window > 1:
@@ -406,7 +387,7 @@ def _compute_inner_window_metadata(
     time_step, _ = get_representative_time_step(iq)
     if time_step is None:
         output_window_stride_duration = (
-            output_window_stride * _get_volume_acquisition_duration(iq)
+            output_window_stride * iq.time.volume_acquisition_duration
         )
     else:
         output_window_stride_duration = output_window_stride * time_step
@@ -467,29 +448,32 @@ def compute_processed_volume_timings(
     output_durations : numpy.ndarray
         Duration of each output window, in the same units as `iq.coords["time"]`.
 
+    Raises
+    ------
+    ValueError
+        If `processed_time_reference` is not one of `"start"`, `"center"`, or `"end"`.
+
     Examples
     --------
     >>> import numpy as np
     >>> import xarray as xr
     >>> from confusius.iq import compute_processed_volume_timings
+    >>> from confusius.xarray import create_voxeldata
     >>> # 100 volumes at 10 Hz, volume_duration = 0.1 s
-    >>> iq = xr.DataArray(
+    >>> iq = create_voxeldata(
     ...     np.ones((100, 1, 1, 1), dtype=np.complex128),
-    ...     dims=("time", "z", "y", "x"),
-    ...     coords={
-    ...         "time": xr.DataArray(
-    ...             np.arange(100) * 0.1,
-    ...             dims=("time",),
-    ...             attrs={
-    ...                 "units": "s",
-    ...                 "volume_acquisition_duration": 0.1,
-    ...                 "volume_acquisition_reference": "start",
-    ...             },
-    ...         ),
-    ...         "z": [0],
-    ...         "y": [0],
-    ...         "x": [0],
-    ...     },
+    ...     dims=("time", "k", "j", "i"),
+    ...     time=xr.DataArray(
+    ...         np.arange(100) * 0.1,
+    ...         dims=("time",),
+    ...         attrs={
+    ...             "units": "s",
+    ...             "volume_acquisition_duration": 0.1,
+    ...             "volume_acquisition_reference": "start",
+    ...         },
+    ...     ),
+    ...     spacing=(1.0, 1.0, 1.0),
+    ...     origin=(0.0, 0.0, 0.0),
     ... )
     >>> output_timings, output_durations = compute_processed_volume_timings(
     ...     iq,
@@ -504,20 +488,14 @@ def compute_processed_volume_timings(
     >>> output_durations
     array([2.5, 2.5, 2.5, 2.5])
     """
-    iq = ensure_iq(iq)
+    iq = ensure_iq_voxeldata(iq)
 
-    iq_time_reference = iq.coords["time"].attrs.get(
-        "volume_acquisition_reference", "start"
-    )
+    iq_time_reference = iq.time.volume_acquisition_reference
     if processed_time_reference is None:
         processed_time_reference = iq_time_reference
-    iq_volume_duration = _get_volume_acquisition_duration(iq)
+    iq_volume_duration = iq.time.volume_acquisition_duration
     iq_volume_timings = np.asarray(iq.coords["time"].values)
 
-    if iq_time_reference not in TIMING_REFERENCE_FACTORS:
-        raise ValueError(
-            f"Unknown iq_time_reference: {iq_time_reference!r}. Must be 'start', 'center', or 'end'."
-        )
     if processed_time_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             "Unknown processed_time_reference: "
@@ -600,16 +578,16 @@ def process_iq_block_with_clutter_filter(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Array of complex IQ data.
     process_block_func : callable
         Function used to process a set of IQ volumes into a single volume.
-        `process_block_func` must accept a `(time, z, y, x)` array of complex IQ
-        data as first argument and return a `(z, y, x)` array corresponding to the
+        `process_block_func` must accept a `(time, k, j, i)` array of complex IQ
+        data as first argument and return a `(k, j, i)` array corresponding to the
         processed volume. `process_block_func` may accept additional arguments
         provided via `kwargs`, but must ignore any extra keyword arguments. Note that
         `fs` will be passed to `process_block_func`.
-    clutter_mask : (z, y, x) numpy.ndarray, optional
+    clutter_mask : (k, j, i) numpy.ndarray, optional
         Boolean mask to define clutter regions. Only used by SVD-based clutter filters
         to compute clutter vectors from masked voxels. If not provided, all voxels are
         used.
@@ -657,6 +635,14 @@ def process_iq_block_with_clutter_filter(
     -------
     (windows, z, y, x) numpy.ndarray
         The computed volumes, with `windows` the number of sliding windows used.
+
+    Raises
+    ------
+    ValueError
+        If `filter_method` is `"butterworth"` and `fs` is not provided, if
+        `filter_method` is `"svd_indices"` and `low_cutoff`/`high_cutoff` are not both
+        integers or `None`, or if `filter_method` is not one of `"svd_indices"`,
+        `"svd_energy"`, `"svd_cumulative_energy"`, or `"butterworth"`.
     """
     if window_width is None:
         window_width = block.shape[0]
@@ -746,9 +732,9 @@ def compute_power_doppler_volume(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     filter_method : {"svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"}, \
             default: "svd_indices"
         Clutter filtering method to apply before power Doppler computation.
@@ -758,7 +744,7 @@ def compute_power_doppler_volume(
         - `"svd_cumulative_energy"`: Adaptive SVD filter using cumulative energies.
         - `"butterworth"`: Butterworth frequency-domain filter.
 
-    clutter_mask : (z, y, x) numpy.ndarray, optional
+    clutter_mask : (k, j, i) numpy.ndarray, optional
         Boolean mask to define clutter regions. Only used by SVD-based clutter filters
         to compute clutter vectors from masked voxels. If not provided, all voxels are
         used.
@@ -784,7 +770,7 @@ def compute_power_doppler_volume(
     -------
     (windows, z, y, x) numpy.ndarray
         Power Doppler volumes, where `windows` is the number of temporal sliding
-        windows and `(z, y, x)` are spatial dimensions.
+        windows and `(k, j, i)` are spatial dimensions.
     """
 
     def process_block_func(block: npt.NDArray, **_: Any) -> npt.NDArray:
@@ -792,14 +778,14 @@ def compute_power_doppler_volume(
 
         Parameters
         ----------
-        block : (time, z, y, x) numpy.ndarray
+        block : (time, k, j, i) numpy.ndarray
             Complex IQ data.
         **_
             Additional unused keyword arguments (absorbed and ignored).
 
         Returns
         -------
-        (z, y, x) numpy.ndarray
+        (k, j, i) numpy.ndarray
             Power Doppler volume.
         """
         return np.mean(np.abs(block) ** 2, axis=0)
@@ -830,9 +816,9 @@ def compute_bmode_volume(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     **_
         Additional unused keyword arguments (absorbed and ignored).
 
@@ -870,9 +856,9 @@ def compute_axial_velocity_volume(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     fs : float
         Volume sampling frequency in hertz.
     filter_method : {"svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"}, \
@@ -884,7 +870,7 @@ def compute_axial_velocity_volume(
         - `"svd_cumulative_energy"`: Adaptive SVD filter using cumulative energies
         - `"butterworth"`: Butterworth frequency-domain filter
 
-    clutter_mask : (z, y, x) numpy.ndarray, optional
+    clutter_mask : (k, j, i) numpy.ndarray, optional
         Boolean mask to define clutter regions. Only used by SVD-based clutter filters
         to compute clutter vectors from masked voxels. If not provided, all voxels are
         used.
@@ -908,7 +894,7 @@ def compute_axial_velocity_volume(
     spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
         Size of the median filter kernel applied spatially to denoise. A scalar uses
         the same kernel size on all spatial axes; a length-3 sequence specifies
-        `(z, y, x)` sizes directly. Values must be positive. Any even sizes are
+        `(k, j, i)` sizes directly. Values must be positive. Any even sizes are
         rounded up to the next odd size. If all sizes are `1`, no spatial filtering is
         applied.
     transmit_frequency : float, default: 15.625e6
@@ -920,7 +906,7 @@ def compute_axial_velocity_volume(
     -------
     (windows, z, y, x) numpy.ndarray
         Axial velocity volumes, where `windows` is the number of temporal sliding
-        windows and `(z, y, x)` are spatial dimensions. Velocity values are in meters
+        windows and `(k, j, i)` are spatial dimensions. Velocity values are in meters
         per second.
 
     Notes
@@ -942,12 +928,12 @@ def compute_axial_velocity_volume(
 
         Parameters
         ----------
-        block : (time, z, y, x) numpy.ndarray
+        block : (time, k, j, i) numpy.ndarray
             Complex IQ data.
         spatial_kernel : int or tuple[int, int, int] or list[int]
             Size of the median filter kernel applied spatially to denoise. A scalar
             uses the same size on all spatial axes; a length-3 sequence specifies
-            `(z, y, x)` sizes directly.
+            `(k, j, i)` sizes directly.
         lag : int
             Temporal lag in volumes for autocorrelation computation.
         fs : float
@@ -961,7 +947,7 @@ def compute_axial_velocity_volume(
 
         Returns
         -------
-        (z, y, x) numpy.ndarray
+        (k, j, i) numpy.ndarray
             Axial velocity volume in meters per second.
         """
         autocorrelation = cast("npt.NDArray", block[lag:] * np.conj(block[:-lag]))
@@ -1022,7 +1008,7 @@ def process_iq_blocks(
 
     Parameters
     ----------
-    iq : (time, z, y, x) dask.array.Array
+    iq : (time, k, j, i) dask.array.Array
         Dask array of complex IQ data.
     process_func : callable
         Function to apply to each temporal window. It must accept a `(window_volumes,
@@ -1044,6 +1030,11 @@ def process_iq_blocks(
     -------
     dask.array.Array
         Processed array.
+
+    Raises
+    ------
+    ValueError
+        If `window_stride` is greater than `window_width`.
     """
     import dask.array as da
 
@@ -1204,11 +1195,9 @@ def process_iq_to_power_doppler(
     Parameters
     ----------
     iq : xarray.DataArray
-        Xarray DataArray containing complex beamformed IQ data with dimensions
-        `(time, z, y, x)`, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions. The DataArray may carry a
-        `compound_sampling_frequency` attribute as scanner provenance, but processing
-        uses the `time` coordinate as the source of truth for temporal spacing.
+        VoxelData array containing complex beamformed IQ data with
+        dimensions `(time, k, j, i)`, where `time` is the temporal dimension and
+        `(k, j, i)` are native voxel spatial dimensions.
     clutter_window_width : int, optional
         Width of the sliding temporal window for clutter filtering, in volumes. If not
         provided, uses the chunk size of the IQ data along the temporal dimension.
@@ -1224,11 +1213,10 @@ def process_iq_to_power_doppler(
         - `"svd_cumulative_energy"`: Adaptive SVD filter using cumulative energies.
         - `"butterworth"`: Butterworth frequency-domain filter.
 
-    clutter_mask : (z, y, x) xarray.DataArray, optional
+    clutter_mask : (k, j, i) xarray.DataArray, optional
         Boolean mask to define clutter regions. Only used by SVD-based clutter filters
         to compute clutter vectors from masked voxels. If not provided, all voxels are
-        used. The mask spatial coordinates `(z, y, x)` must match the IQ data
-        coordinates.
+        used. The mask spatial dimensions and coordinates must match the IQ data.
     low_cutoff : int or float, optional
         Low cutoff of the clutter filter. See `filter_method` for details. If not
         provided, the lower bound of the range is used.
@@ -1247,9 +1235,10 @@ def process_iq_to_power_doppler(
 
     Returns
     -------
-    (clutter_windows * doppler_windows, z, y, x) xarray.DataArray
-        Power Doppler volumes as an Xarray DataArray with updated time coordinates,
-        where `clutter_windows` is the number of clutter filter sliding windows and
+    (clutter_windows * doppler_windows, k, j, i) xarray.DataArray
+        Power Doppler volumes as a VoxelData array with updated time
+        coordinates and `iq`'s voxel-to-world geometry carried over, where
+        `clutter_windows` is the number of clutter filter sliding windows and
         `doppler_windows` is the number of power Doppler sliding windows per clutter
         window.
 
@@ -1296,15 +1285,15 @@ def process_iq_to_power_doppler(
     import dask.array as da
     from dask.array import Array
 
-    iq = ensure_iq(iq)
+    iq = ensure_iq_voxeldata(iq)
 
     clutter_mask_array = None
     if clutter_mask is not None:
-        clutter_mask = ensure_fusi(
+        clutter_mask = ensure_voxeldata(
             clutter_mask, allow_pose=False, allow_extra_dims=False
         )
-        clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
-        clutter_mask_array = clutter_mask.values
+        validate_mask(clutter_mask, iq, "clutter_mask")
+        clutter_mask_array = clutter_mask.values.astype(bool)
 
     dask_iq: Array = iq.data
     if not isinstance(dask_iq, Array):
@@ -1369,11 +1358,7 @@ def process_iq_to_power_doppler(
         dims="time",
         attrs={
             **iq.coords["time"].attrs,
-            # By default, we assume that the acquisition time reference is the start of
-            # the first volume in the window.
-            "volume_acquisition_reference": iq.coords["time"].attrs.get(
-                "volume_acquisition_reference", "start"
-            ),
+            "volume_acquisition_reference": iq.time.volume_acquisition_reference,
             "volume_acquisition_duration": doppler_window_duration,
         },
     )
@@ -1390,16 +1375,11 @@ def process_iq_to_power_doppler(
         "power_doppler_integration_duration": doppler_window_duration,
         "power_doppler_integration_stride": doppler_window_stride_duration,
     }
-    return xr.DataArray(
+    return _attach_iq_output_geometry(
         result,
+        iq,
         name="power_doppler",
-        dims=iq.dims,
-        coords={
-            "time": output_times,
-            "z": iq.coords["z"],
-            "y": iq.coords["y"],
-            "x": iq.coords["x"],
-        },
+        time=output_times,
         attrs={**iq.attrs, **output_attrs},
     )
 
@@ -1418,9 +1398,9 @@ def process_iq_to_bmode(
     Parameters
     ----------
     iq : xarray.DataArray
-        Xarray DataArray containing complex beamformed IQ data with dimensions
-        `(time, z, y, x)`, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        VoxelData array containing complex beamformed IQ data with
+        dimensions `(time, k, j, i)`, where `time` is the temporal dimension and
+        `(k, j, i)` are native voxel spatial dimensions.
     bmode_window_width : int, optional
         Width of the sliding temporal window for B-mode integration, in volumes. If not
         provided, uses the chunk size of the IQ data along the temporal dimension.
@@ -1430,14 +1410,15 @@ def process_iq_to_bmode(
 
     Returns
     -------
-    (windows, z, y, x) xarray.DataArray
-        B-mode volumes as an Xarray DataArray with updated time coordinates, where
-        `windows` is the number of sliding windows.
+    (windows, k, j, i) xarray.DataArray
+        B-mode volumes as a VoxelData array with updated time
+        coordinates and `iq`'s voxel-to-world geometry carried over, where `windows`
+        is the number of sliding windows.
     """
     import dask.array as da
     from dask.array import Array
 
-    iq = ensure_iq(iq)
+    iq = ensure_iq_voxeldata(iq)
 
     dask_iq: Array = iq.data
     if not isinstance(dask_iq, Array):
@@ -1478,11 +1459,7 @@ def process_iq_to_bmode(
         dims="time",
         attrs={
             **iq.coords["time"].attrs,
-            # By default, we assume that the acquisition time reference is the start of
-            # the first volume in the window.
-            "volume_acquisition_reference": iq.coords["time"].attrs.get(
-                "volume_acquisition_reference", "start"
-            ),
+            "volume_acquisition_reference": iq.time.volume_acquisition_reference,
             "volume_acquisition_duration": bmode_window_duration,
         },
     )
@@ -1495,16 +1472,11 @@ def process_iq_to_bmode(
         "bmode_integration_stride": bmode_window_stride_duration,
     }
 
-    return xr.DataArray(
+    return _attach_iq_output_geometry(
         result,
+        iq,
         name="bmode",
-        dims=iq.dims,
-        coords={
-            "time": output_times,
-            "z": iq.coords["z"],
-            "y": iq.coords["y"],
-            "x": iq.coords["x"],
-        },
+        time=output_times,
         attrs={**iq.attrs, **output_attrs},
     )
 
@@ -1536,9 +1508,9 @@ def process_iq_to_axial_velocity(
     Parameters
     ----------
     iq : xarray.DataArray
-        Xarray DataArray containing complex beamformed IQ data with dimensions
-        `(time, z, y, x)`, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions. The DataArray must have the
+        VoxelData array containing complex beamformed IQ data with
+        dimensions `(time, k, j, i)`, where `time` is the temporal dimension and
+        `(k, j, i)` are native voxel spatial dimensions. The DataArray must have the
         following attributes:
 
         - `transmit_frequency`: Ultrasound transmit frequency in hertz.
@@ -1559,11 +1531,10 @@ def process_iq_to_axial_velocity(
         - `"svd_cumulative_energy"`: Adaptive SVD filter using cumulative energies.
         - `"butterworth"`: Butterworth frequency-domain filter.
 
-    clutter_mask : (z, y, x) xarray.DataArray, optional
+    clutter_mask : (k, j, i) xarray.DataArray, optional
         Boolean mask to define clutter regions. Only used by SVD-based clutter filters
         to compute clutter vectors from masked voxels. If not provided, all voxels are
-        used. The mask spatial coordinates `(z, y, x)` must match the IQ data
-        coordinates.
+        used. The mask spatial dimensions and coordinates must match the IQ data.
     low_cutoff : int or float, optional
         Low cutoff of the clutter filter. See `filter_method` for details. If not
         provided, the lower bound of the range is used.
@@ -1584,16 +1555,18 @@ def process_iq_to_axial_velocity(
     spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
         Size of the median filter kernel applied spatially to denoise. A scalar uses
         the same kernel size on all spatial axes; a length-3 sequence specifies
-        `(z, y, x)` sizes directly. Values must be positive. Any even sizes are
+        `(k, j, i)` sizes directly. Values must be positive. Any even sizes are
         rounded up to the next odd size. If all sizes are `1`, no spatial filtering is
         applied.
 
     Returns
     -------
-    (clutter_windows * velocity_windows, z, y, x) xarray.DataArray
-        Axial velocity volumes as an Xarray DataArray with updated time coordinates,
-        where `clutter_windows` is the number of clutter filter sliding windows and
-        `velocity_windows` is the number of velocity sliding windows per clutter window.
+    (clutter_windows * velocity_windows, k, j, i) xarray.DataArray
+        Axial velocity volumes as a VoxelData array with updated time
+        coordinates and `iq`'s voxel-to-world geometry carried over, where
+        `clutter_windows` is the number of clutter filter sliding windows and
+        `velocity_windows` is the number of velocity sliding windows per clutter
+        window.
         Velocity values are in meters per second.
 
     Notes
@@ -1639,15 +1612,15 @@ def process_iq_to_axial_velocity(
     import dask.array as da
     from dask.array import Array
 
-    iq = ensure_iq(iq, require_velocity_attrs=True)
+    iq = ensure_iq_voxeldata(iq, require_velocity_attrs=True)
 
     clutter_mask_array = None
     if clutter_mask is not None:
-        clutter_mask = ensure_fusi(
+        clutter_mask = ensure_voxeldata(
             clutter_mask, allow_pose=False, allow_extra_dims=False
         )
-        clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
-        clutter_mask_array = clutter_mask.values
+        validate_mask(clutter_mask, iq, "clutter_mask")
+        clutter_mask_array = clutter_mask.values.astype(bool)
 
     dask_iq: Array = iq.data
     if not isinstance(dask_iq, Array):
@@ -1720,11 +1693,7 @@ def process_iq_to_axial_velocity(
         dims="time",
         attrs={
             **iq.coords["time"].attrs,
-            # By default, we assume that the acquisition time reference is the start of
-            # the first volume in the window.
-            "volume_acquisition_reference": iq.coords["time"].attrs.get(
-                "volume_acquisition_reference", "start"
-            ),
+            "volume_acquisition_reference": iq.time.volume_acquisition_reference,
             "volume_acquisition_duration": velocity_window_duration,
         },
     )
@@ -1745,15 +1714,10 @@ def process_iq_to_axial_velocity(
         "axial_velocity_integration_duration": velocity_window_duration,
         "axial_velocity_integration_stride": velocity_window_stride_duration,
     }
-    return xr.DataArray(
+    return _attach_iq_output_geometry(
         result,
+        iq,
         name="axial_velocity",
-        dims=iq.dims,
-        coords={
-            "time": output_times,
-            "z": iq.coords["z"],
-            "y": iq.coords["y"],
-            "x": iq.coords["x"],
-        },
+        time=output_times,
         attrs={**iq.attrs, **output_attrs},
     )

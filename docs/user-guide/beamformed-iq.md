@@ -62,10 +62,10 @@ high-frequency carrier, allowing for a significant reduction in sampling rate an
 drastically reducing data volume. A beamformed IQ sample can be represented as
 
 $$
-\text{IQ}(x, y, z, k) = A(x, y, z, k) \, e^{j\phi(x, y, z, k)},
+\text{IQ}(i, j, k, t) = A(i, j, k, t) \, e^{j\phi(i, j, k, t)},
 $$
 
-where $A$ is amplitude, $\phi$ is phase, $(x, y, z)$ are spatial coordinates, and $k$ is
+where $A$ is amplitude, $\phi$ is phase, $(i, j, k)$ are spatial coordinates, and $t$ is
 the **slow-time** index.
 
 !!! info "Slow time vs. fast time"
@@ -77,29 +77,21 @@ pulse repetition frequency (PRF), typically kHz rates. With **compound imaging**
 in fUSI), multiple plane waves are emitted at different angles and their echoes are
 combined to form a single compound volume[^montaldo2009]. In this case, the effective
 sampling rate, the **compound frequency**, is the PRF divided by the number of angles,
-typically hundreds of Hz. 
+typically hundreds of hertz.
 
 ### Expected Data Structure
 
-Beamformed IQ data in ConfUSIus should be a complex-valued Xarray DataArray with
-dimensions exactly ordered as `(time, z, y, x)`, where `time` is the slow-time
-dimension and `(z, y, x)` are the spatial dimensions. IQ processing works on temporal
-blocks and flattens the spatial axes, so this stricter order keeps the data layout
-unambiguous and efficient. ConfUSIus typically adopts the following convention for the
-spatial dimensions:
+Beamformed IQ data in ConfUSIus is a complex-valued, [VoxelData
+model](voxeldata.md#the-voxeldata-model) DataArray, with `time` as
+the slow-time dimension. This dimension order keeps IQ processing's sliding-window
+operations efficient.
 
-- `z`: Elevation dimension (out-of-plane dimension for linear arrays).
-- `y`: Axial dimension (depth dimension).
-- `x`: Lateral dimension (dimension along the transducer array).
-
-Additionally, IQ processing needs timing metadata. Prefer storing the acquisition
-window duration on the `time` coordinate as
-`time.attrs["volume_acquisition_duration"]`; legacy datasets may instead provide
-`compound_sampling_frequency` as scanner provenance. Axial velocity estimation also
-requires these DataArray attributes:
-
-- `transmit_frequency`: Frequency of the transmitted ultrasound pulse (Hz).
-- `beamforming_sound_velocity`: Speed of sound used for beamforming (m/s).
+Beyond the VoxelData requirements, axial velocity estimation also requires the
+`transmit_frequency` and `beamforming_sound_velocity` DataArray attributes.
+[`create_voxeldata`][confusius.xarray.create_voxeldata] accepts both as optional
+arguments, and [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity]
+checks for their presence internally via
+[`validate_voxeldata`][confusius.validation.validate_voxeldata].
 
 Here is what a valid IQ DataArray looks like once loaded:
 
@@ -108,37 +100,38 @@ Here is what a valid IQ DataArray looks like once loaded:
 >>>
 >>> iq = cf.load("sub-01_task-rest_iq.zarr")
 >>> iq
-<xarray.DataArray 'iq' (time: 50000, z: 1, y: 118, x: 52)> Size: 24GB
-dask.array<...>
+<xarray.DataArray 'iq' (time: 50000, k: 1, j: 118, i: 52)> Size: 2GB
+dask.array<xarray-<this-array>, shape=(50000, 1, 118, 52), dtype=complex64, chunksize=(1000, 1, 118, 52), chunktype=numpy.ndarray>
 Coordinates:
-  * time     (time) float64 400kB 0.0 0.002 0.004 ... 99.994 99.996 99.998
-  * z        (z) float64 8B 0.0
-  * y        (y) float64 944B 4.656 4.705 4.753 ... 10.231 10.279 10.328
-  * x        (x) float64 416B -2.671 -2.57 -2.469 ... 2.268 2.369 2.469
+  * time     (time) float64 400kB 0.0 0.002 0.004 ... 99.99 100.0 100.0
+  * k        (k) int64 8B 0
+  * j        (j) int64 944B 0 1 2 3 4 5 6 7 ... 110 111 112 113 114 115 116 117
+  * i        (i) int64 416B 0 1 2 3 4 5 6 7 8 9 ... 43 44 45 46 47 48 49 50 51
+  * z        (k, j, i) float64 49kB dask.array<chunksize=(1, 118, 52), meta=np.ndarray>
+  * y        (k, j, i) float64 49kB dask.array<chunksize=(1, 118, 52), meta=np.ndarray>
+  * x        (k, j, i) float64 49kB dask.array<chunksize=(1, 118, 52), meta=np.ndarray>
+Indexes:
+  ┌ z        VoxelToWorldIndex
+  │ y
+  └ x
 Attributes:
-    transmit_frequency:           15625000.0
     compound_sampling_frequency:  500.0
     pulse_repetition_frequency:   15000.0
+    transmit_frequency:           15625000.0
     beamforming_sound_velocity:   1540.0
 ```
 
-In this example, the PRF is 15 kHz, but the data uses compound imaging with a
-`compound_sampling_frequency` of 500 Hz. This means each IQ sample (compound volume)
-results from combining 30 individual pulses, giving an effective temporal sampling
-period of 2 ms rather than 67 μs.
-
-If your acquisition system isn't directly supported by ConfUSIus, see
-[Other Systems](io.md#other-systems) for how to wrap a custom complex array as an IQ
-DataArray.
+If your acquisition system isn't directly supported by ConfUSIus, see [Other
+Systems](io.md#other-systems) for how to wrap a custom complex array as an IQ DataArray.
 
 !!! question "Finding metadata values"
     If you're unsure about the correct values:
 
-    - `volume_acquisition_duration`: Check your acquisition software settings. For
-      regularly sampled IQ, this is usually the inverse effective volume rate.
-    - `transmit_frequency`: Found in your probe specifications or acquisition
-      settings. Generally around 5-10 MHz for clinical probes, and 12-20 MHz for
-      high-frequency probes used in small animal imaging.
+    - `volume_acquisition_duration`: This is usually equal to the number of plane wave
+      angles divided by the pulse repetition frequency.
+    - `transmit_frequency`: Found in your probe specifications or acquisition settings.
+      Generally around 5-10 MHz for clinical probes, and 12-20 MHz for high-frequency
+      probes used in small animal imaging.
     - `beamforming_sound_velocity`: Typically 1540 m/s for brain tissues, but may vary
       with temperature and tissue type.
 
@@ -281,9 +274,9 @@ pwd.to_zarr("power_doppler.zarr")
     ```python
     # Limit workers and memory.
     client = Client(
-        n_workers=4,              # Number of worker processes.
-        threads_per_worker=2,     # Threads per worker.
-        memory_limit="8GB"        # Memory limit per worker.
+        n_workers=4,  # Number of worker processes.
+        threads_per_worker=2,  # Threads per worker.
+        memory_limit="8GB",  # Memory limit per worker.
     )
     ```
 
@@ -520,10 +513,10 @@ function or the corresponding Xarray accessor method.
     # Process to power Doppler using SVD filtering.
     pwd = cf.iq.process_iq_to_power_doppler(
         iq,
-        clutter_window_width=200,       # Use 200 volumes per clutter filter window.
-        doppler_window_width=100,       # Integrate power in nested windows of 100 volumes.
-        filter_method="svd_indices",    # Use the static SVD filter.
-        low_cutoff=50,                  # Remove 50 strongest singular vectors.
+        clutter_window_width=200,  # Use 200 volumes per clutter filter window.
+        doppler_window_width=100,  # Integrate power in nested windows of 100 volumes.
+        filter_method="svd_indices",  # Use the static SVD filter.
+        low_cutoff=50,  # Remove 50 strongest singular vectors.
     )
     ```
 
@@ -542,10 +535,10 @@ function or the corresponding Xarray accessor method.
 
     # Process to power Doppler using SVD filtering.
     pwd = iq.fusi.iq.process_to_power_doppler(
-        clutter_window_width=200,       # Use 200 volumes per clutter filter window.
-        doppler_window_width=100,       # Integrate power over 100 volumes.
-        filter_method="svd_indices",    # Use static SVD filter.
-        low_cutoff=50,                  # Remove 50 strongest singular vectors.
+        clutter_window_width=200,  # Use 200 volumes per clutter filter window.
+        doppler_window_width=100,  # Integrate power over 100 volumes.
+        filter_method="svd_indices",  # Use static SVD filter.
+        low_cutoff=50,  # Remove 50 strongest singular vectors.
     )
     ```
 
@@ -554,26 +547,33 @@ wasn't Dask-backed) and rely on lazy evaluation.
 
 ```pycon
 >>> pwd
-<xarray.DataArray 'power_doppler' (time: 860, z: 1, y: 128, x: 86)> Size: 76MB
-dask.array<...>
+<xarray.DataArray 'power_doppler' (time: 20, k: 1, j: 32, i: 24)> Size: 123kB
+dask.array<compute_power_doppler_volume, shape=(20, 1, 32, 24), dtype=float64, chunksize=(2, 1, 32, 24), chunktype=numpy.ndarray>
 Coordinates:
-  * time     (time) float64 7kB 0.299 0.899 1.499 2.099 ... 514.5 515.1 515.7
-  * z        (z) float64 8B 0.0
-  * y        (y) float64 1kB 5.664 5.713 5.762 5.811 ... 11.72 11.77 11.82 11.87
-  * x        (x) float64 688B -3.583 -3.492 -3.402 -3.311 ... 3.946 4.037 4.127
-Attributes: (11/16)
-    transmit_frequency:             15625000.0
-    compound_sampling_frequency:    500.0
-    pulse_repetition_frequency:     15000.0
-    beamforming_sound_velocity:     1540.0
-    units:                          'a.u.'
-    long_name:                      'Power Doppler intensity'
-    clutter_filter_method:          svd_indices
-    clutter_window_width:           300
-    clutter_window_stride:          300
-    doppler_window_width:           300
-    doppler_window_stride:          300
-    clutter_low_cutoff:             40
+  * time     (time) float64 160B 0.0 0.2 0.4 0.6 0.8 1.0 ... 3.0 3.2 3.4 3.6 3.8
+  * k        (k) int64 8B 0
+  * j        (j) int64 256B 0 1 2 3 4 5 6 7 8 9 ... 23 24 25 26 27 28 29 30 31
+  * i        (i) int64 192B 0 1 2 3 4 5 6 7 8 9 ... 15 16 17 18 19 20 21 22 23
+  * z        (k, j, i) float64 6kB 0.0 0.0 0.0 0.0 0.0 ... 0.0 0.0 0.0 0.0 0.0
+  * y        (k, j, i) float64 6kB 4.656 4.656 4.656 4.656 ... 7.756 7.756 7.756
+  * x        (k, j, i) float64 6kB -2.671 -2.571 -2.471 ... -0.571 -0.471 -0.371
+Indexes:
+  ┌ z        VoxelToWorldIndex
+  │ y
+  └ x
+Attributes:
+    compound_sampling_frequency:         500.0
+    pulse_repetition_frequency:          15000.0
+    transmit_frequency:                  15625000.0
+    beamforming_sound_velocity:          1540.0
+    units:                               a.u.
+    long_name:                           Power Doppler intensity
+    cmap:                                 gray
+    clutter_filters:                      Index-based SVD [50, +inf[
+    clutter_filter_window_duration:       0.4
+    clutter_filter_window_stride:         0.3999999999999999
+    power_doppler_integration_duration:   0.19999999999999996
+    power_doppler_integration_stride:     0.19999999999999998
 ```
 
 To actually compute the power Doppler values and load them into memory, you must call
@@ -582,11 +582,11 @@ To actually compute the power Doppler values and load them into memory, you must
 ```pycon
 >>> pwd = pwd.compute()
 >>> pwd
-<xarray.DataArray 'power_doppler' (time: 860, z: 1, y: 128, x: 86)> Size: 76MB
-array([[[[74.26474299, 76.99585806, 84.46316397, ..., 79.11284661,
-          77.6835962 , 69.19274666],
-         [70.16886299, 83.84617566, 76.62624364, ..., 74.06344271,
-          74.82030741, 74.48822094],
+<xarray.DataArray 'power_doppler' (time: 20, k: 1, j: 32, i: 24)> Size: 123kB
+array([[[[1.07897822, 1.233959  , 1.26681306, ..., 1.10582708,
+          1.15312583, 1.01522477],
+         [1.03980397, 1.1777878 , 1.34812695, ..., 1.14753257,
+          1.18028614, 0.99100816],
          ...
 ...
 ```
@@ -659,15 +659,35 @@ wasn't Dask-backed) and rely on lazy evaluation.
 
 ```pycon
 >>> velocity
-<xarray.DataArray (time: 1000, z: 1, y: 118, x: 52)> Size: 24MB
-dask.array<...>
+<xarray.DataArray 'axial_velocity' (time: 20, k: 1, j: 32, i: 24)> Size: 123kB
+dask.array<compute_axial_velocity_volume, shape=(20, 1, 32, 24), dtype=float64, chunksize=(2, 1, 32, 24), chunktype=numpy.ndarray>
 Coordinates:
-  * time     (time) float64 8kB 0.024 0.074 0.124 ... 99.874 99.924 99.974
-  * z        (z) float64 8B 0.0
-  * y        (y) float64 944B 4.656 4.705 4.753 ... 10.231 10.279 10.328
-  * x        (x) float64 416B -2.671 -2.57 -2.469 ... 2.268 2.369 2.469
+  * time     (time) float64 160B 0.0 0.2 0.4 0.6 0.8 1.0 ... 3.0 3.2 3.4 3.6 3.8
+  * k        (k) int64 8B 0
+  * j        (j) int64 256B 0 1 2 3 4 5 6 7 8 9 ... 23 24 25 26 27 28 29 30 31
+  * i        (i) int64 192B 0 1 2 3 4 5 6 7 8 9 ... 15 16 17 18 19 20 21 22 23
+  * z        (k, j, i) float64 6kB 0.0 0.0 0.0 0.0 0.0 ... 0.0 0.0 0.0 0.0 0.0
+  * y        (k, j, i) float64 6kB 4.656 4.656 4.656 4.656 ... 7.756 7.756 7.756
+  * x        (k, j, i) float64 6kB -2.671 -2.571 -2.471 ... -0.571 -0.471 -0.371
+Indexes:
+  ┌ z        VoxelToWorldIndex
+  │ y
+  └ x
 Attributes:
-    units:    m/s
+    compound_sampling_frequency:          500.0
+    pulse_repetition_frequency:           15000.0
+    transmit_frequency:                   15625000.0
+    beamforming_sound_velocity:           1540.0
+    units:                                m/s
+    long_name:                            Axial velocity
+    cmap:                                 coolwarm
+    clutter_filters:                      Index-based SVD [50, +inf[
+    clutter_filter_window_duration:       0.4
+    clutter_filter_window_stride:         0.3999999999999999
+    axial_velocity_lag:                   1
+    axial_velocity_spatial_kernel:        3
+    axial_velocity_integration_duration:  0.19999999999999996
+    axial_velocity_integration_stride:    0.19999999999999998
 ```
 
 !!! info "Processing parameters"

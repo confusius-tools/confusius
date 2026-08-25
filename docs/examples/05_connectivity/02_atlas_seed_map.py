@@ -82,7 +82,9 @@ napari_affine = np.array(
 )
 initialization = np.linalg.inv(napari_affine)
 
-target_z = napari_affine[0, 3] + float(moving.z.values[0])
+# Crop the template to a thin band around the recording's expected location to improve
+# registration speed and visualization.
+target_z = napari_affine[0, 3] + moving.fusi.origin["z"]
 fixed = template.sel(z=slice(target_z - 1.0, target_z + 1.0))
 
 registered, affine, diagnostics = cf.registration.register_volume(
@@ -97,8 +99,8 @@ registered, affine, diagnostics = cf.registration.register_volume(
     show_progress=False,
 )
 
-physical_to_sform = template.attrs["affines"]["physical_to_sform"]
-subject_to_atlas = physical_to_sform @ np.linalg.inv(affine)
+world_to_sform = template.attrs["affines"]["world_to_sform"]
+subject_to_atlas = world_to_sform @ np.linalg.inv(affine)
 
 atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)
 atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
@@ -120,7 +122,7 @@ atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
 # own mask.
 #
 # [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] returns a stacked
-# `(mask, z, y, x)` integer DataArray—one layer per requested region—which
+# `(mask, k, j, i)` integer DataArray—one layer per requested region—which
 # [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps] accepts directly as
 # `seed_masks`.
 

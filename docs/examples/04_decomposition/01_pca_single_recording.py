@@ -95,14 +95,14 @@ data_std = cf.signal.standardize(data)
 # %% [markdown]
 # In ConfUSIus, the [`PCA`][confusius.decomposition.PCA] model wraps the familiar
 # scikit-learn [`PCA`][sklearn.decomposition.PCA] model while preserving the
-# fUSI DataArray metadata and coordinates. [`PCA`][confusius.decomposition.PCA] expects
+# VoxelData array metadata and coordinates. [`PCA`][confusius.decomposition.PCA] expects
 # the same arguments as the scikit-learn model, such as
 # [`n_components`][confusius.decomposition.PCA] for the number of
 # principal components to compute, and
 # [`random_state`][confusius.decomposition.PCA] for reproducibility
 # (see the API documentation for more details).
 #
-# By default, PCA uses `mode="temporal"` (fit on `(time, voxels)`). A
+# By default, PCA uses `mode="temporal"` (fit on `(time, space)`). A
 # `mode="spatial"` option is also available, analogous to spatial ICA.
 #
 # Here, we fit a PCA model with all available components.
@@ -149,7 +149,7 @@ _ = axes[1].set_title("Cumulative variance")
 # ## Temporal PCA maps and corresponding time courses
 #
 # [`maps_`][confusius.decomposition.PCA] stores principal axes in voxel space as a
-# `(component, z, y, x)` DataArray. [`transform`][confusius.decomposition.PCA.transform]
+# `(component, k, j, i)` DataArray. [`transform`][confusius.decomposition.PCA.transform]
 # returned the associated temporal scores in `signals_t`, a `(time, component)`
 # DataArray.
 #
@@ -194,7 +194,7 @@ _ = fig.suptitle("Temporal PCA maps and time courses (first 6 components)", font
 # %% [markdown]
 # ## Spatial PCA (`mode="spatial"`)
 #
-# Spatial PCA transposes the matrix to `(voxels, time)` before decomposition. In this
+# Spatial PCA transposes the matrix to `(space, time)` before decomposition. In this
 # orientation, variance maximization is performed across voxels, yielding orthogonal
 # spatial maps as principal components.
 

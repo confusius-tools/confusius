@@ -86,13 +86,10 @@ if not atlas_path.exists():
         "Recreate and publish dataset_index.json with this file included."
     )
 atlas_labels = cf.load(atlas_path).round().astype(np.int32)
-if (
-    "z" in atlas_labels.dims
-    and "z" in pwd.dims
-    and atlas_labels.sizes["z"] != pwd.sizes["z"]
-):
-    atlas_labels = atlas_labels.sel(z=pwd["z"], method="nearest")
-    atlas_labels = atlas_labels.assign_coords(z=pwd["z"])
+pwd_spatial = pwd.isel(time=0, drop=True)
+if "z" in atlas_labels.coords and "z" in pwd_spatial.coords:
+    atlas_labels = atlas_labels.sel(z=[pwd_spatial.fusi.origin["z"]], method="nearest")
+    atlas_labels = pwd_spatial.copy(data=np.asarray(atlas_labels.data))
 
 brain_mask = atlas_labels > 0
 console.print(f"  Brain mask voxels: {int(brain_mask.sum())}")

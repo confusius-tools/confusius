@@ -6,7 +6,6 @@ from numpy.testing import assert_allclose, assert_almost_equal, assert_array_equ
 
 from confusius.glm._models import ARModel, OLSModel
 
-
 # -----------------------------------------------------------------------------
 # Fixtures
 # -----------------------------------------------------------------------------

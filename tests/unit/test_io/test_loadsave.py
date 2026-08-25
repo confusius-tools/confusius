@@ -8,13 +8,19 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
+from confusius._dims import WORLD_DIMS
+from confusius._utils.geometry import (
+    get_voxel_to_world_affine,
+    get_voxel_to_world_units,
+)
 from confusius.io.loadsave import load, save
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
-def saveable_volume(sample_3d_volume: xr.DataArray) -> xr.DataArray:
+def saveable_volume(sample_voxeldata_3d: xr.DataArray) -> xr.DataArray:
     """Canonical fUSI volume accepted by public save APIs."""
-    return sample_3d_volume.copy(deep=True)
+    return sample_voxeldata_3d.copy(deep=True)
 
 
 class TestLoadDispatch:
@@ -65,6 +71,28 @@ class TestLoadDispatch:
         mock.assert_called_once_with(path.resolve())
         assert result is mock_da
 
+    def test_dat_dispatches_to_load_echoframe_dat(self, tmp_path):
+        """.dat extension calls load_echoframe_dat."""
+        path = tmp_path / "data.dat"
+        mock_da = MagicMock(spec=xr.DataArray)
+        with patch(
+            "confusius.io.echoframe.load_echoframe_dat", return_value=mock_da
+        ) as mock:
+            result = load(path)
+        mock.assert_called_once_with(path.resolve())
+        assert result is mock_da
+
+    def test_compound_dat_extension(self, tmp_path):
+        """.source.dat compound extension calls load_echoframe_dat."""
+        path = tmp_path / "data.source.dat"
+        mock_da = MagicMock(spec=xr.DataArray)
+        with patch(
+            "confusius.io.echoframe.load_echoframe_dat", return_value=mock_da
+        ) as mock:
+            result = load(path)
+        mock.assert_called_once_with(path.resolve())
+        assert result is mock_da
+
     def test_kwargs_forwarded_to_loader(self, tmp_path):
         """Extra kwargs are forwarded to the underlying loader."""
         path = tmp_path / "data.nii.gz"
@@ -72,6 +100,16 @@ class TestLoadDispatch:
         with patch("confusius.io.nifti.load_nifti", return_value=mock_da) as mock:
             load(path, chunks=None)
         mock.assert_called_once_with(path.resolve(), chunks=None)
+
+    def test_kwargs_forwarded_to_echoframe_loader(self, tmp_path):
+        """Extra kwargs are forwarded to the EchoFrame loader."""
+        path = tmp_path / "data.dat"
+        mock_da = MagicMock(spec=xr.DataArray)
+        with patch(
+            "confusius.io.echoframe.load_echoframe_dat", return_value=mock_da
+        ) as mock:
+            load(path, meta_path="ScanParameters.mat")
+        mock.assert_called_once_with(path.resolve(), meta_path="ScanParameters.mat")
 
     def test_unsupported_extension_raises(self, tmp_path):
         """Unsupported extension raises ValueError."""
@@ -113,6 +151,38 @@ class TestSaveDispatch:
         da = saveable_volume
         save(da, path)
         npt.assert_array_equal(load(path).values, da.values)
+
+    def test_zarr_roundtrips_pose_dependent_geometry(self, tmp_path):
+        """A pose-stacked voxel-to-world affine survives a Zarr round trip."""
+        affine = np.stack(
+            [
+                np.eye(4),
+                np.array(
+                    [
+                        [1.0, 0.0, 0.0, 100.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+            ]
+        )
+        da = create_voxeldata(
+            np.arange(2 * 2 * 3 * 4).reshape(2, 2, 3, 4),
+            dims=("pose", "k", "j", "i"),
+            voxel_to_world=affine,
+        )
+        path = tmp_path / "data.zarr"
+
+        save(da, path)
+        loaded = load(path)
+
+        assert loaded.dims == da.dims
+        npt.assert_array_equal(loaded.coords["pose"].values, da.coords["pose"].values)
+        npt.assert_allclose(loaded.coords["z"].values, da.coords["z"].values)
+        npt.assert_allclose(
+            get_voxel_to_world_affine(loaded), get_voxel_to_world_affine(da)
+        )
 
     def test_compound_zarr_extension(self, tmp_path, saveable_volume):
         """.source.zarr compound extension writes a readable store."""
@@ -161,7 +231,7 @@ class TestSaveZarrSanitizesAttrs:
     def test_nested_numpy_affines_round_trip(self, tmp_path, saveable_volume):
         """`attrs["affines"]` numpy arrays survive a round-trip and reload as arrays."""
         affines = {
-            "physical_to_world": np.eye(4),
+            "world_to_custom": np.eye(4),
             "stack": np.arange(32.0).reshape(2, 4, 4),
         }
         da = saveable_volume.assign_attrs(affines=affines)
@@ -211,23 +281,47 @@ class TestLoadZarr:
 
     @pytest.fixture
     def single_var_zarr(self, tmp_path):
-        """Zarr store with one variable."""
-        ds = xr.Dataset({"iq": xr.DataArray(np.zeros((4, 3)))})
+        """Zarr store with one variable, written via confusius.io.save()."""
+        da = create_voxeldata(
+            np.zeros((4, 3, 2)),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            name="iq",
+        )
         path = tmp_path / "data.zarr"
-        ds.to_zarr(path, zarr_format=2)
+        save(da, path)
         return path
 
     @pytest.fixture
     def multi_var_zarr(self, tmp_path):
-        """Zarr store with two variables."""
-        ds = xr.Dataset(
-            {
-                "power": xr.DataArray(np.ones((4, 3))),
-                "iq": xr.DataArray(np.zeros((4, 3))),
-            }
+        """Zarr store with two variables, each canonical (attrs['voxel_to_world'] set
+        the same way confusius.io.save() would, since save() only writes one variable
+        per store)."""
+        power = create_voxeldata(
+            np.ones((4, 3, 2)),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            name="power",
+        )
+        iq = create_voxeldata(
+            np.zeros((4, 3, 2)),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            name="iq",
         )
         path = tmp_path / "data.zarr"
-        ds.to_zarr(path, zarr_format=2)
+        variables = {}
+        for da in (power, iq):
+            voxel_to_world = get_voxel_to_world_affine(da)
+            units = get_voxel_to_world_units(da)
+            da = da.drop_vars(WORLD_DIMS)
+            da.attrs = {
+                **da.attrs,
+                "voxel_to_world": voxel_to_world,
+                "voxel_to_world_units": units,
+            }
+            variables[da.name] = da
+        xr.Dataset(variables).to_zarr(path)
         return path
 
     def test_zarr_default_returns_first_variable(self, single_var_zarr):
@@ -242,6 +336,14 @@ class TestLoadZarr:
         assert isinstance(result, xr.DataArray)
         assert result.name == "iq"
 
+    def test_zarr_rejects_store_without_voxel_to_world(self, tmp_path):
+        """A Zarr store not written by save() (no attrs['voxel_to_world']) is rejected."""
+        path = tmp_path / "foreign.zarr"
+        xr.Dataset({"data": xr.DataArray(np.zeros((4, 3)))}).to_zarr(path)
+
+        with pytest.raises(ValueError, match="was not written by confusius.io.save"):
+            load(path)
+
 
 class TestLoadRestoresAtlasCmapAndNorm:
     """cmap/norm are rebuilt from rgb_lookup when missing after a round-trip."""
@@ -251,12 +353,15 @@ class TestLoadRestoresAtlasCmapAndNorm:
     @pytest.fixture
     def atlas_like_zarr(self, tmp_path):
         """Zarr store mimicking an Atlas annotation: rgb_lookup present, no cmap/norm."""
-        da = xr.DataArray(
-            np.array([[0, 1], [2, 1]], dtype=np.int32),
+        da = create_voxeldata(
+            np.array([[[0, 1], [2, 1]]], dtype=np.int32),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            name="annotation",
             attrs={"rgb_lookup": self.RGB_LOOKUP},
         )
         path = tmp_path / "annotation.zarr"
-        xr.Dataset({"annotation": da}).to_zarr(path, zarr_format=2)
+        save(da, path)
         return path
 
     def test_rebuilds_cmap_and_norm_from_rgb_lookup(self, atlas_like_zarr):

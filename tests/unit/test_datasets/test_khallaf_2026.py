@@ -430,11 +430,13 @@ def test_get_zip_index_builds_strips_prefix_and_caches(tmp_path):
 
 def test_get_zip_index_raises_when_no_member_matches_prefix(tmp_path):
     infos = [_FakeZipInfo("some_other_root/file.txt", 10)]
-    with patch(
-        "confusius.datasets._dataverse.RemoteZip", _fake_remotezip_from_infos(infos)
+    with (
+        patch(
+            "confusius.datasets._dataverse.RemoteZip", _fake_remotezip_from_infos(infos)
+        ),
+        pytest.raises(RuntimeError, match="No archive members"),
     ):
-        with pytest.raises(RuntimeError, match="No archive members"):
-            get_zip_index(tmp_path, "url", _ZIP_ROOT)
+        get_zip_index(tmp_path, "url", _ZIP_ROOT)
     # An empty index must not be cached, or every later call becomes a no-op.
     assert not (tmp_path / "dataverse_zip_index.json").exists()
 

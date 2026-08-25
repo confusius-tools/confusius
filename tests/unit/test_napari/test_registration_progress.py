@@ -257,28 +257,10 @@ class TestMakeNapariProgressFactory:
 class TestRegisterVolumeWithNapariFactory:
     """End-to-end: register_volume calls the injected napari factory."""
 
-    def test_factory_is_invoked_and_iterated_signal_fires(self, qtbot):
-        import xarray as xr
-
+    def test_factory_is_invoked_and_iterated_signal_fires(
+        self, qtbot, singleton_registration_volume
+    ):
         from confusius.registration.volume import register_volume
-
-        arr = np.zeros((1, 16, 16), dtype=np.float32)
-        arr[0, 6:10, 6:10] = 1.0
-        da = xr.DataArray(
-            arr,
-            dims=("z", "y", "x"),
-            coords={
-                "z": xr.DataArray(
-                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.1}
-                ),
-                "y": xr.DataArray(
-                    np.arange(16) * 0.1, dims=("y",), attrs={"units": "mm"}
-                ),
-                "x": xr.DataArray(
-                    np.arange(16) * 0.1, dims=("x",), attrs={"units": "mm"}
-                ),
-            },
-        )
 
         bridge = NapariRegistrationProgressPlotterBridge()
         spy = _SignalSpy()
@@ -287,8 +269,8 @@ class TestRegisterVolumeWithNapariFactory:
 
         with qtbot.waitSignal(bridge.finished, timeout=5000):
             result, _transform, _diagnostics = register_volume(
-                da,
-                da,
+                singleton_registration_volume,
+                singleton_registration_volume,
                 transform_type="translation",
                 show_progress=True,
                 progress_plotter=factory,
@@ -300,5 +282,5 @@ class TestRegisterVolumeWithNapariFactory:
         # at least one intermediate resampled array.
         assert len(spy.payloads) >= 1
         for payload in spy.payloads:
-            assert payload.shape == da.shape
-        assert result.shape == da.shape
+            assert payload.shape == singleton_registration_volume.shape
+        assert result.shape == singleton_registration_volume.shape

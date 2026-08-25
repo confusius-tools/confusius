@@ -6,7 +6,7 @@ import numpy as np
 import scipy.ndimage
 import xarray as xr
 
-from confusius.validation import ensure_fusi
+from confusius.validation import ensure_voxeldata
 
 _FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 """FWM to Gaussian sigma conversion factor."""
@@ -46,17 +46,17 @@ def smooth_volume(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data to smooth. Can have any number of dimensions, including a `time`
-        dimension.
+        VoxelData array to smooth. Can have any number of dimensions,
+        including a `time` dimension.
 
         !!! warning "Chunking along smoothed dimensions is not supported"
             Dimensions selected for smoothing must NOT be chunked. Chunk only along other
             dimensions, e.g. `data.chunk({"time": 10})` when smoothing spatial axes.
 
     fwhm : float or dict[str, float]
-        Full width at half maximum of the Gaussian kernel in physical unit. A scalar
+        Full width at half maximum of the Gaussian kernel in world unit. A scalar
         applies the same FWHM to all dimensions except `"time"`. A dict maps dimension
-        names to per-dimension FWHM values, e.g. `{"z": 0.5, "y": 0.2, "x": 0.2}`;
+        names to per-dimension FWHM values, e.g. `{"k": 0.5, "j": 0.2, "i": 0.2}`;
         only the listed dimensions are smoothed. Dimensions of length 1 are left
         untouched.
     ensure_finite : bool, default: False
@@ -102,31 +102,28 @@ def smooth_volume(
     >>> import xarray as xr
     >>> import numpy as np
     >>> import confusius  # noqa: F401
-    >>> data = xr.DataArray(
+    >>> from confusius.xarray import create_voxeldata
+    >>> data = create_voxeldata(
     ...     np.random.randn(5, 10, 1, 20),
-    ...     dims=["time", "z", "y", "x"],
-    ...     coords={
-    ...         "time": np.arange(5) * 0.2,
-    ...         "z": np.arange(10) * 0.1,
-    ...         "y": np.zeros(1),
-    ...         "x": np.arange(20) * 0.1,
-    ...     },
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.2,
+    ...     spacing=(0.1, 0.1, 0.1),
     ... )
     >>> smoothed = smooth_volume(data, fwhm=0.3)
 
     Smooth with anisotropic kernels:
 
-    >>> smoothed = smooth_volume(data, fwhm={"z": 0.5, "y": 0.2, "x": 0.2})
+    >>> smoothed = smooth_volume(data, fwhm={"k": 0.5, "j": 0.2, "i": 0.2})
 
     Smooth only selected dimensions:
 
-    >>> smoothed = smooth_volume(data, fwhm={"z": 0.3, "x": 0.3})
+    >>> smoothed = smooth_volume(data, fwhm={"k": 0.3, "i": 0.3})
 
     Suppress NaN propagation when some voxels are masked:
 
     >>> smoothed = smooth_volume(data, fwhm=0.3, ensure_finite=True)
     """
-    data = ensure_fusi(data)
+    data = ensure_voxeldata(data)
 
     all_dims = [str(d) for d in data.dims]
 
