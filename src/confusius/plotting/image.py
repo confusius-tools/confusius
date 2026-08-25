@@ -292,6 +292,49 @@ def _combine_axis_phases(
     }
 
 
+def _native_axis_phases(data: xr.DataArray) -> dict[Hashable, AxisPhase]:
+    """`data`'s own origin/spacing per world axis, for already axis-aligned data.
+
+    Unlike `compute_oblique_axis_aligned_grid_geometry`, never requires every
+    voxel dim to have regular spacing -- the slice axis (never phase-locked)
+    may be a non-contiguous voxel selection even on an axis-aligned volume.
+    """
+    data = ensure_voxeldata(data)
+    affine = require_scalar_pose_affine(data, "Computing native axis phase")
+    row_to_axis, axis_spacing = qr_axis_spacing(affine[:3, :3])
+    return {
+        dim: AxisPhase(
+            origin=float(np.asarray(data.coords[dim].values, dtype=np.float64).min()),
+            spacing=float(axis_spacing[row_to_axis[row]]),
+        )
+        for row, dim in enumerate(WORLD_DIMS)
+    }
+
+
+def _matches_phase(
+    data: xr.DataArray, axis_origins: Mapping[Hashable, AxisPhase] | None
+) -> bool:
+    """Whether `data`'s own native grid already satisfies every axis in
+    `axis_origins` -- i.e. whether phase-locking it would be a no-op.
+
+    Two independently axis-aligned volumes sharing a world origin at
+    different resolutions have matching voxel centers but not matching cell
+    edges (see `snap_origin_to_phase`), so this can be `False` even for
+    already axis-aligned data.
+    """
+    if not axis_origins:
+        return True
+    native = _native_axis_phases(data)
+    return all(
+        math.isclose(
+            native[dim].origin,
+            snap_origin_to_phase(native[dim].origin, native[dim].spacing, phase),
+            abs_tol=1e-6 * native[dim].spacing,
+        )
+        for dim, phase in axis_origins.items()
+    )
+
+
 def _resample_to_shared_slice_axis_grid(
     data: xr.DataArray,
     slice_world_dim: str,
@@ -323,8 +366,8 @@ def _resample_to_shared_slice_axis_grid(
         Reference origin/spacing per world axis, established by an earlier call
         on the same plotter, used to phase-lock the two in-plane axes so cells
         from two volumes at matching (or evenly divisible) resolutions land on
-        the same grid -- see `compute_shared_slice_axis_grid_geometry`. Ignored
-        when `data` is already axis-aligned, since it's returned unchanged.
+        the same grid -- see `compute_shared_slice_axis_grid_geometry`. Applied
+        even when `data` is already axis-aligned; see `_matches_phase`.
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling. Use `"nearest"` for
         label/mask data, where blending distinct integer labels together is
@@ -338,10 +381,11 @@ def _resample_to_shared_slice_axis_grid(
     -------
     result : xarray.DataArray
         `data` resampled so all 3 spatial axes are axis-aligned and (if
-        `slice_axis_grid` was provided) `slice_world_dim` matches its shared
-        spacing/origin/count. `data` unchanged if it's already fully
-        axis-aligned (nothing to fix, and matplotlib only needs matching world
-        coordinates to overlay correctly, not a matching pixel grid).
+        `slice_axis_grid` was provided and `data` was oblique) `slice_world_dim`
+        matches its shared spacing/origin/count. `data` unchanged only when
+        already axis-aligned *and* already phase-locked (`_matches_phase`) --
+        the slice axis itself always keeps its own native discretization,
+        never forced onto `slice_axis_grid`, even when resampled.
     slice_axis_grid : SliceAxisGrid
         `slice_axis_grid` unchanged if provided, or the one just established
         from `data`'s own geometry otherwise -- even when `data` was already
@@ -354,23 +398,30 @@ def _resample_to_shared_slice_axis_grid(
         oblique volume can phase-lock its in-plane axes to `data`'s own native
         grid.
     """
-    if has_axis_aligned_voxel_to_world_index(data):
-        # Never snapped: an already axis-aligned volume keeps its own native
-        # grid unconditionally, so its true origin (not a phase-locked one) is
-        # what later volumes must phase-lock to.
+    if has_axis_aligned_voxel_to_world_index(data) and _matches_phase(
+        data, axis_origins
+    ):
+        # Native grid already phase-locked: nothing to resample. Never derive
+        # from slice_axis_grid here -- an axis-aligned volume always keeps its
+        # own native slice-axis discretization.
         sizes, spacing, origin, established_grid = (
-            compute_shared_slice_axis_grid_geometry(
-                data, slice_world_dim, slice_axis_grid=slice_axis_grid
-            )
+            compute_shared_slice_axis_grid_geometry(data, slice_world_dim)
         )
         return data, established_grid, _combine_axis_phases(origin, spacing)
 
     from confusius.registration import resample_volume
 
+    # Axis-aligned but phase-mismatched (`_matches_phase` was False) still
+    # needs resampling to shift in-plane cells onto the phase-locked grid --
+    # but the slice axis stays native, unlike the oblique case (which resamples
+    # regardless, so may as well reuse the shared slice-axis grid there).
+    resample_slice_axis_grid = (
+        slice_axis_grid if not has_axis_aligned_voxel_to_world_index(data) else None
+    )
     sizes, spacing, origin, established_grid = compute_shared_slice_axis_grid_geometry(
         data,
         slice_world_dim,
-        slice_axis_grid=slice_axis_grid,
+        slice_axis_grid=resample_slice_axis_grid,
         axis_origins=axis_origins,
     )
     result = resample_volume(
@@ -427,20 +478,20 @@ def _resample_to_planar_world_grid(
         Reference origin/spacing per world axis, established by an earlier call
         on the same plotter, used to phase-lock this panel's own grid (via
         `compute_oblique_axis_aligned_grid_geometry`) so cells from two panels at
-        matching (or evenly divisible) resolutions land on the same grid. Never
-        applied when `data` is already axis-aligned, since it's returned
-        unchanged.
+        matching (or evenly divisible) resolutions land on the same grid.
+        Applied even when `data` is already axis-aligned; see `_matches_phase`.
 
     Returns
     -------
     result : xarray.DataArray
-        `data` resampled onto an axis-aligned world grid, or unchanged if it
-        carries no voxel-to-world geometry.
+        `data` resampled onto an axis-aligned, phase-locked world grid, or
+        unchanged if it carries no voxel-to-world geometry, or if it was
+        already axis-aligned *and* already phase-locked (`_matches_phase`).
     origins : mapping of collections.abc.Hashable to AxisPhase
         The actual origin/spacing used for every world axis, for the caller to
         register as `axis_origins` on later calls -- even when `data` was
-        already axis-aligned, so a later oblique panel can phase-lock to its
-        native grid.
+        already axis-aligned, so a later panel can phase-lock to its native
+        grid.
 
     Raises
     ------
@@ -448,36 +499,53 @@ def _resample_to_planar_world_grid(
         If `data`'s spatial geometry is oblique to the world axes and would not
         collapse to a 2D plane.
     """
-    if not has_axis_aligned_voxel_to_world_index(data):
-        shape, spacing, origin = compute_oblique_axis_aligned_grid_geometry(
-            data, WORLD_DIMS, axis_origins=axis_origins
-        )
-        if sum(size > 1 for size in shape) != 2:
-            raise ValueError(
-                f"Displaying slice_mode={slice_mode!r}'s data in world space would "
-                "not collapse to a 2D plane (predicted shape "
-                f"{dict(zip(WORLD_DIMS, shape, strict=True))}). This happens when "
-                "the data's spatial geometry is oblique to the world axes and does "
-                "not lie flat on any world plane."
-            )
-    else:
-        # Never snapped: an already axis-aligned panel keeps its own native grid
-        # unconditionally, so its true origin/spacing is what later panels must
-        # phase-lock to.
-        _, spacing, origin = compute_oblique_axis_aligned_grid_geometry(
-            data, WORLD_DIMS
+    is_axis_aligned = has_axis_aligned_voxel_to_world_index(data)
+    if is_axis_aligned and _matches_phase(data, axis_origins):
+        # Native grid already phase-locked: nothing to resample.
+        established_origins: dict[Hashable, AxisPhase] = _native_axis_phases(data)
+        return data, established_origins
+
+    shape, spacing, origin = compute_oblique_axis_aligned_grid_geometry(
+        data, WORLD_DIMS, axis_origins=axis_origins
+    )
+    if not is_axis_aligned and sum(size > 1 for size in shape) != 2:
+        raise ValueError(
+            f"Displaying slice_mode={slice_mode!r}'s data in world space would "
+            "not collapse to a 2D plane (predicted shape "
+            f"{dict(zip(WORLD_DIMS, shape, strict=True))}). This happens when "
+            "the data's spatial geometry is oblique to the world axes and does "
+            "not lie flat on any world plane."
         )
     established_origins: dict[Hashable, AxisPhase] = {
         dim: AxisPhase(origin=o, spacing=s)
         for dim, o, s in zip(WORLD_DIMS, origin, spacing, strict=True)
     }
-    result = resample_to_axis_aligned_world_grid(
-        data,
-        reference=None,
-        interpolation=interpolation,
-        fill_value=fill_value,
-        axis_origins=axis_origins,
-    )
+
+    if is_axis_aligned:
+        # Phase-mismatched despite being axis-aligned: resample directly
+        # rather than through resample_to_axis_aligned_world_grid, whose own
+        # axis-aligned short-circuit is for its other, non-phase-lock-aware
+        # callers.
+        from confusius.registration import resample_volume
+
+        result = resample_volume(
+            data,
+            np.eye(len(WORLD_DIMS) + 1, dtype=np.float64),
+            output_sizes=dict(zip(VOXEL_DIMS, shape, strict=True)),
+            output_spacing=dict(zip(VOXEL_DIMS, spacing, strict=True)),
+            output_origin=dict(zip(WORLD_DIMS, origin, strict=True)),
+            output_direction=np.eye(len(WORLD_DIMS), dtype=np.float64),
+            interpolation=interpolation,
+            fill_value=fill_value,
+        )
+    else:
+        result = resample_to_axis_aligned_world_grid(
+            data,
+            reference=None,
+            interpolation=interpolation,
+            fill_value=fill_value,
+            axis_origins=axis_origins,
+        )
     return result, established_origins
 
 

@@ -142,12 +142,10 @@ def qr_axis_spacing(
 class AxisPhase(NamedTuple):
     """A world axis's established origin and spacing, to phase-lock later grids to.
 
-    `origin` is a voxel *center* position (matching every other "origin" in this
-    codebase -- the world location of voxel position 0), but phase-locking itself
-    operates on cell *edges* (`origin - spacing / 2`), not centers -- see
-    `snap_origin_to_phase`. `spacing` is needed alongside `origin` because a
-    later grid's own spacing may differ (e.g. a higher-resolution moving scan
-    overlaid on a coarser fixed one): the edge of voxel 0 depends on both.
+    `origin` is a voxel *center* (matching every other "origin" in this
+    codebase), but `snap_origin_to_phase` locks cell *edges*, which need both
+    `origin` and `spacing` to derive (`origin - spacing / 2`) -- and a later
+    grid's own spacing may differ (e.g. a higher-resolution moving scan).
 
     Attributes
     ----------
@@ -164,23 +162,19 @@ class AxisPhase(NamedTuple):
 def snap_origin_to_phase(origin: float, spacing: float, phase: AxisPhase) -> float:
     """Shift `origin` down so this grid's cell edges nest with `phase`'s.
 
-    Used to phase-lock an independently-computed display grid to a reference
-    grid, so two overlaid volumes' *cells* coincide whenever `spacing` evenly
-    divides `phase.spacing` (e.g. matching resolutions, or an integer-upsampled
-    overlay) -- without moving `origin` anywhere near `phase.origin` itself,
-    which may sit far away in world space (e.g. a different session's probe
-    placement). When the two spacings don't share an integer ratio, this still
-    minimizes the phase offset to less than `spacing`, rather than leaving it at
-    an arbitrary bounding-box-derived value.
-
-    Operates on cell *edges*, not centers: aligning `origin` to `phase.origin`
-    directly only makes voxel *centers* land on the same lattice, which for a
-    resolution ratio other than 1 does not put voxel *edges* on the same
-    lattice too (e.g. at a 2x ratio, every other fine-grid center would land
-    exactly on a coarse-grid *edge* instead of nesting inside a coarse cell).
-    Since `phase.spacing` may differ from `spacing`, the two grids' shared
-    reference point must itself be edge-derived (`phase.origin -
-    phase.spacing / 2`), not `phase.origin` directly.
+    Phase-locks an independently-computed display grid to a reference grid, so
+    two overlaid volumes' *cells* coincide whenever `spacing` evenly divides
+    `phase.spacing` (matching resolutions, or an integer-upsampled overlay) --
+    without moving `origin` near `phase.origin`, which may sit far away in
+    world space (e.g. a different session's probe placement). Aligns cell
+    *edges*, not centers: matching `origin` to `phase.origin` directly only
+    aligns voxel *centers*, which at any resolution ratio other than 1 does
+    not also align *edges* (e.g. at a 2x ratio, every other fine-grid center
+    would land exactly on a coarse-grid edge instead of nesting inside a
+    coarse cell) -- so the shared reference point is edge-derived
+    (`phase.origin - phase.spacing / 2`) instead. When the two spacings don't
+    share an integer ratio, this still minimizes the phase offset to less than
+    `spacing`, rather than an arbitrary bounding-box-derived value.
 
     Parameters
     ----------
