@@ -70,7 +70,7 @@ moving
 # close enough to allow the registration algorithm to converge to a good solution.
 #
 # [`register_volume`][confusius.registration.register_volume] expects a transform
-# mapping `fixed` (template) physical coordinates to `moving` (recording) physical
+# mapping `fixed` (template) world coordinates to `moving` (recording) world
 # coordinates, so we invert the napari affine—which instead describes how to place the
 # recording *into* the template's coordinate system—before using it as `initialization`.
 
@@ -88,7 +88,7 @@ initialization = np.linalg.inv(napari_affine)
 
 # Crop the template to a thin band around the recording's expected location to improve
 # registration speed and visualization.
-target_z = napari_affine[0, 3] + float(moving.z.values[0])
+target_z = napari_affine[0, 3] + moving.fusi.origin["z"]
 fixed = template.sel(z=slice(target_z - 1.0, target_z + 1.0)).fusi.scale.db()
 
 initialized = cf.registration.resample_like(moving, fixed, initialization)
@@ -113,7 +113,7 @@ registered, affine, _ = cf.registration.register_volume(
     metric="correlation",
     convergence_window_size=50,
     number_of_iterations=500,
-    learning_rate=1,
+    learning_rate=1.0,
     initialization=initialization,
     show_progress=True,
 )
@@ -147,7 +147,7 @@ _ = fig.suptitle("Template (red) / recording (cyan)")
 # ## Resample the Allen atlas onto the recording's native grid
 #
 # The template is not itself expressed in Allen space, but it carries the affine
-# transform to get there in `template.attrs["affines"]["physical_to_sform"]`. Composing
+# transform to get there in `template.attrs["affines"]["world_to_sform"]`. Composing
 # it with the inverse of the estimated registration affine gives a single transform from
 # the recording's native coordinates directly to Allen atlas coordinates.
 #
@@ -156,8 +156,8 @@ _ = fig.suptitle("Template (red) / recording (cyan)")
 # call.
 
 # %%
-physical_to_sform = template.attrs["affines"]["physical_to_sform"]
-subject_to_atlas = physical_to_sform @ np.linalg.inv(affine)
+world_to_sform = template.attrs["affines"]["world_to_sform"]
+subject_to_atlas = world_to_sform @ np.linalg.inv(affine)
 
 atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)
 resampled_atlas = atlas.atlas.resample_like(moving, subject_to_atlas)

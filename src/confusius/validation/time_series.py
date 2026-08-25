@@ -1,12 +1,11 @@
 """Time series validation utilities."""
 
-import warnings
 from typing import Literal, overload
 
 import xarray as xr
 
 from confusius._dims import TIME_DIM
-from confusius._utils.coordinates import get_coordinate_spacings
+from confusius._utils.coordinates import get_coordinate_spacing_info
 
 
 def validate_required_time_dimension(data: xr.DataArray) -> None:
@@ -101,13 +100,9 @@ def validate_uniform_time(
     ValueError
         If `time` coordinates are not uniformly sampled.
     """
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        spacing = get_coordinate_spacings(
-            data, uniformity_tolerance=uniformity_tolerance
-        )
-
-    time_spacing = spacing[TIME_DIM]
+    time_spacing = get_coordinate_spacing_info(
+        TIME_DIM, data, uniformity_tolerance
+    ).value
     if time_spacing is None:
         raise ValueError(
             "Non-uniform 'time' coordinates detected. "

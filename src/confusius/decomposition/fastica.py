@@ -1,4 +1,4 @@
-"""FastICA decomposition for `(time, ...)` fUSI DataArrays."""
+"""FastICA decomposition for VoxelData arrays."""
 
 from collections.abc import Callable
 from typing import Any, Literal
@@ -12,7 +12,7 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class FastICA(_BaseFUSIDecomposer):
-    """Fast independent component analysis (ICA) for fUSI data.
+    """Fast independent component analysis (ICA) for VoxelData arrays.
 
     The FastICA algorithm is based on Hyvarinen *et al.* (2000).
 
@@ -48,10 +48,10 @@ class FastICA(_BaseFUSIDecomposer):
     mode : {"spatial", "temporal"}, default: "spatial"
         Whether to find spatially or temporally independent components:
 
-        - `"spatial"`: fit on `(voxels, time)`. The independent components are
+        - `"spatial"`: fit on `(space, time)`. The independent components are
           spatial maps; the projected time courses are their temporal mixing weights.
           Matches FSL MELODIC's default for single-subject data.
-        - `"temporal"`: fit on `(time, voxels)`. The independent components are time
+        - `"temporal"`: fit on `(time, space)`. The independent components are time
           courses; the spatial maps are their voxel-wise mixing weights.
 
     algorithm : {"parallel", "deflation"}, default: "parallel"
@@ -99,8 +99,9 @@ class FastICA(_BaseFUSIDecomposer):
         Used to initialize `w_init` when not provided, with a normal distribution. Pass
         an int for reproducible results across multiple function calls.
     mask : xarray.DataArray, optional
-        Boolean spatial mask selecting voxels to include during fitting and projection.
-        Must match the spatial dimensions and coordinates of the input data.
+        Boolean VoxelData mask selecting which voxels to include during fitting and
+        projection. Must match the non-`time` dimensions of the input data in the
+        same order.
 
     Attributes
     ----------
@@ -126,9 +127,6 @@ class FastICA(_BaseFUSIDecomposer):
         components. Otherwise, the number of iterations taken to converge.
     n_features_in_ : int
         Number of features seen during fit.
-    feature_names_in_ : (n_features_in_,) numpy.ndarray
-        Feature names seen during `fit`. Defined only when flattened feature labels are
-        all strings.
 
     References
     ----------
@@ -141,13 +139,15 @@ class FastICA(_BaseFUSIDecomposer):
     Spatial ICA (default, matches FSL MELODIC):
 
     >>> import numpy as np
-    >>> import xarray as xr
     >>> from confusius.decomposition import FastICA
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> rng = np.random.default_rng(0)
-    >>> data = xr.DataArray(
+    >>> data = create_voxeldata(
     ...     rng.standard_normal((200, 5, 10, 20)),
-    ...     dims=["time", "z", "y", "x"],
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.1,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>>
     >>> ica = FastICA(n_components=5, random_state=0)
@@ -156,7 +156,7 @@ class FastICA(_BaseFUSIDecomposer):
     ('time', 'component')
     >>> reconstructed = ica.inverse_transform(signals)
     >>> reconstructed.dims
-    ('time', 'z', 'y', 'x')
+    ('time', 'k', 'j', 'i')
     """
 
     _signals_long_name = "FastICA signals"
@@ -191,12 +191,12 @@ class FastICA(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "FastICA":
-        """Fit FastICA on `(time, ...)` fUSI data.
+        """Fit FastICA on a VoxelData array.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input fUSI data.
+            VoxelData array.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
 
@@ -220,7 +220,7 @@ class FastICA(_BaseFUSIDecomposer):
                 f"mode must be 'spatial' or 'temporal', got '{self.mode}'."
             )
 
-        X_proc, spatial_dims, feature_mask = self._prepare_data(
+        X_proc, spatial_dims, mask = self._prepare_data(
             X,
             check_layout=False,
             operation_name="FastICA.fit",
@@ -239,14 +239,13 @@ class FastICA(_BaseFUSIDecomposer):
             random_state=self.random_state,
         )
 
-        self._store_fit_metadata(X, X_proc, spatial_dims, feature_mask)
+        self._store_fit_metadata(X, X_proc, spatial_dims, mask)
 
         if self.mode == "spatial":
             self._fit_spatial(fastica, X_proc)
         else:
             self._fit_temporal(fastica, X_proc)
 
-        self._store_feature_names(X)
         return self
 
     def _fit_spatial(

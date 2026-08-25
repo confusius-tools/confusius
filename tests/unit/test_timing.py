@@ -95,7 +95,7 @@ def test_convert_time_reference_rejects_invalid_reference() -> None:
 
 
 def test_convert_time_reference_shifts_with_reference_factor() -> None:
-    """Reference conversion preserves the expected physical offset."""
+    """Reference conversion preserves the expected world offset."""
     converted = convert_time_reference(
         np.array([0.0, 1.0]),
         volume_duration=0.2,

@@ -4,72 +4,66 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_units,
+    has_voxel_to_world_index,
+)
 from confusius.extract import extract_with_mask, unmask
 
 
-def _make_mask(
-    data: xr.DataArray,
-    dtype: type[np.generic] | type[bool] | type[float] = bool,
-) -> xr.DataArray:
-    """Create an empty mask on `data`'s spatial grid.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        fUSI DataArray supplying the spatial grid.
-    dtype : type[numpy.generic] or type[bool] or type[float], default: bool
-        Mask data type.
-
-    Returns
-    -------
-    xarray.DataArray
-        Zero-valued mask with `data`'s `z`, `y`, and `x` coordinates.
-    """
-    return xr.DataArray(
-        np.zeros(tuple(data.sizes[dim] for dim in ("z", "y", "x")), dtype=dtype),
-        dims=("z", "y", "x"),
-        coords={dim: data.coords[dim] for dim in ("z", "y", "x")},
-    )
-
-
 def test_extract_with_mask_selects_expected_voxels(
-    sample_3dt_volume: xr.DataArray,
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
     """Extraction retains the masked voxel signals and spatial index."""
-    mask = _make_mask(sample_3dt_volume)
+    mask = make_sample_voxeldata_mask()
     mask.data[0, 1, 2] = True
     mask.data[1, 2, 3] = True
 
-    signals = extract_with_mask(sample_3dt_volume, mask)
+    signals = extract_with_mask(sample_voxeldata_3dt, mask)
 
     assert signals.dims == ("time", "space")
+    assert signals.indexes["space"].names == ["k", "j", "i"]
+    assert list(signals.indexes["space"]) == [(0, 1, 2), (1, 2, 3)]
     np.testing.assert_array_equal(
         signals.values,
-        sample_3dt_volume.values[:, [0, 1], [1, 2], [2, 3]],
+        sample_voxeldata_3dt.values[:, [0, 1], [1, 2], [2, 3]],
     )
 
 
-def test_extract_with_mask_supports_generic_feature_dimensions() -> None:
-    """Extraction remains available for non-fUSI feature grids."""
-    data = xr.DataArray(np.arange(12).reshape(3, 4), dims=("time", "feature"))
-    mask = xr.DataArray([True, False, True, False], dims="feature")
+def test_extract_with_mask_restores_scalar_voxel_dim(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
+    """`data` with a scalar-reduced voxel dim (e.g. from `.isel(k=0)`) is canonicalized.
 
-    signals = extract_with_mask(data, mask)
+    `.isel(k=0)` collapses `k` to a scalar coordinate, dropping the dim itself, which
+    only `ensure_voxeldata` restores -- exercises that `extract_with_mask`
+    canonicalizes `data` itself rather than relying on `ensure_mask`'s internal
+    (and discarded) canonicalization of it.
+    """
+    single_k = sample_voxeldata_3dt.isel(k=0)
+    mask = make_sample_voxeldata_mask().isel(k=[0])
+    mask.data[0, 1, 2] = True
+
+    signals = extract_with_mask(single_k, mask)
 
     assert signals.dims == ("time", "space")
-    np.testing.assert_array_equal(signals.values, [[0, 2], [4, 6], [8, 10]])
+    np.testing.assert_array_equal(
+        signals.values, sample_voxeldata_3dt.values[:, 0, [1], [2]]
+    )
 
 
 def test_extract_with_mask_accepts_single_label_integer_mask(
-    sample_3dt_volume: xr.DataArray,
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
     """A single non-zero integer label has the same selection as a boolean mask."""
-    boolean_mask = _make_mask(sample_3dt_volume)
+    boolean_mask = make_sample_voxeldata_mask()
     boolean_mask.data[0, 1, 2] = True
     integer_mask = boolean_mask.astype(np.int32) * 7
 
-    expected = extract_with_mask(sample_3dt_volume, boolean_mask)
-    result = extract_with_mask(sample_3dt_volume, integer_mask)
+    expected = extract_with_mask(sample_voxeldata_3dt, boolean_mask)
+    result = extract_with_mask(sample_voxeldata_3dt, integer_mask)
 
     xr.testing.assert_identical(result, expected)
 
@@ -82,88 +76,113 @@ def test_extract_with_mask_accepts_single_label_integer_mask(
     ],
 )
 def test_extract_with_mask_rejects_invalid_mask_values(
-    sample_3dt_volume: xr.DataArray,
+    sample_voxeldata_3dt: xr.DataArray,
+    make_sample_voxeldata_mask,
     dtype: type[np.generic] | type[float],
     values: tuple[float, ...],
     message: str,
 ) -> None:
     """Only boolean and single-label integer masks are accepted."""
-    mask = _make_mask(sample_3dt_volume, dtype)
+    mask = make_sample_voxeldata_mask(dtype)
     mask.data.flat[: len(values)] = values
 
     with pytest.raises(TypeError, match=message):
-        extract_with_mask(sample_3dt_volume, mask)
+        extract_with_mask(sample_voxeldata_3dt, mask)
 
 
 def test_extract_with_mask_rejects_misaligned_coordinates(
-    sample_3dt_volume: xr.DataArray,
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
-    """Extraction rejects masks from a different fUSI grid."""
-    mask = _make_mask(sample_3dt_volume)
-    mask.data[0, 1, 2] = True
-    mask = mask.assign_coords(x=mask.x + 1.0)
+    """Extraction rejects a mask whose affine differs from data's.
 
-    with pytest.raises(ValueError, match="does not match between mask and data"):
-        extract_with_mask(sample_3dt_volume, mask)
+    The mask's voxel-space (k/j/i) coordinates match data's exactly; only the
+    voxel_to_world affine (origin shifted) differs, so this specifically exercises
+    that affine mismatches are caught, not just voxel-coordinate mismatches.
+    """
+    mask = make_sample_voxeldata_mask()
+    mask.data[0, 1, 2] = True
+    shifted_affine = get_voxel_to_world_affine(sample_voxeldata_3dt).copy()
+    shifted_affine[:3, 3] += 1.0
+    mask = attach_voxel_to_world_index(
+        mask.drop_vars(("z", "y", "x")),
+        shifted_affine,
+        units=get_voxel_to_world_units(sample_voxeldata_3dt),
+    )
+
+    with pytest.raises(ValueError, match="does not share data's voxel grid"):
+        extract_with_mask(sample_voxeldata_3dt, mask)
 
 
 def test_extract_with_mask_preserves_dask_laziness(
-    sample_3dt_volume: xr.DataArray,
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
     """Dask-backed fUSI data remain lazy after extraction."""
-    mask = _make_mask(sample_3dt_volume)
+    mask = make_sample_voxeldata_mask()
     mask.data[0, 1, 2] = True
-    chunked = sample_3dt_volume.chunk({"time": 2})
+    chunked = sample_voxeldata_3dt.chunk({"time": 2})
 
     result = extract_with_mask(chunked, mask)
 
     assert hasattr(result.data, "chunks")
     xr.testing.assert_identical(
-        result.compute(), extract_with_mask(sample_3dt_volume, mask)
+        result.compute(), extract_with_mask(sample_voxeldata_3dt, mask)
     )
 
 
-def test_unmask_reconstructs_masked_fusi_grid(sample_3dt_volume: xr.DataArray) -> None:
+def test_unmask_reconstructs_masked_fusi_grid(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
     """Extraction followed by reconstruction preserves selected voxel signals."""
-    mask = _make_mask(sample_3dt_volume)
+    mask = make_sample_voxeldata_mask()
     mask.data[0, 1, 2] = True
     mask.data[1, 2, 3] = True
 
-    signals = extract_with_mask(sample_3dt_volume, mask)
+    signals = extract_with_mask(sample_voxeldata_3dt, mask)
     restored = unmask(signals, mask)
 
+    assert restored.dims == sample_voxeldata_3dt.dims
+    assert has_voxel_to_world_index(restored)
+    np.testing.assert_allclose(
+        get_voxel_to_world_affine(restored), get_voxel_to_world_affine(mask)
+    )
+    assert get_voxel_to_world_units(restored) == get_voxel_to_world_units(mask)
     np.testing.assert_array_equal(
-        restored.values[:, mask.values], sample_3dt_volume.values[:, mask.values]
+        restored.coords["time"].values, sample_voxeldata_3dt.coords["time"].values
+    )
+    np.testing.assert_array_equal(
+        restored.values[:, mask.values], sample_voxeldata_3dt.values[:, mask.values]
     )
     assert np.all(restored.values[:, ~mask.values] == 0.0)
 
 
-def test_unmask_rejects_invalid_mask_dtype(sample_3dt_volume: xr.DataArray) -> None:
+def test_unmask_rejects_invalid_mask_dtype(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
     """Reconstruction rejects masks that are neither boolean nor integer."""
-    mask = _make_mask(sample_3dt_volume, float)
+    mask = make_sample_voxeldata_mask(float)
     mask.data[0, 1, 2] = 1.0
 
     with pytest.raises(TypeError, match="single-label integer dtype"):
         unmask(np.array([1.0]), mask)
 
 
-def test_unmask_supports_generic_mask_dimensions() -> None:
-    """Reconstruction remains available for non-fUSI feature grids."""
+def test_unmask_rejects_non_voxeldata_mask() -> None:
+    """unmask requires a VoxelData mask; it always reconstructs a VoxelData array."""
     mask = xr.DataArray(
         [[False, True], [True, False]],
         dims=("row", "column"),
         coords={"row": ["a", "b"], "column": [0, 1]},
     )
 
-    restored = unmask(np.array([3.0, 7.0]), mask)
-
-    assert restored.dims == ("row", "column")
-    np.testing.assert_array_equal(restored.values, [[0.0, 3.0], [7.0, 0.0]])
+    with pytest.raises(ValueError, match="missing voxel dimension"):
+        unmask(np.array([3.0, 7.0]), mask)
 
 
-def test_unmask_validates_signal_space_size(sample_3dt_volume: xr.DataArray) -> None:
+def test_unmask_validates_signal_space_size(
+    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+) -> None:
     """Reconstruction requires one value for every selected voxel."""
-    mask = _make_mask(sample_3dt_volume)
+    mask = make_sample_voxeldata_mask()
     mask.data[0, 1, 2] = True
     mask.data[1, 2, 3] = True
 

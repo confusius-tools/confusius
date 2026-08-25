@@ -76,7 +76,7 @@ def test_build_gallery_prints_progress_when_non_interactive(
         "# %% [markdown]\n# # Hello\n\n# %%\nprint('hi')\n",
     )
 
-    # Under pytest stdout is captured and reports ``isatty() == False``, so the
+    # Under pytest stdout is captured and reports `isatty() == False`, so the
     # builder takes its non-interactive path and emits plain progress lines
     # instead of the rich live bar.
     build_gallery(

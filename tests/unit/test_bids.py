@@ -278,12 +278,12 @@ class TestSliceTimeCoordinate:
     @pytest.mark.parametrize(
         ("slice_encoding_direction", "expected_dim", "expected_values"),
         [
-            ("i", "x", [0.0, 0.1, 0.2]),
-            ("j", "y", [0.0, 0.1, 0.2]),
-            ("k", "z", [0.0, 0.1, 0.2]),
-            ("i-", "x", [0.2, 0.1, 0.0]),
-            ("j-", "y", [0.2, 0.1, 0.0]),
-            ("k-", "z", [0.2, 0.1, 0.0]),
+            ("i", "i", [0.0, 0.1, 0.2]),
+            ("j", "j", [0.0, 0.1, 0.2]),
+            ("k", "k", [0.0, 0.1, 0.2]),
+            ("i-", "i", [0.2, 0.1, 0.0]),
+            ("j-", "j", [0.2, 0.1, 0.0]),
+            ("k-", "k", [0.2, 0.1, 0.0]),
         ],
     )
     def test_create_slice_time_coordinate(
@@ -359,7 +359,7 @@ class TestSliceTimeCoordinate:
 
     def test_extract_slice_timing_invalid_ndim(self):
         """Test extraction rejects coordinates that are not 2D."""
-        coord = xr.DataArray(np.zeros(3), dims=["z"])
+        coord = xr.DataArray(np.zeros(3), dims=["k"])
 
         with pytest.raises(ValueError, match="must be 2D"):
             bids.create_bids_slice_timing_from_coordinate(coord, np.array([0.0]))
@@ -375,7 +375,7 @@ class TestSliceTimeCoordinate:
         """Extraction rejects 2D absolute slice_time when relative timing varies."""
         coord = xr.DataArray(
             [[0.0, 0.1, 0.2], [1.0, 1.1, 1.25]],
-            dims=["time", "z"],
+            dims=["time", "k"],
         )
 
         with pytest.raises(ValueError, match="varies across time points"):

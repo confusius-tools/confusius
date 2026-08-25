@@ -105,9 +105,12 @@ def mock_retrieve(tmp_path):
         yield mock
 
 
-def _downloaded_paths(mock_retrieve) -> set[str]:
-    """Return the set of file basenames passed to pooch.retrieve."""
-    return {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+def _downloaded_paths(mock_retrieve, bids_dir: Path) -> set[str]:
+    """Return BIDS-relative paths requested from pooch.retrieve."""
+    return {
+        (Path(c.kwargs["path"]) / c.kwargs["fname"]).relative_to(bids_dir).as_posix()
+        for c in mock_retrieve.call_args_list
+    }
 
 
 def test_fetch_returns_bids_root(tmp_path, mock_get_index, mock_retrieve):
@@ -141,14 +144,32 @@ def test_fetch_filters_derivatives(tmp_path, mock_get_index, mock_retrieve):
         print_citation=False,
     )
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-m01_ses-rest_task-rest_acq-coronal_pwd.nii.gz" in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     assert (
-        "sub-m01_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz" not in downloaded
+        "derivatives/registered/sub-m01/ses-rest/fusi/"
+        "sub-m01_ses-rest_task-rest_acq-coronal_pwd.nii.gz"
+        in downloaded
     )
-    assert "sub-m01_ses-rest_acq-coronal_pwd.nii.gz" not in downloaded
-    assert "sub-m02_ses-rest_task-rest_acq-coronal_pwd.nii.gz" not in downloaded
-    assert "sub-m01_ses-other_task-rest_acq-coronal_pwd.nii.gz" not in downloaded
+    assert (
+        "sub-m01/ses-rest/fusi/"
+        "sub-m01_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz"
+        not in downloaded
+    )
+    assert (
+        "derivatives/registered/sub-m01/ses-rest/angio/"
+        "sub-m01_ses-rest_acq-coronal_pwd.nii.gz"
+        not in downloaded
+    )
+    assert (
+        "derivatives/registered/sub-m02/ses-rest/fusi/"
+        "sub-m02_ses-rest_task-rest_acq-coronal_pwd.nii.gz"
+        not in downloaded
+    )
+    assert (
+        "derivatives/registered/sub-m01/ses-other/fusi/"
+        "sub-m01_ses-other_task-rest_acq-coronal_pwd.nii.gz"
+        not in downloaded
+    )
     assert "dataset_description.json" in downloaded
 
 
@@ -163,17 +184,24 @@ def test_fetch_filters_rawdata(tmp_path, mock_get_index, mock_retrieve):
         print_citation=False,
     )
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-m01_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz" in downloaded
-    assert "sub-m01_ses-rest_acq-coronal_pwd.nii.gz" not in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     assert (
-        "sub-m01_ses-other_task-rest_acq-coronal_chunk-01_pwd.nii.gz" not in downloaded
+        "sub-m01/ses-rest/fusi/"
+        "sub-m01_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz"
+        in downloaded
     )
     assert (
-        "sub-m01_ses-rest_task-rest_acq-sagittal_chunk-01_pwd.nii.gz" not in downloaded
+        "sub-m01/ses-rest/angio/sub-m01_ses-rest_acq-coronal_pwd.nii.gz"
+        not in downloaded
     )
     assert (
-        "sub-m02_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz" not in downloaded
+        "sub-m01/ses-other/fusi/sub-m01_ses-other_task-rest_acq-coronal_chunk-01_pwd.nii.gz" not in downloaded
+    )
+    assert (
+        "sub-m01/ses-rest/fusi/sub-m01_ses-rest_task-rest_acq-sagittal_chunk-01_pwd.nii.gz" not in downloaded
+    )
+    assert (
+        "sub-m02/ses-rest/fusi/sub-m02_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz" not in downloaded
     )
 
 

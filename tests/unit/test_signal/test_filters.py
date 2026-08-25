@@ -8,6 +8,7 @@ import xarray as xr
 
 from confusius.glm import make_first_level_design_matrix
 from confusius.signal import filter_butterworth, filter_cosine
+from confusius.xarray import create_voxeldata
 
 
 def create_signals_with_time(shape, sampling_rate=100, **kwargs):
@@ -23,12 +24,12 @@ def create_signals_with_time(shape, sampling_rate=100, **kwargs):
 class TestFilterButterworth:
     """Tests for Butterworth filtering."""
 
-    def test_lowpass_matches_scipy(self, sample_timeseries):
+    def test_lowpass_matches_scipy(self, make_sample_timeseries):
         """Low-pass filter should match scipy.signal.butter + sosfiltfilt."""
         n_timepoints = 500
         n_voxels = 10
         sampling_rate = 100
-        signals = sample_timeseries(
+        signals = make_sample_timeseries(
             n_time=n_timepoints, n_voxels=n_voxels, sampling_rate=sampling_rate
         )
         data = signals.values
@@ -50,12 +51,12 @@ class TestFilterButterworth:
 
         np.testing.assert_allclose(filtered.values, expected)
 
-    def test_highpass_matches_scipy(self, sample_timeseries):
+    def test_highpass_matches_scipy(self, make_sample_timeseries):
         """High-pass filter should match scipy.signal.butter + sosfiltfilt."""
         n_timepoints = 500
         n_voxels = 10
         sampling_rate = 100
-        signals = sample_timeseries(
+        signals = make_sample_timeseries(
             n_time=n_timepoints, n_voxels=n_voxels, sampling_rate=sampling_rate
         )
         data = signals.values
@@ -77,12 +78,12 @@ class TestFilterButterworth:
 
         np.testing.assert_allclose(filtered.values, expected)
 
-    def test_bandpass_matches_scipy(self, sample_timeseries):
+    def test_bandpass_matches_scipy(self, make_sample_timeseries):
         """Band-pass filter should match scipy.signal.butter + sosfiltfilt."""
         n_timepoints = 500
         n_voxels = 10
         sampling_rate = 100
-        signals = sample_timeseries(
+        signals = make_sample_timeseries(
             n_time=n_timepoints, n_voxels=n_voxels, sampling_rate=sampling_rate
         )
         data = signals.values
@@ -184,12 +185,12 @@ class TestFilterButterworth:
         low_freq_ref = np.sin(2 * np.pi * 1 * t[mid])
         np.testing.assert_allclose(filtered.values[mid, 0], low_freq_ref, atol=0.1)
 
-    def test_single_vs_multiple_voxels_consistency(self, sample_timeseries):
+    def test_single_vs_multiple_voxels_consistency(self, make_sample_timeseries):
         """Filtering single voxel should match first column of multi-voxel result."""
         n_timepoints = 500
         n_voxels = 50
         sampling_rate = 100
-        multi_voxel = sample_timeseries(
+        multi_voxel = make_sample_timeseries(
             n_time=n_timepoints, n_voxels=n_voxels, sampling_rate=sampling_rate
         )
         data = multi_voxel.values
@@ -209,21 +210,24 @@ class TestFilterButterworth:
         np.testing.assert_allclose(filtered_multi.values[:, 0], filtered_single.values)
 
     def test_preserves_shape_and_coords_multidimensional(self):
-        """Filter should preserve shape and coordinates for multi-dimensional data."""
-        signals = xr.DataArray(
-            np.random.randn(100, 5, 10, 20, 30),
-            dims=["time", "pose", "z", "y", "x"],
-            coords={
-                "time": np.arange(100) * 0.01,
-                "pose": np.arange(5),
-            },
+        """Filter should preserve VoxelData shape and match flattened filtering."""
+        rng = np.random.default_rng(42)
+        signals = create_voxeldata(
+            rng.standard_normal((100, 3, 4, 5)),
+            dims=("time", "k", "j", "i"),
+            time=np.arange(100) * 0.01,
+            spacing=(1.0, 1.0, 1.0),
         )
+
         filtered = filter_butterworth(signals, high_cutoff=0.1, order=5)
+        expected = filter_butterworth(
+            signals.stack(space=("k", "j", "i")), high_cutoff=0.1, order=5
+        ).unstack("space")
 
         assert filtered.shape == signals.shape
         assert filtered.dims == signals.dims
         np.testing.assert_array_equal(filtered.coords["time"], signals.coords["time"])
-        np.testing.assert_array_equal(filtered.coords["pose"], signals.coords["pose"])
+        np.testing.assert_allclose(filtered.values, expected.transpose(*signals.dims).values)
 
     def test_dask_array_support(self):
         """Filter should work with Dask-backed arrays."""

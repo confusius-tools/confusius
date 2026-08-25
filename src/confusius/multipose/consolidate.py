@@ -5,149 +5,71 @@ single volumes by merging the pose dimension into a spatial dimension.
 """
 
 import warnings
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._dims import WORLD_DIMS
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_spatial_dims,
+    get_voxel_to_world_units,
+)
 from confusius._utils.stack import find_stack_level
-from confusius.timing import convert_time_reference
-from confusius.validation import ensure_fusi
-
-
-def _build_consolidated_time_coordinate(
-    time_coord: xr.DataArray,
-    slice_time_values: npt.NDArray[np.floating],
-    slice_time_attrs: dict[str, Any],
-) -> xr.DataArray:
-    """Build consolidated volume timings from per-slice timing metadata.
-
-    Parameters
-    ----------
-    time_coord : xarray.DataArray
-        Original volume-level time coordinate.
-    slice_time_values : numpy.ndarray
-        Consolidated per-slice timestamps with dims `(time, sweep_dim)`.
-    slice_time_attrs : dict[str, Any]
-        Attributes carried by the consolidated `slice_time` coordinate.
-
-    Returns
-    -------
-    xarray.DataArray
-        Replacement `time` coordinate for the consolidated volume. If per-slice timing
-        metadata are insufficient to infer a whole-volume duration, the original
-        `time_coord` is returned unchanged.
-
-    Warns
-    -----
-    UserWarning
-        If per-slice timing metadata do not include a usable
-        `volume_acquisition_duration`. In that case, the original `time` coordinate is
-        kept unchanged.
-    UserWarning
-        If inferred consolidated volume durations vary across time points. In that case,
-        the returned coordinate omits `volume_acquisition_duration`.
-    """
-    slice_duration = slice_time_attrs.get("volume_acquisition_duration")
-    if not isinstance(slice_duration, int | float) or slice_duration <= 0:
-        warnings.warn(
-            "Cannot infer consolidated volume timing from `slice_time` because "
-            "`volume_acquisition_duration` is missing or non-positive. Keeping the "
-            "original `time` coordinate.",
-            stacklevel=find_stack_level(),
-        )
-        return time_coord
-
-    slice_reference = slice_time_attrs.get(
-        "volume_acquisition_reference",
-        time_coord.attrs.get("volume_acquisition_reference", "start"),
-    )
-    volume_reference = time_coord.attrs.get(
-        "volume_acquisition_reference", slice_reference
-    )
-    slice_onsets = convert_time_reference(
-        slice_time_values,
-        float(slice_duration),
-        from_reference=slice_reference,
-        to_reference="start",
-    )
-    volume_onsets = slice_onsets.min(axis=1)
-    volume_durations = slice_onsets.max(axis=1) - volume_onsets + float(slice_duration)
-    volume_times = convert_time_reference(
-        volume_onsets,
-        volume_durations,
-        from_reference="start",
-        to_reference=volume_reference,
-    )
-
-    time_attrs = dict(time_coord.attrs)
-    time_attrs["volume_acquisition_reference"] = volume_reference
-    if np.allclose(volume_durations, volume_durations[0], rtol=1e-5, atol=0):
-        time_attrs["volume_acquisition_duration"] = float(volume_durations[0])
-    else:
-        time_attrs.pop("volume_acquisition_duration", None)
-        warnings.warn(
-            "Consolidated volume acquisition durations vary across time points. "
-            "Omitting `time.attrs['volume_acquisition_duration']`.",
-            stacklevel=find_stack_level(),
-        )
-
-    return xr.DataArray(volume_times, dims=["time"], attrs=time_attrs)
+from confusius.multipose._utils import build_consolidated_time_coordinate
+from confusius.validation import ensure_voxeldata
 
 
 def _consolidate_linked_affines(
     affines: dict[str, Any],
-    affines_key: str,
     main_per_pose: npt.NDArray[np.float64],
     main_consolidated: npt.NDArray[np.float64],
 ) -> dict[str, npt.NDArray[np.float64]]:
-    """Propagate per-pose affines through pose consolidation.
+    """Propagate secondary per-pose affines through pose consolidation.
 
-    The main affine (`affines[affines_key]`) is replaced by `main_consolidated`.
-    Any other affine in `affines` that is shaped like the main per-pose stack is
-    assumed to be a constant left-link of the main affine, i.e. there exists a
-    constant `(4, 4)` matrix `L` such that `A[p] = L @ main_per_pose[p]` for all
-    poses. The consolidated counterpart is then `L @ main_consolidated`. Affines
-    that already have shape `(4, 4)` are passed through unchanged.
+    Primary geometry always lives in `da`'s `VoxelToWorldIndex` (`main_per_pose`,
+    `main_consolidated`), never in `affines` -- so every entry here is a secondary,
+    named affine (e.g. `world_to_brain`). One shaped like the main per-pose stack is
+    assumed to be a constant left-link of it, i.e. there exists a constant `(4, 4)`
+    matrix `L` such that `A[p] = L @ main_per_pose[p]` for all poses. The
+    consolidated counterpart is then `L @ main_consolidated`. Affines that already
+    have shape `(4, 4)` are passed through unchanged.
 
     Parameters
     ----------
     affines : dict[str, Any]
         Original `da.attrs["affines"]` mapping.
-    affines_key : str
-        Key of the affine driving the consolidation.
     main_per_pose : (npose, 4, 4) numpy.ndarray
-        Per-pose stack of the main affine, prior to consolidation.
+        Per-pose stack of the primary affine, prior to consolidation.
     main_consolidated : (4, 4) numpy.ndarray
-        Consolidated form of the main affine.
+        Consolidated form of the primary affine.
 
     Returns
     -------
     dict[str, numpy.ndarray]
-        Updated `affines` mapping with the main key replaced by
-        `main_consolidated` and every other linked per-pose affine consolidated
+        Updated `affines` mapping with every per-pose-shaped entry consolidated
         accordingly.
 
     Raises
     ------
     ValueError
-        If a per-pose affine other than `affines_key` does not satisfy
-        `A[p] = L @ main_per_pose[p]` for a constant `L` to within numerical
-        tolerance.
+        If a per-pose-shaped affine does not satisfy `A[p] = L @ main_per_pose[p]`
+        for a constant `L` to within numerical tolerance.
     """
-    new_affines: dict[str, npt.NDArray[np.float64]] = {affines_key: main_consolidated}
+    new_affines: dict[str, npt.NDArray[np.float64]] = {}
     main_inv0 = np.linalg.inv(main_per_pose[0])
     for key, value in affines.items():
-        if key == affines_key:
-            continue
         arr = np.asarray(value)
         if arr.shape == main_per_pose.shape:
             link = arr[0] @ main_inv0
             if not np.allclose(arr, link @ main_per_pose, rtol=1e-6, atol=1e-12):
                 raise ValueError(
-                    f"Affine {key!r} is not a constant left-link of "
-                    f"{affines_key!r}; cannot consolidate."
+                    f"Affine {key!r} is not a constant left-link of the primary "
+                    "voxel-to-world geometry; cannot consolidate."
                 )
             new_affines[key] = link @ main_consolidated
         else:
@@ -155,131 +77,198 @@ def _consolidate_linked_affines(
     return new_affines
 
 
+def _detect_sweep_dim(
+    t: npt.NDArray[np.float64],
+    rotation: npt.NDArray[np.float64],
+    voxel_dims: Sequence[str],
+) -> str:
+    """Infer which voxel dimension is swept across poses from world-space geometry.
+
+    The per-pose translation `t` isolates pure pose-stepping, independent of any
+    voxel dimension (unlike diffing world positions along a candidate voxel
+    dimension, which conflates pose-stepping with intra-pose stepping along that
+    same dimension). Its dominant direction, found via SVD to stay robust to more
+    than two poses, is dotted against each (normalized) column of the shared
+    rotation block -- each column is the world-space direction of a unit step along
+    the corresponding voxel dimension -- and the best-aligned voxel dimension is
+    returned.
+
+    Parameters
+    ----------
+    t : (npose, 3) numpy.ndarray
+        Per-pose translation (world origin), read from the primary voxel-to-world
+        affine stack.
+    rotation : (3, 3) numpy.ndarray
+        Shared rotation block of the primary voxel-to-world affine (constant across
+        poses).
+    voxel_dims : sequence[str]
+        Voxel dimension names, in the same column order as `rotation`.
+
+    Returns
+    -------
+    str
+        Name of the voxel dimension best aligned with the pose-translation
+        direction. A genuinely ambiguous choice (e.g. a raster sweep stepping along
+        two voxel axes at once) is not flagged here: no single voxel dimension can
+        span such a sweep at all, so [`consolidate_poses`][confusius.multipose.consolidate_poses]'s
+        own regularity check rejects it downstream regardless of which dimension is
+        picked.
+
+    Raises
+    ------
+    ValueError
+        If fewer than two poses are given, if poses share the same world position,
+        or if the voxel-to-world geometry has a degenerate voxel axis.
+    """
+    if t.shape[0] < 2:
+        raise ValueError("Cannot detect the swept voxel dimension from a single pose.")
+    centered = t - t.mean(axis=0)
+    _, sv, vt = np.linalg.svd(centered, full_matrices=False)
+    if sv[0] == 0:
+        raise ValueError(
+            "Cannot detect the swept voxel dimension: poses have identical world "
+            "positions."
+        )
+    pose_axis = vt[0]
+
+    col_norms = np.linalg.norm(rotation, axis=0)
+    if np.any(col_norms == 0):
+        raise ValueError(
+            "Cannot detect the swept voxel dimension: primary voxel-to-world "
+            "geometry has a degenerate (zero-length) voxel axis."
+        )
+    alignments = np.abs(pose_axis @ rotation) / col_norms
+    return voxel_dims[int(np.argmax(alignments))]
+
+
 def consolidate_poses(
     da: xr.DataArray,
-    affines_key: str = "physical_to_lab",
-    sweep_dim: str = "z",
     rtol: float = 0.01,
 ) -> xr.DataArray:
-    """Merge `pose` and `sweep_dim` dimensions into a single axis ordered by position.
+    """Merge the `pose` dimension into the swept voxel dimension, ordered by position.
 
-    For each `(pose, sweep_dim)` voxel, the position is computed using the sweep-dim
-    column and translation of the per-pose affine (other spatial dims are zero at voxel
-    centres along the sweep):
+    Per-`(pose, sweep_dim)` world positions are read directly from `da`'s own world
+    coordinates, which requires `da`'s primary voxel-to-world geometry to itself be
+    pose-dependent (a `(npose, 4, 4)` affine stack — see
+    [VoxelToWorldIndex.is_pose_dependent][confusius._utils.geometry.VoxelToWorldIndex.is_pose_dependent]).
+    This is the case for SCAN data, where lab space (a fixed scanner frame shared by
+    every pose) is the canonical world frame — see
+    [`load_scan`][confusius.io.load_scan] — and for
+    [`stack_poses`][confusius.multipose.stack_poses] output. If `da`'s primary
+    geometry is instead driven by a *secondary*, named affine in
+    `da.attrs["affines"]` (e.g. a stack of NIfTI DataArrays with their
+    `world_to_qform` affines stacked, no pose-dependent primary geometry of their
+    own), rebase onto it first with
+    [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply], e.g.
+    `da.fusi.affine.apply("world_to_qform")`, before calling this function.
 
-    ```python
-    pos[p, i] = affine[p, :3, sweep_col] * sweep_mm[i] + affine[p, :3, 3]
-    ```
-
-    where `sweep_col` is the column index of `sweep_dim` in the spatial dim ordering
-    `(z, y, x)` → columns `(0, 1, 2)`.
-
-    The primary sweep direction is found via singular value decomposition of all
-    positions. Each voxel is projected onto that axis, the positions are checked for
-    regularity, then the data is reindexed in ascending order along the consolidated
-    sweep axis.
+    The swept voxel dimension is detected from `da`'s own geometry: the per-pose
+    translation's dominant direction (via SVD) is matched against each voxel
+    dimension's world-space direction, and the best-aligned dimension is used. The
+    primary sweep direction is then found via singular value decomposition of all
+    positions along that dimension. Each voxel is projected onto that axis, the
+    positions are checked for regularity, then the data is reindexed in ascending
+    order along the consolidated sweep axis.
 
     This function is primarily intended for consolidating multi-pose fUSI volumes
     acquired with an Iconeus system using a purely translational probe sweep. In that
     workflow, each pose corresponds to one probe position along the elevation axis
-    (`z`), and the DataArray is produced by [`load_scan`][confusius.io.load_scan]:
+    (`k`/world `z`), and the VoxelData array is produced by
+    [`load_scan`][confusius.io.load_scan]:
 
     ```python
-    scan_3d = load_scan("recording.scan")       # dims: (pose, z, y, x)
-    volume  = consolidate_poses(scan_3d)        # dims: (z, y, x)
+    scan_3d = load_scan("recording.scan")       # dims: (pose, k, j, i)
+    volume  = consolidate_poses(scan_3d)        # dims: (k, j, i)
 
-    scan_4d = load_scan("recording_4d.scan")    # dims: (time, pose, z, y, x)
-    volume  = consolidate_poses(scan_4d)        # dims: (time, z, y, x)
+    scan_4d = load_scan("recording_4d.scan")    # dims: (time, pose, k, j, i)
+    volume  = consolidate_poses(scan_4d)        # dims: (time, k, j, i)
     ```
-
-    The function also works on any DataArray that carries a `(npose, 4, 4)` affine stack
-    in `da.attrs["affines"][affines_key]` with columns ordered as `(z, y, x,
-    translation)`. The `sweep_dim` parameter selects which spatial dimension is being
-    swept across poses. For example, a stack of NIfTI DataArrays concatenated along a
-    new `pose` dimension with their `physical_to_qform` affines stacked accordingly.
 
     Parameters
     ----------
     da : xarray.DataArray
-        DataArray with a `pose` dimension and a `(npose, 4, 4)` affine stack stored
-        in `da.attrs["affines"][affines_key]`. Typically produced by
-        [`load_scan`][confusius.io.load_scan] for `3Dscan` or `4Dscan` files.
-    affines_key : str, default: "physical_to_lab"
-        Key into `da.attrs["affines"]` that holds the `(npose, 4, 4)` affine stack.
-        Column order must be `(z, y, x, translation)`.
-    sweep_dim : str, default: "z"
-        Name of the spatial dimension being swept across poses. Must be one of the
-        spatial dimensions in `da.dims`. The column index in the affine is determined
-        by the order of spatial dimensions in the DataArray (e.g., if spatial dims are
-        `["z", "y", "x"]`, then `"z"` → column 0, `"y"` → column 1, `"x"` → column 2).
+        VoxelData array with a `pose` dimension and pose-dependent primary
+        voxel-to-world geometry. Typically produced by
+        [`load_scan`][confusius.io.load_scan] for `3Dscan` or `4Dscan` files, or by
+        [`stack_poses`][confusius.multipose.stack_poses].
     rtol : float, default: 0.01
         Relative tolerance for the regularity check (fraction of mean spacing).
 
     Returns
     -------
     xarray.DataArray
-        DataArray with `pose` merged into `sweep_dim`, sorted by physical position. The
-        consolidated `sweep_dim` coordinate holds the projection of each voxel's
-        physical position onto the sweep axis, expressed in the same units as the input
-        `sweep_dim` coordinate. For inputs that carry a `pose_time`
-        coordinate, a consolidated `slice_time` with dims `("time", sweep_dim)` is
-        included: each slice inherits the timestamp of the pose it came from.
+        VoxelData array with `pose` merged into the swept voxel dimension, sorted by
+        world position. Every voxel keeps its world position: the output
+        voxel-to-world affine carries over the input's non-swept columns (including
+        any rotation), uses one regular step along the detected sweep axis for the
+        swept column, and is anchored at the first sorted voxel. For inputs whose
+        `time` coordinate is itself
+        pose-dependent (`(time, pose)`-shaped -- see
+        [stack_poses][confusius.multipose.stack_poses]), a consolidated `slice_time`
+        with dims `("time", <sweep_dim>)` is included: each slice inherits the
+        timestamp of the pose it came from.
 
     Raises
     ------
     ValueError
-        If `da` has no `pose` dimension, if `sweep_dim` is not one of the spatial
-        dimensions in `da.dims`, if the rotation block of the affine is not constant
-        across poses (non-translation sweep), or if the consolidated positions are not
-        regularly spaced within `rtol`.
+        If `da` has no `pose` dimension, if `da`'s primary geometry is not
+        pose-dependent, if the rotation block of the affine is not constant across
+        poses (non-translation sweep), if the swept voxel dimension cannot be
+        detected (fewer than two poses, identical pose positions, or a degenerate
+        voxel axis), or if the consolidated positions are not regularly spaced
+        within `rtol` -- which also rejects a sweep that steps along more than one
+        voxel axis at once, since no single voxel dimension can span it.
 
     Warns
     -----
     UserWarning
         If the sweep is not purely 1D (secondary/primary singular value ratio > 0.01).
     """
-    da = ensure_fusi(da)
-
-    # Determine spatial dimensions (non-time, non-pose) and their column indices.
-    spatial_dims = [d for d in da.dims if d not in ("time", "pose")]
-    if sweep_dim not in spatial_dims:
-        raise ValueError(
-            f"sweep_dim must be one of the spatial dimensions {spatial_dims!r}; "
-            f"got {sweep_dim!r}."
-        )
-    sweep_col = spatial_dims.index(sweep_dim)
+    da = ensure_voxeldata(da)
 
     if "pose" not in da.dims:
         raise ValueError("DataArray has no 'pose' dimension.")
 
-    affine: npt.NDArray[np.float64] = np.asarray(
-        da.attrs["affines"][affines_key]
-    )  # (npose, 4, 4)
-    sweep_mm: npt.NDArray[np.float64] = da.coords[sweep_dim].values
-    n_sweep = len(sweep_mm)
+    # ensure_voxeldata above guarantees da carries a VoxelToWorldIndex, so the voxel dims
+    # (and their derived world coordinates) are always available here.
+    voxel_dims = list(get_voxel_to_world_spatial_dims(da))
 
-    rotations: npt.NDArray[np.float64] = affine[:, :3, :3]  # (npose, 3, 3)
-    if not np.allclose(rotations, rotations[0], rtol=1e-6, atol=0):
+    affine = get_voxel_to_world_affine(da)  # (npose, 4, 4) when pose-dependent.
+    if affine.ndim != 3:
         raise ValueError(
-            f"Rotation block of affines[{affines_key!r}] is not constant across poses. "
-            "consolidate_poses only supports pure translation sweeps."
+            "DataArray has no pose-dependent primary geometry; consolidate_poses "
+            "requires a pose-dependent VoxelToWorldIndex (see "
+            "VoxelToWorldIndex.is_pose_dependent). If per-pose geometry instead "
+            "lives in a secondary, named affine in da.attrs['affines'], rebase onto "
+            "it first with da.fusi.affine.apply(<key>)."
         )
 
-    # Lab position for each (pose, sweep_dim): only the sweep column of the affine
-    # contributes when we evaluate at the other spatial dims = 0 at voxel centres.
-    # Rotation is constant across poses; only the translation T changes.
-    r_sweep: npt.NDArray[np.float64] = affine[
-        :, :3, sweep_col
-    ]  # (npose, 3), sweep_dim direction in lab.
-    t: npt.NDArray[np.float64] = affine[
-        :, :3, 3
-    ]  # (npose, 3), per-pose translation in the affine/world-space units.
+    rotations: npt.NDArray[np.float64] = affine[:, :3, :3]  # (npose, 3, 3)
+    t: npt.NDArray[np.float64] = affine[:, :3, 3]  # (npose, 3), per-pose translation.
+    if not np.allclose(rotations, rotations[0], rtol=1e-6, atol=0):
+        raise ValueError(
+            "Rotation block of the primary voxel-to-world geometry is not constant "
+            "across poses. consolidate_poses only supports pure translation sweeps."
+        )
+
+    sweep_dim = _detect_sweep_dim(t, rotations[0], voxel_dims)
+    sweep_col = voxel_dims.index(sweep_dim)
+    other_voxel_dims = [d for d in voxel_dims if d != sweep_dim]
+
+    # Read exact per-(pose, sweep) world positions directly from da's own world
+    # coordinates rather than reconstructing them from a separately stored affine.
+    n_sweep = da.sizes[sweep_dim]
+    world_positions = []
+    for world_dim in WORLD_DIMS:
+        coord = da.coords[world_dim]
+        if other_voxel_dims:
+            coord = coord.isel(dict.fromkeys(other_voxel_dims, 0))
+        world_positions.append(np.asarray(coord.values, dtype=np.float64))
+    # Each entry is (npose, n_sweep); stacked along a new last axis gives
+    # (npose, n_sweep, 3).
+    lab_pos: npt.NDArray[np.float64] = np.stack(world_positions, axis=-1)
 
     # Shape (npose, n_sweep, 3) -> (npose*n_sweep, 3).
-    lab_pos: npt.NDArray[np.float64] = (
-        r_sweep[:, np.newaxis, :] * sweep_mm[np.newaxis, :, np.newaxis]
-        + t[:, np.newaxis, :]
-    )
     lab_pos_flat = lab_pos.reshape(-1, 3)
 
     centered = lab_pos_flat - lab_pos_flat.mean(axis=0)
@@ -312,60 +301,25 @@ def consolidate_poses(
     pose_idx = sorted_flat // n_sweep
     sweep_idx = sorted_flat % n_sweep
 
-    # Replace the SVD-derived projections with a regular arithmetic grid anchored at
-    # proj_sorted[0]. The regularity check above ensures this is within rtol of the
-    # actual positions; using a perfect grid avoids floating-point accumulation errors
-    # that would otherwise cause napari (which renders voxel k at origin + k * scale)
-    # and resample_like (which reconstructs coords as origin + k * spacing) to disagree
-    # with the coordinate array values.
-    n_consolidated = len(proj_sorted)
-    proj_regular: npt.NDArray[np.float64] = (
-        proj_sorted[0] + np.arange(n_consolidated) * mean_spacing
-    )
-
-    new_sweep = xr.Variable(sweep_dim, proj_regular, attrs=da.coords[sweep_dim].attrs)
-
-    # After merging, sweep_dim is the projection along sweep_axis (already in affine/
-    # world-space units), so the sweep column becomes sweep_axis. The other spatial
-    # columns are
-    # constant across poses; the translation is the perpendicular component of the first
-    # sorted pose's translation.
-    t0 = t[pose_idx[0]]
-    t_perp = t0 - np.dot(t0, sweep_axis) * sweep_axis
-    other_cols = [c for c in range(3) if c != sweep_col]
-
-    # Assemble a candidate rotation matrix and orthogonalise it via QR decomposition.
-    # This guarantees a non-singular result: sweep_axis (SVD-derived) may not be
-    # perfectly orthogonal to the columns taken from affine[0], which would otherwise
-    # produce a singular matrix.  QR preserves the column ordering, so we place
-    # sweep_axis in the sweep column and the pose-0 vectors in the remaining columns,
-    # then decompose.  We fix signs afterward so each QR column points in the same
-    # half-space as the corresponding candidate column, preserving the orientation of
-    # the original per-pose affines.
-    candidate: npt.NDArray[np.float64] = np.empty((3, 3), dtype=np.float64)
-    candidate[:, sweep_col] = sweep_axis
-    # affine[0, :3, other_cols] has shape (len(other_cols), 3) due to advanced
-    # indexing; transpose to (3, len(other_cols)) before assigning.
-    candidate[:, other_cols] = affine[0, :3, other_cols].T
-    q, _ = np.linalg.qr(candidate)
-    # Fix column signs: each QR column should agree in direction with the original
-    # candidate column (positive dot product).
-    for col in range(3):
-        if np.dot(q[:, col], candidate[:, col]) < 0:
-            q[:, col] = -q[:, col]
-
+    # Output voxel-to-world affine. The swept column is one regular step along the
+    # sweep axis (the regularity check above ensures this is within rtol of the
+    # actual positions, and a perfect grid avoids floating-point accumulation
+    # errors); the other columns are constant across poses (checked above) and carry
+    # over from the input; the origin is the world position of the first sorted
+    # (pose, sweep) voxel. Every voxel thus keeps its world position through the
+    # merge, including any rotation of the input geometry.
     new_affine: npt.NDArray[np.float64] = np.eye(4, dtype=np.float64)
-    new_affine[:3, :3] = q
-    new_affine[:3, 3] = t_perp
+    new_affine[:3, :3] = rotations[0]
+    new_affine[:3, sweep_col] = sweep_axis * mean_spacing
+    new_affine[:3, 3] = lab_pos_flat[sorted_flat[0]]
 
-    other_dims = [d for d in spatial_dims if d != sweep_dim]
     new_affines = _consolidate_linked_affines(
-        da.attrs.get("affines", {}), affines_key, affine, new_affine
+        da.attrs.get("affines", {}), affine, new_affine
     )
     new_attrs = {**da.attrs, "affines": new_affines}
     base_coords: dict[str, Any] = {
-        str(sweep_dim): new_sweep,
-        **{str(d): da.coords[d] for d in other_dims},
+        sweep_dim: np.arange(len(sorted_flat)),
+        **{dim: np.arange(da.sizes[dim]) for dim in other_voxel_dims},
     }
 
     # Use xarray's vectorized isel to select (pose, sweep_dim) pairs simultaneously.
@@ -382,56 +336,62 @@ def consolidate_poses(
     ).data
 
     if "time" in da.dims:
-        coords: dict[str, Any] = {"time": da.coords["time"]}
-        # Propagate per-slice timestamps if present: each consolidated slice inherits the
-        # timestamp of the pose it came from. The consolidated slice_time keeps the same
-        # acquisition reference metadata as the original pose_time coordinate.
-        if "pose_time" in da.coords:
-            slice_time_attrs = {
-                **da.coords["pose_time"].attrs,
-                "volume_acquisition_reference": da.coords["pose_time"].attrs.get(
-                    "volume_acquisition_reference",
-                    da.coords["time"].attrs.get(
-                        "volume_acquisition_reference",
-                        "start",
-                    ),
-                ),
-            }
-            if "volume_acquisition_duration" not in slice_time_attrs:
-                slice_duration = da.coords["time"].attrs.get(
-                    "volume_acquisition_duration"
-                )
-                if isinstance(slice_duration, int | float) and slice_duration > 0:
-                    slice_time_attrs["volume_acquisition_duration"] = float(
-                        slice_duration
-                    )
+        time_coord = da.coords["time"]
+        is_pose_dependent_time = time_coord.dims == ("time", "pose")
 
-            slice_time_values = np.asarray(da.coords["pose_time"].values)[:, pose_idx]
+        if is_pose_dependent_time:
+            # "time" is genuinely (time, pose)-shaped (see
+            # confusius.multipose.stack_poses / confusius.io.load_scan's 4Dscan
+            # output), holding each pose's own real timestamp directly. Build a 1D
+            # base coordinate (pose 0's own column) to inherit units/reference
+            # attrs from when building the consolidated "time" below.
+            base_time_coord = xr.DataArray(
+                np.asarray(time_coord.isel(pose=0).values),
+                dims=["time"],
+                attrs=dict(time_coord.attrs),
+            )
+        else:
+            base_time_coord = time_coord
+
+        coords: dict[str, Any] = {"time": base_time_coord}
+        # Propagate per-slice timestamps: each consolidated slice inherits the
+        # timestamp of the pose it came from.
+        if is_pose_dependent_time:
+            slice_time_attrs = dict(time_coord.attrs)
+            slice_time_values = np.asarray(time_coord.values)[:, pose_idx]
             coords["slice_time"] = xr.DataArray(
                 slice_time_values,
                 dims=["time", sweep_dim],
                 attrs=slice_time_attrs,
             )
-            coords["time"] = _build_consolidated_time_coordinate(
-                da.coords["time"],
+            coords["time"] = build_consolidated_time_coordinate(
+                base_time_coord,
                 slice_time_values,
                 slice_time_attrs,
             )
         coords.update(base_coords)
-        out_dims = ["time", sweep_dim] + other_dims
-        return xr.DataArray(
-            data,
-            dims=out_dims,
-            coords=coords,
-            attrs=new_attrs,
-            name="scan_data",
+        out_dims = ["time", sweep_dim] + other_voxel_dims
+        return attach_voxel_to_world_index(
+            xr.DataArray(
+                data,
+                dims=out_dims,
+                coords=coords,
+                attrs=new_attrs,
+                name="scan_data",
+            ),
+            new_affine,
+            units=get_voxel_to_world_units(da),
         )
 
-    out_dims = [sweep_dim] + other_dims
-    return xr.DataArray(
-        data,
-        dims=out_dims,
-        coords=base_coords,
-        attrs=new_attrs,
-        name="scan_data",
+    out_dims = [sweep_dim] + other_voxel_dims
+    return attach_voxel_to_world_index(
+        xr.DataArray(
+            data,
+            dims=out_dims,
+            coords=base_coords,
+            attrs=new_attrs,
+            name="scan_data",
+        ),
+        new_affine,
+        units=get_voxel_to_world_units(da),
     )

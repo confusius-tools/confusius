@@ -8,7 +8,13 @@ import xarray as xr
 from sklearn.decomposition import FastICA as SklearnFastICA
 from sklearn.utils.validation import check_is_fitted
 
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_units,
+)
 from confusius.decomposition import FastICA
+from confusius.xarray import create_voxeldata
 
 
 class _FasticaTestKwargs(TypedDict):
@@ -29,38 +35,57 @@ FASTICA_TEST_KWARGS: _FasticaTestKwargs = {
 
 
 @pytest.fixture
-def ica_separable_volume(sample_3dt_volume):
-    """3D+t volume filled with a cleanly ICA-separable mixture.
-
-    The shared `sample_3dt_volume` fixture (see `tests/unit/conftest.py`) fills the
-    volume with i.i.d. uniform noise, which is close to Gaussian once mixed across
-    voxels and gives FastICA nothing to separate — it can fail to converge depending
-    on the random draw. This fixture instead mixes two independent, strongly
-    non-Gaussian time courses (a square wave and a cubed sine, each spatially weighted
-    along a different axis), giving FastICA an actual signal to unmix so convergence
-    is robust regardless of test ordering, while keeping the original dims/coords/attrs
-    contract from `sample_3dt_volume`.
-    """
-    n_time, n_z, n_y, n_x = sample_3dt_volume.shape
-    t = np.linspace(0.0, 4.0 * np.pi, n_time)
-    source_1 = np.sign(np.sin(t))
-    source_2 = np.sin(2.0 * t) ** 3
-
-    z_idx, y_idx, x_idx = np.indices((n_z, n_y, n_x))
-    loading_1 = (z_idx + 1) / n_z
-    loading_2 = (x_idx + 1) / n_x
-
-    mixed = (
-        np.einsum("t,zyx->tzyx", source_1, loading_1)
-        + np.einsum("t,zyx->tzyx", source_2, loading_2)
+def sample_voxeldata_3dt():
+    """Stable 3D+t fUSI input for FastICA convergence tests."""
+    rng = np.random.default_rng(42)
+    return create_voxeldata(
+        rng.random((10, 4, 6, 8)),
+        name="power_doppler",
+        dims=("time", "k", "j", "i"),
+        dt=0.5,
+        t0=10.0,
+        spacing=(0.2, 0.1, 0.05),
+        origin=(0.0, 0.0, 0.0),
+        attrs={"long_name": "Intensity", "units": "a.u."},
     )
-    noise = 0.01 * np.random.default_rng(0).standard_normal(mixed.shape)
-
-    return sample_3dt_volume.copy(data=mixed + noise)
 
 
-def test_feature_names_in_for_string_feature_labels():
-    """feature_names_in_ is defined when flattened feature labels are strings."""
+def _make_mask(
+    reference: xr.DataArray, dims: tuple[str, ...] = ("k", "j", "i")
+) -> xr.DataArray:
+    """Create an empty boolean mask sharing `reference`'s voxel grid.
+
+    Parameters
+    ----------
+    reference : xarray.DataArray
+        Canonical DataArray supplying the voxel grid.
+    dims : tuple[str, ...], default: ("k", "j", "i")
+        Dimension order for the mask.
+
+    Returns
+    -------
+    xarray.DataArray
+        Zero-valued mask carrying `reference`'s `VoxelToWorldIndex`.
+    """
+    mask = xr.DataArray(
+        np.zeros(tuple(reference.sizes[dim] for dim in dims), dtype=bool),
+        dims=dims,
+        coords={dim: reference.coords[dim] for dim in dims},
+    )
+    return attach_voxel_to_world_index(
+        mask,
+        get_voxel_to_world_affine(reference),
+        units=get_voxel_to_world_units(reference),
+    )
+
+
+def test_rejects_non_voxeldata_input():
+    """Fitting on a non-spatial (time, region) table is rejected, not silently used.
+
+    FastICA is VoxelData-only: decomposing an already-reduced signals table has no
+    spatial structure to track, so it offers nothing over calling scikit-learn
+    directly on the array's values.
+    """
     data = xr.DataArray(
         np.array(
             [
@@ -76,33 +101,32 @@ def test_feature_names_in_for_string_feature_labels():
         coords={"region": ["A", "B", "C"]},
     )
 
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(data)
-
-    np.testing.assert_array_equal(model.feature_names_in_, np.array(["A", "B", "C"]))
+    with pytest.raises(ValueError, match="missing voxel dimension"):
+        FastICA(**FASTICA_TEST_KWARGS).fit(data)
 
 
 @pytest.mark.parametrize("mode", ["spatial", "temporal"])
-def test_fit_transform_matches_fit_then_transform(ica_separable_volume, mode):
+def test_fit_transform_matches_fit_then_transform(sample_voxeldata_3dt, mode):
     """fit_transform matches calling fit followed by transform."""
     model_direct = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
-    direct = model_direct.fit_transform(ica_separable_volume)
+    direct = model_direct.fit_transform(sample_voxeldata_3dt)
 
     model_two_step = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
-    two_step = model_two_step.fit(ica_separable_volume).transform(ica_separable_volume)
+    two_step = model_two_step.fit(sample_voxeldata_3dt).transform(sample_voxeldata_3dt)
 
     xr.testing.assert_identical(direct, two_step)
 
 
 @pytest.mark.parametrize("mode", ["spatial", "temporal"])
-def test_inverse_transform_matches_sklearn(ica_separable_volume, mode):
+def test_inverse_transform_matches_sklearn(sample_voxeldata_3dt, mode):
     """inverse_transform matches sklearn FastICA reconstruction for both modes."""
-    stacked = ica_separable_volume.transpose("time", "z", "y", "x").stack(
-        feature=["z", "y", "x"]
+    stacked = sample_voxeldata_3dt.transpose("time", "k", "j", "i").stack(
+        feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
     model = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
-    reconstructed = model.inverse_transform(model.fit_transform(ica_separable_volume))
+    reconstructed = model.inverse_transform(model.fit_transform(sample_voxeldata_3dt))
 
     if mode == "temporal":
         sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(X)
@@ -117,38 +141,38 @@ def test_inverse_transform_matches_sklearn(ica_separable_volume, mode):
         sklearn_reconstructed = time_courses @ spatial_maps + voxel_mean
 
     np.testing.assert_allclose(
-        reconstructed.stack(feature=["z", "y", "x"]).values,
+        reconstructed.stack(feature=["k", "j", "i"]).values,
         sklearn_reconstructed,
     )
-    assert reconstructed.name == ica_separable_volume.name
-    assert reconstructed.attrs == ica_separable_volume.attrs
+    assert reconstructed.name == sample_voxeldata_3dt.name
+    assert reconstructed.attrs == sample_voxeldata_3dt.attrs
 
 
 @pytest.mark.parametrize("mode", ["spatial", "temporal"])
-def test_wrapper_matches_sklearn_attributes(ica_separable_volume, mode):
+def test_wrapper_matches_sklearn_attributes(sample_voxeldata_3dt, mode):
     """Wrapper exposes the same learned matrices as sklearn FastICA for both modes."""
-    stacked = ica_separable_volume.transpose("time", "z", "y", "x").stack(
-        feature=["z", "y", "x"]
+    stacked = sample_voxeldata_3dt.transpose("time", "k", "j", "i").stack(
+        feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    model = FastICA(**FASTICA_TEST_KWARGS, mode=mode).fit(ica_separable_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS, mode=mode).fit(sample_voxeldata_3dt)
 
     if mode == "temporal":
         sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(X)
         np.testing.assert_allclose(
-            model.transform(ica_separable_volume).values,
+            model.transform(sample_voxeldata_3dt).values,
             sklearn_model.transform(X),
         )
         np.testing.assert_allclose(
-            model.maps_.stack(feature=["z", "y", "x"]).values,
+            model.maps_.stack(feature=["k", "j", "i"]).values,
             sklearn_model.components_,
         )
         np.testing.assert_allclose(
-            model.mean_.stack(feature=["z", "y", "x"]).values, sklearn_model.mean_
+            model.mean_.stack(feature=["k", "j", "i"]).values, sklearn_model.mean_
         )
         np.testing.assert_allclose(
-            model.whitening_.stack(feature=["z", "y", "x"]).values,
+            model.whitening_.stack(feature=["k", "j", "i"]).values,
             sklearn_model.whitening_,
         )
         assert model.n_iter_ == sklearn_model.n_iter_
@@ -158,15 +182,15 @@ def test_wrapper_matches_sklearn_attributes(ica_separable_volume, mode):
         spatial_maps = sklearn_model.transform(X.T).T
         voxel_mean = X.mean(axis=0)
         np.testing.assert_allclose(
-            model.transform(ica_separable_volume).values,
+            model.transform(sample_voxeldata_3dt).values,
             (X - voxel_mean) @ spatial_maps.T,
         )
         np.testing.assert_allclose(
-            model.maps_.stack(feature=["z", "y", "x"]).values,
+            model.maps_.stack(feature=["k", "j", "i"]).values,
             spatial_maps,
         )
         np.testing.assert_allclose(
-            model.mean_.stack(feature=["z", "y", "x"]).values,
+            model.mean_.stack(feature=["k", "j", "i"]).values,
             voxel_mean,
         )
         assert not hasattr(model, "whitening_")
@@ -174,25 +198,25 @@ def test_wrapper_matches_sklearn_attributes(ica_separable_volume, mode):
 
 
 @pytest.mark.parametrize("mode", ["spatial", "temporal"])
-def test_inverse_transform_from_numpy_returns_dataarray(ica_separable_volume, mode):
+def test_inverse_transform_from_numpy_returns_dataarray(sample_voxeldata_3dt, mode):
     """inverse_transform accepts ndarray input and returns DataArray."""
     model = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
-    signals = model.fit_transform(ica_separable_volume).values
+    signals = model.fit_transform(sample_voxeldata_3dt).values
 
     reconstructed = model.inverse_transform(signals)
 
     assert isinstance(reconstructed, xr.DataArray)
-    assert reconstructed.dims == ica_separable_volume.dims
+    assert reconstructed.dims == sample_voxeldata_3dt.dims
     np.testing.assert_array_equal(
-        reconstructed.coords["time"], np.arange(ica_separable_volume.sizes["time"])
+        reconstructed.coords["time"], np.arange(sample_voxeldata_3dt.sizes["time"])
     )
 
 
-def test_inverse_transform_raises_for_invalid_dataarray_dims(ica_separable_volume):
+def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_voxeldata_3dt):
     """inverse_transform raises when DataArray dims are not time/component."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(ica_separable_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_voxeldata_3dt)
     bad = xr.DataArray(
-        np.zeros((ica_separable_volume.sizes["time"], 2)),
+        np.zeros((sample_voxeldata_3dt.sizes["time"], 2)),
         dims=["time", "region"],
     )
 
@@ -200,123 +224,115 @@ def test_inverse_transform_raises_for_invalid_dataarray_dims(ica_separable_volum
         model.inverse_transform(bad)
 
 
-def test_inverse_transform_raises_for_component_count_mismatch(ica_separable_volume):
+def test_inverse_transform_raises_for_component_count_mismatch(sample_voxeldata_3dt):
     """inverse_transform raises when component count differs from fitted FastICA."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(ica_separable_volume)
-    scores = model.transform(ica_separable_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_voxeldata_3dt)
+    scores = model.transform(sample_voxeldata_3dt)
     bad = scores.isel(component=slice(0, 1))
 
     with pytest.raises(ValueError, match="but FastICA was fitted with"):
         model.inverse_transform(bad)
 
 
-def test_inverse_transform_raises_for_invalid_numpy_shape(ica_separable_volume):
+def test_inverse_transform_raises_for_invalid_numpy_shape(sample_voxeldata_3dt):
     """inverse_transform raises when ndarray input is not 2D."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(ica_separable_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_voxeldata_3dt)
 
     with pytest.raises(ValueError, match="must be 2D"):
-        model.inverse_transform(np.zeros((ica_separable_volume.sizes["time"], 2, 1)))
+        model.inverse_transform(np.zeros((sample_voxeldata_3dt.sizes["time"], 2, 1)))
 
 
-def test_inverse_transform_raises_for_invalid_input_type(ica_separable_volume):
+def test_inverse_transform_raises_for_invalid_input_type(sample_voxeldata_3dt):
     """inverse_transform raises TypeError for unsupported input types."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(ica_separable_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_voxeldata_3dt)
 
     with pytest.raises(TypeError, match="DataArray or ndarray"):
         model.inverse_transform([1, 2, 3])  # ty: ignore[invalid-argument-type]
 
 
-def test_fit_rejects_invalid_mode(ica_separable_volume):
+def test_fit_rejects_invalid_mode(sample_voxeldata_3dt):
     """fit raises ValueError for unknown mode values."""
     with pytest.raises(ValueError, match="mode must be"):
-        FastICA(mode="invalid").fit(ica_separable_volume)  # ty: ignore[invalid-argument-type]
+        FastICA(mode="invalid").fit(sample_voxeldata_3dt)  # ty: ignore[invalid-argument-type]
 
 
-def test_fit_requires_time_dimension(ica_separable_volume):
+def test_fit_requires_time_dimension(sample_voxeldata_3dt):
     """fit raises when the input has no `time` dimension."""
-    no_time = ica_separable_volume.isel(time=0, drop=True)
+    no_time = sample_voxeldata_3dt.isel(time=0, drop=True)
 
     with pytest.raises(ValueError, match="must have a 'time' dimension"):
         FastICA().fit(no_time)
 
 
-def test_fit_requires_more_than_one_timepoint(ica_separable_volume):
+def test_fit_requires_more_than_one_timepoint(sample_voxeldata_3dt):
     """fit raises when only one timepoint is provided."""
-    single_timepoint = ica_separable_volume.isel(time=[0])
+    single_timepoint = sample_voxeldata_3dt.isel(time=[0])
 
     with pytest.raises(ValueError, match="requires more than 1 timepoint"):
         FastICA().fit(single_timepoint)
 
 
 def test_fit_requires_spatial_dimension():
-    """fit raises when input has no spatial dimensions."""
+    """fit raises when input has no spatial (native voxel) dimensions."""
     only_time = xr.DataArray(np.arange(30.0), dims=["time"])
 
-    with pytest.raises(ValueError, match="at least one spatial dimension"):
+    with pytest.raises(ValueError, match="missing voxel dimension"):
         FastICA().fit(only_time)
 
 
-def test_fit_rejects_unexpected_fit_params(ica_separable_volume):
+def test_fit_rejects_unexpected_fit_params(sample_voxeldata_3dt):
     """fit raises when unexpected sklearn-style fit params are provided."""
     with pytest.raises(TypeError, match="unexpected keyword argument"):
         FastICA().fit(
-            ica_separable_volume,
-            sample_weight=np.ones(ica_separable_volume.sizes["time"]),  # ty: ignore[unknown-argument]
+            sample_voxeldata_3dt,
+            sample_weight=np.ones(sample_voxeldata_3dt.sizes["time"]),  # ty: ignore[unknown-argument]
         )
 
 
-def test_fit_transform_rejects_unexpected_fit_params(ica_separable_volume):
+def test_fit_transform_rejects_unexpected_fit_params(sample_voxeldata_3dt):
     """fit_transform raises when unexpected sklearn-style fit params are provided."""
     with pytest.raises(TypeError, match="Unexpected fit parameters"):
         FastICA().fit_transform(
-            ica_separable_volume,
-            sample_weight=np.ones(ica_separable_volume.sizes["time"]),
+            sample_voxeldata_3dt,
+            sample_weight=np.ones(sample_voxeldata_3dt.sizes["time"]),
         )
 
 
-def test_transform_checks_spatial_layout(ica_separable_volume):
+def test_transform_checks_spatial_layout(sample_voxeldata_3dt):
     """transform raises if spatial layout differs from fit."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(ica_separable_volume)
-    bad = ica_separable_volume.isel(x=slice(0, 4))
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_voxeldata_3dt)
+    bad = sample_voxeldata_3dt.isel(i=slice(0, 4))
 
-    with pytest.raises(ValueError, match="Spatial dimension 'x' has size"):
+    with pytest.raises(ValueError, match="Spatial dimension 'i' has size"):
         model.transform(bad)
 
 
-def test_transform_checks_spatial_dimension_names(ica_separable_volume):
-    """transform raises if spatial dimension names differ from fit."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(ica_separable_volume)
-    bad = ica_separable_volume.rename({"x": "region"})
+def test_transform_checks_spatial_dimension_names(sample_voxeldata_3dt):
+    """transform rejects data missing a native voxel dimension."""
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_voxeldata_3dt)
+    bad = sample_voxeldata_3dt.drop_vars(["z", "y", "x"]).rename({"i": "region"})
 
-    with pytest.raises(ValueError, match="spatial dimensions do not match"):
+    with pytest.raises(ValueError, match="missing voxel dimension"):
         model.transform(bad)
 
 
-def test_transform_without_time_coordinate_uses_index(ica_separable_volume):
-    """transform falls back to integer time coordinate when absent."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(ica_separable_volume)
-    no_time_coord = xr.DataArray(
-        ica_separable_volume.values,
-        dims=ica_separable_volume.dims,
-        coords={
-            "z": ica_separable_volume.coords["z"],
-            "y": ica_separable_volume.coords["y"],
-            "x": ica_separable_volume.coords["x"],
-        },
-    )
+def test_transform_rejects_missing_time_coordinate(sample_voxeldata_3dt):
+    """transform rejects data with a time dim but no time coordinate.
 
-    transformed = model.transform(no_time_coord)
+    A VoxelData array's time dim must always carry a time coordinate; this isn't
+    a fallback case to paper over.
+    """
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_voxeldata_3dt)
+    no_time_coord = sample_voxeldata_3dt.drop_vars("time")
 
-    np.testing.assert_array_equal(
-        transformed.coords["time"].values,
-        np.arange(ica_separable_volume.sizes["time"]),
-    )
+    with pytest.raises(ValueError, match="Missing required coordinate"):
+        model.transform(no_time_coord)
 
 
-def test_transform_chunked_time_reports_transform_operation(ica_separable_volume):
+def test_transform_chunked_time_reports_transform_operation(sample_voxeldata_3dt):
     """transform chunking error message identifies FastICA.transform."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(ica_separable_volume)
-    chunked = ica_separable_volume.chunk({"time": 5})
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_voxeldata_3dt)
+    chunked = sample_voxeldata_3dt.chunk({"time": 5})
 
     with pytest.raises(
         ValueError, match="FastICA.transform requires the full time series"
@@ -324,27 +340,27 @@ def test_transform_chunked_time_reports_transform_operation(ica_separable_volume
         model.transform(chunked)
 
 
-def test_sklearn_interface_fitted_state(ica_separable_volume):
+def test_sklearn_interface_fitted_state(sample_voxeldata_3dt):
     """Estimator exposes sklearn fitted-state behavior."""
     model = FastICA(**FASTICA_TEST_KWARGS)
     with pytest.raises(Exception):
         check_is_fitted(model)
 
-    check_is_fitted(model.fit(ica_separable_volume))
+    check_is_fitted(model.fit(sample_voxeldata_3dt))
 
 
-def test_fit_failure_does_not_mark_estimator_fitted(ica_separable_volume, monkeypatch):
+def test_fit_failure_does_not_mark_estimator_fitted(sample_voxeldata_3dt, monkeypatch):
     """Estimator remains unfitted when underlying sklearn FastICA fit fails."""
     import confusius.decomposition.fastica as fastica_module
 
-    def _raise_fit(self, X, y=None):
+    def _raise_fit(self, X, j=None):
         raise RuntimeError("fit failed")
 
     monkeypatch.setattr(fastica_module._SklearnFastICA, "fit", _raise_fit)
 
     model = FastICA(**FASTICA_TEST_KWARGS)
     with pytest.raises(RuntimeError, match="fit failed"):
-        model.fit(ica_separable_volume)
+        model.fit(sample_voxeldata_3dt)
 
     assert not hasattr(model, "_estimator")
     assert not model.__sklearn_is_fitted__()
@@ -395,7 +411,7 @@ def test_set_params_updates_values():
 
 def test_reproducible_with_random_state():
     """FastICA gives reproducible results with fixed random_state."""
-    data = xr.DataArray(
+    data = create_voxeldata(
         np.array(
             [
                 [0.0, 1.0, 0.0],
@@ -405,9 +421,10 @@ def test_reproducible_with_random_state():
                 [1.0, 2.0, 1.0],
                 [2.0, 0.0, 2.0],
             ]
-        ),
-        dims=["time", "region"],
-        coords={"region": ["A", "B", "C"]},
+        ).reshape(6, 1, 1, 3),
+        dims=("time", "k", "j", "i"),
+        dt=1.0,
+        spacing=(1.0, 1.0, 1.0),
     )
     model_1 = FastICA(**FASTICA_TEST_KWARGS)
     model_2 = FastICA(**FASTICA_TEST_KWARGS)
@@ -419,55 +436,25 @@ def test_reproducible_with_random_state():
     np.testing.assert_allclose(model_1.maps_.values, model_2.maps_.values)
 
 
-def test_mask_restricts_features(ica_separable_volume):
+def test_mask_restricts_features(sample_voxeldata_3dt):
     """mask restricts fitted feature count to selected voxels."""
-    mask = xr.DataArray(
-        np.zeros(
-            (
-                ica_separable_volume.sizes["z"],
-                ica_separable_volume.sizes["y"],
-                ica_separable_volume.sizes["x"],
-            ),
-            dtype=bool,
-        ),
-        dims=["z", "y", "x"],
-        coords={
-            "z": ica_separable_volume.coords["z"],
-            "y": ica_separable_volume.coords["y"],
-            "x": ica_separable_volume.coords["x"],
-        },
-    )
+    mask = _make_mask(sample_voxeldata_3dt)
     mask.values[:, :2, :] = True
 
-    model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(ica_separable_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(sample_voxeldata_3dt)
 
     assert model.n_features_in_ == int(mask.values.sum())
 
 
-def test_masked_fit_reconstructs_full_geometry_with_zero_fill(ica_separable_volume):
+def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_voxeldata_3dt):
     """Masked FastICA keeps full geometry and fills outside-mask voxels with zero."""
-    mask = xr.DataArray(
-        np.zeros(
-            (
-                ica_separable_volume.sizes["z"],
-                ica_separable_volume.sizes["y"],
-                ica_separable_volume.sizes["x"],
-            ),
-            dtype=bool,
-        ),
-        dims=["z", "y", "x"],
-        coords={
-            "z": ica_separable_volume.coords["z"],
-            "y": ica_separable_volume.coords["y"],
-            "x": ica_separable_volume.coords["x"],
-        },
-    )
+    mask = _make_mask(sample_voxeldata_3dt)
     mask.values[:, :2, :] = True
 
-    model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(ica_separable_volume)
-    reconstructed = model.inverse_transform(model.transform(ica_separable_volume))
+    model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(sample_voxeldata_3dt)
+    reconstructed = model.inverse_transform(model.transform(sample_voxeldata_3dt))
 
-    assert reconstructed.dims == ica_separable_volume.dims
+    assert reconstructed.dims == sample_voxeldata_3dt.dims
     np.testing.assert_array_equal(
         reconstructed.where(~mask, other=np.nan).fillna(0.0).values,
         0.0,
@@ -482,9 +469,11 @@ def test_masked_fit_reconstructs_full_geometry_with_zero_fill(ica_separable_volu
     )
 
 
-def test_mask_mismatch_raises(ica_separable_volume):
+def test_mask_mismatch_raises(sample_voxeldata_3dt):
     """fit raises when mask does not match spatial dimensions."""
-    bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["y", "x"])
+    bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["j", "i"])
 
-    with pytest.raises(ValueError, match="missing from mask"):
-        FastICA(mask=bad_mask).fit(ica_separable_volume)
+    with pytest.raises(
+        ValueError, match="native voxel dimensions|missing voxel dimension"
+    ):
+        FastICA(mask=bad_mask).fit(sample_voxeldata_3dt)

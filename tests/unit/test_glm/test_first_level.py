@@ -8,9 +8,7 @@ from numpy.testing import assert_allclose
 
 from confusius.glm import FirstLevelModel, make_first_level_design_matrix
 from confusius.glm._models import OLSModel
-from confusius.glm.first_level import _flatten_spatial
 from confusius.spatial import smooth_volume
-
 
 # -----------------------------------------------------------------------------
 # FirstLevelModel: fitting
@@ -29,6 +27,15 @@ class TestFirstLevelModelFit:
         model.fit(fusi_data, design_matrices=dm)
         # Auto-built design must match the user-supplied one column-for-column.
         pd.testing.assert_frame_equal(model.design_matrices_[0], dm)
+
+    def test_fit_2d_spatial(self, fusi_data_2d, events):
+        """Fitting a singleton-k `(time, k, j, i)` array yields a contrast map with
+        the same spatial dims and shape."""
+        model = FirstLevelModel(noise_model="ols")
+        model.fit(fusi_data_2d, events=events)
+        z_map = model.compute_contrast("A - B")
+        assert z_map.dims == ("k", "j", "i")
+        assert z_map.shape == (1, 5, 6)
 
     def test_minimize_memory_strips_diagnostic_fields(self, fusi_data, events):
         """minimize_memory=True drops Y/whitened_Y/whitened_residuals/model post-fit.
@@ -74,6 +81,8 @@ class TestFirstLevelModelFit:
         dm = model.design_matrices_[0]
         assert "motion_x" in dm.columns
         assert "motion_y" in dm.columns
+        assert_allclose(dm["motion_x"].to_numpy(), confounds["motion_x"].to_numpy())
+        assert_allclose(dm["motion_y"].to_numpy(), confounds["motion_y"].to_numpy())
 
     def test_sklearn_is_fitted(self, fusi_data, events):
         model = FirstLevelModel(noise_model="ols")
@@ -91,22 +100,7 @@ class TestFirstLevelModelFit:
 
     def test_fit_with_mask_sets_outside_voxels_to_zero(self, fusi_data, events):
         """Mask limits fitted voxels and keeps full output geometry."""
-        mask = xr.DataArray(
-            np.zeros(
-                (
-                    fusi_data.sizes["z"],
-                    fusi_data.sizes["y"],
-                    fusi_data.sizes["x"],
-                ),
-                dtype=bool,
-            ),
-            dims=["z", "y", "x"],
-            coords={
-                "z": fusi_data.coords["z"],
-                "y": fusi_data.coords["y"],
-                "x": fusi_data.coords["x"],
-            },
-        )
+        mask = xr.zeros_like(fusi_data.isel(time=0, drop=True), dtype=bool)
         mask.values[0, :, :] = True
 
         model = FirstLevelModel(noise_model="ols", mask=mask)
@@ -118,22 +112,7 @@ class TestFirstLevelModelFit:
 
     def test_masked_f_contrast_effect_keeps_contrast_dim(self, fusi_data, events):
         """Masked F-contrast effect maps keep `contrast_dim` and zero-fill outside mask."""
-        mask = xr.DataArray(
-            np.zeros(
-                (
-                    fusi_data.sizes["z"],
-                    fusi_data.sizes["y"],
-                    fusi_data.sizes["x"],
-                ),
-                dtype=bool,
-            ),
-            dims=["z", "y", "x"],
-            coords={
-                "z": fusi_data.coords["z"],
-                "y": fusi_data.coords["y"],
-                "x": fusi_data.coords["x"],
-            },
-        )
+        mask = xr.zeros_like(fusi_data.isel(time=0, drop=True), dtype=bool)
         mask.values[:, 0, :] = True
 
         model = FirstLevelModel(noise_model="ols", mask=mask)
@@ -147,16 +126,16 @@ class TestFirstLevelModelFit:
 
         e_map = model.compute_contrast(c, stat_type="F", output_type="effect")
 
-        assert e_map.dims == ("contrast_dim", "z", "y", "x")
+        assert e_map.dims == ("contrast_dim", "k", "j", "i")
         outside = e_map.where(~mask, other=np.nan)
         np.testing.assert_array_equal(np.nan_to_num(outside.values), 0.0)
 
-    def test_consensus_attrs_propagated_across_runs(self, fusi_data, events):
+    def test_intersect_attrs_propagated_across_runs(self, fusi_data, events):
         """Attributes equal across all runs propagate to the contrast map."""
         run_a = fusi_data.copy()
-        run_a.attrs = {"subject_id": "s01", "task": "stim", "session": 1}
+        run_a.attrs.update({"subject_id": "s01", "task": "stim", "session": 1})
         run_b = fusi_data.copy()
-        run_b.attrs = {"subject_id": "s01", "task": "stim", "session": 2}
+        run_b.attrs.update({"subject_id": "s01", "task": "stim", "session": 2})
         model = FirstLevelModel(noise_model="ols")
         model.fit([run_a, run_b], events=[events, events])
         z_map = model.compute_contrast("A")
@@ -211,7 +190,7 @@ class TestFirstLevelModelContrast:
         z_array = self.model.compute_contrast(vec)
 
         assert_allclose(z_string.values, z_array.values, rtol=1e-12)
-        assert z_string.dims == ("z", "y", "x")
+        assert z_string.dims == ("k", "j", "i")
 
     def test_output_type_pvalue_in_unit_interval(self):
         p_map = self.model.compute_contrast("A", output_type="pvalue")
@@ -243,32 +222,24 @@ class TestFirstLevelModelContrast:
 class TestFirstLevelModelContrastMultiRun:
     """Test fixed-effects contrast combination across runs."""
 
-    def test_multi_run_effect_is_pooled_average(self, rng, frame_times, events):
+    def test_multi_run_effect_is_pooled_average(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
         """Multi-run effect_size is the pooled fixed-effects average, not the sum.
 
         Subjects with more runs would contribute proportionally larger
         effect/variance maps to second-level inputs if `compute_contrast` did
         not divide by `n_runs` after summing.
         """
-        data1 = xr.DataArray(
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = xr.DataArray(
+        data2 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
         single = FirstLevelModel(noise_model="ols")
         single.fit(data1, events=events)
@@ -283,28 +254,20 @@ class TestFirstLevelModelContrastMultiRun:
         # scale (mean of two unbiased estimates).
         assert np.median(np.abs(e_multi)) < 1.5 * np.median(np.abs(e_single))
 
-    def test_multi_run_per_run_confounds_pass_through(self, rng, frame_times, events):
+    def test_multi_run_per_run_confounds_pass_through(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
         """Per-run confounds passed as a list show up with their values in each
         run's design matrix."""
-        data1 = xr.DataArray(
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = xr.DataArray(
+        data2 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
         conf1 = pd.DataFrame({"motion": rng.standard_normal(200)})
         conf2 = pd.DataFrame({"motion": rng.standard_normal(200)})
@@ -340,7 +303,7 @@ class TestFirstLevelModelFContrast:
         c[0, a_idx] = 1.0
         c[1, b_idx] = 1.0
         e_map = self.model.compute_contrast(c, stat_type="F", output_type="effect")
-        assert e_map.dims == ("contrast_dim", "z", "y", "x")
+        assert e_map.dims == ("contrast_dim", "k", "j", "i")
         assert e_map.shape == (2, 2, 3, 4)
 
     def test_2d_contrast_is_zero_padded(self):
@@ -409,7 +372,8 @@ class TestFirstLevelModelReference:
         dm = make_first_level_design_matrix(
             frame_times, events=events, drift_model="cosine"
         )
-        flat, _, _ = _flatten_spatial(fusi_data)
+        spatial_dims = tuple(str(d) for d in fusi_data.dims if d != "time")
+        flat = fusi_data.stack(space=spatial_dims).transpose("time", "space").values
         ols = OLSModel(dm.to_numpy(dtype=np.float64))
         results = ols.fit(flat)
 
@@ -427,6 +391,25 @@ class TestFirstLevelModelReference:
         z_manual = contrast.zscore.reshape(2, 3, 4)
 
         assert_allclose(z_map_auto.values, z_manual, rtol=1e-10)
+
+    def test_multipose_matches_per_pose_fit(self, fusi_data_pose, events):
+        """Fitting `(time, pose, k, j, i)` data matches fitting each pose slice
+        independently and stacking the results.
+
+        Guards the fallback all-True mask and the explicit-mask path both
+        correctly carry `pose` through `extract_with_mask`/`unmask`, instead
+        of silently collapsing to a single pose or erroring.
+        """
+        model = FirstLevelModel(noise_model="ols")
+        model.fit(fusi_data_pose, events=events)
+        z_pose = model.compute_contrast("A - B")
+        assert z_pose.dims == ("pose", "k", "j", "i")
+
+        for pose in range(fusi_data_pose.sizes["pose"]):
+            single_pose_model = FirstLevelModel(noise_model="ols")
+            single_pose_model.fit(fusi_data_pose.isel(pose=pose), events=events)
+            z_single = single_pose_model.compute_contrast("A - B")
+            assert_allclose(z_pose.isel(pose=pose).values, z_single.values)
 
 
 # -----------------------------------------------------------------------------
@@ -477,7 +460,9 @@ class TestFirstLevelModelErrors:
         with pytest.raises(ValueError, match="rows but the run has"):
             model.fit(fusi_data, design_matrices=dm)
 
-    def test_design_matrix_columns_mismatch_raises(self, rng, frame_times, events):
+    def test_design_matrix_columns_mismatch_raises(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
         """Multi-run designs with different column orders are rejected."""
         events_swapped = pd.DataFrame(
             {
@@ -488,121 +473,94 @@ class TestFirstLevelModelErrors:
                 "duration": [1.0] * 10,
             }
         )
-        data1 = xr.DataArray(
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = xr.DataArray(
+        data2 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
         model = FirstLevelModel(noise_model="ols")
         with pytest.raises(ValueError, match="design-matrix columns"):
             model.fit([data1, data2], events=[events, events_swapped])
 
-    def test_dropped_spatial_coord_raises(self, rng, frame_times, events):
-        """A run that drops a spatial coord present on the reference run is rejected."""
-        data1 = xr.DataArray(
+    def test_dropped_spatial_coord_raises(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
+        """A run missing required spatial coords is rejected during validation."""
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = data1.drop_vars("z")
+        data2 = data1.drop_vars("k")
         model = FirstLevelModel(noise_model="ols")
-        with pytest.raises(
-            ValueError, match="Missing required coordinate for dimension 'z'"
-        ):
+        with pytest.raises(ValueError, match="Missing required coordinate"):
             model.fit([data1, data2], events=[events, events])
 
-    def test_spatial_shape_mismatch_raises(self, rng, frame_times, events):
+    def test_spatial_shape_mismatch_raises(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
         """Multi-run fit raises if runs have different spatial shapes."""
-        data1 = xr.DataArray(
-            rng.standard_normal((200, 2, 1, 3)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(
-                    [0.0], dims="y", attrs={"units": "mm", "voxdim": 0.1}
-                ),
-                "x": xr.DataArray(np.arange(3) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+        data1 = make_glm_test_dataarray(
+            rng.standard_normal((200, 2, 3)),
+            ("time", "k", "i"),
+            time=frame_times,
         )
-        data2 = xr.DataArray(
-            rng.standard_normal((200, 2, 1, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(
-                    [0.0], dims="y", attrs={"units": "mm", "voxdim": 0.1}
-                ),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+        data2 = make_glm_test_dataarray(
+            rng.standard_normal((200, 4, 3)),
+            ("time", "k", "i"),
+            time=frame_times,
         )
         model = FirstLevelModel(noise_model="ols")
         with pytest.raises(ValueError, match="spatial dimensions"):
             model.fit([data1, data2], events=[events, events])
 
-    def test_spatial_axis_order_mismatch_raises(self, rng, frame_times, events):
-        """Multi-run fit rejects runs that share spatial sizes but in
-        different axis orders.
+    def test_transposed_run_aligns_by_label(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
+        """A run with a different (but internally consistent) spatial axis
+        order is accepted and produces the same result as an untransposed run.
 
-        `_flatten_spatial` stacks voxels in each run's own dim order, so
-        accepting transposed runs would silently mix voxel locations during
-        fixed-effects combination.
+        `extract_with_mask` stacks voxels by dimension/coordinate name
+        (`xr.align` is label-based, not positional), so a per-run axis-order
+        permutation doesn't mix up voxel locations during fixed-effects
+        combination.
         """
-        data1 = xr.DataArray(
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = data1.transpose("time", "y", "z", "x")
-        model = FirstLevelModel(noise_model="ols")
-        with pytest.raises(ValueError, match="same order"):
-            model.fit([data1, data2], events=[events, events])
+        data2 = data1.transpose("time", "j", "k", "i")
 
-    def test_spatial_coord_mismatch_raises(self, rng, frame_times, events):
+        model_transposed = FirstLevelModel(noise_model="ols")
+        model_transposed.fit([data1, data2], events=[events, events])
+        z_transposed = model_transposed.compute_contrast("A - B")
+
+        model_ref = FirstLevelModel(noise_model="ols")
+        model_ref.fit([data1, data1], events=[events, events])
+        z_ref = model_ref.compute_contrast("A - B")
+
+        np.testing.assert_allclose(z_transposed.values, z_ref.values)
+
+    def test_spatial_coord_mismatch_raises(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
         """Multi-run fit raises if runs have mismatched spatial coordinates."""
-        data1 = xr.DataArray(
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = data1.assign_coords(
-            z=xr.DataArray(np.arange(2) * 0.5 + 10.0, dims="z", attrs={"units": "mm"})
-        )
+        data2 = data1.assign_coords(k=np.arange(2) + 10.0)
         model = FirstLevelModel(noise_model="ols")
         with pytest.raises(
             ValueError,
-            match=r"Coordinate 'z' does not match between run 0 and run 1",
+            match=r"Coordinate 'k' does not match between run 0 and run 1",
         ):
             model.fit([data1, data2], events=[events, events])
 
@@ -613,32 +571,30 @@ class TestFirstLevelModelErrors:
         with pytest.raises(ValueError, match="confound"):
             model.fit([fusi_data, fusi_data], events=[events, events], confounds=[conf])
 
-    def test_ar_noise_model_non_numeric_order_raises(self, fusi_data, events):
-        """noise_model='arfoo' raises ValueError for non-numeric AR order."""
-        model = FirstLevelModel(noise_model="arfoo")
-        with pytest.raises(ValueError, match="noise_model"):
-            model.fit(fusi_data, events=events)
-
-    def test_mask_must_be_a_fusi_grid(self, frame_times, events):
-        """Masks must retain every fUSI spatial dimension."""
-        data = xr.DataArray(
+    def test_mask_dim_order_is_canonicalized(
+        self, frame_times, events, make_glm_test_dataarray
+    ):
+        """Wrong-order VoxelData masks are canonicalized before fitting."""
+        data = make_glm_test_dataarray(
             np.zeros((len(frame_times), 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
-                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        mask = xr.DataArray(
-            np.ones((data.sizes["y"], data.sizes["x"]), dtype=bool),
-            dims=["y", "x"],
-            coords={"y": data.coords["y"], "x": data.coords["x"]},
+        mask = (
+            data.isel(time=0, drop=True)
+            .transpose("i", "j", "k")
+            .copy(
+                data=np.ones(
+                    (data.sizes["i"], data.sizes["j"], data.sizes["k"]), dtype=bool
+                )
+            )
         )
         model = FirstLevelModel(noise_model="ols", mask=mask)
-        with pytest.raises(ValueError, match="missing spatial dimension 'z'"):
-            model.fit(data, events=events)
+
+        model.fit(data, events=events)
+
+        assert model.mask is not None
+        assert model.mask.dims == ("k", "j", "i")
 
     def test_2d_contrast_too_wide_raises(self, fusi_data, events):
         """2D contrast wider than design columns raises ValueError."""
@@ -658,35 +614,25 @@ class TestFirstLevelModelErrors:
 
 
 # -----------------------------------------------------------------------------
-# FirstLevelModel: noise model parsing
+# FirstLevelModel: noise model public validation
 # -----------------------------------------------------------------------------
 
 
-class TestNoiseModelParsing:
-    """Tests for noise model string parsing."""
+@pytest.mark.parametrize("noise_model", ["ar2", "AR1"])
+def test_ar_noise_models_fit_and_contrast(noise_model, fusi_data, events):
+    """Supported AR noise models work through the public fit/contrast seam."""
+    model = FirstLevelModel(noise_model=noise_model)
 
-    def test_ols(self):
-        model = FirstLevelModel(noise_model="ols")
-        assert model._parse_noise_model() == 0
+    model.fit(fusi_data, events=events)
+    z_map = model.compute_contrast("A - B")
 
-    def test_ar1(self):
-        model = FirstLevelModel(noise_model="ar1")
-        assert model._parse_noise_model() == 1
+    assert np.all(np.isfinite(z_map.values))
 
-    def test_ar2(self):
-        model = FirstLevelModel(noise_model="ar2")
-        assert model._parse_noise_model() == 2
 
-    def test_case_insensitive(self):
-        model = FirstLevelModel(noise_model="AR1")
-        assert model._parse_noise_model() == 1
+@pytest.mark.parametrize("noise_model", ["invalid", "arfoo", "garch", "ar0"])
+def test_invalid_noise_models_raise_from_fit(noise_model, fusi_data, events):
+    """Unsupported noise models raise through public fit validation."""
+    model = FirstLevelModel(noise_model=noise_model)
 
-    def test_invalid_raises(self):
-        model = FirstLevelModel(noise_model="garch")
-        with pytest.raises(ValueError, match="noise_model"):
-            model._parse_noise_model()
-
-    def test_ar0_raises(self):
-        model = FirstLevelModel(noise_model="ar0")
-        with pytest.raises(ValueError, match="AR order must be >= 1"):
-            model._parse_noise_model()
+    with pytest.raises(ValueError, match="noise_model|AR order"):
+        model.fit(fusi_data, events=events)

@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     import SimpleITK as sitk
     from SimpleITK import (
         AffineTransform,
+        Euler2DTransform,
         Euler3DTransform,
         Similarity3DTransform,
         VersorRigid3DTransform,
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
 
     _MatrixTransform = (
         AffineTransform
+        | Euler2DTransform
         | Euler3DTransform
         | Similarity3DTransform
         | VersorRigid3DTransform
@@ -24,6 +26,7 @@ if TYPE_CHECKING:
 
 _MATRIX_TRANSFORMS = {
     "AffineTransform",
+    "Euler2DTransform",
     "Euler3DTransform",
     "Similarity3DTransform",
     "VersorRigid3DTransform",
@@ -245,7 +248,7 @@ def sitk_linear_transform_to_affine(
     Returns
     -------
     (N+1, N+1) numpy.ndarray
-        Homogeneous affine matrix in physical space mapping fixed-space points
+        Homogeneous affine matrix in world space mapping fixed-space points
         to moving-space points (pull/inverse convention used by SimpleITK's
         `Resample`).
 

@@ -21,7 +21,7 @@ class FUSIIQAccessor:
     ----------
     xarray_obj : xarray.DataArray
         The DataArray to wrap. Must contain complex beamformed IQ data
-        with dimensions `(time, z, y, x)`.
+        with dimensions `(time, k, j, i)`.
 
     Examples
     --------
@@ -72,11 +72,11 @@ class FUSIIQAccessor:
             - `"svd_energy"`: Adaptive SVD filter using singular vector energies.
             - `"svd_cumulative_energy"`: Adaptive SVD filter using cumulative energies.
             - `"butterworth"`: Butterworth frequency-domain filter.
-        clutter_mask : (z, y, x) xarray.DataArray, optional
+        clutter_mask : (k, j, i) xarray.DataArray, optional
             Boolean mask to define clutter regions. Only used by SVD-based clutter
             filters to compute clutter vectors from masked voxels. If not provided,
-            all voxels are used. The mask spatial coordinates (z, y, x) must match
-            the IQ data coordinates.
+            all voxels are used. The mask spatial dimensions and coordinates must
+            match the IQ data.
         low_cutoff : int or float, optional
             Low cutoff for clutter filtering. Interpretation depends on `filter_method`.
             If not provided, uses method-specific defaults.
@@ -95,7 +95,7 @@ class FUSIIQAccessor:
 
         Returns
         -------
-        (clutter_windows * doppler_windows, z, y, x) xarray.DataArray
+        (clutter_windows * doppler_windows, k, j, i) xarray.DataArray
             Power Doppler volumes with updated time coordinates, where
             `clutter_windows` is the number of clutter filter sliding windows and
             `doppler_windows` is the number of power Doppler sliding windows per
@@ -165,11 +165,11 @@ class FUSIIQAccessor:
             - `"svd_energy"`: Adaptive SVD filter using singular vector energies.
             - `"svd_cumulative_energy"`: Adaptive SVD filter using cumulative energies.
             - `"butterworth"`: Butterworth frequency-domain filter.
-        clutter_mask : (z, y, x) xarray.DataArray, optional
+        clutter_mask : (k, j, i) xarray.DataArray, optional
             Boolean mask to define clutter regions. Only used by SVD-based clutter
             filters to compute clutter vectors from masked voxels. If not provided,
-            all voxels are used. The mask spatial coordinates (z, y, x) must match
-            the IQ data coordinates.
+            all voxels are used. The mask spatial dimensions and coordinates must
+            match the IQ data.
         low_cutoff : int or float, optional
             Low cutoff for clutter filtering. Interpretation depends on `filter_method`.
             If not provided, uses method-specific defaults.
@@ -190,13 +190,13 @@ class FUSIIQAccessor:
         spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
             Size of the median filter kernel applied spatially to denoise. A scalar
             uses the same kernel size on all spatial axes; a length-3 sequence
-            specifies `(z, y, x)` sizes directly. Values must be positive. Any even
+            specifies `(k, j, i)` sizes directly. Values must be positive. Any even
             sizes are rounded up to the next odd size. If all sizes are `1`, no
             spatial filtering is applied.
 
         Returns
         -------
-        (clutter_windows * velocity_windows, z, y, x) xarray.DataArray
+        (clutter_windows * velocity_windows, k, j, i) xarray.DataArray
             Axial velocity volumes with updated time coordinates, where
             `clutter_windows` is the number of clutter filter sliding windows and
             `velocity_windows` is the number of velocity sliding windows per clutter
@@ -251,7 +251,7 @@ class FUSIIQAccessor:
 
         Returns
         -------
-        (windows, z, y, x) xarray.DataArray
+        (windows, k, j, i) xarray.DataArray
             B-mode volumes with updated time coordinates, where `windows` is the number
             of sliding windows.
 

@@ -122,20 +122,16 @@ def _create_echoframe_mat_metadata(
 
         if crop and cropping_roi is not None:
             recon_spec["croppingROI"] = np.array([cropping_roi], dtype=np.float64)
-            z = int(cropping_roi[1] - cropping_roi[0] + 1)
-            x = int(cropping_roi[3] - cropping_roi[2] + 1)
         else:
-            z = n_z
-            x = n_x
-            recon_spec["nz"] = np.array([[z]], dtype=np.int32)
-            recon_spec["nx"] = np.array([[x]], dtype=np.int32)
+            recon_spec["nz"] = np.array([[n_z]], dtype=np.int32)
+            recon_spec["nx"] = np.array([[n_x]], dtype=np.int32)
 
         receive_spec["nRepeats"] = np.array([n_volumes], dtype=np.int32)
         # 200 µs transmit-receive time -> PRF = 5000 Hz, CSF = 1000 Hz (5 angles).
         receive_spec["transmitReceiveTimeMus"] = np.array([200.0])
 
-        recon_spec["xAxis"] = np.linspace(0, x * 0.1, x)
-        recon_spec["zAxis"] = np.linspace(0, z * 0.05, z)
+        recon_spec["xAxis"] = np.linspace(0, n_x * 0.1, n_x)
+        recon_spec["zAxis"] = np.linspace(0, n_z * 0.05, n_z)
         recon_spec["c0"] = np.array([1540.0])
         recon_spec["method"] = np.array([ord(c) for c in "DAS"], dtype=np.uint8)
         probe_spec["Fc"] = np.array([15.625e6])
@@ -246,10 +242,10 @@ def synthetic_echoframe_session_cropped(tmp_path):
     meta_path = session_dir / "ScanParameters.mat"
 
     _create_echoframe_dat_file(
-        dat_path, n_blocks=1, n_x=6, n_z=6, n_volumes=3, padding_bytes=0
+        dat_path, n_blocks=1, n_x=3, n_z=4, n_volumes=3, padding_bytes=0
     )
     _create_echoframe_mat_metadata(
-        meta_path, n_x=6, n_z=6, n_volumes=3, crop=True, cropping_roi=[1, 4, 1, 3]
+        meta_path, n_x=6, n_z=6, n_volumes=3, crop=True, cropping_roi=[2, 5, 2, 4]
     )
 
     return session_dir

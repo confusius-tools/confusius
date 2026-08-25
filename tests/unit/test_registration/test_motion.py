@@ -3,8 +3,6 @@
 from typing import Any, cast
 
 import numpy as np
-import pytest
-import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 from scipy.spatial.transform import Rotation
 
@@ -47,9 +45,7 @@ def _rotation_affine_3d_first_axis(angle):
 
 def _with_singleton_dim(reference, dim):
     """Return `reference` with `dim` reduced to length 1 but preserved."""
-    reduced = reference.isel({dim: [0]})
-    reduced.coords[dim].attrs["voxdim"] = 1.0
-    return reduced
+    return reference.isel({dim: [0]})
 
 
 class TestValidateAffines:
@@ -75,6 +71,27 @@ class TestValidateAffines:
 
         with pytest.raises(TypeError, match="numpy.ndarray"):
             _validate_affines(cast(Any, [[[1, 0, 0], [0, 1, 0], [0, 0, 1]]]))
+
+    def test_rejects_non_square_affine_array(self):
+        """Affine matrices must be square 2D arrays."""
+        import pytest
+
+        with pytest.raises(ValueError, match="square 2D array"):
+            _validate_affines([np.zeros((3, 4))])
+
+    def test_rejects_wrong_affine_shape(self):
+        """Only homogeneous 3D affine shapes are accepted."""
+        import pytest
+
+        with pytest.raises(ValueError, match=r"shape \(4, 4\)"):
+            _validate_affines([np.eye(5)])
+
+    def test_rejects_2d_affine_shape(self):
+        """A (3, 3) 2D affine is no longer an accepted shape."""
+        import pytest
+
+        with pytest.raises(ValueError, match=r"shape \(4, 4\)"):
+            _validate_affines([np.eye(3)])
 
 
 class TestExtractMotionParameters:
@@ -145,62 +162,75 @@ class TestExtractMotionParameters:
 class TestComputeFramewiseDisplacement:
     """Tests for compute_framewise_displacement function."""
 
-    def test_identical_transforms_zero_fd(self, sample_3d_dataarray_spatial):
+    def test_identical_transforms_zero_fd(self, sample_voxeldata_3d_registration):
         """Identical affines produce zero framewise displacement."""
         affines = [np.eye(4), np.eye(4)]
-        fd = compute_framewise_displacement(affines, sample_3d_dataarray_spatial)
+        fd = compute_framewise_displacement(affines, sample_voxeldata_3d_registration)
 
         assert_allclose(fd["mean_fd"], [0.0, 0.0])
         assert_allclose(fd["max_fd"], [0.0, 0.0])
         assert_allclose(fd["rms_fd"], [0.0, 0.0])
 
-    def test_known_translation_displacement_3d(self, sample_3d_dataarray_spatial):
+    def test_known_translation_displacement_3d(self, sample_voxeldata_3d_registration):
         """Known 3D translation produces correct FD."""
         t1 = np.eye(4)
         t2 = np.eye(4)
         t2[:3, 3] = [1.0, 2.0, 2.0]
-        fd = compute_framewise_displacement([t1, t2], sample_3d_dataarray_spatial)
+        fd = compute_framewise_displacement([t1, t2], sample_voxeldata_3d_registration)
 
         assert_allclose(fd["mean_fd"][0], 3.0, atol=1e-6)
         assert_allclose(fd["max_fd"][0], 3.0, atol=1e-6)
 
-    def test_with_mask(self, sample_3d_dataarray_spatial):
+    def test_with_mask(self, sample_voxeldata_3d_registration):
         """Mask restricts FD computation to masked voxels."""
         t1 = np.eye(4)
-        t2 = _translation_affine_3d(3.0, 4.0, 0.0)
-        mask = np.zeros(sample_3d_dataarray_spatial.shape, dtype=bool)
-        mask[2:8, 2:8, 2:8] = True
+        t2 = np.eye(4)
+        t2[:3, 3] = [1.0, 2.0, 2.0]
+        mask = np.zeros(sample_voxeldata_3d_registration.shape, dtype=bool)
+        mask[:, 2:8, 2:8] = True
         fd = compute_framewise_displacement(
-            [t1, t2], sample_3d_dataarray_spatial, mask=mask
+            [t1, t2], sample_voxeldata_3d_registration, mask=mask
         )
 
-        assert_allclose(fd["mean_fd"][0], 5.0, atol=1e-6)
+        assert_allclose(fd["mean_fd"][0], 3.0, atol=1e-6)
 
-    def test_rejects_non_4x4_affine(self, sample_3d_dataarray_spatial):
-        """Only `(4, 4)` 3D affines are accepted."""
-        with pytest.raises(ValueError, match=r"\(4, 4\)"):
-            compute_framewise_displacement([np.eye(3)], sample_3d_dataarray_spatial)
+    def test_handles_reference_with_non_canonical_dim_order(self):
+        """A reference whose spatial dims are not in canonical k/j/i order still works.
 
-    def test_rejects_time_dimension(self):
-        """A reference with a `time` dimension is rejected with a clear error."""
-        ref = xr.DataArray(
-            np.zeros((2, 4, 6), dtype=np.float32),
-            dims=("time", "y", "x"),
-            coords={"time": np.arange(2) * 0.1},
-        )
+        Transposing a *non-cubic* reference makes the voxel-to-world world
+        coordinates' materialized `.values` shape disagree with `reference.shape`
+        (a quirk of the voxel-to-world-index-backed lazy coordinates), which is what routes
+        `compute_framewise_displacement` through its `numpy.meshgrid` fallback
+        instead of the fast-path direct `.ravel()` stacking. A cubic reference
+        would not exercise this: its transposed shape happens to equal its
+        original shape, so the fast path would still match.
+        """
+        from confusius.xarray import create_voxeldata
 
-        with pytest.raises(ValueError, match="must not have a time dimension"):
-            compute_framewise_displacement([np.eye(4), np.eye(4)], ref)
+        reference = create_voxeldata(
+            np.zeros((2, 3, 4), dtype=np.float32),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+        ).transpose("i", "j", "k")
+
+        t1 = np.eye(4)
+        t2 = np.eye(4)
+        t2[:3, 3] = [1.0, 2.0, 2.0]
+        fd = compute_framewise_displacement([t1, t2], reference)
+
+        assert_allclose(fd["mean_fd"][0], 3.0, atol=1e-6)
+        assert_allclose(fd["max_fd"][0], 3.0, atol=1e-6)
 
 
 class TestCreateMotionDataframe:
     """Tests for create_motion_dataframe function."""
 
     def test_singleton_z_dataframe_keeps_all_3d_motion_columns(
-        self, sample_3d_dataarray_spatial
+        self, sample_voxeldata_3d_registration
     ):
         """A singleton z axis still reports the full 3D motion summary."""
-        ref = _with_singleton_dim(sample_3d_dataarray_spatial, "z")
+        ref = _with_singleton_dim(sample_voxeldata_3d_registration, "k")
         df = create_motion_dataframe(
             [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
         )
@@ -221,10 +251,10 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
 
     def test_singleton_x_dataframe_keeps_all_3d_motion_columns(
-        self, sample_3d_dataarray_spatial
+        self, sample_voxeldata_3d_registration
     ):
         """Any singleton spatial axis still reports the full 3D motion summary."""
-        ref = _with_singleton_dim(sample_3d_dataarray_spatial, "x")
+        ref = _with_singleton_dim(sample_voxeldata_3d_registration, "i")
         df = create_motion_dataframe(
             [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
         )
@@ -244,66 +274,12 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
         assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
 
-    def test_accepts_scalar_indexed_reference(self):
-        """A scalar-indexed reference (`.isel(z=0)`) is canonicalized once and reused
-        for both the framewise-displacement grid and the motion-parameter column
-        mapping, instead of the latter seeing the pre-canonicalization dims.
-        """
-        vol = np.zeros((2, 4, 6), dtype=np.float32)
-        ref = xr.DataArray(
-            vol,
-            dims=("z", "y", "x"),
-            coords={
-                "z": xr.DataArray(
-                    np.arange(2) * 1.0, dims="z", attrs={"units": "mm", "voxdim": 1.0}
-                ),
-                "y": xr.DataArray(
-                    np.arange(4) * 1.0, dims="y", attrs={"units": "mm", "voxdim": 1.0}
-                ),
-                "x": xr.DataArray(
-                    np.arange(6) * 1.0, dims="x", attrs={"units": "mm", "voxdim": 1.0}
-                ),
-            },
-        )
-        scalar_ref = ref.isel(z=0)
-        assert "z" not in scalar_ref.dims
-
-        df = create_motion_dataframe(
-            [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], scalar_ref
-        )
-
-        assert list(df.columns) == [
-            "rot_x",
-            "rot_y",
-            "rot_z",
-            "trans_x",
-            "trans_y",
-            "trans_z",
-            "mean_fd",
-            "max_fd",
-            "rms_fd",
-        ]
-        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
-        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
-        assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
-
-    def test_rejects_time_dimension(self):
-        """A reference with a `time` dimension is rejected with a clear error."""
-        ref = xr.DataArray(
-            np.zeros((2, 4, 6), dtype=np.float32),
-            dims=("time", "y", "x"),
-            coords={"time": np.arange(2) * 0.1},
-        )
-
-        with pytest.raises(ValueError, match="must not have a time dimension"):
-            create_motion_dataframe([np.eye(4), np.eye(4)], ref)
-
-    def test_3d_dataframe_columns(self, sample_3d_dataarray_spatial):
+    def test_3d_dataframe_columns(self, sample_voxeldata_3d_registration):
         """3D affines produce DataFrame with correct columns."""
         t1 = np.eye(4)
         t2 = np.eye(4)
         t2[:3, 3] = [1.0, 2.0, 3.0]
-        df = create_motion_dataframe([t1, t2], sample_3d_dataarray_spatial)
+        df = create_motion_dataframe([t1, t2], sample_voxeldata_3d_registration)
 
         expected_cols = [
             "rot_x",
@@ -319,12 +295,12 @@ class TestCreateMotionDataframe:
         assert list(df.columns) == expected_cols
 
     def test_3d_dataframe_reorders_translations_to_named_axes(
-        self, sample_3d_dataarray_spatial
+        self, sample_voxeldata_3d_registration
     ):
-        """3D translations follow x/y/z names, not raw axis order."""
-        ref = _with_spatial_dims(sample_3d_dataarray_spatial, ("z", "y", "x"))
+        """3D translations follow world x/y/z names, not raw voxel axis names."""
         df = create_motion_dataframe(
-            [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
+            [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)],
+            sample_voxeldata_3d_registration,
         )
 
         assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
@@ -332,13 +308,13 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
 
     def test_3d_dataframe_reorders_rotations_to_named_axes(
-        self, sample_3d_dataarray_spatial
+        self, sample_voxeldata_3d_registration
     ):
-        """3D rotations follow x/y/z names, not raw axis order."""
-        ref = _with_spatial_dims(sample_3d_dataarray_spatial, ("z", "y", "x"))
+        """3D rotations follow world x/y/z names, not raw voxel axis names."""
         angle = 0.1
         df = create_motion_dataframe(
-            [np.eye(4), _rotation_affine_3d_first_axis(angle)], ref
+            [np.eye(4), _rotation_affine_3d_first_axis(angle)],
+            sample_voxeldata_3d_registration,
         )
 
         assert_allclose(df.iloc[1]["rot_x"], 0.0, atol=1e-6)
@@ -346,9 +322,11 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["rot_z"], angle, atol=1e-6)
 
     def test_rejects_unexpected_parameter_count(
-        self, monkeypatch, sample_3d_dataarray_spatial
+        self, monkeypatch, sample_voxeldata_2d_registration
     ):
         """Unexpected motion-parameter widths are rejected."""
+        import pytest
+
         monkeypatch.setattr(
             "confusius.registration.motion.extract_motion_parameters",
             lambda affines: np.zeros((1, 4)),
@@ -363,34 +341,35 @@ class TestCreateMotionDataframe:
         )
 
         with pytest.raises(ValueError, match="6 columns"):
-            create_motion_dataframe([np.eye(4)], sample_3d_dataarray_spatial)
+            create_motion_dataframe([np.eye(4)], sample_voxeldata_2d_registration)
 
-    def test_time_coords_as_index(self, sample_3d_dataarray_spatial):
+    def test_time_coords_as_index(self, sample_voxeldata_3d_registration):
         """Time coordinates are used as DataFrame index."""
         affines = [np.eye(4), np.eye(4)]
         time_coords = np.array([0.0, 0.5])
         df = create_motion_dataframe(
-            affines, sample_3d_dataarray_spatial, time_coords=time_coords
+            affines, sample_voxeldata_3d_registration, time_coords=time_coords
         )
 
         assert df.index.name == "time"
         assert_array_equal(df.index, time_coords)
 
-    def test_no_time_coords_uses_frame_index(self, sample_3d_dataarray_spatial):
+    def test_no_time_coords_uses_frame_index(self, sample_voxeldata_3d_registration):
         """Without time coords, index is named 'frame'."""
-        df = create_motion_dataframe([np.eye(4)], sample_3d_dataarray_spatial)
+        df = create_motion_dataframe([np.eye(4)], sample_voxeldata_3d_registration)
         assert df.index.name == "frame"
 
-    def test_motion_values_correct(self, sample_3d_dataarray_spatial):
+    def test_motion_values_correct(self, sample_voxeldata_3d_registration):
         """Motion parameter values are correctly populated."""
-        ref = _with_spatial_dims(sample_3d_dataarray_spatial, ("x", "y", "z"))
-        affines = [np.eye(4), _translation_affine_3d(2.0, 3.0, 4.0)]
-        df = create_motion_dataframe(affines, ref)
+        affines = [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)]
+        df = create_motion_dataframe(affines, sample_voxeldata_3d_registration)
 
+        assert_allclose(df.iloc[0]["rot_x"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[0]["trans_x"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[0]["trans_y"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[0]["trans_z"], 0.0, atol=1e-6)
 
-        assert_allclose(df.iloc[1]["trans_x"], 2.0, atol=1e-6)
-        assert_allclose(df.iloc[1]["trans_y"], 3.0, atol=1e-6)
-        assert_allclose(df.iloc[1]["trans_z"], 4.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["rot_x"], 0.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)

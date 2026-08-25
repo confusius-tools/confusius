@@ -1,7 +1,7 @@
 """First-level GLM for single-subject fUSI analysis.
 
 This module implements a sklearn-style estimator for fitting voxel-wise General Linear
-Models to fUSI time-series data stored as xarray DataArrays.
+Models to fUSI time-series data stored as VoxelData arrays.
 
 Portions of this file are derived from Nilearn, which is licensed under the BSD-3-Clause
 License. See `NOTICE` file for details.
@@ -25,14 +25,13 @@ from confusius.glm._design import (
 )
 from confusius.glm._models import ARModel, OLSModel, RegressionResults
 from confusius.glm._utils import (
-    consensus_attrs,
     estimate_ar_coeffs,
+    intersect_attrs,
     resolve_contrast_vector,
     select_contrast_map,
-    to_spatial_dataarray,
 )
 from confusius.spatial import smooth_volume
-from confusius.validation import ensure_fusi
+from confusius.validation import ensure_voxeldata
 from confusius.validation.coordinates import validate_matching_coordinates
 from confusius.validation.mask import validate_mask
 
@@ -41,36 +40,10 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-def _flatten_spatial(
-    data: xr.DataArray,
-) -> tuple[npt.NDArray[np.float64], tuple[str, ...], tuple[int, ...]]:
-    """Flatten spatial dimensions of a DataArray for regression.
-
-    Parameters
-    ----------
-    data : (time, ...) xarray.DataArray
-        Input fUSI data.
-
-    Returns
-    -------
-    flat : (n_timepoints, n_voxels) numpy.ndarray
-        Flattened 2D array.
-    spatial_dims : tuple of str
-        Names of the spatial dimensions.
-    spatial_shape : tuple of int
-        Original shape of the spatial dimensions.
-
-    """
-    spatial_dims = tuple(str(d) for d in data.dims if d != "time")
-    spatial_shape = tuple(data.sizes[d] for d in spatial_dims)
-    values = data.stack(voxels=spatial_dims).transpose("time", "voxels").values
-    return values, spatial_dims, spatial_shape
-
-
 class FirstLevelModel(BaseEstimator):
     """First-level GLM estimator for voxel-wise fUSI analysis.
 
-    Fits a General Linear Model to fUSI DataArrays and computes statistical contrasts.
+    Fits a General Linear Model to VoxelData arrays and computes statistical contrasts.
     Supports multiple runs (fixed-effects combination) and autoregressive noise
     modelling.
 
@@ -111,7 +84,7 @@ class FirstLevelModel(BaseEstimator):
         [`get_representative_step`][confusius._utils.get_representative_step]).
         Increase this value to tolerate slight timestamp jitter.
     smoothing_fwhm : float or dict[str, float], optional
-        Full width at half maximum of the Gaussian smoothing kernel, in the physical
+        Full width at half maximum of the Gaussian smoothing kernel, in the world
         units of the spatial coordinates, applied to each run before model fitting. A
         scalar smooths all non-`time` dimensions (caution if the data has a `pose`
         dimension); a dict maps dimension names to per-dimension FWHM.
@@ -208,12 +181,13 @@ class FirstLevelModel(BaseEstimator):
         Parameters
         ----------
         run_data : xarray.DataArray or list of xarray.DataArray
-            Single-run or multi-run fUSI data. Must have a `time` dimension; all other
-            dimensions are treated as spatial (e.g. `(time, z, y, x)` or `(time, pose,
-            z, y, x)`).
+            A single-run VoxelData array, or a list of per-run VoxelData arrays for
+            multi-run data. Each array must have a `time` dimension; all other
+            dimensions are treated as spatial (e.g. `(time, k, j, i)` or `(time,
+            pose, k, j, i)`).
         events : pandas.DataFrame or list of pandas.DataFrame, optional
             Events table(s) with `onset`, `duration`, and `trial_type` columns. Onsets
-            are in the same physical time units as the `time` coordinate of `run_data`.
+            are in the same world time units as the `time` coordinate of `run_data`.
         confounds : pandas.DataFrame, numpy.ndarray, or list, optional
             Confound regressors per run.
         design_matrices : pandas.DataFrame or list of pandas.DataFrame, optional
@@ -234,11 +208,11 @@ class FirstLevelModel(BaseEstimator):
         if isinstance(run_data, xr.DataArray):
             run_data = [run_data]
         run_data = [
-            ensure_fusi(run, require_time=True, require_unchunked_time=True)
+            ensure_voxeldata(run, require_time=True, require_unchunked_time=True)
             for run in run_data
         ]
         if self.mask is not None:
-            self.mask = ensure_fusi(self.mask, allow_pose=False, allow_extra_dims=False)
+            self.mask = ensure_voxeldata(self.mask, allow_extra_dims=False)
         n_runs = len(run_data)
 
         for run in run_data:
@@ -247,21 +221,21 @@ class FirstLevelModel(BaseEstimator):
 
         if n_runs > 1:
             ref_run = run_data[0]
-            # Compare ordered tuples so a transposed run (same dim sizes but different
-            # axis order) is rejected: `_flatten_spatial` stacks voxels in each run's
-            # own dim order, so a permutation would silently mix voxel locations during
+            # extract_with_mask stacks by mask dim name (xr.align is label-based, not
+            # positional), so per-run axis order doesn't matter -- only the set of
+            # spatial dims and their sizes needs to match across runs for
             # fixed-effects combination.
-            ref_spatial = tuple(
+            ref_spatial = frozenset(
                 (str(d), int(ref_run.sizes[d])) for d in ref_run.dims if d != "time"
             )
             for i, run in enumerate(run_data[1:], start=1):
-                spatial = tuple(
+                spatial = frozenset(
                     (str(d), int(run.sizes[d])) for d in run.dims if d != "time"
                 )
                 if spatial != ref_spatial:
                     raise ValueError(
-                        f"All runs must have the same spatial dimensions in the "
-                        f"same order. Run 0 has {ref_spatial}, run {i} has {spatial}."
+                        f"All runs must have the same spatial dimensions. "
+                        f"Run 0 has {ref_spatial}, run {i} has {spatial}."
                     )
                 # Validate every spatial dim where at least one side carries a coord.
                 # validate_matching_coordinates raises if the coord is missing from one
@@ -300,27 +274,32 @@ class FirstLevelModel(BaseEstimator):
 
         ar_order = self._parse_noise_model()
 
-        _, spatial_dims, _ = _flatten_spatial(run_data[0])
-
         self.design_matrices_: list[pd.DataFrame] = design_matrices_list
         self.results_: list[RegressionResults] = []
-        self._spatial_dims: tuple[str, ...] = spatial_dims
-        self._spatial_shapes: list[tuple[int, ...]] = []
-        self._run_coords: list[dict[str, xr.Variable]] = []
-        self._input_attrs: dict[str, object] = consensus_attrs(run_data)
+        self._input_attrs: dict[str, object] = intersect_attrs(run_data)
+
+        # compute_contrast always reconstructs its output via unmask, which needs a
+        # mask to source spatial dims/coords/geometry from. When the user didn't
+        # provide one, fall back to an all-True mask covering every voxel, so the
+        # masked and unmasked paths share one code path.
+        if self.mask is not None:
+            self._effective_mask_: xr.DataArray = self.mask
+        else:
+            mask_template = run_data[0].isel(time=0, drop=True)
+            self._effective_mask_ = ensure_voxeldata(
+                mask_template.copy(data=np.ones(mask_template.shape, dtype=bool)),
+                allow_extra_dims=False,
+            )
 
         for run_index in range(n_runs):
             run = run_data[run_index]
             if self.smoothing_fwhm is not None:
                 run = smooth_volume(run, self.smoothing_fwhm)
-            data_2d, s_dims, s_shape = _flatten_spatial(run)
-            if self.mask is not None:
-                masked = extract_with_mask(run, self.mask)
-                data_2d = masked.transpose("time", "space").values
-            self._spatial_shapes.append(s_shape)
-            self._run_coords.append(
-                {str(d): run.coords[d] for d in s_dims if d in run.coords}
-            )
+            # _effective_mask_ spans every non-time dim of run (see its construction
+            # above), so extract_with_mask's data.stack(space=...) stacks away
+            # everything but time. xarray.stack always appends the new stacked dim at
+            # the end, so the result is already (time, space); no transpose needed.
+            data_2d = extract_with_mask(run, self._effective_mask_).values
 
             dm = design_matrices_list[run_index]
             design_array = dm.to_numpy()
@@ -395,30 +374,20 @@ class FirstLevelModel(BaseEstimator):
         )
         flat = select_contrast_map(contrast_obj, output_type)
 
-        if self.mask is not None:
-            attrs = {**self._input_attrs, "long_name": output_type, "cmap": "coolwarm"}
-            if flat.ndim == 1:
-                result = unmask(flat, self.mask, attrs=attrs, fill_value=0.0)
-            else:
-                result = unmask(
-                    flat,
-                    self.mask,
-                    new_dims=["contrast_dim"],
-                    new_dims_coords={"contrast_dim": np.arange(flat.shape[0])},
-                    attrs=attrs,
-                    fill_value=0.0,
-                )
-            result.name = output_type
-            return result
-
-        return to_spatial_dataarray(
-            flat,
-            spatial_dims=self._spatial_dims,
-            spatial_shape=self._spatial_shapes[0],
-            coords=self._run_coords[0],
-            attrs=self._input_attrs,
-            name=output_type,
-        )
+        attrs = {**self._input_attrs, "long_name": output_type, "cmap": "coolwarm"}
+        if flat.ndim == 1:
+            result = unmask(flat, self._effective_mask_, attrs=attrs, fill_value=0.0)
+        else:
+            result = unmask(
+                flat,
+                self._effective_mask_,
+                new_dims=["contrast_dim"],
+                new_dims_coords={"contrast_dim": np.arange(flat.shape[0])},
+                attrs=attrs,
+                fill_value=0.0,
+            )
+        result.name = output_type
+        return result
 
     def _resolve_design_matrices(
         self,

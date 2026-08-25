@@ -5,11 +5,8 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import numpy.typing as npt
 
-from confusius.validation import (
-    ensure_fusi,
-    ensure_iq,
-    validate_mask,
-)
+from confusius.iq._utils import ensure_iq_voxeldata
+from confusius.validation import ensure_voxeldata, validate_mask
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -54,16 +51,16 @@ def _validate_block_and_clutter_mask(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
-    clutter_mask : (z, y, x) numpy.ndarray, optional
+        `(k, j, i)` are spatial dimensions.
+    clutter_mask : (k, j, i) numpy.ndarray, optional
         Boolean spatial mask. If provided, only voxels where mask is `True` are
         included in the masked signals. Otherwise, all voxels are included.
 
     Returns
     -------
-    signals : (time, z * y * x) numpy.ndarray
+    signals : (time, k * j * i) numpy.ndarray
         Reshaped IQ data where all spatial dimensions are flattened into the second
         axis.
     masked_signals : (time, mask.sum()) numpy.ndarray
@@ -73,7 +70,7 @@ def _validate_block_and_clutter_mask(
     ------
     ValueError
         If `block` is not 4D, or if `clutter_mask` shape doesn't match spatial
-        dimensions `(z, y, x)` of `block`.
+        dimensions `(k, j, i)` of `block`.
     """
     if block.ndim != 4:
         raise ValueError(f"'block' must be 4D, got {block.ndim}D")
@@ -111,7 +108,7 @@ def _compute_gram_eigendecomposition(
 
     Parameters
     ----------
-    signals : (time, voxels) numpy.ndarray
+    signals : (time, space) numpy.ndarray
         Beamformed IQ signals.
     ascending : bool, default: False
         Whether results should be sorted in ascending order of eigenvalues (lowest
@@ -120,9 +117,9 @@ def _compute_gram_eigendecomposition(
 
     Returns
     -------
-    eigenvalues : (min(time, voxels),) numpy.ndarray
+    eigenvalues : (min(time, space),) numpy.ndarray
         Eigenvalues of the Gram matrix, sorted according to `ascending`.
-    eigenvectors : (min(time, voxels), min(time, voxels)) numpy.ndarray
+    eigenvectors : (min(time, space), min(time, space)) numpy.ndarray
         Eigenvectors of the Gram matrix, sorted according to `ascending`.
 
     Notes
@@ -167,14 +164,14 @@ def _apply_clutter_filter(
 
     Parameters
     ----------
-    signals : (time, voxels) numpy.ndarray
+    signals : (time, space) numpy.ndarray
         IQ signals to filter.
     clutter_vectors : (time, components) numpy.ndarray
         Clutter vectors to remove.
 
     Returns
     -------
-    (time, voxels) numpy.ndarray
+    (time, space) numpy.ndarray
         Filtered signals with clutter components removed.
     """
     if clutter_vectors.size > 0:
@@ -208,9 +205,9 @@ def clutter_filter_svd_from_indices(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     mask : (z, y x) numpy.ndarray, optional
         Boolean mask. SVD is computed only from masked voxels. If not provided, all
         voxels are used.
@@ -228,7 +225,7 @@ def clutter_filter_svd_from_indices(
 
     Returns
     -------
-    (time, z, y, x) numpy.ndarray
+    (time, k, j, i) numpy.ndarray
         Filtered IQ data.
 
     Raises
@@ -367,10 +364,10 @@ def clutter_filter_svd_from_energy(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
-    mask : (z, y, x) numpy.ndarray, optional
+        `(k, j, i)` are spatial dimensions.
+    mask : (k, j, i) numpy.ndarray, optional
         Boolean mask. SVD is computed only from masked voxels. If not provided, all
         voxels are used.
     low_cutoff : int or float, optional
@@ -384,7 +381,7 @@ def clutter_filter_svd_from_energy(
 
     Returns
     -------
-    (time, z, y, x) numpy.ndarray
+    (time, k, j, i) numpy.ndarray
         Filtered IQ data.
 
     Raises
@@ -466,10 +463,10 @@ def clutter_filter_svd_from_cumulative_energy(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
-    mask : (z, y, x) numpy.ndarray, optional
+        `(k, j, i)` are spatial dimensions.
+    mask : (k, j, i) numpy.ndarray, optional
         Boolean mask. SVD is computed only from masked voxels. If not provided, all
         voxels are used.
     low_cutoff : int or float, optional
@@ -484,7 +481,7 @@ def clutter_filter_svd_from_cumulative_energy(
 
     Returns
     -------
-    (time, z, y, x) numpy.ndarray
+    (time, k, j, i) numpy.ndarray
         Filtered IQ data.
 
     Raises
@@ -568,16 +565,16 @@ def clutter_filter_sosfiltfilt(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     sos : (sections, 6) numpy.ndarray
         Second-order sections filter coefficients, typically obtained from SciPy
         functions like `scipy.signal.butter`, `scipy.signal.cheby1`, etc.
 
     Returns
     -------
-    (time, z, y, x) numpy.ndarray
+    (time, k, j, i) numpy.ndarray
         Filtered IQ data.
 
     Raises
@@ -614,9 +611,9 @@ def clutter_filter_butterworth(
 
     Parameters
     ----------
-    block : (time, z, y, x) numpy.ndarray
+    block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are spatial dimensions.
     fs : float
         Sampling frequency in hertz.
     low_cutoff : float, optional
@@ -631,7 +628,7 @@ def clutter_filter_butterworth(
 
     Returns
     -------
-    (time, z, y, x) numpy.ndarray
+    (time, k, j, i) numpy.ndarray
         Filtered IQ data.
 
     Raises
@@ -700,13 +697,13 @@ def compute_svd_cumulative_energy_threshold(
 
     Parameters
     ----------
-    iq : (time, z, y, x) xarray.DataArray
+    iq : (time, k, j, i) xarray.DataArray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are native voxel spatial dimensions.
     singular_value_index : int
         Number of high-energy components to remove. Must satisfy
         `1 <= singular_value_index <= window_width - 1`.
-    clutter_mask : (z, y, x) xarray.DataArray, optional
+    clutter_mask : (k, j, i) xarray.DataArray, optional
         Boolean spatial mask. Eigendecomposition is computed only from masked voxels.
         If not provided, all voxels are used.
     window_width : int, optional
@@ -769,15 +766,15 @@ def compute_svd_cumulative_energy_threshold(
     # Deferred to avoid circular import: clutter_filters <- process <- clutter_filters.
     from confusius.iq.process import process_iq_blocks
 
-    iq = ensure_iq(iq)
+    iq = ensure_iq_voxeldata(iq)
 
     mask_array: npt.NDArray[np.bool_] | None = None
     if clutter_mask is not None:
-        clutter_mask = ensure_fusi(
+        clutter_mask = ensure_voxeldata(
             clutter_mask, allow_pose=False, allow_extra_dims=False
         )
-        clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
-        mask_array = clutter_mask.values
+        validate_mask(clutter_mask, iq, "clutter_mask")
+        mask_array = clutter_mask.values.astype(bool)
 
     dask_iq = iq.data
     if not isinstance(dask_iq, da.Array):
