@@ -632,6 +632,30 @@ def sample_voxeldata_3dt(rng):
 
 
 @pytest.fixture
+def sample_voxeldata_3dt_pose(sample_voxeldata_3dt):
+    """3D+t+pose volume (time, pose, k, j, i) with per-pose geometry.
+
+    Spatial coordinates match `sample_voxeldata_3dt` for pose 0. Pose 1 is translated
+    in world space so tests exercise the VoxelData invariant that `pose` requires a
+    distinct affine per pose.
+    """
+    base_affine = get_voxel_to_world_affine(sample_voxeldata_3dt)
+    pose_affine = base_affine.copy()
+    pose_affine[:3, 3] += [0.4, 0.0, 0.0]
+    return create_voxeldata(
+        np.stack(
+            [sample_voxeldata_3dt.values, sample_voxeldata_3dt.values + 1.0], axis=1
+        ),
+        name=sample_voxeldata_3dt.name,
+        dims=("time", "pose", "k", "j", "i"),
+        time=sample_voxeldata_3dt.coords["time"],
+        pose=[0, 1],
+        attrs=sample_voxeldata_3dt.attrs.copy(),
+        voxel_to_world=np.stack([base_affine, pose_affine]),
+    )
+
+
+@pytest.fixture
 def sample_voxeldata_3d_oblique():
     """Small oblique (sheared) voxel-to-world (k, j, i) volume.
 
