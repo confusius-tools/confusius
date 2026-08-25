@@ -220,7 +220,7 @@ class TestWithLabels:
         np.testing.assert_allclose(result.values, expected.values)
 
     def test_stacked_masks_format(self, sample_voxeldata_3dt):
-        """Test extraction with stacked mask format (masks, z, y, x)."""
+        """Test extraction with stacked mask format (mask, k, j, i)."""
         _, nz, ny, nx = sample_voxeldata_3dt.shape
 
         # Build a stacked mask with two named regions.
@@ -233,7 +233,7 @@ class TestWithLabels:
 
         result = extract.extract_with_labels(sample_voxeldata_3dt, labels)
 
-        assert set(result.dims) == {"time", "region"}
+        assert result.dims == ("time", "region")
         np.testing.assert_array_equal(result.coords["region"].values, ["VISp", "AUDp"])
         np.testing.assert_allclose(
             result.sel(region="VISp").values,
@@ -258,7 +258,7 @@ class TestWithLabels:
 
         result = extract.extract_with_labels(sample_voxeldata_3dt, labels)
 
-        assert set(result.dims) == {"time", "region"}
+        assert result.dims == ("time", "region")
         np.testing.assert_array_equal(result.coords["region"].values, ["A", "B"])
         np.testing.assert_allclose(
             result.sel(region="A").values,

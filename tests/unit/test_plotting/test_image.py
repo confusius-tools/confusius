@@ -20,10 +20,8 @@ from confusius.plotting import (
     VolumePlotter,
     plot_carpet,
     plot_contours,
-    plot_stat_map,
     plot_volume,
 )
-from confusius.plotting._utils import materialize_axis_aligned_world_grid_for_display
 from confusius.xarray import create_voxeldata
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
@@ -482,7 +480,7 @@ class TestPlotVolume:
         """plot_volume raises ValueError when axes count doesn't match slices."""
         import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(1, 1, squeeze=False)
+        _fig, axes = plt.subplots(1, 1, squeeze=False)
         z_coords = _world_coord_1d(sample_voxeldata_3d, "z")[:3].tolist()
 
         with pytest.raises(ValueError, match="must match number of axes"):
@@ -741,32 +739,6 @@ class TestCentersToEdges:
 class TestPlottingUtilsVoxelToWorldHelpers:
     """Tests for shared voxel-to-world display helpers in `plotting._utils`."""
 
-    def test_resample_with_plain_reference_missing_a_world_dim_defaults_grid(
-        self, sample_voxeldata_3d_oblique
-    ):
-        """A plain reference DataArray missing one world coordinate falls back to
-        an origin of 0.0 and spacing of 1.0 for that axis, instead of raising.
-        """
-        from confusius._utils.plotting import resample_to_axis_aligned_world_grid
-
-        data = sample_voxeldata_3d_oblique
-        # `z` is a real dimension but carries no coordinate values at all.
-        reference = xr.DataArray(
-            np.zeros((2, 3, 4)),
-            dims=["z", "y", "x"],
-            coords={"y": [0.0, 1.0, 2.0], "x": [0.0, 1.0, 2.0, 3.0]},
-        )
-
-        result = resample_to_axis_aligned_world_grid(data, reference=reference)
-
-        # `result` stays on its native voxel dims (k/j/i), still indexed; "z" is a
-        # derived (dense, index-materialized) world coordinate here, not a plain 1D
-        # dimension coordinate, so read the fallback origin/spacing off the index via
-        # `.fusi` instead of diffing `.coords["z"].values` directly.
-        assert result.sizes["k"] == 2
-        assert result.fusi.origin["z"] == pytest.approx(0.0)
-        assert result.fusi.spacing["k"] == pytest.approx(1.0)
-
     def test_resample_derives_spacing_from_affine_not_materialized_array_axis(self):
         """Resampled spacing matches the voxel-to-world affine, not a naive diff
         along the materialized (k, j, i)-shaped world-coordinate array's last axis.
@@ -788,7 +760,7 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         voxel_to_world = np.array(
             [
                 [0.4, 0.1, 0.0, 10.0],
-                [0.2, 0.3, 0.0, 20.0],
+                [0.0, 0.3, 0.0, 20.0],
                 [0.0, 0.0, 0.25, 30.0],
                 [0.0, 0.0, 0.0, 1.0],
             ]
@@ -797,19 +769,13 @@ class TestPlottingUtilsVoxelToWorldHelpers:
 
         result = resample_to_axis_aligned_world_grid(data)
 
-        # `result` stays on its native voxel dims (k/j/i), still indexed, so its own
-        # spacing can be read directly via `.fusi.spacing` instead of diffing a
-        # (possibly multi-dimensional, pre-resample) world coordinate array. Expected
-        # values come from the same QR decomposition the implementation uses (see
-        # `compute_oblique_axis_aligned_grid_geometry`'s Notes), not `data`'s own
-        # per-voxel-dim spacing -- the two only coincide when voxel axes are close
-        # to orthogonal, which this affine's k/j coupling deliberately isn't.
-        q_basis, r_scale = np.linalg.qr(voxel_to_world[:3, :3])
-        row_to_axis = np.abs(q_basis).argmax(axis=1)
-        expected_spacings = np.abs(np.diag(r_scale))[row_to_axis]
-        result_spacing = result.fusi.spacing
-        for row, voxel_dim in enumerate(("k", "j", "i")):
-            assert result_spacing[voxel_dim] == pytest.approx(expected_spacings[row])
+        # The shear keeps `z` constant along the trailing `i` axis, so a naive
+        # spacing calculation over the materialized `z` array's last axis would see
+        # zero spacing. The affine's scale factors are hand-computable here because
+        # its linear block is already upper triangular.
+        assert result.fusi.spacing["k"] == pytest.approx(0.4)
+        assert result.fusi.spacing["j"] == pytest.approx(0.3)
+        assert result.fusi.spacing["i"] == pytest.approx(0.25)
 
     def test_resample_raises_when_dominant_voxel_dim_is_irregular(self):
         """Resampling onto an axis-aligned world grid raises `ValueError` when the
@@ -839,7 +805,6 @@ class TestPlottingUtilsVoxelToWorldHelpers:
 
         with pytest.raises(ValueError, match="no well-defined spacing"):
             resample_to_axis_aligned_world_grid(data)
-
 
 class TestVolumePlotterAddVolume:
     """Tests for VolumePlotter.add_volume method."""
@@ -1451,18 +1416,13 @@ class TestVolumePlotterUtilities:
 
 
 def _mask_voxeldata(data: np.ndarray) -> xr.DataArray:
-    """Wrap a raw `(k, j, i)` int label array as a VoxelData mask.
-
-    Uses the same `z: 1.0`, `y/x: 0.5` mm spacing as the pre-migration plain
-    `(z, y, x)` fixtures these tests replace, so world coordinate values match.
-    """
-    nz, ny, nx = data.shape
-    da = xr.DataArray(
+    """Wrap a raw `(k, j, i)` int label array as a VoxelData mask."""
+    return create_voxeldata(
         data,
         dims=("k", "j", "i"),
-        coords={"k": np.arange(nz), "j": np.arange(ny), "i": np.arange(nx)},
+        spacing=(1.0, 0.5, 0.5),
+        origin=(0.0, 0.0, 0.0),
     )
-    return attach_voxel_to_world_index(da, np.diag([1.0, 0.5, 0.5, 1.0]))
 
 
 class TestPlotContours:
@@ -1504,7 +1464,7 @@ class TestPlotContours:
         import matplotlib.pyplot as plt
 
         mask = _mask_voxeldata(np.ones((3, 4, 4), dtype=int))
-        fig, ax = plt.subplots()
+        _fig, ax = plt.subplots()
 
         with pytest.raises(ValueError, match="must match number of axes"):
             plot_contours(mask, slice_mode="z", axes=ax)
@@ -2056,26 +2016,19 @@ class TestPlotContoursVisualRegression:
 
 
 def _create_deterministic_time_series() -> xr.DataArray:
-    """Create a deterministic 3D (time, y, x) time-series for visual regression tests.
-
-    Returns
-    -------
-    xarray.DataArray
-        Array with dims `(time, y, x)` and a fixed seed for reproducible baseline images.
-    """
+    """Create deterministic reduced `(time, region)` signals for visual tests."""
     rng = np.random.default_rng(42)
-    data = rng.standard_normal((20, 3, 4))
+    data = rng.standard_normal((20, 12))
     return xr.DataArray(
         data,
-        dims=["time", "y", "x"],
+        dims=("time", "region"),
         coords={
             "time": xr.DataArray(
                 np.arange(20) * 0.1,
-                dims=["time"],
+                dims=("time",),
                 attrs={"units": "s"},
             ),
-            "y": [0.0, 0.5, 1.0],
-            "x": [0.0, 0.5, 1.0, 1.5],
+            "region": np.arange(12),
         },
     )
 

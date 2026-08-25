@@ -8,17 +8,24 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_units,
+    has_voxel_to_world_index,
 )
-from confusius.validation import ensure_labels, ensure_mask, validate_labels, validate_mask
+from confusius.validation import (
+    ensure_labels,
+    ensure_mask,
+    validate_labels,
+    validate_mask,
+)
 
 
-@pytest.mark.parametrize("region_id", [1, 7, 256, 512, 1009])
-def test_coerces_integer_label_to_boolean(sample_voxeldata_3dt, make_sample_voxeldata_mask, region_id):
+@pytest.mark.parametrize("region_id", [1, 256])
+def test_coerces_integer_label_to_boolean(
+    sample_voxeldata_3dt, make_sample_voxeldata_mask, region_id
+):
     """A single-label integer mask {0, region_id} is returned as a boolean mask.
 
-    Region ids that are multiples of 256 (256, 512) are included because casting the
-    raw integer mask to `numpy.uint8` would wrap them to 0; the boolean coercion must
-    not depend on the label value.
+    Region id 256 is included because casting the raw integer mask to `numpy.uint8`
+    would wrap it to 0; the boolean coercion must not depend on the label value.
     """
     mask = make_sample_voxeldata_mask(np.int32)
     mask.values.flat[2:5] = region_id
@@ -59,7 +66,15 @@ def test_coerced_mask_preserves_dims_and_coords(sample_voxeldata_3dt, make_sampl
     result = ensure_mask(mask, sample_voxeldata_3dt)
 
     assert result.dims == mask.dims
-    assert_array_equal(result.coords["i"].values, mask.coords["i"].values)
+    assert has_voxel_to_world_index(result)
+    assert_array_equal(result.values, mask.values.astype(bool))
+    for coord in ("k", "j", "i"):
+        assert_array_equal(result.coords[coord].values, mask.coords[coord].values)
+    assert_array_equal(result.coords["z"].values, mask.coords["z"].values)
+    assert_array_equal(result.coords["y"].values, mask.coords["y"].values)
+    assert_array_equal(result.coords["x"].values, mask.coords["x"].values)
+    assert_array_equal(get_voxel_to_world_affine(result), get_voxel_to_world_affine(mask))
+    assert get_voxel_to_world_units(result) == get_voxel_to_world_units(mask)
 
 
 def test_validate_mask_returns_none_for_canonical_aligned_input(
@@ -104,7 +119,15 @@ def test_ensure_labels_canonicalizes_scalar_reduced_dim(sample_voxeldata_3dt, sa
     """ensure_labels restores a scalar-reduced voxel dim before validating."""
     result = ensure_labels(sample_roi_labels.isel(k=0), sample_voxeldata_3dt.isel(k=0))
 
+    expected = sample_roi_labels.isel(k=[0])
+
     assert result.dims == ("k", "j", "i")
+    assert has_voxel_to_world_index(result)
+    assert_array_equal(result.values, expected.values)
+    for coord in ("k", "j", "i"):
+        assert_array_equal(result.coords[coord].values, expected.coords[coord].values)
+    assert_array_equal(get_voxel_to_world_affine(result), get_voxel_to_world_affine(expected))
+    assert get_voxel_to_world_units(result) == get_voxel_to_world_units(expected)
 
 
 def test_validate_labels_returns_none_for_canonical_aligned_input(

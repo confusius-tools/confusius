@@ -8,6 +8,7 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_units,
+    has_voxel_to_world_index,
 )
 from confusius.extract import extract_with_mask, unmask
 
@@ -23,6 +24,8 @@ def test_extract_with_mask_selects_expected_voxels(
     signals = extract_with_mask(sample_voxeldata_3dt, mask)
 
     assert signals.dims == ("time", "space")
+    assert signals.indexes["space"].names == ["k", "j", "i"]
+    assert list(signals.indexes["space"]) == [(0, 1, 2), (1, 2, 3)]
     np.testing.assert_array_equal(
         signals.values,
         sample_voxeldata_3dt.values[:, [0, 1], [1, 2], [2, 3]],
@@ -137,6 +140,15 @@ def test_unmask_reconstructs_masked_fusi_grid(
     signals = extract_with_mask(sample_voxeldata_3dt, mask)
     restored = unmask(signals, mask)
 
+    assert restored.dims == sample_voxeldata_3dt.dims
+    assert has_voxel_to_world_index(restored)
+    np.testing.assert_allclose(
+        get_voxel_to_world_affine(restored), get_voxel_to_world_affine(mask)
+    )
+    assert get_voxel_to_world_units(restored) == get_voxel_to_world_units(mask)
+    np.testing.assert_array_equal(
+        restored.coords["time"].values, sample_voxeldata_3dt.coords["time"].values
+    )
     np.testing.assert_array_equal(
         restored.values[:, mask.values], sample_voxeldata_3dt.values[:, mask.values]
     )

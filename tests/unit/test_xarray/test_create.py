@@ -443,6 +443,17 @@ def test_create_voxeldata_pose_stacked_voxel_to_world_rejects_wrong_length():
         )
 
 
+
+
+def test_create_voxeldata_pose_dim_rejects_shared_voxel_to_world():
+    """A pose dimension requires one affine per pose, not one shared affine."""
+    with pytest.raises(ValueError, match="shared .*affine; every pose must carry"):
+        create_voxeldata(
+            np.zeros((2, 2, 3, 4)),
+            dims=("pose", "k", "j", "i"),
+            voxel_to_world=np.eye(4),
+        )
+
 # ---------------------------------------------------------------------------
 # 5. 3D volumes + pose + time
 # ---------------------------------------------------------------------------

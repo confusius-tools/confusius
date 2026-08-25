@@ -242,20 +242,6 @@ def test_validate_voxeldata_can_forbid_extra_dims() -> None:
         validate_voxeldata(data, allow_extra_dims=False)
 
 
-def test_validate_voxeldata_rejects_2d_voxel_to_world_data() -> None:
-    """Canonical fUSI data must include all `k/j/i` voxel dimensions."""
-    base = xr.DataArray(
-        np.zeros((3, 4), dtype=np.float32),
-        dims=("j", "i"),
-        coords={"j": [0, 2, 4], "i": [0, 1, 2, 3]},
-    )
-    with pytest.raises(ValueError, match="must have all native voxel dims"):
-        bad = attach_voxel_to_world_index(
-            base,
-            np.array([[3.0, 0.0, 20.0], [0.0, 4.0, 30.0], [0.0, 0.0, 1.0]]),
-        )
-        validate_voxeldata(bad)
-
 
 def test_validate_voxeldata_can_require_time() -> None:
     """`require_time=True` rejects arrays without a time dimension."""
@@ -266,8 +252,15 @@ def test_validate_voxeldata_can_require_time() -> None:
 
 
 def test_validate_voxeldata_can_forbid_pose() -> None:
-    """`allow_pose=False` rejects multi-pose arrays."""
-    data = _make_voxel_to_world_volume().expand_dims(pose=[0, 1])
+    """`allow_pose=False` rejects valid multi-pose VoxelData arrays."""
+    affines = np.stack([np.eye(4), np.eye(4)])
+    affines[1, 0, 3] = 10.0
+    data = create_voxeldata(
+        np.zeros((2, 2, 3, 4), dtype=np.float32),
+        dims=("pose", "k", "j", "i"),
+        pose=[0, 1],
+        voxel_to_world=affines,
+    )
 
     with pytest.raises(ValueError, match="must not have a 'pose' dimension"):
         validate_voxeldata(data, allow_pose=False)

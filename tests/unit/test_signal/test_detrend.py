@@ -234,11 +234,11 @@ def test_detrend_polynomial_order4(rng):
     assert_allclose(result.values, naive_result, rtol=1e-7)
 
 
-def test_detrend_no_time_dimension():
+def test_detrend_no_time_dimension(rng):
     """Test error raised when signals have no time dimension."""
     signals = xr.DataArray(
-        np.random.randn(50, 10, 20),
-        dims=["z", "y", "x"],
+        rng.standard_normal((50, 10, 20)),
+        dims=["sample", "feature", "replicate"],
     )
 
     with pytest.raises(ValueError, match="must have a 'time' dimension"):

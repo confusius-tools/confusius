@@ -57,11 +57,11 @@ def test_standardize_invalid_method(make_sample_timeseries):
         standardize(random_signals, method="invalid")  # type: ignore
 
 
-def test_standardize_no_time_dimension():
+def test_standardize_no_time_dimension(rng):
     """Test error raised when signals have no time dimension."""
     signals = xr.DataArray(
-        np.random.randn(50, 10, 20),
-        dims=["z", "y", "x"],
+        rng.standard_normal((50, 10, 20)),
+        dims=["sample", "feature", "replicate"],
     )
 
     with pytest.raises(ValueError, match="must have a 'time' dimension"):

@@ -741,15 +741,11 @@ class TestRunRegistration:
         )
 
         if within_scan:
-            moving = xr.DataArray(
+            moving = create_voxeldata(
                 np.zeros((2, 4, 6, 8), dtype=np.float32),
-                dims=["time", "z", "y", "x"],
-                coords={
-                    "time": xr.DataArray(np.arange(2), dims=["time"]),
-                    "z": xr.DataArray(np.arange(4) * 0.3, dims=["z"]),
-                    "y": xr.DataArray(np.arange(6) * 0.2, dims=["y"]),
-                    "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
-                },
+                dims=("time", "k", "j", "i"),
+                time=np.arange(2),
+                spacing=(0.3, 0.2, 0.1),
             )
             viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
             registration_panel._time_series_radio.setChecked(True)
@@ -760,20 +756,12 @@ class TestRunRegistration:
                 lambda *_args, **_kwargs: None,
             )
         else:
-            moving = xr.DataArray(
+            moving = create_voxeldata(
                 np.zeros((4, 6, 8), dtype=np.float32),
-                dims=["z", "y", "x"],
-                coords={
-                    "z": xr.DataArray(np.arange(4) * 0.3, dims=["z"]),
-                    "y": xr.DataArray(np.arange(6) * 0.2, dims=["y"]),
-                    "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
-                },
+                dims=("k", "j", "i"),
+                spacing=(0.3, 0.2, 0.1),
             )
-            fixed = xr.DataArray(
-                np.ones((4, 6, 8), dtype=np.float32),
-                dims=["z", "y", "x"],
-                coords=moving.coords,
-            )
+            fixed = moving.copy(data=np.ones((4, 6, 8), dtype=np.float32))
             viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
             viewer.add_image(fixed.values, name="fixed", metadata={"xarray": fixed})
             viewer.add_labels(np.ones((4, 6, 8), dtype=np.int32), name="fixed mask")
@@ -853,25 +841,13 @@ class TestValidation:
         )
 
     def test_between_scans_accepts_time_series_by_averaging(
-        self, viewer, registration_panel
+        self, viewer, registration_panel, sample_voxeldata_3dt
     ):
-        moving = xr.DataArray(
-            np.zeros((3, 4, 6), dtype=np.float32),
-            dims=["time", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(3), dims=["time"]),
-                "y": xr.DataArray(np.arange(4), dims=["y"]),
-                "x": xr.DataArray(np.arange(6), dims=["x"]),
-            },
+        moving = sample_voxeldata_3dt.copy(
+            data=np.zeros(sample_voxeldata_3dt.shape, dtype=np.float32)
         )
-        fixed = xr.DataArray(
-            np.ones((3, 4, 6), dtype=np.float32),
-            dims=["time", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(3), dims=["time"]),
-                "y": xr.DataArray(np.arange(4), dims=["y"]),
-                "x": xr.DataArray(np.arange(6), dims=["x"]),
-            },
+        fixed = sample_voxeldata_3dt.copy(
+            data=np.ones(sample_voxeldata_3dt.shape, dtype=np.float32)
         )
         viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
         viewer.add_image(fixed.values, name="fixed", metadata={"xarray": fixed})

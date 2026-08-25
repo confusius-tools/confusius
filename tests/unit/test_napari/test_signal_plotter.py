@@ -7,6 +7,8 @@ _on_mouse_move) use the make_napari_viewer fixture.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import numpy as np
 import numpy.testing as npt
 import pytest
@@ -37,11 +39,11 @@ class _Layer:
 
 
 class _FakeEventShift:
-    modifiers = {"Shift"}
+    modifiers: ClassVar[set[str]] = {"Shift"}
 
 
 class _FakeEventNoShift:
-    modifiers = set()
+    modifiers: ClassVar[set[str]] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +94,7 @@ class TestXaxisDimIndex:
         assert plotter._xaxis_dim_index(layer) == 0
 
     def test_returns_correct_index_when_time_is_not_first(self, plotter):
-        da = xr.DataArray(np.zeros((4, 10, 6, 8)), dims=["z", "time", "y", "x"])
+        da = xr.DataArray(np.zeros((4, 10, 6, 8)), dims=["plane", "time", "row", "col"])
         layer = _Layer(np.zeros((4, 10, 6, 8)), metadata={"xarray": da})
         assert plotter._xaxis_dim_index(layer) == 1
 
@@ -114,9 +116,9 @@ class TestExtractSignals:
         assert plotter._extract_signals(layer, np.array([0, 99, 99, 99])) is None
 
     def test_respects_non_standard_time_dim(self, plotter, rng):
-        # Time at dim 1: shape (z=4, time=10, y=6, x=8).
+        # Time at dim 1: shape (plane=4, time=10, row=6, col=8).
         data = rng.random((4, 10, 6, 8))
-        da = xr.DataArray(data, dims=["z", "time", "y", "x"])
+        da = xr.DataArray(data, dims=["plane", "time", "row", "col"])
         layer = _Layer(data, metadata={"xarray": da})
         ts = plotter._extract_signals(layer, np.array([1, 0, 2, 3]))
         npt.assert_array_equal(ts, data[1, :, 2, 3])
@@ -188,8 +190,8 @@ class TestGetXaxisCoords:
         assert plotter._get_xaxis_coords(layer) is None
 
     def test_returns_none_when_slider_dim_has_no_coord(self, plotter):
-        # No time dim and no coord for the resolved slider dim (z) -> None.
-        da = xr.DataArray(np.zeros((4, 6, 8)), dims=["z", "y", "x"])
+        # No time dim and no coord for the resolved slider dim (plane) -> None.
+        da = xr.DataArray(np.zeros((4, 6, 8)), dims=["plane", "row", "col"])
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
         assert plotter._get_xaxis_coords(layer) is None
 
@@ -199,16 +201,20 @@ class TestGetXaxisCoords:
         npt.assert_array_equal(coords, sample_voxeldata_3dt.coords["time"].values)
 
     def test_resolves_slider_dim_coords_when_no_time(self, plotter):
-        # No time dim: the x-axis falls back to the slider dim (z), so the trace
-        # is plotted against z world coordinates, not step indices.
-        z = 1.0 + np.arange(4) * 0.2
+        # No time dim: the x-axis falls back to the slider dim (plane), so the trace
+        # is plotted against plane coordinates, not step indices.
+        plane = 1.0 + np.arange(4) * 0.2
         da = xr.DataArray(
             np.zeros((4, 6, 8)),
-            dims=["z", "y", "x"],
-            coords={"z": xr.DataArray(z, dims=["z"], attrs={"units": "mm"})},
+            dims=["plane", "row", "col"],
+            coords={
+                "plane": xr.DataArray(
+                    plane, dims=["plane"], attrs={"units": "mm"}
+                )
+            },
         )
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
-        npt.assert_array_equal(plotter._get_xaxis_coords(layer), z)
+        npt.assert_array_equal(plotter._get_xaxis_coords(layer), plane)
 
 
 # ---------------------------------------------------------------------------
@@ -222,24 +228,26 @@ class TestGetXaxisLabel:
         assert plotter._get_xaxis_label(layer) == "Index"
 
     def test_returns_capitalized_slider_dim_when_no_coord(self, plotter):
-        # No time dim: label falls back to the resolved slider dim (z).
-        da = xr.DataArray(np.zeros((4, 6, 8)), dims=["z", "y", "x"])
+        # No time dim: label falls back to the resolved slider dim (plane).
+        da = xr.DataArray(np.zeros((4, 6, 8)), dims=["plane", "row", "col"])
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
-        assert plotter._get_xaxis_label(layer) == "Z"
+        assert plotter._get_xaxis_label(layer) == "Plane"
 
     def test_uses_slider_dim_units_when_no_time(self, plotter):
-        # No time dim: label reflects the slider dim (z) coordinate units.
+        # No time dim: label reflects the slider dim (plane) coordinate units.
         da = xr.DataArray(
             np.zeros((4, 6, 8)),
-            dims=["z", "y", "x"],
+            dims=["plane", "row", "col"],
             coords={
-                "z": xr.DataArray(
-                    1.0 + np.arange(4) * 0.2, dims=["z"], attrs={"units": "mm"}
+                "plane": xr.DataArray(
+                    1.0 + np.arange(4) * 0.2,
+                    dims=["plane"],
+                    attrs={"units": "mm"},
                 )
             },
         )
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
-        assert plotter._get_xaxis_label(layer) == "Z (mm)"
+        assert plotter._get_xaxis_label(layer) == "Plane (mm)"
 
     def test_uses_units_from_time_coord(self, plotter, sample_voxeldata_3dt):
         # sample_voxeldata_3dt has time attrs={"units": "s"}, no long_name.

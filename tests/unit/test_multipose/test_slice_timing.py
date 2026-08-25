@@ -10,10 +10,6 @@ from confusius.multipose._utils import build_consolidated_time_coordinate
 from confusius.xarray import create_voxeldata
 
 
-def _spatial_coord(values: np.ndarray | list[float], dim: str) -> xr.DataArray:
-    return xr.DataArray(values, dims=[dim], attrs={"units": "mm"})
-
-
 def _make_consolidated_da(
     ntime: int = 20,
     nz: int = 5,
@@ -37,15 +33,6 @@ def _make_consolidated_da(
             "volume_acquisition_reference": volume_acquisition_reference,
         },
     )
-
-    z_vals = np.arange(nz) * 0.2
-    z_coord = _spatial_coord(z_vals, "z")
-
-    y_vals = np.arange(ny) * 0.3
-    y_coord = _spatial_coord(y_vals, "y")
-
-    x_vals = np.arange(nx) * 0.4
-    x_coord = _spatial_coord(x_vals, "x")
 
     if slice_offsets is None:
         slice_offsets = np.linspace(0, tr * 0.8, nz)
@@ -326,6 +313,10 @@ class TestCorrectSliceTiming:
             base_time_coord, pose_time_vals, timing_attrs
         )
 
+        affines = np.broadcast_to(
+            np.diag([0.1, 0.3, 0.4, 1.0]), (npose, 4, 4)
+        ).copy()
+        affines[:, 0, 3] = np.arange(npose)
         da_unconsolidated = create_voxeldata(
             data[:, :, None],
             dims=("time", "pose", "k", "j", "i"),
@@ -333,9 +324,7 @@ class TestCorrectSliceTiming:
                 pose_time_vals, dims=["time", "pose"], attrs=timing_attrs
             ),
             pose=np.arange(npose),
-            voxel_to_world=np.broadcast_to(
-                np.diag([0.1, 0.3, 0.4, 1.0]), (npose, 4, 4)
-            ).copy(),
+            voxel_to_world=affines,
         )
 
         da_consolidated = create_voxeldata(

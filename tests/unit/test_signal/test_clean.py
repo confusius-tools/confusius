@@ -502,6 +502,42 @@ def test_clean_cosine_filter_joint_regression_with_1d_confounds(make_sample_time
     assert_allclose(result.values, expected.values)
 
 
+
+def _assert_clean_cosine_joint_regression_matches_reference(
+    signals: xr.DataArray, confounds: xr.DataArray
+) -> None:
+    """Compare cosine joint regression to explicit combined confound regression."""
+    time = signals.coords["time"].values
+    design = make_first_level_design_matrix(
+        time, events=None, drift_model="cosine", low_cutoff=0.1
+    )
+    cosine_names = [c for c in design.columns if c.startswith("cosine")] + ["constant"]
+    combined_confounds = xr.DataArray(
+        np.column_stack([confounds.values, design[cosine_names].to_numpy()]),
+        dims=["time", "confound"],
+        coords={
+            "time": signals.coords["time"],
+            "confound": [
+                *[f"confound_{i}" for i in range(confounds.shape[1])],
+                *cosine_names,
+            ],
+        },
+    )
+    expected = regress_confounds(
+        signals, combined_confounds, standardize_confounds=False
+    )
+
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        low_cutoff=0.1,
+        filter_method="cosine",
+        confounds=confounds,
+    )
+
+    assert_allclose(result.values, expected.values)
+
 def test_clean_cosine_filter_joint_regression_renames_2d_confound_dim(
     make_sample_timeseries,
 ):
@@ -516,16 +552,7 @@ def test_clean_cosine_filter_joint_regression_renames_2d_confound_dim(
         coords={"time": signals.coords["time"]},
     )
 
-    result = clean(
-        signals,
-        detrend_order=None,
-        standardize_method=None,
-        low_cutoff=0.1,
-        filter_method="cosine",
-        confounds=confounds,
-    )
-
-    assert result.shape == signals.shape
+    _assert_clean_cosine_joint_regression_matches_reference(signals, confounds)
 
 
 def test_clean_cosine_filter_joint_regression_drops_extra_confound_coords(
@@ -546,16 +573,7 @@ def test_clean_cosine_filter_joint_regression_drops_extra_confound_coords(
         },
     )
 
-    result = clean(
-        signals,
-        detrend_order=None,
-        standardize_method=None,
-        low_cutoff=0.1,
-        filter_method="cosine",
-        confounds=confounds,
-    )
-
-    assert result.shape == signals.shape
+    _assert_clean_cosine_joint_regression_matches_reference(signals, confounds)
 
 
 def test_clean_cosine_filter_rejects_nonuniform_time():

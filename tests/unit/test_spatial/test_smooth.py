@@ -248,16 +248,12 @@ class TestSmoothVolume:
         with pytest.raises(ValueError, match="not present in the DataArray"):
             smooth_volume(sample_voxeldata_3d, fwhm={"k": 0.3, "nonexistent": 0.3})
 
-    def test_raises_nonuniform_spacing(self):
+    def test_raises_nonuniform_spacing(self, sample_voxeldata_3d_irregular_voxels):
         """Should raise ValueError if a smoothed dim has non-uniform spacing."""
-        coords = np.concatenate([np.arange(5), np.arange(6, 12)]) * 0.1
-        vol = xr.DataArray(
-            np.ones((11, 8, 10)),
-            dims=["k", "j", "i"],
-            coords={"k": coords, "j": np.arange(8) * 0.1, "i": np.arange(10) * 0.1},
-        )
-        with pytest.raises(ValueError, match="native voxel dimensions `k/j/i`"):
-            smooth_volume(vol, fwhm=0.3)
+        with pytest.raises(
+            ValueError, match="non-uniform or undefined coordinate spacing"
+        ):
+            smooth_volume(sample_voxeldata_3d_irregular_voxels, fwhm={"j": 0.3})
 
     def test_raises_missing_coord(self):
         """Should raise ValueError if a core dim has no coordinate."""

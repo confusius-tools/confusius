@@ -9,6 +9,7 @@ from numpy.testing import assert_allclose
 
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volumewise import register_volumewise
+from confusius.validation import ensure_voxeldata
 from confusius.xarray import create_voxeldata
 
 
@@ -287,18 +288,19 @@ class TestRegisterVolumewise:
         assert result.attrs["custom_attr"] == "test_value"
 
     def test_preserves_coordinates(self, sample_voxeldata_2dt_registration):
-        """Coordinates are preserved in output."""
+        """Coordinates and VoxelData geometry are preserved in output."""
         result = register_volumewise(sample_voxeldata_2dt_registration, n_jobs=1)
 
+        ensure_voxeldata(result)
+        assert result.dims == sample_voxeldata_2dt_registration.dims
+        for coord in ("time", "k", "j", "i", "z", "y", "x"):
+            assert_allclose(
+                result.coords[coord].values,
+                sample_voxeldata_2dt_registration.coords[coord].values,
+            )
         assert_allclose(
-            result.coords["time"].values,
-            sample_voxeldata_2dt_registration.coords["time"].values,
-        )
-        assert_allclose(
-            result.coords["y"].values, sample_voxeldata_2dt_registration.coords["y"].values
-        )
-        assert_allclose(
-            result.coords["x"].values, sample_voxeldata_2dt_registration.coords["x"].values
+            result.fusi.affine.voxel_to_world,
+            sample_voxeldata_2dt_registration.fusi.affine.voxel_to_world,
         )
 
     def test_different_reference_time(self, sample_voxeldata_2dt_registration):

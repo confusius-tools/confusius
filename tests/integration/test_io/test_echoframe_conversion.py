@@ -10,10 +10,9 @@ import xarray as xr
 import zarr
 
 import confusius as cf
-from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius.io.echoframe import convert_echoframe_dat_to_zarr
 
-_VOXEL_DIM_BY_WORLD_NAME = dict(zip(WORLD_DIMS, VOXEL_DIMS, strict=True))
+_VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
 
 
 def get_world_coord_1d(data: xr.DataArray, name: str) -> np.ndarray:
@@ -123,9 +122,12 @@ class TestEchoFrameConversion:
 
         with xr.open_zarr(output_path) as ds:
             assert "iq" in ds
-            assert ds["iq"].shape[0] == 6
-            assert ds["iq"].dtype == np.complex64
-            assert np.all(np.isfinite(ds["iq"].values))
+            iq = ds["iq"]
+            assert iq.shape[0] == 6
+            assert iq.dtype == np.complex64
+            assert np.all(np.isfinite(iq.values))
+            assert iq[0, 0, 0, 0].compute().item() == 1 + 1j
+            assert iq[3, 0, 0, 0].compute().item() == 101 + 101j
 
     def test_with_cropping(self, synthetic_echoframe_session_cropped, tmp_path):
         """Test conversion with cropping metadata.
@@ -154,6 +156,11 @@ class TestEchoFrameConversion:
             assert ds["iq"].shape[3] == 3
             assert ds["iq"].dtype == np.complex64
             assert np.all(np.isfinite(ds["iq"].values))
+
+        iq = cf.io.load(output_path)
+        np.testing.assert_allclose(get_world_coord_1d(iq, "y"), np.linspace(0, 0.3, 6)[1:5])
+        np.testing.assert_allclose(get_world_coord_1d(iq, "x"), np.linspace(0, 0.6, 6)[1:4])
+        np.testing.assert_allclose(get_world_coord_1d(iq, "z"), [0.0])
 
     def test_with_block_times(self, synthetic_echoframe_session, tmp_path):
         """Test conversion with block times provided by user.

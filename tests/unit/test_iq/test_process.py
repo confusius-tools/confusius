@@ -9,11 +9,6 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
-from confusius._utils.geometry import (
-    attach_voxel_to_world_index,
-    get_voxel_to_world_affine,
-    has_voxel_to_world_index,
-)
 from confusius.iq.process import (
     compute_axial_velocity_volume,
     compute_bmode_volume,
@@ -420,7 +415,12 @@ class TestProcessIqBlocks:
 
         result = process_iq_blocks(iq, process_func=process_func)
 
-        assert result.shape == (4, 4, 6, 8)
+        expected = np.stack(
+            [sample_voxeldata_iq_dataarray.values[i : i + 5].mean(axis=0) for i in range(0, 20, 5)],
+            axis=0,
+        )
+        assert result.shape == expected.shape
+        assert_allclose(result.compute(), expected)
 
     def test_non_overlapping_windows_use_map_blocks(self, monkeypatch):
         """Non-overlapping windows dispatch to `dask.array.map_blocks`."""
@@ -595,37 +595,14 @@ class TestProcessIqToPowerDoppler:
                 "|missing voxel dimension"
             ),
         ):
-            iq = attach_voxel_to_world_index(
-                base,
-                np.diag([0.1, 0.05, 1.0]),
-            )
-            process_iq_to_power_doppler(iq)
+            process_iq_to_power_doppler(base)
 
-    def test_non_complex_data_raises(self, rng):
+    def test_non_complex_data_raises(self, sample_voxeldata_iq_dataarray):
         """Non-complex data raises TypeError."""
-        data = rng.random((10, 4, 6, 8))  # Real, not complex.
-        base = xr.DataArray(
-            data,
-            dims=("time", "k", "j", "i"),
-            coords={
-                "time": xr.DataArray(
-                    np.arange(10),
-                    dims=["time"],
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_reference": "start",
-                        "volume_acquisition_duration": 1.0,
-                    },
-                ),
-                "k": np.arange(4),
-                "j": np.arange(6),
-                "i": np.arange(8),
-            },
+        iq = sample_voxeldata_iq_dataarray.copy(
+            data=np.real(sample_voxeldata_iq_dataarray.values)
         )
-        iq = attach_voxel_to_world_index(
-            base,
-            np.diag([0.1, 0.05, 0.05, 1.0]),
-        )
+
         with pytest.raises(TypeError, match="Expected data dtype compatible"):
             process_iq_to_power_doppler(iq)
 
@@ -930,12 +907,11 @@ class TestProcessIqToPowerDoppler:
             doppler_window_stride=2,
         )
 
-        assert has_voxel_to_world_index(result)
-        assert_allclose(
-            get_voxel_to_world_affine(result),
-            get_voxel_to_world_affine(sample_voxeldata_iq_dataarray),
-        )
         ensure_voxeldata(result)
+        assert_allclose(
+            result.fusi.affine.voxel_to_world,
+            sample_voxeldata_iq_dataarray.fusi.affine.voxel_to_world,
+        )
 
 
 class TestProcessIqToAxialVelocity:
@@ -1126,12 +1102,11 @@ class TestProcessIqToAxialVelocity:
             velocity_window_stride=2,
         )
 
-        assert has_voxel_to_world_index(result)
-        assert_allclose(
-            get_voxel_to_world_affine(result),
-            get_voxel_to_world_affine(sample_voxeldata_iq_dataarray),
-        )
         ensure_voxeldata(result)
+        assert_allclose(
+            result.fusi.affine.voxel_to_world,
+            sample_voxeldata_iq_dataarray.fusi.affine.voxel_to_world,
+        )
 
 
 class TestDataArrayClutterMask:
@@ -1265,15 +1240,8 @@ class TestComputeBmodeVolume:
         result = compute_bmode_volume(sample_voxeldata_iq_block_4d)
 
         expected = np.mean(np.abs(sample_voxeldata_iq_block_4d), axis=0)
-        # Result has shape (1, z, y, x) due to single window.
+        assert result.shape == (1, *expected.shape)
         assert_allclose(result[0], expected)
-
-    def test_output_shape(self, sample_voxeldata_iq_block_4d):
-        """Output has shape (1, z, y, x)."""
-        _time, z, y, x = sample_voxeldata_iq_block_4d.shape
-        result = compute_bmode_volume(sample_voxeldata_iq_block_4d)
-
-        assert result.shape == (1, z, y, x)
 
     def test_output_is_real(self, sample_voxeldata_iq_block_4d):
         """Output is real-valued (magnitude, not complex)."""
@@ -1312,37 +1280,14 @@ class TestProcessIqToBmode:
                 "|missing voxel dimension"
             ),
         ):
-            iq = attach_voxel_to_world_index(
-                base,
-                np.diag([0.1, 0.05, 1.0]),
-            )
-            process_iq_to_bmode(iq)
+            process_iq_to_bmode(base)
 
-    def test_non_complex_data_raises(self, rng):
+    def test_non_complex_data_raises(self, sample_voxeldata_iq_dataarray):
         """Non-complex data raises TypeError."""
-        data = rng.random((10, 4, 6, 8))  # Real, not complex.
-        base = xr.DataArray(
-            data,
-            dims=("time", "k", "j", "i"),
-            coords={
-                "time": xr.DataArray(
-                    np.arange(10),
-                    dims=["time"],
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_reference": "start",
-                        "volume_acquisition_duration": 1.0,
-                    },
-                ),
-                "k": np.arange(4),
-                "j": np.arange(6),
-                "i": np.arange(8),
-            },
+        iq = sample_voxeldata_iq_dataarray.copy(
+            data=np.real(sample_voxeldata_iq_dataarray.values)
         )
-        iq = attach_voxel_to_world_index(
-            base,
-            np.diag([0.1, 0.05, 0.05, 1.0]),
-        )
+
         with pytest.raises(TypeError, match="Expected data dtype compatible"):
             process_iq_to_bmode(iq)
 
@@ -1423,9 +1368,8 @@ class TestProcessIqToBmode:
             bmode_window_stride=5,
         )
 
-        assert has_voxel_to_world_index(result)
-        assert_allclose(
-            get_voxel_to_world_affine(result),
-            get_voxel_to_world_affine(sample_voxeldata_iq_dataarray),
-        )
         ensure_voxeldata(result)
+        assert_allclose(
+            result.fusi.affine.voxel_to_world,
+            sample_voxeldata_iq_dataarray.fusi.affine.voxel_to_world,
+        )

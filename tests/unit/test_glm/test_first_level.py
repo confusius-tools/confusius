@@ -81,6 +81,8 @@ class TestFirstLevelModelFit:
         dm = model.design_matrices_[0]
         assert "motion_x" in dm.columns
         assert "motion_y" in dm.columns
+        assert_allclose(dm["motion_x"].to_numpy(), confounds["motion_x"].to_numpy())
+        assert_allclose(dm["motion_y"].to_numpy(), confounds["motion_y"].to_numpy())
 
     def test_sklearn_is_fitted(self, fusi_data, events):
         model = FirstLevelModel(noise_model="ols")
@@ -569,12 +571,6 @@ class TestFirstLevelModelErrors:
         with pytest.raises(ValueError, match="confound"):
             model.fit([fusi_data, fusi_data], events=[events, events], confounds=[conf])
 
-    def test_ar_noise_model_non_numeric_order_raises(self, fusi_data, events):
-        """noise_model='arfoo' raises ValueError for non-numeric AR order."""
-        model = FirstLevelModel(noise_model="arfoo")
-        with pytest.raises(ValueError, match="noise_model"):
-            model.fit(fusi_data, events=events)
-
     def test_mask_dim_order_is_canonicalized(
         self, frame_times, events, make_glm_test_dataarray
     ):
@@ -618,35 +614,25 @@ class TestFirstLevelModelErrors:
 
 
 # -----------------------------------------------------------------------------
-# FirstLevelModel: noise model parsing
+# FirstLevelModel: noise model public validation
 # -----------------------------------------------------------------------------
 
 
-class TestNoiseModelParsing:
-    """Tests for noise model string parsing."""
+@pytest.mark.parametrize("noise_model", ["ar2", "AR1"])
+def test_ar_noise_models_fit_and_contrast(noise_model, fusi_data, events):
+    """Supported AR noise models work through the public fit/contrast seam."""
+    model = FirstLevelModel(noise_model=noise_model)
 
-    def test_ols(self):
-        model = FirstLevelModel(noise_model="ols")
-        assert model._parse_noise_model() == 0
+    model.fit(fusi_data, events=events)
+    z_map = model.compute_contrast("A - B")
 
-    def test_ar1(self):
-        model = FirstLevelModel(noise_model="ar1")
-        assert model._parse_noise_model() == 1
+    assert np.all(np.isfinite(z_map.values))
 
-    def test_ar2(self):
-        model = FirstLevelModel(noise_model="ar2")
-        assert model._parse_noise_model() == 2
 
-    def test_case_insensitive(self):
-        model = FirstLevelModel(noise_model="AR1")
-        assert model._parse_noise_model() == 1
+@pytest.mark.parametrize("noise_model", ["invalid", "arfoo", "garch", "ar0"])
+def test_invalid_noise_models_raise_from_fit(noise_model, fusi_data, events):
+    """Unsupported noise models raise through public fit validation."""
+    model = FirstLevelModel(noise_model=noise_model)
 
-    def test_invalid_raises(self):
-        model = FirstLevelModel(noise_model="garch")
-        with pytest.raises(ValueError, match="noise_model"):
-            model._parse_noise_model()
-
-    def test_ar0_raises(self):
-        model = FirstLevelModel(noise_model="ar0")
-        with pytest.raises(ValueError, match="AR order must be >= 1"):
-            model._parse_noise_model()
+    with pytest.raises(ValueError, match="noise_model|AR order"):
+        model.fit(fusi_data, events=events)
