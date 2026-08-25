@@ -160,13 +160,6 @@ Current development version for the next ConfUSIus release.
   input has it, instead of collapsing to a single pose; the explicit-`mask`
   path no longer rejects a `pose`-carrying mask either
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
-- `add_volume` no longer displays two volumes at matching resolution (e.g. a
-  fixed/moving pair after registration) on independently-phased in-plane
-  grids. A later volume's own-resolution display grid is now phase-locked to
-  the first volume plotted on the same `VolumePlotter`, eliminating a
-  sub-voxel offset between overlaid cells that was a display-resampling
-  artifact, not a registration error
-  ([#393](https://github.com/confusius-tools/confusius/pull/393)).
 
 ## 0.6.1
 
