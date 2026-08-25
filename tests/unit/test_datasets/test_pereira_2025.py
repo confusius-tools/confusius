@@ -67,9 +67,12 @@ def mock_retrieve(tmp_path):
         yield mock
 
 
-def _downloaded_paths(mock_retrieve) -> set[str]:
-    """Return the set of file basenames passed to pooch.retrieve."""
-    return {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+def _downloaded_paths(mock_retrieve, bids_dir: Path) -> set[str]:
+    """Return BIDS-relative paths requested from pooch.retrieve."""
+    return {
+        str((Path(c.kwargs["path"]) / c.kwargs["fname"]).relative_to(bids_dir))
+        for c in mock_retrieve.call_args_list
+    }
 
 
 def test_fetch_returns_bids_root(tmp_path, mock_get_index, mock_retrieve):
@@ -99,16 +102,16 @@ def test_fetch_filters_entities(tmp_path, mock_get_index, mock_retrieve):
         print_citation=False,
     )
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     assert (
-        "sub-r11582_ses-awakebaseline_task-rest_acq-2dfus_run-01_pwd.nii.gz"
+        "sub-r11582/ses-awakebaseline/fusi/sub-r11582_ses-awakebaseline_task-rest_acq-2dfus_run-01_pwd.nii.gz"
         in downloaded
     )
     assert (
-        "sub-r11582_ses-awake1h_task-rest_acq-2dfus_run-01_pwd.nii.gz" not in downloaded
+        "sub-r11582/ses-awake1h/fusi/sub-r11582_ses-awake1h_task-rest_acq-2dfus_run-01_pwd.nii.gz" not in downloaded
     )
     assert (
-        "sub-r21595_ses-awakebaseline_task-rest_acq-2dfus_run-01_pwd.nii.gz"
+        "sub-r21595/ses-awakebaseline/fusi/sub-r21595_ses-awakebaseline_task-rest_acq-2dfus_run-01_pwd.nii.gz"
         not in downloaded
     )
     assert "dataset_description.json" in downloaded
@@ -117,9 +120,9 @@ def test_fetch_filters_entities(tmp_path, mock_get_index, mock_retrieve):
 
 def test_fetch_task_filter(tmp_path, mock_get_index, mock_retrieve):
     fetch_pereira_2025(data_dir=tmp_path, tasks="stim", print_citation=False)
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     assert (
-        "sub-r11582_ses-awakebaseline_task-rest_acq-2dfus_run-01_pwd.nii.gz"
+        "sub-r11582/ses-awakebaseline/fusi/sub-r11582_ses-awakebaseline_task-rest_acq-2dfus_run-01_pwd.nii.gz"
         not in downloaded
     )
     assert "dataset_description.json" in downloaded

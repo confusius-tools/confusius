@@ -116,6 +116,13 @@ def mock_retrieve(tmp_path):
         yield mock
 
 
+def _downloaded_paths(mock_retrieve, bids_dir: Path) -> set[str]:
+    """Return BIDS-relative paths requested from pooch.retrieve."""
+    return {
+        str((Path(c.kwargs["path"]) / c.kwargs["fname"]).relative_to(bids_dir))
+        for c in mock_retrieve.call_args_list
+    }
+
 # ---------------------------------------------------------------------------
 # get_datasets_dir
 # ---------------------------------------------------------------------------
@@ -215,22 +222,22 @@ def test_fetch_task_filter_excludes_non_matching_fusi_includes_angio(
 ):
     fetch_nunez_elizalde_2022(data_dir=tmp_path, tasks=["kalatsky"])
 
-    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
-    assert "sub-CR020_ses-20191122_task-kalatsky_acq-slice01_pwd.nii.gz" in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_task-kalatsky_acq-slice01_pwd.nii.gz" in downloaded
     assert (
-        "sub-CR020_ses-20191122_task-spontaneous_acq-slice01_pwd.nii.gz"
+        "sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_task-spontaneous_acq-slice01_pwd.nii.gz"
         not in downloaded
     )
     # Angio is always included regardless of task filter.
-    assert "sub-CR020_ses-20191122_pwd.nii.gz" in downloaded
+    assert "sub-CR020/ses-20191122/angio/sub-CR020_ses-20191122_pwd.nii.gz" in downloaded
 
 
 def test_fetch_session_filter(tmp_path, mock_get_index, mock_retrieve):
     fetch_nunez_elizalde_2022(data_dir=tmp_path, sessions=["20191122"])
 
-    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
-    assert "sub-CR020_ses-20191122_pwd.nii.gz" in downloaded
-    assert "sub-CR020_ses-20191121_pwd.nii.gz" not in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-CR020/ses-20191122/angio/sub-CR020_ses-20191122_pwd.nii.gz" in downloaded
+    assert "sub-CR020/ses-20191121/angio/sub-CR020_ses-20191121_pwd.nii.gz" not in downloaded
 
 
 def test_fetch_filters_derivatives_by_subject_and_session(
@@ -242,18 +249,18 @@ def test_fetch_filters_derivatives_by_subject_and_session(
         sessions=["20191122"],
     )
 
-    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # Shared derivative files (no subject/session folder) should still be included.
     assert "dataset_description.json" in downloaded
-    assert "structure_tree_safe_2017.csv" in downloaded
+    assert "derivatives/allenccf_align/structure_tree_safe_2017.csv" in downloaded
     # Matching derivative subject/session is included.
-    assert "sub-CR020_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz" in downloaded
+    assert "derivatives/allenccf_align/sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz" in downloaded
     # Non-matching derivative subject/session are excluded.
     assert (
-        "sub-CR020_ses-20191121_space-fusi_desc-allenccf_dseg.nii.gz" not in downloaded
+        "derivatives/allenccf_align/sub-CR020/ses-20191121/fusi/sub-CR020_ses-20191121_space-fusi_desc-allenccf_dseg.nii.gz" not in downloaded
     )
     assert (
-        "sub-OTHER_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz" not in downloaded
+        "derivatives/allenccf_align/sub-OTHER/ses-20191122/fusi/sub-OTHER_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz" not in downloaded
     )
 
 
@@ -262,19 +269,19 @@ def test_fetch_acq_filter_excludes_non_matching_fusi_includes_angio(
 ):
     fetch_nunez_elizalde_2022(data_dir=tmp_path, acqs=["slice03"])
 
-    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     assert (
-        "sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz" in downloaded
+        "sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz" in downloaded
     )
     assert (
-        "sub-CR020_ses-20191122_task-spontaneous_acq-slice01_pwd.nii.gz"
+        "sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_task-spontaneous_acq-slice01_pwd.nii.gz"
         not in downloaded
     )
     assert (
-        "sub-CR020_ses-20191122_task-kalatsky_acq-slice01_pwd.nii.gz" not in downloaded
+        "sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_task-kalatsky_acq-slice01_pwd.nii.gz" not in downloaded
     )
     # Angio is always included regardless of acquisition filter.
-    assert "sub-CR020_ses-20191122_pwd.nii.gz" in downloaded
+    assert "sub-CR020/ses-20191122/angio/sub-CR020_ses-20191122_pwd.nii.gz" in downloaded
 
 
 def test_fetch_rawdata_dataset_excludes_derivatives_and_sourcedata(
@@ -282,15 +289,15 @@ def test_fetch_rawdata_dataset_excludes_derivatives_and_sourcedata(
 ):
     fetch_nunez_elizalde_2022(data_dir=tmp_path, datasets=["rawdata"])
 
-    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     assert (
-        "sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz" in downloaded
+        "sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz" in downloaded
     )
     assert (
-        "sub-CR020_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz" not in downloaded
+        "derivatives/allenccf_align/sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz" not in downloaded
     )
-    assert "structure_tree_safe_2017.csv" not in downloaded
-    assert "2020-10-11_CR022_estimated_probe00_3Dtrack_manual.hdf" not in downloaded
+    assert "derivatives/allenccf_align/structure_tree_safe_2017.csv" not in downloaded
+    assert "sourcedata/allenccf_align/sub-CR022/ses-20201011/fusi/2020-10-11_CR022_estimated_probe00_3Dtrack_manual.hdf" not in downloaded
 
 
 def test_fetch_allenccf_align_dataset_includes_matching_sourcedata(
@@ -304,19 +311,19 @@ def test_fetch_allenccf_align_dataset_includes_matching_sourcedata(
         datatypes=["fusi"],
     )
 
-    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
-    assert "2020-10-11_CR022_estimated_probe00_3Dtrack_manual.hdf" in downloaded
-    assert "2020-10-11_OTHER_estimated_probe00_3Dtrack_manual.hdf" not in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sourcedata/allenccf_align/sub-CR022/ses-20201011/fusi/2020-10-11_CR022_estimated_probe00_3Dtrack_manual.hdf" in downloaded
+    assert "sourcedata/allenccf_align/sub-OTHER/ses-20201011/fusi/2020-10-11_OTHER_estimated_probe00_3Dtrack_manual.hdf" not in downloaded
 
 
 def test_fetch_fusi_datatype_excludes_angio(tmp_path, mock_get_index, mock_retrieve):
     fetch_nunez_elizalde_2022(data_dir=tmp_path, datatypes=["fusi"])
 
-    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     assert (
-        "sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz" in downloaded
+        "sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz" in downloaded
     )
-    assert "sub-CR020_ses-20191122_pwd.nii.gz" not in downloaded
+    assert "sub-CR020/ses-20191122/angio/sub-CR020_ses-20191122_pwd.nii.gz" not in downloaded
 
 
 def test_fetch_subject_filter(tmp_path, mock_retrieve):
@@ -334,9 +341,9 @@ def test_fetch_subject_filter(tmp_path, mock_retrieve):
     ):
         fetch_nunez_elizalde_2022(data_dir=tmp_path, subjects=["CR020"])
 
-    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
-    assert "sub-OTHER_sessions.tsv" not in downloaded
-    assert "sub-OTHER_ses-20191122_pwd.nii.gz" not in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-OTHER/sub-OTHER_sessions.tsv" not in downloaded
+    assert "sub-OTHER/ses-20191122/angio/sub-OTHER_ses-20191122_pwd.nii.gz" not in downloaded
 
 
 def test_fetch_accepts_string_filters(tmp_path, mock_get_index, mock_retrieve):
@@ -350,13 +357,13 @@ def test_fetch_accepts_string_filters(tmp_path, mock_get_index, mock_retrieve):
         datatypes="fusi",
     )
 
-    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
-    assert "sub-CR020_ses-20191122_task-kalatsky_acq-slice01_pwd.nii.gz" in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_task-kalatsky_acq-slice01_pwd.nii.gz" in downloaded
     assert (
-        "sub-CR020_ses-20191122_task-spontaneous_acq-slice01_pwd.nii.gz"
+        "sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_task-spontaneous_acq-slice01_pwd.nii.gz"
         not in downloaded
     )
-    assert "sub-CR020_ses-20191122_pwd.nii.gz" not in downloaded
+    assert "sub-CR020/ses-20191122/angio/sub-CR020_ses-20191122_pwd.nii.gz" not in downloaded
 
 
 def test_fetch_rejects_unknown_dataset(tmp_path):
@@ -436,9 +443,9 @@ def test_fetch_raises_after_max_retries(tmp_path, mock_get_index):
             side_effect=always_fails,
         ) as mock_retrieve,
         patch("confusius.datasets._pooch.time.sleep"),
+        pytest.raises(requests.exceptions.ReadTimeout),
     ):
-        with pytest.raises(requests.exceptions.ReadTimeout):
-            fetch_nunez_elizalde_2022(data_dir=tmp_path)
+        fetch_nunez_elizalde_2022(data_dir=tmp_path)
 
     assert mock_retrieve.call_count == _MAX_DOWNLOAD_RETRIES
 

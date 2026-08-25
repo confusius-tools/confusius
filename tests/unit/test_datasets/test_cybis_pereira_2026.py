@@ -177,48 +177,51 @@ def test_fetch_returns_immediately_when_all_cached(tmp_path, mock_get_index):
 # ---------------------------------------------------------------------------
 
 
-def _downloaded_paths(mock_retrieve) -> set[str]:
-    """Return the set of file basenames passed to pooch.retrieve."""
-    return {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+def _downloaded_paths(mock_retrieve, bids_dir: Path) -> set[str]:
+    """Return BIDS-relative paths requested from pooch.retrieve."""
+    return {
+        str((Path(c.kwargs["path"]) / c.kwargs["fname"]).relative_to(bids_dir))
+        for c in mock_retrieve.call_args_list
+    }
 
 
 def test_fetch_dataset_filter_rawdata_only(tmp_path, mock_get_index, mock_retrieve):
     fetch_cybis_pereira_2026(data_dir=tmp_path, datasets=["rawdata"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # Rawdata files included.
-    assert "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
+    assert "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
     # Top-level metadata always included.
     assert "dataset_description.json" in downloaded
     # Derivatives excluded.
-    assert "sub-rat83_acq-slice32_stat-t_statmap.nii.gz" not in downloaded
+    assert "derivatives/glm-speed/sub-rat83/sub-rat83_acq-slice32_stat-t_statmap.nii.gz" not in downloaded
 
 
 def test_fetch_dataset_filter_derivative(tmp_path, mock_get_index, mock_retrieve):
     fetch_cybis_pereira_2026(data_dir=tmp_path, datasets=["glm-speed"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # Matching derivative included.
-    assert "sub-rat83_acq-slice32_stat-t_statmap.nii.gz" in downloaded
+    assert "derivatives/glm-speed/sub-rat83/sub-rat83_acq-slice32_stat-t_statmap.nii.gz" in downloaded
     assert "dataset_description.json" in downloaded
     # Non-matching derivative excluded.
-    assert "sub-rat83_acq-slice32_desc-accuracy_decode.tsv" not in downloaded
+    assert "derivatives/decode-speed/sub-rat83/sub-rat83_acq-slice32_desc-accuracy_decode.tsv" not in downloaded
     # Rawdata excluded.
     assert (
-        "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" not in downloaded
+        "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" not in downloaded
     )
 
 
 def test_fetch_subject_filter(tmp_path, mock_get_index, mock_retrieve):
     fetch_cybis_pereira_2026(data_dir=tmp_path, subjects=["rat83"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # Matching subject included (rawdata and derivatives).
-    assert "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
-    assert "sub-rat83_acq-slice32_stat-t_statmap.nii.gz" in downloaded
+    assert "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
+    assert "derivatives/glm-speed/sub-rat83/sub-rat83_acq-slice32_stat-t_statmap.nii.gz" in downloaded
     # Non-matching subject excluded.
-    assert "sub-rat84_ses-20210407_task-openfield_pwd.nii.gz" not in downloaded
-    assert "sub-rat84_stat-t_statmap.nii.gz" not in downloaded
+    assert "sub-rat84/ses-20210407/fusi/sub-rat84_ses-20210407_task-openfield_pwd.nii.gz" not in downloaded
+    assert "derivatives/glm-speed/sub-rat84/sub-rat84_stat-t_statmap.nii.gz" not in downloaded
     # Top-level metadata always included.
     assert "dataset_description.json" in downloaded
 
@@ -227,17 +230,17 @@ def test_fetch_session_filter(tmp_path, mock_get_index, mock_retrieve):
     """`sessions` keeps files in matching session dirs and session-less files."""
     fetch_cybis_pereira_2026(data_dir=tmp_path, sessions=["20220523"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # Matching session files included.
-    assert "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
-    assert "sub-rat83_ses-20220523_scans.tsv" in downloaded
+    assert "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
+    assert "sub-rat83/ses-20220523/sub-rat83_ses-20220523_scans.tsv" in downloaded
     # Non-matching sessions excluded.
     assert (
-        "sub-rat83_ses-20220524_task-openfield_acq-slice32_pwd.nii.gz" not in downloaded
+        "sub-rat83/ses-20220524/fusi/sub-rat83_ses-20220524_task-openfield_acq-slice32_pwd.nii.gz" not in downloaded
     )
-    assert "sub-rat84_ses-20210407_task-openfield_pwd.nii.gz" not in downloaded
+    assert "sub-rat84/ses-20210407/fusi/sub-rat84_ses-20210407_task-openfield_pwd.nii.gz" not in downloaded
     # Subject-level files (no session entity) pass through.
-    assert "sub-rat83_acq-slice32_stat-t_statmap.nii.gz" in downloaded
+    assert "derivatives/glm-speed/sub-rat83/sub-rat83_acq-slice32_stat-t_statmap.nii.gz" in downloaded
     # Top-level metadata always included.
     assert "dataset_description.json" in downloaded
 
@@ -246,18 +249,18 @@ def test_fetch_acq_filter(tmp_path, mock_get_index, mock_retrieve):
     """`acqs` keeps matching acquisitions and files with no acq entity."""
     fetch_cybis_pereira_2026(data_dir=tmp_path, acqs=["slice32"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # Matching acquisition included.
-    assert "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
-    assert "sub-rat83_acq-slice32_stat-t_statmap.nii.gz" in downloaded
+    assert "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
+    assert "derivatives/glm-speed/sub-rat83/sub-rat83_acq-slice32_stat-t_statmap.nii.gz" in downloaded
     # Non-matching acquisitions excluded.
     assert (
-        "sub-rat83_ses-20220523_task-openfield_acq-slice42_pwd.nii.gz" not in downloaded
+        "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice42_pwd.nii.gz" not in downloaded
     )
-    assert "sub-rat83_acq-slice42_stat-t_statmap.nii.gz" not in downloaded
+    assert "derivatives/glm-speed/sub-rat83/sub-rat83_acq-slice42_stat-t_statmap.nii.gz" not in downloaded
     # Files with no acq entity pass through.
-    assert "sub-rat83_ses-20220523_scans.tsv" in downloaded
-    assert "sub-rat84_ses-20210407_task-openfield_pwd.nii.gz" in downloaded
+    assert "sub-rat83/ses-20220523/sub-rat83_ses-20220523_scans.tsv" in downloaded
+    assert "sub-rat84/ses-20210407/fusi/sub-rat84_ses-20210407_task-openfield_pwd.nii.gz" in downloaded
 
 
 def test_fetch_combined_session_and_acq_filters(
@@ -266,14 +269,14 @@ def test_fetch_combined_session_and_acq_filters(
     """Session and acquisition filters compose."""
     fetch_cybis_pereira_2026(data_dir=tmp_path, sessions=["20220523"], acqs=["slice42"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # Only files matching both filters (or omitting the relevant entity).
-    assert "sub-rat83_ses-20220523_task-openfield_acq-slice42_pwd.nii.gz" in downloaded
+    assert "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice42_pwd.nii.gz" in downloaded
     assert (
-        "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" not in downloaded
+        "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" not in downloaded
     )
     assert (
-        "sub-rat83_ses-20220524_task-openfield_acq-slice32_pwd.nii.gz" not in downloaded
+        "sub-rat83/ses-20220524/fusi/sub-rat83_ses-20220524_task-openfield_acq-slice32_pwd.nii.gz" not in downloaded
     )
 
 
@@ -281,17 +284,17 @@ def test_fetch_datatype_filter_fusi_only(tmp_path, mock_get_index, mock_retrieve
     """`datatypes=["fusi"]` excludes angio files but keeps files without a datatype."""
     fetch_cybis_pereira_2026(data_dir=tmp_path, datatypes=["fusi"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
     # fusi files included.
-    assert "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
+    assert "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
     # angio files excluded.
     assert (
-        "sub-rat83_ses-20220523_acq-slice32_rec-minframe2d_pwd.nii.gz" not in downloaded
+        "sub-rat83/ses-20220523/angio/sub-rat83_ses-20220523_acq-slice32_rec-minframe2d_pwd.nii.gz" not in downloaded
     )
-    assert "sub-rat84_ses-20210407_rec-minframe2d_pwd.nii.gz" not in downloaded
+    assert "sub-rat84/ses-20210407/angio/sub-rat84_ses-20210407_rec-minframe2d_pwd.nii.gz" not in downloaded
     # Files with no datatype layer pass through (session-level, subject-level).
-    assert "sub-rat83_ses-20220523_scans.tsv" in downloaded
-    assert "sub-rat83_acq-slice32_stat-t_statmap.nii.gz" in downloaded
+    assert "sub-rat83/ses-20220523/sub-rat83_ses-20220523_scans.tsv" in downloaded
+    assert "derivatives/glm-speed/sub-rat83/sub-rat83_acq-slice32_stat-t_statmap.nii.gz" in downloaded
     # Top-level metadata always included.
     assert "dataset_description.json" in downloaded
 
@@ -300,14 +303,14 @@ def test_fetch_datatype_filter_angio_only(tmp_path, mock_get_index, mock_retriev
     """`datatypes=["angio"]` keeps angio files and excludes fusi files."""
     fetch_cybis_pereira_2026(data_dir=tmp_path, datatypes=["angio"])
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-rat83_ses-20220523_acq-slice32_rec-minframe2d_pwd.nii.gz" in downloaded
-    assert "sub-rat84_ses-20210407_rec-minframe2d_pwd.nii.gz" in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-rat83/ses-20220523/angio/sub-rat83_ses-20220523_acq-slice32_rec-minframe2d_pwd.nii.gz" in downloaded
+    assert "sub-rat84/ses-20210407/angio/sub-rat84_ses-20210407_rec-minframe2d_pwd.nii.gz" in downloaded
     assert (
-        "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" not in downloaded
+        "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" not in downloaded
     )
     # Files with no datatype layer still pass through.
-    assert "sub-rat83_ses-20220523_scans.tsv" in downloaded
+    assert "sub-rat83/ses-20220523/sub-rat83_ses-20220523_scans.tsv" in downloaded
 
 
 def test_fetch_invalid_dataset_raises(tmp_path):
@@ -324,18 +327,18 @@ def test_fetch_accepts_string_datasets(tmp_path, mock_get_index, mock_retrieve):
     """A single string is accepted and normalized to a list."""
     fetch_cybis_pereira_2026(data_dir=tmp_path, datasets="rawdata")
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
-    assert "sub-rat83_acq-slice32_stat-t_statmap.nii.gz" not in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
+    assert "derivatives/glm-speed/sub-rat83/sub-rat83_acq-slice32_stat-t_statmap.nii.gz" not in downloaded
 
 
 def test_fetch_accepts_string_subjects(tmp_path, mock_get_index, mock_retrieve):
     """A single string is accepted and normalized to a list."""
     fetch_cybis_pereira_2026(data_dir=tmp_path, subjects="rat83")
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
-    assert "sub-rat84_ses-20210407_task-openfield_pwd.nii.gz" not in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
+    assert "sub-rat84/ses-20210407/fusi/sub-rat84_ses-20210407_task-openfield_pwd.nii.gz" not in downloaded
 
 
 def test_fetch_accepts_string_sessions_and_acqs(
@@ -344,10 +347,10 @@ def test_fetch_accepts_string_sessions_and_acqs(
     """`sessions` and `acqs` strings are normalized to lists."""
     fetch_cybis_pereira_2026(data_dir=tmp_path, sessions="20220523", acqs="slice32")
 
-    downloaded = _downloaded_paths(mock_retrieve)
-    assert "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    assert "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
     assert (
-        "sub-rat83_ses-20220523_task-openfield_acq-slice42_pwd.nii.gz" not in downloaded
+        "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice42_pwd.nii.gz" not in downloaded
     )
 
 
@@ -419,9 +422,9 @@ def test_fetch_raises_after_max_retries(tmp_path, mock_get_index):
             side_effect=always_fails,
         ) as mock_retrieve,
         patch("confusius.datasets._pooch.time.sleep"),
+        pytest.raises(requests.exceptions.ReadTimeout),
     ):
-        with pytest.raises(requests.exceptions.ReadTimeout):
-            fetch_cybis_pereira_2026(data_dir=tmp_path)
+        fetch_cybis_pereira_2026(data_dir=tmp_path)
 
     assert mock_retrieve.call_count == _MAX_DOWNLOAD_RETRIES
 
