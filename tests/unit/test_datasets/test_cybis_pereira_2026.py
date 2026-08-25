@@ -180,7 +180,7 @@ def test_fetch_returns_immediately_when_all_cached(tmp_path, mock_get_index):
 def _downloaded_paths(mock_retrieve, bids_dir: Path) -> set[str]:
     """Return BIDS-relative paths requested from pooch.retrieve."""
     return {
-        str((Path(c.kwargs["path"]) / c.kwargs["fname"]).relative_to(bids_dir))
+        (Path(c.kwargs["path"]) / c.kwargs["fname"]).relative_to(bids_dir).as_posix()
         for c in mock_retrieve.call_args_list
     }
 
