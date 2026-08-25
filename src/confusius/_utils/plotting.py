@@ -1,7 +1,7 @@
 """Plotting helpers shared across the plotting/napari modules and registration views."""
 
 from collections.abc import Hashable, Mapping, Sequence
-from typing import Literal
+from typing import Literal, NamedTuple
 
 import numpy as np
 import xarray as xr
@@ -139,50 +139,84 @@ def qr_axis_spacing(
     return row_to_axis, axis_spacing
 
 
-def snap_origin_to_phase(origin: float, spacing: float, phase_origin: float) -> float:
-    """Shift `origin` to the nearest lower point congruent to `phase_origin`.
+class AxisPhase(NamedTuple):
+    """A world axis's established origin and spacing, to phase-lock later grids to.
 
-    Used to phase-lock an independently-computed display grid's origin to a
-    reference grid's, so two overlaid volumes' cells coincide whenever `spacing`
-    evenly divides the reference's own spacing (e.g. matching resolutions, or an
-    integer-upsampled overlay) -- without moving `origin` anywhere near
-    `phase_origin` itself, which may sit far away in world space (e.g. a
-    different session's probe placement). When the two spacings don't share an
-    integer ratio, this still minimizes the phase offset to less than `spacing`,
-    rather than leaving it at an arbitrary bounding-box-derived value.
+    `origin` is a voxel *center* position (matching every other "origin" in this
+    codebase -- the world location of voxel position 0), but phase-locking itself
+    operates on cell *edges* (`origin - spacing / 2`), not centers -- see
+    `snap_origin_to_phase`. `spacing` is needed alongside `origin` because a
+    later grid's own spacing may differ (e.g. a higher-resolution moving scan
+    overlaid on a coarser fixed one): the edge of voxel 0 depends on both.
+
+    Attributes
+    ----------
+    origin : float
+        World position of this axis's voxel 0 center.
+    spacing : float
+        World distance between consecutive voxels along this axis.
+    """
+
+    origin: float
+    spacing: float
+
+
+def snap_origin_to_phase(origin: float, spacing: float, phase: AxisPhase) -> float:
+    """Shift `origin` down so this grid's cell edges nest with `phase`'s.
+
+    Used to phase-lock an independently-computed display grid to a reference
+    grid, so two overlaid volumes' *cells* coincide whenever `spacing` evenly
+    divides `phase.spacing` (e.g. matching resolutions, or an integer-upsampled
+    overlay) -- without moving `origin` anywhere near `phase.origin` itself,
+    which may sit far away in world space (e.g. a different session's probe
+    placement). When the two spacings don't share an integer ratio, this still
+    minimizes the phase offset to less than `spacing`, rather than leaving it at
+    an arbitrary bounding-box-derived value.
+
+    Operates on cell *edges*, not centers: aligning `origin` to `phase.origin`
+    directly only makes voxel *centers* land on the same lattice, which for a
+    resolution ratio other than 1 does not put voxel *edges* on the same
+    lattice too (e.g. at a 2x ratio, every other fine-grid center would land
+    exactly on a coarse-grid *edge* instead of nesting inside a coarse cell).
+    Since `phase.spacing` may differ from `spacing`, the two grids' shared
+    reference point must itself be edge-derived (`phase.origin -
+    phase.spacing / 2`), not `phase.origin` directly.
 
     Parameters
     ----------
     origin : float
-        World position of the grid's own first sample, before snapping.
+        World position of the grid's own first sample (a voxel center), before
+        snapping.
     spacing : float
         World distance between consecutive samples of this grid.
-    phase_origin : float
-        World position that should be exactly reachable by stepping `spacing`
-        from the result (mod `spacing`), i.e. the reference grid's own origin.
+    phase : AxisPhase
+        Reference grid's own origin and spacing to phase-lock `origin` to.
 
     Returns
     -------
     float
-        `origin`, shifted down by less than `spacing` so that
-        `(result - phase_origin) % spacing == 0`.
+        `origin`, shifted down by less than `spacing` so that its cell edge
+        `result - spacing / 2` is congruent, modulo `spacing`, to `phase`'s own
+        edge `phase.origin - phase.spacing / 2`.
     """
-    offset = (origin - phase_origin) % spacing
-    # `origin` is already (near) an exact multiple of `spacing` away from
-    # `phase_origin` -- floating-point noise in `%` can then land `offset` close
+    own_edge = origin - spacing / 2.0
+    phase_edge = phase.origin - phase.spacing / 2.0
+    offset = (own_edge - phase_edge) % spacing
+    # `own_edge` is already (near) an exact multiple of `spacing` away from
+    # `phase_edge` -- floating-point noise in `%` can then land `offset` close
     # to `spacing` instead of close to `0` (e.g. `1.0 % 0.2` lands near `0.2`,
     # not `0.0`, since `0.2` has no exact binary representation), which would
     # otherwise shift `origin` down by a spurious extra step.
     if spacing - offset < 1e-6 * spacing:
         offset = 0.0
-    return origin - offset
+    return own_edge - offset + spacing / 2.0
 
 
 def compute_oblique_axis_aligned_grid_geometry(
     data: xr.DataArray,
     world_dims: Sequence[str],
     *,
-    axis_origins: "Mapping[Hashable, float] | None" = None,
+    axis_origins: "Mapping[Hashable, AxisPhase] | None" = None,
 ) -> tuple[list[int], list[float], list[float]]:
     """Compute the axis-aligned grid shape/spacing/origin `data` would resample onto.
 
@@ -202,13 +236,14 @@ def compute_oblique_axis_aligned_grid_geometry(
     world_dims : collections.abc.Sequence of str
         World coordinate names (`"z"`/`"y"`/`"x"`) to compute grid geometry for, in
         order.
-    axis_origins : mapping of collections.abc.Hashable to float, optional
-        Reference origin per world axis, established by an earlier call on the
-        same plotter. When given for a world axis, that axis's own bounding-box
-        origin is shifted (by less than its own spacing) to be congruent with
-        the reference, via `snap_origin_to_phase`, so cells from two volumes at
-        matching (or evenly divisible) resolutions land on the same grid instead
-        of merely overlapping. Axes not present in the mapping are unaffected.
+    axis_origins : mapping of collections.abc.Hashable to AxisPhase, optional
+        Reference origin/spacing per world axis, established by an earlier call
+        on the same plotter. When given for a world axis, that axis's own
+        bounding-box origin is shifted (by less than its own spacing) to be
+        congruent with the reference, via `snap_origin_to_phase`, so cells from
+        two volumes at matching (or evenly divisible) resolutions land on the
+        same grid instead of merely overlapping. Axes not present in the mapping
+        are unaffected.
 
     Returns
     -------
@@ -294,7 +329,7 @@ def resample_to_axis_aligned_world_grid(
     reference: xr.DataArray | None = None,
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float | None = None,
-    axis_origins: "Mapping[Hashable, float] | None" = None,
+    axis_origins: "Mapping[Hashable, AxisPhase] | None" = None,
 ) -> xr.DataArray:
     """Resample voxel-to-world data onto an axis-aligned world grid for display.
 
@@ -314,11 +349,11 @@ def resample_to_axis_aligned_world_grid(
         Value assigned to voxels outside `data`'s field of view after resampling.
         If not provided, defaults to `float(data.min())` (see
         [`resample_volume`][confusius.registration.resample_volume]).
-    axis_origins : mapping of collections.abc.Hashable to float, optional
-        Reference origin per world axis to phase-lock the synthesized grid to,
-        forwarded to `compute_oblique_axis_aligned_grid_geometry`. Ignored when
-        `reference` is given, since a reference grid already fully determines the
-        output positions. Only meaningful when `data` is oblique.
+    axis_origins : mapping of collections.abc.Hashable to AxisPhase, optional
+        Reference origin/spacing per world axis to phase-lock the synthesized
+        grid to, forwarded to `compute_oblique_axis_aligned_grid_geometry`.
+        Ignored when `reference` is given, since a reference grid already fully
+        determines the output positions. Only meaningful when `data` is oblique.
 
     Returns
     -------

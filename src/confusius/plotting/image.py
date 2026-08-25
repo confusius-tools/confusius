@@ -21,6 +21,7 @@ from confusius._utils.geometry import (
 )
 from confusius._utils.mask import select_masked_features
 from confusius._utils.plotting import (
+    AxisPhase,
     blend_red_cyan,
     compute_oblique_axis_aligned_grid_geometry,
     qr_axis_spacing,
@@ -151,7 +152,7 @@ def compute_shared_slice_axis_grid_geometry(
     slice_world_dim: str,
     *,
     slice_axis_grid: SliceAxisGrid | None = None,
-    axis_origins: Mapping[Hashable, float] | None = None,
+    axis_origins: Mapping[Hashable, AxisPhase] | None = None,
 ) -> tuple[
     Mapping[Hashable, int],
     Mapping[Hashable, float],
@@ -183,12 +184,13 @@ def compute_shared_slice_axis_grid_geometry(
         earlier call on the same plotter. If not provided, derived from `data`'s
         own extent along `slice_world_dim` and returned for the caller to reuse
         on subsequent volumes.
-    axis_origins : mapping of collections.abc.Hashable to float, optional
-        Reference origin per world axis, established by an earlier call on the
-        same plotter, used to phase-lock the two in-plane axes' own bounding-box
-        origin (via `snap_origin_to_phase`) so cells from two volumes at matching
-        (or evenly divisible) resolutions land on the same grid. Never applied to
-        `slice_world_dim` itself, which is already shared via `slice_axis_grid`.
+    axis_origins : mapping of collections.abc.Hashable to AxisPhase, optional
+        Reference origin/spacing per world axis, established by an earlier call
+        on the same plotter, used to phase-lock the two in-plane axes' own
+        bounding-box origin (via `snap_origin_to_phase`) so cells from two
+        volumes at matching (or evenly divisible) resolutions land on the same
+        grid. Never applied to `slice_world_dim` itself, which is already shared
+        via `slice_axis_grid`.
 
     Returns
     -------
@@ -274,15 +276,31 @@ def compute_shared_slice_axis_grid_geometry(
     )
 
 
+def _combine_axis_phases(
+    origin: Mapping[Hashable, float], spacing: Mapping[Hashable, float]
+) -> dict[Hashable, AxisPhase]:
+    """Zip a world-dim-keyed origin mapping with a voxel-dim-keyed spacing one.
+
+    `compute_shared_slice_axis_grid_geometry` returns `origin` keyed by world
+    dims (`z`/`y`/`x`) but `spacing` keyed by the positionally-corresponding
+    voxel dims (`k`/`j`/`i`) -- `WORLD_DIMS`/`VOXEL_DIMS` are index-aligned, so
+    zipping them together gives each world axis its own `AxisPhase`.
+    """
+    return {
+        world_dim: AxisPhase(origin=origin[world_dim], spacing=spacing[voxel_dim])
+        for world_dim, voxel_dim in zip(WORLD_DIMS, VOXEL_DIMS, strict=True)
+    }
+
+
 def _resample_to_shared_slice_axis_grid(
     data: xr.DataArray,
     slice_world_dim: str,
     *,
     slice_axis_grid: SliceAxisGrid | None = None,
-    axis_origins: Mapping[Hashable, float] | None = None,
+    axis_origins: Mapping[Hashable, AxisPhase] | None = None,
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float | None = None,
-) -> tuple[xr.DataArray, SliceAxisGrid | None, Mapping[Hashable, float]]:
+) -> tuple[xr.DataArray, SliceAxisGrid | None, Mapping[Hashable, AxisPhase]]:
     """Resample `data` so all 3 spatial axes are world-axis-aligned, for display.
 
     See `compute_shared_slice_axis_grid_geometry` for the geometry this builds
@@ -301,12 +319,12 @@ def _resample_to_shared_slice_axis_grid(
         Shared spacing/origin/count for `slice_world_dim`, established by an
         earlier call on the same plotter. If not provided, derived from `data`'s
         own extent and returned for the caller to reuse on subsequent volumes.
-    axis_origins : mapping of collections.abc.Hashable to float, optional
-        Reference origin per world axis, established by an earlier call on the
-        same plotter, used to phase-lock the two in-plane axes so cells from two
-        volumes at matching (or evenly divisible) resolutions land on the same
-        grid -- see `compute_shared_slice_axis_grid_geometry`. Ignored when
-        `data` is already axis-aligned, since it's returned unchanged.
+    axis_origins : mapping of collections.abc.Hashable to AxisPhase, optional
+        Reference origin/spacing per world axis, established by an earlier call
+        on the same plotter, used to phase-lock the two in-plane axes so cells
+        from two volumes at matching (or evenly divisible) resolutions land on
+        the same grid -- see `compute_shared_slice_axis_grid_geometry`. Ignored
+        when `data` is already axis-aligned, since it's returned unchanged.
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling. Use `"nearest"` for
         label/mask data, where blending distinct integer labels together is
@@ -329,20 +347,23 @@ def _resample_to_shared_slice_axis_grid(
         from `data`'s own geometry otherwise -- even when `data` was already
         axis-aligned and skipped resampling, so a later oblique volume/mask on
         the same plotter still has a grid to align its own slice axis to.
-    origins : mapping of collections.abc.Hashable to float
-        The actual origin used for every world axis (including `slice_world_dim`
-        itself), for the caller to register as `axis_origins` on later calls --
-        even when `data` was already axis-aligned, so a later oblique volume can
-        phase-lock its in-plane axes to `data`'s own native grid.
+    origins : mapping of collections.abc.Hashable to AxisPhase
+        The actual origin/spacing used for every world axis (including
+        `slice_world_dim` itself), for the caller to register as `axis_origins`
+        on later calls -- even when `data` was already axis-aligned, so a later
+        oblique volume can phase-lock its in-plane axes to `data`'s own native
+        grid.
     """
     if has_axis_aligned_voxel_to_world_index(data):
         # Never snapped: an already axis-aligned volume keeps its own native
         # grid unconditionally, so its true origin (not a phase-locked one) is
         # what later volumes must phase-lock to.
-        _, _, origins, established_grid = compute_shared_slice_axis_grid_geometry(
-            data, slice_world_dim, slice_axis_grid=slice_axis_grid
+        sizes, spacing, origin, established_grid = (
+            compute_shared_slice_axis_grid_geometry(
+                data, slice_world_dim, slice_axis_grid=slice_axis_grid
+            )
         )
-        return data, established_grid, origins
+        return data, established_grid, _combine_axis_phases(origin, spacing)
 
     from confusius.registration import resample_volume
 
@@ -362,7 +383,7 @@ def _resample_to_shared_slice_axis_grid(
         interpolation=interpolation,
         fill_value=fill_value,
     )
-    return result, established_grid, origin
+    return result, established_grid, _combine_axis_phases(origin, spacing)
 
 
 def _resample_to_planar_world_grid(
@@ -371,8 +392,8 @@ def _resample_to_planar_world_grid(
     slice_mode: str,
     interpolation: Literal["linear", "nearest", "bspline"],
     fill_value: float | None,
-    axis_origins: Mapping[Hashable, float] | None = None,
-) -> tuple[xr.DataArray, Mapping[Hashable, float]]:
+    axis_origins: Mapping[Hashable, AxisPhase] | None = None,
+) -> tuple[xr.DataArray, Mapping[Hashable, AxisPhase]]:
     """Resample `data` onto an axis-aligned world grid, requiring a flat 2D result.
 
     Unlike `_resample_to_shared_slice_axis_grid`, no axis is forced onto a
@@ -402,9 +423,9 @@ def _resample_to_planar_world_grid(
         Value assigned to voxels outside `data`'s field of view after
         resampling. If not provided, defaults to `float(data.min())` (see
         [`resample_volume`][confusius.registration.resample_volume]).
-    axis_origins : mapping of collections.abc.Hashable to float, optional
-        Reference origin per world axis, established by an earlier call on the
-        same plotter, used to phase-lock this panel's own grid (via
+    axis_origins : mapping of collections.abc.Hashable to AxisPhase, optional
+        Reference origin/spacing per world axis, established by an earlier call
+        on the same plotter, used to phase-lock this panel's own grid (via
         `compute_oblique_axis_aligned_grid_geometry`) so cells from two panels at
         matching (or evenly divisible) resolutions land on the same grid. Never
         applied when `data` is already axis-aligned, since it's returned
@@ -415,10 +436,11 @@ def _resample_to_planar_world_grid(
     result : xarray.DataArray
         `data` resampled onto an axis-aligned world grid, or unchanged if it
         carries no voxel-to-world geometry.
-    origins : mapping of collections.abc.Hashable to float
-        The actual origin used for every world axis, for the caller to register
-        as `axis_origins` on later calls -- even when `data` was already
-        axis-aligned, so a later oblique panel can phase-lock to its native grid.
+    origins : mapping of collections.abc.Hashable to AxisPhase
+        The actual origin/spacing used for every world axis, for the caller to
+        register as `axis_origins` on later calls -- even when `data` was
+        already axis-aligned, so a later oblique panel can phase-lock to its
+        native grid.
 
     Raises
     ------
@@ -426,9 +448,8 @@ def _resample_to_planar_world_grid(
         If `data`'s spatial geometry is oblique to the world axes and would not
         collapse to a 2D plane.
     """
-    established_origins: dict[Hashable, float]
     if not has_axis_aligned_voxel_to_world_index(data):
-        shape, _, origin = compute_oblique_axis_aligned_grid_geometry(
+        shape, spacing, origin = compute_oblique_axis_aligned_grid_geometry(
             data, WORLD_DIMS, axis_origins=axis_origins
         )
         if sum(size > 1 for size in shape) != 2:
@@ -439,15 +460,17 @@ def _resample_to_planar_world_grid(
                 "the data's spatial geometry is oblique to the world axes and does "
                 "not lie flat on any world plane."
             )
-        established_origins = dict(zip(WORLD_DIMS, origin, strict=True))
     else:
         # Never snapped: an already axis-aligned panel keeps its own native grid
-        # unconditionally, so its true origin is what later panels must
+        # unconditionally, so its true origin/spacing is what later panels must
         # phase-lock to.
-        established_origins = {
-            dim: float(np.asarray(data.coords[dim].values, dtype=np.float64).min())
-            for dim in WORLD_DIMS
-        }
+        _, spacing, origin = compute_oblique_axis_aligned_grid_geometry(
+            data, WORLD_DIMS
+        )
+    established_origins: dict[Hashable, AxisPhase] = {
+        dim: AxisPhase(origin=o, spacing=s)
+        for dim, o, s in zip(WORLD_DIMS, origin, spacing, strict=True)
+    }
     result = resample_to_axis_aligned_world_grid(
         data,
         reference=None,
@@ -1021,7 +1044,7 @@ class VolumePlotter:
         # Origin established per world axis by the first volume plotted, used to
         # phase-lock later volumes' independently-computed display grids -- see
         # `snap_origin_to_phase`.
-        self._axis_origin_phase: dict[Hashable, float] = {}
+        self._axis_origin_phase: dict[Hashable, AxisPhase] = {}
 
     def _resample_pose_slices_to_world_grid(
         self,
@@ -1091,8 +1114,8 @@ class VolumePlotter:
                 fill_value=fill,
                 axis_origins=self._axis_origin_phase,
             )
-            for world_dim, origin_value in origins.items():
-                self._axis_origin_phase.setdefault(world_dim, origin_value)
+            for world_dim, phase in origins.items():
+                self._axis_origin_phase.setdefault(world_dim, phase)
             grid = materialize_axis_aligned_world_grid_for_display(grid)
             world_dims = [d for d in grid.dims if str(d) in WORLD_DIMS]
             squeeze_dims = [d for d in world_dims if grid.sizes[d] == 1]
@@ -1453,10 +1476,10 @@ class VolumePlotter:
             # (never consulted via `_axis_origin_phase` -- `compute_shared_slice_
             # axis_grid_geometry` skips it when snapping), so only the two in-plane
             # axes are registered here to avoid keeping the same value twice.
-            for world_dim, origin_value in origins.items():
+            for world_dim, phase in origins.items():
                 if world_dim == self.slice_mode:
                     continue
-                self._axis_origin_phase.setdefault(world_dim, origin_value)
+                self._axis_origin_phase.setdefault(world_dim, phase)
 
             # `data`'s own actual spacing, not `slice_axis_grid.spacing` -- an
             # already axis-aligned volume keeps its own native grid regardless of
@@ -1477,8 +1500,8 @@ class VolumePlotter:
                 fill_value=self._resample_fill_value,
                 axis_origins=self._axis_origin_phase,
             )
-            for world_dim, origin_value in origins.items():
-                self._axis_origin_phase.setdefault(world_dim, origin_value)
+            for world_dim, phase in origins.items():
+                self._axis_origin_phase.setdefault(world_dim, phase)
 
         # For `pose`, materializing here (before per-pose `.isel`) would be wrong:
         # A pose-dependent affine can be individually axis-aligned per pose while still

@@ -2070,6 +2070,51 @@ class TestPlotVolumeVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
+    def test_plot_volume_overlay_different_spacing_moving(
+        self, matplotlib_pyplot, reproducible_baseline_voxeldata
+    ):
+        """Regression baseline for #391: an overlaid volume at *half* `fixed`'s
+        in-plane spacing (e.g. a higher-resolution moving scan), rotated +
+        translated by a non-integer number of voxels.
+
+        Phase-locking a finer grid's own origin to the coarser grid's origin
+        (a voxel *center*) only guarantees every other fine cell *center*
+        lands on a coarse cell center or edge -- it does not guarantee the
+        fine grid's cell *corners* nest cleanly within the coarse grid's
+        cells. A correct fix must phase-lock to a corner/edge reference
+        instead, so the finer grid's cell boundaries never fall at an
+        arbitrary offset inside a coarser cell.
+        """
+        fixed = reproducible_baseline_voxeldata
+        rng = np.random.default_rng(7)
+        moving = create_voxeldata(
+            rng.random((4, 12, 16)),
+            dims=("k", "j", "i"),
+            spacing=(0.1, 0.025, 0.025),
+            origin=(0.0, 0.0, 0.0),
+            attrs={"long_name": "Intensity", "units": "a.u."},
+        )
+        theta = np.deg2rad(2.0)
+        world_transform = np.array(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, np.cos(theta), -np.sin(theta), 0.12],
+                [0.0, np.sin(theta), np.cos(theta), 0.13],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        moving = moving.fusi.affine.apply(world_transform)
+
+        plotter = plot_volume(fixed, slice_mode="z")
+        plotter.add_volume(moving, cmap="hot", alpha=0.5)
+
+        return plotter.figure
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
     def test_plot_volume_threshold(
         self, matplotlib_pyplot, reproducible_baseline_voxeldata
     ):
