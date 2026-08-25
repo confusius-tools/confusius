@@ -2050,6 +2050,15 @@ class TestPlotCarpet:
         assert fig is not None
         assert ax.get_ylabel() == "Voxels"
 
+    def test_plot_carpet_accepts_reduced_space_dim(self, matplotlib_pyplot):
+        """plot_carpet accepts already-reduced `(time, space)` signals."""
+        data = _create_deterministic_time_series().rename(region="space")
+
+        fig, ax = plot_carpet(data, standardize=False)
+
+        assert fig is not None
+        assert ax.get_ylabel() == "Voxels"
+
     def test_fontsize_scales_carpet_text_elements(self, matplotlib_pyplot):
         """plot_carpet scales title, label, tick, and colorbar text from fontsize."""
         data = _create_deterministic_time_series()

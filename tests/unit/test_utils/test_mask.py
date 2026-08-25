@@ -4,7 +4,30 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius._utils.mask import validate_spatial_or_feature_mask
+from confusius._utils.mask import (
+    select_masked_features,
+    validate_spatial_or_feature_mask,
+)
+
+
+def test_select_masked_features_accepts_existing_space_dim():
+    """Reduced `(time, space)` signals are selected without restacking `space`."""
+    data = xr.DataArray(
+        np.arange(5 * 4).reshape(5, 4),
+        dims=("time", "space"),
+        coords={"space": ["a", "b", "c", "d"]},
+    )
+    mask = xr.DataArray(
+        [True, False, True, False],
+        dims=("space",),
+        coords={"space": ["a", "b", "c", "d"]},
+    )
+
+    result = select_masked_features(data, mask)
+
+    assert result.dims == ("time", "space")
+    np.testing.assert_array_equal(result.coords["space"].values, ["a", "c"])
+    np.testing.assert_array_equal(result.values, data.values[:, [0, 2]])
 
 
 class TestValidateSpatialOrFeatureMask:

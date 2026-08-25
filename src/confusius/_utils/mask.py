@@ -194,4 +194,6 @@ def select_masked_features(
     if has_voxel_to_world_index(data):
         return extract_with_mask(data, mask)
     spatial_dims = list(mask.dims)
+    if spatial_dims == ["space"]:
+        return data.isel(space=mask.values.ravel())
     return data.stack(space=spatial_dims).isel(space=mask.values.ravel())
