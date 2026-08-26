@@ -116,7 +116,7 @@ Current development version for the next ConfUSIus release.
   `time` coordinates and warn since alignment cannot be verified.
   [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] now also accepts
   `confounds` as a `(time, n_confounds)` DataArray, validated against the run's `time`
-  coordinates ([#394](https://github.com/confusius-tools/confusius/pull/394)).
+  coordinates ([#398](https://github.com/confusius-tools/confusius/pull/398)).
 - `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
   support pose-dependent voxel-to-world geometry: a `(npose, 4, 4)` affine
   stack, one per pose, instead of one affine shared by every pose. New
