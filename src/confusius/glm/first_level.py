@@ -56,7 +56,8 @@ def _to_confounds_frame(
     -------
     pandas.DataFrame, numpy.ndarray, or None
         `confounds` unchanged unless it is a DataArray, in which case a DataFrame whose
-        columns are the coordinates of its non-time dimension, if any.
+        columns are the coordinates of its non-time dimension, or a `(time,
+        n_confounds)` array when that dimension has no coordinates.
 
     Raises
     ------
@@ -74,10 +75,9 @@ def _to_confounds_frame(
     if aligned.ndim != 2:
         raise ValueError(f"confounds must be 1D or 2D, got {aligned.ndim}D")
     columns_dim = aligned.dims[1]
-    columns = (
-        aligned.coords[columns_dim].values if columns_dim in aligned.coords else None
-    )
-    return pd.DataFrame(aligned.values, columns=columns)
+    if columns_dim not in aligned.coords:
+        return aligned.values
+    return pd.DataFrame(aligned.values, columns=aligned.coords[columns_dim].values)
 
 
 class FirstLevelModel(BaseEstimator):

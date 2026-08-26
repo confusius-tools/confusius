@@ -110,6 +110,29 @@ class TestFirstLevelModelFit:
                 fusi_data, events=events, confounds=misaligned
             )
 
+    def test_fit_with_1d_dataarray_confounds(self, fusi_data, events, rng):
+        """A `(time,)` DataArray becomes one confound column named like NumPy input."""
+        values = rng.standard_normal(200)
+        confounds = xr.DataArray(
+            values, dims=["time"], coords={"time": fusi_data.coords["time"]}
+        )
+        model = FirstLevelModel(noise_model="ols").fit(
+            fusi_data, events=events, confounds=confounds
+        )
+        assert_allclose(model.design_matrices_[0]["confound_0"].to_numpy(), values)
+
+    def test_fit_rejects_3d_dataarray_confounds(self, fusi_data, events, rng):
+        """DataArray confounds must be 1D or 2D."""
+        confounds = xr.DataArray(
+            rng.standard_normal((200, 2, 2)),
+            dims=["time", "a", "b"],
+            coords={"time": fusi_data.coords["time"]},
+        )
+        with pytest.raises(ValueError, match="confounds must be 1D or 2D"):
+            FirstLevelModel(noise_model="ols").fit(
+                fusi_data, events=events, confounds=confounds
+            )
+
     def test_sklearn_is_fitted(self, fusi_data, events):
         model = FirstLevelModel(noise_model="ols")
         assert not model.__sklearn_is_fitted__()
