@@ -148,6 +148,11 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- `load_nifti` now stores an identity `world_to_qform`/`world_to_sform` entry for
+  the coordinate-defining form, so applying another affine (e.g.
+  `.fusi.affine.apply("world_to_sform")`) keeps that form recoverable and
+  `save_nifti` writes it back to the header
+  ([#399](https://github.com/confusius-tools/confusius/pull/399)).
 - `save_nifti` now always writes both a qform and sform (previously sform was
   silently dropped when no secondary affine had been explicitly recorded)
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
