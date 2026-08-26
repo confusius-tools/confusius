@@ -208,6 +208,84 @@ class TestRegisterVolumeValidation:
                 learning_rate=-1.0,
             )
 
+    def test_invalid_metric_sampling_percentage_raises(
+        self, sample_voxeldata_2d_registration
+    ):
+        """A metric sampling percentage outside (0, 1] raises ValueError."""
+        with pytest.raises(ValueError, match="metric_sampling_percentage"):
+            register_volume(
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2d_registration,
+                metric_sampling_percentage=1.5,
+            )
+
+    def test_invalid_metric_sampling_seed_raises(self, sample_voxeldata_2d_registration):
+        """A negative metric sampling seed raises ValueError."""
+        with pytest.raises(ValueError, match="metric_sampling_seed"):
+            register_volume(
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2d_registration,
+                metric_sampling_percentage=0.5,
+                metric_sampling_seed=-1,
+            )
+
+    def test_metric_sampling_seed_requires_random_sampling(
+        self, sample_voxeldata_2d_registration
+    ):
+        """A metric sampling seed without random sampling raises ValueError."""
+        with pytest.raises(ValueError, match="metric_sampling_percentage below 1"):
+            register_volume(
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2d_registration,
+                metric_sampling_seed=123,
+            )
+
+    @pytest.mark.parametrize(
+        ("metric_sampling_seed", "expected_args"),
+        [(None, (0.25,)), (123, (0.25, 123))],
+    )
+    def test_random_metric_sampling_uses_sitk_random_strategy(
+        self,
+        sample_voxeldata_2d_registration,
+        monkeypatch,
+        metric_sampling_seed,
+        expected_args,
+    ):
+        """metric_sampling_percentage enables SimpleITK random metric sampling."""
+        import SimpleITK as sitk
+
+        calls: dict[str, object] = {}
+        original_strategy = sitk.ImageRegistrationMethod.SetMetricSamplingStrategy
+        original_percentage = sitk.ImageRegistrationMethod.SetMetricSamplingPercentage
+
+        def spy_strategy(self, strategy):
+            calls["strategy"] = strategy
+            return original_strategy(self, strategy)
+
+        def spy_percentage(self, *args):
+            calls["percentage"] = args
+            return original_percentage(self, *args)
+
+        monkeypatch.setattr(
+            sitk.ImageRegistrationMethod, "SetMetricSamplingStrategy", spy_strategy
+        )
+        monkeypatch.setattr(
+            sitk.ImageRegistrationMethod, "SetMetricSamplingPercentage", spy_percentage
+        )
+
+        register_volume(
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
+            transform_type="translation",
+            metric_sampling_percentage=0.25,
+            metric_sampling_seed=metric_sampling_seed,
+            number_of_iterations=1,
+            resample=False,
+        )
+
+        assert calls["strategy"] == sitk.ImageRegistrationMethod().RANDOM
+        assert calls["percentage"] == expected_args
+
     def test_shape_mismatch_no_error(self, sample_voxeldata_2d_registration):
         """Different shapes do not raise an error."""
         moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16))

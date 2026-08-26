@@ -106,6 +106,7 @@ Current development version for the next ConfUSIus release.
   `attrs["world_coord_attrs"]` round-trip key was renamed to
   `attrs["voxel_to_world_units"]` (a single string)
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+  
 ### :sparkles: Enhancements
 
 - [`clean`][confusius.signal.clean],
@@ -117,6 +118,10 @@ Current development version for the next ConfUSIus release.
   [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] now also accepts
   `confounds` as a `(time, n_confounds)` DataArray, validated against the run's `time`
   coordinates ([#398](https://github.com/confusius-tools/confusius/pull/398)).
+- [`register_volume`][confusius.registration.register_volume] now supports random
+  metric sampling via `metric_sampling_percentage`, with optional deterministic
+  seeding via `metric_sampling_seed`, to speed up large affine or B-spline
+  registrations ([#396](https://github.com/confusius-tools/confusius/issues/396)).
 - `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
   support pose-dependent voxel-to-world geometry: a `(npose, 4, 4)` affine
   stack, one per pose, instead of one affine shared by every pose. New
