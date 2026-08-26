@@ -240,8 +240,16 @@ class TestRegisterVolumeValidation:
                 metric_sampling_seed=123,
             )
 
+    @pytest.mark.parametrize(
+        ("metric_sampling_seed", "expected_args"),
+        [(None, (0.25,)), (123, (0.25, 123))],
+    )
     def test_random_metric_sampling_uses_sitk_random_strategy(
-        self, sample_voxeldata_2d_registration, monkeypatch
+        self,
+        sample_voxeldata_2d_registration,
+        monkeypatch,
+        metric_sampling_seed,
+        expected_args,
     ):
         """metric_sampling_percentage enables SimpleITK random metric sampling."""
         import SimpleITK as sitk
@@ -270,13 +278,13 @@ class TestRegisterVolumeValidation:
             sample_voxeldata_2d_registration,
             transform_type="translation",
             metric_sampling_percentage=0.25,
-            metric_sampling_seed=123,
+            metric_sampling_seed=metric_sampling_seed,
             number_of_iterations=1,
             resample=False,
         )
 
         assert calls["strategy"] == sitk.ImageRegistrationMethod().RANDOM
-        assert calls["percentage"] == (0.25, 123)
+        assert calls["percentage"] == expected_args
 
     def test_shape_mismatch_no_error(self, sample_voxeldata_2d_registration):
         """Different shapes do not raise an error."""
