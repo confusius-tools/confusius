@@ -35,6 +35,8 @@ def _validate_register_volume_inputs(
     transform_type: Literal["translation", "rigid", "affine", "bspline"],
     metric: Literal["correlation", "mattes_mi"],
     number_of_histogram_bins: int,
+    metric_sampling_percentage: float | None,
+    metric_sampling_seed: int | None,
     learning_rate: float | Literal["auto"],
     number_of_iterations: int,
     convergence_window_size: int,
@@ -63,6 +65,10 @@ def _validate_register_volume_inputs(
         Similarity metric name.
     number_of_histogram_bins : int
         Number of histogram bins for Mattes mutual information.
+    metric_sampling_percentage : float, optional
+        Random metric sampling percentage in `(0, 1]`.
+    metric_sampling_seed : int, optional
+        Random metric sampling seed.
     learning_rate : float or "auto"
         Optimizer step size or `"auto"`.
     number_of_iterations : int
@@ -189,6 +195,29 @@ def _validate_register_volume_inputs(
             f"got {number_of_histogram_bins!r}."
         )
 
+    if metric_sampling_percentage is not None and (
+        not isinstance(metric_sampling_percentage, (int, float))
+        or not np.isfinite(metric_sampling_percentage)
+        or not 0 < metric_sampling_percentage <= 1
+    ):
+        raise ValueError(
+            "metric_sampling_percentage must be a positive finite float no larger "
+            f"than 1; got {metric_sampling_percentage!r}."
+        )
+
+    if metric_sampling_seed is not None and metric_sampling_percentage is None:
+        raise ValueError(
+            "metric_sampling_seed requires metric_sampling_percentage to be set."
+        )
+
+    if metric_sampling_seed is not None and (
+        not isinstance(metric_sampling_seed, int) or metric_sampling_seed < 0
+    ):
+        raise ValueError(
+            f"metric_sampling_seed must be a non-negative integer; got "
+            f"{metric_sampling_seed!r}."
+        )
+
     # --- Mask validation ---
     from confusius.validation import ensure_mask
 
@@ -267,6 +296,8 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     transform_type: Literal["translation", "rigid", "affine"],
     metric: Literal["correlation", "mattes_mi"] = ...,
     number_of_histogram_bins: int = ...,
+    metric_sampling_percentage: float | None = ...,
+    metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
@@ -302,6 +333,8 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     transform_type: Literal["bspline"],
     metric: Literal["correlation", "mattes_mi"] = ...,
     number_of_histogram_bins: int = ...,
+    metric_sampling_percentage: float | None = ...,
+    metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
@@ -336,6 +369,8 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving_mask: xr.DataArray | None = ...,
     metric: Literal["correlation", "mattes_mi"] = ...,
     number_of_histogram_bins: int = ...,
+    metric_sampling_percentage: float | None = ...,
+    metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
@@ -370,6 +405,8 @@ def register_volume(
     transform_type: Literal["translation", "rigid", "affine", "bspline"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
     number_of_histogram_bins: int = 50,
+    metric_sampling_percentage: float | None = None,
+    metric_sampling_seed: int | None = None,
     learning_rate: float | Literal["auto"] = "auto",
     number_of_iterations: int = 100,
     convergence_minimum_value: float = 1e-6,
@@ -433,6 +470,12 @@ def register_volume(
     number_of_histogram_bins : int, default: 50
         Number of histogram bins used by Mattes mutual information. Only
         relevant when using `"mattes_mi"` metric.
+    metric_sampling_percentage : float, optional
+        Percentage of voxels randomly sampled when computing the metric, in `(0, 1]`.
+        If not provided, all voxels are used.
+    metric_sampling_seed : int, optional
+        Seed for random metric sampling. If not provided, SimpleITK seeds from the wall
+        clock.
     learning_rate : float or "auto", default: "auto"
         Optimizer step size in normalized units. `"auto"` re-estimates the rate at
         every iteration. A float uses that value directly; if registration diverges or
@@ -577,6 +620,9 @@ def register_volume(
         If `number_of_iterations`, `convergence_window_size`, or
         `number_of_histogram_bins` is not a positive integer.
     ValueError
+        If `metric_sampling_percentage` is outside `(0, 1]`, or if
+        `metric_sampling_seed` is negative or provided without sampling.
+    ValueError
         If `shrink_factors` and `smoothing_sigmas` have different lengths.
     ValueError
         If an affine `initialization` is provided and its shape does not match the
@@ -597,6 +643,8 @@ def register_volume(
         transform_type=transform_type,
         metric=metric,
         number_of_histogram_bins=number_of_histogram_bins,
+        metric_sampling_percentage=metric_sampling_percentage,
+        metric_sampling_seed=metric_sampling_seed,
         learning_rate=learning_rate,
         number_of_iterations=number_of_iterations,
         convergence_window_size=convergence_window_size,
@@ -648,6 +696,15 @@ def register_volume(
         registration.SetMetricAsMattesMutualInformation(
             numberOfHistogramBins=number_of_histogram_bins
         )
+
+    if metric_sampling_percentage is not None:
+        registration.SetMetricSamplingStrategy(registration.RANDOM)
+        if metric_sampling_seed is None:
+            registration.SetMetricSamplingPercentage(metric_sampling_percentage)
+        else:
+            registration.SetMetricSamplingPercentage(
+                metric_sampling_percentage, metric_sampling_seed
+            )
 
     registration.SetInterpolator(sitk.sitkLinear)
 
