@@ -229,11 +229,11 @@ class TestRegisterVolumeValidation:
                 metric_sampling_seed=-1,
             )
 
-    def test_metric_sampling_seed_requires_percentage(
+    def test_metric_sampling_seed_requires_random_sampling(
         self, sample_voxeldata_2d_registration
     ):
-        """A metric sampling seed without a sampling percentage raises ValueError."""
-        with pytest.raises(ValueError, match="requires metric_sampling_percentage"):
+        """A metric sampling seed without random sampling raises ValueError."""
+        with pytest.raises(ValueError, match="metric_sampling_percentage below 1"):
             register_volume(
                 sample_voxeldata_2d_registration,
                 sample_voxeldata_2d_registration,

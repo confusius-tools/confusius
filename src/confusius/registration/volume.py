@@ -35,7 +35,7 @@ def _validate_register_volume_inputs(
     transform_type: Literal["translation", "rigid", "affine", "bspline"],
     metric: Literal["correlation", "mattes_mi"],
     number_of_histogram_bins: int,
-    metric_sampling_percentage: float | None,
+    metric_sampling_percentage: float,
     metric_sampling_seed: int | None,
     learning_rate: float | Literal["auto"],
     number_of_iterations: int,
@@ -65,7 +65,7 @@ def _validate_register_volume_inputs(
         Similarity metric name.
     number_of_histogram_bins : int
         Number of histogram bins for Mattes mutual information.
-    metric_sampling_percentage : float, optional
+    metric_sampling_percentage : float, default: 1.0
         Random metric sampling percentage in `(0, 1]`.
     metric_sampling_seed : int, optional
         Random metric sampling seed.
@@ -195,7 +195,7 @@ def _validate_register_volume_inputs(
             f"got {number_of_histogram_bins!r}."
         )
 
-    if metric_sampling_percentage is not None and (
+    if (
         not isinstance(metric_sampling_percentage, (int, float))
         or not np.isfinite(metric_sampling_percentage)
         or not 0 < metric_sampling_percentage <= 1
@@ -205,9 +205,9 @@ def _validate_register_volume_inputs(
             f"than 1; got {metric_sampling_percentage!r}."
         )
 
-    if metric_sampling_seed is not None and metric_sampling_percentage is None:
+    if metric_sampling_seed is not None and metric_sampling_percentage >= 1:
         raise ValueError(
-            "metric_sampling_seed requires metric_sampling_percentage to be set."
+            "metric_sampling_seed requires metric_sampling_percentage below 1."
         )
 
     if metric_sampling_seed is not None and (
@@ -296,7 +296,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     transform_type: Literal["translation", "rigid", "affine"],
     metric: Literal["correlation", "mattes_mi"] = ...,
     number_of_histogram_bins: int = ...,
-    metric_sampling_percentage: float | None = ...,
+    metric_sampling_percentage: float = ...,
     metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
@@ -333,7 +333,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     transform_type: Literal["bspline"],
     metric: Literal["correlation", "mattes_mi"] = ...,
     number_of_histogram_bins: int = ...,
-    metric_sampling_percentage: float | None = ...,
+    metric_sampling_percentage: float = ...,
     metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
@@ -369,7 +369,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving_mask: xr.DataArray | None = ...,
     metric: Literal["correlation", "mattes_mi"] = ...,
     number_of_histogram_bins: int = ...,
-    metric_sampling_percentage: float | None = ...,
+    metric_sampling_percentage: float = ...,
     metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
@@ -405,7 +405,7 @@ def register_volume(
     transform_type: Literal["translation", "rigid", "affine", "bspline"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
     number_of_histogram_bins: int = 50,
-    metric_sampling_percentage: float | None = None,
+    metric_sampling_percentage: float = 1.0,
     metric_sampling_seed: int | None = None,
     learning_rate: float | Literal["auto"] = "auto",
     number_of_iterations: int = 100,
@@ -470,12 +470,12 @@ def register_volume(
     number_of_histogram_bins : int, default: 50
         Number of histogram bins used by Mattes mutual information. Only
         relevant when using `"mattes_mi"` metric.
-    metric_sampling_percentage : float, optional
+    metric_sampling_percentage : float, default: 1.0
         Percentage of voxels randomly sampled when computing the metric, in `(0, 1]`.
-        If not provided, all voxels are used.
+        A value of `1.0` uses all voxels without random sampling.
     metric_sampling_seed : int, optional
-        Seed for random metric sampling. If not provided, SimpleITK seeds from the wall
-        clock.
+        Seed for random metric sampling. Only used when `metric_sampling_percentage < 1`.
+        If not provided, SimpleITK's default `sitkWallClock` seed is used.
     learning_rate : float or "auto", default: "auto"
         Optimizer step size in normalized units. `"auto"` re-estimates the rate at
         every iteration. A float uses that value directly; if registration diverges or
@@ -621,7 +621,7 @@ def register_volume(
         `number_of_histogram_bins` is not a positive integer.
     ValueError
         If `metric_sampling_percentage` is outside `(0, 1]`, or if
-        `metric_sampling_seed` is negative or provided without sampling.
+        `metric_sampling_seed` is negative or provided without random sampling.
     ValueError
         If `shrink_factors` and `smoothing_sigmas` have different lengths.
     ValueError
@@ -697,7 +697,7 @@ def register_volume(
             numberOfHistogramBins=number_of_histogram_bins
         )
 
-    if metric_sampling_percentage is not None:
+    if metric_sampling_percentage < 1:
         registration.SetMetricSamplingStrategy(registration.RANDOM)
         if metric_sampling_seed is None:
             registration.SetMetricSamplingPercentage(metric_sampling_percentage)

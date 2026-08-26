@@ -42,7 +42,7 @@ class FUSIRegistrationAccessor:
         transform: Literal["translation", "rigid", "affine", "bspline"] = "rigid",
         metric: Literal["correlation", "mattes_mi"] = "correlation",
         number_of_histogram_bins: int = 50,
-        metric_sampling_percentage: float | None = None,
+        metric_sampling_percentage: float = 1.0,
         metric_sampling_seed: int | None = None,
         learning_rate: float | Literal["auto"] = "auto",
         number_of_iterations: int = 100,
@@ -82,12 +82,13 @@ class FUSIRegistrationAccessor:
             Similarity metric for registration.
         number_of_histogram_bins : int, default: 50
             Number of histogram bins (only used when `metric="mattes_mi"`).
-        metric_sampling_percentage : float, optional
+        metric_sampling_percentage : float, default: 1.0
             Percentage of voxels randomly sampled when computing the metric, in `(0, 1]`.
-            If not provided, all voxels are used.
+            A value of `1.0` uses all voxels without random sampling.
         metric_sampling_seed : int, optional
-            Seed for random metric sampling. If not provided, SimpleITK seeds from the
-            wall clock.
+            Seed for random metric sampling. Only used when
+            `metric_sampling_percentage < 1`. If not provided, SimpleITK's default
+            `sitkWallClock` seed is used.
         learning_rate : float or "auto", default: "auto"
             Optimizer step size in normalised units (after
             `SetOptimizerScalesFromPhysicalShift`). `"auto"` re-estimates the rate at
