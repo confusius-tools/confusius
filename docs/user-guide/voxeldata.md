@@ -384,10 +384,10 @@ pose.
 
 Several loaders populate `.attrs["affines"]` automatically:
 
-- **NIfTI**: The world space is whichever affine (`sform` or `qform`) was selected—it
-  never appears in `.attrs["affines"]` itself. When the other one is also valid, it is
-  stored as `"world_to_sform"` or `"world_to_qform"` accordingly, so the world space can
-  be switched between the two. [`save_nifti`][confusius.io.save_nifti] can write any
+- **NIfTI**: The world space is whichever affine (`sform` or `qform`) was selected; its
+  own entry (`"world_to_sform"` or `"world_to_qform"`) is the identity. When the other
+  one is also valid, it is stored under the other key, so the world space can be
+  switched between the two. [`save_nifti`][confusius.io.save_nifti] can write any
   named affine in `.attrs["affines"]` back to the header via its `qform=`/`sform=`
   arguments, defaulting to `"world_to_qform"`/`"world_to_sform"` when not specified.
 - **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] stores a
@@ -438,7 +438,8 @@ Applying `world_to_qform` absorbs the rotation into the DataArray's voxel-to-wor
 affine, and the derived `z`/`y` coordinates change accordingly. The `qform` space
 becomes the new world space, and `"world_to_qform"` is dropped from the result:
 applying a stored affine by its own key re-anchors the world space to exactly that
-space, so the entry would carry no information any more.
+space, so the entry would carry no information any more. The `sform` entry, identity
+before, now holds the inverse rotation, so the `sform` space stays recoverable.
 
 ```pycon
 >>> da_q = da.fusi.affine.apply("world_to_qform")
@@ -448,7 +449,10 @@ array([-0.5, -1.5, -2.5, -3.5, -0.5, -1.5, -2.5, -3.5, -0.5, -1.5, -2.5,
 >>> da_q.coords["y"].values.flatten()
 array([-1., -1., -1., -1.,  0.,  0.,  0.,  0.,  1.,  1.,  1.,  1.])
 >>> da_q.attrs["affines"]
-{}
+{'world_to_sform': array([[ 0.,  1.,  0.,  0.],
+       [-1.,  0.,  0.,  0.],
+       [ 0.,  0.,  1.,  0.],
+       [ 0.,  0.,  0.,  1.]])}
 ```
 
 See [Affine Transforms](xarray.md#affine-transforms) in Working with Xarray for
