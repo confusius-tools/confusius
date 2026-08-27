@@ -411,8 +411,9 @@ class FUSIPlotAccessor:
             Slices are selected by nearest-neighbour lookup. If not provided,
             all coordinate values along `slice_mode` are used.
         slice_mode : str, optional
-            Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`,
-            `"time"`). If not provided, planar data is sliced along its singleton
+            World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+            slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid
+            slice modes. If not provided, planar data is sliced along its singleton
             world dimension and full 3D data is sliced along `"z"`. After slicing,
             each panel must be 2D.
         transpose : bool, default: False
@@ -607,8 +608,9 @@ class FUSIPlotAccessor:
         linestyles : str, default: "solid"
             Line style for contour lines (e.g. `"solid"`, `"dashed"`).
         slice_mode : str, default: "z"
-            Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`).
-            After slicing, each panel must be 2D.
+            World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+            slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid
+            slice modes. After slicing, each panel must be 2D.
         slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along `slice_mode` at which to extract slices.
             Slices are selected by nearest-neighbour lookup. If not provided, all
@@ -749,8 +751,9 @@ class FUSIPlotAccessor:
             Slices are selected by nearest-neighbour lookup. If not provided,
             all coordinate values from this DataArray are used.
         slice_mode : str, default: "z"
-            Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
-            slicing, each panel must be 2D.
+            World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+            slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid
+            slice modes. After slicing, each panel must be 2D.
         transpose : bool, default: False
             Whether to swap the row/column display dims of each slice panel.
         alpha : float or numpy.ndarray, optional
@@ -914,8 +917,9 @@ class FUSIPlotAccessor:
             values from `bg_volume` (or this DataArray when `bg_volume` is not
             provided) along `slice_mode` are used.
         slice_mode : str, default: "z"
-            Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`, `"time"`).
-            After slicing, each panel must be 2D.
+            World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+            slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid
+            slice modes. After slicing, each panel must be 2D.
         transpose : bool, default: False
             Whether to swap the row/column display dims of each slice panel.
         bg_kwargs : dict, optional

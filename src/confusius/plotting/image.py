@@ -899,7 +899,9 @@ class VolumePlotter:
     Parameters
     ----------
     slice_mode : str
-        The dimension along which slices are taken (e.g., `"z"`).
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+        slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid slice
+        modes.
     figure : matplotlib.figure.Figure, optional
         The figure containing the axes. If not provided, a new figure will be created
         on the first call to
@@ -943,7 +945,8 @@ class VolumePlotter:
     Attributes
     ----------
     slice_mode : str
-        The dimension along which slices are taken.
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension being
+        sliced.
     figure : matplotlib.figure.Figure or None
         The figure. `None` until the first call to
         [`add_volume`][confusius.plotting.VolumePlotter.add_volume] when no figure
@@ -2650,8 +2653,9 @@ def plot_contours(
     linestyles : str, default: "solid"
         Line style for contour lines (e.g. `"solid"`, `"dashed"`).
     slice_mode : str, default: "z"
-        Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
-        slicing, each panel must be 2D.
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+        slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid slice
+        modes. After slicing, each panel must be 2D.
     slice_coords : list[collections.abc.Hashable], optional
         Coordinate values along `slice_mode` at which to extract slices. Numeric
         coordinates are matched by nearest-neighbour lookup; non-numeric
@@ -2796,19 +2800,20 @@ def plot_volume(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array. Unitary dimensions are squeezed before processing. After
-        squeezing, data must be 3D. Complex-valued data is converted to magnitude
-        before display.
+        Input data array. Unitary non-world dimensions are squeezed before
+        processing; singleton world display axes are preserved. After that, data
+        must be 3D. Complex-valued data is converted to magnitude before display.
     slice_coords : list[collections.abc.Hashable], optional
         Coordinate values along `slice_mode` at which to extract slices. Numeric
         coordinates are matched by nearest-neighbour lookup; non-numeric
         coordinates (e.g. region labels) require an exact match. If not provided,
         all coordinate values along `slice_mode` are used.
     slice_mode : str, optional
-        Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`,
-        `"time"`). If not provided, planar data is sliced along its singleton
-        world dimension and full 3D data is sliced along `"z"`. After slicing,
-        each panel must be 2D.
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+        slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid slice
+        modes. If not provided, planar data is sliced along its singleton world
+        dimension and full 3D data is sliced along `"z"`. After slicing, each panel
+        must be 2D.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
     cmap : str or matplotlib.colors.Colormap, optional
@@ -3078,8 +3083,9 @@ def plot_composite(
         coordinates (e.g. region labels) require an exact match. If not provided,
         from `data1` are used.
     slice_mode : str, default: "z"
-        Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After slicing, each
-        panel must be 2D.
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+        slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid slice
+        modes. After slicing, each panel must be 2D.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
     alpha : float or numpy.ndarray, optional
@@ -3272,8 +3278,9 @@ def plot_stat_map(
         all coordinate values from `bg_volume` (or `stat_map` when `bg_volume` is not
         provided) along `slice_mode` are used.
     slice_mode : str, default: "z"
-        Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`, `"time"`). After
-        slicing, each panel must be 2D.
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+        slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid slice
+        modes. After slicing, each panel must be 2D.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
     bg_kwargs : dict, optional
