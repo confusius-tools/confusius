@@ -49,8 +49,8 @@ volume = cf.load(data_path).mean(dim="time").fusi.scale.db().compute()
 #
 # [`plot_volume`][confusius.plotting.plot_volume] is the entry point for every figure:
 # it creates the figure, lays out one axes per slice coordinate, and returns the
-# [`VolumePlotter`][confusius.plotting.VolumePlotter] managing them. Our recording has a
-# single `z` slice, so this creates one axes. Later calls chain
+# [`VolumePlotter`][confusius.plotting.VolumePlotter] managing them. Planar data
+# defaults to its singleton world dimension, so this recording creates one axes. Later calls chain
 # [`add_volume`][confusius.plotting.VolumePlotter.add_volume]/[`add_contours`][confusius.plotting.VolumePlotter.add_contours]
 # onto the same plotter to overlay more data — see [Overlays, ROI contours, and
 # composites](overlays_and_contours.md). You should never need to construct
@@ -69,6 +69,7 @@ _ = cf.plotting.plot_volume(volume, bg_color=bg_color)
 #
 # For a volume with several coordinates along `slice_mode`, `plot_volume` lays out one
 # panel per coordinate automatically, computing `nrows`/`ncols` unless you provide them.
+# `slice_mode` can be a world dim (`z`/`y`/`x`) or an extra non-voxel dim, not `k`/`j`/`i`.
 # We use a real multi-slice angiography acquisition from the same session — a static 3D
 # power Doppler volume with 41 `z` slices spanning 4 mm — and `slice_coords` to pick out
 # three representative slices instead of showing all 41.
