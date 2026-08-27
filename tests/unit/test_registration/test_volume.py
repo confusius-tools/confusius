@@ -621,6 +621,35 @@ class TestRegisterVolumeIntensityScaling:
 
         assert calls == [expected_exponent, expected_exponent]
 
+    def test_db_calls_db_scale(self, sample_voxeldata_2d_registration, monkeypatch):
+        """intensity_scaling='db' calls db_scale, not power_scale."""
+        import confusius.xarray.scale as scale_module
+
+        calls: list[str] = []
+        original_db_scale = scale_module.db_scale
+
+        def spy_db_scale(data, *args, **kwargs):
+            calls.append("db_scale")
+            return original_db_scale(data, *args, **kwargs)
+
+        monkeypatch.setattr(scale_module, "db_scale", spy_db_scale)
+        monkeypatch.setattr(
+            scale_module,
+            "power_scale",
+            lambda *a, **k: calls.append("power_scale") or a[0],
+        )
+
+        register_volume(
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
+            transform_type="translation",
+            intensity_scaling="db",
+            number_of_iterations=1,
+            resample=False,
+        )
+
+        assert calls == ["db_scale", "db_scale"]
+
     def test_none_does_not_scale_optimizer_inputs(
         self, sample_voxeldata_2d_registration, monkeypatch
     ):

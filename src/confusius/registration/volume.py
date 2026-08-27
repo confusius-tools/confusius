@@ -266,17 +266,14 @@ def _apply_intensity_scaling(
     data : xarray.DataArray
         Input VoxelData array.
     intensity_scaling : {"none", "db", "sqrt"} or float
-        Scaling mode to apply. Floats apply power scaling with that exponent.
+        Scaling mode to apply. Assumed already validated by
+        `_validate_register_volume_inputs`. Floats apply power scaling with that
+        exponent.
 
     Returns
     -------
     xarray.DataArray
         Scaled data for optimization, or `data` unchanged.
-
-    Raises
-    ------
-    ValueError
-        If `intensity_scaling` is not recognized.
     """
     if intensity_scaling == "none":
         return data
@@ -286,11 +283,7 @@ def _apply_intensity_scaling(
         return db_scale(data)
     if intensity_scaling == "sqrt":
         return power_scale(data, exponent=0.5)
-    if isinstance(intensity_scaling, (int, float)) and not isinstance(
-        intensity_scaling, bool
-    ):
-        return power_scale(data, exponent=float(intensity_scaling))
-    raise ValueError(f"Unknown intensity_scaling: {intensity_scaling!r}.")
+    return power_scale(data, exponent=float(intensity_scaling))
 
 
 def _translate_registration_runtime_error(
