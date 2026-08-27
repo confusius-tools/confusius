@@ -628,6 +628,56 @@ class TestPlotVolume:
         assert _axes(plotter).shape == (1, 1)
         assert len(_axes(plotter)[0, 0].collections) == 1
 
+    def test_default_slice_mode_uses_singleton_world_dim_for_planar_oblique(
+        self, matplotlib_pyplot
+    ):
+        """plot_volume defaults to the plane-normal world axis for 2D scans."""
+        data = create_voxeldata(
+            np.arange(1 * 4 * 5, dtype=float).reshape(1, 4, 5),
+            dims=("k", "j", "i"),
+            voxel_to_world=np.array(
+                [
+                    [0.0, 0.0, -0.11, 6.785],
+                    [0.0, 0.1, 0.0, 65.0],
+                    [1.0, 0.0, 0.0, -2.7],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+        )
+
+        plotter = plot_volume(data, show_colorbar=False)
+
+        assert plotter.slice_mode == "x"
+        assert _axes(plotter).shape == (1, 1)
+
+    def test_spatial_slice_mode_can_plot_singleton_display_axis(
+        self, matplotlib_pyplot
+    ):
+        """Explicit in-plane slicing of 2D scans plots line-strip panels."""
+        data = create_voxeldata(
+            np.arange(1 * 4 * 5, dtype=float).reshape(1, 4, 5),
+            dims=("k", "j", "i"),
+            voxel_to_world=np.array(
+                [
+                    [0.0, 0.0, -0.11, 6.785],
+                    [0.0, 0.1, 0.0, 65.0],
+                    [1.0, 0.0, 0.0, -2.7],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+        )
+
+        plotter = plot_volume(
+            data,
+            slice_mode="z",
+            slice_coords=[float(data.coords["z"].min())],
+            show_colorbar=False,
+        )
+
+        assert plotter.slice_mode == "z"
+        assert _axes(plotter).shape == (1, 1)
+        assert len(_axes(plotter)[0, 0].collections) == 1
+
     def test_non_monotonic_voxel_coords_are_rejected(
         self, sample_voxeldata_3d, matplotlib_pyplot
     ):

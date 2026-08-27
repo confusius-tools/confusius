@@ -76,6 +76,39 @@ def _compute_grid_dims(
     return nrows, ncols
 
 
+def _resolve_plot_volume_slice_mode(
+    data: xr.DataArray,
+    slice_mode: str | None,
+) -> str:
+    """Resolve the default slice axis for `plot_volume`.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to inspect.
+    slice_mode : str, optional
+        User-provided slice mode. If provided, returned unchanged.
+
+    Returns
+    -------
+    str
+        User-provided `slice_mode`, the only constant world dimension for planar
+        data, or `"z"` otherwise.
+    """
+    if slice_mode is not None:
+        return slice_mode
+
+    constant_world_dims = []
+    for dim in WORLD_DIMS:
+        if dim not in data.coords:
+            continue
+        values = np.asarray(data.coords[dim].values, dtype=float)
+        if values.size and np.isclose(np.nanmin(values), np.nanmax(values)):
+            constant_world_dims.append(dim)
+
+    return constant_world_dims[0] if len(constant_world_dims) == 1 else "z"
+
+
 def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
     """Convert 1D coordinate centers to cell edge positions for `pcolormesh`.
 
@@ -1120,7 +1153,12 @@ class VolumePlotter:
         _nrows, _ncols = _compute_grid_dims(n_slices, nrows, ncols)
 
         if self.figure is None:
-            if x_range is not None and y_range is not None and y_range > 0:
+            if (
+                x_range is not None
+                and y_range is not None
+                and x_range > 0
+                and y_range > 0
+            ):
                 aspect = x_range / y_range
                 subplot_width = _BASE_SIZE * max(1.0, aspect)
                 subplot_height = _BASE_SIZE * max(1.0, 1.0 / aspect)
@@ -1416,7 +1454,11 @@ class VolumePlotter:
             data = materialize_axis_aligned_world_grid_for_display(data)
 
         squeeze_dims = [
-            d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
+            d
+            for d in data.dims
+            if d != self.slice_mode
+            and data.sizes[d] == 1
+            and (self.slice_mode not in WORLD_DIMS or d not in WORLD_DIMS)
         ]
         if squeeze_dims:
             data = data.squeeze(dim=squeeze_dims)
@@ -2714,7 +2756,7 @@ def plot_volume(
     data: xr.DataArray,
     *,
     slice_coords: list[Hashable] | None = None,
-    slice_mode: str = "z",
+    slice_mode: str | None = None,
     transpose: bool = False,
     cmap: "str | Colormap | None" = None,
     norm: "Normalize | None" = None,
@@ -2748,6 +2790,8 @@ def plot_volume(
 
     Displays a series of 2D slices extracted along `slice_mode` as a grid of subplots.
     Each slice is rendered using world coordinates for axis ticks when available.
+    If `slice_mode` is not provided and `data` is planar, the singleton world
+    dimension is used; otherwise the default is `"z"`.
 
     Parameters
     ----------
@@ -2760,9 +2804,11 @@ def plot_volume(
         coordinates are matched by nearest-neighbour lookup; non-numeric
         coordinates (e.g. region labels) require an exact match. If not provided,
         all coordinate values along `slice_mode` are used.
-    slice_mode : str, default: "z"
+    slice_mode : str, optional
         Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`,
-        `"time"`). After slicing, each panel must be 2D.
+        `"time"`). If not provided, planar data is sliced along its singleton
+        world dimension and full 3D data is sliced along `"z"`. After slicing,
+        each panel must be 2D.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
     cmap : str or matplotlib.colors.Colormap, optional
@@ -2911,8 +2957,9 @@ def plot_volume(
     ...     cbar_label="Power (dB)",
     ... )
     """
+    resolved_slice_mode = _resolve_plot_volume_slice_mode(data, slice_mode)
     plotter = VolumePlotter(
-        slice_mode=slice_mode,
+        slice_mode=resolved_slice_mode,
         figure=figure,
         axes=axes,
         bg_color=bg_color,

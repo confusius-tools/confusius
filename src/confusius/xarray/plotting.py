@@ -370,7 +370,7 @@ class FUSIPlotAccessor:
     def volume(
         self,
         slice_coords: list[Hashable] | None = None,
-        slice_mode: str = "z",
+        slice_mode: str | None = None,
         transpose: bool = False,
         nrows: int | None = None,
         ncols: int | None = None,
@@ -410,9 +410,11 @@ class FUSIPlotAccessor:
             Coordinate values along `slice_mode` at which to extract slices.
             Slices are selected by nearest-neighbour lookup. If not provided,
             all coordinate values along `slice_mode` are used.
-        slice_mode : str, default: "z"
+        slice_mode : str, optional
             Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`,
-            `"time"`). After slicing, each panel must be 2D.
+            `"time"`). If not provided, planar data is sliced along its singleton
+            world dimension and full 3D data is sliced along `"z"`. After slicing,
+            each panel must be 2D.
         transpose : bool, default: False
             Whether to swap the row/column display dims of each slice panel.
         nrows : int, optional
