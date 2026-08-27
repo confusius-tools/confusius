@@ -100,8 +100,6 @@ def _resolve_plot_volume_slice_mode(
 
     constant_world_dims = []
     for dim in WORLD_DIMS:
-        if dim not in data.coords:
-            continue
         values = np.asarray(data.coords[dim].values, dtype=float)
         if values.size and np.isclose(np.nanmin(values), np.nanmax(values)):
             constant_world_dims.append(dim)
