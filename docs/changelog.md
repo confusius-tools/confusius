@@ -153,6 +153,8 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- `load_scan` now opens Iconeus SCAN v1 files marked as `4DscanCustom`
+  ([#406](https://github.com/confusius-tools/confusius/pull/406)).
 - `save_nifti` now always writes both a qform and sform (previously sform was
   silently dropped when no secondary affine had been explicitly recorded)
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).

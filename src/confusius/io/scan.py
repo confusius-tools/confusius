@@ -450,13 +450,13 @@ def load_scan(
 
         - v1 `2Dscan` → `(time, k, j, i)`.
         - v1 `3Dscan` → `(pose, k, j, i)`.
-        - v1 `4Dscan` → `(time, pose, k, j, i)`.
+        - v1 `4Dscan`/`4DscanCustom` → `(time, pose, k, j, i)`.
         - v2 single-pose → `(time, k, j, i)`.
         - v2 multi-pose is currently unsupported (see Raises).
 
         World coordinates `z`, `y`, `x` are in millimeters. The `time` coordinate is in
-        seconds. For v1 `4Dscan`, `time` is pose-dependent (`(time, pose)`-shaped),
-        holding each pose's own acquisition timestamps directly.
+        seconds. For v1 `4Dscan`/`4DscanCustom`, `time` is pose-dependent
+        (`(time, pose)`-shaped), holding each pose's own acquisition timestamps directly.
 
     Raises
     ------
@@ -464,8 +464,9 @@ def load_scan(
         If `path` does not exist or is not a file, if the file is neither an
         HDF5-based SCAN (v1) nor a binary SCAN v2 file, if a v2 file's experimental
         `probe_to_lab` affine cannot be built, if a v1 `acquisitionMode` is not one
-        of `"2Dscan"`, `"3Dscan"`, or `"4Dscan"`, or if a v2 file has multiple poses
-        (currently unsupported -- how v2 encodes per-pose geometry isn't known yet).
+        of `"2Dscan"`, `"3Dscan"`, `"4Dscan"`, or `"4DscanCustom"`, or if a v2 file has
+        multiple poses (currently unsupported -- how v2 encodes per-pose geometry isn't
+        known yet).
 
     Notes
     -----
@@ -577,7 +578,7 @@ def _load_scan_v1(
     ------
     ValueError
         If the `acquisitionMode` stored in the file is not one of `"2Dscan"`,
-        `"3Dscan"`, or `"4Dscan"`.
+        `"3Dscan"`, `"4Dscan"`, or `"4DscanCustom"`.
     """
     h5 = h5py.File(path, "r")
 
@@ -618,7 +619,7 @@ def _load_scan_v1(
             data_array = _load_2dscan(h5, raw_lazy, attrs, voxel_to_world)
         elif mode == "3Dscan":
             data_array = _load_3dscan(raw_lazy, attrs, npose, voxel_to_world)
-        elif mode == "4Dscan":
+        elif mode in {"4Dscan", "4DscanCustom"}:
             data_array = _load_4dscan(
                 h5,
                 raw_lazy,
@@ -630,7 +631,7 @@ def _load_scan_v1(
         else:
             raise ValueError(
                 f"Unknown acquisitionMode: {mode!r}. Expected one of '2Dscan',"
-                " '3Dscan', '4Dscan'."
+                " '3Dscan', '4Dscan', '4DscanCustom'."
             )
 
         data_array.name = attrs["iconeus_scan"] or path.stem
