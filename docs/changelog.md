@@ -153,6 +153,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- `plot_volume` now defaults planar VoxelData arrays to their singleton world
+  dimension and preserves singleton display axes for explicit spatial slicing
+  ([#407](https://github.com/confusius-tools/confusius/pull/407)).
 - `save_nifti` now always writes both a qform and sform (previously sform was
   silently dropped when no secondary affine had been explicitly recorded)
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
