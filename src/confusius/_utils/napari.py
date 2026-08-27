@@ -119,19 +119,28 @@ def get_napari_scale_translate_units(
     scale: list[float] = []
     translate: list[float] = []
     axis_labels: list[str] = []
+    units: list[str | None] = []
     for dim in all_dims:
-        world_name = world_dim.get(dim, dim)
-        world_coord = data.coords.get(world_name)
-        if world_coord is not None and world_coord.dims == (dim,):
-            values = np.asarray(world_coord.values, dtype=float)
+        # `coord_name` is the true linked world coordinate (z/y/x) for a native
+        # voxel dim (k/j/i); for any other dim it's just that dim's own name, and
+        # `coord` -- if present -- isn't necessarily a world coordinate at all (e.g.
+        # a `stack` dim's coordinate may hold non-numeric recording IDs).
+        coord_name = world_dim.get(dim, dim)
+        coord = data.coords.get(coord_name)
+        if (
+            coord is not None
+            and coord.dims == (dim,)
+            and np.issubdtype(coord.dtype, np.number)
+        ):
+            values = np.asarray(coord.values, dtype=float)
             scale.append(spacing[dim])
             translate.append(np.float64(values[0]).item())
-            axis_labels.append(world_name)
+            axis_labels.append(coord_name)
         else:
             scale.append(spacing[dim])
             translate.append(
-                origin[world_name]
-                if world_name in origin
+                origin[coord_name]
+                if coord_name in origin
                 else (
                     np.float64(
                         np.asarray(data.coords[dim].values, dtype=float)[0]
@@ -140,18 +149,12 @@ def get_napari_scale_translate_units(
                     else 0.0
                 )
             )
-            axis_labels.append(world_name if world_name in data.coords else dim)
-    units: list[str | None] = []
-    for dim in all_dims:
-        world_name = world_dim.get(dim, dim)
-        # world_name only ever differs from dim for k/j/i, and .fusi.spacing above
-        # already requires a real VoxelToWorldIndex covering every present voxel
-        # dim -- so a voxel dim's world coordinate is never missing while the dim
-        # itself has one; the two checks can't diverge.
-        if world_name in data.coords:
-            units.append(data.coords[world_name].attrs.get("units"))
-        else:
-            units.append(None)
+            axis_labels.append(coord_name if coord_name in data.coords else dim)
+        units.append(
+            data.coords[coord_name].attrs.get("units")
+            if coord_name in data.coords
+            else None
+        )
     return scale, translate, axis_labels, units, non_uniform, spacing
 
 

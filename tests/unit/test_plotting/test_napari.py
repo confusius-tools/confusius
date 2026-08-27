@@ -140,6 +140,20 @@ class TestPlotNapari:
         assert layer.translate[0] == pytest.approx(0.0)
         viewer.close()
 
+    def test_string_coordinate_dim_falls_back_to_scale_1(
+        self, sample_voxeldata_3d, make_napari_viewer
+    ):
+        """A dim with non-numeric (e.g. string) coordinates uses scale=1.0."""
+        da = sample_voxeldata_3d.expand_dims(session=["cp230328a"])
+        viewer = make_napari_viewer()
+        _, layer = plot_napari(
+            da, viewer=viewer, show_colorbar=False, show_scale_bar=False
+        )
+
+        assert layer.scale[0] == pytest.approx(1.0)
+        assert layer.translate[0] == pytest.approx(0.0)
+        viewer.close()
+
     def test_dim_order_reorders_4d_display_axes(
         self, sample_voxeldata_3dt, make_napari_viewer
     ):
