@@ -109,9 +109,10 @@ Current development version for the next ConfUSIus release.
 ### :sparkles: Enhancements
 
 - [`register_volume`][confusius.registration.register_volume] now supports random
-  metric sampling via `metric_sampling_percentage`, with optional deterministic
-  seeding via `metric_sampling_seed`, to speed up large affine or B-spline
-  registrations ([#396](https://github.com/confusius-tools/confusius/issues/396)).
+  metric sampling via `metric_sampling_percentage` (`None` by default, disabling
+  random sampling), with optional deterministic seeding via `metric_sampling_seed`,
+  to speed up large affine or B-spline registrations
+  ([#396](https://github.com/confusius-tools/confusius/issues/396)).
 - `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
   support pose-dependent voxel-to-world geometry: a `(npose, 4, 4)` affine
   stack, one per pose, instead of one affine shared by every pose. New
