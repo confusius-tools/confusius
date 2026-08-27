@@ -31,7 +31,7 @@ def get_default_registration_parameters(
     return {
         "transform": "rigid",
         "metric": "correlation",
-        "scale": "dB",
+        "scale": "db",
         "initialization": "center_geometry",
         "learning_rate_auto": not is_volumewise,
         "learning_rate_value": 0.01,

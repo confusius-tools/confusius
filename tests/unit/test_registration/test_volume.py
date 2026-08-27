@@ -286,6 +286,18 @@ class TestRegisterVolumeValidation:
         assert calls["strategy"] == sitk.ImageRegistrationMethod().RANDOM
         assert calls["percentage"] == expected_args
 
+    @pytest.mark.parametrize("intensity_scaling", ["gamma", 0.0, -1.0, float("nan")])
+    def test_invalid_intensity_scaling_raises(
+        self, sample_voxeldata_2d_registration, intensity_scaling
+    ):
+        """An unknown mode or non-positive exponent raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid intensity_scaling"):
+            register_volume(
+                sample_voxeldata_2d_registration,
+                sample_voxeldata_2d_registration,
+                intensity_scaling=intensity_scaling,
+            )
+
     def test_shape_mismatch_no_error(self, sample_voxeldata_2d_registration):
         """Different shapes do not raise an error."""
         moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16))
@@ -570,6 +582,84 @@ class TestRegisterVolumeOutput:
         )
         assert type(result.xindexes["x"]).__name__ == "VoxelToWorldIndex"
         assert result.coords["i"].dims == fixed.coords["i"].dims
+
+
+class TestRegisterVolumeIntensityScaling:
+    """intensity_scaling applies power scaling to the optimizer inputs only."""
+
+    @pytest.mark.parametrize(
+        ("intensity_scaling", "expected_exponent"),
+        [("sqrt", 0.5), (2.0, 2.0), (0.3, 0.3)],
+    )
+    def test_scales_optimizer_inputs_with_exponent(
+        self,
+        sample_voxeldata_2d_registration,
+        monkeypatch,
+        intensity_scaling,
+        expected_exponent,
+    ):
+        """Float/sqrt intensity_scaling calls power_scale with the right exponent."""
+        import confusius.xarray.scale as scale_module
+
+        calls: list[float] = []
+        original_power_scale = scale_module.power_scale
+
+        def spy_power_scale(data, exponent=0.5):
+            calls.append(exponent)
+            return original_power_scale(data, exponent=exponent)
+
+        monkeypatch.setattr(scale_module, "power_scale", spy_power_scale)
+
+        register_volume(
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
+            transform_type="translation",
+            intensity_scaling=intensity_scaling,
+            number_of_iterations=1,
+            resample=False,
+        )
+
+        assert calls == [expected_exponent, expected_exponent]
+
+    def test_none_does_not_scale_optimizer_inputs(
+        self, sample_voxeldata_2d_registration, monkeypatch
+    ):
+        """intensity_scaling='none' does not call power_scale or db_scale."""
+        import confusius.xarray.scale as scale_module
+
+        calls: list[str] = []
+        monkeypatch.setattr(
+            scale_module,
+            "power_scale",
+            lambda *a, **k: calls.append("power_scale") or a[0],
+        )
+        monkeypatch.setattr(
+            scale_module, "db_scale", lambda *a, **k: calls.append("db_scale") or a[0]
+        )
+
+        register_volume(
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
+            transform_type="translation",
+            intensity_scaling="none",
+            number_of_iterations=1,
+            resample=False,
+        )
+
+        assert calls == []
+
+    def test_output_intensities_are_unscaled(self, sample_voxeldata_2d_registration):
+        """Registered output keeps original intensities regardless of intensity_scaling."""
+        result, _, _ = register_volume(
+            sample_voxeldata_2d_registration,
+            sample_voxeldata_2d_registration,
+            transform_type="translation",
+            intensity_scaling=2.0,
+            number_of_iterations=1,
+        )
+        assert (
+            result.values.max() <= sample_voxeldata_2d_registration.values.max() + 1e-5
+        )
 
 
 class TestRegisterVolumeMask:

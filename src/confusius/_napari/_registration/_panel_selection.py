@@ -151,8 +151,8 @@ def current_scale_mode(panel: RegistrationPanel) -> ScaleMode:
 
     Returns
     -------
-    {"off", "dB", "sqrt"}
-        Selected registration scale mode.
+    {"none", "db", "sqrt"}
+        Selected registration intensity scaling mode.
 
     Raises
     ------
@@ -160,9 +160,9 @@ def current_scale_mode(panel: RegistrationPanel) -> ScaleMode:
         If the combo box contains an unexpected value.
     """
     value = panel._scale_combo.currentData()
-    if value in {"off", "dB", "sqrt"}:
+    if value in {"none", "db", "sqrt"}:
         return value
-    raise ValueError(f"Unknown registration scale mode: {value!r}.")
+    raise ValueError(f"Unknown registration intensity scaling: {value!r}.")
 
 
 def current_metric(panel: RegistrationPanel) -> MetricName:

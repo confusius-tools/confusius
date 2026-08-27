@@ -75,7 +75,6 @@ from confusius._napari._registration._panel_transforms import (
 )
 from confusius._napari._registration._panel_utils import (
     ScientificDoubleSpinBox,
-    _apply_registration_scale,
     _get_source_dataarray,
     _is_registration_source_layer,
     _parse_comma_separated_ints,
@@ -98,7 +97,7 @@ if TYPE_CHECKING:
     from napari.layers import Image, Layer
 
 
-ScaleMode = Literal["off", "dB", "sqrt"]
+ScaleMode = Literal["none", "db", "sqrt"]
 """Allowed registration intensity-scaling modes used by the panel."""
 
 MetricName = Literal["correlation", "mattes_mi"]
@@ -664,16 +663,16 @@ class RegistrationPanel(QWidget):
         self._scale_combo.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self._scale_combo.addItem("decibel", "dB")
+        self._scale_combo.addItem("decibel", "db")
         self._scale_combo.addItem("square root", "sqrt")
-        self._scale_combo.addItem("none", "off")
+        self._scale_combo.addItem("none", "none")
         self._scale_combo.setToolTip(
-            "Optional intensity preprocessing applied before registration and used for registration preview layers."
+            "Intensity scaling used only by the registration optimizer; result layers keep original intensities."
         )
         params_layout.addRow(
             self._make_form_label(
-                "Scale",
-                tooltip="Optional intensity preprocessing applied before registration and used for registration preview layers.",
+                "Intensity scaling",
+                tooltip="Intensity scaling used only by the registration optimizer; result layers keep original intensities.",
             ),
             self._scale_combo,
         )
@@ -1667,8 +1666,6 @@ class RegistrationPanel(QWidget):
 
             moving = _prepare_between_scan_data(moving)
             fixed = _prepare_between_scan_data(fixed)
-            moving = _apply_registration_scale(moving, scale_mode)
-            fixed = _apply_registration_scale(fixed, scale_mode)
 
             initial_transform: npt.NDArray[np.floating] | None = None
             try:
@@ -1742,7 +1739,6 @@ class RegistrationPanel(QWidget):
                         )
                     ),
                     initial_transform=initial_transform,
-                    scale_mode=volume_payload["scale"],
                 )
             except Exception:  # noqa: BLE001
                 return
@@ -1768,6 +1764,7 @@ class RegistrationPanel(QWidget):
                 shrink_factors=volume_payload["shrink_factors"] or (6, 2, 1),
                 smoothing_sigmas=volume_payload["smoothing_sigmas"] or (6, 2, 1),
                 fill_value=volume_payload["fill_value"],
+                intensity_scaling=volume_payload["scale"],
                 sitk_threads=volume_payload["sitk_threads"],
                 show_progress=True,
                 progress_plotter=progress_plotter,
@@ -1819,8 +1816,6 @@ class RegistrationPanel(QWidget):
                 "reference_time": self._reference_time_spin.value(),
                 "n_jobs": self._n_jobs_spin.value(),
             }
-            moving = _apply_registration_scale(moving, volumewise_payload["scale"])
-
             progress_reporter = setup_volumewise_progress(
                 self,
                 moving_layer=cast("Image", moving_layer),
@@ -1830,7 +1825,6 @@ class RegistrationPanel(QWidget):
                         volumewise_payload["moving_layer_name"]
                     )
                 ),
-                scale_mode=volumewise_payload["scale"],
             )
 
             worker = thread_worker(register_volumewise)(
@@ -1844,6 +1838,7 @@ class RegistrationPanel(QWidget):
                 use_multi_resolution=volumewise_payload["use_multi_resolution"],
                 resample_interpolation=volumewise_payload["resample_interpolation"],
                 number_of_histogram_bins=volumewise_payload["number_of_histogram_bins"],
+                intensity_scaling=volumewise_payload["scale"],
                 convergence_minimum_value=volumewise_payload[
                     "convergence_minimum_value"
                 ],

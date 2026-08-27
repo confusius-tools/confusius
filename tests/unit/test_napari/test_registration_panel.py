@@ -309,9 +309,15 @@ class TestOperationMode:
 
         assert registration_panel._transform_combo.currentText() == "rigid"
 
-    def test_scale_preprocessing_resets_gamma_for_previews(
+    def test_preview_layers_preserve_source_gamma(
         self, real_viewer, real_registration_panel
     ):
+        """Preview layers keep the source layers' gamma.
+
+        Intensity scaling is applied only to the registration optimizer's inputs
+        (inside `register_volume`/`register_volumewise`); preview layers always show
+        the original, unscaled data, so their gamma is never reset.
+        """
         moving_data = create_voxeldata(
             np.ones((4, 6), dtype=np.float32), dims=("j", "i"), spacing=(1.0, 0.2, 0.1)
         )
@@ -332,21 +338,6 @@ class TestOperationMode:
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
-            scale_mode="sqrt",
-        )
-        assert real_viewer.layers["Fixed"].gamma == pytest.approx(1.0)
-        assert real_viewer.layers["Moving"].gamma == pytest.approx(1.0)
-        assert real_viewer.layers["Registered (rigid)"].gamma == pytest.approx(1.0)
-
-        teardown_volume_progress(real_registration_panel)
-        create_volume_progress_plotter(
-            real_registration_panel,
-            moving_layer=moving,
-            fixed_layer=fixed_layer,
-            moving=moving_data,
-            fixed=fixed,
-            layer_name="Registered (rigid)",
-            scale_mode="off",
         )
         assert real_viewer.layers["Fixed"].gamma == pytest.approx(0.6)
         assert real_viewer.layers["Moving"].gamma == pytest.approx(0.4)
@@ -385,7 +376,6 @@ class TestOperationMode:
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
-            scale_mode="off",
         )
 
         after = (
@@ -1268,7 +1258,6 @@ class TestVolumewiseProgress:
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",
-            scale_mode="off",
         )
 
         assert registration_panel._volumewise_progress_layer is not None
@@ -1407,7 +1396,6 @@ class TestFinishedCallbacks:
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
-            scale_mode="off",
         )
         assert {"Fixed", "Moving", "Registered (rigid)"}.issubset(
             {layer.name for layer in real_viewer.layers}
@@ -1475,7 +1463,6 @@ class TestFinishedCallbacks:
             fixed=fixed,
             layer_name="Registered (rigid)",
             initial_transform=initial_transform,
-            scale_mode="off",
         )
 
         expected = resample_like(moving_data, fixed, initial_transform)
@@ -1517,7 +1504,6 @@ class TestFinishedCallbacks:
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
-            scale_mode="off",
         )
 
         next_arr = np.full((1, 4, 6), 0.5, dtype=np.float32)
@@ -1555,7 +1541,6 @@ class TestFinishedCallbacks:
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",
-            scale_mode="off",
         )
 
         registered = moving.copy(data=np.ones((3, 1, 4, 6), dtype=np.float32))
