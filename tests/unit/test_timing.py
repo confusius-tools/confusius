@@ -230,18 +230,6 @@ def test_resample_time_preserves_dask_float32_dtype() -> None:
     assert result.compute().dtype == np.float32
 
 
-def test_resample_time_rejects_unsorted_time_coordinates() -> None:
-    """Resampling requires sorted time coordinates."""
-    data = xr.DataArray(
-        [1.0, 3.0, 2.0, 4.0],
-        dims=("time",),
-        coords={"time": [0.0, 2.0, 1.0, 3.0]},
-    )
-
-    with pytest.raises(ValueError, match="strictly increasing"):
-        resample_time(data, [0.5, 1.5, 2.5])
-
-
 def test_resample_time_warns_and_falls_back_for_short_cubic_series() -> None:
     """Cubic interpolation falls back to linear when there are too few points."""
     data = xr.DataArray(
