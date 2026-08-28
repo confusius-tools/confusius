@@ -148,17 +148,18 @@ class _TimeOverlay:
 
         self._units = read_time_units(self._ref_layer)
 
-        overlay = self._viewer.text_overlay
+        overlay = self._viewer.canvas.overlays.text
         overlay.position = "bottom_left"
         overlay.font_size = 14
-        overlay.color = "white"  # type: ignore
+        overlay.color = "white"
         overlay.opacity = 0.6
         self._active = True
 
     def _deactivate(self) -> None:
         """Hide the overlay and clear cached state."""
-        self._viewer.text_overlay.visible = False
-        self._viewer.text_overlay.text = ""
+        overlay = self._viewer.canvas.overlays.text
+        overlay.visible = False
+        overlay.text = ""
         self._active = False
         self._time_idx = None
 
@@ -208,5 +209,6 @@ class _TimeOverlay:
             # available.
             time_val = float(self._viewer.dims.point[self._time_idx])
         base = f"{time_val:.2f} {self._units if self._units else ''}".rstrip()
-        self._viewer.text_overlay.text = base + self._event_status(time_val)
-        self._viewer.text_overlay.visible = True
+        overlay = self._viewer.canvas.overlays.text
+        overlay.text = base + self._event_status(time_val)
+        overlay.visible = True
