@@ -124,7 +124,7 @@ Current development version for the next ConfUSIus release.
 - [`db_scale`][confusius.xarray.scale.db_scale] and
   `data.fusi.scale.db` now default `factor` to `20` for complex-valued
   (amplitude) data and `10` otherwise, instead of always defaulting to `10`
-  ([#395](https://github.com/confusius-tools/confusius/issues/395)).
+  ([#414](https://github.com/confusius-tools/confusius/pull/414)).
 - `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
   support pose-dependent voxel-to-world geometry: a `(npose, 4, 4)` affine
   stack, one per pose, instead of one affine shared by every pose. New
