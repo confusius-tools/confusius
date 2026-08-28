@@ -183,6 +183,10 @@ Current development version for the next ConfUSIus release.
   input has it, instead of collapsing to a single pose; the explicit-`mask`
   path no longer rejects a `pose`-carrying mask either
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- `plot_napari` and the napari plugin no longer crash on a non-spatial dimension
+  with string coordinates (e.g. a recording-id stack dim); such a dimension now
+  falls back to scale 1/origin 0 like any other missing world geometry
+  ([#409](https://github.com/confusius-tools/confusius/pull/409)).
 
 ## 0.6.1
 
