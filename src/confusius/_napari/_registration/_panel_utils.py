@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import xarray as xr
@@ -14,7 +14,6 @@ from qtpy.QtWidgets import QDoubleSpinBox, QSizePolicy, QWidget
 
 from confusius._dims import TIME_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.geometry import attach_voxel_to_world_index
-from confusius.xarray.scale import db_scale, power_scale
 
 if TYPE_CHECKING:
     import napari
@@ -282,37 +281,6 @@ def _prepare_between_scan_data(data: xr.DataArray) -> xr.DataArray:
     return averaged
 
 
-def _apply_registration_scale(
-    data: xr.DataArray, scale_mode: Literal["off", "dB", "sqrt"]
-) -> xr.DataArray:
-    """Apply optional intensity preprocessing for registration.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Input data.
-    scale_mode : {"off", "dB", "sqrt"}
-        Intensity scaling mode used before registration.
-
-    Returns
-    -------
-    xarray.DataArray
-        Preprocessed data.
-
-    Raises
-    ------
-    ValueError
-        If `scale_mode` is not recognized.
-    """
-    if scale_mode == "off":
-        return data
-    if scale_mode == "dB":
-        return db_scale(data)
-    if scale_mode == "sqrt":
-        return power_scale(data, exponent=0.5)
-    raise ValueError(f"Unknown registration scale mode: {scale_mode}.")
-
-
 def _get_image_display_kwargs_from_layer(layer: Layer) -> dict[str, Any]:
     """Return image-display kwargs copied from an existing napari layer.
 
@@ -331,26 +299,6 @@ def _get_image_display_kwargs_from_layer(layer: Layer) -> dict[str, Any]:
         if hasattr(layer, attr):
             kwargs[attr] = getattr(layer, attr)
     return kwargs
-
-
-def _gamma_needs_reset(scale_mode: str) -> bool:
-    """Return whether registration preview/result gamma should be reset.
-
-    When using intensity scaling, the gamma of the preview and result layers is forced
-    to 1.0 to avoid double scaling. When scaling is off, the original layer gamma is
-    preserved.
-
-    Parameters
-    ----------
-    scale_mode : str
-        Registration intensity scaling mode.
-
-    Returns
-    -------
-    bool
-        Whether preview/result layers should force `gamma=1.0`.
-    """
-    return scale_mode != "off"
 
 
 def _parse_comma_separated_ints(text: str, expected_len: int = 3) -> tuple[int, ...]:
