@@ -160,7 +160,7 @@ Current development version for the next ConfUSIus release.
   via a bitmask lookup instead of once per region. Together, a `get_masks([...])` call
   over dozens of regions (e.g. combining all of an ontology's major divisions into one
   coarse map) is over an order of magnitude faster
-  ([#411](https://github.com/confusius-tools/confusius/pull/411)).
+  ([#412](https://github.com/confusius-tools/confusius/pull/412)).
 
 ### :bug: Fixes
 
@@ -182,7 +182,7 @@ Current development version for the next ConfUSIus release.
 ### :wrench: Maintenance
 
 - Bumped the `brainglobe-atlasapi` dependency to v3
-  ([#411](https://github.com/confusius-tools/confusius/pull/411)).
+  ([#412](https://github.com/confusius-tools/confusius/pull/412)).
 
 ## 0.6.1
 
