@@ -11,7 +11,7 @@ icon: lucide/history
 Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
-  
+
 **VoxelData model ([#278](https://github.com/confusius-tools/confusius/pull/278)):**
 
 - **ConfUSIus' canonical dims changed from `(...extra, time, pose, z, y, x)` to
@@ -94,13 +94,13 @@ Current development version for the next ConfUSIus release.
   matched against each voxel dimension's world-space direction); a sweep that
   isn't cleanly aligned with a single voxel dimension can never form the
   regular grid consolidation requires, so no override was needed.
-  
-**Others:**
+
+**Other:**
 
 - DataFrame `confounds` passed to
   [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] or
   [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix] must
-  now have a `time` column matching the run's `time` coordinates;. `confound_names` can
+  now have a `time` column matching the run's `time` coordinates. `confound_names` can
   no longer be combined with `confounds` that already carry names
   ([#398](https://github.com/confusius-tools/confusius/pull/398)).
 
