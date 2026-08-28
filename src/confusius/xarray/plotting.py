@@ -79,7 +79,10 @@ class FUSIPlotAccessor:
             Whether to show the scale bar.
         dim_order : tuple[str, ...], optional
             Dimension ordering for the spatial axes (last three dimensions). If not
-            provided, the ordering of the last three dimensions in `data` is used.
+            provided, singleton spatial dimensions (e.g. the elevation axis of a
+            single-slice acquisition) are placed first so the canvas always shows
+            the two axes that actually vary; otherwise the dimensions' native
+            ordering in `data` is used.
         viewer : napari.Viewer, optional
             Existing napari viewer to add the layer to. If not provided, a new
             viewer is created.
