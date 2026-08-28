@@ -1154,6 +1154,43 @@ class TestResampleVolume:
             [grid["output_origin"][name] for name in WORLD_DIMS],
         )
 
+    def test_auto_interpolation_uses_nearest_for_integer_dtype(
+        self, sample_voxeldata_2d_registration
+    ):
+        """`interpolation="auto"` matches explicit "nearest" for integer-dtype data."""
+        moving = sample_voxeldata_2d_registration.astype(np.int32)
+        grid = _resample_volume_grid_kwargs(sample_voxeldata_2d_registration)
+
+        result_auto = resample_volume(moving, np.eye(4), interpolation="auto", **grid)
+        result_nearest = resample_volume(
+            moving, np.eye(4), interpolation="nearest", **grid
+        )
+        assert_array_equal(result_auto.values, result_nearest.values)
+
+    def test_auto_interpolation_uses_linear_for_float_dtype(
+        self, sample_voxeldata_2d_registration
+    ):
+        """`interpolation="auto"` matches explicit "linear" for float-dtype data."""
+        grid = _resample_volume_grid_kwargs(sample_voxeldata_2d_registration)
+        # A non-identity translation forces genuine blending between voxels, so a
+        # "nearest" result would diverge from "linear" here.
+        transform = np.eye(4)
+        transform[1, 3] = 0.05
+
+        result_auto = resample_volume(
+            sample_voxeldata_2d_registration,
+            transform,
+            interpolation="auto",
+            **grid,
+        )
+        result_linear = resample_volume(
+            sample_voxeldata_2d_registration,
+            transform,
+            interpolation="linear",
+            **grid,
+        )
+        assert_allclose(result_auto.values, result_linear.values)
+
     def test_multiple_extra_dims_matches_looped_resample(
         self,
         sample_voxeldata_2d_extra_dim_registration,
@@ -1942,6 +1979,20 @@ class TestResampleLike:
         )
         assert "time" not in result.dims
         assert_allclose(result.values, expected.values)
+
+    def test_default_interpolation_is_auto_for_integer_dtype(
+        self, sample_voxeldata_2d_registration
+    ):
+        """The default `interpolation="auto"` is forwarded, matching explicit "nearest"."""
+        moving = sample_voxeldata_2d_registration.astype(np.int32)
+        result_default = resample_like(moving, sample_voxeldata_2d_registration, np.eye(4))
+        result_nearest = resample_like(
+            moving,
+            sample_voxeldata_2d_registration,
+            np.eye(4),
+            interpolation="nearest",
+        )
+        assert_array_equal(result_default.values, result_nearest.values)
 
     def test_singleton_reference_dim_without_spacing_raises_helpful_error(self):
         """Thin references without defined spacing are rejected with a repair hint."""
