@@ -54,7 +54,12 @@ def _check_spatial_alignment(
 
 
 def check_mask_dtype(mask: xr.DataArray, mask_name: str) -> None:
-    """Check that `mask` has boolean or single-label integer dtype.
+    """Check that `mask` has boolean dtype or binary numeric dtype.
+
+    A binary numeric mask (int or float) contains at most one distinct non-zero
+    value -- e.g. `{0, 1}` or `{0.0, 5.0}` -- which lets masks produced by tools that
+    don't support a boolean dtype (e.g. FSL/NiBabel-written NIfTI masks) pass
+    through unchanged instead of requiring an upfront `.astype(bool)`.
 
     Parameters
     ----------
@@ -66,22 +71,22 @@ def check_mask_dtype(mask: xr.DataArray, mask_name: str) -> None:
     Raises
     ------
     TypeError
-        If `mask` is not a boolean or single-label integer DataArray.
+        If `mask` is not a boolean or binary numeric DataArray.
     """
     if mask.dtype == bool:
         return
-    if np.issubdtype(mask.dtype, np.integer):
+    if np.issubdtype(mask.dtype, np.integer) or np.issubdtype(mask.dtype, np.floating):
         non_zero = np.unique(mask.values[mask.values != 0])
         if len(non_zero) > 1:
             raise TypeError(
-                f"{mask_name} has integer dtype with {len(non_zero)} distinct non-zero "
-                f"values. A mask must be boolean or have exactly one non-zero label "
-                f"(0 = background, one region id = foreground). "
+                f"{mask_name} has {mask.dtype} dtype with {len(non_zero)} distinct "
+                f"non-zero values. A mask must be boolean or binary (0 = background, "
+                f"one non-zero value = foreground). "
                 f"For multi-region extraction use extract_with_labels instead."
             )
         return
     raise TypeError(
-        f"{mask_name} must be boolean dtype or a single-label integer dtype, "
+        f"{mask_name} must be boolean dtype or a binary numeric dtype, "
         f"got {mask.dtype}."
     )
 
@@ -103,9 +108,11 @@ def validate_mask(
     Parameters
     ----------
     mask : xarray.DataArray
-        Mask to validate. Must have boolean dtype, or integer dtype with exactly one
-        non-zero value (0 = background, one region id = foreground). The latter format
-        is produced by [`get_masks`][confusius.atlas.AtlasAccessor.get_masks].
+        Mask to validate. Must have boolean dtype, or binary numeric dtype (0 =
+        background, at most one non-zero value = foreground). The latter format
+        is produced by [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and also
+        covers masks written by tools without a boolean dtype (e.g. FSL/NiBabel NIfTI
+        masks with values in `{0, 1}` or `{0.0, 1.0}`).
     data : xarray.DataArray
         VoxelData array to validate mask against.
     mask_name : str, default: "mask"
@@ -117,7 +124,7 @@ def validate_mask(
     Raises
     ------
     TypeError
-        If `mask` is not a boolean or single-label integer DataArray.
+        If `mask` is not a boolean or binary numeric DataArray.
     ValueError
         If `mask` or `data` isn't a valid VoxelData array, if `mask`'s voxel
         grid doesn't match `data`'s, or if `require_exact_dims` is set and `mask`'s
@@ -160,9 +167,11 @@ def ensure_mask(
     Parameters
     ----------
     mask : xarray.DataArray
-        Mask to validate. Must have boolean dtype, or integer dtype with exactly one
-        non-zero value (0 = background, one region id = foreground). The latter format
-        is produced by [`get_masks`][confusius.atlas.AtlasAccessor.get_masks].
+        Mask to validate. Must have boolean dtype, or binary numeric dtype (0 =
+        background, at most one non-zero value = foreground). The latter format
+        is produced by [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and also
+        covers masks written by tools without a boolean dtype (e.g. FSL/NiBabel NIfTI
+        masks with values in `{0, 1}` or `{0.0, 1.0}`).
     data : xarray.DataArray
         VoxelData array to validate mask against.
     mask_name : str, default: "mask"
@@ -171,10 +180,10 @@ def ensure_mask(
         Whether `mask.dims` must match all non-`time` dimensions of `data` in the same
         order.
     coerce_bool : bool, default: True
-        Whether to coerce the returned `mask` to boolean dtype. Single-label integer
-        masks (`{0, region_id}`) become `{False, True}` so callers can index with the
-        result without the integer label being misread as a positional index. When
-        False, `mask` is returned with its original dtype unchanged.
+        Whether to coerce the returned `mask` to boolean dtype. Binary numeric masks
+        (`{0, x}`) become `{False, True}` so callers can index with the result without
+        the non-zero value being misread as a positional index. When False, `mask` is
+        returned with its original dtype unchanged.
 
     Returns
     -------
@@ -185,7 +194,7 @@ def ensure_mask(
     Raises
     ------
     TypeError
-        If `mask` is not a boolean or single-label integer DataArray.
+        If `mask` is not a boolean or binary numeric DataArray.
     ValueError
         If `mask` or `data` isn't a VoxelData array, if `mask`'s voxel
         grid doesn't match `data`'s, or if `require_exact_dims` is set and `mask`'s
@@ -195,7 +204,7 @@ def ensure_mask(
     data = ensure_voxeldata(data, allow_extra_dims=True)
     validate_mask(mask, data, mask_name, require_exact_dims=require_exact_dims)
 
-    # Coerce after validation so callers never index with a raw single-label integer
+    # Coerce after validation so callers never index with a raw binary numeric
     # mask (which xarray.isel would treat as positional indices). See PR #197.
     if coerce_bool:
         return mask.astype(bool)

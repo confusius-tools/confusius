@@ -20,9 +20,11 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
         [`ensure_voxeldata`][confusius.validation.ensure_voxeldata].
     mask : xarray.DataArray
         Mask defining which voxels to extract, sharing `data`'s voxel grid. Must have
-        boolean dtype, or integer dtype with exactly one non-zero value (0 =
-        background, one region id = foreground). The latter format is produced by
-        [`get_masks`][confusius.atlas.AtlasAccessor.get_masks].
+        boolean dtype, or binary numeric dtype (0 = background, at most one non-zero
+        value = foreground). The latter format is produced by
+        [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and also covers masks
+        written by tools without a boolean dtype (e.g. FSL/NiBabel NIfTI masks with
+        values in `{0, 1}` or `{0.0, 1.0}`).
 
     Returns
     -------
@@ -46,7 +48,7 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
         If `mask` or `data` isn't a VoxelData array, or if `mask`'s
         voxel grid doesn't match `data`'s.
     TypeError
-        If `mask` is not boolean dtype (or a single-label integer dtype).
+        If `mask` is not boolean dtype (or a binary numeric dtype).
 
     Examples
     --------
