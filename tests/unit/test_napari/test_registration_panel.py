@@ -255,6 +255,7 @@ class TestOperationMode:
         registration_panel._learning_rate_auto_check.setChecked(True)
         registration_panel._learning_rate_edit.setValue(0.42)
         registration_panel._scale_combo.setCurrentText("none")
+        registration_panel._fixed_scale_combo.setCurrentText("square root")
         registration_panel._time_series_radio.setChecked(True)
 
         assert registration_panel._learning_rate_auto_check.isHidden()
@@ -262,6 +263,20 @@ class TestOperationMode:
         assert registration_panel._learning_rate_edit.value() == pytest.approx(0.23)
         assert registration_panel._n_jobs_spin.value() == 3
         assert registration_panel._scale_combo.currentText() == "square root"
+
+        registration_panel._single_volume_radio.setChecked(True)
+
+        assert registration_panel._scale_combo.currentText() == "none"
+        assert registration_panel._fixed_scale_combo.currentText() == "square root"
+
+    def test_fixed_scale_combo_only_between_scans(self, registration_panel):
+        assert not registration_panel._fixed_scale_combo.isHidden()
+        assert registration_panel._scale_label.text() == "Moving intensity scaling"
+
+        registration_panel._time_series_radio.setChecked(True)
+
+        assert registration_panel._fixed_scale_combo.isHidden()
+        assert registration_panel._scale_label.text() == "Intensity scaling"
 
     def test_advanced_group_is_collapsed_by_default(self, registration_panel):
         assert not registration_panel._advanced_toggle.isChecked()
@@ -297,6 +312,7 @@ class TestOperationMode:
     def test_default_parameter_values(self, registration_panel):
         assert registration_panel._transform_combo.currentText() == "rigid"
         assert registration_panel._scale_combo.currentText() == "decibel"
+        assert registration_panel._fixed_scale_combo.currentText() == "decibel"
         assert registration_panel._learning_rate_edit.minimum() == pytest.approx(1e-10)
         assert registration_panel._learning_rate_edit.value() == pytest.approx(0.01)
         assert registration_panel._convergence_min_edit.minimum() == pytest.approx(
@@ -548,6 +564,7 @@ class TestRunRegistration:
         registration_panel._moving_combo.setCurrentText("moving")
         registration_panel._fixed_combo.setCurrentText("fixed")
         registration_panel._scale_combo.setCurrentText("square root")
+        registration_panel._fixed_scale_combo.setCurrentText("none")
         for i in range(registration_panel._initialization_combo.count()):
             if registration_panel._initialization_combo.itemData(i) == (
                 "layer",
@@ -594,8 +611,11 @@ class TestRunRegistration:
         kwargs = cast("dict[str, Any]", captured["kwargs"])
         args = cast("tuple[Any, ...]", captured["args"])
         np.testing.assert_array_equal(kwargs["initialization"], affine)
-        np.testing.assert_allclose(args[0].values, np.sqrt(moving.values))
-        np.testing.assert_allclose(args[1].values, np.sqrt(fixed.values))
+        assert kwargs["moving_intensity_scaling"] == "sqrt"
+        assert kwargs["fixed_intensity_scaling"] == "none"
+        # Scaling happens inside register_volume; the panel passes raw data.
+        np.testing.assert_array_equal(args[0].values, moving.values)
+        np.testing.assert_array_equal(args[1].values, fixed.values)
         assert registration_panel._worker is not None
 
     def test_between_scan_run_uses_selected_manual_napari_transform(

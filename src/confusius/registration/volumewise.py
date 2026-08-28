@@ -9,6 +9,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.io import is_h5py_backed
+from confusius.registration._utils import validate_intensity_scaling
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
@@ -68,10 +69,10 @@ def register_volumewise(
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
     intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
-        Intensity transform applied only to the images used by the registration
-        optimizer. Floats apply power scaling with that exponent; `"sqrt"` is an
-        alias for `0.5`. Returned/resampled data keeps the original input
-        intensities.
+        Intensity transform applied to the reference volume and to every frame, only
+        for the registration optimizer. Floats apply power scaling with that
+        exponent; `"sqrt"` is an alias for `0.5`. Returned/resampled data keeps the
+        original input intensities.
     number_of_histogram_bins : int, default: 50
         Number of histogram bins used by Mattes mutual information. Only
         relevant when `metric="mattes_mi"`.
@@ -186,19 +187,7 @@ def register_volumewise(
     if "time" not in data.dims:
         raise ValueError("Time dimension 'time' not found in data")
 
-    valid_intensity_scalings = {"none", "db", "sqrt"}
-    if isinstance(intensity_scaling, bool) or not (
-        intensity_scaling in valid_intensity_scalings
-        or (
-            isinstance(intensity_scaling, (int, float))
-            and np.isfinite(intensity_scaling)
-            and intensity_scaling > 0
-        )
-    ):
-        raise ValueError(
-            f"Invalid intensity_scaling {intensity_scaling!r}. Expected one of "
-            f"{sorted(valid_intensity_scalings)} or a positive finite exponent."
-        )
+    validate_intensity_scaling(intensity_scaling, "intensity_scaling")
 
     if n_jobs != 1 and is_h5py_backed(data):
         raise TypeError(
@@ -261,7 +250,10 @@ def register_volumewise(
             ref_da,
             transform_type=transform,
             metric=metric,
-            intensity_scaling=intensity_scaling,
+            # The reference is a frame of the same recording, so one scaling
+            # applies to both sides.
+            fixed_intensity_scaling=intensity_scaling,
+            moving_intensity_scaling=intensity_scaling,
             number_of_histogram_bins=number_of_histogram_bins,
             learning_rate=learning_rate,
             number_of_iterations=number_of_iterations,

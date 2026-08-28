@@ -52,16 +52,24 @@ class TestRegisterVolumewise:
     def test_float_intensity_scaling_is_forwarded_to_register_volume(
         self, sample_voxeldata_2dt_registration, monkeypatch
     ):
-        """A positive float intensity_scaling is passed through to register_volume."""
+        """intensity_scaling is forwarded as both fixed and moving scaling."""
         import confusius.registration.volumewise as volumewise_module
 
-        calls: list[float | str] = []
+        calls: list[tuple[float | str, float | str]] = []
         original_register_volume = volumewise_module.register_volume
 
-        def spy_register_volume(*args, intensity_scaling="none", **kwargs):
-            calls.append(intensity_scaling)
+        def spy_register_volume(
+            *args,
+            fixed_intensity_scaling="none",
+            moving_intensity_scaling="none",
+            **kwargs,
+        ):
+            calls.append((fixed_intensity_scaling, moving_intensity_scaling))
             return original_register_volume(
-                *args, intensity_scaling=intensity_scaling, **kwargs
+                *args,
+                fixed_intensity_scaling=fixed_intensity_scaling,
+                moving_intensity_scaling=moving_intensity_scaling,
+                **kwargs,
             )
 
         monkeypatch.setattr(volumewise_module, "register_volume", spy_register_volume)
@@ -73,7 +81,7 @@ class TestRegisterVolumewise:
             intensity_scaling=2.0,
         )
 
-        assert calls and all(exponent == 2.0 for exponent in calls)
+        assert calls and all(scaling == (2.0, 2.0) for scaling in calls)
 
     def test_h5py_backed_raises_with_parallel_jobs(self, scan_2d):
         """h5py-backed DataArray (from a .scan file) raises TypeError when n_jobs != 1."""

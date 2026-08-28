@@ -12,6 +12,7 @@ from confusius.registration._utils import (
     expand_thin_dims,
     replace_affines_attr,
     set_sitk_thread_count,
+    validate_intensity_scaling,
     voxeldata_to_sitk_image,
 )
 from confusius.registration.affines import (
@@ -34,7 +35,8 @@ def _validate_register_volume_inputs(
     moving_mask: xr.DataArray | None,
     transform_type: Literal["translation", "rigid", "affine", "bspline"],
     metric: Literal["correlation", "mattes_mi"],
-    intensity_scaling: Literal["none", "db", "sqrt"] | float,
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float,
     number_of_histogram_bins: int,
     metric_sampling_percentage: float | None,
     metric_sampling_seed: int | None,
@@ -64,8 +66,10 @@ def _validate_register_volume_inputs(
         Transform model name.
     metric : {"correlation", "mattes_mi"}
         Similarity metric name.
-    intensity_scaling : {"none", "db", "sqrt"} or float
-        Intensity transform applied before optimization.
+    fixed_intensity_scaling : {"none", "db", "sqrt"} or float
+        Intensity transform applied to `fixed` before optimization.
+    moving_intensity_scaling : {"none", "db", "sqrt"} or float
+        Intensity transform applied to `moving` before optimization.
     number_of_histogram_bins : int
         Number of histogram bins for Mattes mutual information.
     metric_sampling_percentage : float, optional
@@ -149,19 +153,8 @@ def _validate_register_volume_inputs(
             f"Invalid metric {metric!r}. Expected one of {sorted(valid_metrics)}."
         )
 
-    valid_intensity_scalings = {"none", "db", "sqrt"}
-    if isinstance(intensity_scaling, bool) or not (
-        intensity_scaling in valid_intensity_scalings
-        or (
-            isinstance(intensity_scaling, (int, float))
-            and np.isfinite(intensity_scaling)
-            and intensity_scaling > 0
-        )
-    ):
-        raise ValueError(
-            f"Invalid intensity_scaling {intensity_scaling!r}. Expected one of "
-            f"{sorted(valid_intensity_scalings)} or a positive finite exponent."
-        )
+    validate_intensity_scaling(fixed_intensity_scaling, "fixed_intensity_scaling")
+    validate_intensity_scaling(moving_intensity_scaling, "moving_intensity_scaling")
 
     valid_initializations = {"center_geometry", "center_moments"}
     if (
@@ -267,7 +260,7 @@ def _apply_intensity_scaling(
         Input VoxelData array.
     intensity_scaling : {"none", "db", "sqrt"} or float
         Scaling mode to apply. Assumed already validated by
-        `_validate_register_volume_inputs`. Floats apply power scaling with that
+        `validate_intensity_scaling`. Floats apply power scaling with that
         exponent.
 
     Returns
@@ -345,7 +338,8 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving_mask: xr.DataArray | None = ...,
     transform_type: Literal["translation", "rigid", "affine"],
     metric: Literal["correlation", "mattes_mi"] = ...,
-    intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
     metric_sampling_percentage: float | None = ...,
     metric_sampling_seed: int | None = ...,
@@ -383,7 +377,8 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving_mask: xr.DataArray | None = ...,
     transform_type: Literal["bspline"],
     metric: Literal["correlation", "mattes_mi"] = ...,
-    intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
     metric_sampling_percentage: float | None = ...,
     metric_sampling_seed: int | None = ...,
@@ -420,7 +415,8 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
     metric: Literal["correlation", "mattes_mi"] = ...,
-    intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
     metric_sampling_percentage: float | None = ...,
     metric_sampling_seed: int | None = ...,
@@ -457,7 +453,8 @@ def register_volume(
     moving_mask: xr.DataArray | None = None,
     transform_type: Literal["translation", "rigid", "affine", "bspline"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
-    intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     number_of_histogram_bins: int = 50,
     metric_sampling_percentage: float | None = None,
     metric_sampling_seed: int | None = None,
@@ -521,10 +518,13 @@ def register_volume(
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
-    intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
-        Intensity transform applied only to the images used by the registration
-        optimizer. Floats apply power scaling with that exponent; `"sqrt"` is an alias
-        for `0.5`. Returned/resampled data keeps the original input intensities.
+    fixed_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
+        Intensity transform applied to `fixed` only for the registration optimizer.
+        Floats apply power scaling with that exponent; `"sqrt"` is an alias for `0.5`.
+    moving_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
+        Intensity transform applied to `moving` only for the registration optimizer,
+        with the same options as `fixed_intensity_scaling`. Returned/resampled data
+        keeps the original input intensities.
     number_of_histogram_bins : int, default: 50
         Number of histogram bins used by Mattes mutual information. Only
         relevant when using `"mattes_mi"` metric.
@@ -670,8 +670,9 @@ def register_volume(
     ValueError
         If `moving` or `fixed` contains NaN values.
     ValueError
-        If `transform_type`, `metric`, `intensity_scaling`, `initialization`, or
-        `resample_interpolation` is not a recognised value.
+        If `transform_type`, `metric`, `fixed_intensity_scaling`,
+        `moving_intensity_scaling`, `initialization`, or `resample_interpolation`
+        is not a recognised value.
     ValueError
         If `learning_rate` is not a positive finite float or `"auto"`.
     ValueError
@@ -700,7 +701,8 @@ def register_volume(
         moving_mask=moving_mask,
         transform_type=transform_type,
         metric=metric,
-        intensity_scaling=intensity_scaling,
+        fixed_intensity_scaling=fixed_intensity_scaling,
+        moving_intensity_scaling=moving_intensity_scaling,
         number_of_histogram_bins=number_of_histogram_bins,
         metric_sampling_percentage=metric_sampling_percentage,
         metric_sampling_seed=metric_sampling_seed,
@@ -715,10 +717,12 @@ def register_volume(
 
     fixed_sitk = voxeldata_to_sitk_image(fixed)
     moving_sitk = voxeldata_to_sitk_image(moving)
-    fixed_optimizer = _apply_intensity_scaling(fixed, intensity_scaling)
-    moving_optimizer = _apply_intensity_scaling(moving, intensity_scaling)
-    fixed_optimizer_sitk = voxeldata_to_sitk_image(fixed_optimizer)
-    moving_optimizer_sitk = voxeldata_to_sitk_image(moving_optimizer)
+    fixed_optimizer_sitk = voxeldata_to_sitk_image(
+        _apply_intensity_scaling(fixed, fixed_intensity_scaling)
+    )
+    moving_optimizer_sitk = voxeldata_to_sitk_image(
+        _apply_intensity_scaling(moving, moving_intensity_scaling)
+    )
 
     # SimpleITK's multi-resolution pyramid and interpolation fail when any spatial
     # dimension is smaller than 4 voxels (common for single-slice fUSI recordings with

@@ -113,12 +113,14 @@ Current development version for the next ConfUSIus release.
   random sampling), with optional deterministic seeding via `metric_sampling_seed`,
   to speed up large affine or B-spline registrations
   ([#396](https://github.com/confusius-tools/confusius/issues/396)).
-- [`register_volume`][confusius.registration.register_volume] and
-  [`register_volumewise`][confusius.registration.register_volumewise] gained an
-  `intensity_scaling` argument (`"none"` by default) to rescale the images passed
-  to the registration optimizer without affecting the returned/resampled data:
+- [`register_volume`][confusius.registration.register_volume] gained
+  `fixed_intensity_scaling`/`moving_intensity_scaling` and
+  [`register_volumewise`][confusius.registration.register_volumewise] gained
+  `intensity_scaling` (all `"none"` by default) to rescale the images passed to
+  the registration optimizer without affecting the returned/resampled data:
   `"db"`, `"sqrt"` (an alias for `0.5`), or any positive float exponent for power
-  scaling.
+  scaling. **[Napari plugin]** The Registration panel exposes the same selectors
+  ([#405](https://github.com/confusius-tools/confusius/pull/405)).
 - `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
   support pose-dependent voxel-to-world geometry: a `(npose, 4, 4)` affine
   stack, one per pose, instead of one affine shared by every pose. New
