@@ -109,6 +109,10 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Added [`VolumePlotter.add_stat_map`][confusius.plotting.VolumePlotter.add_stat_map],
+  the overlay-only counterpart of
+  [`plot_stat_map`][confusius.plotting.plot_stat_map]
+  ([#392](https://github.com/confusius-tools/confusius/pull/392)).
 - [`register_volume`][confusius.registration.register_volume] now supports random
   metric sampling via `metric_sampling_percentage` (`None` by default, disabling
   random sampling), with optional deterministic seeding via `metric_sampling_seed`,

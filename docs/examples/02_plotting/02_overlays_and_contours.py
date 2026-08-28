@@ -111,7 +111,9 @@ stat_map = mapper.maps_  # A single seed region: `maps_`'s "region" dim is squee
 # chaining `add_volume` on it overlays the stat map onto the same axes, matched by
 # `slice_mode` coordinate. The stat map's own colormap fully covers the background
 # wherever it has a value; `threshold` masks out weak correlations so the anatomical
-# background shows through there instead.
+# background shows through there instead. `add_stat_map` does the same with the
+# automatic colormap and range of `plot_stat_map`; `add_volume` is used here to pick
+# an explicit colormap and range.
 
 # %%
 plotter = cf.plotting.plot_volume(bg_volume, cmap="gray", show_colorbar=False, bg_color=bg_color)
