@@ -259,8 +259,11 @@ def clean(
         coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`); an input without
         `time` coordinates is assumed ordered like `signals` and takes its `time`
         coordinates, with a warning since alignment cannot be verified (see
-        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]). If not
-        provided, no confound regression is applied.
+        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]). When
+        `signals` carry pose-dependent `(time, pose)` `time` coordinates, confounds
+        stay without `time` coordinates and are Butterworth-filtered at the sampling
+        rate shared by all poses. If not provided, no confound regression is
+        applied.
     standardize_confounds : bool, default: True
         Whether to z-score confounds before regression. If `False`, confounds are
         divided by their maximum absolute value for numerical stability without
@@ -402,8 +405,18 @@ def clean(
     if do_filter:
         if filter_method == "butterworth":
             signals = filter_butterworth(signals, **filter_kwargs)
-            if confounds is not None:
+            if confounds is not None and "time" in confounds.coords:
                 confounds = filter_butterworth(confounds, **filter_kwargs)
+            elif confounds is not None:
+                # Pose-dependent signals leave confounds without `time` coordinates
+                # (see ensure_time_aligned). The filter only needs the sampling
+                # rate, which all poses share, so borrow the first pose's timestamps
+                # and drop them again to keep the confounds coordinate-free.
+                first_pose_time = signals.coords["time"].isel(pose=0, drop=True)
+                confounds = filter_butterworth(
+                    confounds.assign_coords(time=first_pose_time.variable),
+                    **filter_kwargs,
+                ).drop_vars("time")
         else:
             assert low_cutoff is not None
             confounds = _append_cosine_drift_confounds(

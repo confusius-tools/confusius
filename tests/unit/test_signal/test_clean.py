@@ -699,3 +699,31 @@ def test_clean_dataframe_confounds_match_dataarray_confounds(
     )
 
     xr.testing.assert_allclose(result, expected)
+
+
+def test_clean_multipose_numpy_confounds_with_butterworth_matches_per_pose(rng):
+    """Test `pose` is just another dimension: NumPy confounds are filtered and
+    regressed for every pose exactly as when cleaning each pose separately."""
+    times = np.arange(64) / 4.0
+    signals = xr.DataArray(
+        rng.standard_normal((64, 2, 3)),
+        dims=["time", "pose", "space"],
+        coords={"time": (("time", "pose"), np.stack([times, times + 0.1], axis=1))},
+    )
+    confounds = rng.standard_normal((64, 2))
+
+    with pytest.warns(UserWarning) as record:
+        result = clean(signals, confounds=confounds, low_cutoff=0.1, high_cutoff=1.0)
+    messages = [str(warning.message) for warning in record]
+    assert any("pose-dependent, so none are attached" in message for message in messages)
+    assert any("regressed from every pose" in message for message in messages)
+
+    for pose in range(2):
+        with pytest.warns(UserWarning, match="cannot be verified"):
+            expected = clean(
+                signals.isel(pose=pose),
+                confounds=confounds,
+                low_cutoff=0.1,
+                high_cutoff=1.0,
+            )
+        xr.testing.assert_allclose(result.isel(pose=pose), expected)

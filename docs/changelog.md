@@ -172,6 +172,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`clean`][confusius.signal.clean] can now Butterworth-filter NumPy `confounds` for
+  signals with pose-dependent `(time, pose)` `time` coordinates; the confounds are
+  filtered at the sampling rate shared by all poses
+  ([#398](https://github.com/confusius-tools/confusius/pull/398)).
 - `plot_volume`/`plot_composite` now default planar VoxelData arrays to their
   singleton world dimension and preserve singleton display axes for explicit
   spatial slicing. `plot_napari`/`fusi.plot.napari` now default singleton spatial
