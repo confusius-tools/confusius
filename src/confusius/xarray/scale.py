@@ -56,16 +56,18 @@ def _log_ignore_errors(x: np.ndarray) -> np.ndarray:
         return np.log(x)
 
 
-def db_scale(data: xr.DataArray, factor: int = 10) -> xr.DataArray:
+def db_scale(data: xr.DataArray, factor: int | None = None) -> xr.DataArray:
     """Convert data to decibel scale relative to maximum value.
 
     Parameters
     ----------
     data : xarray.DataArray
         Input `DataArray`.
-    factor : int, default: 10
-        Scaling factor for decibel conversion. Use 10 for power quantities (default),
-        20 for amplitude quantities.
+    factor : int, optional
+        Scaling factor for decibel conversion. Use 10 for power quantities, 20 for
+        amplitude quantities. If not provided, defaults to 20 for complex-valued
+        (typically beamformed IQ signals) data and 10 otherwise (typically power Doppler
+        signals).
 
     Returns
     -------
@@ -88,6 +90,9 @@ def db_scale(data: xr.DataArray, factor: int = 10) -> xr.DataArray:
     >>> data = xr.DataArray([1, 10, 100, 1000])
     >>> db_scale(data, factor=20)
     """
+    if factor is None:
+        factor = 20 if np.issubdtype(data.dtype, np.complexfloating) else 10
+
     abs_data = xr.ufuncs.abs(data)
     # We compute the max value non-lazily to avoid re-triggering the entire computation
     # graph for each chunk when visualizing with napari or similar tools. See
@@ -199,14 +204,16 @@ class FUSIScaleAccessor:
     def __init__(self, xarray_obj: xr.DataArray) -> None:
         self._obj = xarray_obj
 
-    def db(self, factor: int = 10) -> xr.DataArray:
+    def db(self, factor: int | None = None) -> xr.DataArray:
         """Convert data to decibel scale relative to maximum value.
 
         Parameters
         ----------
-        factor : int, default: 10
-            Scaling factor for decibel conversion. Use 10 for power quantities
-            (default), 20 for amplitude quantities.
+        factor : int, optional
+            Scaling factor for decibel conversion. Use 10 for power quantities, 20 for
+            amplitude quantities. If not provided, defaults to 20 for complex-valued
+            (typically beamformed IQ signals) data and 10 otherwise (typically power
+            Doppler signals).
 
         Returns
         -------
