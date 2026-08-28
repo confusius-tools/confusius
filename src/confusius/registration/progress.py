@@ -147,7 +147,7 @@ class MatplotlibRegistrationProgressPlotter:
     resample_kwargs : dict, optional
         Extra keyword arguments for the internal resample call at each iteration.
         Supported keys are `interpolation`, `fill_value`, and `sitk_threads`.
-    max_composite_slices : int or None, default: 12
+    max_composite_slices : int or None, default: 9
         Maximum number of slices to draw in the composite mosaic for 3D volumes,
         evenly spaced along the volume's slice axis. Keeps the mosaic grid readable
         and each iteration's render cheap for volumes with many slices. Use `None`
@@ -163,7 +163,7 @@ class MatplotlibRegistrationProgressPlotter:
         plot_metric: bool = True,
         plot_composite: bool = True,
         resample_kwargs: dict[str, Any] | None = None,
-        max_composite_slices: int | None = 12,
+        max_composite_slices: int | None = 9,
     ) -> None:
         import matplotlib
         import matplotlib.pyplot as plt

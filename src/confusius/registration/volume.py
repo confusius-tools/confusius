@@ -480,7 +480,7 @@ def register_volume(
     show_progress: bool = False,
     plot_metric: bool = True,
     plot_composite: bool = True,
-    max_composite_slices: int | None = 12,
+    max_composite_slices: int | None = 9,
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = None,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":
@@ -622,7 +622,7 @@ def register_volume(
         Whether to include a fixed/moving composite overlay in the progress plot.
         Requires resampling the moving image at every iteration. Ignored when
         `show_progress=False`.
-    max_composite_slices : int or None, default: 12
+    max_composite_slices : int or None, default: 9
         Maximum number of slices to draw in the composite overlay for 3D volumes,
         evenly spaced along the volume's `k` axis. Keeps the mosaic grid readable and
         each iteration's render cheap for volumes with many slices. Use `None` to

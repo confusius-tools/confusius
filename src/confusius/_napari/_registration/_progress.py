@@ -105,7 +105,7 @@ class NapariRegistrationProgressPlotter:
     resample_kwargs : dict, optional
         Extra keyword arguments for the intermediate resample. Supported keys are
         `interpolation`, `fill_value`, and `sitk_threads`.
-    max_composite_slices : int or None, default: 12
+    max_composite_slices : int or None, default: 9
         Kept for signature compatibility with the matplotlib plotter factory. The
         napari preview streams the full resampled moving image directly, so no
         slice count is applied here.
@@ -121,7 +121,7 @@ class NapariRegistrationProgressPlotter:
         plot_metric: bool = True,
         plot_composite: bool = True,
         resample_kwargs: dict[str, Any] | None = None,
-        max_composite_slices: int | None = 12,
+        max_composite_slices: int | None = 9,
     ) -> None:
         self._bridge = bridge
         self._method = registration_method
@@ -278,7 +278,7 @@ def make_napari_progress_factory(
         plot_metric: bool = True,
         plot_composite: bool = True,
         resample_kwargs: dict[str, Any] | None = None,
-        max_composite_slices: int | None = 12,
+        max_composite_slices: int | None = 9,
     ) -> RegistrationProgress:
         """Build a NapariRegistrationProgressPlotter wrapping the captured bridge.
 
@@ -297,7 +297,7 @@ def make_napari_progress_factory(
         resample_kwargs : dict, optional
             Extra keyword arguments for the intermediate resample. Supported keys are
             `interpolation`, `fill_value`, and `sitk_threads`.
-        max_composite_slices : int or None, default: 12
+        max_composite_slices : int or None, default: 9
             Kept for signature compatibility with the matplotlib plotter factory. Has
             no effect on the napari preview.
 

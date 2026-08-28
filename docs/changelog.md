@@ -174,7 +174,7 @@ Current development version for the next ConfUSIus release.
 - [`register_volume`][confusius.registration.register_volume]'s live progress plot no
   longer draws every slice in the composite overlay for volumes with many slices,
   which made the mosaic slow to render and hard to read. The composite now shows at
-  most 12 evenly spaced slices by default, configurable via the new
+  most 9 evenly spaced slices by default (a 3x3 grid), configurable via the new
   `max_composite_slices` parameter (`None` restores the previous behaviour of
   plotting every slice)
   ([#368](https://github.com/confusius-tools/confusius/issues/368)).

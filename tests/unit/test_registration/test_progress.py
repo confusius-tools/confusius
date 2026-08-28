@@ -440,7 +440,7 @@ class TestMatplotlibRegistrationProgressPlotterMaxCompositeSlices:
     def test_default_cap_subsets_slices(
         self, fixed_img_many_slices, moving_img_many_slices
     ):
-        """With the default cap, the mosaic grid matches 12 slices, not all 20."""
+        """With the default cap, the mosaic grid matches 9 slices, not all 20."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(
             reg,
@@ -452,7 +452,7 @@ class TestMatplotlibRegistrationProgressPlotterMaxCompositeSlices:
         plotter.update()
 
         h = w = 4  # Slice size set by the fixed_img_many_slices fixture.
-        n_rows, n_cols = self._mosaic_grid_shape(12)
+        n_rows, n_cols = self._mosaic_grid_shape(9)
         assert plotter._composite_im is not None
         assert plotter._composite_im.get_array().shape == (
             n_rows * h,
