@@ -40,6 +40,26 @@ def moving_img_3d(fixed_img_3d):
     return img
 
 
+@pytest.fixture
+def fixed_img_many_slices():
+    """3D SimpleITK image with more slices (20) than the default plotting cap."""
+    arr = np.zeros((20, 4, 4), dtype=np.float32)
+    arr[:, 1:3, 1:3] = 1.0
+    img = sitk.GetImageFromArray(arr.T)
+    img.SetSpacing((1.0, 1.0, 1.0))
+    return img
+
+
+@pytest.fixture
+def moving_img_many_slices(fixed_img_many_slices):
+    """Same many-slice image shifted by one voxel."""
+    arr = sitk.GetArrayFromImage(fixed_img_many_slices).T
+    shifted = np.roll(arr, 1, axis=0).astype(np.float32)
+    img = sitk.GetImageFromArray(shifted.T)
+    img.SetSpacing(fixed_img_many_slices.GetSpacing())
+    return img
+
+
 def _make_registration_method():
     """Return a minimally configured ImageRegistrationMethod."""
     reg = sitk.ImageRegistrationMethod()
@@ -405,3 +425,112 @@ class TestRegisterVolumeShowProgress:
             plot_composite=False,
         )
         assert result.shape == singleton_registration_volume.shape
+
+
+class TestMatplotlibRegistrationProgressPlotterMaxCompositeSlices:
+    """Tests for the composite mosaic's slice-count cap."""
+
+    @staticmethod
+    def _mosaic_grid_shape(n_slices: int) -> tuple[int, int]:
+        """Return the (n_rows, n_cols) mosaic grid `make_mosaic` builds for n_slices."""
+        n_cols = int(np.ceil(np.sqrt(n_slices)))
+        n_rows = int(np.ceil(n_slices / n_cols))
+        return n_rows, n_cols
+
+    def test_default_cap_subsets_slices(
+        self, fixed_img_many_slices, moving_img_many_slices
+    ):
+        """With the default cap, the mosaic grid matches 12 slices, not all 20."""
+        reg = _make_registration_method()
+        plotter = MatplotlibRegistrationProgressPlotter(
+            reg,
+            fixed_img_many_slices,
+            moving_img_many_slices,
+            plot_metric=False,
+            plot_composite=True,
+        )
+        plotter.update()
+
+        h = w = 4  # Slice size set by the fixed_img_many_slices fixture.
+        n_rows, n_cols = self._mosaic_grid_shape(12)
+        assert plotter._composite_im is not None
+        assert plotter._composite_im.get_array().shape == (
+            n_rows * h,
+            n_cols * w,
+            3,
+        )
+        plotter.figure.clf()
+
+    def test_max_composite_slices_none_plots_every_slice(
+        self, fixed_img_many_slices, moving_img_many_slices
+    ):
+        """`max_composite_slices=None` disables the cap and plots all 20 slices."""
+        reg = _make_registration_method()
+        plotter = MatplotlibRegistrationProgressPlotter(
+            reg,
+            fixed_img_many_slices,
+            moving_img_many_slices,
+            plot_metric=False,
+            plot_composite=True,
+            max_composite_slices=None,
+        )
+        plotter.update()
+
+        h = w = 4
+        n_rows, n_cols = self._mosaic_grid_shape(20)
+        assert plotter._composite_im is not None
+        assert plotter._composite_im.get_array().shape == (
+            n_rows * h,
+            n_cols * w,
+            3,
+        )
+        plotter.figure.clf()
+
+    def test_custom_max_composite_slices_is_respected(
+        self, fixed_img_many_slices, moving_img_many_slices
+    ):
+        """A custom `max_composite_slices` caps the mosaic at that many slices."""
+        reg = _make_registration_method()
+        plotter = MatplotlibRegistrationProgressPlotter(
+            reg,
+            fixed_img_many_slices,
+            moving_img_many_slices,
+            plot_metric=False,
+            plot_composite=True,
+            max_composite_slices=5,
+        )
+        plotter.update()
+
+        h = w = 4
+        n_rows, n_cols = self._mosaic_grid_shape(5)
+        assert plotter._composite_im is not None
+        assert plotter._composite_im.get_array().shape == (
+            n_rows * h,
+            n_cols * w,
+            3,
+        )
+        plotter.figure.clf()
+
+    def test_cap_larger_than_slice_count_plots_all_slices(
+        self, fixed_img_3d, moving_img_3d
+    ):
+        """The default cap does not truncate volumes with fewer slices than the cap."""
+        reg = _make_registration_method()
+        plotter = MatplotlibRegistrationProgressPlotter(
+            reg,
+            fixed_img_3d,
+            moving_img_3d,
+            plot_metric=False,
+            plot_composite=True,
+        )
+        plotter.update()
+
+        h = w = 8  # Slice size set by the fixed_img_3d fixture.
+        n_rows, n_cols = self._mosaic_grid_shape(8)
+        assert plotter._composite_im is not None
+        assert plotter._composite_im.get_array().shape == (
+            n_rows * h,
+            n_cols * w,
+            3,
+        )
+        plotter.figure.clf()

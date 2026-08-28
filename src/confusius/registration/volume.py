@@ -362,6 +362,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
+    max_composite_slices: int | None = ...,
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
@@ -401,6 +402,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
+    max_composite_slices: int | None = ...,
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, xr.DataArray, RegistrationDiagnostics]":
@@ -439,6 +441,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
+    max_composite_slices: int | None = ...,
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
@@ -477,6 +480,7 @@ def register_volume(
     show_progress: bool = False,
     plot_metric: bool = True,
     plot_composite: bool = True,
+    max_composite_slices: int | None = 12,
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = None,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":
@@ -618,12 +622,18 @@ def register_volume(
         Whether to include a fixed/moving composite overlay in the progress plot.
         Requires resampling the moving image at every iteration. Ignored when
         `show_progress=False`.
+    max_composite_slices : int or None, default: 12
+        Maximum number of slices to draw in the composite overlay for 3D volumes,
+        evenly spaced along the volume's `k` axis. Keeps the mosaic grid readable and
+        each iteration's render cheap for volumes with many slices. Use `None` to
+        plot every slice. Ignored when `show_progress=False`, `plot_composite=False`,
+        or the volume is 2D.
     progress_plotter : callable, optional
         Factory that builds the progress reporter, called inside `register_volume` as
         `progress_plotter(registration_method, fixed_img, moving_img, *, plot_metric,
-        plot_composite, resample_kwargs)`. Here `resample_kwargs` carries
-        `interpolation`, `fill_value`, and `sitk_threads`. The returned object must
-        implement the
+        plot_composite, resample_kwargs, max_composite_slices)`. Here `resample_kwargs`
+        carries `interpolation`, `fill_value`, and `sitk_threads`. The returned object
+        must implement the
         [`RegistrationProgress`][confusius.registration.RegistrationProgress] protocol
         (`update()` / `close()`). If not provided, the default
         [`MatplotlibRegistrationProgressPlotter`][confusius.registration.MatplotlibRegistrationProgressPlotter]
@@ -933,6 +943,7 @@ def register_volume(
                 plot_metric=plot_metric,
                 plot_composite=plot_composite,
                 resample_kwargs=resample_kwargs,
+                max_composite_slices=max_composite_slices,
             )
             registration.AddCommand(sitk.sitkIterationEvent, plotter.update)
             registration.AddCommand(sitk.sitkEndEvent, plotter.close)

@@ -147,6 +147,11 @@ class MatplotlibRegistrationProgressPlotter:
     resample_kwargs : dict, optional
         Extra keyword arguments for the internal resample call at each iteration.
         Supported keys are `interpolation`, `fill_value`, and `sitk_threads`.
+    max_composite_slices : int or None, default: 12
+        Maximum number of slices to draw in the composite mosaic for 3D volumes,
+        evenly spaced along the volume's slice axis. Keeps the mosaic grid readable
+        and each iteration's render cheap for volumes with many slices. Use `None`
+        to plot every slice. Ignored for 2D volumes.
     """
 
     def __init__(
@@ -158,6 +163,7 @@ class MatplotlibRegistrationProgressPlotter:
         plot_metric: bool = True,
         plot_composite: bool = True,
         resample_kwargs: dict[str, Any] | None = None,
+        max_composite_slices: int | None = 12,
     ) -> None:
         import matplotlib
         import matplotlib.pyplot as plt
@@ -167,6 +173,7 @@ class MatplotlibRegistrationProgressPlotter:
         self._moving_img = moving_img
         self._plot_metric = plot_metric
         self._plot_composite = plot_composite
+        self._max_composite_slices = max_composite_slices
         self._metric_values: list[float] = []
 
         _kw: dict[str, Any] = dict(resample_kwargs or {})
@@ -279,6 +286,21 @@ class MatplotlibRegistrationProgressPlotter:
             moving_arr = np.asarray(sitk.GetArrayFromImage(resampled).T)
 
             if fixed_arr.ndim == 3:
+                n_slices = fixed_arr.shape[0]
+                if (
+                    self._max_composite_slices is not None
+                    and n_slices > self._max_composite_slices
+                ):
+                    # Evenly spaced indices keep the mosaic representative of the
+                    # whole volume rather than just its first N slices.
+                    slice_indices = np.unique(
+                        np.linspace(0, n_slices - 1, self._max_composite_slices)
+                        .round()
+                        .astype(int)
+                    )
+                    fixed_arr = fixed_arr[slice_indices]
+                    moving_arr = moving_arr[slice_indices]
+
                 rgb = make_mosaic(
                     np.moveaxis(fixed_arr, 0, 0),
                     np.moveaxis(moving_arr, 0, 0),
