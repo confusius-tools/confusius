@@ -188,6 +188,9 @@ Current development version for the next ConfUSIus release.
   been scaled with `.fusi.scale.db()`; the `-inf` values `db_scale` assigns to
   zero-valued voxels are now excluded from the normalization bounds
   ([#370](https://github.com/confusius-tools/confusius/pull/370)).
+- `.fusi.scale.db()` and `.fusi.scale.log()` no longer emit a `RuntimeWarning` for
+  zero/negative values when applied to Dask-backed data
+  ([#379](https://github.com/confusius-tools/confusius/issues/379)).
 - `FirstLevelModel.fit` no longer errors on multi-pose data. Its implicit
   all-True mask (used when no `mask` is passed) now covers `pose` when the
   input has it, instead of collapsing to a single pose; the explicit-`mask`
