@@ -150,6 +150,11 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- `plot_volume`/`plot_composite` now default planar VoxelData arrays to their
+  singleton world dimension and preserve singleton display axes for explicit
+  spatial slicing. `plot_napari`/`fusi.plot.napari` now default singleton spatial
+  axes to sliders instead of the canvas, regardless of how the voxel-to-world
+  affine maps them ([#407](https://github.com/confusius-tools/confusius/pull/407)).
 - `save_nifti` now always writes both a qform and sform (previously sform was
   silently dropped when no secondary affine had been explicitly recorded)
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
