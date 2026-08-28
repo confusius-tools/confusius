@@ -153,9 +153,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
-- `plot_volume` now defaults planar VoxelData arrays to their singleton world
-  dimension and preserves singleton display axes for explicit spatial slicing
-  ([#407](https://github.com/confusius-tools/confusius/pull/407)).
+- `plot_volume`/`plot_composite` now default planar VoxelData arrays to their
+  singleton world dimension and preserve singleton display axes for explicit
+  spatial slicing ([#407](https://github.com/confusius-tools/confusius/pull/407)).
 - `load_scan` now opens Iconeus SCAN v1 files marked as `4DscanCustom`
   ([#406](https://github.com/confusius-tools/confusius/pull/406)).
 - `save_nifti` now always writes both a qform and sform (previously sform was

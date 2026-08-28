@@ -76,11 +76,11 @@ def _compute_grid_dims(
     return nrows, ncols
 
 
-def _resolve_plot_volume_slice_mode(
+def _resolve_default_slice_mode(
     data: xr.DataArray,
     slice_mode: str | None,
 ) -> str:
-    """Resolve the default slice axis for `plot_volume`.
+    """Resolve the default slice axis for `plot_volume`/`plot_composite`.
 
     Parameters
     ----------
@@ -2960,7 +2960,7 @@ def plot_volume(
     ...     cbar_label="Power (dB)",
     ... )
     """
-    resolved_slice_mode = _resolve_plot_volume_slice_mode(data, slice_mode)
+    resolved_slice_mode = _resolve_default_slice_mode(data, slice_mode)
     plotter = VolumePlotter(
         slice_mode=resolved_slice_mode,
         figure=figure,
@@ -3010,7 +3010,7 @@ def plot_composite(
     atol: float = 1e-8,
     normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
     slice_coords: Sequence[Hashable] | None = None,
-    slice_mode: str = "z",
+    slice_mode: str | None = None,
     transpose: bool = False,
     alpha: "float | npt.NDArray[np.floating] | None" = None,
     show_titles: bool = True,
@@ -3036,6 +3036,8 @@ def plot_composite(
     and `data2` drives the green and blue channels (cyan), making overlap
     visible as desaturated grey. This is the same visual encoding used by the
     live registration progress preview.
+    If `slice_mode` is not provided and `data1` is planar, the singleton world
+    dimension is used; otherwise the default is `"z"`.
 
     Parameters
     ----------
@@ -3080,10 +3082,12 @@ def plot_composite(
         coordinates are matched by nearest-neighbour lookup; non-numeric
         coordinates (e.g. region labels) require an exact match. If not provided,
         from `data1` are used.
-    slice_mode : str, default: "z"
+    slice_mode : str, optional
         World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
         slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid slice
-        modes. After slicing, each panel must be 2D.
+        modes. If not provided, planar `data1` is sliced along its singleton world
+        dimension and full 3D data is sliced along `"z"`. After slicing, each
+        panel must be 2D.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
     alpha : float or numpy.ndarray, optional
@@ -3177,8 +3181,9 @@ def plot_composite(
     >>> # Maximise contrast on dim slices.
     >>> plotter = plot_composite(fixed, moving, normalize_strategy="per_slice")
     """
+    resolved_slice_mode = _resolve_default_slice_mode(data1, slice_mode)
     plotter = VolumePlotter(
-        slice_mode=slice_mode,
+        slice_mode=resolved_slice_mode,
         figure=figure,
         axes=axes,
         bg_color=bg_color,
