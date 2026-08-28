@@ -24,7 +24,7 @@ from confusius._utils.geometry import (
 from confusius._utils.napari import (
     build_direct_label_colormap,
     build_roi_labels_features,
-    get_napari_scale_translate_units,
+    get_napari_layer_geometry,
 )
 from confusius._utils.plotting import resample_to_axis_aligned_world_grid
 from confusius._utils.stack import find_stack_level
@@ -66,7 +66,10 @@ def plot_napari(
         Whether to show the scale bar.
     dim_order : tuple[str, ...], optional
         Dimension ordering for the spatial axes (last three dimensions). If not
-        provided, the ordering of the last three dimensions in `data` is used.
+        provided, singleton spatial dimensions (e.g. the elevation axis of a
+        single-slice acquisition) are placed first so the canvas always shows the
+        two axes that actually vary; otherwise the dimensions' native ordering in
+        `data` is used.
     viewer : napari.Viewer, optional
         Existing napari viewer to add the layer to. If not provided, a new viewer
         is created.
@@ -175,14 +178,23 @@ def plot_napari(
 
     data = sort_coords_for_plot(data, spatial_dims)
 
-    if dim_order is not None and set(dim_order) != set(spatial_dims):
-        raise ValueError(
-            f"dim_order {dim_order} does not match spatial dimensions {spatial_dims}. "
-            "Ensure 'dim_order' contains all spatial dimension names."
-        )
+    if dim_order is not None:
+        if set(dim_order) != set(spatial_dims):
+            raise ValueError(
+                f"dim_order {dim_order} does not match spatial dimensions "
+                f"{spatial_dims}. Ensure 'dim_order' contains all spatial "
+                "dimension names."
+            )
+    else:
+        # Planar data has one or more singleton spatial dims (e.g. the elevation
+        # axis of a single-slice acquisition). Default to displaying those as
+        # sliders rather than relying on napari's "last two axes are the canvas"
+        # convention, so the canvas always shows the two axes that actually vary,
+        # regardless of how the voxel-to-world affine maps them.
+        dim_order = tuple(sorted(spatial_dims, key=lambda d: data.sizes[d] != 1))
 
     scale, coord_translates, axis_labels, all_units, non_uniform, spacing = (
-        get_napari_scale_translate_units(data)
+        get_napari_layer_geometry(data)
     )
     for dim in non_uniform:
         warnings.warn(
@@ -351,7 +363,7 @@ def draw_napari_labels(
     time_dim = TIME_DIM if TIME_DIM in all_dims else None
     spatial_dims = [dim for dim in all_dims if dim != time_dim]
     spatial_indices = [all_dims.index(dim) for dim in spatial_dims]
-    scale, translate, axis_labels, all_units, _, _ = get_napari_scale_translate_units(
+    scale, translate, axis_labels, all_units, _, _ = get_napari_layer_geometry(
         display_data
     )
 
