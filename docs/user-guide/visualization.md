@@ -480,8 +480,12 @@ Pass an explicit `cmap` to override the automatic choice, `auto_range=False` to 
 example `TwoSlopeNorm`, `BoundaryNorm`, or `LogNorm`) when you need a custom mapping.
 When `norm` is provided, it overrides `vmin`, `vmax`, and `auto_range` entirely.
 
-If you need lower-level control beyond `plot_stat_map`, call
-[`plot_volume`][confusius.plotting.plot_volume] directly instead.
+To overlay a statistical map onto an existing plot (for example one built with
+[`plot_volume`][confusius.plotting.plot_volume]), call
+[`VolumePlotter.add_stat_map`][confusius.plotting.VolumePlotter.add_stat_map] on the
+returned plotter; it applies the same automatic colormap and range logic as
+`plot_stat_map`. For full manual control over the colormap and range, use
+[`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] instead.
 
 ![Seed-based connectivity maps](../examples/_built/connectivity/atlas_seed_map_thumb_light.png#only-light)
 ![Seed-based connectivity maps](../examples/_built/connectivity/atlas_seed_map_thumb_dark.png#only-dark)

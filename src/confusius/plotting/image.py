@@ -1682,9 +1682,9 @@ class VolumePlotter:
             nearest-neighbour lookup; non-numeric coordinates (e.g. region labels)
             require an exact match. If not provided, uses all coordinates from data.
         match_coordinates : bool, default: True
-            If True, match slice coordinates to the stored coordinate mapping (for
-            overlays). If False, plot sequentially on all axes (requires exact axis
-            count match).
+            Whether to match slice coordinates to the stored coordinate mapping (for
+            overlays) instead of plotting sequentially on all axes (which requires
+            an exact axis count match).
         cmap : str or matplotlib.colors.Colormap, optional
             Colormap. When not provided, falls back to `data.attrs["cmap"]` if
             present, otherwise `"gray"`.
@@ -1948,9 +1948,9 @@ class VolumePlotter:
             require an exact match. If not provided, uses all coordinates from
             `stat_map`.
         match_coordinates : bool, default: True
-            If True, match slice coordinates to the stored coordinate mapping (for
-            overlays). If False, plot sequentially on all axes (requires exact axis
-            count match).
+            Whether to match slice coordinates to the stored coordinate mapping (for
+            overlays) instead of plotting sequentially on all axes (which requires
+            an exact axis count match).
         cmap : str or matplotlib.colors.Colormap, optional
             Colormap for `stat_map`. If not provided, the default depends on
             `auto_range` and the sign of `stat_map` (see below); an explicit `cmap`
@@ -1962,11 +1962,13 @@ class VolumePlotter:
             entirely; `cmap` still follows the usual rules above.
         vmin : float, optional
             Lower bound of the colormap. If not provided, defaults to the minimum
-            value of `stat_map`. Ignored when `norm` is provided, or when
-            `auto_range` resolves to a range anchored at zero (see below).
+            value of `stat_map`, computed over the full array rather than just the
+            displayed slices. Ignored when `norm` is provided, or when
+            `auto_range=True` and `stat_map` has only non-negative values.
         vmax : float, optional
             Upper bound of the colormap. If not provided, defaults to the maximum
-            value of `stat_map`. Ignored when `norm` is provided, or when
+            value of `stat_map`, computed over the full array rather than just the
+            displayed slices. Ignored when `norm` is provided, or when
             `auto_range=True` and `stat_map` has only non-positive values.
         auto_range : bool, default: True
             Whether to pick the colormap range and default colormap automatically
@@ -3390,9 +3392,9 @@ def plot_stat_map(
 
     Performs the recurring pattern of [`plot_volume`][confusius.plotting.plot_volume] to
     show a background anatomical volume +
-    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] to overlay
-    a statistical map, with the colormap and range picked automatically based on
-    whether the statistic is diverging (has both positive and negative values) or
+    [`VolumePlotter.add_stat_map`][confusius.plotting.VolumePlotter.add_stat_map] to
+    overlay a statistical map, with the colormap and range picked automatically based
+    on whether the statistic is diverging (has both positive and negative values) or
     one-signed.
 
     Parameters
@@ -3438,8 +3440,8 @@ def plot_stat_map(
     vmin : float, optional
         Lower bound of the colormap. If not provided, defaults to the minimum value
         of `stat_map`, computed over the full array rather than just the displayed
-        slices. Ignored when `norm` is provided, or when `auto_range` resolves to a
-        range anchored at zero (see below).
+        slices. Ignored when `norm` is provided, or when `auto_range=True` and
+        `stat_map` has only non-negative values.
     vmax : float, optional
         Upper bound of the colormap. If not provided, defaults to the maximum value
         of `stat_map`, computed over the full array rather than just the displayed
@@ -3553,10 +3555,12 @@ def plot_stat_map(
     Notes
     -----
     When `bg_volume` is provided, this is equivalent to calling
-    `plot_volume(bg_volume, ...)` followed by `plotter.add_volume(stat_map,
-    alpha=alpha, cmap=resolved_cmap, vmin=resolved_vmin, vmax=resolved_vmax, ...)`.
-    Use those functions directly for finer control, e.g. a custom, non-zero-anchored
-    asymmetric range.
+    `plot_volume(bg_volume, show_colorbar=False, ...)` followed by
+    `plotter.add_stat_map(stat_map, ...)`. Use
+    [`VolumePlotter.add_stat_map`][confusius.plotting.VolumePlotter.add_stat_map]
+    directly to overlay a statistical map onto an existing plot, or
+    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] for full
+    manual control over the colormap and range.
 
     Examples
     --------
