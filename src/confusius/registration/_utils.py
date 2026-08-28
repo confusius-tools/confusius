@@ -7,7 +7,7 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from copy import deepcopy
 from types import FrameType
-from typing import TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING, Literal, TypeGuard
 
 import numpy as np
 import xarray as xr
@@ -180,6 +180,37 @@ def initialize_single_slice_rigid_transform(
 
 SignalHandler = Callable[[int, FrameType | None], object]
 """Python-level SIGINT handler callable."""
+
+
+def validate_intensity_scaling(
+    intensity_scaling: Literal["none", "db", "sqrt"] | float, name: str
+) -> None:
+    """Validate an intensity-scaling argument for the registration optimizer.
+
+    Parameters
+    ----------
+    intensity_scaling : {"none", "db", "sqrt"} or float
+        Scaling mode or positive power-scaling exponent to check.
+    name : str
+        Argument name used in the error message.
+
+    Raises
+    ------
+    ValueError
+        If `intensity_scaling` is neither a known mode nor a positive finite float.
+    """
+    valid_modes = {"none", "db", "sqrt"}
+    is_valid_exponent = (
+        isinstance(intensity_scaling, (int, float))
+        and not isinstance(intensity_scaling, bool)
+        and np.isfinite(intensity_scaling)
+        and intensity_scaling > 0
+    )
+    if intensity_scaling not in valid_modes and not is_valid_exponent:
+        raise ValueError(
+            f"Invalid {name} {intensity_scaling!r}. Expected one of "
+            f"{sorted(valid_modes)} or a positive finite exponent."
+        )
 
 
 def _is_python_signal_handler(handler: object) -> TypeGuard[SignalHandler]:

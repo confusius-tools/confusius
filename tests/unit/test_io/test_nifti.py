@@ -936,10 +936,10 @@ class TestLoadNifti:
         assert "z_qform" not in da.coords
         # Primary z coord (NIfTI col 2, size 2) should reflect qform spacing of 4.0.
         np.testing.assert_allclose(_world_coord_1d(da, "z"), [0.0, 4.0])
-        # qform is primary with no valid secondary (sform is invalid), so it has no
-        # named attrs["affines"] entry -- it's the array's own world frame, not a
-        # separately tracked relationship.
-        assert "affines" not in da.attrs
+        # qform is primary, so its entry is identity (world frame == qform frame);
+        # the invalid sform gets no entry at all.
+        np.testing.assert_array_equal(da.attrs["affines"]["world_to_qform"], np.eye(4))
+        assert "world_to_sform" not in da.attrs["affines"]
 
     def test_load_nifti_coordinate_affine_sform_forces_sform(
         self, tmp_path: Path
@@ -960,9 +960,8 @@ class TestLoadNifti:
         np.testing.assert_allclose(
             get_voxel_to_world_affine(da)[:3, :3], np.diag([4.0, 3.0, 2.0])
         )
-        # sform is primary (no named entry of its own); qform is the distinct
-        # secondary relationship, so only it gets a named affines entry.
-        assert "world_to_sform" not in da.attrs["affines"]
+        # sform is primary (identity entry); qform is the distinct secondary.
+        np.testing.assert_array_equal(da.attrs["affines"]["world_to_sform"], np.eye(4))
         assert "world_to_qform" in da.attrs["affines"]
 
     def test_load_nifti_coordinate_affine_qform_forces_qform(
@@ -984,9 +983,8 @@ class TestLoadNifti:
         np.testing.assert_allclose(
             get_voxel_to_world_affine(da)[:3, :3], np.diag([7.0, 6.0, 5.0])
         )
-        # qform is primary (no named entry of its own); sform is the distinct
-        # secondary relationship, so only it gets a named affines entry.
-        assert "world_to_qform" not in da.attrs["affines"]
+        # qform is primary (identity entry); sform is the distinct secondary.
+        np.testing.assert_array_equal(da.attrs["affines"]["world_to_qform"], np.eye(4))
         assert "world_to_sform" in da.attrs["affines"]
 
     def test_load_nifti_rotated_affine_voxel_to_world(self, tmp_path: Path) -> None:
@@ -995,8 +993,7 @@ class TestLoadNifti:
         The voxel-to-world index represents rotations exactly, so the sform's 90°
         rotation (mapping voxel x->world y, voxel y->world -x) is not dropped into
         a residual "world_to_sform" entry -- it lands directly in
-        `voxel_to_world`. Sform is primary here (with no valid qform), so it has no
-        named `attrs["affines"]` entry at all.
+        `voxel_to_world`, and the primary sform's own entry is identity.
         """
         # 90° rotation around z maps x→y, y→-x with spacing [2, 3, 4].
         spacing = np.array([2.0, 3.0, 4.0])
@@ -1023,7 +1020,7 @@ class TestLoadNifti:
         np.testing.assert_allclose(
             get_voxel_to_world_affine(da), expected_voxel_to_world
         )
-        assert "affines" not in da.attrs
+        np.testing.assert_array_equal(da.attrs["affines"]["world_to_sform"], np.eye(4))
 
     def test_load_nifti_sheared_affine_correct_spacing(self, tmp_path: Path) -> None:
         """Sheared affine uses decompose44 spacings, not (wrong) column norms."""
@@ -3088,11 +3085,9 @@ class TestRoundtrip:
         the coordinates, otherwise the saved qform carries the stale voxel size
         on that axis.
 
-        Sform (primary here) has no named `attrs["affines"]` entry of its own, so
-        after `apply_affine` moves the world frame into qform's space, sform is
-        no longer recoverable -- it mirrors the new `voxel_to_world` on save, same
-        as qform (whose own `world_to_qform` entry is now identity, re-expressed
-        by `apply_affine`).
+        Sform (primary here) starts with an identity `world_to_sform` entry, which
+        `apply_affine` re-expresses against the new qform-anchored world frame, so
+        both header forms survive the round trip.
         """
         sform = np.diag([2.0, 3.0, 4.0, 1.0])
         sform[:3, 3] = [10.0, -5.0, 2.0]
@@ -3115,7 +3110,41 @@ class TestRoundtrip:
             reloaded.header.get_qform(coded=True)[0], qform, atol=1e-4
         )
         np.testing.assert_allclose(
-            reloaded.header.get_sform(coded=True)[0], qform, atol=1e-4
+            reloaded.header.get_sform(coded=True)[0], sform, atol=1e-4
+        )
+
+    def test_roundtrip_qform_after_applying_added_sform_key(self, tmp_path):
+        """Applying a user-added `world_to_sform` by key keeps the original qform.
+
+        Regression (#397): a qform-only file gets a `world_to_sform` entry, which is
+        then applied in place. The saved header must still carry the original qform
+        (code preserved) alongside the new sform.
+        """
+        qform = np.diag([1.0, 2.0, 3.0, 1.0])
+        qform[:3, 3] = [10.0, 20.0, 30.0]
+        img = nib.Nifti1Image(np.zeros((4, 3, 2), dtype=np.float32), qform)
+        img.header.set_qform(qform, code=1)
+        img.header.set_sform(None, code=0)
+        in_path = tmp_path / "in.nii.gz"
+        img.to_filename(in_path)
+
+        da = load_nifti(in_path)
+        # Sheared world-to-sform in ConfUSIus (z, y, x) order.
+        world_to_sform = np.eye(4)
+        world_to_sform[0, 1] = 0.3
+        world_to_sform[:3, 3] = [1.0, 2.0, 3.0]
+        da.attrs["affines"]["world_to_sform"] = world_to_sform
+        da.fusi.affine.apply("world_to_sform", inplace=True)
+        out_path = tmp_path / "out.nii.gz"
+        save_nifti(da, out_path)
+        reloaded = nib.nifti1.Nifti1Image.from_filename(out_path)
+
+        saved_qform, saved_qform_code = reloaded.header.get_qform(coded=True)
+        assert saved_qform_code == 1
+        np.testing.assert_allclose(saved_qform, qform, atol=1e-4)
+        expected_sform = world_to_sform[[2, 1, 0, 3]][:, [2, 1, 0, 3]] @ qform
+        np.testing.assert_allclose(
+            reloaded.header.get_sform(coded=True)[0], expected_sform, atol=1e-4
         )
 
     def test_roundtrip_3d(self, tmp_path, sample_voxeldata_3d):

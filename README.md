@@ -20,7 +20,7 @@ preprocessing, and statistical analysis of functional ultrasound imaging (fUSI) 
 ## Features
 
 > [!NOTE]
-> ConfUSIus is not designed as an out-of-the-box, end-to-end fUSI analysis pipeline.
+> ConfUSIus is not designed as an out-of-the-box, one-line fUSI analysis pipeline.
 > Because the fUSI field has not yet converged on standard processing workflows,
 > ConfUSIus instead aims to provide the fundamental building blocks needed to implement
 > any processing workflow described in the fUSI literature, or to design entirely new

@@ -476,21 +476,21 @@ def _resolve_spatial_geometry_from_nifti(
     # exactly equivalent to evaluating the affine at voxel-index 0 along that
     # axis (index 0 zeroes out that column's contribution).
     #
-    # The primary form has no named `attrs["affines"]` entry: it is not a
-    # separately tracked relationship, it *is* the array's own world frame,
-    # so on save it always mirrors the current `voxel_to_world` (see
-    # `_build_selected_nifti_affine`'s `affine_key=None` fallback). Only the
-    # secondary form is a genuinely distinct, named relationship, so only it
-    # gets one: secondary = world_to_<secondary> @ primary, so
+    # The primary form *is* the array's world frame, so its entry is identity.
+    # Storing it (rather than omitting it) is what lets `apply_affine` keep track
+    # of it: applying another affine re-expresses this identity into the
+    # relationship between the new world frame and the original primary form, so
+    # `save_nifti` can still write that form back to the header (#397). The
+    # secondary form is a genuinely distinct relationship:
+    # secondary = world_to_<secondary> @ primary, so
     # world_to_<secondary> = secondary @ inv(primary).
     voxel_to_world = primary_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
+    extra_attrs["affines"] = {f"world_to_{primary_prefix}": np.eye(4)}
     if secondary_affine is not None:
         world_to_secondary = secondary_affine @ np.linalg.inv(primary_affine)
-        extra_attrs["affines"] = {
-            f"world_to_{secondary_prefix}": world_to_secondary[[2, 1, 0, 3]][
-                :, [2, 1, 0, 3]
-            ]
-        }
+        extra_attrs["affines"][f"world_to_{secondary_prefix}"] = world_to_secondary[
+            [2, 1, 0, 3]
+        ][:, [2, 1, 0, 3]]
 
     return voxel_to_world, units, extra_attrs
 
@@ -1139,11 +1139,16 @@ def load_nifti(
 
     With `coordinate_affine="auto"`, affine selection follows NIfTI conventions:
 
-    - If `sform_code > 0`: sform is used as the primary affine; a
+    - If `sform_code > 0`: sform is used as the primary affine; an identity
       `"world_to_sform"` entry is written. When `qform_code > 0` as well, a
       `"world_to_qform"` entry is also stored as secondary.
-    - Else, if only `qform_code > 0`: qform is used as the primary affine; only
-      `"world_to_qform"` is written.
+    - Else, if only `qform_code > 0`: qform is used as the primary affine; only an
+      identity `"world_to_qform"` entry is written.
+
+    The primary form's identity entry is what keeps that form recoverable after
+    [`apply`][confusius.xarray.FUSIAffineAccessor.apply] re-anchors the world
+    frame elsewhere: it is re-expressed along with the other entries, so
+    [`save_nifti`][confusius.io.save_nifti] can still write the original header form.
     - If both codes are zero: a warning is emitted, coordinates are built from
       `pixdim` only (origin 0, step = voxel size), and no `"affines"` entry is
       stored in `da.attrs`.

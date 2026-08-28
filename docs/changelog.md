@@ -111,6 +111,7 @@ Current development version for the next ConfUSIus release.
   `attrs["world_coord_attrs"]` round-trip key was renamed to
   `attrs["voxel_to_world_units"]` (a single string)
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+  
 ### :sparkles: Enhancements
 
 - [`clean`][confusius.signal.clean],
@@ -125,6 +126,19 @@ Current development version for the next ConfUSIus release.
   now accept `confounds` as a `(time, n_confounds)` DataArray, validated against the
   run's `time` coordinates
   ([#398](https://github.com/confusius-tools/confusius/pull/398)).
+- [`register_volume`][confusius.registration.register_volume] now supports random
+  metric sampling via `metric_sampling_percentage` (`None` by default, disabling
+  random sampling), with optional deterministic seeding via `metric_sampling_seed`,
+  to speed up large affine or B-spline registrations
+  ([#396](https://github.com/confusius-tools/confusius/issues/396)).
+- [`register_volume`][confusius.registration.register_volume] gained
+  `fixed_intensity_scaling`/`moving_intensity_scaling` and
+  [`register_volumewise`][confusius.registration.register_volumewise] gained
+  `intensity_scaling` (all `"none"` by default) to rescale the images passed to
+  the registration optimizer without affecting the returned/resampled data:
+  `"db"`, `"sqrt"` (an alias for `0.5`), or any positive float exponent for power
+  scaling. **[Napari plugin]** The Registration panel exposes the same selectors
+  ([#405](https://github.com/confusius-tools/confusius/pull/405)).
 - `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
   support pose-dependent voxel-to-world geometry: a `(npose, 4, 4)` affine
   stack, one per pose, instead of one affine shared by every pose. New
@@ -165,6 +179,8 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- `load_scan` now opens Iconeus SCAN v1 files marked as `4DscanCustom`
+  ([#406](https://github.com/confusius-tools/confusius/pull/406)).
 - `save_nifti` now always writes both a qform and sform (previously sform was
   silently dropped when no secondary affine had been explicitly recorded)
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).

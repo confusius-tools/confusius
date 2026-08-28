@@ -501,6 +501,35 @@ class TestLoadScan4D:
         """iconeus_scan_mode attr equals '4Dscan'."""
         assert scan_4d.attrs["iconeus_scan_mode"] == "4Dscan"
 
+    def test_4dscan_custom_loads_as_4d(self, tmp_path: Path) -> None:
+        """4DscanCustom follows the same layout as 4Dscan."""
+        path = tmp_path / "test_4dscan_custom.scan"
+        time_flat = _end_referenced_times(_T * _NPOSE, _POSE_DURATION).reshape(
+            _T * _NPOSE, 1
+        )
+        data = _RNG.random((_T, _NPOSE, 1, _SIZE_Z, _SIZE_Y, _SIZE_X), dtype=np.float64)
+        with h5py.File(path, "w") as f:
+            f.create_dataset("/Data", data=data)
+            _write_scan_metadata(
+                f,
+                mode="4DscanCustom",
+                size_x=_SIZE_X,
+                size_y=_SIZE_Y,
+                size_z=_SIZE_Z,
+                npose=_NPOSE,
+                nscan_repeat=_T,
+                nblock_repeat=None,
+                voxels_to_probe=_VOXELS_TO_PROBE,
+                probe_to_lab=_PROBE_TO_LAB_MULTI,
+                time_data=time_flat,
+            )
+
+        scan_4d = load_scan(path)
+
+        assert scan_4d.dims == ("time", "pose", "k", "j", "i")
+        assert scan_4d.shape == (_T, _NPOSE, _SIZE_Y, _SIZE_Z, _SIZE_X)
+        assert scan_4d.attrs["iconeus_scan_mode"] == "4DscanCustom"
+
     def test_multiblock_repeats_are_merged_into_time(
         self, scan_4d_multiblock_path: Path, scan_4d_multiblock: xr.DataArray
     ) -> None:
