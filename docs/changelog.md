@@ -147,43 +147,6 @@ Current development version for the next ConfUSIus release.
   `data.fusi.scale.db` now default `factor` to `20` for complex-valued
   (amplitude) data and `10` otherwise, instead of always defaulting to `10`
   ([#414](https://github.com/confusius-tools/confusius/pull/414)).
-- `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
-  support pose-dependent voxel-to-world geometry: a `(npose, 4, 4)` affine
-  stack, one per pose, instead of one affine shared by every pose. New
-  [`stack_poses`][confusius.multipose.stack_poses] assembles independently
-  loaded single-pose grids (e.g. one NIfTI file per probe position) into a
-  single pose-dependent DataArray. `load_scan`'s `3Dscan`/`4Dscan` modes,
-  [`consolidate_poses`][confusius.multipose.consolidate_poses], and
-  [`correct_slice_timings`][confusius.multipose.correct_slice_timings] all
-  build on this
-  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
-- Added [`reindex_voxels`][confusius.xarray.reindex_voxels]/
-  [`reindex_voxels_like`][confusius.xarray.reindex_voxels_like] to `.fusi.affine`,
-  rebasing voxel-space coordinates to dense positions via plain 4x4 matrix
-  composition ([#278](https://github.com/confusius-tools/confusius/pull/278)).
-- NIfTI and Zarr I/O round-trip oblique/rotated/sheared voxel-to-world geometry
-  exactly; `load_nifti` composes the full primary qform/sform affine into
-  `voxel_to_world` instead of decomposing it into axis-aligned scale/origin
-  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
-- `plot_volume` (and napari layers) always displays in world space, like
-  nilearn: an axis-aligned world plane (`z`/`y`/`x`), or a non-spatial dim
-  (e.g. `slice_mode="pose"` facets a multi-pose array over its poses).
-  Oblique voxel-to-world data is always resampled onto the world-axis-aligned
-  frame for display, each volume keeping its own native per-axis resolution;
-  `transpose=True` swaps which display dim is drawn on rows versus columns
-  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
-- Added [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] to canonicalize
-  and validate VoxelData inputs with one call, and added
-  [`create_voxeldata`][confusius.xarray.create_voxeldata] to build VoxelData from a
-  raw array plus higher-level metadata (`dt`, spacing, axis origins, attrs). It
-  attaches regularly spaced world coordinates, `units` metadata, and validates the
-  result before returning it
-  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
-- `plot_volume`/`plot_composite`/`plot_stat_map`/`VolumePlotter`/`.fusi.plot.napari`
-  now accept `resample_interpolation`/`resample_fill_value` to control how
-  oblique (non-axis-aligned) voxel-to-world data is resampled onto an
-  axis-aligned display grid
-  ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 - [`load_nifti`][confusius.io.load_nifti] now follows the BIDS inheritance principle
   for matching JSON sidecars, so shared metadata stored at the dataset root or parent
   folders is preserved when loading recordings
