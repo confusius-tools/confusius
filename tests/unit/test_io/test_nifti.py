@@ -14,7 +14,7 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
 )
-from confusius.io.nifti import load_nifti, save_nifti
+from confusius.io.nifti import from_nifti, load_nifti, save_nifti, to_nifti
 from confusius.xarray import create_voxeldata
 from confusius.xarray.affine import apply_affine
 
@@ -3109,8 +3109,148 @@ class TestSaveNifti:
             save_nifti(da, tmp_path / "irregular_k.nii.gz")
 
 
+class TestToNifti:
+    """Tests for to_nifti function."""
+
+    def test_to_nifti_returns_nifti1_image_by_default(self, sample_voxeldata_3d):
+        """to_nifti defaults to a Nifti1Image, matching save_nifti's default."""
+        img = to_nifti(sample_voxeldata_3d.drop_vars("time"))
+
+        assert isinstance(img, nib.Nifti1Image)
+
+    def test_to_nifti_version_2_returns_nifti2_image(self, sample_voxeldata_3d):
+        """to_nifti(..., nifti_version=2) returns a Nifti2Image."""
+        img = to_nifti(sample_voxeldata_3d.drop_vars("time"), nifti_version=2)
+
+        assert isinstance(img, nib.Nifti2Image)
+
+    def test_to_nifti_preserves_data_values_and_affine(self, sample_voxeldata_3d):
+        """to_nifti's array payload and affine match a save_nifti/nib.load roundtrip."""
+        da = sample_voxeldata_3d.drop_vars("time")
+
+        img = to_nifti(da)
+
+        expected_affine = get_voxel_to_world_affine(da)[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
+        np.testing.assert_allclose(img.affine, expected_affine, atol=1e-6)
+        np.testing.assert_array_almost_equal(
+            np.asarray(img.dataobj), np.asarray(da).T, decimal=5
+        )
+
+    def test_to_nifti_matches_save_nifti_header(self, tmp_path, sample_voxeldata_3d):
+        """to_nifti's header matches the header save_nifti writes to disk.
+
+        Regression coverage for the internal reuse: both now share
+        `_build_nifti_image_and_metadata`, so their headers (and thus their
+        geometry/dtype handling) must stay identical.
+        """
+        da = sample_voxeldata_3d.drop_vars("time")
+
+        in_memory_img = to_nifti(da)
+
+        nifti_path = tmp_path / "matches.nii.gz"
+        save_nifti(da, nifti_path)
+        on_disk_img = nib.nifti1.Nifti1Image.from_filename(nifti_path)
+
+        np.testing.assert_allclose(
+            in_memory_img.header.get_best_affine(),
+            on_disk_img.header.get_best_affine(),
+            atol=1e-6,
+        )
+        np.testing.assert_array_equal(
+            np.asarray(in_memory_img.dataobj), np.asarray(on_disk_img.dataobj)
+        )
+
+    def test_to_nifti_writes_no_files(self, tmp_path, sample_voxeldata_3d, monkeypatch):
+        """to_nifti performs no file I/O, unlike save_nifti."""
+        monkeypatch.chdir(tmp_path)
+
+        to_nifti(sample_voxeldata_3d.drop_vars("time"))
+
+        assert list(tmp_path.iterdir()) == []
+
+
+class TestFromNifti:
+    """Tests for from_nifti function."""
+
+    def test_from_nifti_rejects_non_nifti_image(self):
+        """from_nifti raises TypeError for objects that are not NiBabel NIfTI images."""
+        with pytest.raises(TypeError, match="nibabel.Nifti1Image"):
+            from_nifti(np.zeros((4, 3, 2)))  # ty: ignore[invalid-argument-type]
+
+    def test_from_nifti_builds_voxeldata_from_in_memory_image(self):
+        """from_nifti reconstructs VoxelData geometry from an in-memory image."""
+        rng = np.random.default_rng(0)
+        data = rng.random((8, 6, 4)).astype(np.float32)
+        affine = np.diag([0.5, 0.5, 1.0, 1.0])
+        affine[:3, 3] = [1.0, 2.0, 3.0]
+        img = nib.Nifti1Image(data, affine)
+
+        da = from_nifti(img)
+
+        assert da.dims == ("k", "j", "i")
+        np.testing.assert_array_almost_equal(np.asarray(da), data.T, decimal=5)
+        expected_z_y_x_affine = affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(da), expected_z_y_x_affine, atol=1e-6
+        )
+
+    def test_from_nifti_matches_load_nifti(self, tmp_path):
+        """from_nifti on an in-memory image matches load_nifti on the same file."""
+        rng = np.random.default_rng(0)
+        data = rng.random((8, 6, 4)).astype(np.float32)
+        affine = np.diag([2.0, 1.0, 0.5, 1.0])
+        img = nib.Nifti1Image(data, affine)
+        nifti_path = tmp_path / "test.nii.gz"
+        img.to_filename(nifti_path)
+
+        from_memory = from_nifti(img)
+        from_file = load_nifti(nifti_path)
+
+        np.testing.assert_array_almost_equal(
+            np.asarray(from_memory), np.asarray(from_file), decimal=5
+        )
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(from_memory),
+            get_voxel_to_world_affine(from_file),
+            atol=1e-6,
+        )
+
+    def test_from_nifti_ignores_bids_sidecar_metadata(self, nifti_with_sidecar):
+        """A bare NiBabel image carries no sidecar, so its metadata is not read.
+
+        `nifti_with_sidecar` writes a `RepetitionTime` sidecar entry alongside the
+        file; `load_nifti` (which reads the sidecar) would surface it via the `time`
+        coordinate's regular spacing, but `from_nifti` never touches the sidecar.
+        """
+        img = nib.nifti1.Nifti1Image.from_filename(nifti_with_sidecar)
+
+        da = from_nifti(img)
+
+        assert "time" not in da.dims
+
+
 class TestRoundtrip:
     """Tests for save/load roundtrip consistency."""
+
+    def test_object_roundtrip_preserves_values_dtype_and_affine(
+        self, sample_voxeldata_3dt
+    ):
+        """A to_nifti -> from_nifti roundtrip preserves values, dtype, and affine."""
+        original = sample_voxeldata_3dt
+
+        img = to_nifti(original)
+        reloaded = from_nifti(img)
+
+        np.testing.assert_array_almost_equal(
+            np.asarray(reloaded), original.values, decimal=5
+        )
+        assert np.asarray(reloaded).dtype == original.values.dtype
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(reloaded),
+            get_voxel_to_world_affine(original),
+            atol=1e-6,
+        )
+
 
     def test_roundtrip_preserves_differing_qform(self, tmp_path):
         """A load->save->load roundtrip preserves the full qform and sform."""

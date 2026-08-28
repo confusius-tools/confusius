@@ -147,6 +147,11 @@ Current development version for the next ConfUSIus release.
   for matching JSON sidecars, so shared metadata stored at the dataset root or parent
   folders is preserved when loading recordings
   ([#359](https://github.com/confusius-tools/confusius/pull/359)).
+- Added [`from_nifti`][confusius.io.from_nifti]/[`to_nifti`][confusius.io.to_nifti] to
+  convert directly between a VoxelData array and an in-memory
+  `nibabel.Nifti1Image`/`nibabel.Nifti2Image`, with no file I/O, for interoperating
+  with libraries such as nilearn
+  ([#372](https://github.com/confusius-tools/confusius/issues/372)).
 
 ### :bug: Fixes
 
