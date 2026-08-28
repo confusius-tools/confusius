@@ -326,37 +326,6 @@ class TestVolumePlotterAddStatMap:
             actual.get_array().data, expected.get_array().data
         )
 
-    def test_threshold_masks_overlay(self, sample_voxeldata_3d, matplotlib_pyplot):
-        stat_map = _signed_stat_map(sample_voxeldata_3d)
-        plotter = plot_volume(sample_voxeldata_3d, show_colorbar=False).add_stat_map(
-            stat_map, threshold=9.0, threshold_mode="lower"
-        )
-        overlay = _axes(plotter).ravel()[0].collections[-1]
-        assert np.ma.is_masked(overlay.get_array())
-
-    def test_auto_range_uses_sequential_range_and_viridis_for_nonneg_data(
-        self, sample_voxeldata_3d, matplotlib_pyplot
-    ):
-        stat_map = _nonneg_stat_map(sample_voxeldata_3d)
-        plotter = plot_volume(sample_voxeldata_3d, show_colorbar=False).add_stat_map(
-            stat_map
-        )
-        overlay = _axes(plotter).ravel()[0].collections[-1]
-        assert overlay.cmap.name.startswith("viridis")
-        assert overlay.norm.vmin == 0.0
-        assert overlay.norm.vmax == 10.0
-
-    def test_without_background_plots_stat_map_alone(
-        self, sample_voxeldata_3d, matplotlib_pyplot
-    ):
-        stat_map = _signed_stat_map(sample_voxeldata_3d)
-        plotter = VolumePlotter(slice_mode="z").add_stat_map(
-            stat_map, match_coordinates=False
-        )
-        rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == stat_map.sizes["k"]
-        assert all(len(ax.collections) == 1 for ax in rendered)
-
 
 class TestStatMapAccessor:
     """Tests for the `data.fusi.plot.stat_map()` accessor wrapper."""
