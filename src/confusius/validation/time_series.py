@@ -254,8 +254,8 @@ def ensure_time_aligned(
     `value` must have as many timepoints as `signals`. When both carry `time`
     coordinates these must match within the default coordinate-comparison tolerance
     (`rtol=1e-5`, `atol=1e-8`). When only `signals` does, `value` is assumed to be
-    ordered like `signals` along `time` and takes its `time` coordinates, with a
-    warning since alignment cannot be verified.
+    ordered like `signals` along `time` and takes its `time` coordinates (unless
+    these are pose-dependent), with a warning since alignment cannot be verified.
 
     Parameters
     ----------
@@ -357,13 +357,20 @@ def ensure_time_aligned(
     if signals_time is None:
         return value
 
-    warnings.warn(
+    message = (
         f"{name} has no 'time' coordinates, so its alignment with signals cannot be "
-        "verified; assuming it is ordered like signals along 'time' and using the "
-        "'time' coordinates of signals.",
+        "verified; assuming it is ordered like signals along 'time'"
+    )
+    if signals_time.dims == (TIME_DIM,):
+        warnings.warn(
+            f"{message} and using the 'time' coordinates of signals.",
+            stacklevel=find_stack_level(),
+        )
+        return value.assign_coords({TIME_DIM: signals_time.variable})
+    # A pose-dependent (time, pose) coordinate cannot live on a (time, ...) value.
+    warnings.warn(
+        f"{message}; the 'time' coordinates of signals are pose-dependent, so none "
+        "are attached.",
         stacklevel=find_stack_level(),
     )
-    if signals_time.dims != (TIME_DIM,):
-        # A pose-dependent (time, pose) coordinate cannot live on a (time, ...) value.
-        return value
-    return value.assign_coords({TIME_DIM: signals_time.variable})
+    return value

@@ -200,7 +200,7 @@ def test_numpy_mask_with_pose_dependent_time_coordinates(rng):
     mask = np.ones(10, dtype=bool)
     mask[[2, 5]] = False
 
-    with pytest.warns(UserWarning, match="cannot be verified"):
+    with pytest.warns(UserWarning, match="pose-dependent, so none are attached"):
         result = censor_samples(signals, mask)
 
     assert_allclose(result.values, signals.values[mask])

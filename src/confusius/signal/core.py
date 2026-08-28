@@ -309,6 +309,9 @@ def clean(
     UserWarning
         If `confounds` or `sample_mask` has no `time` coordinates, since alignment
         with `signals` cannot be verified.
+    UserWarning
+        If `confounds` is given and `signals` has a `pose` dimension, since the same
+        confounds are regressed from every pose.
 
     References
     ----------

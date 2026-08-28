@@ -4,6 +4,7 @@ Portions of this file are derived from Nilearn, which is licensed under the BSD-
 License. See `NOTICE` file for details.
 """
 
+import warnings
 from collections.abc import Callable
 from typing import cast
 
@@ -13,6 +14,7 @@ import scipy.linalg
 import xarray as xr
 
 from confusius._utils.mask import validate_spatial_or_feature_mask
+from confusius._utils.stack import find_stack_level
 from confusius.signal._utils import remove_zero_variance_voxels
 from confusius.signal.detrending import detrend as detrend_signals
 from confusius.signal.standardization import standardize
@@ -197,6 +199,9 @@ def regress_confounds(
     -----
     UserWarning
         If `confounds` has no `time` coordinates, since alignment cannot be verified.
+    UserWarning
+        If `signals` has a `pose` dimension, since the same confounds are regressed
+        from every pose.
 
     Notes
     -----
@@ -249,6 +254,12 @@ def regress_confounds(
     confounds_array = ensure_time_aligned(
         signals, confounds, "confounds", ndim=2
     ).values
+    if "pose" in signals.dims:
+        warnings.warn(
+            "signals have a 'pose' dimension: the same confounds are regressed from "
+            "every pose. To use per-pose confounds, regress each pose separately.",
+            stacklevel=find_stack_level(),
+        )
 
     result = xr.apply_ufunc(
         _regress_confounds_wrapper,
