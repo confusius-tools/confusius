@@ -208,22 +208,28 @@ def ensure_time_aligned(
     *,
     allow_dataframe: bool = True,
 ) -> xr.DataArray:
-    """Return `value` as a DataArray aligned with `signals` along `time`.
+    """Return `value` as a `(time, ...)` DataArray aligned with `signals`.
 
-    A DataArray `value` is validated against `signals`: it must have a `time`
-    dimension, and when both carry `time` coordinates these must match. A DataFrame
-    `value` must have a `time` column, which is validated the same way; its other
-    columns become a `confound` dimension named after them. A NumPy `value` is assumed
-    to be ordered like `signals` along its first axis and is wrapped in a DataArray
-    carrying the `time` coordinates of `signals`.
+    `value` is validated against `signals` and returned as a 1D `(time,)` or 2D
+    `(time, n)` DataArray with `time` as its first dimension:
+
+    - A DataArray must have a `time` dimension.
+    - A DataFrame must have a `time` column and at least one other, numeric column;
+      the other columns become a `confound` dimension named after them.
+    - A NumPy array is wrapped with dims `(time, confound)`.
+
+    `value` must have as many timepoints as `signals`. When both carry `time`
+    coordinates these must match within the default coordinate-comparison tolerance
+    (`rtol=1e-5`, `atol=1e-8`). When only `signals` does, `value` is assumed to be
+    ordered like `signals` along `time` and takes its `time` coordinates, with a
+    warning since alignment cannot be verified.
 
     Parameters
     ----------
     signals : (time, ...) xarray.DataArray
         Signals defining the `time` grid.
     value : (time, ...) xarray.DataArray, numpy.ndarray, or pandas.DataFrame
-        Array to align. A NumPy array must be 1D `(time,)` or 2D `(time, n)`; its
-        second axis is named `confound`.
+        Array to align.
     name : str
         Name of `value` used in error and warning messages.
     allow_dataframe : bool, default: True
@@ -231,76 +237,93 @@ def ensure_time_aligned(
 
     Returns
     -------
-    (time, ...) xarray.DataArray
-        `value` itself when it is a DataArray, otherwise a DataArray wrapping it.
+    (time,) or (time, n) xarray.DataArray
+        `value` with `time` as its first dimension.
 
     Raises
     ------
     TypeError
         If `value` is not one of the accepted types.
     ValueError
-        If a DataArray `value` has no `time` dimension, if a DataFrame `value` has no
-        `time` column or no other column, if `time` coordinates do not match those of
-        `signals`, or if a NumPy `value` is not 1D or 2D or its first axis does not
-        match the number of timepoints in `signals`.
+        If `value` has no `time` dimension or column, is not 1D or 2D, or does not
+        have as many timepoints as `signals`; if a DataFrame `value` has duplicate or
+        non-numeric columns or no column besides `time`; or if `time` coordinates do
+        not match those of `signals`.
 
     Warns
     -----
     UserWarning
-        If `value` is a NumPy array, since alignment with `signals` cannot be verified.
+        If `value` has no `time` coordinates while `signals` does, since alignment
+        cannot be verified.
     """
     if allow_dataframe and isinstance(value, pd.DataFrame):
         if TIME_DIM not in value.columns:
             raise ValueError(f"{name} DataFrame must have a 'time' column")
+        duplicated = value.columns[value.columns.duplicated()]
+        if len(duplicated):
+            raise ValueError(
+                f"{name} DataFrame has duplicate columns: "
+                f"{list(dict.fromkeys(duplicated))}"
+            )
         columns = [column for column in value.columns if column != TIME_DIM]
         if not columns:
             raise ValueError(
                 f"{name} DataFrame must have at least one column besides 'time'"
             )
+        try:
+            values = value[columns].to_numpy(dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} DataFrame columns must be numeric") from exc
         value = xr.DataArray(
-            value[columns].to_numpy(),
+            values,
             dims=(TIME_DIM, "confound"),
             coords={
                 TIME_DIM: value[TIME_DIM].to_numpy(),
                 "confound": [str(column) for column in columns],
             },
         )
-
-    if isinstance(value, xr.DataArray):
-        if TIME_DIM not in value.dims:
-            raise ValueError(f"{name} must have a 'time' dimension")
-        if TIME_DIM in signals.coords and TIME_DIM in value.coords:
-            try:
-                validate_matching_coordinates(signals, value, TIME_DIM)
-            except ValueError as exc:
-                raise ValueError(
-                    f"{name} time coordinates do not match signals time coordinates"
-                ) from exc
-        return value
-
-    if not isinstance(value, np.ndarray):
+    elif isinstance(value, np.ndarray):
+        if value.ndim not in (1, 2):
+            raise ValueError(f"{name} must be 1D or 2D, got {value.ndim}D")
+        value = xr.DataArray(value, dims=(TIME_DIM, "confound")[: value.ndim])
+    elif not isinstance(value, xr.DataArray):
         accepted = (
             "xarray.DataArray, numpy.ndarray, or pandas.DataFrame"
             if allow_dataframe
             else "xarray.DataArray or numpy.ndarray"
         )
         raise TypeError(f"{name} must be an {accepted}, got {type(value).__name__}")
-    if value.ndim not in (1, 2):
+
+    if TIME_DIM not in value.dims:
+        raise ValueError(f"{name} must have a 'time' dimension")
+    if value.ndim > 2:
         raise ValueError(f"{name} must be 1D or 2D, got {value.ndim}D")
-    n_time = signals.sizes[TIME_DIM]
-    if value.shape[0] != n_time:
+    value = value.transpose(TIME_DIM, ...)
+
+    signals_time = signals.coords.get(TIME_DIM)
+    if signals_time is not None and TIME_DIM in value.coords:
+        try:
+            validate_matching_coordinates(signals, value, TIME_DIM)
+        except ValueError as exc:
+            raise ValueError(
+                f"{name} time coordinates do not match signals time coordinates"
+            ) from exc
+        return value
+    if value.sizes[TIME_DIM] != signals.sizes[TIME_DIM]:
         raise ValueError(
-            f"{name} length ({value.shape[0]}) must match number of timepoints "
-            f"({n_time})"
+            f"{name} length ({value.sizes[TIME_DIM]}) must match number of timepoints "
+            f"({signals.sizes[TIME_DIM]})"
         )
+    if signals_time is None:
+        return value
 
     warnings.warn(
-        f"{name} is a NumPy array, so its alignment with signals cannot be verified; "
-        "assuming it is ordered like signals along 'time' and using the 'time' "
-        "coordinates of signals.",
+        f"{name} has no 'time' coordinates, so its alignment with signals cannot be "
+        "verified; assuming it is ordered like signals along 'time' and using the "
+        "'time' coordinates of signals.",
         stacklevel=find_stack_level(),
     )
-    coords = {TIME_DIM: signals.coords[TIME_DIM]} if TIME_DIM in signals.coords else {}
-    return xr.DataArray(
-        value, dims=(TIME_DIM, "confound")[: value.ndim], coords=coords
-    ).reset_coords(drop=True)
+    if signals_time.dims != (TIME_DIM,):
+        # A pose-dependent (time, pose) coordinate cannot live on a (time, ...) value.
+        return value
+    return value.assign_coords({TIME_DIM: signals_time.variable})

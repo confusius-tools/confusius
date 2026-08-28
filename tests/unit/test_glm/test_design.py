@@ -3,8 +3,8 @@
 import numpy as np
 import pandas as pd
 import pytest
-import xarray as xr
 import scipy.special as spspecial
+import xarray as xr
 from numpy.testing import assert_allclose
 
 from confusius.glm._design import make_first_level_design_matrix
@@ -339,6 +339,47 @@ class TestDesignMatrix:
         with pytest.raises(ValueError, match="time coordinates do not match"):
             make_first_level_design_matrix(
                 frame_times, basic_events, confounds=confounds
+            )
+
+    @pytest.mark.parametrize(
+        "labels",
+        [
+            np.array([b"motion_x", b"motion_y"]),
+            np.array(["motion_x", "motion_y"], dtype=np.dtypes.StringDType()),
+        ],
+        ids=["bytes", "StringDType"],
+    )
+    def test_design_matrix_dataarray_confounds_named_from_non_unicode_coords(
+        self, frame_times, basic_events, labels
+    ):
+        """Bytes and StringDType coordinates name the columns like str coordinates."""
+        values = np.column_stack(
+            [
+                np.linspace(0.0, 1.0, len(frame_times)),
+                np.linspace(1.0, 0.0, len(frame_times)),
+            ]
+        )
+        confounds = xr.DataArray(
+            values,
+            dims=["time", "confound"],
+            coords={"time": frame_times, "confound": labels},
+        )
+        design = make_first_level_design_matrix(
+            frame_times, basic_events, confounds=confounds
+        )
+        assert_allclose(design["motion_x"].to_numpy(), values[:, 0])
+        assert_allclose(design["motion_y"].to_numpy(), values[:, 1])
+
+    def test_design_matrix_confound_names_with_named_confounds_raises(
+        self, frame_times, basic_events
+    ):
+        """confound_names cannot silently override names carried by confounds."""
+        confounds = pd.DataFrame(
+            {"time": frame_times, "motion_x": np.linspace(0.0, 1.0, len(frame_times))}
+        )
+        with pytest.raises(ValueError, match="confound_names cannot be given"):
+            make_first_level_design_matrix(
+                frame_times, basic_events, confounds=confounds, confound_names=["p"]
             )
 
     def test_design_matrix_dataarray_confounds_named_from_string_coords(

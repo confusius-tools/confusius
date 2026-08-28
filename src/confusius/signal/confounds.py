@@ -29,8 +29,8 @@ def _validate_confounds(
     signals : xarray.DataArray
         Signals with 'time' dimension.
     confounds : xarray.DataArray, numpy.ndarray, or pandas.DataFrame
-        Confound regressors to validate. A DataFrame must have a `time` column. A
-        NumPy array is assumed aligned with `signals` along its first axis.
+        Confound regressors to validate, aligned with `signals` as described in
+        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned].
 
     Returns
     -------
@@ -47,24 +47,11 @@ def _validate_confounds(
     Warns
     -----
     UserWarning
-        If `confounds` is a NumPy array, since alignment cannot be verified.
+        If `confounds` has no `time` coordinates, since alignment cannot be verified.
     """
-    confounds = ensure_time_aligned(signals, confounds, "confounds")
-    confounds_da = confounds.transpose("time", ...)
-    confounds_values = confounds_da.values
-
+    confounds_values = ensure_time_aligned(signals, confounds, "confounds").values
     if confounds_values.ndim == 1:
-        confounds_values = np.atleast_2d(confounds_values).T
-    elif confounds_values.ndim != 2:
-        raise ValueError(f"confounds must be 1D or 2D, got {confounds_values.ndim}D")
-
-    n_time = signals.sizes["time"]
-    if confounds_values.shape[0] != n_time:
-        raise ValueError(
-            f"confounds time dimension ({confounds_values.shape[0]}) does not match "
-            f"signals time dimension ({n_time})"
-        )
-
+        confounds_values = confounds_values[:, np.newaxis]
     return confounds_values
 
 
@@ -215,12 +202,14 @@ def regress_confounds(
     confounds : (time, n_confounds) xarray.DataArray, numpy.ndarray, or \
             pandas.DataFrame
         Confound regressors to remove. Can have shape `(time,)` for a single
-        confound. For a DataArray, the time dimension and coordinates must match the
-        signals within the default coordinate-comparison tolerance (`rtol=1e-5`,
-        `atol=1e-8`). A DataFrame must have a `time` column matching the `time`
-        coordinates of the signals; its other columns are the confounds. A NumPy array
-        is assumed aligned with `signals` along its first axis and takes its `time`
-        coordinates, with a warning since alignment cannot be verified.
+        confound. A DataArray must have a `time` dimension; a
+        DataFrame must have a `time` column, its other numeric columns being the
+        confounds; a NumPy array must have time along its first axis. `time`
+        coordinates must match those of `signals` within the default
+        coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`); an input without
+        `time` coordinates is assumed ordered like `signals` and takes its `time`
+        coordinates, with a warning since alignment cannot be verified (see
+        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]).
     standardize_confounds : bool, default: True
         Whether to z-score confounds before regression. If `False`, confounds are
         divided by their maximum absolute value for numerical stability without
@@ -243,7 +232,7 @@ def regress_confounds(
     Warns
     -----
     UserWarning
-        If `confounds` is a NumPy array, since alignment cannot be verified.
+        If `confounds` has no `time` coordinates, since alignment cannot be verified.
 
     Notes
     -----

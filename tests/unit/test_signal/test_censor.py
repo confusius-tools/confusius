@@ -189,6 +189,23 @@ def test_numpy_mask_rejects_wrong_length(make_sample_timeseries):
         censor_samples(signals, np.ones(99, dtype=bool))
 
 
+def test_numpy_mask_with_pose_dependent_time_coordinates(rng):
+    """Test a NumPy sample_mask works when signals carry `(time, pose)` time coords."""
+    times = np.arange(10) / 10.0
+    signals = xr.DataArray(
+        rng.standard_normal((10, 2, 3)),
+        dims=["time", "pose", "space"],
+        coords={"time": (("time", "pose"), np.stack([times, times + 0.05], axis=1))},
+    )
+    mask = np.ones(10, dtype=bool)
+    mask[[2, 5]] = False
+
+    with pytest.warns(UserWarning, match="cannot be verified"):
+        result = censor_samples(signals, mask)
+
+    assert_allclose(result.values, signals.values[mask])
+
+
 def test_interpolate_rejects_mask_without_time_dimension(make_sample_timeseries):
     """Test sample_mask must have a time dimension."""
     signals = make_sample_timeseries(n_time=100)
@@ -205,7 +222,7 @@ def test_interpolate_rejects_non_boolean_mask(make_sample_timeseries):
         np.ones(100, dtype=int), dims=["time"], coords={"time": signals.coords["time"]}
     )
 
-    with pytest.raises(ValueError, match="sample_mask must be boolean DataArray"):
+    with pytest.raises(ValueError, match="sample_mask must be boolean"):
         interpolate_samples(signals, sample_mask)
 
 

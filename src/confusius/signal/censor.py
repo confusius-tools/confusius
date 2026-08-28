@@ -20,9 +20,9 @@ def _validate_sample_mask(
     signals : xarray.DataArray
         Input signals with time dimension.
     sample_mask : xarray.DataArray or numpy.ndarray
-        Boolean sample mask (`True` = keep, `False` = censor). A DataArray must have a
-        `time` dimension matching signals; a NumPy array is assumed aligned with
-        signals.
+        Boolean sample mask (`True` = keep, `False` = censor), aligned with `signals`
+        as described in
+        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned].
 
     Returns
     -------
@@ -32,7 +32,7 @@ def _validate_sample_mask(
     Raises
     ------
     TypeError
-        If `sample_mask` is neither an xarray.DataArray nor a NumPy array.
+        If `sample_mask` is neither a DataArray nor a NumPy array.
     ValueError
         If `sample_mask` has wrong dtype, length, missing time dimension, or mismatched
         coordinates.
@@ -40,28 +40,17 @@ def _validate_sample_mask(
     Warns
     -----
     UserWarning
-        If `sample_mask` is a NumPy array, since alignment cannot be verified.
+        If `sample_mask` has no `time` coordinates, since alignment cannot be verified.
     """
     sample_mask = ensure_time_aligned(
         signals, sample_mask, "sample_mask", allow_dataframe=False
     )
-
-    n_timepoints = signals.sizes["time"]
-    mask_values = np.asarray(sample_mask.values)
-
+    mask_values = sample_mask.values
     if mask_values.dtype != bool:
+        raise ValueError(f"sample_mask must be boolean, got dtype {mask_values.dtype}")
+    if mask_values.ndim != 1:
         raise ValueError(
-            f"sample_mask must be boolean DataArray, got dtype {mask_values.dtype}"
-        )
-
-    if sample_mask.ndim != 1:
-        raise ValueError(
-            f"Boolean sample_mask must be 1D, got shape {sample_mask.shape}"
-        )
-    if len(mask_values) != n_timepoints:
-        raise ValueError(
-            f"sample_mask length ({len(mask_values)}) must match number of "
-            f"timepoints ({n_timepoints})"
+            f"Boolean sample_mask must be 1D, got shape {mask_values.shape}"
         )
     return mask_values
 
@@ -87,11 +76,12 @@ def interpolate_samples(
         `(time, k, j, i)`.
     sample_mask : (time,) xarray.DataArray or numpy.ndarray
         Boolean sample mask indicating which timepoints to keep (`True`) vs.
-        interpolate (`False`). A DataArray must have a `time` dimension matching
-        `signals`; if both have `time` coordinates, they must match within the default
-        coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`). A NumPy array is
-        assumed aligned with `signals` and takes its `time` coordinates, with a warning
-        since alignment cannot be verified.
+        interpolate (`False`). A DataArray must have a `time` dimension whose coordinates
+        match those of `signals` within the default coordinate-comparison tolerance
+        (`rtol=1e-5`, `atol=1e-8`); a NumPy array, or a DataArray without `time`
+        coordinates, is assumed ordered like `signals` and takes its `time`
+        coordinates, with a warning since alignment cannot be verified (see
+        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]).
     method : {"linear", "nearest", "zero", "slinear", "quadratic", "cubic", "quintic", \
             "polynomial", "pchip", "barycentric", "krogh", "akima", "makima"}, \
             default: "linear"
@@ -116,7 +106,7 @@ def interpolate_samples(
     ValueError
         If `signals` doesn't have a `time` dimension or `time` coordinates.
     TypeError
-        If `sample_mask` is neither an xarray.DataArray nor a NumPy array.
+        If `sample_mask` is neither a DataArray nor a NumPy array.
     ValueError
         If `sample_mask` has wrong dtype, length, missing time dimension, or mismatched
         coordinates.
@@ -128,7 +118,7 @@ def interpolate_samples(
     UserWarning
         If all samples are marked as good (no interpolation needed).
     UserWarning
-        If `sample_mask` is a NumPy array, since alignment cannot be verified.
+        If `sample_mask` has no `time` coordinates, since alignment cannot be verified.
 
     Notes
     -----
@@ -218,12 +208,13 @@ def censor_samples(
         Array to censor. Must have a `time` dimension. Can be any shape, e.g.,
         extracted signals `(time, space)` or VoxelData array `(time, k, j, i)`.
     sample_mask : (time,) xarray.DataArray or numpy.ndarray
-        Boolean sample mask indicating which timepoints to keep (`True`) vs. remove
-        (`False`). A DataArray must have a `time` dimension matching `signals`; if
-        both have `time` coordinates, they must match within the default
-        coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`). A NumPy array is
-        assumed aligned with `signals` and takes its `time` coordinates, with a warning
-        since alignment cannot be verified.
+        Boolean sample mask indicating which timepoints to keep (`True`) vs.
+        remove (`False`). A DataArray must have a `time` dimension whose coordinates
+        match those of `signals` within the default coordinate-comparison tolerance
+        (`rtol=1e-5`, `atol=1e-8`); a NumPy array, or a DataArray without `time`
+        coordinates, is assumed ordered like `signals` and takes its `time`
+        coordinates, with a warning since alignment cannot be verified (see
+        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]).
 
     Returns
     -------
@@ -237,7 +228,7 @@ def censor_samples(
     ValueError
         If `signals` doesn't have a `time` dimension or `time` coordinates.
     TypeError
-        If `sample_mask` is neither an xarray.DataArray nor a NumPy array.
+        If `sample_mask` is neither a DataArray nor a NumPy array.
     ValueError
         If `sample_mask` has wrong dtype, length, missing time dimension, or mismatched
         coordinates.
@@ -249,7 +240,7 @@ def censor_samples(
     UserWarning
         If all samples are kept (no censoring performed).
     UserWarning
-        If `sample_mask` is a NumPy array, since alignment cannot be verified.
+        If `sample_mask` has no `time` coordinates, since alignment cannot be verified.
 
     Examples
     --------

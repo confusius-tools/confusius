@@ -259,6 +259,18 @@ def test_regress_confounds_dataframe_matches_dataarray(make_sample_timeseries, r
             "time coordinates do not match",
         ),
         (pd.DataFrame({"time": np.arange(100) / 100}), "at least one column"),
+        (
+            pd.DataFrame(
+                {"time": np.arange(100) / 100, "label": ["a"] * 100, "motion": 0.0}
+            ),
+            "columns must be numeric",
+        ),
+        (
+            pd.DataFrame(
+                np.zeros((100, 3)), columns=["time", "motion", "motion"]
+            ).assign(time=np.arange(100) / 100),
+            r"duplicate columns: \['motion'\]",
+        ),
     ],
 )
 def test_regress_confounds_invalid_dataframe(make_sample_timeseries, frame, message):
@@ -267,6 +279,42 @@ def test_regress_confounds_invalid_dataframe(make_sample_timeseries, frame, mess
 
     with pytest.raises(ValueError, match=message):
         regress_confounds(signals, frame)
+
+
+def test_regress_confounds_dataframe_bool_column_is_spike_regressor(
+    make_sample_timeseries,
+):
+    """Test a boolean DataFrame column regresses like a 0/1 float regressor."""
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
+    spikes = np.zeros(100, dtype=bool)
+    spikes[[3, 40]] = True
+    frame = pd.DataFrame({"time": signals.coords["time"].values, "spike": spikes})
+    expected = regress_confounds(
+        signals,
+        xr.DataArray(
+            spikes.astype(float), dims=["time"], coords={"time": signals.coords["time"]}
+        ),
+    )
+
+    xr.testing.assert_allclose(regress_confounds(signals, frame), expected)
+
+
+def test_regress_confounds_dataarray_without_time_coordinates_warns(
+    make_sample_timeseries, rng
+):
+    """Test coordinate-less DataArray confounds warn and match the aligned result."""
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
+    confounds = xr.DataArray(
+        rng.standard_normal((100, 2)),
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"]},
+    )
+    expected = regress_confounds(signals, confounds)
+
+    with pytest.warns(UserWarning, match="cannot be verified"):
+        result = regress_confounds(signals, confounds.drop_vars("time"))
+
+    xr.testing.assert_allclose(result, expected)
 
 
 @pytest.mark.parametrize("n_confounds", [None, 3])
@@ -340,7 +388,7 @@ def test_regress_confounds_mismatched_time_length_without_coordinates(
     signals = make_sample_timeseries(n_time=100, n_voxels=50)
     confounds = xr.DataArray(np.random.randn(50, 3), dims=["time", "confound"])
 
-    with pytest.raises(ValueError, match="does not match signals time dimension"):
+    with pytest.raises(ValueError, match=r"confounds length \(50\) must match"):
         regress_confounds(signals, confounds)
 
 

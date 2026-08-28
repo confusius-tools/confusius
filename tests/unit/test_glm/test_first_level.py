@@ -337,6 +337,31 @@ class TestFirstLevelModelContrastMultiRun:
             conf2["motion"].to_numpy(),
         )
 
+    def test_multi_run_single_confounds_table_must_match_every_run(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
+        """A single confounds table is applied to every run, so its times must
+        match each run, and the error names the offending run."""
+        data1 = make_glm_test_dataarray(
+            rng.standard_normal((200, 2, 3, 4)),
+            ("time", "k", "j", "i"),
+            time=frame_times,
+        )
+        data2 = make_glm_test_dataarray(
+            rng.standard_normal((200, 2, 3, 4)),
+            ("time", "k", "j", "i"),
+            time=frame_times + 1.0,
+        )
+        confounds = pd.DataFrame(
+            {"time": frame_times, "motion": rng.standard_normal(200)}
+        )
+        with pytest.raises(
+            ValueError, match="Run 1: confounds time coordinates do not match"
+        ):
+            FirstLevelModel(noise_model="ols").fit(
+                [data1, data2], events=[events, events], confounds=confounds
+            )
+
 
 class TestFirstLevelModelFContrast:
     """Test F-contrast path through compute_contrast."""

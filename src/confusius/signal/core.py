@@ -252,12 +252,15 @@ def clean(
             pandas.DataFrame, optional
         Confound regressors to remove. Can have shape `(time,)` for a single
         confound. When provided, confounds are detrended and filtered along with
-        signals before regression. For a DataArray, the time dimension and
-        coordinates must match the signals. A DataFrame must have a `time` column
-        matching the `time` coordinates of the signals; its other columns are the
-        confounds. A NumPy array is assumed aligned with `signals` along its first
-        axis and takes its `time` coordinates, with a warning since alignment cannot
-        be verified. If not provided, no confound regression is applied.
+        signals before regression. A DataArray must have a `time` dimension; a
+        DataFrame must have a `time` column, its other numeric columns being the
+        confounds; a NumPy array must have time along its first axis. `time`
+        coordinates must match those of `signals` within the default
+        coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`); an input without
+        `time` coordinates is assumed ordered like `signals` and takes its `time`
+        coordinates, with a warning since alignment cannot be verified (see
+        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]). If not
+        provided, no confound regression is applied.
     standardize_confounds : bool, default: True
         Whether to z-score confounds before regression. If `False`, confounds are
         divided by their maximum absolute value for numerical stability without
@@ -269,11 +272,14 @@ def clean(
         filling boundary gaps from the nearest finite sample. If `False`, non-finite
         values are left unchanged.
     sample_mask : (time,) xarray.DataArray or numpy.ndarray, optional
-        Boolean sample mask indicating which timepoints to keep (`True`) vs. remove
-        (`False`). A DataArray must have a `time` dimension matching `signals`; if
-        both have `time` coordinates, they must match. A NumPy array is assumed
-        aligned with `signals` and takes its `time` coordinates, with a warning since
-        alignment cannot be verified. If not provided, no scrubbing is applied.
+        Boolean sample mask indicating which timepoints to keep (`True`) vs.
+        remove (`False`). A DataArray must have a `time` dimension whose coordinates
+        match those of `signals` within the default coordinate-comparison tolerance
+        (`rtol=1e-5`, `atol=1e-8`); a NumPy array, or a DataArray without `time`
+        coordinates, is assumed ordered like `signals` and takes its `time`
+        coordinates, with a warning since alignment cannot be verified (see
+        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]). If not
+        provided, no scrubbing is applied.
     interpolate_method : {"linear", "nearest", "zero", "slinear", "quadratic", \
             "cubic", "quintic", "polynomial", "pchip", "barycentric", "krogh", \
             "akima", "makima"}, default: "linear"
@@ -301,8 +307,8 @@ def clean(
     Warns
     -----
     UserWarning
-        If `confounds` or `sample_mask` is a NumPy array, since alignment with
-        `signals` cannot be verified.
+        If `confounds` or `sample_mask` has no `time` coordinates, since alignment
+        with `signals` cannot be verified.
 
     References
     ----------

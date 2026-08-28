@@ -554,17 +554,16 @@ def _align_confounds(
         If `confounds` is not 1D or 2D, or if its times do not match `volume_times`.
     """
     time_grid = xr.DataArray(volume_times, dims=["time"], coords={"time": volume_times})
-    aligned = ensure_time_aligned(time_grid, confounds, "confounds").transpose(
-        "time", ...
-    )
+    aligned = ensure_time_aligned(time_grid, confounds, "confounds")
     if aligned.ndim == 1:
         aligned = aligned.expand_dims("confound", axis=1)
-    if aligned.ndim != 2:
-        raise ValueError(f"confounds must be 1D or 2D, got {aligned.ndim}D")
-    names_dim = aligned.dims[1]
+    labels = aligned.coords.get(aligned.dims[1])
     names = None
-    if names_dim in aligned.coords and aligned.coords[names_dim].dtype.kind in "OU":
-        names = [str(label) for label in aligned.coords[names_dim].values]
+    if labels is not None and not np.issubdtype(labels.dtype, np.number):
+        names = [
+            label.decode() if isinstance(label, bytes) else str(label)
+            for label in labels.values
+        ]
     return aligned.values, names
 
 
@@ -668,11 +667,13 @@ def make_first_level_design_matrix(
             xarray.DataArray, optional
         Confound regressors. A DataFrame must have a `time` column and a DataArray a
         `time` dimension; their times must match `volume_times`. A NumPy array is
-        assumed ordered like `volume_times`.
+        assumed ordered like `volume_times`; unlike the signal-processing functions,
+        no warning is issued, since `volume_times` is itself a plain array with
+        nothing to verify against.
     confound_names : list of str, optional
-        Names for confound regressors. Ignored when `confounds` carries names
-        (DataFrame columns or string DataArray coordinates). If not provided,
-        `confound_<i>` names are used.
+        Names for confound regressors. Cannot be combined with `confounds` that
+        already carry names (DataFrame columns or non-numeric DataArray coordinates).
+        If not provided, `confound_<i>` names are used.
     oversampling : int, default: 50
         Oversampling factor for HRF convolution.
     min_onset : float, default: -24.0
@@ -727,7 +728,13 @@ def make_first_level_design_matrix(
 
     if isinstance(confounds, (pd.DataFrame, xr.DataArray)):
         confound_array, inferred_names = _align_confounds(volume_times, confounds)
-        confound_names = inferred_names or confound_names
+        if inferred_names is not None:
+            if confound_names is not None:
+                raise ValueError(
+                    "confound_names cannot be given when confounds already carries "
+                    "names (DataFrame columns or non-numeric DataArray coordinates)."
+                )
+            confound_names = inferred_names
     else:
         confound_array = confounds
     confound_matrix, prepared_confound_names = _prepare_confounds(
