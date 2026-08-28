@@ -295,7 +295,7 @@ def plot_napari(
             layer.features = build_roi_labels_features(roi_labels)
 
     assert viewer is not None
-    viewer.scale_bar.visible = show_scale_bar
+    viewer.canvas.overlays.scale_bar.visible = show_scale_bar
 
     return viewer, layer
 

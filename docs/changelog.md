@@ -181,6 +181,11 @@ Current development version for the next ConfUSIus release.
   falls back to scale 1/origin 0 like any other missing world geometry
   ([#409](https://github.com/confusius-tools/confusius/pull/409)).
 
+### :wrench: Maintenance
+
+- **[Napari plugin]** ConfUSIus now requires napari 0.9.0 or newer
+  ([#413](https://github.com/confusius-tools/confusius/pull/413)).
+
 ## 0.6.1
 
 Released 2026-08-07.
