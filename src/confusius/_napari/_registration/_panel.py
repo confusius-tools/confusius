@@ -75,7 +75,6 @@ from confusius._napari._registration._panel_transforms import (
 )
 from confusius._napari._registration._panel_utils import (
     ScientificDoubleSpinBox,
-    _apply_registration_scale,
     _get_source_dataarray,
     _is_registration_source_layer,
     _parse_comma_separated_ints,
@@ -98,7 +97,7 @@ if TYPE_CHECKING:
     from napari.layers import Image, Layer
 
 
-ScaleMode = Literal["off", "dB", "sqrt"]
+ScaleMode = Literal["none", "db", "sqrt"]
 """Allowed registration intensity-scaling modes used by the panel."""
 
 MetricName = Literal["correlation", "mattes_mi"]
@@ -138,6 +137,7 @@ class ModeParameters(TypedDict):
     transform: str
     metric: MetricName
     scale: ScaleMode
+    fixed_scale: ScaleMode
     initialization: InitializationSelection
     learning_rate_auto: bool
     learning_rate_value: float
@@ -187,6 +187,7 @@ class VolumeRegistrationRunPayload(RegistrationRunPayloadBase):
 
     operation: Literal["register_volume"]
     transform: VolumeTransformType
+    fixed_scale: ScaleMode
     mesh_size: tuple[int, int, int]
     fixed_layer_name: str
     fixed_mask_layer_name: str | None
@@ -300,6 +301,31 @@ class RegistrationPanel(QWidget):
         self._setup_ui()
         self.viewer.layers.events.inserted.connect(self._refresh_layers)
         self.viewer.layers.events.removed.connect(self._refresh_layers)
+
+    def _make_scale_combo(self, tooltip: str) -> QComboBox:
+        """Return an intensity-scaling selector (decibel / square root / none).
+
+        Parameters
+        ----------
+        tooltip : str
+            Tooltip shown when hovering the combo box.
+
+        Returns
+        -------
+        QComboBox
+            Configured selector whose item data is the `ScaleMode` value.
+        """
+        combo = QComboBox()
+        combo.setMinimumContentsLength(10)
+        combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        combo.addItem("decibel", "db")
+        combo.addItem("square root", "sqrt")
+        combo.addItem("none", "none")
+        combo.setToolTip(tooltip)
+        return combo
 
     def _make_form_label(self, text: str, *, tooltip: str | None = None) -> QLabel:
         """Return a form label with an optional tooltip.
@@ -656,27 +682,23 @@ class RegistrationPanel(QWidget):
             self._metric_combo,
         )
 
-        self._scale_combo = QComboBox()
-        self._scale_combo.setMinimumContentsLength(10)
-        self._scale_combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        self._fixed_scale_combo = self._make_scale_combo(
+            "Intensity scaling applied to the fixed layer, only by the registration optimizer; result layers keep original intensities."
         )
-        self._scale_combo.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        self._fixed_scale_label = self._make_form_label(
+            "Fixed intensity scaling", tooltip=self._fixed_scale_combo.toolTip()
         )
-        self._scale_combo.addItem("decibel", "dB")
-        self._scale_combo.addItem("square root", "sqrt")
-        self._scale_combo.addItem("none", "off")
-        self._scale_combo.setToolTip(
-            "Optional intensity preprocessing applied before registration and used for registration preview layers."
+        params_layout.addRow(self._fixed_scale_label, self._fixed_scale_combo)
+
+        # Labelled "Moving intensity scaling" between scans and "Intensity scaling"
+        # within-scan, where it applies to the reference and every frame.
+        self._scale_combo = self._make_scale_combo(
+            "Intensity scaling applied to the moving layer (within-scan: to the reference and every frame), only by the registration optimizer; result layers keep original intensities."
         )
-        params_layout.addRow(
-            self._make_form_label(
-                "Scale",
-                tooltip="Optional intensity preprocessing applied before registration and used for registration preview layers.",
-            ),
-            self._scale_combo,
+        self._scale_label = self._make_form_label(
+            "Moving intensity scaling", tooltip=self._scale_combo.toolTip()
         )
+        params_layout.addRow(self._scale_label, self._scale_combo)
 
         self._initialization_combo = QComboBox()
         self._initialization_combo.setSizeAdjustPolicy(
@@ -1439,7 +1461,7 @@ class RegistrationPanel(QWidget):
         world_origins = source.fusi.origin
         origins = {d: world_origins[voxel_to_world_name.get(d, d)] for d in dims}
         # Display each voxel dim by its linked world coordinate name (matching the
-        # convention in `get_napari_scale_translate_units`), not the raw k/j/i name.
+        # convention in `get_napari_layer_geometry`), not the raw k/j/i name.
         axis_labels = tuple(voxel_to_world_name.get(d, d) for d in dims)
         units = tuple(
             source.coords[world_name].attrs.get("units")
@@ -1520,6 +1542,11 @@ class RegistrationPanel(QWidget):
         self._fixed_mask_row.setVisible(not is_volumewise)
         self._moving_mask_label.setVisible(not is_volumewise)
         self._moving_mask_row.setVisible(not is_volumewise)
+        self._fixed_scale_label.setVisible(not is_volumewise)
+        self._fixed_scale_combo.setVisible(not is_volumewise)
+        self._scale_label.setText(
+            "Intensity scaling" if is_volumewise else "Moving intensity scaling"
+        )
         self._reference_time_label.setVisible(is_volumewise)
         self._reference_time_spin.setVisible(is_volumewise)
         self._n_jobs_row.setVisible(is_volumewise)
@@ -1667,8 +1694,6 @@ class RegistrationPanel(QWidget):
 
             moving = _prepare_between_scan_data(moving)
             fixed = _prepare_between_scan_data(fixed)
-            moving = _apply_registration_scale(moving, scale_mode)
-            fixed = _apply_registration_scale(fixed, scale_mode)
 
             initial_transform: npt.NDArray[np.floating] | None = None
             try:
@@ -1693,6 +1718,7 @@ class RegistrationPanel(QWidget):
                 "transform": transform,
                 "metric": metric,
                 "scale": scale_mode,
+                "fixed_scale": self._current_scale_mode(fixed=True),
                 "learning_rate": learning_rate,
                 "number_of_iterations": self._iterations_spin.value(),
                 "use_multi_resolution": use_multi_res,
@@ -1742,7 +1768,6 @@ class RegistrationPanel(QWidget):
                         )
                     ),
                     initial_transform=initial_transform,
-                    scale_mode=volume_payload["scale"],
                 )
             except Exception:  # noqa: BLE001
                 return
@@ -1768,6 +1793,8 @@ class RegistrationPanel(QWidget):
                 shrink_factors=volume_payload["shrink_factors"] or (6, 2, 1),
                 smoothing_sigmas=volume_payload["smoothing_sigmas"] or (6, 2, 1),
                 fill_value=volume_payload["fill_value"],
+                fixed_intensity_scaling=volume_payload["fixed_scale"],
+                moving_intensity_scaling=volume_payload["scale"],
                 sitk_threads=volume_payload["sitk_threads"],
                 show_progress=True,
                 progress_plotter=progress_plotter,
@@ -1819,8 +1846,6 @@ class RegistrationPanel(QWidget):
                 "reference_time": self._reference_time_spin.value(),
                 "n_jobs": self._n_jobs_spin.value(),
             }
-            moving = _apply_registration_scale(moving, volumewise_payload["scale"])
-
             progress_reporter = setup_volumewise_progress(
                 self,
                 moving_layer=cast("Image", moving_layer),
@@ -1830,7 +1855,6 @@ class RegistrationPanel(QWidget):
                         volumewise_payload["moving_layer_name"]
                     )
                 ),
-                scale_mode=volumewise_payload["scale"],
             )
 
             worker = thread_worker(register_volumewise)(
@@ -1844,6 +1868,7 @@ class RegistrationPanel(QWidget):
                 use_multi_resolution=volumewise_payload["use_multi_resolution"],
                 resample_interpolation=volumewise_payload["resample_interpolation"],
                 number_of_histogram_bins=volumewise_payload["number_of_histogram_bins"],
+                intensity_scaling=volumewise_payload["scale"],
                 convergence_minimum_value=volumewise_payload[
                     "convergence_minimum_value"
                 ],

@@ -70,7 +70,7 @@ def build_direct_label_colormap(data: xr.DataArray) -> DirectLabelColormap | Non
     return DirectLabelColormap(color_dict=color_dict, background_value=0)
 
 
-def get_napari_scale_translate_units(
+def get_napari_layer_geometry(
     data: xr.DataArray,
 ) -> tuple[
     list[float], list[float], list[str], list[str | None], list[str], dict[str, float]
@@ -87,7 +87,7 @@ def get_napari_scale_translate_units(
     Parameters
     ----------
     data : xarray.DataArray
-        DataArray to compute napari layer geometry for.
+        VoxelData array to compute napari layer geometry for.
 
     Returns
     -------
@@ -119,39 +119,29 @@ def get_napari_scale_translate_units(
     scale: list[float] = []
     translate: list[float] = []
     axis_labels: list[str] = []
-    for dim in all_dims:
-        world_name = world_dim.get(dim, dim)
-        world_coord = data.coords.get(world_name)
-        if world_coord is not None and world_coord.dims == (dim,):
-            values = np.asarray(world_coord.values, dtype=float)
-            scale.append(spacing[dim])
-            translate.append(np.float64(values[0]).item())
-            axis_labels.append(world_name)
-        else:
-            scale.append(spacing[dim])
-            translate.append(
-                origin[world_name]
-                if world_name in origin
-                else (
-                    np.float64(
-                        np.asarray(data.coords[dim].values, dtype=float)[0]
-                    ).item()
-                    if dim in data.coords
-                    else 0.0
-                )
-            )
-            axis_labels.append(world_name if world_name in data.coords else dim)
     units: list[str | None] = []
     for dim in all_dims:
-        world_name = world_dim.get(dim, dim)
-        # world_name only ever differs from dim for k/j/i, and .fusi.spacing above
-        # already requires a real VoxelToWorldIndex covering every present voxel
-        # dim -- so a voxel dim's world coordinate is never missing while the dim
-        # itself has one; the two checks can't diverge.
-        if world_name in data.coords:
-            units.append(data.coords[world_name].attrs.get("units"))
-        else:
-            units.append(None)
+        coord_name = world_dim.get(dim, dim)
+        coord = data.coords.get(coord_name)
+        # `origin` (`.fusi.origin`) always has an entry for every dim -- spatial
+        # dims via the voxel-to-world index, others defaulting to 0.0 -- so it's a
+        # safe fallback translate whenever `coord` isn't itself 1-D numeric world
+        # geometry for `dim`.
+        is_world_coord = (
+            coord is not None
+            and coord.dims == (dim,)
+            and np.issubdtype(coord.dtype, np.number)
+        )
+        scale.append(spacing[dim])
+        translate.append(
+            np.float64(coord.values[0]).item() if is_world_coord else origin[coord_name]
+        )
+        axis_labels.append(coord_name if coord_name in data.coords else dim)
+        units.append(
+            data.coords[coord_name].attrs.get("units")
+            if coord_name in data.coords
+            else None
+        )
     return scale, translate, axis_labels, units, non_uniform, spacing
 
 
@@ -196,7 +186,7 @@ def convert_dataarray_to_layer_data(
     )
 
     scale, translate, axis_labels, all_units, non_uniform, spacing = (
-        get_napari_scale_translate_units(da)
+        get_napari_layer_geometry(da)
     )
     for dim in non_uniform:
         show_warning(
