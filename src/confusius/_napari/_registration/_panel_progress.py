@@ -13,7 +13,6 @@ from qtpy.QtWidgets import QDockWidget, QWidget
 from confusius._dims import TIME_DIM
 from confusius._napari._qt import find_main_window
 from confusius._napari._registration._panel_utils import (
-    _gamma_needs_reset,
     _get_image_display_kwargs_from_layer,
     _preserve_view,
 )
@@ -45,7 +44,6 @@ def setup_volumewise_progress(
     moving_layer: Image,
     moving: xr.DataArray,
     layer_name: str,
-    scale_mode: str,
 ) -> NapariRegistrationProgressReporter:
     """Create volumewise preview layers and a progress reporter.
 
@@ -59,8 +57,6 @@ def setup_volumewise_progress(
         Moving data used to seed the preview layer.
     layer_name : str
         Name for the live output layer.
-    scale_mode : str
-        Registration scaling mode used to decide preview gamma handling.
 
     Returns
     -------
@@ -72,9 +68,6 @@ def setup_volumewise_progress(
 
     moving_display_kwargs = _get_image_display_kwargs_from_layer(moving_layer)
     moving_display_kwargs["colormap"] = "red"
-    if _gamma_needs_reset(scale_mode):
-        moving_display_kwargs["gamma"] = 1.0
-
     display_kwargs = dict(moving_display_kwargs)
     display_kwargs["colormap"] = "cyan"
     display_kwargs["blending"] = "additive"
@@ -252,7 +245,6 @@ def create_volume_progress_plotter(
     fixed: xr.DataArray,
     layer_name: str,
     initial_transform: npt.NDArray[np.floating] | None = None,
-    scale_mode: str,
 ) -> Callable[..., RegistrationProgress]:
     """Create between-scan preview layers and a progress-plotter factory.
 
@@ -272,8 +264,6 @@ def create_volume_progress_plotter(
         Name for the live registered preview layer.
     initial_transform : numpy.ndarray, optional
         Initial affine used to seed the preview before optimization starts.
-    scale_mode : str
-        Registration scaling mode used to decide preview gamma handling.
 
     Returns
     -------
@@ -293,10 +283,6 @@ def create_volume_progress_plotter(
     moving_display_kwargs = _get_image_display_kwargs_from_layer(moving_layer)
     moving_display_kwargs["colormap"] = "cyan"
     moving_display_kwargs["blending"] = "additive"
-    if _gamma_needs_reset(scale_mode):
-        fixed_display_kwargs["gamma"] = 1.0
-        moving_display_kwargs["gamma"] = 1.0
-
     display_kwargs = dict(moving_display_kwargs)
     display_kwargs["colormap"] = "cyan"
     display_kwargs["blending"] = "additive"

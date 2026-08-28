@@ -9,6 +9,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.io import is_h5py_backed
+from confusius.registration._utils import validate_intensity_scaling
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
@@ -27,6 +28,7 @@ def register_volumewise(
     n_jobs: int = -1,
     transform: Literal["translation", "rigid", "affine"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
+    intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     number_of_histogram_bins: int = 50,
     learning_rate: float | Literal["auto"] = 0.01,
     number_of_iterations: int = 100,
@@ -66,6 +68,11 @@ def register_volumewise(
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
+    intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
+        Intensity transform applied to the reference volume and to every frame, only
+        for the registration optimizer. Floats apply power scaling with that
+        exponent; `"sqrt"` is an alias for `0.5`. Returned/resampled data keeps the
+        original input intensities.
     number_of_histogram_bins : int, default: 50
         Number of histogram bins used by Mattes mutual information. Only
         relevant when `metric="mattes_mi"`.
@@ -180,6 +187,8 @@ def register_volumewise(
     if "time" not in data.dims:
         raise ValueError("Time dimension 'time' not found in data")
 
+    validate_intensity_scaling(intensity_scaling, "intensity_scaling")
+
     if n_jobs != 1 and is_h5py_backed(data):
         raise TypeError(
             "Data is backed by an h5py dataset, which cannot be serialized for "
@@ -188,9 +197,8 @@ def register_volumewise(
             "for serial processing."
         )
 
-    data_moved = data.transpose("time", ...)
     data_moved = ensure_voxeldata(
-        data_moved,
+        data,
         require_time=True,
         allow_pose=False,
         allow_extra_dims=False,
@@ -242,6 +250,10 @@ def register_volumewise(
             ref_da,
             transform_type=transform,
             metric=metric,
+            # The reference is a frame of the same recording, so one scaling
+            # applies to both sides.
+            fixed_intensity_scaling=intensity_scaling,
+            moving_intensity_scaling=intensity_scaling,
             number_of_histogram_bins=number_of_histogram_bins,
             learning_rate=learning_rate,
             number_of_iterations=number_of_iterations,

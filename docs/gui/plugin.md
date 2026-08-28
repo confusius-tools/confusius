@@ -336,7 +336,7 @@ large-scale and local deformation at once.
 | **Transform** | Chooses the motion model being optimized. | Start with `translation` or `rigid` for simple alignment; use `affine` for global scale/shear differences; use `bspline` only after a good global initialization. |
 | **Mesh size** | Sets the B-spline control-grid density. | Increase it only when `bspline` needs to capture finer local mismatches; too fine a grid can lead to unrealistic warping. |
 | **Metric** | Chooses the similarity criterion (`correlation` or `mattes_mi`). | `correlation` is a good default for power Doppler data; `mattes_mi` is more robust when intensity distributions differ. |
-| **Scale** | Applies optional intensity scaling before registration. | Useful for power Doppler data where large vessels are typically overbright compared to finer structures. |
+| **Fixed / Moving intensity scaling** | Applies optional intensity scaling (`decibel`, `square root`, or `none`) to the fixed and moving layers, only for the optimizer; result layers keep their original intensities. | Useful for power Doppler data where large vessels are typically overbright compared to finer structures. Set them differently when the two layers are already on different scales (e.g. a dB atlas and linear power Doppler). |
 | **Initialization** | Sets the starting transform before optimization. | Use `center_geometry` or `center_moments` for coarse setup; reuse a saved/manual affine transform when you already have a good approximate alignment. |
 | **Learning rate** | Sets the optimizer step size. | Leave **Auto** enabled to let SimpleITK estimate it each iteration, or untick it to use a fixed value (default `0.01`). |
 | **Iterations** | Maximum number of optimizer steps. | Increase it when alignment is still improving near the end of a run. |
@@ -380,7 +380,7 @@ Use **Within-scan** for motion correction inside a single time series.
 | **Reference volume** | Chooses the volume index used as the motion-correction target. | Pick a representative, sharp frame with little motion. |
 | **Transform** | Chooses the volume-wise motion model. | `rigid` is the safest starting point; `affine` is available when motion is more complex. |
 | **Metric** | Chooses the volume-to-reference similarity criterion. | `correlation` is usually a good default for within-recording motion correction. |
-| **Scale** | Applies optional preprocessing before registration. | Useful when an intensity transform makes anatomy more stable across time for the optimizer. |
+| **Intensity scaling** | Applies optional intensity scaling (`decibel`, `square root`, or `none`) to the reference and every frame, only for the optimizer. | Useful when an intensity transform makes anatomy more stable across time for the optimizer. |
 | **Initialization** | Sets the initial volume-wise centering transform. | Most runs can use no initialization. |
 | **Learning rate** | Sets the optimizer step size for each frame. | Within-scan uses a fixed value here; the default is `0.01`. Reduce it if updates look unstable; increase it if frames are already close and convergence is too slow. |
 | **Iterations** | Maximum optimizer steps per frame. | Increase it for harder motion or more flexible transforms. |
