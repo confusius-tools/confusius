@@ -104,7 +104,7 @@ class TestStructuresSerialization:
     ) -> None:
         """The complete mesh path is preserved (fetched atlases read from the cache)."""
         rebuilt = structures_from_json(structures_to_json(mock_structures))
-        assert rebuilt[997]["mesh_filename"] == str(obj_path)
+        assert rebuilt[997]["mesh_filename"] == obj_path
 
 
 class TestStructureMetadata:
@@ -329,7 +329,7 @@ class TestGetMasks:
 class TestGetMesh:
     """Tests for the accessor's get_mesh.
 
-    The OBJ mesh (from conftest) has:
+    The mock mesh (from conftest) has:
       Vertices 0-2 at RL = 50 µm  → right hemisphere (< midline 100 µm)
       Vertices 3-5 at RL = 150 µm → left  hemisphere (≥ midline 100 µm)
       Face 0: triangle (0, 1, 2) — entirely right
@@ -351,7 +351,8 @@ class TestGetMesh:
                 [0.0, 0.1, 0.15],
             ]
         )
-        np.testing.assert_allclose(vertices_mm, expected)
+        # Draco is lossy, so the round-tripped mesh is only close, not bit-exact.
+        np.testing.assert_allclose(vertices_mm, expected, atol=1e-6)
 
     def test_both_sides_returns_all_faces(self, atlas_ds: xr.Dataset) -> None:
         vertices, faces = atlas_ds.atlas.get_mesh(997, side="both")
@@ -515,10 +516,10 @@ class TestIO:
         )
 
     def test_meshes_bundled_into_store(self, atlas_ds: xr.Dataset, tmp_path) -> None:
-        """The region OBJ files are copied into the store's meshes/ subdirectory."""
+        """The region mesh files are copied into the store's meshes/ subdirectory."""
         path = tmp_path / "atlas.zarr"
         save_atlas(atlas_ds, path)
-        assert (path / "meshes" / "997.obj").is_file()
+        assert (path / "meshes" / "997").is_file()
 
     def test_save_suppresses_consolidated_metadata_warning(
         self, atlas_ds: xr.Dataset, tmp_path, monkeypatch
@@ -546,7 +547,7 @@ class TestIO:
         save_atlas(atlas_ds, path)
         loaded = load_atlas(path)
         structures = loaded.attrs["structures"]
-        assert structures[997]["mesh_filename"] == str(path / "meshes" / "997.obj")
+        assert structures[997]["mesh_filename"] == path / "meshes" / "997"
         assert structures[10]["mesh_filename"] is None
 
     def test_get_mesh_reads_bundle_when_source_is_gone(
@@ -554,8 +555,8 @@ class TestIO:
     ) -> None:
         """A loaded atlas renders meshes from the bundle, without the original source."""
         # Point a copy of the atlas at a throwaway mesh we are free to delete.
-        source = tmp_path / "src_997.obj"
-        source.write_text(obj_path.read_text())
+        source = tmp_path / "src_997"
+        source.write_bytes(obj_path.read_bytes())
         records = [dict(record) for record in structure_list]
         for record in records:
             if record["id"] == 997:
@@ -569,7 +570,8 @@ class TestIO:
 
         loaded = load_atlas(path)
         vertices, faces = loaded.atlas.get_mesh(997)
-        np.testing.assert_array_equal(vertices, atlas_ds.atlas.get_mesh(997)[0])
+        # Draco is lossy, so the round-tripped mesh is only close, not bit-exact.
+        np.testing.assert_allclose(vertices, atlas_ds.atlas.get_mesh(997)[0], atol=1e-4)
         assert len(faces) == 2
 
 

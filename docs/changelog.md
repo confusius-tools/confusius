@@ -151,6 +151,17 @@ Current development version for the next ConfUSIus release.
   axis-aligned display grid
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 
+### :zap: Performance
+
+- `Atlas.get_masks`/`get_atlas_masks` no longer forces `xarray.concat` to recompute
+  and compare the full lazily derived world-coordinate grid across every requested
+  region (all layers share one grid by construction), the dominant cost for
+  multi-region calls; it also now scans the annotation volume once per 8-region batch
+  via a bitmask lookup instead of once per region. Together, a `get_masks([...])` call
+  over dozens of regions (e.g. combining all of an ontology's major divisions into one
+  coarse map) is over an order of magnitude faster
+  ([#411](https://github.com/confusius-tools/confusius/pull/411)).
+
 ### :bug: Fixes
 
 - `load_scan` now opens Iconeus SCAN v1 files marked as `4DscanCustom`
@@ -167,6 +178,11 @@ Current development version for the next ConfUSIus release.
   input has it, instead of collapsing to a single pose; the explicit-`mask`
   path no longer rejects a `pose`-carrying mask either
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+
+### :wrench: Maintenance
+
+- Bumped the `brainglobe-atlasapi` dependency to v3
+  ([#411](https://github.com/confusius-tools/confusius/pull/411)).
 
 ## 0.6.1
 

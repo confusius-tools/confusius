@@ -283,7 +283,7 @@ class AtlasAccessor:
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
         """Return vertex coordinates and face indices for a region's mesh.
 
-        Reads the region's OBJ mesh, transforms its vertices from micron space to the
+        Reads the region's mesh, transforms its vertices from micron space to the
         DataArrays' current world space (millimetres), then optionally drops
         out-of-grid vertices and clips to one hemisphere. The mesh comes from the
         structure's `mesh_filename`: for a freshly fetched atlas this points into the
@@ -576,6 +576,17 @@ def search_atlas(
     return ds.atlas.search(pattern, field)
 
 
+_MASK_BITMASK_DTYPE = np.uint8
+"""Bitmask dtype for `get_atlas_masks`'s batched region lookup.
+
+Benchmarked against `uint8`/`uint16`/`uint32`/`uint64`: `uint8` (8 regions per batch)
+wins consistently, ~1.2-2.2x over a plain `isin` loop. Wider dtypes batch more regions
+per gather but move more bytes per voxel, and lose to `isin`'s own single-pass table
+lookup past `uint16`.
+"""
+_MASK_BITMASK_BATCH_SIZE = np.iinfo(_MASK_BITMASK_DTYPE).bits
+
+
 def get_atlas_masks(
     ds: xr.Dataset,
     regions: int | str | Sequence[int | str],
@@ -658,33 +669,54 @@ def get_atlas_masks(
     left_value = hemispheres.attrs["left"]
     right_value = hemispheres.attrs["right"]
 
+    resolved = [
+        (_resolve_region_id(structures, reg), s)
+        for reg, s in zip(region_list, side_list)
+    ]
+    max_structure_id = max(int(sid) for sid in structures)
+
     layers = []
     acronyms = []
-    for reg, s in zip(region_list, side_list):
-        rid = _resolve_region_id(structures, reg)
-        descendant_ids = _get_descendant_ids(structures, rid)
+    # Requesting many regions independently isin()-scanned the full annotation volume
+    # once per region. Instead, pack up to _MASK_BITMASK_BATCH_SIZE regions' descendant-id
+    # sets into a single bitmask lookup table and gather it over the annotation array once
+    # per batch, so N regions cost ceil(N / batch size) full-array gathers instead of N.
+    for batch_start in range(0, len(resolved), _MASK_BITMASK_BATCH_SIZE):
+        batch = resolved[batch_start : batch_start + _MASK_BITMASK_BATCH_SIZE]
 
-        layer = np.zeros_like(annotation_np, dtype=np.int32)
-        # Using kind="table" here will use a lookup table approach that is much
-        # faster at the cost of higher memory usage.
-        layer[np.isin(annotation_np, descendant_ids, kind="table")] = rid
+        id_to_bitmask = np.zeros(max_structure_id + 1, dtype=_MASK_BITMASK_DTYPE)
+        for bit, (rid, _) in enumerate(batch):
+            descendant_ids = _get_descendant_ids(structures, rid)
+            id_to_bitmask[descendant_ids] |= _MASK_BITMASK_DTYPE(1 << bit)
+        voxel_bitmask = id_to_bitmask[annotation_np]
 
-        acronym = structures[rid]["acronym"]
-        if s == "left":
-            layer[hemispheres_np != left_value] = 0
-            acronym = f"{acronym}_L"
-        elif s == "right":
-            layer[hemispheres_np != right_value] = 0
-            acronym = f"{acronym}_R"
+        for bit, (rid, s) in enumerate(batch):
+            layer = np.zeros_like(annotation_np, dtype=np.int32)
+            layer[(voxel_bitmask & _MASK_BITMASK_DTYPE(1 << bit)) != 0] = rid
 
-        layers.append(annotation.copy(data=layer))
-        acronyms.append(acronym)
+            acronym = structures[rid]["acronym"]
+            if s == "left":
+                layer[hemispheres_np != left_value] = 0
+                acronym = f"{acronym}_L"
+            elif s == "right":
+                layer[hemispheres_np != right_value] = 0
+                acronym = f"{acronym}_R"
 
+            layers.append(annotation.copy(data=layer))
+            acronyms.append(acronym)
+
+    # Every layer is annotation.copy(data=...), so they share one k/j/i grid and one
+    # VoxelToWorldIndex; xr.concat's default compat="equals" would otherwise recompute
+    # and compare the full lazily derived z/y/x world-coordinate grid across every
+    # layer pair, which costs orders of magnitude more than building the layers
+    # themselves. coords="minimal"/compat="override" skips that redundant check.
     result = xr.concat(
         layers,
         dim=xr.DataArray(
             np.asarray(acronyms, dtype=np.str_), dims=("mask",), name="mask"
         ),
+        coords="minimal",
+        compat="override",
     )
     result.attrs = annotation.attrs.copy()
     return result
@@ -699,7 +731,7 @@ def get_atlas_mesh(
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
     """Return vertex coordinates and face indices for a region's mesh.
 
-    Reads the region's OBJ mesh, transforms its vertices from micron space to the atlas's
+    Reads the region's mesh, transforms its vertices from micron space to the atlas's
     world space (millimetres), then optionally drops out-of-grid vertices and clips to
     one hemisphere. The mesh comes from the structure's `mesh_filename`: for a freshly
     fetched atlas this points into the BrainGlobe cache; for an atlas loaded with

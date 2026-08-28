@@ -51,9 +51,9 @@ canonical region colors across a round-trip without persisting non-serializable 
 """
 
 _MESHES_SUBDIR = "meshes"
-"""Subdirectory of the Zarr store that holds the bundled region OBJ meshes.
+"""Subdirectory of the Zarr store that holds the bundled region meshes.
 
-The `.obj` files are written as plain sibling files inside the store directory so they
+The mesh files are written as plain sibling files inside the store directory so they
 travel with it when the store is copied or zipped. `load_atlas` re-points each ROI's
 `mesh_filename` here, so `get_mesh` works on a loaded atlas without the BrainGlobe cache.
 """
@@ -65,7 +65,7 @@ def structures_to_json(structures: "StructuresDict") -> str:
     The `treelib` hierarchy is never serialized directly; it is a derived index that
     [`structures_from_json`][confusius.io.atlas.structures_from_json] rebuilds from the flat
     list. `mesh_filename` is stored verbatim (the complete path), so a freshly fetched atlas
-    points straight at the OBJ files in the BrainGlobe cache. When the atlas is saved with
+    points straight at the mesh files in the BrainGlobe cache. When the atlas is saved with
     [`save_atlas`][confusius.io.save_atlas], the meshes are bundled into the store and the
     paths are re-pointed there on load.
 
@@ -108,7 +108,13 @@ def structures_from_json(blob: str) -> "StructuresDict":
     """
     from brainglobe_atlasapi.structure_class import StructuresDict
 
-    return StructuresDict(json.loads(blob))
+    structures_list = json.loads(blob)
+    # BrainGlobe's Structure lazily reads mesh_filename as a pathlib.Path (calling
+    # .exists() on it), so JSON's string round-trip needs undoing here.
+    for record in structures_list:
+        if record.get("mesh_filename") is not None:
+            record["mesh_filename"] = Path(record["mesh_filename"])
+    return StructuresDict(structures_list)
 
 
 def _check_zarr_suffix(path: Path) -> None:
@@ -131,7 +137,7 @@ def _check_zarr_suffix(path: Path) -> None:
 
 
 def _plan_mesh_bundle(structures_blob: str) -> tuple[str, dict[str, Path]]:
-    """Basename each `mesh_filename` and list the OBJ files that must be copied.
+    """Basename each `mesh_filename` and list the mesh files that must be copied.
 
     Pure planning step: does not touch the filesystem, so the caller can write the Zarr
     store first (the store directory must not already exist) and copy the meshes into it
@@ -149,7 +155,7 @@ def _plan_mesh_bundle(structures_blob: str) -> tuple[str, dict[str, Path]]:
         A new serialized structures list whose non-null `mesh_filename` entries are bare
         basenames.
     to_copy : dict[str, pathlib.Path]
-        Mapping from basename to source path for every referenced OBJ file that exists on
+        Mapping from basename to source path for every referenced mesh file that exists on
         disk (missing sources are skipped).
     """
     structures = json.loads(structures_blob)
@@ -174,7 +180,7 @@ def _rebase_meshes(structures_blob: str, meshes_dir: Path) -> str:
         Serialized structures list read back from a store, with basename `mesh_filename`
         entries.
     meshes_dir : pathlib.Path
-        Directory holding the bundled OBJ files.
+        Directory holding the bundled mesh files.
 
     Returns
     -------
@@ -196,7 +202,7 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
 
     The in-memory `attrs["structures"]`
     [`StructuresDict`][brainglobe_atlasapi.structure_class.StructuresDict] is serialized to
-    a flat JSON list for storage. The region OBJ meshes are copied into a `meshes/`
+    a flat JSON list for storage. The region meshes are copied into a `meshes/`
     subdirectory of the store (as plain sibling files) and each ROI's `mesh_filename` is
     stored as a basename, so a loaded atlas can render meshes without the BrainGlobe cache.
     The non-serializable `cmap`/`norm` matplotlib objects in `annotation.attrs` are stripped
@@ -295,7 +301,7 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
         to_save = to_save.assign_coords(component=np.arange(to_save.sizes["component"]))
 
     # Write the store first (to_zarr requires the path not to exist yet), then copy the
-    # OBJ files into its meshes/ subdirectory.
+    # mesh files into its meshes/ subdirectory.
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
