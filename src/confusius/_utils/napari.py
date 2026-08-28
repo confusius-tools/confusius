@@ -70,7 +70,7 @@ def build_direct_label_colormap(data: xr.DataArray) -> DirectLabelColormap | Non
     return DirectLabelColormap(color_dict=color_dict, background_value=0)
 
 
-def get_napari_scale_translate_units(
+def get_napari_layer_geometry(
     data: xr.DataArray,
 ) -> tuple[
     list[float], list[float], list[str], list[str | None], list[str], dict[str, float]
@@ -87,7 +87,7 @@ def get_napari_scale_translate_units(
     Parameters
     ----------
     data : xarray.DataArray
-        DataArray to compute napari layer geometry for.
+        VoxelData array to compute napari layer geometry for.
 
     Returns
     -------
@@ -121,35 +121,22 @@ def get_napari_scale_translate_units(
     axis_labels: list[str] = []
     units: list[str | None] = []
     for dim in all_dims:
-        # `coord_name` is the true linked world coordinate (z/y/x) for a native
-        # voxel dim (k/j/i); for any other dim it's just that dim's own name, and
-        # `coord` -- if present -- isn't necessarily a world coordinate at all (e.g.
-        # a `stack` dim's coordinate may hold non-numeric recording IDs).
         coord_name = world_dim.get(dim, dim)
         coord = data.coords.get(coord_name)
-        if (
+        # `origin` (`.fusi.origin`) always has an entry for every dim -- spatial
+        # dims via the voxel-to-world index, others defaulting to 0.0 -- so it's a
+        # safe fallback translate whenever `coord` isn't itself 1-D numeric world
+        # geometry for `dim`.
+        is_world_coord = (
             coord is not None
             and coord.dims == (dim,)
             and np.issubdtype(coord.dtype, np.number)
-        ):
-            values = np.asarray(coord.values, dtype=float)
-            scale.append(spacing[dim])
-            translate.append(np.float64(values[0]).item())
-            axis_labels.append(coord_name)
-        else:
-            scale.append(spacing[dim])
-            translate.append(
-                origin[coord_name]
-                if coord_name in origin
-                else (
-                    np.float64(
-                        np.asarray(data.coords[dim].values, dtype=float)[0]
-                    ).item()
-                    if dim in data.coords
-                    else 0.0
-                )
-            )
-            axis_labels.append(coord_name if coord_name in data.coords else dim)
+        )
+        scale.append(spacing[dim])
+        translate.append(
+            np.float64(coord.values[0]).item() if is_world_coord else origin[coord_name]
+        )
+        axis_labels.append(coord_name if coord_name in data.coords else dim)
         units.append(
             data.coords[coord_name].attrs.get("units")
             if coord_name in data.coords
@@ -199,7 +186,7 @@ def convert_dataarray_to_layer_data(
     )
 
     scale, translate, axis_labels, all_units, non_uniform, spacing = (
-        get_napari_scale_translate_units(da)
+        get_napari_layer_geometry(da)
     )
     for dim in non_uniform:
         show_warning(

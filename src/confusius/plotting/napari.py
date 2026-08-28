@@ -24,7 +24,7 @@ from confusius._utils.geometry import (
 from confusius._utils.napari import (
     build_direct_label_colormap,
     build_roi_labels_features,
-    get_napari_scale_translate_units,
+    get_napari_layer_geometry,
 )
 from confusius._utils.plotting import resample_to_axis_aligned_world_grid
 from confusius._utils.stack import find_stack_level
@@ -182,7 +182,7 @@ def plot_napari(
         )
 
     scale, coord_translates, axis_labels, all_units, non_uniform, spacing = (
-        get_napari_scale_translate_units(data)
+        get_napari_layer_geometry(data)
     )
     for dim in non_uniform:
         warnings.warn(
@@ -351,7 +351,7 @@ def draw_napari_labels(
     time_dim = TIME_DIM if TIME_DIM in all_dims else None
     spatial_dims = [dim for dim in all_dims if dim != time_dim]
     spatial_indices = [all_dims.index(dim) for dim in spatial_dims]
-    scale, translate, axis_labels, all_units, _, _ = get_napari_scale_translate_units(
+    scale, translate, axis_labels, all_units, _, _ = get_napari_layer_geometry(
         display_data
     )
 

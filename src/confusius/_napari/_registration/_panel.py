@@ -1439,7 +1439,7 @@ class RegistrationPanel(QWidget):
         world_origins = source.fusi.origin
         origins = {d: world_origins[voxel_to_world_name.get(d, d)] for d in dims}
         # Display each voxel dim by its linked world coordinate name (matching the
-        # convention in `get_napari_scale_translate_units`), not the raw k/j/i name.
+        # convention in `get_napari_layer_geometry`), not the raw k/j/i name.
         axis_labels = tuple(voxel_to_world_name.get(d, d) for d in dims)
         units = tuple(
             source.coords[world_name].attrs.get("units")
