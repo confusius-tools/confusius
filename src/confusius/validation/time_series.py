@@ -2,6 +2,7 @@
 
 from typing import Literal, overload
 
+import numpy as np
 import xarray as xr
 
 from confusius._dims import TIME_DIM
@@ -74,6 +75,27 @@ def validate_unchunked_time(data: xr.DataArray, operation_name: str) -> None:
             )
 
 
+def validate_sorted_time(data: xr.DataArray, operation_name: str) -> None:
+    """Validate that `time` coordinates are strictly increasing.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray with a `time` dimension.
+    operation_name : str
+        Name of the operation used in error messages.
+
+    Raises
+    ------
+    ValueError
+        If `time` coordinates are not strictly increasing.
+    """
+    if np.any(np.diff(data.coords[TIME_DIM].values) <= 0):
+        raise ValueError(
+            f"time coordinates must be strictly increasing for {operation_name}."
+        )
+
+
 def validate_uniform_time(
     data: xr.DataArray,
     operation_name: str,
@@ -117,6 +139,7 @@ def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
     time_series: xr.DataArray,
     operation_name: str,
     require_unchunked_time: bool = True,
+    require_sorted_time: bool = False,
     require_uniform_time: Literal[False] = False,
     uniformity_tolerance: float = 1e-2,
 ) -> tuple[int, None]: ...
@@ -127,6 +150,7 @@ def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
     time_series: xr.DataArray,
     operation_name: str,
     require_unchunked_time: bool = True,
+    require_sorted_time: bool = False,
     require_uniform_time: Literal[True] = True,
     uniformity_tolerance: float = 1e-2,
 ) -> tuple[int, float]: ...
@@ -136,6 +160,7 @@ def validate_time_series(
     time_series: xr.DataArray,
     operation_name: str,
     require_unchunked_time: bool = True,
+    require_sorted_time: bool = False,
     require_uniform_time: bool = False,
     uniformity_tolerance: float = 1e-2,
 ) -> tuple[int, float | None]:
@@ -146,7 +171,8 @@ def validate_time_series(
     1. Time series have a `time` dimension.
     2. Time dimension has more than 1 timepoint.
     3. Time dimension is not chunked for Dask arrays (optional).
-    4. Time coordinate is uniformly sampled (optional).
+    4. Time coordinate is strictly increasing (optional).
+    5. Time coordinate is uniformly sampled (optional).
 
     Parameters
     ----------
@@ -158,6 +184,8 @@ def validate_time_series(
         Whether to require the time dimension to occupy one Dask chunk. Set to `False`
         for operations that can process chunked time (e.g.,
         `confusius.signal.standardize`).
+    require_sorted_time : bool, default: False
+        Whether to require strictly increasing `time` coordinates.
     require_uniform_time : bool, default: False
         Whether to require uniformly sampled `time` coordinates and return their spacing.
     uniformity_tolerance : float, default: 1e-2
@@ -177,8 +205,9 @@ def validate_time_series(
     ValueError
         If `time_series` has no `time` dimension, if the `time` dimension has only 1
         timepoint, if the `time` dimension is chunked in a Dask array (when
-        `require_unchunked_time=True`), or if `require_uniform_time=True` and the `time`
-        coordinate is not uniformly sampled.
+        `require_unchunked_time=True`), if `require_sorted_time=True` and the `time`
+        coordinate is not strictly increasing, or if `require_uniform_time=True` and the
+        `time` coordinate is not uniformly sampled.
     """
     validate_required_time_dimension(time_series)
     validate_timepoint_count(time_series, operation_name)
@@ -187,6 +216,9 @@ def validate_time_series(
 
     if require_unchunked_time:
         validate_unchunked_time(time_series, operation_name)
+
+    if require_sorted_time:
+        validate_sorted_time(time_series, operation_name)
 
     if not require_uniform_time:
         return time_axis, None

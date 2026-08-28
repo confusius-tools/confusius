@@ -255,6 +255,7 @@ class TestOperationMode:
         registration_panel._learning_rate_auto_check.setChecked(True)
         registration_panel._learning_rate_edit.setValue(0.42)
         registration_panel._scale_combo.setCurrentText("none")
+        registration_panel._fixed_scale_combo.setCurrentText("square root")
         registration_panel._time_series_radio.setChecked(True)
 
         assert registration_panel._learning_rate_auto_check.isHidden()
@@ -262,6 +263,20 @@ class TestOperationMode:
         assert registration_panel._learning_rate_edit.value() == pytest.approx(0.23)
         assert registration_panel._n_jobs_spin.value() == 3
         assert registration_panel._scale_combo.currentText() == "square root"
+
+        registration_panel._single_volume_radio.setChecked(True)
+
+        assert registration_panel._scale_combo.currentText() == "none"
+        assert registration_panel._fixed_scale_combo.currentText() == "square root"
+
+    def test_fixed_scale_combo_only_between_scans(self, registration_panel):
+        assert not registration_panel._fixed_scale_combo.isHidden()
+        assert registration_panel._scale_label.text() == "Moving intensity scaling"
+
+        registration_panel._time_series_radio.setChecked(True)
+
+        assert registration_panel._fixed_scale_combo.isHidden()
+        assert registration_panel._scale_label.text() == "Intensity scaling"
 
     def test_advanced_group_is_collapsed_by_default(self, registration_panel):
         assert not registration_panel._advanced_toggle.isChecked()
@@ -297,6 +312,7 @@ class TestOperationMode:
     def test_default_parameter_values(self, registration_panel):
         assert registration_panel._transform_combo.currentText() == "rigid"
         assert registration_panel._scale_combo.currentText() == "decibel"
+        assert registration_panel._fixed_scale_combo.currentText() == "decibel"
         assert registration_panel._learning_rate_edit.minimum() == pytest.approx(1e-10)
         assert registration_panel._learning_rate_edit.value() == pytest.approx(0.01)
         assert registration_panel._convergence_min_edit.minimum() == pytest.approx(
@@ -309,9 +325,15 @@ class TestOperationMode:
 
         assert registration_panel._transform_combo.currentText() == "rigid"
 
-    def test_scale_preprocessing_resets_gamma_for_previews(
+    def test_preview_layers_preserve_source_gamma(
         self, real_viewer, real_registration_panel
     ):
+        """Preview layers keep the source layers' gamma.
+
+        Intensity scaling is applied only to the registration optimizer's inputs
+        (inside `register_volume`/`register_volumewise`); preview layers always show
+        the original, unscaled data, so their gamma is never reset.
+        """
         moving_data = create_voxeldata(
             np.ones((4, 6), dtype=np.float32), dims=("j", "i"), spacing=(1.0, 0.2, 0.1)
         )
@@ -332,21 +354,6 @@ class TestOperationMode:
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
-            scale_mode="sqrt",
-        )
-        assert real_viewer.layers["Fixed"].gamma == pytest.approx(1.0)
-        assert real_viewer.layers["Moving"].gamma == pytest.approx(1.0)
-        assert real_viewer.layers["Registered (rigid)"].gamma == pytest.approx(1.0)
-
-        teardown_volume_progress(real_registration_panel)
-        create_volume_progress_plotter(
-            real_registration_panel,
-            moving_layer=moving,
-            fixed_layer=fixed_layer,
-            moving=moving_data,
-            fixed=fixed,
-            layer_name="Registered (rigid)",
-            scale_mode="off",
         )
         assert real_viewer.layers["Fixed"].gamma == pytest.approx(0.6)
         assert real_viewer.layers["Moving"].gamma == pytest.approx(0.4)
@@ -385,7 +392,6 @@ class TestOperationMode:
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
-            scale_mode="off",
         )
 
         after = (
@@ -558,6 +564,7 @@ class TestRunRegistration:
         registration_panel._moving_combo.setCurrentText("moving")
         registration_panel._fixed_combo.setCurrentText("fixed")
         registration_panel._scale_combo.setCurrentText("square root")
+        registration_panel._fixed_scale_combo.setCurrentText("none")
         for i in range(registration_panel._initialization_combo.count()):
             if registration_panel._initialization_combo.itemData(i) == (
                 "layer",
@@ -604,8 +611,11 @@ class TestRunRegistration:
         kwargs = cast("dict[str, Any]", captured["kwargs"])
         args = cast("tuple[Any, ...]", captured["args"])
         np.testing.assert_array_equal(kwargs["initialization"], affine)
-        np.testing.assert_allclose(args[0].values, np.sqrt(moving.values))
-        np.testing.assert_allclose(args[1].values, np.sqrt(fixed.values))
+        assert kwargs["moving_intensity_scaling"] == "sqrt"
+        assert kwargs["fixed_intensity_scaling"] == "none"
+        # Scaling happens inside register_volume; the panel passes raw data.
+        np.testing.assert_array_equal(args[0].values, moving.values)
+        np.testing.assert_array_equal(args[1].values, fixed.values)
         assert registration_panel._worker is not None
 
     def test_between_scan_run_uses_selected_manual_napari_transform(
@@ -1268,7 +1278,6 @@ class TestVolumewiseProgress:
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",
-            scale_mode="off",
         )
 
         assert registration_panel._volumewise_progress_layer is not None
@@ -1407,7 +1416,6 @@ class TestFinishedCallbacks:
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
-            scale_mode="off",
         )
         assert {"Fixed", "Moving", "Registered (rigid)"}.issubset(
             {layer.name for layer in real_viewer.layers}
@@ -1475,7 +1483,6 @@ class TestFinishedCallbacks:
             fixed=fixed,
             layer_name="Registered (rigid)",
             initial_transform=initial_transform,
-            scale_mode="off",
         )
 
         expected = resample_like(moving_data, fixed, initial_transform)
@@ -1517,7 +1524,6 @@ class TestFinishedCallbacks:
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
-            scale_mode="off",
         )
 
         next_arr = np.full((1, 4, 6), 0.5, dtype=np.float32)
@@ -1555,7 +1561,6 @@ class TestFinishedCallbacks:
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",
-            scale_mode="off",
         )
 
         registered = moving.copy(data=np.ones((3, 1, 4, 6), dtype=np.float32))

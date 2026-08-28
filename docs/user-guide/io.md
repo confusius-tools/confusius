@@ -401,11 +401,13 @@ acquisitions.
 ### Loading NIfTI Files
 
 When loading NIfTI files, ConfUSIus automatically loads a
-[fUSI-BIDS](https://bids-specification.readthedocs.io/en/stable/) JSON sidecar file with
-the same basename (e.g., `sub-01_task-awake_pwd.json`) if present. Metadata fields are
-interpreted using the fUSI-BIDS naming conventions and converted back to the usual
-ConfUSIus attribute names on the loaded DataArray. Timing metadata in the sidecar takes
-precedence over the NIfTI header when both are available.
+[fUSI-BIDS](https://bids-specification.readthedocs.io/en/stable/) metadata. For files 
+inside a BIDS folder tree, matching sidecars are inherited from the dataset root (the 
+folder containing `dataset_description.json`) down to the recording folder, with more 
+specific sidecars overriding shared values. Metadata fields are interpreted using the 
+fUSI-BIDS naming conventions and converted back to the usual ConfUSIus attribute names 
+on the loaded DataArray. Timing metadata in the sidecar takes precedence over the 
+NIfTI header when both are available.
 
 ```pycon
 >>> import confusius as cf

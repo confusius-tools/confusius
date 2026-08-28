@@ -76,6 +76,37 @@ def _compute_grid_dims(
     return nrows, ncols
 
 
+def _resolve_default_slice_mode(
+    data: xr.DataArray,
+    slice_mode: str | None,
+) -> str:
+    """Resolve the default slice axis for `plot_volume`/`plot_composite`.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to inspect.
+    slice_mode : str, optional
+        User-provided slice mode. If provided, returned unchanged.
+
+    Returns
+    -------
+    str
+        User-provided `slice_mode`, the only constant world dimension for planar
+        data, or `"z"` otherwise.
+    """
+    if slice_mode is not None:
+        return slice_mode
+
+    constant_world_dims = []
+    for dim in WORLD_DIMS:
+        values = np.asarray(data.coords[dim].values, dtype=float)
+        if values.size and np.isclose(np.nanmin(values), np.nanmax(values)):
+            constant_world_dims.append(dim)
+
+    return constant_world_dims[0] if len(constant_world_dims) == 1 else "z"
+
+
 def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
     """Convert 1D coordinate centers to cell edge positions for `pcolormesh`.
 
@@ -866,7 +897,9 @@ class VolumePlotter:
     Parameters
     ----------
     slice_mode : str
-        The dimension along which slices are taken (e.g., `"z"`).
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+        slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid slice
+        modes.
     figure : matplotlib.figure.Figure, optional
         The figure containing the axes. If not provided, a new figure will be created
         on the first call to
@@ -910,7 +943,8 @@ class VolumePlotter:
     Attributes
     ----------
     slice_mode : str
-        The dimension along which slices are taken.
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension being
+        sliced.
     figure : matplotlib.figure.Figure or None
         The figure. `None` until the first call to
         [`add_volume`][confusius.plotting.VolumePlotter.add_volume] when no figure
@@ -1120,7 +1154,12 @@ class VolumePlotter:
         _nrows, _ncols = _compute_grid_dims(n_slices, nrows, ncols)
 
         if self.figure is None:
-            if x_range is not None and y_range is not None and y_range > 0:
+            if (
+                x_range is not None
+                and y_range is not None
+                and x_range > 0
+                and y_range > 0
+            ):
                 aspect = x_range / y_range
                 subplot_width = _BASE_SIZE * max(1.0, aspect)
                 subplot_height = _BASE_SIZE * max(1.0, 1.0 / aspect)
@@ -1416,7 +1455,11 @@ class VolumePlotter:
             data = materialize_axis_aligned_world_grid_for_display(data)
 
         squeeze_dims = [
-            d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
+            d
+            for d in data.dims
+            if d != self.slice_mode
+            and data.sizes[d] == 1
+            and (self.slice_mode not in WORLD_DIMS or d not in WORLD_DIMS)
         ]
         if squeeze_dims:
             data = data.squeeze(dim=squeeze_dims)
@@ -1682,9 +1725,9 @@ class VolumePlotter:
             nearest-neighbour lookup; non-numeric coordinates (e.g. region labels)
             require an exact match. If not provided, uses all coordinates from data.
         match_coordinates : bool, default: True
-            If True, match slice coordinates to the stored coordinate mapping (for
-            overlays). If False, plot sequentially on all axes (requires exact axis
-            count match).
+            Whether to match slice coordinates to the stored coordinate mapping (for
+            overlays) instead of plotting sequentially on all axes (which requires
+            an exact axis count match).
         cmap : str or matplotlib.colors.Colormap, optional
             Colormap. When not provided, falls back to `data.attrs["cmap"]` if
             present, otherwise `"gray"`.
@@ -1901,6 +1944,197 @@ class VolumePlotter:
             )
 
         return self
+
+    def add_stat_map(
+        self,
+        stat_map: xr.DataArray,
+        *,
+        slice_coords: Sequence[Hashable] | None = None,
+        match_coordinates: bool = True,
+        cmap: "str | Colormap | None" = None,
+        norm: "Normalize | None" = None,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        auto_range: bool = True,
+        threshold: float | None = None,
+        threshold_mode: Literal["lower", "upper"] = "lower",
+        alpha: "float | xr.DataArray | None" = None,
+        show_colorbar: bool = True,
+        cbar_label: str | None = None,
+        cbar_kwargs: "dict[str, Any] | None" = None,
+        show_titles: bool = True,
+        show_axis_labels: bool = True,
+        show_axis_ticks: bool = True,
+        show_axes: bool = True,
+        fontsize: float | None = None,
+        nrows: int | None = None,
+        ncols: int | None = None,
+        dpi: int | None = None,
+    ) -> "VolumePlotter":
+        """Overlay a statistical map on the axes.
+
+        Thin wrapper around [`add_volume`][confusius.plotting.VolumePlotter.add_volume]
+        that additionally picks the colormap and range automatically based on the sign
+        of `stat_map`, as done by
+        [`plot_stat_map`][confusius.plotting.plot_stat_map]. Use this method instead of
+        `plot_stat_map` to overlay a statistical map onto an existing plot (e.g. one
+        built with [`add_composite`][confusius.plotting.VolumePlotter.add_composite]).
+
+        Parameters
+        ----------
+        stat_map : xarray.DataArray
+            Statistical map to plot. 3D volume data. Unitary dimensions (except
+            `slice_mode`) are squeezed before processing.
+        slice_coords : list[collections.abc.Hashable], optional
+            Specific coordinates to plot. Numeric coordinates are matched by
+            nearest-neighbour lookup; non-numeric coordinates (e.g. region labels)
+            require an exact match. If not provided, uses all coordinates from
+            `stat_map`.
+        match_coordinates : bool, default: True
+            Whether to match slice coordinates to the stored coordinate mapping (for
+            overlays) instead of plotting sequentially on all axes (which requires
+            an exact axis count match).
+        cmap : str or matplotlib.colors.Colormap, optional
+            Colormap for `stat_map`. If not provided, the default depends on
+            `auto_range` and the sign of `stat_map` (see below); an explicit `cmap`
+            is always used as-is regardless of `auto_range`.
+        norm : matplotlib.colors.Normalize, optional
+            Normalization instance (e.g. `TwoSlopeNorm`, `BoundaryNorm`, `LogNorm`)
+            for cases `vmin`/`vmax`/`auto_range` can't express. When provided,
+            `vmin`, `vmax`, and `auto_range`'s range computation are bypassed
+            entirely; `cmap` still follows the usual rules above.
+        vmin : float, optional
+            Lower bound of the colormap. If not provided, defaults to the minimum
+            value of `stat_map`, computed over the full array rather than just the
+            displayed slices. Ignored when `norm` is provided, or when
+            `auto_range=True` and `stat_map` has only non-negative values.
+        vmax : float, optional
+            Upper bound of the colormap. If not provided, defaults to the maximum
+            value of `stat_map`, computed over the full array rather than just the
+            displayed slices. Ignored when `norm` is provided, or when
+            `auto_range=True` and `stat_map` has only non-positive values.
+        auto_range : bool, default: True
+            Whether to pick the colormap range and default colormap automatically
+            based on the sign of `stat_map`:
+
+            - Both positive and negative values: diverging, symmetric `[-m, m]`
+              range where `m = max(|vmin|, |vmax|)` (using the resolved bounds
+              above), with `cmap` defaulting to `"coolwarm"` — the right choice for
+              diverging statistics where the sign is meaningful (e.g. t-statistics,
+              correlation coefficients, PCA/ICA component maps).
+            - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
+              defaulting to `"viridis"` — the right choice for non-diverging
+              statistics where only magnitude matters (e.g. R², F-statistics).
+            - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
+              defaulting to `"viridis_r"` (reversed, so that values near zero map
+              to the same end of the colormap in both the non-negative and
+              non-positive cases).
+
+            Set to `False` to use the resolved `vmin`/`vmax` directly with no
+            zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of
+            sign).
+        threshold : float, optional
+            Threshold applied to `|stat_map|`. See `threshold_mode` for the masking
+            direction. If not provided, no thresholding is applied.
+        threshold_mode : {"lower", "upper"}, default: "lower"
+            Controls how `threshold` is applied:
+
+            - `"lower"`: set pixels where `|stat_map| < threshold` to NaN.
+            - `"upper"`: set pixels where `|stat_map| > threshold` to NaN.
+
+        alpha : float or xarray.DataArray, optional
+            Opacity of the `stat_map` overlay: a single scalar value, or a 3D
+            DataArray sharing `stat_map`'s dims, shape, and coordinates (for
+            independent per-slice, per-voxel opacity, e.g. to fade out
+            low-magnitude voxels instead of masking them out with `threshold`). A
+            per-voxel opacity must be a DataArray, not a bare array, so it can be
+            validated and aligned against `stat_map`. If not provided, the
+            colormap's own alpha channel is respected.
+        show_colorbar : bool, default: True
+            Whether to add a colorbar for `stat_map`.
+        cbar_label : str, optional
+            Label for the colorbar.
+        cbar_kwargs : dict, optional
+            Additional keyword arguments forwarded to
+            [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]
+            (e.g. `shrink`, `fraction`, `pad`, `aspect`). Useful to shrink the
+            colorbar when it spans a multi-panel grid, since the defaults are sized
+            for a single axes.
+        show_titles : bool, default: True
+            Whether to display subplot titles.
+        show_axis_labels : bool, default: True
+            Whether to display axis labels.
+        show_axis_ticks : bool, default: True
+            Whether to display axis tick labels.
+        show_axes : bool, default: True
+            Whether to show all axis decorations (spines, ticks, labels). When
+            `False`, overrides `show_axis_labels` and `show_axis_ticks`.
+        fontsize : float, optional
+            Base font size for all text elements. Subplot titles use `fontsize`
+            directly; axis labels and the colorbar label use `0.9 * fontsize`; tick
+            labels use `0.85 * fontsize`. If not provided, uses the active
+            Matplotlib defaults.
+        nrows : int, optional
+            Number of rows in the subplot grid when creating a new figure. If not
+            provided, computed automatically.
+        ncols : int, optional
+            Number of columns in the subplot grid when creating a new figure. If
+            not provided, computed automatically.
+        dpi : int, optional
+            Figure resolution in dots per inch. Ignored when using an existing
+            figure.
+
+        Returns
+        -------
+        VolumePlotter
+            Returns self for method chaining.
+
+        Raises
+        ------
+        ValueError
+            If no matching coordinates are found or axis count doesn't match.
+        ValueError
+            If `alpha` is a DataArray and its dims, shape, or coordinates do not
+            match `stat_map`.
+        TypeError
+            If `alpha` is neither a scalar nor a DataArray.
+
+        Examples
+        --------
+        >>> import xarray as xr
+        >>> from confusius.plotting import plot_volume
+        >>> anatomical = xr.open_zarr("output.zarr")["power_doppler"]
+        >>> t_map = xr.open_zarr("output.zarr")["t_stat"]
+        >>> plotter = plot_volume(anatomical, show_colorbar=False)
+        >>> plotter = plotter.add_stat_map(t_map, threshold=3.0)
+        """
+        stat_map = stat_map.compute()
+        resolved_vmin, resolved_vmax, resolved_cmap = _resolve_stat_map_style(
+            stat_map, vmin, vmax, cmap, auto_range
+        )
+        return self.add_volume(
+            stat_map,
+            slice_coords=slice_coords,
+            match_coordinates=match_coordinates,
+            cmap=resolved_cmap,
+            norm=norm,
+            vmin=resolved_vmin,
+            vmax=resolved_vmax,
+            threshold=threshold,
+            threshold_mode=threshold_mode,
+            alpha=alpha,
+            show_colorbar=show_colorbar,
+            cbar_label=cbar_label,
+            cbar_kwargs=cbar_kwargs,
+            show_titles=show_titles,
+            show_axis_labels=show_axis_labels,
+            show_axis_ticks=show_axis_ticks,
+            show_axes=show_axes,
+            fontsize=fontsize,
+            nrows=nrows,
+            ncols=ncols,
+            dpi=dpi,
+        )
 
     def add_composite(
         self,
@@ -2608,8 +2842,9 @@ def plot_contours(
     linestyles : str, default: "solid"
         Line style for contour lines (e.g. `"solid"`, `"dashed"`).
     slice_mode : str, default: "z"
-        Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
-        slicing, each panel must be 2D.
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+        slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid slice
+        modes. After slicing, each panel must be 2D.
     slice_coords : list[collections.abc.Hashable], optional
         Coordinate values along `slice_mode` at which to extract slices. Numeric
         coordinates are matched by nearest-neighbour lookup; non-numeric
@@ -2714,7 +2949,7 @@ def plot_volume(
     data: xr.DataArray,
     *,
     slice_coords: list[Hashable] | None = None,
-    slice_mode: str = "z",
+    slice_mode: str | None = None,
     transpose: bool = False,
     cmap: "str | Colormap | None" = None,
     norm: "Normalize | None" = None,
@@ -2748,21 +2983,26 @@ def plot_volume(
 
     Displays a series of 2D slices extracted along `slice_mode` as a grid of subplots.
     Each slice is rendered using world coordinates for axis ticks when available.
+    If `slice_mode` is not provided and `data` is planar, the singleton world
+    dimension is used; otherwise the default is `"z"`.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array. Unitary dimensions are squeezed before processing. After
-        squeezing, data must be 3D. Complex-valued data is converted to magnitude
-        before display.
+        Input data array. Unitary non-world dimensions are squeezed before
+        processing; singleton world display axes are preserved. After that, data
+        must be 3D. Complex-valued data is converted to magnitude before display.
     slice_coords : list[collections.abc.Hashable], optional
         Coordinate values along `slice_mode` at which to extract slices. Numeric
         coordinates are matched by nearest-neighbour lookup; non-numeric
         coordinates (e.g. region labels) require an exact match. If not provided,
         all coordinate values along `slice_mode` are used.
-    slice_mode : str, default: "z"
-        Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`,
-        `"time"`). After slicing, each panel must be 2D.
+    slice_mode : str, optional
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+        slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid slice
+        modes. If not provided, planar data is sliced along its singleton world
+        dimension and full 3D data is sliced along `"z"`. After slicing, each panel
+        must be 2D.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
     cmap : str or matplotlib.colors.Colormap, optional
@@ -2911,8 +3151,9 @@ def plot_volume(
     ...     cbar_label="Power (dB)",
     ... )
     """
+    resolved_slice_mode = _resolve_default_slice_mode(data, slice_mode)
     plotter = VolumePlotter(
-        slice_mode=slice_mode,
+        slice_mode=resolved_slice_mode,
         figure=figure,
         axes=axes,
         bg_color=bg_color,
@@ -2960,7 +3201,7 @@ def plot_composite(
     atol: float = 1e-8,
     normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
     slice_coords: Sequence[Hashable] | None = None,
-    slice_mode: str = "z",
+    slice_mode: str | None = None,
     transpose: bool = False,
     alpha: "float | npt.NDArray[np.floating] | None" = None,
     show_titles: bool = True,
@@ -2986,6 +3227,8 @@ def plot_composite(
     and `data2` drives the green and blue channels (cyan), making overlap
     visible as desaturated grey. This is the same visual encoding used by the
     live registration progress preview.
+    If `slice_mode` is not provided and `data1` is planar, the singleton world
+    dimension is used; otherwise the default is `"z"`.
 
     Parameters
     ----------
@@ -3030,8 +3273,11 @@ def plot_composite(
         coordinates are matched by nearest-neighbour lookup; non-numeric
         coordinates (e.g. region labels) require an exact match. If not provided,
         from `data1` are used.
-    slice_mode : str, default: "z"
-        Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After slicing, each
+    slice_mode : str, optional
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+        slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid slice
+        modes. If not provided, planar `data1` is sliced along its singleton world
+        dimension and full 3D data is sliced along `"z"`. After slicing, each
         panel must be 2D.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
@@ -3126,8 +3372,9 @@ def plot_composite(
     >>> # Maximise contrast on dim slices.
     >>> plotter = plot_composite(fixed, moving, normalize_strategy="per_slice")
     """
+    resolved_slice_mode = _resolve_default_slice_mode(data1, slice_mode)
     plotter = VolumePlotter(
-        slice_mode=slice_mode,
+        slice_mode=resolved_slice_mode,
         figure=figure,
         axes=axes,
         bg_color=bg_color,
@@ -3201,9 +3448,9 @@ def plot_stat_map(
 
     Performs the recurring pattern of [`plot_volume`][confusius.plotting.plot_volume] to
     show a background anatomical volume +
-    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] to overlay
-    a statistical map, with the colormap and range picked automatically based on
-    whether the statistic is diverging (has both positive and negative values) or
+    [`VolumePlotter.add_stat_map`][confusius.plotting.VolumePlotter.add_stat_map] to
+    overlay a statistical map, with the colormap and range picked automatically based
+    on whether the statistic is diverging (has both positive and negative values) or
     one-signed.
 
     Parameters
@@ -3225,8 +3472,9 @@ def plot_stat_map(
         all coordinate values from `bg_volume` (or `stat_map` when `bg_volume` is not
         provided) along `slice_mode` are used.
     slice_mode : str, default: "z"
-        Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`, `"time"`). After
-        slicing, each panel must be 2D.
+        World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+        slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid slice
+        modes. After slicing, each panel must be 2D.
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
     bg_kwargs : dict, optional
@@ -3249,8 +3497,8 @@ def plot_stat_map(
     vmin : float, optional
         Lower bound of the colormap. If not provided, defaults to the minimum value
         of `stat_map`, computed over the full array rather than just the displayed
-        slices. Ignored when `norm` is provided, or when `auto_range` resolves to a
-        range anchored at zero (see below).
+        slices. Ignored when `norm` is provided, or when `auto_range=True` and
+        `stat_map` has only non-negative values.
     vmax : float, optional
         Upper bound of the colormap. If not provided, defaults to the maximum value
         of `stat_map`, computed over the full array rather than just the displayed
@@ -3364,10 +3612,12 @@ def plot_stat_map(
     Notes
     -----
     When `bg_volume` is provided, this is equivalent to calling
-    `plot_volume(bg_volume, ...)` followed by `plotter.add_volume(stat_map,
-    alpha=alpha, cmap=resolved_cmap, vmin=resolved_vmin, vmax=resolved_vmax, ...)`.
-    Use those functions directly for finer control, e.g. a custom, non-zero-anchored
-    asymmetric range.
+    `plot_volume(bg_volume, show_colorbar=False, ...)` followed by
+    `plotter.add_stat_map(stat_map, ...)`. Use
+    [`VolumePlotter.add_stat_map`][confusius.plotting.VolumePlotter.add_stat_map]
+    directly to overlay a statistical map onto an existing plot, or
+    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] for full
+    manual control over the colormap and range.
 
     Examples
     --------
@@ -3397,11 +3647,6 @@ def plot_stat_map(
     >>> # No background: plot the statistical map on its own.
     >>> plotter = plot_stat_map(t_map, slice_mode="z")
     """
-    # `_resolve_stat_map_style` below reads `stat_map.values` directly, ahead of
-    # `add_volume`/`_prepare_slice_inputs`'s own `.compute()` -- compute once here
-    # so a dask-backed `stat_map` isn't recomputed twice (once for style
-    # resolution, once inside `add_volume`).
-    stat_map = stat_map.compute()
     if bg_volume is not None:
         plotter = plot_volume(
             bg_volume,
@@ -3441,18 +3686,15 @@ def plot_stat_map(
             transpose=transpose,
         )
 
-    resolved_vmin, resolved_vmax, resolved_cmap = _resolve_stat_map_style(
-        stat_map, vmin, vmax, cmap, auto_range
-    )
-
-    return plotter.add_volume(
+    return plotter.add_stat_map(
         stat_map,
         slice_coords=slice_coords,
         match_coordinates=bg_volume is not None,
-        cmap=resolved_cmap,
+        cmap=cmap,
         norm=norm,
-        vmin=resolved_vmin,
-        vmax=resolved_vmax,
+        vmin=vmin,
+        vmax=vmax,
+        auto_range=auto_range,
         threshold=threshold,
         threshold_mode=threshold_mode,
         alpha=alpha,
