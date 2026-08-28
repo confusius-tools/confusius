@@ -168,6 +168,11 @@ Current development version for the next ConfUSIus release.
   path no longer rejects a `pose`-carrying mask either
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 
+### :wrench: Maintenance
+
+- **[Napari plugin]** ConfUSIus now requires napari 0.9.0 or newer
+  ([#413](https://github.com/confusius-tools/confusius/pull/413)).
+
 ## 0.6.1
 
 Released 2026-08-07.

@@ -370,11 +370,11 @@ class TestOperationMode:
 
         # User navigates to a custom 3D view before launching the run.
         real_viewer.dims.ndisplay = 3
-        real_viewer.camera.center = (1.0, 2.0, 3.0)
-        real_viewer.camera.zoom = 7.0
+        real_viewer.scene.camera.center = (1.0, 2.0, 3.0)
+        real_viewer.scene.camera.zoom = 7.0
         before = (
-            tuple(real_viewer.camera.center),
-            real_viewer.camera.zoom,
+            tuple(real_viewer.scene.camera.center),
+            real_viewer.scene.camera.zoom,
             real_viewer.dims.ndisplay,
         )
 
@@ -389,8 +389,8 @@ class TestOperationMode:
         )
 
         after = (
-            tuple(real_viewer.camera.center),
-            real_viewer.camera.zoom,
+            tuple(real_viewer.scene.camera.center),
+            real_viewer.scene.camera.zoom,
             real_viewer.dims.ndisplay,
         )
         assert after == before

@@ -358,7 +358,9 @@ class TestReferenceWarning:
             "confusius._napari._video._video_panel.show_warning",
             warnings_seen.append,
         )
-        time_values = sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
+        time_values = (
+            sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
+        )
         time_values[2:] += 0.02
         irregular = sample_voxeldata_3dt.assign_coords(
             time=("time", time_values, sample_voxeldata_3dt.coords["time"].attrs)
@@ -391,7 +393,9 @@ class TestReferenceWarning:
             "confusius._napari._video._video_panel.VideoReaderNP",
             lambda *_args, **_kwargs: _FakeVideo(n_frames=10, h=48, w=64, rgb=True),
         )
-        time_values = sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
+        time_values = (
+            sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
+        )
         time_values[2:] += 0.02
         irregular = sample_voxeldata_3dt.assign_coords(
             time=("time", time_values, sample_voxeldata_3dt.coords["time"].attrs)
@@ -627,4 +631,4 @@ class TestTimeOverlayVideoSync:
         # The overlay should fall back to dims.point (no xarray).
         expected_time = float(viewer.dims.point[time_idx])
         expected_text = f"{expected_time:.2f} s"
-        assert viewer.text_overlay.text == expected_text
+        assert viewer.canvas.overlays.text.text == expected_text
