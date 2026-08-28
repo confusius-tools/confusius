@@ -235,7 +235,7 @@ def test_interpolate_rejects_non_1d_mask(make_sample_timeseries):
         coords={"time": signals.coords["time"]},
     )
 
-    with pytest.raises(ValueError, match="Boolean sample_mask must be 1D"):
+    with pytest.raises(ValueError, match="sample_mask must be 1D"):
         interpolate_samples(signals, sample_mask)
 
 

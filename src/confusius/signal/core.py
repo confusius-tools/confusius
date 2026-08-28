@@ -321,10 +321,10 @@ def clean(
 
     if sample_mask is not None:
         sample_mask = ensure_time_aligned(
-            signals, sample_mask, "sample_mask", allow_dataframe=False
+            signals, sample_mask, "sample_mask", ndim=1, allow_dataframe=False
         )
     if confounds is not None:
-        confounds = ensure_time_aligned(signals, confounds, "confounds")
+        confounds = ensure_time_aligned(signals, confounds, "confounds", ndim=2)
 
     if filter_kwargs is not None and not isinstance(filter_kwargs, dict):
         raise TypeError("filter_kwargs must be a dict or None")

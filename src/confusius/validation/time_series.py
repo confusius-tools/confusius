@@ -4,6 +4,7 @@ import warnings
 from typing import Literal, overload
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 from confusius._dims import TIME_DIM
@@ -236,12 +237,14 @@ def ensure_time_aligned(
     value: xr.DataArray | np.ndarray | pd.DataFrame,
     name: str,
     *,
+    ndim: Literal[1, 2],
     allow_dataframe: bool = True,
 ) -> xr.DataArray:
     """Return `value` as a `(time, ...)` DataArray aligned with `signals`.
 
-    `value` is validated against `signals` and returned as a 1D `(time,)` or 2D
-    `(time, n)` DataArray with `time` as its first dimension:
+    `value` is validated against `signals` and returned as a `(time,)` DataArray
+    (`ndim=1`) or a `(time, confound)` DataArray (`ndim=2`, a 1D `value` becoming one
+    column) with `time` as its first dimension:
 
     - A DataArray must have a `time` dimension.
     - A DataFrame must have a `time` column and at least one other, numeric column;
@@ -262,21 +265,25 @@ def ensure_time_aligned(
         Array to align.
     name : str
         Name of `value` used in error and warning messages.
+    ndim : {1, 2}
+        Number of dimensions of the result: `1` for a single series such as a sample
+        mask, `2` for a set of regressors such as confounds.
     allow_dataframe : bool, default: True
         Whether to accept a DataFrame `value`.
 
     Returns
     -------
-    (time,) or (time, n) xarray.DataArray
-        `value` with `time` as its first dimension.
+    (time,) or (time, confound) xarray.DataArray
+        `value` with `time` as its first dimension and `ndim` dimensions.
 
     Raises
     ------
     TypeError
         If `value` is not one of the accepted types.
     ValueError
-        If `value` has no `time` dimension or column, is not 1D or 2D, or does not
-        have as many timepoints as `signals`; if a DataFrame `value` has duplicate or
+        If `value` has no `time` dimension or column, has more than `ndim`
+        dimensions, or does not have as many timepoints as `signals`; if a DataFrame
+        `value` has duplicate or
         non-numeric columns or no column besides `time`; or if `time` coordinates do
         not match those of `signals`.
 
@@ -286,6 +293,7 @@ def ensure_time_aligned(
         If `value` has no `time` coordinates while `signals` does, since alignment
         cannot be verified.
     """
+    allowed_ndim = "1D" if ndim == 1 else "1D or 2D"
     if allow_dataframe and isinstance(value, pd.DataFrame):
         if TIME_DIM not in value.columns:
             raise ValueError(f"{name} DataFrame must have a 'time' column")
@@ -313,8 +321,8 @@ def ensure_time_aligned(
             },
         )
     elif isinstance(value, np.ndarray):
-        if value.ndim not in (1, 2):
-            raise ValueError(f"{name} must be 1D or 2D, got {value.ndim}D")
+        if value.ndim > ndim:
+            raise ValueError(f"{name} must be {allowed_ndim}, got {value.ndim}D")
         value = xr.DataArray(value, dims=(TIME_DIM, "confound")[: value.ndim])
     elif not isinstance(value, xr.DataArray):
         accepted = (
@@ -326,9 +334,11 @@ def ensure_time_aligned(
 
     if TIME_DIM not in value.dims:
         raise ValueError(f"{name} must have a 'time' dimension")
-    if value.ndim > 2:
-        raise ValueError(f"{name} must be 1D or 2D, got {value.ndim}D")
+    if value.ndim > ndim:
+        raise ValueError(f"{name} must be {allowed_ndim}, got {value.ndim}D")
     value = value.transpose(TIME_DIM, ...)
+    if value.ndim < ndim:
+        value = value.expand_dims("confound", axis=1)
 
     signals_time = signals.coords.get(TIME_DIM)
     if signals_time is not None and TIME_DIM in value.coords:

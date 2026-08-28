@@ -554,9 +554,7 @@ def _align_confounds(
         If `confounds` is not 1D or 2D, or if its times do not match `volume_times`.
     """
     time_grid = xr.DataArray(volume_times, dims=["time"], coords={"time": volume_times})
-    aligned = ensure_time_aligned(time_grid, confounds, "confounds")
-    if aligned.ndim == 1:
-        aligned = aligned.expand_dims("confound", axis=1)
+    aligned = ensure_time_aligned(time_grid, confounds, "confounds", ndim=2)
     labels = aligned.coords.get(aligned.dims[1])
     names = None
     if labels is not None and not np.issubdtype(labels.dtype, np.number):

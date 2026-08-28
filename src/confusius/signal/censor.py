@@ -42,16 +42,11 @@ def _validate_sample_mask(
     UserWarning
         If `sample_mask` has no `time` coordinates, since alignment cannot be verified.
     """
-    sample_mask = ensure_time_aligned(
-        signals, sample_mask, "sample_mask", allow_dataframe=False
-    )
-    mask_values = sample_mask.values
+    mask_values = ensure_time_aligned(
+        signals, sample_mask, "sample_mask", ndim=1, allow_dataframe=False
+    ).values
     if mask_values.dtype != bool:
         raise ValueError(f"sample_mask must be boolean, got dtype {mask_values.dtype}")
-    if mask_values.ndim != 1:
-        raise ValueError(
-            f"Boolean sample_mask must be 1D, got shape {mask_values.shape}"
-        )
     return mask_values
 
 

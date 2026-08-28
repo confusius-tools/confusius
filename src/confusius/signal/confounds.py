@@ -19,42 +19,6 @@ from confusius.signal.standardization import standardize
 from confusius.validation import ensure_time_aligned, validate_time_series
 
 
-def _validate_confounds(
-    signals: xr.DataArray, confounds: xr.DataArray | np.ndarray | pd.DataFrame
-) -> np.ndarray:
-    """Validate confounds array matches signals.
-
-    Parameters
-    ----------
-    signals : xarray.DataArray
-        Signals with 'time' dimension.
-    confounds : xarray.DataArray, numpy.ndarray, or pandas.DataFrame
-        Confound regressors to validate, aligned with `signals` as described in
-        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned].
-
-    Returns
-    -------
-    numpy.ndarray
-        Validated 2D confounds array.
-
-    Raises
-    ------
-    ValueError
-        If confounds have incorrect shape or time dimension mismatch.
-    TypeError
-        If confounds are not a DataArray, NumPy array, or DataFrame.
-
-    Warns
-    -----
-    UserWarning
-        If `confounds` has no `time` coordinates, since alignment cannot be verified.
-    """
-    confounds_values = ensure_time_aligned(signals, confounds, "confounds").values
-    if confounds_values.ndim == 1:
-        confounds_values = confounds_values[:, np.newaxis]
-    return confounds_values
-
-
 def _prepare_confounds_for_regression(
     confounds: np.ndarray,
     standardize_confounds: bool,
@@ -282,7 +246,9 @@ def regress_confounds(
     """
     time_axis, _ = validate_time_series(signals, "confound regression")
 
-    confounds_array = _validate_confounds(signals, confounds)
+    confounds_array = ensure_time_aligned(
+        signals, confounds, "confounds", ndim=2
+    ).values
 
     result = xr.apply_ufunc(
         _regress_confounds_wrapper,
