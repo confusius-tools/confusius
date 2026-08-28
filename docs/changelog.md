@@ -12,6 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- DataFrame `confounds` passed to
+  [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] or
+  [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix]
+  must now have a `time` column matching the run's `time` coordinates
+  ([#398](https://github.com/confusius-tools/confusius/pull/398)).
 - **VoxelData's canonical dims changed from `(...extra, time, pose, z, y, x)` to
   `(...extra, time, pose, k, j, i)`.** World coordinates `z`/`y`/`x` are no longer
   stored dimensions — they're derived lazily, per voxel, from a single
@@ -113,10 +118,13 @@ Current development version for the next ConfUSIus release.
   [`censor_samples`][confusius.signal.censor_samples], and
   [`interpolate_samples`][confusius.signal.interpolate_samples] now accept NumPy
   `confounds` and `sample_mask` (time along the first axis); they take the signals'
-  `time` coordinates and warn since alignment cannot be verified.
-  [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] now also accepts
-  `confounds` as a `(time, n_confounds)` DataArray, validated against the run's `time`
-  coordinates ([#398](https://github.com/confusius-tools/confusius/pull/398)).
+  `time` coordinates and warn since alignment cannot be verified. `confounds` can
+  also be a DataFrame with a `time` column, validated like DataArray `time`
+  coordinates. [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] and
+  [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix]
+  now accept `confounds` as a `(time, n_confounds)` DataArray, validated against the
+  run's `time` coordinates
+  ([#398](https://github.com/confusius-tools/confusius/pull/398)).
 - `VoxelToWorldIndex`/`create_voxeldata`/`attach_voxel_to_world_index` now
   support pose-dependent voxel-to-world geometry: a `(npose, 4, 4)` affine
   stack, one per pose, instead of one affine shared by every pose. New

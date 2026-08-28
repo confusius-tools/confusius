@@ -4,6 +4,7 @@ import warnings
 from typing import Literal, overload
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 from confusius._dims import TIME_DIM
@@ -201,24 +202,32 @@ def validate_time_series(
 
 
 def ensure_time_aligned(
-    signals: xr.DataArray, value: xr.DataArray | np.ndarray, name: str
+    signals: xr.DataArray,
+    value: xr.DataArray | np.ndarray | pd.DataFrame,
+    name: str,
+    *,
+    allow_dataframe: bool = True,
 ) -> xr.DataArray:
     """Return `value` as a DataArray aligned with `signals` along `time`.
 
     A DataArray `value` is validated against `signals`: it must have a `time`
-    dimension, and when both carry `time` coordinates these must match. A NumPy
-    `value` is assumed to be ordered like `signals` along its first axis and is wrapped
-    in a DataArray carrying the `time` coordinates of `signals`.
+    dimension, and when both carry `time` coordinates these must match. A DataFrame
+    `value` must have a `time` column, which is validated the same way; its other
+    columns become a `confound` dimension named after them. A NumPy `value` is assumed
+    to be ordered like `signals` along its first axis and is wrapped in a DataArray
+    carrying the `time` coordinates of `signals`.
 
     Parameters
     ----------
     signals : (time, ...) xarray.DataArray
         Signals defining the `time` grid.
-    value : (time, ...) xarray.DataArray or numpy.ndarray
+    value : (time, ...) xarray.DataArray, numpy.ndarray, or pandas.DataFrame
         Array to align. A NumPy array must be 1D `(time,)` or 2D `(time, n)`; its
         second axis is named `confound`.
     name : str
         Name of `value` used in error and warning messages.
+    allow_dataframe : bool, default: True
+        Whether to accept a DataFrame `value`.
 
     Returns
     -------
@@ -228,17 +237,35 @@ def ensure_time_aligned(
     Raises
     ------
     TypeError
-        If `value` is neither an xarray.DataArray nor a NumPy array.
+        If `value` is not one of the accepted types.
     ValueError
-        If a DataArray `value` has no `time` dimension or its `time` coordinates do not
-        match those of `signals`, or if a NumPy `value` is not 1D or 2D or its first
-        axis does not match the number of timepoints in `signals`.
+        If a DataArray `value` has no `time` dimension, if a DataFrame `value` has no
+        `time` column or no other column, if `time` coordinates do not match those of
+        `signals`, or if a NumPy `value` is not 1D or 2D or its first axis does not
+        match the number of timepoints in `signals`.
 
     Warns
     -----
     UserWarning
         If `value` is a NumPy array, since alignment with `signals` cannot be verified.
     """
+    if allow_dataframe and isinstance(value, pd.DataFrame):
+        if TIME_DIM not in value.columns:
+            raise ValueError(f"{name} DataFrame must have a 'time' column")
+        columns = [column for column in value.columns if column != TIME_DIM]
+        if not columns:
+            raise ValueError(
+                f"{name} DataFrame must have at least one column besides 'time'"
+            )
+        value = xr.DataArray(
+            value[columns].to_numpy(),
+            dims=(TIME_DIM, "confound"),
+            coords={
+                TIME_DIM: value[TIME_DIM].to_numpy(),
+                "confound": [str(column) for column in columns],
+            },
+        )
+
     if isinstance(value, xr.DataArray):
         if TIME_DIM not in value.dims:
             raise ValueError(f"{name} must have a 'time' dimension")
@@ -252,10 +279,12 @@ def ensure_time_aligned(
         return value
 
     if not isinstance(value, np.ndarray):
-        raise TypeError(
-            f"{name} must be an xarray.DataArray or numpy.ndarray, "
-            f"got {type(value).__name__}"
+        accepted = (
+            "xarray.DataArray, numpy.ndarray, or pandas.DataFrame"
+            if allow_dataframe
+            else "xarray.DataArray or numpy.ndarray"
         )
+        raise TypeError(f"{name} must be an {accepted}, got {type(value).__name__}")
     if value.ndim not in (1, 2):
         raise ValueError(f"{name} must be 1D or 2D, got {value.ndim}D")
     n_time = signals.sizes[TIME_DIM]

@@ -2,6 +2,7 @@
 
 import dask.array as da
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
@@ -153,6 +154,17 @@ def test_interpolate_rejects_non_array_mask(make_sample_timeseries):
 
     with pytest.raises(TypeError, match="must be an xarray.DataArray or numpy.ndarray"):
         interpolate_samples(signals, [True] * 100)  # ty: ignore[invalid-argument-type]
+
+
+def test_dataframe_mask_rejected(make_sample_timeseries):
+    """Test sample_mask does not accept a DataFrame."""
+    signals = make_sample_timeseries(n_time=100)
+    frame = pd.DataFrame(
+        {"time": signals.coords["time"].values, "keep": np.ones(100, dtype=bool)}
+    )
+
+    with pytest.raises(TypeError, match="must be an xarray.DataArray or numpy.ndarray"):
+        censor_samples(signals, frame)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("func", [interpolate_samples, censor_samples])

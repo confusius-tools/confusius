@@ -221,15 +221,52 @@ def test_regress_confounds_mismatched_time(make_sample_timeseries):
         regress_confounds(signals, confounds)
 
 
-@pytest.mark.parametrize(
-    "confounds", ["invalid", [0.0] * 100, pd.DataFrame(np.zeros((100, 2)))]
-)
+@pytest.mark.parametrize("confounds", ["invalid", [0.0] * 100])
 def test_regress_confounds_invalid_type(make_sample_timeseries, confounds):
-    """Test error when confounds is neither a DataArray nor a NumPy array."""
+    """Test error when confounds is not a DataArray, NumPy array, or DataFrame."""
     signals = make_sample_timeseries()
 
-    with pytest.raises(TypeError, match="must be an xarray.DataArray or numpy.ndarray"):
+    with pytest.raises(TypeError, match="must be an xarray.DataArray, numpy.ndarray"):
         regress_confounds(signals, confounds)
+
+
+def test_regress_confounds_dataframe_matches_dataarray(make_sample_timeseries, rng):
+    """Test DataFrame confounds with a time column match the DataArray result."""
+    signals = make_sample_timeseries(n_time=100, n_voxels=50)
+    values = rng.standard_normal((100, 2))
+    confounds = xr.DataArray(
+        values, dims=["time", "confound"], coords={"time": signals.coords["time"]}
+    )
+    frame = pd.DataFrame(
+        {
+            "time": signals.coords["time"].values,
+            "motion_x": values[:, 0],
+            "motion_y": values[:, 1],
+        }
+    )
+
+    xr.testing.assert_allclose(
+        regress_confounds(signals, frame), regress_confounds(signals, confounds)
+    )
+
+
+@pytest.mark.parametrize(
+    ("frame", "message"),
+    [
+        (pd.DataFrame({"motion": np.zeros(100)}), "must have a 'time' column"),
+        (
+            pd.DataFrame({"time": np.arange(100) / 100 + 1.0, "motion": np.zeros(100)}),
+            "time coordinates do not match",
+        ),
+        (pd.DataFrame({"time": np.arange(100) / 100}), "at least one column"),
+    ],
+)
+def test_regress_confounds_invalid_dataframe(make_sample_timeseries, frame, message):
+    """Test DataFrame confounds are validated for a matching time column."""
+    signals = make_sample_timeseries(n_time=100)
+
+    with pytest.raises(ValueError, match=message):
+        regress_confounds(signals, frame)
 
 
 @pytest.mark.parametrize("n_confounds", [None, 3])

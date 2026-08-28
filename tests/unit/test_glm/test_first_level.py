@@ -74,7 +74,11 @@ class TestFirstLevelModelFit:
 
     def test_fit_with_confounds(self, fusi_data, events, rng):
         confounds = pd.DataFrame(
-            {"motion_x": rng.standard_normal(200), "motion_y": rng.standard_normal(200)}
+            {
+                "time": fusi_data.coords["time"].values,
+                "motion_x": rng.standard_normal(200),
+                "motion_y": rng.standard_normal(200),
+            }
         )
         model = FirstLevelModel(noise_model="ols")
         model.fit(fusi_data, events=events, confounds=confounds)
@@ -89,6 +93,7 @@ class TestFirstLevelModelFit:
         values = rng.standard_normal((200, 2))
         names = ["motion_x", "motion_y"]
         frame = pd.DataFrame(values, columns=names)
+        frame.insert(0, "time", fusi_data.coords["time"].values)
         confounds = xr.DataArray(
             values,
             dims=["time", "confound"],
@@ -318,8 +323,8 @@ class TestFirstLevelModelContrastMultiRun:
             ("time", "k", "j", "i"),
             time=frame_times,
         )
-        conf1 = pd.DataFrame({"motion": rng.standard_normal(200)})
-        conf2 = pd.DataFrame({"motion": rng.standard_normal(200)})
+        conf1 = pd.DataFrame({"time": frame_times, "motion": rng.standard_normal(200)})
+        conf2 = pd.DataFrame({"time": frame_times, "motion": rng.standard_normal(200)})
         model = FirstLevelModel(noise_model="ols")
         model.fit([data1, data2], events=[events, events], confounds=[conf1, conf2])
 

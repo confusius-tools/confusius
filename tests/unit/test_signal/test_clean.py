@@ -1,6 +1,7 @@
 """Tests for the signal.clean pipeline."""
 
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
@@ -674,4 +675,27 @@ def test_clean_numpy_inputs_match_dataarray_inputs(
 
     # One warning per NumPy argument; downstream steps receive DataArrays.
     assert sum("cannot be verified" in str(w.message) for w in record) == 2
+    xr.testing.assert_allclose(result, expected)
+
+
+def test_clean_dataframe_confounds_match_dataarray_confounds(
+    make_sample_timeseries, rng
+):
+    """Test DataFrame confounds with a time column match DataArray confounds."""
+    signals = make_sample_timeseries(n_time=100, sampling_rate=100.0)
+    values = rng.standard_normal((100, 2))
+    confounds = xr.DataArray(
+        values, dims=["time", "confound"], coords={"time": signals.coords["time"]}
+    )
+    frame = pd.DataFrame(
+        {"time": signals.coords["time"].values, "a": values[:, 0], "b": values[:, 1]}
+    )
+
+    expected = clean(
+        signals, detrend_order=1, low_cutoff=1.0, filter_method="cosine", confounds=confounds
+    )
+    result = clean(
+        signals, detrend_order=1, low_cutoff=1.0, filter_method="cosine", confounds=frame
+    )
+
     xr.testing.assert_allclose(result, expected)

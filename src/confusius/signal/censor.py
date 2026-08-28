@@ -42,7 +42,9 @@ def _validate_sample_mask(
     UserWarning
         If `sample_mask` is a NumPy array, since alignment cannot be verified.
     """
-    sample_mask = ensure_time_aligned(signals, sample_mask, "sample_mask")
+    sample_mask = ensure_time_aligned(
+        signals, sample_mask, "sample_mask", allow_dataframe=False
+    )
 
     n_timepoints = signals.sizes["time"]
     mask_values = np.asarray(sample_mask.values)

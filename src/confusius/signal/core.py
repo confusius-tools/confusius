@@ -3,6 +3,7 @@
 from typing import Literal
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 from xarray.core.types import InterpOptions
 
@@ -190,7 +191,7 @@ def clean(
     high_cutoff: float | None = None,
     filter_method: Literal["butterworth", "cosine"] = "butterworth",
     filter_kwargs: dict | None = None,
-    confounds: xr.DataArray | np.ndarray | None = None,
+    confounds: xr.DataArray | np.ndarray | pd.DataFrame | None = None,
     standardize_confounds: bool = True,
     ensure_finite: bool = False,
     sample_mask: xr.DataArray | np.ndarray | None = None,
@@ -247,14 +248,16 @@ def clean(
         [`filter_butterworth`][confusius.signal.filter_butterworth] when
         `filter_method="butterworth"` and
         [`filter_cosine`][confusius.signal.filter_cosine] when `filter_method="cosine"`.
-    confounds : (time, n_confounds) xarray.DataArray or numpy.ndarray, optional
+    confounds : (time, n_confounds) xarray.DataArray, numpy.ndarray, or \
+            pandas.DataFrame, optional
         Confound regressors to remove. Can have shape `(time,)` for a single
         confound. When provided, confounds are detrended and filtered along with
         signals before regression. For a DataArray, the time dimension and
-        coordinates must match the signals. A NumPy array is assumed aligned with
-        `signals` along its first axis and takes its `time` coordinates, with a
-        warning since alignment cannot be verified. If not provided, no confound
-        regression is applied.
+        coordinates must match the signals. A DataFrame must have a `time` column
+        matching the `time` coordinates of the signals; its other columns are the
+        confounds. A NumPy array is assumed aligned with `signals` along its first
+        axis and takes its `time` coordinates, with a warning since alignment cannot
+        be verified. If not provided, no confound regression is applied.
     standardize_confounds : bool, default: True
         Whether to z-score confounds before regression. If `False`, confounds are
         divided by their maximum absolute value for numerical stability without
@@ -311,7 +314,9 @@ def clean(
     validate_time_series(signals, operation_name="clean", require_unchunked_time=False)
 
     if sample_mask is not None:
-        sample_mask = ensure_time_aligned(signals, sample_mask, "sample_mask")
+        sample_mask = ensure_time_aligned(
+            signals, sample_mask, "sample_mask", allow_dataframe=False
+        )
     if confounds is not None:
         confounds = ensure_time_aligned(signals, confounds, "confounds")
 

@@ -31,53 +31,12 @@ from confusius.glm._utils import (
     select_contrast_map,
 )
 from confusius.spatial import smooth_volume
-from confusius.validation import ensure_time_aligned, ensure_voxeldata
+from confusius.validation import ensure_voxeldata
 from confusius.validation.coordinates import validate_matching_coordinates
 from confusius.validation.mask import validate_mask
 
 if TYPE_CHECKING:
     import numpy.typing as npt
-
-
-def _to_confounds_frame(
-    run_data: xr.DataArray,
-    confounds: pd.DataFrame | npt.NDArray[np.floating] | xr.DataArray | None,
-) -> pd.DataFrame | npt.NDArray[np.floating] | None:
-    """Convert DataArray confounds to a DataFrame aligned with `run_data`.
-
-    Parameters
-    ----------
-    run_data : (time, ...) xarray.DataArray
-        Run data defining the `time` grid.
-    confounds : pandas.DataFrame, numpy.ndarray, xarray.DataArray, or None
-        Confound regressors for this run.
-
-    Returns
-    -------
-    pandas.DataFrame, numpy.ndarray, or None
-        `confounds` unchanged unless it is a DataArray, in which case a DataFrame whose
-        columns are the coordinates of its non-time dimension, or a `(time,
-        n_confounds)` array when that dimension has no coordinates.
-
-    Raises
-    ------
-    ValueError
-        If DataArray `confounds` has no `time` dimension, is not 1D or 2D, or its
-        `time` coordinates do not match those of `run_data`.
-    """
-    if not isinstance(confounds, xr.DataArray):
-        return confounds
-    aligned = ensure_time_aligned(run_data, confounds, "confounds").transpose(
-        "time", ...
-    )
-    if aligned.ndim == 1:
-        aligned = aligned.expand_dims("confound", axis=1)
-    if aligned.ndim != 2:
-        raise ValueError(f"confounds must be 1D or 2D, got {aligned.ndim}D")
-    columns_dim = aligned.dims[1]
-    if columns_dim not in aligned.coords:
-        return aligned.values
-    return pd.DataFrame(aligned.values, columns=aligned.coords[columns_dim].values)
 
 
 class FirstLevelModel(BaseEstimator):
@@ -231,9 +190,10 @@ class FirstLevelModel(BaseEstimator):
             are in the same world time units as the `time` coordinate of `run_data`.
         confounds : pandas.DataFrame, numpy.ndarray, xarray.DataArray, or list, \
                 optional
-            Confound regressors per run. A `(time, n_confounds)` DataArray must have
-            a `time` dimension; its `time` coordinates are validated against
-            `run_data`.
+            Confound regressors per run, `(time, n_confounds)`. A DataFrame must have
+            a `time` column and a DataArray a `time` dimension; their times are
+            validated against `run_data`. A NumPy array is assumed ordered like
+            `run_data` along `time`.
         design_matrices : pandas.DataFrame or list of pandas.DataFrame, optional
             Pre-built design matrices. Overrides `events` / `confounds`.
 
@@ -460,8 +420,8 @@ class FirstLevelModel(BaseEstimator):
             Per-run event tables.
         confounds : pandas.DataFrame, numpy.ndarray, xarray.DataArray, or list, \
                 optional
-            Per-run confound regressors. DataArray confounds are validated against
-            each run's `time` coordinates.
+            Per-run confound regressors. DataFrame and DataArray confounds are
+            validated against the `time` coordinates of each run.
         design_matrices : pandas.DataFrame or list of pandas.DataFrame, optional
             Pre-built design matrices. If provided, `events` and `confounds`
             are ignored.
@@ -523,11 +483,6 @@ class FirstLevelModel(BaseEstimator):
             raise ValueError(
                 f"Got {len(confounds_list)} confound entries for {n_runs} runs."
             )
-
-        confounds_list = [
-            _to_confounds_frame(run_data[run_idx], run_confounds)
-            for run_idx, run_confounds in enumerate(confounds_list)
-        ]
 
         return [
             make_first_level_design_matrix(

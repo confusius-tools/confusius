@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import cast
 
 import numpy as np
+import pandas as pd
 import scipy.linalg
 import xarray as xr
 
@@ -19,7 +20,7 @@ from confusius.validation import ensure_time_aligned, validate_time_series
 
 
 def _validate_confounds(
-    signals: xr.DataArray, confounds: xr.DataArray | np.ndarray
+    signals: xr.DataArray, confounds: xr.DataArray | np.ndarray | pd.DataFrame
 ) -> np.ndarray:
     """Validate confounds array matches signals.
 
@@ -27,9 +28,9 @@ def _validate_confounds(
     ----------
     signals : xarray.DataArray
         Signals with 'time' dimension.
-    confounds : xarray.DataArray or numpy.ndarray
-        Confound regressors to validate. A NumPy array is assumed aligned with
-        `signals` along its first axis.
+    confounds : xarray.DataArray, numpy.ndarray, or pandas.DataFrame
+        Confound regressors to validate. A DataFrame must have a `time` column. A
+        NumPy array is assumed aligned with `signals` along its first axis.
 
     Returns
     -------
@@ -41,7 +42,7 @@ def _validate_confounds(
     ValueError
         If confounds have incorrect shape or time dimension mismatch.
     TypeError
-        If confounds are neither an xarray.DataArray nor a NumPy array.
+        If confounds are not a DataArray, NumPy array, or DataFrame.
 
     Warns
     -----
@@ -190,7 +191,7 @@ def _regress_confounds_wrapper(data, axis, confounds, standardize_confounds):
 
 def regress_confounds(
     signals: xr.DataArray,
-    confounds: xr.DataArray | np.ndarray,
+    confounds: xr.DataArray | np.ndarray | pd.DataFrame,
     standardize_confounds: bool = True,
 ) -> xr.DataArray:
     """Remove confounds from signals via linear regression.
@@ -211,13 +212,15 @@ def regress_confounds(
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
             `data.chunk({'time': -1})`.
 
-    confounds : (time, n_confounds) xarray.DataArray or numpy.ndarray
+    confounds : (time, n_confounds) xarray.DataArray, numpy.ndarray, or \
+            pandas.DataFrame
         Confound regressors to remove. Can have shape `(time,)` for a single
         confound. For a DataArray, the time dimension and coordinates must match the
         signals within the default coordinate-comparison tolerance (`rtol=1e-5`,
-        `atol=1e-8`). A NumPy array is assumed aligned with `signals` along its first
-        axis and takes its `time` coordinates, with a warning since alignment cannot
-        be verified.
+        `atol=1e-8`). A DataFrame must have a `time` column matching the `time`
+        coordinates of the signals; its other columns are the confounds. A NumPy array
+        is assumed aligned with `signals` along its first axis and takes its `time`
+        coordinates, with a warning since alignment cannot be verified.
     standardize_confounds : bool, default: True
         Whether to z-score confounds before regression. If `False`, confounds are
         divided by their maximum absolute value for numerical stability without
@@ -235,7 +238,7 @@ def regress_confounds(
         If `signals` does not have a `time` dimension, or if `confounds` have
         mismatched time dimension or invalid shape.
     TypeError
-        If `confounds` is neither an xarray.DataArray nor a NumPy array.
+        If `confounds` is not a DataArray, NumPy array, or DataFrame.
 
     Warns
     -----
