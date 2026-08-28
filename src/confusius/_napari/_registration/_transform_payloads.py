@@ -336,7 +336,8 @@ def _normalize_loaded_bspline_transform(transform: xr.DataArray) -> xr.DataArray
     affines = normalized.attrs.get("affines")
     if isinstance(affines, dict):
         normalized_affines = dict(affines)
-        normalized_affines.pop("world_to_qform", None)
+        for nifti_key in ("world_to_qform", "world_to_sform"):
+            normalized_affines.pop(nifti_key, None)
         if normalized_affines:
             normalized.attrs["affines"] = normalized_affines
         else:

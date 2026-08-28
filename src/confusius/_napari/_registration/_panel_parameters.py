@@ -31,7 +31,8 @@ def get_default_registration_parameters(
     return {
         "transform": "rigid",
         "metric": "correlation",
-        "scale": "dB",
+        "scale": "db",
+        "fixed_scale": "db",
         "initialization": "center_geometry",
         "learning_rate_auto": not is_volumewise,
         "learning_rate_value": 0.01,
@@ -73,6 +74,7 @@ def get_registration_parameters(panel: RegistrationPanel) -> ModeParameters:
         "transform": panel._transform_combo.currentText() or "rigid",
         "metric": panel._current_metric(),
         "scale": panel._current_scale_mode(),
+        "fixed_scale": panel._current_scale_mode(fixed=True),
         "initialization": panel._initialization_combo.currentData(),
         "learning_rate_auto": panel._learning_rate_auto_check.isChecked(),
         "learning_rate_value": panel._learning_rate_edit.value(),
@@ -134,10 +136,13 @@ def set_registration_parameters(
     panel._transform_combo.blockSignals(False)
 
     panel._metric_combo.setCurrentText(params["metric"])
-    scale_mode = params["scale"]
-    scale_index = panel._scale_combo.findData(scale_mode)
-    if scale_index >= 0:
-        panel._scale_combo.setCurrentIndex(scale_index)
+    for combo, scale_mode in (
+        (panel._scale_combo, params["scale"]),
+        (panel._fixed_scale_combo, params["fixed_scale"]),
+    ):
+        scale_index = combo.findData(scale_mode)
+        if scale_index >= 0:
+            combo.setCurrentIndex(scale_index)
     initialization_data = params.get("initialization")
     for i in range(panel._initialization_combo.count()):
         if panel._initialization_combo.itemData(i) == initialization_data:
