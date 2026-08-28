@@ -106,6 +106,7 @@ Current development version for the next ConfUSIus release.
   `attrs["world_coord_attrs"]` round-trip key was renamed to
   `attrs["voxel_to_world_units"]` (a single string)
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+
 ### :sparkles: Enhancements
 
 - [`register_volume`][confusius.registration.register_volume] now supports random
@@ -158,6 +159,10 @@ Current development version for the next ConfUSIus release.
   oblique (non-axis-aligned) voxel-to-world data is resampled onto an
   axis-aligned display grid
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
+- [`load_nifti`][confusius.io.load_nifti] now follows the BIDS inheritance principle
+  for matching JSON sidecars, so shared metadata stored at the dataset root or parent
+  folders is preserved when loading recordings
+  ([#359](https://github.com/confusius-tools/confusius/pull/359)).
 
 ### :bug: Fixes
 
