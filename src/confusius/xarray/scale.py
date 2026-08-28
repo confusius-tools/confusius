@@ -4,6 +4,58 @@ import numpy as np
 import xarray as xr
 
 
+def _log_output_dtype(dtype: np.dtype) -> np.dtype:
+    """Infer the output dtype `numpy.log`/`numpy.log10` would produce for `dtype`.
+
+    Parameters
+    ----------
+    dtype : numpy.dtype
+        Input dtype.
+
+    Returns
+    -------
+    numpy.dtype
+        `dtype` unchanged if floating-point, else `numpy.float64` (matches
+        `numpy.log`/`numpy.log10` promotion rules, which keep float32 as float32 but
+        promote integer/bool inputs to float64).
+    """
+    return dtype if np.issubdtype(dtype, np.floating) else np.dtype(np.float64)
+
+
+def _log10_ignore_errors(x: np.ndarray) -> np.ndarray:
+    """Compute `log10`, suppressing divide-by-zero/invalid-value warnings.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        Input array.
+
+    Returns
+    -------
+    numpy.ndarray
+        `log10(x)`, with zero/negative inputs mapped to `-inf`/`nan`.
+    """
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.log10(x)
+
+
+def _log_ignore_errors(x: np.ndarray) -> np.ndarray:
+    """Compute natural `log`, suppressing divide-by-zero/invalid-value warnings.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        Input array.
+
+    Returns
+    -------
+    numpy.ndarray
+        `log(x)`, with zero/negative inputs mapped to `-inf`/`nan`.
+    """
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.log(x)
+
+
 def db_scale(data: xr.DataArray, factor: int | None = None) -> xr.DataArray:
     """Convert data to decibel scale relative to maximum value.
 
@@ -47,8 +99,15 @@ def db_scale(data: xr.DataArray, factor: int | None = None) -> xr.DataArray:
     # https://github.com/confusius-tools/confusius/issues/18.
     max_val = abs_data.max().compute()
 
-    with np.errstate(divide="ignore", invalid="ignore"):
-        db_data = factor * xr.ufuncs.log10(abs_data / max_val)
+    # np.errstate only suppresses warnings raised while the context is active. For
+    # Dask-backed data, log10 executes lazily on worker threads long after this
+    # function returns, so the errstate must be set inside the deferred call itself.
+    db_data = factor * xr.apply_ufunc(
+        _log10_ignore_errors,
+        abs_data / max_val,
+        dask="parallelized",
+        output_dtypes=[_log_output_dtype(abs_data.dtype)],
+    )
 
     db_data.attrs["units"] = "dB"
     db_data.attrs["scaling"] = f"{factor}*log10(x/max)"
@@ -80,8 +139,12 @@ def log_scale(data: xr.DataArray) -> xr.DataArray:
     >>> data = xr.DataArray([1, np.e, np.e**2])
     >>> log_scale(data)
     """
-    with np.errstate(divide="ignore", invalid="ignore"):
-        log_data = xr.ufuncs.log(data)
+    log_data = xr.apply_ufunc(
+        _log_ignore_errors,
+        data,
+        dask="parallelized",
+        output_dtypes=[_log_output_dtype(data.dtype)],
+    )
 
     log_data.attrs["scaling"] = "log(x)"
 
