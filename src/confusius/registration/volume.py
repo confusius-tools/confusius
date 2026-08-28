@@ -12,6 +12,7 @@ from confusius.registration._utils import (
     expand_thin_dims,
     replace_affines_attr,
     set_sitk_thread_count,
+    validate_intensity_scaling,
     voxeldata_to_sitk_image,
 )
 from confusius.registration.affines import (
@@ -34,7 +35,11 @@ def _validate_register_volume_inputs(
     moving_mask: xr.DataArray | None,
     transform_type: Literal["translation", "rigid", "affine", "bspline"],
     metric: Literal["correlation", "mattes_mi"],
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float,
     number_of_histogram_bins: int,
+    metric_sampling_percentage: float | None,
+    metric_sampling_seed: int | None,
     learning_rate: float | Literal["auto"],
     number_of_iterations: int,
     convergence_window_size: int,
@@ -61,8 +66,17 @@ def _validate_register_volume_inputs(
         Transform model name.
     metric : {"correlation", "mattes_mi"}
         Similarity metric name.
+    fixed_intensity_scaling : {"none", "db", "sqrt"} or float
+        Intensity transform applied to `fixed` before optimization.
+    moving_intensity_scaling : {"none", "db", "sqrt"} or float
+        Intensity transform applied to `moving` before optimization.
     number_of_histogram_bins : int
         Number of histogram bins for Mattes mutual information.
+    metric_sampling_percentage : float, optional
+        Random metric sampling percentage in `(0, 1]`. If not provided, all voxels
+        are used without random sampling.
+    metric_sampling_seed : int, optional
+        Random metric sampling seed.
     learning_rate : float or "auto"
         Optimizer step size or `"auto"`.
     number_of_iterations : int
@@ -139,6 +153,9 @@ def _validate_register_volume_inputs(
             f"Invalid metric {metric!r}. Expected one of {sorted(valid_metrics)}."
         )
 
+    validate_intensity_scaling(fixed_intensity_scaling, "fixed_intensity_scaling")
+    validate_intensity_scaling(moving_intensity_scaling, "moving_intensity_scaling")
+
     valid_initializations = {"center_geometry", "center_moments"}
     if (
         initialization is not None
@@ -189,6 +206,31 @@ def _validate_register_volume_inputs(
             f"got {number_of_histogram_bins!r}."
         )
 
+    if metric_sampling_percentage is not None and (
+        not isinstance(metric_sampling_percentage, (int, float))
+        or not np.isfinite(metric_sampling_percentage)
+        or not 0 < metric_sampling_percentage <= 1
+    ):
+        raise ValueError(
+            "metric_sampling_percentage must be a positive finite float no larger "
+            f"than 1; got {metric_sampling_percentage!r}."
+        )
+
+    if metric_sampling_seed is not None and (
+        metric_sampling_percentage is None or metric_sampling_percentage >= 1
+    ):
+        raise ValueError(
+            "metric_sampling_seed requires metric_sampling_percentage below 1."
+        )
+
+    if metric_sampling_seed is not None and (
+        not isinstance(metric_sampling_seed, int) or metric_sampling_seed < 0
+    ):
+        raise ValueError(
+            f"metric_sampling_seed must be a non-negative integer; got "
+            f"{metric_sampling_seed!r}."
+        )
+
     # --- Mask validation ---
     from confusius.validation import ensure_mask
 
@@ -205,6 +247,36 @@ def _validate_register_volume_inputs(
         )
 
     return moving, fixed, fixed_mask, moving_mask
+
+
+def _apply_intensity_scaling(
+    data: xr.DataArray, intensity_scaling: Literal["none", "db", "sqrt"] | float
+) -> xr.DataArray:
+    """Apply optional intensity scaling for optimizer inputs.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Input VoxelData array.
+    intensity_scaling : {"none", "db", "sqrt"} or float
+        Scaling mode to apply. Assumed already validated by
+        `validate_intensity_scaling`. Floats apply power scaling with that
+        exponent.
+
+    Returns
+    -------
+    xarray.DataArray
+        Scaled data for optimization, or `data` unchanged.
+    """
+    if intensity_scaling == "none":
+        return data
+    from confusius.xarray.scale import db_scale, power_scale
+
+    if intensity_scaling == "db":
+        return db_scale(data)
+    if intensity_scaling == "sqrt":
+        return power_scale(data, exponent=0.5)
+    return power_scale(data, exponent=float(intensity_scaling))
 
 
 def _translate_registration_runtime_error(
@@ -266,7 +338,11 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving_mask: xr.DataArray | None = ...,
     transform_type: Literal["translation", "rigid", "affine"],
     metric: Literal["correlation", "mattes_mi"] = ...,
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
+    metric_sampling_percentage: float | None = ...,
+    metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
@@ -301,7 +377,11 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving_mask: xr.DataArray | None = ...,
     transform_type: Literal["bspline"],
     metric: Literal["correlation", "mattes_mi"] = ...,
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
+    metric_sampling_percentage: float | None = ...,
+    metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
@@ -335,7 +415,11 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
     metric: Literal["correlation", "mattes_mi"] = ...,
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
+    metric_sampling_percentage: float | None = ...,
+    metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
@@ -369,7 +453,11 @@ def register_volume(
     moving_mask: xr.DataArray | None = None,
     transform_type: Literal["translation", "rigid", "affine", "bspline"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     number_of_histogram_bins: int = 50,
+    metric_sampling_percentage: float | None = None,
+    metric_sampling_seed: int | None = None,
     learning_rate: float | Literal["auto"] = "auto",
     number_of_iterations: int = 100,
     convergence_minimum_value: float = 1e-6,
@@ -430,9 +518,22 @@ def register_volume(
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
+    fixed_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
+        Intensity transform applied to `fixed` only for the registration optimizer.
+        Floats apply power scaling with that exponent; `"sqrt"` is an alias for `0.5`.
+    moving_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
+        Intensity transform applied to `moving` only for the registration optimizer,
+        with the same options as `fixed_intensity_scaling`. Returned/resampled data
+        keeps the original input intensities.
     number_of_histogram_bins : int, default: 50
         Number of histogram bins used by Mattes mutual information. Only
         relevant when using `"mattes_mi"` metric.
+    metric_sampling_percentage : float, optional
+        Percentage of voxels randomly sampled when computing the metric, in `(0, 1]`.
+        If not provided, all voxels are used without random sampling.
+    metric_sampling_seed : int, optional
+        Seed for random metric sampling. Only used when `metric_sampling_percentage < 1`.
+        If not provided, SimpleITK's default `sitkWallClock` seed is used.
     learning_rate : float or "auto", default: "auto"
         Optimizer step size in normalized units. `"auto"` re-estimates the rate at
         every iteration. A float uses that value directly; if registration diverges or
@@ -569,13 +670,17 @@ def register_volume(
     ValueError
         If `moving` or `fixed` contains NaN values.
     ValueError
-        If `transform_type`, `metric`, `initialization`, or
-        `resample_interpolation` is not a recognised value.
+        If `transform_type`, `metric`, `fixed_intensity_scaling`,
+        `moving_intensity_scaling`, `initialization`, or `resample_interpolation`
+        is not a recognised value.
     ValueError
         If `learning_rate` is not a positive finite float or `"auto"`.
     ValueError
         If `number_of_iterations`, `convergence_window_size`, or
         `number_of_histogram_bins` is not a positive integer.
+    ValueError
+        If `metric_sampling_percentage` is outside `(0, 1]`, or if
+        `metric_sampling_seed` is negative or provided without random sampling.
     ValueError
         If `shrink_factors` and `smoothing_sigmas` have different lengths.
     ValueError
@@ -596,7 +701,11 @@ def register_volume(
         moving_mask=moving_mask,
         transform_type=transform_type,
         metric=metric,
+        fixed_intensity_scaling=fixed_intensity_scaling,
+        moving_intensity_scaling=moving_intensity_scaling,
         number_of_histogram_bins=number_of_histogram_bins,
+        metric_sampling_percentage=metric_sampling_percentage,
+        metric_sampling_seed=metric_sampling_seed,
         learning_rate=learning_rate,
         number_of_iterations=number_of_iterations,
         convergence_window_size=convergence_window_size,
@@ -608,14 +717,20 @@ def register_volume(
 
     fixed_sitk = voxeldata_to_sitk_image(fixed)
     moving_sitk = voxeldata_to_sitk_image(moving)
+    fixed_optimizer_sitk = voxeldata_to_sitk_image(
+        _apply_intensity_scaling(fixed, fixed_intensity_scaling)
+    )
+    moving_optimizer_sitk = voxeldata_to_sitk_image(
+        _apply_intensity_scaling(moving, moving_intensity_scaling)
+    )
 
     # SimpleITK's multi-resolution pyramid and interpolation fail when any spatial
     # dimension is smaller than 4 voxels (common for single-slice fUSI recordings with
     # a 1-voxel depth). We thus expand thin dimensions before registration; the
     # originals are kept as the resample source/reference so the output grid is never
     # affected.
-    fixed_reg = expand_thin_dims(fixed_sitk)
-    moving_reg = expand_thin_dims(moving_sitk)
+    fixed_reg = expand_thin_dims(fixed_optimizer_sitk)
+    moving_reg = expand_thin_dims(moving_optimizer_sitk)
 
     # CenteredTransformInitializer (and the registration method) require both images to
     # have the same pixel type. Cast moving to fixed's type when they differ.
@@ -648,6 +763,15 @@ def register_volume(
         registration.SetMetricAsMattesMutualInformation(
             numberOfHistogramBins=number_of_histogram_bins
         )
+
+    if metric_sampling_percentage is not None and metric_sampling_percentage < 1:
+        registration.SetMetricSamplingStrategy(registration.RANDOM)
+        if metric_sampling_seed is None:
+            registration.SetMetricSamplingPercentage(metric_sampling_percentage)
+        else:
+            registration.SetMetricSamplingPercentage(
+                metric_sampling_percentage, metric_sampling_seed
+            )
 
     registration.SetInterpolator(sitk.sitkLinear)
 

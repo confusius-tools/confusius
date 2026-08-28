@@ -141,28 +141,31 @@ def selected_layer(panel: RegistrationPanel, combo: QComboBox) -> Layer | None:
     return get_layer_by_name(panel, name)
 
 
-def current_scale_mode(panel: RegistrationPanel) -> ScaleMode:
-    """Return the validated registration scale mode from the combo box.
+def current_scale_mode(panel: RegistrationPanel, *, fixed: bool = False) -> ScaleMode:
+    """Return the validated registration scale mode from a combo box.
 
     Parameters
     ----------
     panel : RegistrationPanel
         Registration panel whose scale selector should be read.
+    fixed : bool, default: False
+        Whether to read the fixed-layer selector instead of the moving one.
 
     Returns
     -------
-    {"off", "dB", "sqrt"}
-        Selected registration scale mode.
+    {"none", "db", "sqrt"}
+        Selected registration intensity scaling mode.
 
     Raises
     ------
     ValueError
         If the combo box contains an unexpected value.
     """
-    value = panel._scale_combo.currentData()
-    if value in {"off", "dB", "sqrt"}:
+    combo = panel._fixed_scale_combo if fixed else panel._scale_combo
+    value = combo.currentData()
+    if value in {"none", "db", "sqrt"}:
         return value
-    raise ValueError(f"Unknown registration scale mode: {value!r}.")
+    raise ValueError(f"Unknown registration intensity scaling: {value!r}.")
 
 
 def current_metric(panel: RegistrationPanel) -> MetricName:

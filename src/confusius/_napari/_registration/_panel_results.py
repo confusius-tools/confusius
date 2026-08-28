@@ -12,7 +12,6 @@ from napari.utils.notifications import show_info
 from confusius._napari._registration._panel_progress import teardown_volumewise_progress
 from confusius._napari._registration._panel_transforms import refresh_transform_controls
 from confusius._napari._registration._panel_utils import (
-    _gamma_needs_reset,
     _get_image_display_kwargs_from_layer,
     _get_source_dataarray,
     _prepare_between_scan_data,
@@ -119,8 +118,6 @@ def finalize_registration_layer(
         if source_layer is not None
         else {}
     )
-    if _gamma_needs_reset(payload.get("scale", "off")):
-        display_kwargs["gamma"] = 1.0
     if payload["operation"] == "register_volume":
         display_kwargs["colormap"] = "cyan"
         display_kwargs["blending"] = "additive"
