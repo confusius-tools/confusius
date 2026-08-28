@@ -346,6 +346,54 @@ class TestConsolidatePoses:
         with pytest.raises(ValueError, match="not regularly spaced"):
             consolidate_poses(da)
 
+    def test_small_step_jitter_within_default_tolerance(self) -> None:
+        """A few micrometers of jitter on a 100 um step passes the default tolerance.
+
+        A pure 1% relative tolerance would only allow ~1 um of jitter on a 100 um
+        step -- tighter than real stepper-motor-driven stage repeatability (see
+        #363). The default `atol` (5 um) should dominate here and absorb it.
+        """
+        npose = 3
+        # A single k voxel per pose isolates pose-to-pose spacing from intra-pose
+        # voxel spacing, so only the pose step jitter under test affects regularity.
+        data = np.random.default_rng(17).random((npose, 1, 4, 3))
+        nominal_step = 0.1  # mm, i.e. a typical 100 um fUSI pose step.
+        jitters = [0.0, 0.003, -0.001]  # mm, a few um of positioning jitter.
+        affines = np.stack([np.eye(4) for _ in range(npose)])
+        for i in range(npose):
+            affines[i, :3, 3][0] = i * nominal_step + jitters[i]
+
+        da = create_voxeldata(
+            data,
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
+            voxel_to_world=affines,
+        )
+
+        result = consolidate_poses(da)
+        assert result.sizes["k"] == npose
+
+    def test_gross_irregularity_still_raises_with_default_tolerance(self) -> None:
+        """Spacing deviations well beyond real stage jitter still raise ValueError."""
+        npose = 3
+        data = np.random.default_rng(19).random((npose, 1, 4, 3))
+        # Steps of 0.1 mm and 0.25 mm: a 0.15 mm deviation, far beyond any
+        # realistic stage jitter at this step size.
+        positions = [0.0, 0.1, 0.35]
+        affines = np.stack([np.eye(4) for _ in range(npose)])
+        for i in range(npose):
+            affines[i, :3, 3][0] = positions[i]
+
+        da = create_voxeldata(
+            data,
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
+            voxel_to_world=affines,
+        )
+
+        with pytest.raises(ValueError, match="not regularly spaced"):
+            consolidate_poses(da)
+
     def test_non_1d_sweep_warns(self, scan_3d_2d_sweep_path: Path) -> None:
         """consolidate_poses warns when the sweep has a significant secondary component.
 

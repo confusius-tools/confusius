@@ -171,6 +171,12 @@ Current development version for the next ConfUSIus release.
   with string coordinates (e.g. a recording-id stack dim); such a dimension now
   falls back to scale 1/origin 0 like any other missing world geometry
   ([#409](https://github.com/confusius-tools/confusius/pull/409)).
+- `consolidate_poses`'s regularity check no longer rejects realistic stage jitter
+  on small pose steps (e.g. a 100 um step previously tolerated only ~1 um of
+  jitter under a pure 1% relative tolerance). The check now combines a new `atol`
+  parameter (default: 5 um) with `rtol`, matching typical stepper-motor stage
+  repeatability at small step sizes while keeping `rtol` in control at larger
+  ones ([#363](https://github.com/confusius-tools/confusius/issues/363)).
 
 ## 0.6.1
 
