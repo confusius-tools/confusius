@@ -353,23 +353,13 @@ def _find_bids_sidecars(path: Path) -> list[Path]:
         Matching JSON sidecars ordered by the BIDS inheritance principle.
     """
     parsed = _parse_bids_entities(path)
-    if parsed is None:
-        sidecar_path = path.with_suffix("").with_suffix(".json")
-        return [sidecar_path] if sidecar_path.exists() else []
-
-    root = _find_bids_root(path)
-    if root is None:
+    root = _find_bids_root(path) if parsed is not None else None
+    if parsed is None or root is None:
         sidecar_path = path.with_suffix("").with_suffix(".json")
         return [sidecar_path] if sidecar_path.exists() else []
 
     target_entities, target_suffix = parsed
-    folders = []
-    folder = path.parent
-    while True:
-        folders.append(folder)
-        if folder == root:
-            break
-        folder = folder.parent
+    folders = path.parents[: path.parents.index(root) + 1]
 
     sidecars: list[Path] = []
     for folder in reversed(folders):
