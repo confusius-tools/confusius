@@ -8,6 +8,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
+from confusius.multipose.timing import build_consolidated_time_coordinate
 from confusius.signal import compute_compcor_confounds
 
 
@@ -561,3 +562,43 @@ def test_compute_compcor_explained_variance_ratio():
 
     variance_ratio_all = components_all.coords["explained_variance_ratio"].values
     assert_allclose(variance_ratio_all.sum(), 1.0, rtol=1e-10)
+
+
+def test_compute_compcor_confounds_multipose_pools_poses_and_time_coordinate(
+    sample_voxeldata_3dt_pose,
+):
+    """Test CompCor pools voxels across poses and derives a consolidated `time`.
+
+    `pose` is stacked into `space` like every other spatial dim, so noise/high-variance
+    voxels are selected jointly across poses. The original per-pose `(time, pose)`
+    `time` coordinate would otherwise get silently broadcast to `(time, space)` by
+    that stacking (one timestamp per voxel instead of one per timepoint), so the
+    result must instead carry a `time`-only coordinate rebuilt with the same
+    reference/duration accounting `consolidate_poses` uses.
+    """
+    n_time = sample_voxeldata_3dt_pose.sizes["time"]
+    n_components = 2
+
+    result = compute_compcor_confounds(
+        sample_voxeldata_3dt_pose, variance_threshold=0.5, n_components=n_components
+    )
+
+    assert result.dims == ("time", "component")
+    assert result.coords["time"].dims == ("time",)
+
+    flat_signals = sample_voxeldata_3dt_pose.values.reshape(n_time, -1)
+    variances = flat_signals.var(axis=0)
+    threshold = np.quantile(variances, 0.5)
+    selected_voxels = variances >= threshold
+    _assert_components_match_reference_svd(
+        flat_signals, selected_voxels, result, n_components
+    )
+
+    time_coord = sample_voxeldata_3dt_pose.coords["time"]
+    base_time_coord = xr.DataArray(
+        time_coord.isel(pose=0).values, dims=["time"], attrs=dict(time_coord.attrs)
+    )
+    expected_time = build_consolidated_time_coordinate(
+        base_time_coord, time_coord.values, dict(time_coord.attrs)
+    )
+    assert_allclose(result.coords["time"].values, expected_time.values)

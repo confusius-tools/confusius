@@ -1,4 +1,4 @@
-"""Shared helpers for the multipose module."""
+"""Timing helpers shared across the multipose module and other pose-aware consumers."""
 
 import warnings
 from typing import Any
@@ -20,10 +20,11 @@ def build_consolidated_time_coordinate(
 
     Shared by [consolidate_poses][confusius.multipose.consolidate_poses] (reducing a
     pose-dependent `(time, pose)`-shaped `time` coordinate into a consolidated
-    `slice_time`) and [stack_poses][confusius.multipose.stack_poses] (building a
+    `slice_time`), [stack_poses][confusius.multipose.stack_poses] (building a
     fresh whole-array `time` coordinate from independently loaded poses' own
-    timestamps) -- both need the same reference/duration accounting to turn
-    per-`(time, pose)` timestamps into one whole-stack time value per time point.
+    timestamps), and other pose-aware consumers that need to summarize
+    per-`(time, pose)` timestamps into one whole-array time value per time point
+    (e.g. [compute_compcor_confounds][confusius.signal.compute_compcor_confounds]).
 
     Parameters
     ----------

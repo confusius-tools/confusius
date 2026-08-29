@@ -1,10 +1,10 @@
-"""Tests for shared multipose helpers."""
+"""Tests for multipose timing helpers."""
 
 import numpy as np
 import pytest
 import xarray as xr
 
-from confusius.multipose._utils import build_consolidated_time_coordinate
+from confusius.multipose.timing import build_consolidated_time_coordinate
 
 
 def _time_coord(values, **attrs):

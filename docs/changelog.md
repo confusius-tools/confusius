@@ -176,6 +176,13 @@ Current development version for the next ConfUSIus release.
   signals with pose-dependent `(time, pose)` `time` coordinates; the confounds are
   filtered at the sampling rate shared by all poses
   ([#398](https://github.com/confusius-tools/confusius/pull/398)).
+- [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no longer
+  crashes on signals with pose-dependent `(time, pose)` `time` coordinates; `pose` is
+  pooled into `space` like every other spatial dimension, and the returned confounds
+  carry a consolidated whole-array `time` coordinate built with the same
+  reference/duration accounting as
+  [`consolidate_poses`][confusius.multipose.consolidate_poses]
+  ([#398](https://github.com/confusius-tools/confusius/pull/398)).
 - `plot_volume`/`plot_composite` now default planar VoxelData arrays to their
   singleton world dimension and preserve singleton display axes for explicit
   spatial slicing. `plot_napari`/`fusi.plot.napari` now default singleton spatial
