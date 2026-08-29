@@ -257,6 +257,9 @@ class ConfUSIusWidget(QWidget):
         self._apply_theme()
         self._setup_ui()
         self.viewer.events.theme.connect(self._on_theme_changed)
+        # Napari applies dock-specific sizing after constructing plugin widgets, so
+        # restore our expanding policy once the wrapper exists.
+        QTimer.singleShot(0, self._fix_dock_geometry)
         # Defer the title update so napari has time to fully configure the dock widget
         # (including installing its custom title bar).
         QTimer.singleShot(500, self._fix_dock_title)
@@ -287,6 +290,32 @@ class ConfUSIusWidget(QWidget):
             pass
         self.setStyleSheet(_build_stylesheet(is_dark, napari_bg=napari_bg))
 
+    def _fix_dock_geometry(self) -> None:
+        """Restore the dock's expanding vertical policy.
+
+        Napari 0.9.0 caps plugin dock widgets at their initial size hint. Removing that
+        cap lets the sidebar fill the available dock height instead of clipping the
+        scroll area above an empty bottom band.
+        """
+        try:
+            for dock in self.viewer.window._wrapped_dock_widgets.values():
+                if not dock.isAncestorOf(self):
+                    continue
+                self.setSizePolicy(
+                    QSizePolicy.Policy.MinimumExpanding,
+                    QSizePolicy.Policy.Expanding,
+                )
+                dock.setSizePolicy(
+                    QSizePolicy.Policy.MinimumExpanding,
+                    QSizePolicy.Policy.Expanding,
+                )
+                dock.setMaximumHeight(QWIDGETSIZE_MAX)
+                self.updateGeometry()
+                dock.updateGeometry()
+                return
+        except Exception:  # noqa: BLE001, S110
+            pass
+
     def _fix_dock_title(self) -> None:
         """Update the dock title to show the package version.
 
@@ -295,6 +324,7 @@ class ConfUSIusWidget(QWidget):
         `QDockWidget.setWindowTitle`. We therefore look up our dock in napari's
         internal registry and update the label directly.
         """
+        self._fix_dock_geometry()
         try:
             ver = version("confusius")
         except PackageNotFoundError:

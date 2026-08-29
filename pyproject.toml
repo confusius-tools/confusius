@@ -32,7 +32,7 @@ dependencies = [
     "joblib-progress>=1.0.6",
     "matplotlib>=3.11.0",
     "napari-video>=0.2.13",
-    "napari[all]>=0.7.1",
+    "napari[all]>=0.9.0",
     "nibabel>=5.0.0",
     "numpy>=2.3.4",
     "pooch>=1.9.0",
@@ -43,7 +43,7 @@ dependencies = [
     "scipy>=1.16.3",
     "simpleitk>=2.5.3",
     # On Python 3.14, macOS Intel cannot satisfy both xarray[accel]'s numba
-    # dependency and napari[all]'s numba<=0.62.1 cap, so fall back to plain
+    # dependency and napari[all]'s numba cap, so fall back to plain
     # xarray there and keep accelerated xarray everywhere else.
     "xarray>=2025.1.0; python_version >= '3.14' and sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "xarray[accel]>=2025.1.0; python_version < '3.14' or sys_platform != 'darwin' or platform_machine != 'x86_64'",
@@ -145,10 +145,6 @@ addopts = [
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning:copy",
-    # napari 0.7.x still uses pydantic v1-style `json_encoders`; with
-    # pydantic>=2.12 this raises PydanticDeprecatedSince20 during import.
-    # We treat warnings as errors in tests, so ignore this upstream warning.
-    "ignore:`json_encoders` is deprecated.*:pydantic.warnings.PydanticDeprecatedSince20",
     "ignore:builtin type.*[Ss]wig.*:DeprecationWarning",
     # Under the Agg backend used in tests, RegistrationProgressPlotter correctly
     # warns that no interactive window will appear. Suppress both our own warning
