@@ -189,21 +189,15 @@ def test_numpy_mask_rejects_wrong_length(make_sample_timeseries):
         censor_samples(signals, np.ones(99, dtype=bool))
 
 
-def test_numpy_mask_with_pose_dependent_time_coordinates(rng):
+def test_numpy_mask_with_pose_dependent_time_coordinates(sample_voxeldata_3dt_pose):
     """Test a NumPy sample_mask works when signals carry `(time, pose)` time coords."""
-    times = np.arange(10) / 10.0
-    signals = xr.DataArray(
-        rng.standard_normal((10, 2, 3)),
-        dims=["time", "pose", "space"],
-        coords={"time": (("time", "pose"), np.stack([times, times + 0.05], axis=1))},
-    )
-    mask = np.ones(10, dtype=bool)
+    mask = np.ones(sample_voxeldata_3dt_pose.sizes["time"], dtype=bool)
     mask[[2, 5]] = False
 
     with pytest.warns(UserWarning, match="pose-dependent, so none are attached"):
-        result = censor_samples(signals, mask)
+        result = censor_samples(sample_voxeldata_3dt_pose, mask)
 
-    assert_allclose(result.values, signals.values[mask])
+    assert_allclose(result.values, sample_voxeldata_3dt_pose.values[mask])
 
 
 def test_interpolate_rejects_mask_without_time_dimension(make_sample_timeseries):

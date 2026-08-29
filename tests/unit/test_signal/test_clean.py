@@ -701,29 +701,36 @@ def test_clean_dataframe_confounds_match_dataarray_confounds(
     xr.testing.assert_allclose(result, expected)
 
 
-def test_clean_multipose_numpy_confounds_with_butterworth_matches_per_pose(rng):
+def test_clean_multipose_numpy_confounds_with_butterworth_matches_per_pose(
+    rng, sample_voxeldata_3dt_pose
+):
     """Test `pose` is just another dimension: NumPy confounds are filtered and
     regressed for every pose exactly as when cleaning each pose separately."""
-    times = np.arange(64) / 4.0
-    signals = xr.DataArray(
-        rng.standard_normal((64, 2, 3)),
-        dims=["time", "pose", "space"],
-        coords={"time": (("time", "pose"), np.stack([times, times + 0.1], axis=1))},
-    )
-    confounds = rng.standard_normal((64, 2))
+    confounds = rng.standard_normal((sample_voxeldata_3dt_pose.sizes["time"], 2))
+    # order=1 to stay within the fixture's 10 timepoints (sosfiltfilt requires
+    # more samples than its padlen, which grows with order); cutoffs kept below
+    # the fixture's 1 Hz Nyquist frequency (dt=0.5s). clean() mutates filter_kwargs
+    # in place, so each call gets its own dict.
 
     with pytest.warns(UserWarning) as record:
-        result = clean(signals, confounds=confounds, low_cutoff=0.1, high_cutoff=1.0)
+        result = clean(
+            sample_voxeldata_3dt_pose,
+            confounds=confounds,
+            low_cutoff=0.05,
+            high_cutoff=0.3,
+            filter_kwargs={"order": 1},
+        )
     messages = [str(warning.message) for warning in record]
     assert any("pose-dependent, so none are attached" in message for message in messages)
     assert any("regressed from every pose" in message for message in messages)
 
-    for pose in range(2):
+    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
         with pytest.warns(UserWarning, match="cannot be verified"):
             expected = clean(
-                signals.isel(pose=pose),
+                sample_voxeldata_3dt_pose.sel(pose=pose),
                 confounds=confounds,
-                low_cutoff=0.1,
-                high_cutoff=1.0,
+                low_cutoff=0.05,
+                high_cutoff=0.3,
+                filter_kwargs={"order": 1},
             )
-        xr.testing.assert_allclose(result.isel(pose=pose), expected)
+        xr.testing.assert_allclose(result.sel(pose=pose), expected)

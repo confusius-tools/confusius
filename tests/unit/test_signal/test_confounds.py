@@ -299,26 +299,24 @@ def test_regress_confounds_dataframe_bool_column_is_spike_regressor(
     xr.testing.assert_allclose(regress_confounds(signals, frame), expected)
 
 
-def test_regress_confounds_multipose_regresses_every_pose_with_same_confounds(rng):
+def test_regress_confounds_multipose_regresses_every_pose_with_same_confounds(
+    rng, sample_voxeldata_3dt_pose
+):
     """Test `pose` is just another dimension: the joint result matches per-pose runs."""
-    times = np.arange(20) / 10.0
-    signals = xr.DataArray(
-        rng.standard_normal((20, 2, 3)),
-        dims=["time", "pose", "space"],
-        coords={"time": (("time", "pose"), np.stack([times, times + 0.05], axis=1))},
-    )
-    confounds = rng.standard_normal((20, 2))
+    confounds = rng.standard_normal((sample_voxeldata_3dt_pose.sizes["time"], 2))
 
     with pytest.warns(UserWarning) as record:
-        result = regress_confounds(signals, confounds)
+        result = regress_confounds(sample_voxeldata_3dt_pose, confounds)
     messages = [str(warning.message) for warning in record]
     assert any("regressed from every pose" in message for message in messages)
     assert any("pose-dependent, so none are attached" in message for message in messages)
 
-    for pose in range(2):
+    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
         with pytest.warns(UserWarning, match="cannot be verified"):
-            expected = regress_confounds(signals.isel(pose=pose), confounds)
-        xr.testing.assert_allclose(result.isel(pose=pose), expected)
+            expected = regress_confounds(
+                sample_voxeldata_3dt_pose.sel(pose=pose), confounds
+            )
+        xr.testing.assert_allclose(result.sel(pose=pose), expected)
 
 
 def test_regress_confounds_dataarray_without_time_coordinates_warns(
