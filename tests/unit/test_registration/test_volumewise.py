@@ -3,6 +3,7 @@
 from threading import Event
 
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
@@ -11,6 +12,35 @@ from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volumewise import register_volumewise
 from confusius.validation import ensure_voxeldata
 from confusius.xarray import create_voxeldata
+
+SHIFT_X, SHIFT_Y = 2, 3
+"""Voxel shift applied to frame 1 of the synthetic shifted-frame recording."""
+
+
+def _create_shifted_frames_data(volume: xr.DataArray) -> xr.DataArray:
+    """Stack three copies of `volume` in time, rolling frame 1 by a known shift.
+
+    Parameters
+    ----------
+    volume : xarray.DataArray
+        Singleton-k VoxelData volume to replicate.
+
+    Returns
+    -------
+    xarray.DataArray
+        `(3, 1, J, I)` VoxelData recording with unit spacing whose frame 1 is
+        translated by `(SHIFT_Y, SHIFT_X)` voxels relative to frames 0 and 2.
+    """
+    frames = [volume.values.copy() for _ in range(3)]
+    frames[1] = np.roll(np.roll(frames[1], SHIFT_Y, axis=1), SHIFT_X, axis=2)
+    return create_voxeldata(
+        np.stack(frames, axis=0),
+        dims=("time", "k", "j", "i"),
+        time=np.arange(3) * 0.1,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        volume_acquisition_duration=0.1,
+    )
 
 
 class _FakeVolumewiseProgressReporter:
@@ -94,7 +124,9 @@ class TestRegisterVolumewise:
         result = register_volumewise(scan_2d, n_jobs=1, transform="translation")
         assert result.shape == scan_2d.shape
 
-    def test_non_h5py_dask_backed_does_not_raise(self, sample_voxeldata_2dt_registration):
+    def test_non_h5py_dask_backed_does_not_raise(
+        self, sample_voxeldata_2dt_registration
+    ):
         """Dask-backed (non-h5py) DataArray with n_jobs != 1 does not raise TypeError."""
         import dask.array as da
 
@@ -135,7 +167,9 @@ class TestRegisterVolumewise:
 
         assert result.shape == sample_voxeldata_2dt_registration.shape
 
-    def test_abort_event_returns_partial_dataset(self, sample_voxeldata_2dt_registration):
+    def test_abort_event_returns_partial_dataset(
+        self, sample_voxeldata_2dt_registration
+    ):
         """A pre-set abort event returns an aborted partial dataset."""
         abort_event = Event()
         abort_event.set()
@@ -286,34 +320,24 @@ class TestRegisterVolumewise:
 
     def test_2d_recovers_known_shift(self, sample_voxeldata_2d_registration):
         """Registration of a singleton-k volume recovers a known translation."""
-        # Create data with a shifted frame.
-        n_frames = 3
-        shift_x, shift_y = 2, 3
-
-        frames = [sample_voxeldata_2d_registration.values.copy() for _ in range(n_frames)]
-        # Shift frame 1 by rolling (simulates translation).
-        frames[1] = np.roll(np.roll(frames[1], shift_y, axis=1), shift_x, axis=2)
-
-        data = create_voxeldata(
-            np.stack(frames, axis=0),
-            dims=("time", "k", "j", "i"),
-            time=np.arange(n_frames) * 0.1,
-            spacing=(1.0, 1.0, 1.0),
-            origin=(0.0, 0.0, 0.0),
-            volume_acquisition_duration=0.1,
-        )
+        data = _create_shifted_frames_data(sample_voxeldata_2d_registration)
 
         result = register_volumewise(
-            data, reference_time=0, n_jobs=1, transform="translation"
+            data,
+            reference_time=0,
+            n_jobs=1,
+            transform="translation",
+            learning_rate=1.0,
+            show_progress=False,
         )
 
-        # Check motion parameters recovered the shift.
         motion_df = result.attrs["motion_params"]
-        # Frame 1 should have approximately the opposite translation.
-        assert abs(motion_df.loc[motion_df.index[1], "trans_x"]) < shift_x + 1
-        assert abs(motion_df.loc[motion_df.index[1], "trans_y"]) < shift_y + 1
+        assert motion_df.iloc[1]["trans_x"] == pytest.approx(SHIFT_X, abs=0.1)
+        assert motion_df.iloc[1]["trans_y"] == pytest.approx(SHIFT_Y, abs=0.1)
 
-    def test_output_has_motion_metadata_attributes(self, sample_voxeldata_2dt_registration):
+    def test_output_has_motion_metadata_attributes(
+        self, sample_voxeldata_2dt_registration
+    ):
         """Output has motion metadata attributes."""
         result = register_volumewise(
             sample_voxeldata_2dt_registration, reference_time=2, n_jobs=1
@@ -355,6 +379,123 @@ class TestRegisterVolumewise:
 
         assert result.attrs["reference_time"] == 2
 
+    def test_fixed_frame_matches_reference_time(self, sample_voxeldata_2d_registration):
+        """Passing a frame of `data` as `fixed` matches `reference_time` on that frame."""
+        data = _create_shifted_frames_data(sample_voxeldata_2d_registration)
+
+        by_index = register_volumewise(
+            data,
+            reference_time=2,
+            n_jobs=1,
+            transform="translation",
+            learning_rate=1.0,
+            show_progress=False,
+        )
+        by_volume = register_volumewise(
+            data,
+            fixed=data.isel(time=2),
+            n_jobs=1,
+            transform="translation",
+            learning_rate=1.0,
+            show_progress=False,
+        )
+
+        assert_allclose(by_volume.values, by_index.values)
+        pd.testing.assert_frame_equal(
+            by_volume.attrs["motion_params"], by_index.attrs["motion_params"]
+        )
+        assert by_index.attrs["reference_time"] == 2
+        assert by_volume.attrs["reference_time"] is None
+
+    def test_custom_fixed_volume_recovers_known_shift(
+        self, sample_voxeldata_2d_registration
+    ):
+        """A custom `fixed` volume (not a frame index) is the registration target."""
+        data = _create_shifted_frames_data(sample_voxeldata_2d_registration)
+        fixed = data.mean("time")
+
+        result = register_volumewise(
+            data,
+            fixed=fixed,
+            n_jobs=1,
+            transform="translation",
+            learning_rate=1.0,
+            show_progress=False,
+        )
+
+        ensure_voxeldata(result)
+        assert result.dims == data.dims
+        assert_allclose(result.coords["time"].values, data.coords["time"].values)
+        assert result.attrs["reference_time"] is None
+
+        # The target blends the shifted and unshifted squares, so frame 1 is
+        # pulled most of the way back rather than exactly by the shift.
+        motion_df = result.attrs["motion_params"]
+        assert motion_df.iloc[1]["trans_x"] > SHIFT_X / 2
+        assert motion_df.iloc[1]["trans_y"] > SHIFT_Y / 2
+
+        # The shifted frame must end up closer to `fixed` than it started.
+        def _corr_with_fixed(frame):
+            return np.corrcoef(frame.ravel(), fixed.values.ravel())[0, 1]
+
+        assert _corr_with_fixed(result.values[1]) > _corr_with_fixed(data.values[1])
+
+    def test_h5py_backed_fixed_works_with_parallel_jobs(self, scan_2d):
+        """A lazily loaded h5py-backed `fixed` works with joblib workers."""
+        result = register_volumewise(
+            scan_2d.compute(),
+            fixed=scan_2d.isel(time=0),
+            n_jobs=2,
+            transform="translation",
+            show_progress=False,
+        )
+
+        assert result.attrs["reference_time"] is None
+        assert set(result.attrs["motion_params"]["status"]) == {"completed"}
+
+    def test_fixed_and_reference_time_raises(self, sample_voxeldata_2dt_registration):
+        """Passing both `reference_time` and `fixed` raises ValueError."""
+        data = sample_voxeldata_2dt_registration
+        with pytest.raises(ValueError, match="not both"):
+            register_volumewise(data, reference_time=0, fixed=data.isel(time=0))
+
+    def test_fixed_with_time_dimension_raises(self, sample_voxeldata_2dt_registration):
+        """A `fixed` volume that still has a `time` dimension raises ValueError."""
+        data = sample_voxeldata_2dt_registration
+        with pytest.raises(ValueError, match="time dimension"):
+            register_volumewise(data, fixed=data.isel(time=slice(0, 2)))
+
+    @pytest.mark.parametrize("mismatch", ["spacing", "shape"])
+    def test_fixed_on_different_grid_raises(
+        self,
+        sample_voxeldata_2d_registration,
+        sample_voxeldata_2dt_registration,
+        mismatch,
+    ):
+        """A `fixed` volume on another voxel grid raises ValueError."""
+        if mismatch == "spacing":
+            fixed = create_voxeldata(
+                sample_voxeldata_2d_registration.values,
+                dims=("k", "j", "i"),
+                spacing=(1.0, 0.2, 0.1),
+                origin=(0.0, 0.0, 0.0),
+            )
+        else:
+            fixed = sample_voxeldata_2d_registration.isel(j=slice(0, 16))
+
+        with pytest.raises(ValueError, match="voxel grid"):
+            register_volumewise(sample_voxeldata_2dt_registration, fixed=fixed)
+
+    def test_fixed_non_voxeldata_raises(
+        self, sample_voxeldata_2d_registration, sample_voxeldata_2dt_registration
+    ):
+        """A plain DataArray without VoxelData geometry as `fixed` raises ValueError."""
+        fixed = xr.DataArray(
+            sample_voxeldata_2d_registration.values, dims=("k", "j", "i")
+        )
+        with pytest.raises(ValueError, match="VoxelToWorldIndex|native voxel"):
+            register_volumewise(sample_voxeldata_2dt_registration, fixed=fixed)
+
     def test_transform_option(self, sample_voxeldata_2dt_registration):
         """transform parameter changes registration behavior."""
         # Both should work without error.
@@ -373,7 +514,9 @@ class TestRegisterVolumewise:
         """Singleton spatial dimensions are handled correctly."""
         # Create data with a singleton k dimension (2D slice in 3D array).
         data = create_voxeldata(
-            sample_voxeldata_2d_registration.values[np.newaxis, :, :, :].repeat(3, axis=0),
+            sample_voxeldata_2d_registration.values[np.newaxis, :, :, :].repeat(
+                3, axis=0
+            ),
             dims=("time", "k", "j", "i"),
             time=np.arange(3) * 0.1,
             spacing=(0.2, 0.1, 0.1),
@@ -390,7 +533,9 @@ class TestRegisterVolumewise:
         # Identical frames should produce nearly identical output.
         assert_allclose(result.values, data.values, atol=1e-3)
 
-    def test_output_dimension_order_matches_input(self, sample_voxeldata_2d_registration):
+    def test_output_dimension_order_matches_input(
+        self, sample_voxeldata_2d_registration
+    ):
         """Output dimension order matches input regardless of internal transposition."""
         # Create data with non-standard dimension order.
         data = create_voxeldata(
@@ -418,9 +563,13 @@ class TestRegisterVolumewise:
         )
         assert result.shape == sample_voxeldata_3dt_registration.shape
         # Identical frames should produce nearly identical output.
-        assert_allclose(result.values, sample_voxeldata_3dt_registration.values, atol=1e-3)
+        assert_allclose(
+            result.values, sample_voxeldata_3dt_registration.values, atol=1e-3
+        )
 
-    def test_keep_diagnostics_toggles_full_trace(self, sample_voxeldata_2dt_registration):
+    def test_keep_diagnostics_toggles_full_trace(
+        self, sample_voxeldata_2dt_registration
+    ):
         """`keep_diagnostics` gates only the full diagnostics list.
 
         The cheap per-frame summaries (`final_metric_value`, `n_iterations`)

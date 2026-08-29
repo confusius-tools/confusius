@@ -211,7 +211,8 @@ class FUSIRegistrationAccessor:
     def volumewise(
         self,
         *,
-        reference_time: int = 0,
+        reference_time: int | None = None,
+        fixed: xr.DataArray | None = None,
         n_jobs: int = -1,
         transform: Literal["translation", "rigid", "affine"] = "rigid",
         metric: Literal["correlation", "mattes_mi"] = "correlation",
@@ -233,12 +234,19 @@ class FUSIRegistrationAccessor:
         abort_event: Event | None = None,
         keep_diagnostics: bool = False,
     ) -> xr.DataArray:
-        """Register all volumes to a reference time point.
+        """Register all volumes to a reference volume.
 
         Parameters
         ----------
-        reference_time : int, default: 0
-            Index of the time point to use as registration target.
+        reference_time : int, optional
+            Index of the time point to use as registration target. If not
+            provided, and `fixed` is not provided either, the first time point
+            (`0`) is used. Cannot be combined with `fixed`.
+        fixed : xarray.DataArray, optional
+            Spatial-only VoxelData array on the same voxel grid to register every
+            frame to, for example the mean of a few low-motion frames. Must have
+            no `time` dimension. If not provided, the frame at `reference_time`
+            is used. Cannot be combined with `reference_time`.
         n_jobs : int, default: -1
             Number of parallel jobs. -1 uses all available CPUs.
             Use 1 for serial processing.
@@ -310,10 +318,13 @@ class FUSIRegistrationAccessor:
         --------
         >>> data.fusi.register.volumewise(reference_time=0)
         >>> data.fusi.register.volumewise(reference_time=0, transform="translation")
+        >>> fixed = data.isel(time=slice(0, 10)).mean("time")
+        >>> data.fusi.register.volumewise(fixed=fixed)
         """
         return register_volumewise(
             self._obj,
             reference_time=reference_time,
+            fixed=fixed,
             n_jobs=n_jobs,
             transform=transform,
             metric=metric,

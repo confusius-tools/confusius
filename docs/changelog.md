@@ -196,6 +196,10 @@ Released 2026-08-31.
   for matching JSON sidecars, so shared metadata stored at the dataset root or parent
   folders is preserved when loading recordings
   ([#359](https://github.com/confusius-tools/confusius/pull/359)).
+- [`register_volumewise`][confusius.registration.register_volumewise] and
+  `data.fusi.register.volumewise` accept a `fixed` VoxelData volume (for example the
+  mean of a few low-motion frames) to register every frame to, as an alternative to
+  `reference_time` ([#376](https://github.com/confusius-tools/confusius/issues/376)).
 
 ### :zap: Performance
 

@@ -14,6 +14,7 @@ from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
 from confusius.validation import ensure_voxeldata
+from confusius.validation.mask import check_spatial_alignment
 
 if TYPE_CHECKING:
     from threading import Event
@@ -24,7 +25,8 @@ if TYPE_CHECKING:
 def register_volumewise(
     data: xr.DataArray,
     *,
-    reference_time: int = 0,
+    reference_time: int | None = None,
+    fixed: xr.DataArray | None = None,
     n_jobs: int = -1,
     transform: Literal["translation", "rigid", "affine"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
@@ -53,8 +55,17 @@ def register_volumewise(
     ----------
     data : xarray.DataArray
         VoxelData array with a `time` dimension to register.
-    reference_time : int, default: 0
-        Index of the time point to use as registration target.
+    reference_time : int, optional
+        Index of the time point of `data` to use as registration target. If not
+        provided, and `fixed` is not provided either, the first time point (`0`)
+        is used. Cannot be combined with `fixed`.
+    fixed : xarray.DataArray, optional
+        Spatial-only VoxelData array to register every frame to, for example the
+        mean of a few low-motion frames of `data`. Must share `data`'s voxel grid
+        (same `k`/`j`/`i` coordinates and voxel-to-world affine) and have no
+        `time` dimension. `intensity_scaling` is applied to it as to any reference
+        frame. If not provided, the frame at `reference_time` is used. Cannot be
+        combined with `reference_time`.
     n_jobs : int, default: -1
         Number of parallel jobs. Negative values resolve to `max(1, os.cpu_count() + 1
         + n_jobs)`, so `-1` means all CPUs, `-2` means all minus one, and so on.
@@ -153,7 +164,8 @@ def register_volumewise(
     -------
     xarray.DataArray
         Registered data with the same coordinates as input, input attributes,
-        and added motion metadata in `attrs["reference_time"]` and
+        and added motion metadata in `attrs["reference_time"]` (the index of the
+        frame used as target, or `None` when `fixed` was given) and
         `attrs["motion_params"]`. `motion_params` always carries per-frame
         `final_metric_value`, `n_iterations`, and `status` columns. When
         `keep_diagnostics=True`, `attrs["registration_diagnostics"]` also
@@ -163,6 +175,10 @@ def register_volumewise(
 
     Raises
     ------
+    ValueError
+        If both `reference_time` and `fixed` are given, or if `fixed` has a `time`
+        dimension, is not a VoxelData array, or does not share `data`'s voxel
+        grid.
     TypeError
         If `n_jobs != 1` and `data` is backed by an h5py dataset. See Notes.
 
@@ -187,6 +203,9 @@ def register_volumewise(
     if "time" not in data.dims:
         raise ValueError("Time dimension 'time' not found in data")
 
+    if reference_time is not None and fixed is not None:
+        raise ValueError("Pass either 'reference_time' or 'fixed', not both.")
+
     validate_intensity_scaling(intensity_scaling, "intensity_scaling")
 
     if n_jobs != 1 and is_h5py_backed(data):
@@ -205,7 +224,25 @@ def register_volumewise(
     )
 
     n_frames = data_moved.sizes["time"]
-    ref_da = data_moved.isel(time=reference_time)
+    if fixed is None:
+        reference_time = 0 if reference_time is None else reference_time
+        ref_da = data_moved.isel(time=reference_time)
+    else:
+        if "time" in fixed.dims:
+            raise ValueError(
+                "'fixed' must be a spatial-only VoxelData array without a time "
+                f"dimension; got dims {fixed.dims}."
+            )
+        ref_da = ensure_voxeldata(
+            fixed, require_time=False, allow_pose=False, allow_extra_dims=False
+        )
+        # Output reuses `data`'s shape and coordinates, so the target must live on
+        # the same voxel grid.
+        check_spatial_alignment(ref_da, data_moved, "'fixed'")
+    # Materialize the target once: a lazy `fixed` (for example a dask mean of a
+    # lazily loaded recording) would otherwise be recomputed for every frame, and
+    # an h5py-backed one cannot be sent to joblib workers at all.
+    ref_da = ref_da.compute()
 
     progress_context = nullcontext()
     if show_progress:
@@ -250,8 +287,8 @@ def register_volumewise(
             ref_da,
             transform_type=transform,
             metric=metric,
-            # The reference is a frame of the same recording, so one scaling
-            # applies to both sides.
+            # The reference is a frame of the same recording, or a user-provided
+            # volume of the same modality, so one scaling applies to both sides.
             fixed_intensity_scaling=intensity_scaling,
             moving_intensity_scaling=intensity_scaling,
             number_of_histogram_bins=number_of_histogram_bins,
@@ -336,7 +373,7 @@ def register_volumewise(
     result.attrs["motion_params"] = motion_df
     if keep_diagnostics:
         # The full diagnostics list carries every frame's optimizer metric
-        # trace, which adds up over long recordings — gated behind the flag.
+        # trace, which adds up over long recordings, so it is gated behind the flag.
         result.attrs["registration_diagnostics"] = list(diagnostics)
 
     return result.transpose(*data.dims)
