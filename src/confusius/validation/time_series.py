@@ -78,10 +78,8 @@ def validate_unchunked_time(data: xr.DataArray, operation_name: str) -> None:
 def validate_sorted_time(data: xr.DataArray, operation_name: str) -> None:
     """Validate that `time` coordinates are strictly increasing.
 
-    For a pose-dependent `(time, pose)`-shaped `time` coordinate, checks the whole
-    per-`(time, pose)` acquisition sequence -- poses are swept sequentially within
-    each `time` repetition (`time` major, `pose` minor) -- not just each pose's own
-    column.
+    For a pose-dependent `(time, pose)`-shaped `time` coordinate, checks each pose's
+    own timestamps along the `time` axis, not across poses.
 
     Parameters
     ----------
@@ -95,8 +93,9 @@ def validate_sorted_time(data: xr.DataArray, operation_name: str) -> None:
     ValueError
         If `time` coordinates are not strictly increasing.
     """
-    time_coord = data.coords[TIME_DIM].transpose(TIME_DIM, ...)
-    if np.any(np.diff(time_coord.values.ravel()) <= 0):
+    time_coord = data.coords[TIME_DIM]
+    time_axis = time_coord.dims.index(TIME_DIM)
+    if np.any(np.diff(time_coord.values, axis=time_axis) <= 0):
         raise ValueError(
             f"time coordinates must be strictly increasing for {operation_name}."
         )
