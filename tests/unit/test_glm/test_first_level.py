@@ -715,3 +715,93 @@ def test_invalid_noise_models_raise_from_fit(noise_model, fusi_data, events):
 
     with pytest.raises(ValueError, match="noise_model|AR order"):
         model.fit(fusi_data, events=events)
+
+
+# -----------------------------------------------------------------------------
+# FirstLevelModel: parallel fitting
+# -----------------------------------------------------------------------------
+
+
+class TestParallelFit:
+    """Tests for fitting runs in parallel with `n_jobs`."""
+
+    @pytest.fixture
+    def two_runs(self, rng, frame_times, make_glm_test_dataarray):
+        """Two small `(time, k, j, i)` runs with independent noise."""
+        return [
+            make_glm_test_dataarray(
+                rng.standard_normal((200, 2, 3, 4)),
+                ("time", "k", "j", "i"),
+                time=frame_times,
+            )
+            for _ in range(2)
+        ]
+
+    def _fit_contrast_maps(self, runs, events, **model_kwargs):
+        """Fit `runs` and return per-run `theta` plus `A - B` contrast maps.
+
+        The fixed-effects combination is symmetric across runs, so contrast maps
+        cannot detect swapped run order; `theta` pins it.
+        """
+        model = FirstLevelModel(**model_kwargs)
+        model.fit(runs, events=[events] * len(runs))
+        assert len(model.results_) == len(runs)
+        maps = {
+            output_type: model.compute_contrast("A - B", output_type=output_type).values
+            for output_type in ("effect", "variance", "zscore")
+        }
+        maps["theta"] = np.stack([results.theta for results in model.results_])
+        return maps
+
+    @pytest.mark.parametrize("noise_model", ["ols", "ar1"])
+    @pytest.mark.parametrize("minimize_memory", [True, False])
+    def test_parallel_matches_sequential(
+        self, two_runs, events, noise_model, minimize_memory
+    ):
+        """n_jobs=2 yields the same contrast maps as n_jobs=1."""
+        sequential = self._fit_contrast_maps(
+            two_runs,
+            events,
+            noise_model=noise_model,
+            minimize_memory=minimize_memory,
+            n_jobs=1,
+        )
+        parallel = self._fit_contrast_maps(
+            two_runs,
+            events,
+            noise_model=noise_model,
+            minimize_memory=minimize_memory,
+            n_jobs=2,
+        )
+        for output_type, expected in sequential.items():
+            assert_allclose(parallel[output_type], expected)
+
+    def test_all_cpus_matches_sequential(self, two_runs, events):
+        """n_jobs=-1 resolves to all CPUs and matches n_jobs=1."""
+        sequential = self._fit_contrast_maps(
+            two_runs, events, noise_model="ols", n_jobs=1
+        )
+        parallel = self._fit_contrast_maps(
+            two_runs, events, noise_model="ols", n_jobs=-1
+        )
+        for output_type, expected in sequential.items():
+            assert_allclose(parallel[output_type], expected)
+
+    def test_zero_jobs_raises(self, two_runs, events):
+        """n_jobs=0 has no meaning and is rejected by joblib."""
+        model = FirstLevelModel(noise_model="ols", n_jobs=0)
+        with pytest.raises(ValueError, match="n_jobs"):
+            model.fit(two_runs, events=[events, events])
+
+    def test_h5py_backed_raises_with_parallel_jobs(self, scan_2d):
+        """An h5py-backed run (from a .scan file) raises TypeError when n_jobs != 1."""
+        design = pd.DataFrame({"c": np.ones(scan_2d.sizes["time"])})
+        model = FirstLevelModel(noise_model="ols", n_jobs=2)
+        with pytest.raises(TypeError, match="h5py dataset"):
+            model.fit(scan_2d, design_matrices=design)
+
+    def test_parallel_keeps_heavy_fields(self, two_runs, events):
+        """Results fitted in a worker come back with their diagnostic fields intact."""
+        model = FirstLevelModel(noise_model="ols", minimize_memory=False, n_jobs=2)
+        model.fit(two_runs, events=[events, events])
+        assert np.all(np.isfinite(model.results_[0].residuals))

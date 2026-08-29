@@ -33,3 +33,13 @@ icon: lucide/square-function
     - [`claron2021_hrf`][confusius.glm.claron2021_hrf]: Rodent spinal cord fUSI HRF preset (Claron et al., 2021).
 
     Please refer to the [API Reference](../api/glm.md) for more information.
+
+!!! tip "Parallel multi-run fits"
+    Multi-run fits can be parallelized over runs with the `n_jobs` parameter of
+    [`FirstLevelModel`][confusius.glm.FirstLevelModel], e.g.
+    `FirstLevelModel(n_jobs=-1)` to use all CPUs.
+    Each run is sent to a joblib worker process, so lazy h5py-backed data (e.g.
+    straight from `load_scan`) must be materialized with `.compute()` first. joblib
+    caps each worker's BLAS thread pool automatically, so the workers do not
+    oversubscribe the CPU (unless you set `OMP_NUM_THREADS`-style variables
+    yourself).
