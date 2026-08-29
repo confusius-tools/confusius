@@ -191,12 +191,6 @@ Current development version for the next ConfUSIus release.
   with string coordinates (e.g. a recording-id stack dim); such a dimension now
   falls back to scale 1/origin 0 like any other missing world geometry
   ([#409](https://github.com/confusius-tools/confusius/pull/409)).
-- `Atlas.get_mesh`/`get_atlas_mesh` no longer errors on a freshly fetched atlas
-  whose region meshes have not yet been downloaded. `brainglobe-atlasapi` v3
-  fetches meshes lazily from its remote store on first access instead of
-  bundling them with the atlas download, so a mesh file not yet existing on
-  disk no longer means it is unavailable
-  ([#412](https://github.com/confusius-tools/confusius/pull/412)).
 
 ### :wrench: Maintenance
 
