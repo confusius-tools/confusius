@@ -574,6 +574,45 @@ class TestIO:
         np.testing.assert_allclose(vertices, atlas_ds.atlas.get_mesh(997)[0], atol=1e-4)
         assert len(faces) == 2
 
+    def test_undownloaded_mesh_keeps_original_path_after_roundtrip(
+        self, atlas_ds: xr.Dataset, structure_list: list[dict], tmp_path
+    ) -> None:
+        """A mesh never downloaded before save is not bundled, but its path survives.
+
+        BrainGlobe fetches meshes lazily; a region whose mesh was never accessed has no
+        file to bundle. save_atlas must leave its mesh_filename untouched (rather than
+        rewriting it to a basename with no file behind it), so load_atlas can still point
+        get_mesh at the original BrainGlobe-cache location.
+        """
+        never_downloaded = tmp_path / "never_downloaded" / "997"
+        records = [dict(record) for record in structure_list]
+        for record in records:
+            if record["id"] == 997:
+                record["mesh_filename"] = str(never_downloaded)
+        ds = atlas_ds.copy()
+        ds.attrs = {**atlas_ds.attrs, "structures": StructuresDict(records)}
+
+        path = tmp_path / "atlas.zarr"
+        save_atlas(ds, path)
+        assert not (path / "meshes" / "997").exists()
+
+        loaded = load_atlas(path)
+        assert loaded.attrs["structures"][997]["mesh_filename"] == never_downloaded
+
+    def test_get_mesh_wraps_brainglobe_error(
+        self, atlas_ds: xr.Dataset, structure_list: list[dict], tmp_path
+    ) -> None:
+        """A mesh that cannot be found locally or remotely raises a friendly RuntimeError."""
+        records = [dict(record) for record in structure_list]
+        for record in records:
+            if record["id"] == 997:
+                record["mesh_filename"] = tmp_path / "missing" / "997"
+        ds = atlas_ds.copy()
+        ds.attrs = {**atlas_ds.attrs, "structures": StructuresDict(records)}
+
+        with pytest.raises(RuntimeError, match="save_atlas"):
+            ds.atlas.get_mesh(997)
+
 
 class TestNonlinearMesh:
     """Nonlinear (displacement-field / B-spline) mesh resampling on the accessor.

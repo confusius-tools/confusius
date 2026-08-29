@@ -137,11 +137,12 @@ def _check_zarr_suffix(path: Path) -> None:
 
 
 def _plan_mesh_bundle(structures_blob: str) -> tuple[str, dict[str, Path]]:
-    """Basename each `mesh_filename` and list the mesh files that must be copied.
+    """Basename each downloaded `mesh_filename` and list the mesh files to copy.
 
-    Pure planning step: does not touch the filesystem, so the caller can write the Zarr
-    store first (the store directory must not already exist) and copy the meshes into it
-    afterwards.
+    An undownloaded mesh (BrainGlobe fetches meshes lazily) keeps its original
+    BrainGlobe-cache path, so `load_atlas` can still resolve it later. Pure planning
+    step: does not touch the filesystem, so the caller can write the Zarr store first
+    (the store directory must not already exist) and copy the meshes afterwards.
 
     Parameters
     ----------
@@ -152,8 +153,9 @@ def _plan_mesh_bundle(structures_blob: str) -> tuple[str, dict[str, Path]]:
     Returns
     -------
     blob : str
-        A new serialized structures list whose non-null `mesh_filename` entries are bare
-        basenames.
+        A new serialized structures list whose downloaded `mesh_filename` entries are
+        bare basenames; entries for meshes not yet downloaded are left as their original
+        path.
     to_copy : dict[str, pathlib.Path]
         Mapping from basename to source path for every referenced mesh file that exists on
         disk (missing sources are skipped).
@@ -165,35 +167,39 @@ def _plan_mesh_bundle(structures_blob: str) -> tuple[str, dict[str, Path]]:
         if mesh_filename is None:
             continue
         source = Path(mesh_filename)
-        record["mesh_filename"] = source.name
         if source.is_file():
+            record["mesh_filename"] = source.name
             to_copy[source.name] = source
     return json.dumps(structures), to_copy
 
 
 def _rebase_meshes(structures_blob: str, meshes_dir: Path) -> str:
-    """Re-point each non-null `mesh_filename` basename into `meshes_dir`.
+    """Re-point each bundled `mesh_filename` basename into `meshes_dir`.
+
+    An entry missing from `meshes_dir` was never bundled and is left untouched, still
+    carrying its original BrainGlobe-cache path.
 
     Parameters
     ----------
     structures_blob : str
-        Serialized structures list read back from a store, with basename `mesh_filename`
-        entries.
+        Serialized structures list read back from a store.
     meshes_dir : pathlib.Path
         Directory holding the bundled mesh files.
 
     Returns
     -------
     str
-        A new serialized structures list whose non-null `mesh_filename` entries are
+        A new serialized structures list whose bundled `mesh_filename` entries are
         complete paths under `meshes_dir`.
     """
     structures = json.loads(structures_blob)
     for record in structures:
-        if record.get("mesh_filename") is not None:
-            record["mesh_filename"] = str(
-                meshes_dir / Path(record["mesh_filename"]).name
-            )
+        mesh_filename = record.get("mesh_filename")
+        if mesh_filename is None:
+            continue
+        candidate = meshes_dir / Path(mesh_filename).name
+        if candidate.is_file():
+            record["mesh_filename"] = str(candidate)
     return json.dumps(structures)
 
 
@@ -201,23 +207,29 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     """Save an atlas Dataset to a Zarr store, bundling its region meshes.
 
     The in-memory `attrs["structures"]`
-    [`StructuresDict`][brainglobe_atlasapi.structure_class.StructuresDict] is serialized to
-    a flat JSON list for storage. The region meshes are copied into a `meshes/`
-    subdirectory of the store (as plain sibling files) and each ROI's `mesh_filename` is
-    stored as a basename, so a loaded atlas can render meshes without the BrainGlobe cache.
-    The non-serializable `cmap`/`norm` matplotlib objects in `annotation.attrs` are stripped
-    before writing (the caller's in-memory Dataset is left untouched);
-    [`load_atlas`][confusius.io.load_atlas] rebuilds the `StructuresDict`, the `cmap`/`norm`
-    from `rgb_lookup`, and re-points the mesh paths on load. Voxel-to-world geometry is stored
-    as `attrs["voxel_to_world"]` rather than dense `z`/`y`/`x` coordinate arrays.
+    [`StructuresDict`][brainglobe_atlasapi.structure_class.StructuresDict] is serialized
+    to a flat JSON list for storage. Meshes already downloaded into the BrainGlobe cache
+    are copied into a `meshes/` subdirectory of the store (as plain sibling files) and
+    their `mesh_filename` is stored as a basename, so a loaded atlas can render them
+    without the BrainGlobe cache. The non-serializable `cmap`/`norm` matplotlib objects in
+    `annotation.attrs` are stripped before writing (the caller's in-memory Dataset is left
+    untouched); [`load_atlas`][confusius.io.load_atlas] rebuilds the `StructuresDict`, the
+    `cmap`/`norm` from `rgb_lookup`, and re-points the bundled mesh paths on load.
+
+    !!! warning "Undownloaded meshes are not bundled"
+        A region whose mesh was never accessed before `save_atlas` keeps its original
+        BrainGlobe-cache path instead of being bundled. `get_mesh` on the loaded atlas
+        can still trigger BrainGlobe's lazy download from that path, but only on the same
+        machine and user that ran `save_atlas`; elsewhere it raises a clear error.
 
     Parameters
     ----------
     ds : xarray.Dataset
         Atlas Dataset to save.
     path : str or pathlib.Path
-        Output Zarr store path; must end with the `.zarr` suffix. Must be a filesystem path
-        (the meshes are written as sibling files); zarr store objects are not supported.
+        Output Zarr store path; must end with the `.zarr` suffix. Must be a filesystem
+        path (the meshes are written as sibling files); zarr store objects are not
+        supported.
     **kwargs
         Additional keyword arguments forwarded to
         [`xarray.Dataset.to_zarr`][xarray.Dataset.to_zarr].
@@ -323,7 +335,8 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
     `attrs["structures"]`. The `cmap`/`norm` colormap objects dropped on save are rebuilt
     into `annotation.attrs` from `rgb_lookup`, and each ROI's `mesh_filename` is re-pointed
     at the meshes bundled under the store's `meshes/` subdirectory, so `get_mesh` works on
-    the loaded atlas without the BrainGlobe cache.
+    the loaded atlas without the BrainGlobe cache. See the warning on
+    [`save_atlas`][confusius.io.save_atlas] for meshes that were not bundled.
 
     Parameters
     ----------
