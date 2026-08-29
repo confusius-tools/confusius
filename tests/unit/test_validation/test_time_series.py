@@ -66,17 +66,37 @@ def test_validate_time_series_allows_pose_dependent_time_by_default():
     validate_time_series(signals, "resampling")
 
 
-def test_validate_time_series_checks_sortedness_along_time_axis_for_pose_data():
-    """Sorted-time validation should diff along time, not the trailing pose axis."""
-    # Each pose's own timestamps are strictly increasing, but pose 1's timestamps are
-    # smaller than pose 0's at every timepoint -- a naive default-axis np.diff would
-    # misread that as unsorted.
-    time = xr.DataArray([[1.0, 0.5], [2.0, 1.5], [3.0, 2.5]], dims=["time", "pose"])
+def test_validate_time_series_accepts_sorted_pose_dependent_acquisition_order():
+    """Sorted-time validation should pass a genuinely increasing acquisition order.
+
+    Poses are swept sequentially within each time repetition (time major, pose
+    minor), so a valid (time, pose) time coordinate increases when raveled in that
+    order even though no single axis alone is sorted.
+    """
+    time = xr.DataArray(
+        [[0.0, 0.5], [1.0, 1.5], [2.0, 2.5]], dims=["time", "pose"]
+    )
     signals = xr.DataArray(
         np.zeros((3, 2)), dims=["time", "pose"], coords={"time": time}
     )
 
     validate_time_series(signals, "resampling", require_sorted_time=True)
+
+
+def test_validate_time_series_rejects_poses_out_of_order_within_a_repetition():
+    """Sorted-time validation should reject poses out of order within a repetition.
+
+    Each pose's own timestamps are strictly increasing across repetitions, but pose
+    1's timestamps are smaller than pose 0's at every repetition -- a per-column
+    check alone would miss this, but the poses were not swept in increasing order.
+    """
+    time = xr.DataArray([[1.0, 0.5], [2.0, 1.5], [3.0, 2.5]], dims=["time", "pose"])
+    signals = xr.DataArray(
+        np.zeros((3, 2)), dims=["time", "pose"], coords={"time": time}
+    )
+
+    with pytest.raises(ValueError, match="strictly increasing"):
+        validate_time_series(signals, "resampling", require_sorted_time=True)
 
 
 def test_validate_time_series_returns_spacing_when_uniform_time_required():
