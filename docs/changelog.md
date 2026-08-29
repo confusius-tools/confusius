@@ -180,11 +180,6 @@ Current development version for the next ConfUSIus release.
   with string coordinates (e.g. a recording-id stack dim); such a dimension now
   falls back to scale 1/origin 0 like any other missing world geometry
   ([#409](https://github.com/confusius-tools/confusius/pull/409)).
-- `resample_time`/`resample_to_uniform_time` now raise a clear error on
-  unconsolidated multi-pose data's `(time, pose)`-shaped `time` coordinate
-  instead of crashing with scipy's generic error; consolidate poses first with
-  `consolidate_poses`
-  ([#424](https://github.com/confusius-tools/confusius/pull/424)).
 
 ### :wrench: Maintenance
 
