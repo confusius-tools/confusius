@@ -1,6 +1,5 @@
 """Atlas Dataset validation utilities."""
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -65,11 +64,12 @@ def _validate_variable_affines(ds: xr.Dataset) -> None:
 
 
 def _validate_meshes_available(structures: "StructuresDict") -> None:
-    """Raise ValueError unless some structure references an existing mesh file.
+    """Raise ValueError unless some structure references a mesh source.
 
-    A structure's `mesh_filename` is either `None` (no mesh) or a path; `get_mesh` needs at
-    least one that resolves to a file on disk. The scan short-circuits at the first existing
-    mesh, so it does not stat every structure.
+    A structure's `mesh_filename` is either `None` (this atlas has no meshes) or a path;
+    `get_mesh` needs at least one non-`None` entry. The path need not exist on disk yet:
+    BrainGlobe fetches meshes lazily from its remote store on first access, so a freshly
+    fetched atlas legitimately has no mesh files cached locally.
 
     Parameters
     ----------
@@ -79,17 +79,15 @@ def _validate_meshes_available(structures: "StructuresDict") -> None:
     Raises
     ------
     ValueError
-        If no structure references a mesh file that exists on disk.
+        If no structure references a mesh source.
     """
     has_mesh = any(
-        structure["mesh_filename"] is not None
-        and Path(structure["mesh_filename"]).is_file()
-        for structure in structures.values()
+        structure["mesh_filename"] is not None for structure in structures.values()
     )
     if not has_mesh:
         raise ValueError(
-            "Atlas has no usable region meshes: no structure references an existing mesh "
-            "file, so get_mesh cannot run (require_mesh_use=True)."
+            "Atlas has no usable region meshes: no structure references a mesh source, "
+            "so get_mesh cannot run (require_mesh_use=True)."
         )
 
 

@@ -2,7 +2,6 @@
 
 from collections.abc import Hashable, Mapping, Sequence
 from copy import deepcopy
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal, SupportsFloat, SupportsIndex
 
 import numpy as np
@@ -770,8 +769,9 @@ def get_atlas_mesh(
     KeyError
         If the requested region is not found in the atlas.
     ValueError
-        If `ds` is not a well-formed atlas, if the region has no mesh file, or if the mesh
-        file cannot be located.
+        If `ds` is not a well-formed atlas, or if the region has no mesh file.
+    RuntimeError
+        If the region's mesh cannot be downloaded or read.
 
     Examples
     --------
@@ -795,14 +795,8 @@ def get_atlas_mesh(
             "Not all BrainGlobe atlases include mesh files."
         )
 
-    mesh_path = Path(mesh_filename)
-    if not mesh_path.is_file():
-        raise ValueError(
-            f"Mesh file for region '{region}' (id {rid}) not found at {mesh_path}. "
-            "A freshly fetched atlas reads meshes from the BrainGlobe cache; a loaded "
-            "atlas reads them from the meshes bundled in its Zarr store."
-        )
-
+    # BrainGlobe lazily downloads the mesh from its remote store on this access if it
+    # is not already cached locally, so mesh_filename need not exist on disk yet.
     mesh = structures[rid]["mesh"]
     vertices_um = mesh.points  # (N, 3) in microns
     faces = mesh.get_cells_type("triangle")
