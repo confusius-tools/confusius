@@ -74,7 +74,11 @@ class TestFirstLevelModelFit:
 
     def test_fit_with_confounds(self, fusi_data, events, rng):
         confounds = pd.DataFrame(
-            {"motion_x": rng.standard_normal(200), "motion_y": rng.standard_normal(200)}
+            {
+                "time": fusi_data.coords["time"].values,
+                "motion_x": rng.standard_normal(200),
+                "motion_y": rng.standard_normal(200),
+            }
         )
         model = FirstLevelModel(noise_model="ols")
         model.fit(fusi_data, events=events, confounds=confounds)
@@ -83,6 +87,56 @@ class TestFirstLevelModelFit:
         assert "motion_y" in dm.columns
         assert_allclose(dm["motion_x"].to_numpy(), confounds["motion_x"].to_numpy())
         assert_allclose(dm["motion_y"].to_numpy(), confounds["motion_y"].to_numpy())
+
+    def test_fit_with_dataarray_confounds(self, fusi_data, events, rng):
+        """DataArray confounds match the DataFrame path and are checked against time."""
+        values = rng.standard_normal((200, 2))
+        names = ["motion_x", "motion_y"]
+        frame = pd.DataFrame(values, columns=names)
+        frame.insert(0, "time", fusi_data.coords["time"].values)
+        confounds = xr.DataArray(
+            values,
+            dims=["time", "confound"],
+            coords={"time": fusi_data.coords["time"], "confound": names},
+        )
+        expected = FirstLevelModel(noise_model="ols").fit(
+            fusi_data, events=events, confounds=frame
+        )
+        model = FirstLevelModel(noise_model="ols").fit(
+            fusi_data, events=events, confounds=confounds
+        )
+        pd.testing.assert_frame_equal(
+            model.design_matrices_[0], expected.design_matrices_[0]
+        )
+
+        misaligned = confounds.assign_coords(time=confounds.coords["time"] + 1.0)
+        with pytest.raises(ValueError, match="time coordinates do not match"):
+            FirstLevelModel(noise_model="ols").fit(
+                fusi_data, events=events, confounds=misaligned
+            )
+
+    def test_fit_with_1d_dataarray_confounds(self, fusi_data, events, rng):
+        """A `(time,)` DataArray becomes one confound column named like NumPy input."""
+        values = rng.standard_normal(200)
+        confounds = xr.DataArray(
+            values, dims=["time"], coords={"time": fusi_data.coords["time"]}
+        )
+        model = FirstLevelModel(noise_model="ols").fit(
+            fusi_data, events=events, confounds=confounds
+        )
+        assert_allclose(model.design_matrices_[0]["confound_0"].to_numpy(), values)
+
+    def test_fit_rejects_3d_dataarray_confounds(self, fusi_data, events, rng):
+        """DataArray confounds must be 1D or 2D."""
+        confounds = xr.DataArray(
+            rng.standard_normal((200, 2, 2)),
+            dims=["time", "a", "b"],
+            coords={"time": fusi_data.coords["time"]},
+        )
+        with pytest.raises(ValueError, match="confounds must be 1D or 2D"):
+            FirstLevelModel(noise_model="ols").fit(
+                fusi_data, events=events, confounds=confounds
+            )
 
     def test_sklearn_is_fitted(self, fusi_data, events):
         model = FirstLevelModel(noise_model="ols")
@@ -269,8 +323,8 @@ class TestFirstLevelModelContrastMultiRun:
             ("time", "k", "j", "i"),
             time=frame_times,
         )
-        conf1 = pd.DataFrame({"motion": rng.standard_normal(200)})
-        conf2 = pd.DataFrame({"motion": rng.standard_normal(200)})
+        conf1 = pd.DataFrame({"time": frame_times, "motion": rng.standard_normal(200)})
+        conf2 = pd.DataFrame({"time": frame_times, "motion": rng.standard_normal(200)})
         model = FirstLevelModel(noise_model="ols")
         model.fit([data1, data2], events=[events, events], confounds=[conf1, conf2])
 
@@ -282,6 +336,31 @@ class TestFirstLevelModelContrastMultiRun:
             model.design_matrices_[1]["motion"].to_numpy(),
             conf2["motion"].to_numpy(),
         )
+
+    def test_multi_run_single_confounds_table_must_match_every_run(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
+        """A single confounds table is applied to every run, so its times must
+        match each run, and the error names the offending run."""
+        data1 = make_glm_test_dataarray(
+            rng.standard_normal((200, 2, 3, 4)),
+            ("time", "k", "j", "i"),
+            time=frame_times,
+        )
+        data2 = make_glm_test_dataarray(
+            rng.standard_normal((200, 2, 3, 4)),
+            ("time", "k", "j", "i"),
+            time=frame_times + 1.0,
+        )
+        confounds = pd.DataFrame(
+            {"time": frame_times, "motion": rng.standard_normal(200)}
+        )
+        with pytest.raises(
+            ValueError, match="Run 1: confounds time coordinates do not match"
+        ):
+            FirstLevelModel(noise_model="ols").fit(
+                [data1, data2], events=[events, events], confounds=confounds
+            )
 
 
 class TestFirstLevelModelFContrast:

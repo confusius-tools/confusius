@@ -4,74 +4,22 @@ Portions of this file are derived from Nilearn, which is licensed under the BSD-
 License. See `NOTICE` file for details.
 """
 
+import warnings
 from collections.abc import Callable
 from typing import cast
 
 import numpy as np
+import pandas as pd
 import scipy.linalg
 import xarray as xr
 
 from confusius._utils.mask import validate_spatial_or_feature_mask
+from confusius._utils.stack import find_stack_level
+from confusius.multipose.timing import consolidate_time_coordinate
 from confusius.signal._utils import remove_zero_variance_voxels
 from confusius.signal.detrending import detrend as detrend_signals
 from confusius.signal.standardization import standardize
-from confusius.validation import validate_time_series
-from confusius.validation.coordinates import validate_matching_coordinates
-
-
-def _validate_confounds(signals: xr.DataArray, confounds: xr.DataArray) -> np.ndarray:
-    """Validate confounds array matches signals.
-
-    Parameters
-    ----------
-    signals : xarray.DataArray
-        Signals with 'time' dimension.
-    confounds : xarray.DataArray
-        Confound regressors to validate.
-
-    Returns
-    -------
-    numpy.ndarray
-        Validated 2D confounds array.
-
-    Raises
-    ------
-    ValueError
-        If confounds have incorrect shape or time dimension mismatch.
-    TypeError
-        If confounds are not an xarray.DataArray.
-    """
-    if not isinstance(confounds, xr.DataArray):
-        raise TypeError(
-            f"confounds must be an xarray.DataArray, got {type(confounds).__name__}"
-        )
-
-    if "time" not in confounds.dims:
-        raise ValueError("confounds DataArray must have a 'time' dimension")
-    if "time" in signals.coords and "time" in confounds.coords:
-        try:
-            validate_matching_coordinates(signals, confounds, "time")
-        except ValueError as exc:
-            raise ValueError(
-                "confounds time coordinates do not match signals time coordinates"
-            ) from exc
-
-    confounds_da = confounds.transpose("time", ...)
-    confounds_values = confounds_da.values
-
-    if confounds_values.ndim == 1:
-        confounds_values = np.atleast_2d(confounds_values).T
-    elif confounds_values.ndim != 2:
-        raise ValueError(f"confounds must be 1D or 2D, got {confounds_values.ndim}D")
-
-    n_time = signals.sizes["time"]
-    if confounds_values.shape[0] != n_time:
-        raise ValueError(
-            f"confounds time dimension ({confounds_values.shape[0]}) does not match "
-            f"signals time dimension ({n_time})"
-        )
-
-    return confounds_values
+from confusius.validation import ensure_time_aligned, validate_time_series
 
 
 def _prepare_confounds_for_regression(
@@ -197,7 +145,7 @@ def _regress_confounds_wrapper(data, axis, confounds, standardize_confounds):
 
 def regress_confounds(
     signals: xr.DataArray,
-    confounds: xr.DataArray,
+    confounds: xr.DataArray | np.ndarray | pd.DataFrame,
     standardize_confounds: bool = True,
 ) -> xr.DataArray:
     """Remove confounds from signals via linear regression.
@@ -218,10 +166,17 @@ def regress_confounds(
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
             `data.chunk({'time': -1})`.
 
-    confounds : (time, n_confounds) xarray.DataArray
+    confounds : (time, n_confounds) xarray.DataArray, numpy.ndarray, or \
+            pandas.DataFrame
         Confound regressors to remove. Can have shape `(time,)` for a single
-        confound. The time dimension and coordinates must match the signals within
-        the default coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`).
+        confound. A DataArray must have a `time` dimension; a
+        DataFrame must have a `time` column, its other numeric columns being the
+        confounds; a NumPy array must have time along its first axis. `time`
+        coordinates must match those of `signals` within the default
+        coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`); an input without
+        `time` coordinates is assumed ordered like `signals` and takes its `time`
+        coordinates, with a warning since alignment cannot be verified (see
+        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]).
     standardize_confounds : bool, default: True
         Whether to z-score confounds before regression. If `False`, confounds are
         divided by their maximum absolute value for numerical stability without
@@ -239,7 +194,15 @@ def regress_confounds(
         If `signals` does not have a `time` dimension, or if `confounds` have
         mismatched time dimension or invalid shape.
     TypeError
-        If `confounds` is not an xarray DataArray.
+        If `confounds` is not a DataArray, NumPy array, or DataFrame.
+
+    Warns
+    -----
+    UserWarning
+        If `confounds` has no `time` coordinates, since alignment cannot be verified.
+    UserWarning
+        If `signals` has a `pose` dimension, since the same confounds are regressed
+        from every pose.
 
     Notes
     -----
@@ -289,7 +252,15 @@ def regress_confounds(
     """
     time_axis, _ = validate_time_series(signals, "confound regression")
 
-    confounds_array = _validate_confounds(signals, confounds)
+    confounds_array = ensure_time_aligned(
+        signals, confounds, "confounds", ndim=2
+    ).values
+    if "pose" in signals.dims:
+        warnings.warn(
+            "signals have a 'pose' dimension: the same confounds are regressed from "
+            "every pose. To use per-pose confounds, regress each pose separately.",
+            stacklevel=find_stack_level(),
+        )
 
     result = xr.apply_ufunc(
         _regress_confounds_wrapper,
@@ -537,6 +508,18 @@ def compute_compcor_confounds(
         time_dim = "time"
         spatial_dims = [d for d in signals.dims if d != time_dim]
         signals_flat = signals.stack(space=spatial_dims)
+
+        time_coord = signals.coords.get("time")
+        if time_coord is not None and time_coord.dims == ("time", "pose"):
+            # Folding `pose` into `space` above breaks the per-pose (time, pose)
+            # `time` coordinate: stacking broadcasts it to (time, space), one
+            # timestamp per voxel instead of one per timepoint. CompCor pools
+            # voxels across poses into a single PCA, so replace it with one
+            # consolidated whole-array time value per timepoint, using the same
+            # reference/duration accounting as consolidate_poses.
+            signals_flat = signals_flat.assign_coords(
+                time=consolidate_time_coordinate(time_coord)
+            )
 
     n_voxels = signals_flat.sizes["space"]
 

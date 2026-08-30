@@ -7,7 +7,7 @@ import xarray as xr
 
 from confusius._dims import POSE_DIM
 from confusius._utils.timing import interpolate_timeseries
-from confusius.multipose._utils import build_consolidated_time_coordinate
+from confusius.multipose.timing import build_consolidated_time_coordinate
 from confusius.validation import ensure_voxeldata
 
 

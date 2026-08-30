@@ -170,4 +170,5 @@ plotter = cf.plotting.plot_volume(
     cmap="gray",
     cbar_label="Power Doppler (dB)",
     bg_color=bg_color,
+    yincrease=True,
 )

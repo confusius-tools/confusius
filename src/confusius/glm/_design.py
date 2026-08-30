@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 import numpy as np
 import pandas as pd
 import scipy.linalg as spla
+import xarray as xr
 from scipy.interpolate import interp1d
 
 from confusius._utils.bids import DEFAULT_TRIAL_TYPE
@@ -23,6 +24,7 @@ from confusius._utils.coordinates import get_representative_step
 from confusius._utils.filtering import make_cosine_drift_regressors
 from confusius._utils.stack import find_stack_level
 from confusius.glm._hrf_models import HRFModel, _hrf_kernel
+from confusius.validation import ensure_time_aligned
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -524,21 +526,60 @@ def _compute_condition_regressors(
         )
 
 
-def _prepare_confounds(
-    confounds: npt.NDArray[np.floating] | pd.DataFrame | None,
-    n_volumes: int,
-    confound_names: list[str] | None,
-) -> tuple[npt.NDArray[np.floating] | None, list[str]]:
-    """Validate confound regressors and extract column names.
+def _align_confounds(
+    volume_times: npt.NDArray[np.floating],
+    confounds: pd.DataFrame | xr.DataArray,
+) -> tuple[npt.NDArray[np.floating], list[str] | None]:
+    """Validate labeled confounds against `volume_times` and extract their values.
 
     Parameters
     ----------
-    confounds : (n_volumes, n_confounds) numpy.ndarray or pandas.DataFrame or None
+    volume_times : (n_volumes,) numpy.ndarray
+        Acquisition time of each volume.
+    confounds : (n_volumes, n_confounds) pandas.DataFrame or xarray.DataArray
+        Confound regressors. A DataFrame must have a `time` column and a DataArray a
+        `time` dimension; their times must match `volume_times`.
+
+    Returns
+    -------
+    confound_matrix : (n_volumes, n_confounds) numpy.ndarray
+        Confound values with time along the first axis.
+    names : list of str or None
+        Confound names taken from DataFrame columns or string DataArray coordinates,
+        or `None` when the input carries no names.
+
+    Raises
+    ------
+    ValueError
+        If `confounds` is not 1D or 2D, or if its times do not match `volume_times`.
+    """
+    time_grid = xr.DataArray(volume_times, dims=["time"], coords={"time": volume_times})
+    aligned = ensure_time_aligned(time_grid, confounds, "confounds", ndim=2)
+    labels = aligned.coords.get(aligned.dims[1])
+    names = None
+    if labels is not None and not np.issubdtype(labels.dtype, np.number):
+        names = [
+            label.decode() if isinstance(label, bytes) else str(label)
+            for label in labels.values
+        ]
+    return aligned.values, names
+
+
+def _prepare_confounds(
+    confounds: npt.NDArray[np.floating] | None,
+    n_volumes: int,
+    confound_names: list[str] | None,
+) -> tuple[npt.NDArray[np.floating] | None, list[str]]:
+    """Validate confound regressors and resolve column names.
+
+    Parameters
+    ----------
+    confounds : (n_volumes, n_confounds) numpy.ndarray or None
         Confound regressors.
     n_volumes : int
         Expected number of volumes (timepoints).
     confound_names : list[str] or None
-        Column names when `confounds` is a numpy array. Ignored for DataFrames.
+        Column names. If not provided, `confound_<i>` names are generated.
 
     Returns
     -------
@@ -550,22 +591,19 @@ def _prepare_confounds(
     Raises
     ------
     ValueError
-        If the number of confound rows does not match `n_volumes`, or if
-        `confound_names` length does not match the number of columns.
+        If `confounds` is not 1D or 2D, if the number of confound rows does not match
+        `n_volumes`, if `confounds` contain NaN values, or if `confound_names` length
+        does not match the number of columns.
     """
     if confounds is None:
         return None, []
 
-    if isinstance(confounds, pd.DataFrame):
-        confound_matrix = confounds.to_numpy()
-        inferred_names = [str(column) for column in confounds.columns]
-    else:
-        confound_matrix = confounds
-        if confound_matrix.ndim == 1:
-            confound_matrix = confound_matrix[:, np.newaxis]
-        elif confound_matrix.ndim != 2:
-            raise ValueError("confounds must be a 1D or 2D array")
-        inferred_names = [f"confound_{i}" for i in range(confound_matrix.shape[1])]
+    confound_matrix = confounds
+    if confound_matrix.ndim == 1:
+        confound_matrix = confound_matrix[:, np.newaxis]
+    elif confound_matrix.ndim != 2:
+        raise ValueError("confounds must be a 1D or 2D array")
+    inferred_names = [f"confound_{i}" for i in range(confound_matrix.shape[1])]
 
     if confound_matrix.shape[0] != n_volumes:
         raise ValueError(
@@ -595,7 +633,7 @@ def make_first_level_design_matrix(
     low_cutoff: float = 0.01,
     drift_order: int = 1,
     fir_delays: list[int] | None = None,
-    confounds: npt.NDArray[np.floating] | pd.DataFrame | None = None,
+    confounds: npt.NDArray[np.floating] | pd.DataFrame | xr.DataArray | None = None,
     confound_names: list[str] | None = None,
     oversampling: int = 50,
     min_onset: float = -24.0,
@@ -623,10 +661,17 @@ def make_first_level_design_matrix(
         Polynomial order when `drift_model="polynomial"`.
     fir_delays : list of int, optional
         FIR delays in volumes (required when `hrf_model="fir"`).
-    confounds : (n_volumes, n_confounds) numpy.ndarray or pandas.DataFrame, optional
-        Confound regressors.
+    confounds : (n_volumes, n_confounds) numpy.ndarray, pandas.DataFrame, or \
+            xarray.DataArray, optional
+        Confound regressors. A DataFrame must have a `time` column and a DataArray a
+        `time` dimension; their times must match `volume_times`. A NumPy array is
+        assumed ordered like `volume_times`; unlike the signal-processing functions,
+        no warning is issued, since `volume_times` is itself a plain array with
+        nothing to verify against.
     confound_names : list of str, optional
-        Names for confound regressors. Inferred from DataFrame columns if not given.
+        Names for confound regressors. Cannot be combined with `confounds` that
+        already carry names (DataFrame columns or non-numeric DataArray coordinates).
+        If not provided, `confound_<i>` names are used.
     oversampling : int, default: 50
         Oversampling factor for HRF convolution.
     min_onset : float, default: -24.0
@@ -679,8 +724,19 @@ def make_first_level_design_matrix(
                 _regressor_names(str(trial_type), hrf_model, fir_delays=fir_delays)
             )
 
+    if isinstance(confounds, (pd.DataFrame, xr.DataArray)):
+        confound_array, inferred_names = _align_confounds(volume_times, confounds)
+        if inferred_names is not None:
+            if confound_names is not None:
+                raise ValueError(
+                    "confound_names cannot be given when confounds already carries "
+                    "names (DataFrame columns or non-numeric DataArray coordinates)."
+                )
+            confound_names = inferred_names
+    else:
+        confound_array = confounds
     confound_matrix, prepared_confound_names = _prepare_confounds(
-        confounds, n_volumes, confound_names
+        confound_array, n_volumes, confound_names
     )
     if confound_matrix is not None:
         regressors.extend(
