@@ -23,7 +23,7 @@ classifiers = [
     "Framework :: napari",
 ]
 dependencies = [
-    "brainglobe-atlasapi>=2.3.0",
+    "brainglobe-atlasapi>=3.0.1",
     "dask[complete]>=2025.9.0",
     "flox>=0.11.1",
     "h5py>=3.15.1",

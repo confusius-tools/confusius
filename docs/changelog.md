@@ -174,6 +174,17 @@ Current development version for the next ConfUSIus release.
   folders is preserved when loading recordings
   ([#359](https://github.com/confusius-tools/confusius/pull/359)).
 
+### :zap: Performance
+
+- `Atlas.get_masks`/`get_atlas_masks` no longer forces `xarray.concat` to recompute
+  and compare the full lazily derived world-coordinate grid across every requested
+  region (all layers share one grid by construction), the dominant cost for
+  multi-region calls; it also now scans the annotation volume once per 8-region batch
+  via a bitmask lookup instead of once per region. Together, a `get_masks([...])` call
+  over dozens of regions (e.g. combining all of an ontology's major divisions into one
+  coarse map) is over an order of magnitude faster
+  ([#412](https://github.com/confusius-tools/confusius/pull/412)).
+
 ### :bug: Fixes
 
 - [`clean`][confusius.signal.clean], [`regress_confounds`][confusius.signal.regress_confounds],
@@ -215,6 +226,11 @@ Current development version for the next ConfUSIus release.
 
 - **[Napari plugin]** ConfUSIus now requires napari 0.9.0 or newer
   ([#413](https://github.com/confusius-tools/confusius/pull/413)).
+
+### :wrench: Maintenance
+
+- Bumped the `brainglobe-atlasapi` dependency to v3
+  ([#412](https://github.com/confusius-tools/confusius/pull/412)).
 
 ## 0.6.1
 
