@@ -108,9 +108,11 @@ def consolidate_time_coordinate(time_coord: xr.DataArray) -> xr.DataArray:
     Per-volume quantities such as confounds and sample masks are timed by the whole
     volume, not by one pose. A 1D `(time,)` coordinate is returned unchanged; a
     pose-dependent `(time, pose)` coordinate is reduced to one whole-volume time value
-    per timepoint with `build_consolidated_time_coordinate`, using the first pose's
-    timestamps as the reference coordinate, as
-    [`consolidate_poses`][confusius.multipose.consolidate_poses] does.
+    per timepoint with `build_consolidated_time_coordinate`, which spans the full pose
+    sequence (earliest to latest pose) and honors `volume_acquisition_reference`. The
+    first pose's timestamps only anchor the output's attrs, and are used directly as a
+    fallback when per-pose timing metadata are insufficient to compute a whole-volume
+    duration. Mirrors [`consolidate_poses`][confusius.multipose.consolidate_poses].
 
     Parameters
     ----------
