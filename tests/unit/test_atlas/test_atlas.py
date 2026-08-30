@@ -5,6 +5,7 @@ testing against the implementation itself.
 """
 
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,12 @@ from confusius.io import load_atlas, save_atlas
 from confusius.io.atlas import structures_from_json, structures_to_json
 from confusius.validation import validate_atlas
 from confusius.xarray import create_voxeldata
+
+
+def _mesh_bundle_tail(path: Path) -> Path:
+    """Trailing path components `_plan_mesh_bundle` keeps: last 6, anchor dropped."""
+    relative_parts = [part for part in path.parts if part != path.anchor]
+    return Path(*relative_parts[-6:])
 
 
 def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
@@ -515,11 +522,18 @@ class TestIO:
             loaded.atlas.get_masks(10).values, atlas_ds.atlas.get_masks(10).values
         )
 
-    def test_meshes_bundled_into_store(self, atlas_ds: xr.Dataset, tmp_path) -> None:
-        """The region mesh files are copied into the store's meshes/ subdirectory."""
+    def test_meshes_bundled_into_store(
+        self, atlas_ds: xr.Dataset, obj_path: Path, tmp_path
+    ) -> None:
+        """The region mesh files are copied under the store's meshes/ subdirectory.
+
+        The bundled layout mirrors the source path's trailing components (up to 6, as
+        BrainGlobe's own S3-key derivation uses), not a bare basename, so bundling
+        meshes from different atlases into the same store can't collide.
+        """
         path = tmp_path / "atlas.zarr"
         save_atlas(atlas_ds, path)
-        assert (path / "meshes" / "997").is_file()
+        assert (path / "meshes" / _mesh_bundle_tail(obj_path)).is_file()
 
     def test_save_suppresses_consolidated_metadata_warning(
         self, atlas_ds: xr.Dataset, tmp_path, monkeypatch
@@ -541,13 +555,16 @@ class TestIO:
         assert not caught
 
     def test_loaded_mesh_filename_points_into_store(
-        self, atlas_ds: xr.Dataset, tmp_path
+        self, atlas_ds: xr.Dataset, obj_path: Path, tmp_path
     ) -> None:
         path = tmp_path / "atlas.zarr"
         save_atlas(atlas_ds, path)
         loaded = load_atlas(path)
         structures = loaded.attrs["structures"]
-        assert structures[997]["mesh_filename"] == path / "meshes" / "997"
+        assert (
+            structures[997]["mesh_filename"]
+            == path / "meshes" / _mesh_bundle_tail(obj_path)
+        )
         assert structures[10]["mesh_filename"] is None
 
     def test_get_mesh_reads_bundle_when_source_is_gone(
@@ -574,15 +591,16 @@ class TestIO:
         np.testing.assert_allclose(vertices, atlas_ds.atlas.get_mesh(997)[0], atol=1e-4)
         assert len(faces) == 2
 
-    def test_undownloaded_mesh_keeps_original_path_after_roundtrip(
+    def test_undownloaded_mesh_rebased_for_lazy_download(
         self, atlas_ds: xr.Dataset, structure_list: list[dict], tmp_path
     ) -> None:
-        """A mesh never downloaded before save is not bundled, but its path survives.
+        """A mesh never downloaded before save is not bundled, but stays fetchable.
 
         BrainGlobe fetches meshes lazily; a region whose mesh was never accessed has no
-        file to bundle. save_atlas must leave its mesh_filename untouched (rather than
-        rewriting it to a basename with no file behind it), so load_atlas can still point
-        get_mesh at the original BrainGlobe-cache location.
+        file to bundle. save_atlas keeps only the trailing path components BrainGlobe
+        needs to derive the S3 key, and load_atlas re-points mesh_filename under the
+        store's meshes/ subdirectory (same as a bundled mesh) so get_mesh can still
+        trigger a lazy download straight into the store, on any machine.
         """
         never_downloaded = tmp_path / "never_downloaded" / "997"
         records = [dict(record) for record in structure_list]
@@ -594,10 +612,11 @@ class TestIO:
 
         path = tmp_path / "atlas.zarr"
         save_atlas(ds, path)
-        assert not (path / "meshes" / "997").exists()
+        expected = path / "meshes" / _mesh_bundle_tail(never_downloaded)
+        assert not expected.exists()
 
         loaded = load_atlas(path)
-        assert loaded.attrs["structures"][997]["mesh_filename"] == never_downloaded
+        assert loaded.attrs["structures"][997]["mesh_filename"] == expected
 
     def test_get_mesh_wraps_brainglobe_error(
         self, atlas_ds: xr.Dataset, structure_list: list[dict], tmp_path

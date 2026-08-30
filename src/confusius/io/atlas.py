@@ -167,7 +167,10 @@ def _plan_mesh_bundle(structures_blob: str) -> tuple[str, dict[str, Path]]:
         if mesh_filename is None:
             continue
         source = Path(mesh_filename)
-        record["mesh_filename"] = str(Path(*source.parts[-6:]))
+        # Drop the anchor (e.g. "/") before slicing so a shallow path (fewer than 6
+        # parts, common in tests) doesn't reconstruct as the original absolute path.
+        relative_parts = [part for part in source.parts if part != source.anchor]
+        record["mesh_filename"] = str(Path(*relative_parts[-6:]))
         if source.is_file():
             to_copy[record["mesh_filename"]] = source
 
