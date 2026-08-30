@@ -167,9 +167,10 @@ def _plan_mesh_bundle(structures_blob: str) -> tuple[str, dict[str, Path]]:
         if mesh_filename is None:
             continue
         source = Path(mesh_filename)
+        record["mesh_filename"] = str(Path(*source.parts[-6:]))
         if source.is_file():
-            record["mesh_filename"] = source.name
-            to_copy[source.name] = source
+            to_copy[record["mesh_filename"]] = source
+
     return json.dumps(structures), to_copy
 
 
@@ -194,12 +195,8 @@ def _rebase_meshes(structures_blob: str, meshes_dir: Path) -> str:
     """
     structures = json.loads(structures_blob)
     for record in structures:
-        mesh_filename = record.get("mesh_filename")
-        if mesh_filename is None:
-            continue
-        candidate = meshes_dir / Path(mesh_filename).name
-        if candidate.is_file():
-            record["mesh_filename"] = str(candidate)
+        if (mesh_filename := record.get("mesh_filename")) is not None:
+            record["mesh_filename"] = str(meshes_dir / Path(mesh_filename))
     return json.dumps(structures)
 
 
@@ -217,10 +214,9 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     `cmap`/`norm` from `rgb_lookup`, and re-points the bundled mesh paths on load.
 
     !!! warning "Undownloaded meshes are not bundled"
-        A region whose mesh was never accessed before `save_atlas` keeps its original
+        A region whose mesh was never accessed before `save_atlas` keeps its partial
         BrainGlobe-cache path instead of being bundled. `get_mesh` on the loaded atlas
-        can still trigger BrainGlobe's lazy download from that path, but only on the same
-        machine and user that ran `save_atlas`; elsewhere it raises a clear error.
+        can still trigger BrainGlobe's lazy download from that path.
 
     Parameters
     ----------
@@ -324,7 +320,9 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
         meshes_dir = path / _MESHES_SUBDIR
         meshes_dir.mkdir(parents=True, exist_ok=True)
         for basename, source in to_copy.items():
-            shutil.copyfile(source, meshes_dir / basename)
+            mesh_filename = meshes_dir / basename
+            mesh_filename.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, mesh_filename)
 
 
 def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
