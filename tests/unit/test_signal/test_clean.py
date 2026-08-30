@@ -701,36 +701,44 @@ def test_clean_dataframe_confounds_match_dataarray_confounds(
     xr.testing.assert_allclose(result, expected)
 
 
-def test_clean_multipose_numpy_confounds_with_butterworth_matches_per_pose(
-    rng, sample_voxeldata_3dt_pose
+@pytest.mark.parametrize("filter_method", ["butterworth", "cosine"])
+def test_clean_multipose_numpy_inputs_match_per_pose(
+    rng, sample_voxeldata_3dt_pose, filter_method
 ):
-    """Test `pose` is just another dimension: NumPy confounds are filtered and
-    regressed for every pose exactly as when cleaning each pose separately."""
-    confounds = rng.standard_normal((sample_voxeldata_3dt_pose.sizes["time"], 2))
+    """Test pose-dependent signals clean like each pose separately: NumPy confounds
+    and sample_mask apply to every pose and the `(time, pose)` time coord survives."""
+    n_time = sample_voxeldata_3dt_pose.sizes["time"]
+    confounds = rng.standard_normal((n_time, 2))
+    sample_mask = np.ones(n_time, dtype=bool)
+    sample_mask[[0, 4, n_time - 1]] = False
+    time_coord = sample_voxeldata_3dt_pose.coords["time"].values
+
     # order=1 to stay within the fixture's 10 timepoints (sosfiltfilt requires
     # more samples than its padlen, which grows with order); cutoffs kept below
     # the fixture's 1 Hz Nyquist frequency (dt=0.5s). clean() mutates filter_kwargs
     # in place, so each call gets its own dict.
+    def run(data):
+        return clean(
+            data,
+            detrend_order=1,
+            low_cutoff=0.05,
+            high_cutoff=0.3 if filter_method == "butterworth" else None,
+            filter_method=filter_method,
+            filter_kwargs={"order": 1} if filter_method == "butterworth" else None,
+            confounds=confounds,
+            sample_mask=sample_mask,
+        )
 
     with pytest.warns(UserWarning) as record:
-        result = clean(
-            sample_voxeldata_3dt_pose,
-            confounds=confounds,
-            low_cutoff=0.05,
-            high_cutoff=0.3,
-            filter_kwargs={"order": 1},
-        )
+        result = run(sample_voxeldata_3dt_pose)
     messages = [str(warning.message) for warning in record]
-    assert any("pose-dependent, so none are attached" in message for message in messages)
-    assert any("regressed from every pose" in message for message in messages)
+    # One alignment warning per NumPy input at entry, none from internal steps.
+    assert sum("cannot be verified" in m for m in messages) == 2
+    assert sum("regressed from every pose" in m for m in messages) == 1
+    assert result.coords["time"].dims == ("time", "pose")
+    assert_allclose(result.coords["time"].values, time_coord[sample_mask])
 
     for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
         with pytest.warns(UserWarning, match="cannot be verified"):
-            expected = clean(
-                sample_voxeldata_3dt_pose.sel(pose=pose),
-                confounds=confounds,
-                low_cutoff=0.05,
-                high_cutoff=0.3,
-                filter_kwargs={"order": 1},
-            )
+            expected = run(sample_voxeldata_3dt_pose.sel(pose=pose))
         xr.testing.assert_allclose(result.sel(pose=pose), expected)

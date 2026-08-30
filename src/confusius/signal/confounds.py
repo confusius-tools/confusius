@@ -15,7 +15,7 @@ import xarray as xr
 
 from confusius._utils.mask import validate_spatial_or_feature_mask
 from confusius._utils.stack import find_stack_level
-from confusius.multipose.timing import build_consolidated_time_coordinate
+from confusius.multipose.timing import consolidate_time_coordinate
 from confusius.signal._utils import remove_zero_variance_voxels
 from confusius.signal.detrending import detrend as detrend_signals
 from confusius.signal.standardization import standardize
@@ -517,17 +517,8 @@ def compute_compcor_confounds(
             # voxels across poses into a single PCA, so replace it with one
             # consolidated whole-array time value per timepoint, using the same
             # reference/duration accounting as consolidate_poses.
-            base_time_coord = xr.DataArray(
-                np.asarray(time_coord.isel(pose=0).values),
-                dims=["time"],
-                attrs=dict(time_coord.attrs),
-            )
             signals_flat = signals_flat.assign_coords(
-                time=build_consolidated_time_coordinate(
-                    base_time_coord,
-                    np.asarray(time_coord.values),
-                    dict(time_coord.attrs),
-                )
+                time=consolidate_time_coordinate(time_coord)
             )
 
     n_voxels = signals_flat.sizes["space"]

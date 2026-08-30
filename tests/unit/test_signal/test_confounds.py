@@ -7,7 +7,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
-from confusius.signal import regress_confounds
+from confusius.signal import compute_compcor_confounds, regress_confounds
 
 
 def test_regress_confounds_basic(make_sample_timeseries):
@@ -309,7 +309,7 @@ def test_regress_confounds_multipose_regresses_every_pose_with_same_confounds(
         result = regress_confounds(sample_voxeldata_3dt_pose, confounds)
     messages = [str(warning.message) for warning in record]
     assert any("regressed from every pose" in message for message in messages)
-    assert any("pose-dependent, so none are attached" in message for message in messages)
+    assert any("cannot be verified" in message for message in messages)
 
     for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
         with pytest.warns(UserWarning, match="cannot be verified"):
@@ -317,6 +317,34 @@ def test_regress_confounds_multipose_regresses_every_pose_with_same_confounds(
                 sample_voxeldata_3dt_pose.sel(pose=pose), confounds
             )
         xr.testing.assert_allclose(result.sel(pose=pose), expected)
+
+
+def test_regress_confounds_multipose_aligns_with_whole_volume_time(
+    sample_voxeldata_3dt_pose,
+):
+    """Test per-volume confounds carry the whole-volume time: CompCor output is
+    accepted without an alignment warning, first-pose timestamps are rejected."""
+    # A "center" reference makes the whole-volume time differ from pose 0's.
+    time_coord = sample_voxeldata_3dt_pose.coords["time"]
+    signals = sample_voxeldata_3dt_pose.assign_coords(
+        time=time_coord.assign_attrs(volume_acquisition_reference="center")
+    )
+    first_pose_time = signals.coords["time"].isel(pose=0, drop=True).values
+
+    confounds = compute_compcor_confounds(
+        signals, variance_threshold=0.5, n_components=2
+    )
+    assert not np.allclose(confounds.coords["time"].values, first_pose_time)
+
+    with pytest.warns(UserWarning, match="regressed from every pose"):
+        result = regress_confounds(signals, confounds)
+    with pytest.warns(UserWarning) as record:
+        expected = regress_confounds(signals, confounds.values)
+    assert sum("cannot be verified" in str(w.message) for w in record) == 1
+    xr.testing.assert_allclose(result, expected)
+
+    with pytest.raises(ValueError, match="time coordinates do not match"):
+        regress_confounds(signals, confounds.assign_coords(time=first_pose_time))
 
 
 def test_regress_confounds_dataarray_without_time_coordinates_warns(

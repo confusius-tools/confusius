@@ -8,6 +8,7 @@ import xarray as xr
 from xarray.core.types import InterpOptions
 
 from confusius._utils.filtering import make_cosine_drift_regressors
+from confusius.multipose.timing import consolidate_time_coordinate
 from confusius.signal.censor import censor_samples, interpolate_samples
 from confusius.signal.confounds import regress_confounds
 from confusius.signal.detrending import detrend as detrend_signals
@@ -72,33 +73,20 @@ def _fill_interpolated_boundary_non_finite(
     boolean_mask = np.asarray(sample_mask.values)
     first_kept = int(np.argmax(boolean_mask))
     last_kept = len(boolean_mask) - int(np.argmax(boolean_mask[::-1])) - 1
-    result = signals
+    n_time = signals.sizes["time"]
 
-    if first_kept > 0:
-        left_boundary = xr.DataArray(
-            np.arange(signals.sizes["time"]) < first_kept,
-            dims=["time"],
-            coords={"time": signals.coords["time"]},
-        )
-        left_fill = signals.isel(time=first_kept).broadcast_like(signals)
-        left_missing = left_boundary & ~xr.apply_ufunc(
-            np.isfinite, result, dask="allowed"
-        )
-        result = xr.where(left_missing, left_fill, result)
-
-    if last_kept < signals.sizes["time"] - 1:
-        right_boundary = xr.DataArray(
-            np.arange(signals.sizes["time"]) > last_kept,
-            dims=["time"],
-            coords={"time": signals.coords["time"]},
-        )
-        right_fill = signals.isel(time=last_kept).broadcast_like(signals)
-        right_missing = right_boundary & ~xr.apply_ufunc(
-            np.isfinite, result, dask="allowed"
-        )
-        result = xr.where(right_missing, right_fill, result)
-
-    return result
+    # Work without the `time` coordinate: a pose-dependent (time, pose) one can
+    # neither sit on the (time,) boundary masks nor survive the broadcasting below.
+    result = signals.drop_vars("time")
+    finite = xr.apply_ufunc(np.isfinite, result, dask="allowed")
+    for boundary, kept in (
+        (np.arange(n_time) < first_kept, first_kept),
+        (np.arange(n_time) > last_kept, last_kept),
+    ):
+        if boundary.any():
+            missing = xr.DataArray(boundary, dims=["time"]) & ~finite
+            result = xr.where(missing, result.isel(time=kept), result)
+    return result.assign_coords(time=signals.coords["time"])
 
 
 def _append_cosine_drift_confounds(
@@ -151,7 +139,10 @@ def _append_cosine_drift_confounds(
     cosine_confounds = xr.DataArray(
         regressors,
         dims=["time", "confound"],
-        coords={"time": signals.coords["time"], "confound": names},
+        coords={
+            "time": consolidate_time_coordinate(signals.coords["time"]).variable,
+            "confound": names,
+        },
     ).reset_coords(drop=True)
 
     if confounds is None:
@@ -259,11 +250,8 @@ def clean(
         coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`); an input without
         `time` coordinates is assumed ordered like `signals` and takes its `time`
         coordinates, with a warning since alignment cannot be verified (see
-        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]). When
-        `signals` carry pose-dependent `(time, pose)` `time` coordinates, confounds
-        stay without `time` coordinates and are Butterworth-filtered at the sampling
-        rate shared by all poses. If not provided, no confound regression is
-        applied.
+        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]). If not
+        provided, no confound regression is applied.
     standardize_confounds : bool, default: True
         Whether to z-score confounds before regression. If `False`, confounds are
         divided by their maximum absolute value for numerical stability without
@@ -315,6 +303,14 @@ def clean(
     UserWarning
         If `confounds` is given and `signals` has a `pose` dimension, since the same
         confounds are regressed from every pose.
+
+    Notes
+    -----
+    Signals with pose-dependent `(time, pose)` `time` coordinates are cleaned pose by
+    pose along `time`. `confounds` and `sample_mask` are per-volume quantities and
+    align with the whole-volume time (see
+    [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]), so the same
+    confounds and mask apply to every pose.
 
     References
     ----------
@@ -405,18 +401,8 @@ def clean(
     if do_filter:
         if filter_method == "butterworth":
             signals = filter_butterworth(signals, **filter_kwargs)
-            if confounds is not None and "time" in confounds.coords:
+            if confounds is not None:
                 confounds = filter_butterworth(confounds, **filter_kwargs)
-            elif confounds is not None:
-                # Pose-dependent signals leave confounds without `time` coordinates
-                # (see ensure_time_aligned). The filter only needs the sampling
-                # rate, which all poses share, so borrow the first pose's timestamps
-                # and drop them again to keep the confounds coordinate-free.
-                first_pose_time = signals.coords["time"].isel(pose=0, drop=True)
-                confounds = filter_butterworth(
-                    confounds.assign_coords(time=first_pose_time.variable),
-                    **filter_kwargs,
-                ).drop_vars("time")
         else:
             assert low_cutoff is not None
             confounds = _append_cosine_drift_confounds(

@@ -172,9 +172,13 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
-- [`clean`][confusius.signal.clean] can now Butterworth-filter NumPy `confounds` for
-  signals with pose-dependent `(time, pose)` `time` coordinates; the confounds are
-  filtered at the sampling rate shared by all poses
+- [`clean`][confusius.signal.clean], [`regress_confounds`][confusius.signal.regress_confounds],
+  [`censor_samples`][confusius.signal.censor_samples], and
+  [`interpolate_samples`][confusius.signal.interpolate_samples] now handle signals with
+  pose-dependent `(time, pose)` `time` coordinates: `confounds` and `sample_mask` are
+  aligned with the whole-volume time (as
+  [`consolidate_poses`][confusius.multipose.consolidate_poses] computes
+  it), NumPy inputs take that time, and signals are interpolated pose by pose
   ([#398](https://github.com/confusius-tools/confusius/pull/398)).
 - `plot_volume`/`plot_composite` now default planar VoxelData arrays to their
   singleton world dimension and preserve singleton display axes for explicit

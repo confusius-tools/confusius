@@ -194,10 +194,30 @@ def test_numpy_mask_with_pose_dependent_time_coordinates(sample_voxeldata_3dt_po
     mask = np.ones(sample_voxeldata_3dt_pose.sizes["time"], dtype=bool)
     mask[[2, 5]] = False
 
-    with pytest.warns(UserWarning, match="pose-dependent, so none are attached"):
+    with pytest.warns(UserWarning, match="cannot be verified"):
         result = censor_samples(sample_voxeldata_3dt_pose, mask)
 
     assert_allclose(result.values, sample_voxeldata_3dt_pose.values[mask])
+
+
+def test_interpolate_pose_dependent_time_matches_per_pose(sample_voxeldata_3dt_pose):
+    """Test `(time, pose)` signals are interpolated pose by pose on their own
+    timestamps and keep the pose-dependent coordinate."""
+    n_time = sample_voxeldata_3dt_pose.sizes["time"]
+    mask = np.ones(n_time, dtype=bool)
+    mask[[0, 4, 5, n_time - 1]] = False
+
+    with pytest.warns(UserWarning, match="cannot be verified"):
+        result = interpolate_samples(sample_voxeldata_3dt_pose, mask)
+
+    assert result.coords["time"].dims == ("time", "pose")
+    assert_allclose(
+        result.coords["time"].values, sample_voxeldata_3dt_pose.coords["time"].values
+    )
+    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
+        with pytest.warns(UserWarning, match="cannot be verified"):
+            expected = interpolate_samples(sample_voxeldata_3dt_pose.sel(pose=pose), mask)
+        assert_allclose(result.sel(pose=pose).values, expected.values)
 
 
 def test_interpolate_rejects_mask_without_time_dimension(make_sample_timeseries):

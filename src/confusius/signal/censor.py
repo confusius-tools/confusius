@@ -121,6 +121,8 @@ def interpolate_samples(
       (`sample_mask=False`) are replaced with interpolated values.
     - Uses `xarray.DataArray.interp` which handles coordinates and Dask arrays
       automatically.
+    - Signals with pose-dependent `(time, pose)` `time` coordinates are interpolated
+      pose by pose, each on its own timestamps, but using the same `sample_mask`.
 
     Examples
     --------
@@ -179,12 +181,21 @@ def interpolate_samples(
         )
         return signals
 
-    kept_signals = signals.isel(time=boolean_mask)
-    result = kept_signals.interp(
-        time=signals.coords["time"], method=method, kwargs=kwargs
-    )
-
-    return result
+    if signals.coords["time"].dims == ("time",):
+        return signals.isel(time=boolean_mask).interp(
+            time=signals.coords["time"], method=method, kwargs=kwargs
+        )
+    # Pose-dependent (time, pose) timestamps: xarray interpolates along a 1D index
+    # only, so interpolate each pose on its own timestamps and reassemble.
+    interpolated = []
+    for pose in range(signals.sizes["pose"]):
+        pose_signals = signals.isel(pose=pose)
+        interpolated.append(
+            pose_signals.isel(time=boolean_mask)
+            .interp(time=pose_signals.coords["time"], method=method, kwargs=kwargs)
+            .data
+        )
+    return signals.copy(data=np.stack(interpolated, axis=signals.get_axis_num("pose")))
 
 
 def censor_samples(
