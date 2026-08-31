@@ -230,9 +230,17 @@ def make_lucide_icon(name: str, color: str, size: int = 16) -> QIcon:
 
 
 def create_export_button(
-    toolbar: QWidget, object_name: str, on_export, text: str = "Export"
+    toolbar: QWidget,
+    object_name: str,
+    on_export,
+    text: str = "Export",
+    tooltip: str = "Export the plotted data.",
 ) -> QToolButton:
-    """Create an export button for a matplotlib toolbar.
+    """Create a themed toolbar button for a matplotlib toolbar.
+
+    Despite the name, this is a generic themed-button factory (icon set
+    separately via [`style_export_button`][confusius._napari._theme.style_export_button]);
+    reused for e.g. a "Pin" button alongside the export button.
 
     Parameters
     ----------
@@ -243,17 +251,19 @@ def create_export_button(
     on_export : callable
         Callback triggered when the button is clicked.
     text : str, default: "Export"
-        Button label shown next to the export icon.
+        Button label shown next to the icon.
+    tooltip : str, default: "Export the plotted data."
+        Tooltip shown on hover.
 
     Returns
     -------
     QToolButton
-        Configured export button.
+        Configured button.
     """
     button = QToolButton(toolbar)
     button.setObjectName(object_name)
     button.setText(text)
-    button.setToolTip("Export the plotted data.")
+    button.setToolTip(tooltip)
     button.setAutoRaise(True)
     button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
     button.clicked.connect(on_export)
@@ -261,18 +271,23 @@ def create_export_button(
     return button
 
 
-def style_export_button(button: QToolButton, colors: dict) -> None:
-    """Apply themed styling to an export button.
+def style_export_button(
+    button: QToolButton, colors: dict, icon_name: str = "download"
+) -> None:
+    """Apply themed styling to a toolbar button built by `create_export_button`.
 
     Parameters
     ----------
     button : QToolButton
-        Export button to style.
+        Button to style.
     colors : dict
         Napari theme color mapping produced by
         [`get_napari_colors`][confusius._napari._theme.get_napari_colors].
+    icon_name : str, default: "download"
+        Stem of the Lucide SVG asset to render, passed to
+        [`make_lucide_icon`][confusius._napari._theme.make_lucide_icon].
     """
-    button.setIcon(make_lucide_icon("download", colors["accent"], size=22))
+    button.setIcon(make_lucide_icon(icon_name, colors["accent"], size=22))
     button.setIconSize(QSize(22, 22))
     button.setToolButtonStyle(
         Qt.ToolButtonStyle.ToolButtonTextBesideIcon

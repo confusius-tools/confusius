@@ -15,7 +15,7 @@ import pytest
 import xarray as xr
 
 from confusius._napari._export import format_export_value
-from confusius._napari._signals._store import SignalStore
+from confusius._napari._signals._store import LiveSignal, SignalStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -780,8 +780,8 @@ class TestTsvExport:
         assert not plotter._export_button.isEnabled()
 
 
-class TestImportedSignalIntegration:
-    def test_overlays_imported_signals_with_live_mouse_plot(
+class TestStoredSignalIntegration:
+    def test_overlays_stored_signals_with_live_mouse_plot(
         self, plotter_with_store, store, tmp_path
     ):
         path = tmp_path / "imported.csv"
@@ -805,7 +805,7 @@ class TestImportedSignalIntegration:
             ["2", "23", "22"],
         ]
 
-    def test_plots_imported_signals_without_live_data(
+    def test_plots_stored_signals_without_live_data(
         self, plotter_with_store, store, tmp_path
     ):
         path = tmp_path / "imported.tsv"
@@ -986,7 +986,7 @@ class TestImportedSignalIntegration:
         store.import_file(path)
 
         plotter_with_store.set_zscore(True)
-        result = plotter_with_store._render_imported_only()
+        result = plotter_with_store._render_stored_only()
 
         assert result is True
         assert len(plotter_with_store._axes.lines) == 1
@@ -1002,7 +1002,7 @@ class TestImportedSignalIntegration:
         store.import_file(path)
 
         plotter_with_store.set_zscore(True)
-        result = plotter_with_store._render_imported_only()
+        result = plotter_with_store._render_stored_only()
 
         assert result is True
         assert len(plotter_with_store._axes.lines) == 1
@@ -1040,3 +1040,146 @@ class TestImportedSignalIntegration:
         store.import_file(path2)
 
         assert call_count["n"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Pinning and the live-signal dedup in _stored_plot_signals
+# ---------------------------------------------------------------------------
+
+
+class TestPinnedSignalDedup:
+    def test_pinned_signal_hidden_while_its_live_origin_is_active(
+        self, plotter_with_store, store
+    ):
+        store.pin_signal(
+            origin="label-3",
+            name="Label 3",
+            x=np.array([0.0, 1.0]),
+            y=np.array([1.0, 2.0]),
+            color="#123456",
+            source_label="Pinned from labels",
+        )
+        store.register_live_signals(
+            [
+                LiveSignal(
+                    id="label-3",
+                    name="Label 3",
+                    color="#123456",
+                    visible=True,
+                    source_type="label",
+                    source_id=3,
+                )
+            ]
+        )
+
+        names = [s.label for s in plotter_with_store._stored_plot_signals()]
+        assert "Label 3" not in names
+
+    def test_pinned_signal_shown_once_its_live_origin_is_no_longer_active(
+        self, plotter_with_store, store
+    ):
+        store.pin_signal(
+            origin="label-3",
+            name="Label 3",
+            x=np.array([0.0, 1.0]),
+            y=np.array([1.0, 2.0]),
+            color="#123456",
+            source_label="Pinned from labels",
+        )
+        # Switching to mouse mode replaces the live set entirely.
+        store.register_live_signals(
+            [
+                LiveSignal(
+                    id="mouse-0",
+                    name="Cursor",
+                    color="#abcdef",
+                    visible=True,
+                    source_type="mouse",
+                    source_id=None,
+                )
+            ]
+        )
+
+        names = [s.label for s in plotter_with_store._stored_plot_signals()]
+        assert "Label 3" in names
+
+    def test_pinned_mouse_voxel_is_never_hidden_by_the_fixed_mouse_id(
+        self, plotter_with_store, store
+    ):
+        # The live mouse signal always has the fixed id "mouse-0", not a per-voxel
+        # id, so a pinned voxel (a distinct "mouse-k-j-i" origin) must stay visible
+        # while hovering elsewhere.
+        store.pin_signal(
+            origin="mouse-1-2-3",
+            name="Pinned voxel",
+            x=np.array([0.0, 1.0]),
+            y=np.array([1.0, 2.0]),
+            color="#123456",
+            source_label="Pinned from mouse",
+        )
+        store.register_live_signals(
+            [
+                LiveSignal(
+                    id="mouse-0",
+                    name="Cursor",
+                    color="#abcdef",
+                    visible=True,
+                    source_type="mouse",
+                    source_id=None,
+                )
+            ]
+        )
+
+        names = [s.label for s in plotter_with_store._stored_plot_signals()]
+        assert "Pinned voxel" in names
+
+
+class TestPinCurrentSignals:
+    def test_pins_every_currently_plotted_live_signal(self, plotter_with_store, store):
+        from confusius._napari._signals._plotter import LivePlotSignal
+
+        plotter_with_store._set_live_plot_signals(
+            [
+                LivePlotSignal(
+                    origin="label-1",
+                    name="Label 1",
+                    x=np.array([0.0, 1.0]),
+                    y=np.array([1.0, 2.0]),
+                    color="#111111",
+                ),
+                LivePlotSignal(
+                    origin="label-2",
+                    name="Label 2",
+                    x=np.array([0.0, 1.0]),
+                    y=np.array([3.0, 4.0]),
+                    color="#222222",
+                ),
+            ]
+        )
+
+        plotter_with_store._pin_current_signals()
+
+        origins = {s.pin_origin for s in store.stored_signals()}
+        assert origins == {"label-1", "label-2"}
+
+    def test_pin_button_disabled_when_no_live_signal_is_plotted(
+        self, plotter_with_store
+    ):
+        plotter_with_store._set_live_plot_signals([])
+        assert plotter_with_store._pin_button.isEnabled() is False
+
+    def test_pin_button_enabled_when_a_live_signal_is_plotted(self, plotter_with_store):
+        from confusius._napari._signals._plotter import LivePlotSignal
+
+        plotter_with_store._set_live_plot_signals(
+            [
+                LivePlotSignal(
+                    origin="label-1",
+                    name="Label 1",
+                    x=np.array([0.0]),
+                    y=np.array([1.0]),
+                    color="#111111",
+                )
+            ]
+        )
+        assert plotter_with_store._pin_button.isEnabled() is True

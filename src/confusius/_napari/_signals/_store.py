@@ -1,4 +1,4 @@
-"""Shared store for imported napari signals."""
+"""Shared store for stored (imported or pinned) napari signals."""
 
 from __future__ import annotations
 
@@ -14,13 +14,18 @@ from qtpy.QtCore import QObject, Signal
 from confusius._napari._utils import CATEGORICAL_COLORS
 from confusius.bids import load_physio
 
-_IMPORTED_SIGNAL_COLORS = CATEGORICAL_COLORS
-"""Palette cycled across imported signal columns."""
+_STORED_SIGNAL_COLORS = CATEGORICAL_COLORS
+"""Palette cycled across stored signal columns."""
 
 
 @dataclass(frozen=True, slots=True)
-class ImportedSignal:
-    """Imported signal stored for overlay in the plotter.
+class StoredSignal:
+    """Persistent signal stored for overlay in the plotter.
+
+    Unlike `LiveSignal`, a stored signal owns its data outright and survives
+    source-mode switches. It either comes from an imported file, or is a
+    snapshot pinned from a live signal (see
+    [`SignalStore.pin_signal`][confusius._napari._signals._store.SignalStore.pin_signal]).
 
     Attributes
     ----------
@@ -37,11 +42,17 @@ class ImportedSignal:
     color : str
         Hex color used for plotting.
     source_label : str
-        Human-readable source description, typically the file name.
-    file_path : pathlib.Path
-        Original imported file.
-    original_column_name : str
-        Column name from the imported file.
+        Human-readable source description (a file name, or e.g. `"Pinned voxel"`).
+    file_path : pathlib.Path | None
+        Original imported file, or `None` for a pinned signal.
+    original_column_name : str | None
+        Column name from the imported file, or `None` for a pinned signal.
+    pin_origin : str | None, optional
+        Identifier of the live signal this was pinned from (e.g. `"label-3"`,
+        `"mouse-12-34-56"`), or `None` for a signal imported from a file.
+        Re-pinning the same origin updates this entry in place instead of
+        creating a duplicate, and a pinned entry is hidden from the plot
+        whenever a live signal with a matching id is currently active.
     """
 
     id: str
@@ -51,17 +62,21 @@ class ImportedSignal:
     visible: bool
     color: str
     source_label: str
-    file_path: Path
-    original_column_name: str
+    file_path: Path | None
+    original_column_name: str | None
+    pin_origin: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class LiveSignal:
     """Live signal backed by a napari layer.
 
-    Unlike `ImportedSignal`, a live signal does not own its data: the plotter extracts
-    it from layers on each update. The store tracks only presentation metadata (name,
-    color, visibility) so the user can customise the plot.
+    Unlike `StoredSignal`, a live signal does not own its data: the plotter extracts
+    it from layers on each update, and it only exists while its source mode is active
+    — switching source modes replaces the whole live set. The store tracks only
+    presentation metadata (name, color, visibility) so the user can customise the
+    plot; to keep a live signal's current values around after switching modes, pin it
+    with [`SignalStore.pin_signal`][confusius._napari._signals._store.SignalStore.pin_signal].
 
     Attributes
     ----------
@@ -88,7 +103,7 @@ class LiveSignal:
 
 
 class SignalStore(QObject):
-    """Store imported and live signals shared between the panel and plotter.
+    """Store stored and live signals shared between the panel and plotter.
 
     The store is the single source of truth for signal presentation metadata (name,
     color, visibility). It is shared between the panel, plotter, and manager dialog.
@@ -104,29 +119,29 @@ class SignalStore(QObject):
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self._imported_signals: list[ImportedSignal] = []
+        self._stored_signals: list[StoredSignal] = []
         self._live_signals: dict[str, LiveSignal] = {}
         self._id_counter: int = 0
 
-    def imported_signals(self) -> list[ImportedSignal]:
-        """Return all imported signals.
+    def stored_signals(self) -> list[StoredSignal]:
+        """Return all stored signals.
 
         Returns
         -------
-        list[ImportedSignal]
-            Imported signals in insertion order.
+        list[StoredSignal]
+            Stored signals in insertion order.
         """
-        return list(self._imported_signals)
+        return list(self._stored_signals)
 
-    def visible_imported_signals(self) -> list[ImportedSignal]:
-        """Return only imported signals marked as visible.
+    def visible_stored_signals(self) -> list[StoredSignal]:
+        """Return only stored signals marked as visible.
 
         Returns
         -------
-        list[ImportedSignal]
-            Visible imported signals.
+        list[StoredSignal]
+            Visible stored signals.
         """
-        return [signal for signal in self._imported_signals if signal.visible]
+        return [signal for signal in self._stored_signals if signal.visible]
 
     def _emit_changed(self, *, plot_data: bool = False) -> None:
         """Emit changed signals.
@@ -141,14 +156,14 @@ class SignalStore(QObject):
         self.changed.emit()
 
     def clear(self) -> None:
-        """Remove all imported signals."""
-        if not self._imported_signals:
+        """Remove all stored signals."""
+        if not self._stored_signals:
             return
-        self._imported_signals.clear()
+        self._stored_signals.clear()
         self._emit_changed(plot_data=True)
 
     def rename_signal(self, signal_id: str, new_name: str) -> None:
-        """Rename one imported signal.
+        """Rename one stored signal.
 
         Parameters
         ----------
@@ -164,11 +179,11 @@ class SignalStore(QObject):
         """
         stripped = new_name.strip()
         if not stripped:
-            raise ValueError("Imported signal name cannot be empty.")
+            raise ValueError("Stored signal name cannot be empty.")
         self._replace_signal(signal_id, name=stripped)
 
     def set_signal_visible(self, signal_id: str, visible: bool) -> None:
-        """Update the visible flag for one imported signal.
+        """Update the visible flag for one stored signal.
 
         Parameters
         ----------
@@ -180,7 +195,7 @@ class SignalStore(QObject):
         self._replace_signal(signal_id, plot_data=True, visible=visible)
 
     def set_signal_color(self, signal_id: str, color: str) -> None:
-        """Update the plot color for one imported signal.
+        """Update the plot color for one stored signal.
 
         Parameters
         ----------
@@ -190,11 +205,11 @@ class SignalStore(QObject):
             Hex color string.
         """
         if not color:
-            raise ValueError("Imported signal color cannot be empty.")
+            raise ValueError("Stored signal color cannot be empty.")
         self._replace_signal(signal_id, color=color)
 
     def remove_signals(self, signal_ids: list[str]) -> None:
-        """Remove selected imported signals.
+        """Remove selected stored signals.
 
         Parameters
         ----------
@@ -205,13 +220,13 @@ class SignalStore(QObject):
             return
 
         ids = set(signal_ids)
-        kept = [signal for signal in self._imported_signals if signal.id not in ids]
-        if len(kept) == len(self._imported_signals):
+        kept = [signal for signal in self._stored_signals if signal.id not in ids]
+        if len(kept) == len(self._stored_signals):
             return
-        self._imported_signals = kept
+        self._stored_signals = kept
         self._emit_changed(plot_data=True)
 
-    def import_file(self, path: Path) -> list[ImportedSignal]:
+    def import_file(self, path: Path) -> list[StoredSignal]:
         """Import one CSV or TSV file into the store.
 
         Parameters
@@ -221,8 +236,8 @@ class SignalStore(QObject):
 
         Returns
         -------
-        list[ImportedSignal]
-            Imported signal created from the file.
+        list[StoredSignal]
+            Signals created from the file.
 
         Raises
         ------
@@ -231,9 +246,74 @@ class SignalStore(QObject):
         """
         frame = self._read_signals_table(path)
         imported = self._signal_from_frame(frame, path)
-        self._imported_signals.extend(imported)
+        self._stored_signals.extend(imported)
         self._emit_changed(plot_data=True)
         return imported
+
+    def pin_signal(
+        self,
+        origin: str,
+        name: str,
+        x: npt.NDArray[np.floating],
+        y: npt.NDArray[np.floating],
+        color: str,
+        source_label: str,
+    ) -> StoredSignal:
+        """Pin a live signal's current values as a persistent stored signal.
+
+        Re-pinning the same `origin` updates that entry's data in place rather than
+        creating a duplicate, so repeatedly pinning e.g. the same label id just
+        refreshes its snapshot (useful after repainting the label mask).
+
+        Parameters
+        ----------
+        origin : str
+            Identifier of the live signal being pinned (e.g. `"label-3"`,
+            `"mouse-12-34-56"`). Matches the corresponding `LiveSignal.id` so the
+            plotter can hide the pinned copy while that live signal is active.
+        name : str
+            Display name for the pinned signal.
+        x : numpy.ndarray
+            Time values.
+        y : numpy.ndarray
+            Signal values.
+        color : str
+            Hex color used for plotting.
+        source_label : str
+            Human-readable description of where this was pinned from.
+
+        Returns
+        -------
+        StoredSignal
+            The created or updated pinned signal.
+        """
+        x = np.asarray(x, dtype=float).copy()
+        y = np.asarray(y, dtype=float).copy()
+
+        for index, signal in enumerate(self._stored_signals):
+            if signal.pin_origin == origin:
+                updated = replace(signal, x=x, y=y)
+                self._stored_signals[index] = updated
+                self._emit_changed(plot_data=True)
+                return updated
+
+        signal_id = f"pinned-{self._id_counter}"
+        self._id_counter += 1
+        pinned = StoredSignal(
+            id=signal_id,
+            name=name,
+            x=x,
+            y=y,
+            visible=True,
+            color=color,
+            source_label=source_label,
+            file_path=None,
+            original_column_name=None,
+            pin_origin=origin,
+        )
+        self._stored_signals.append(pinned)
+        self._emit_changed(plot_data=True)
+        return pinned
 
     def _read_signals_table(self, path: Path) -> pd.DataFrame:
         """Read one CSV or TSV signals table from disk."""
@@ -257,10 +337,8 @@ class SignalStore(QObject):
             return path.suffixes[-2].lower()
         return path.suffix.lower()
 
-    def _signal_from_frame(
-        self, frame: pd.DataFrame, path: Path
-    ) -> list[ImportedSignal]:
-        """Convert a dataframe into imported signal entries."""
+    def _signal_from_frame(self, frame: pd.DataFrame, path: Path) -> list[StoredSignal]:
+        """Convert a dataframe into stored signal entries."""
         if "time" not in frame.columns:
             raise ValueError("Imported file must contain a 'time' column.")
 
@@ -283,12 +361,12 @@ class SignalStore(QObject):
         imported = []
 
         for offset, column in enumerate(value_columns):
-            color = _IMPORTED_SIGNAL_COLORS[
-                (self._id_counter + offset) % len(_IMPORTED_SIGNAL_COLORS)
+            color = _STORED_SIGNAL_COLORS[
+                (self._id_counter + offset) % len(_STORED_SIGNAL_COLORS)
             ]
             signal_id = f"imported-{self._id_counter + offset}"
             imported.append(
-                ImportedSignal(
+                StoredSignal(
                     id=signal_id,
                     name=str(column),
                     x=time_values.copy(),
@@ -447,12 +525,12 @@ class SignalStore(QObject):
         plot_data: bool = False,
         **changes,
     ) -> None:
-        """Replace one imported signal while preserving order."""
-        for index, signal in enumerate(self._imported_signals):
+        """Replace one stored signal while preserving order."""
+        for index, signal in enumerate(self._stored_signals):
             if signal.id != signal_id:
                 continue
-            self._imported_signals[index] = replace(signal, **changes)
+            self._stored_signals[index] = replace(signal, **changes)
             self._emit_changed(plot_data=plot_data)
             return
 
-        raise ValueError(f"Unknown imported signal id: {signal_id!r}.")
+        raise ValueError(f"Unknown stored signal id: {signal_id!r}.")

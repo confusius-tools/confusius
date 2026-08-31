@@ -97,13 +97,13 @@ def test_store_can_rename_toggle_recolor_and_remove_signals(signals_store, signa
     signals_store.set_signal_visible(imported[1].id, False)
     signals_store.set_signal_color(imported[1].id, "#123456")
 
-    updated = signals_store.imported_signals()
+    updated = signals_store.stored_signals()
     assert updated[0].name == "baseline"
     assert updated[1].visible is False
     assert updated[1].color == "#123456"
 
     signals_store.remove_signals([imported[0].id])
-    remaining = signals_store.imported_signals()
+    remaining = signals_store.stored_signals()
     assert len(remaining) == 1
     assert remaining[0].id == imported[1].id
 
@@ -139,10 +139,70 @@ def test_store_generates_unique_ids_after_removal(signals_store, signals_csv, tm
 
 def test_store_clear_removes_all_signals(signals_store, signals_csv):
     signals_store.import_file(signals_csv)
-    assert len(signals_store.imported_signals()) == 2
+    assert len(signals_store.stored_signals()) == 2
 
     signals_store.clear()
-    assert signals_store.imported_signals() == []
+    assert signals_store.stored_signals() == []
+
+
+def test_pin_signal_creates_a_stored_signal_with_matching_origin(signals_store):
+    pinned = signals_store.pin_signal(
+        origin="label-3",
+        name="Label 3",
+        x=np.array([0.0, 1.0]),
+        y=np.array([1.0, 2.0]),
+        color="#123456",
+        source_label="Pinned from labels",
+    )
+
+    assert pinned.pin_origin == "label-3"
+    assert signals_store.stored_signals() == [pinned]
+
+
+def test_repinning_the_same_origin_updates_in_place_instead_of_duplicating(
+    signals_store,
+):
+    signals_store.pin_signal(
+        origin="label-3",
+        name="Label 3",
+        x=np.array([0.0, 1.0]),
+        y=np.array([1.0, 2.0]),
+        color="#123456",
+        source_label="Pinned from labels",
+    )
+    signals_store.pin_signal(
+        origin="label-3",
+        name="Label 3",
+        x=np.array([0.0, 1.0]),
+        y=np.array([9.0, 9.0]),
+        color="#123456",
+        source_label="Pinned from labels",
+    )
+
+    stored = signals_store.stored_signals()
+    assert len(stored) == 1
+    npt.assert_array_equal(stored[0].y, np.array([9.0, 9.0]))
+
+
+def test_pinning_different_origins_creates_separate_signals(signals_store):
+    signals_store.pin_signal(
+        origin="label-1",
+        name="Label 1",
+        x=np.array([0.0]),
+        y=np.array([1.0]),
+        color="#123456",
+        source_label="Pinned from labels",
+    )
+    signals_store.pin_signal(
+        origin="label-2",
+        name="Label 2",
+        x=np.array([0.0]),
+        y=np.array([2.0]),
+        color="#123456",
+        source_label="Pinned from labels",
+    )
+
+    assert len(signals_store.stored_signals()) == 2
 
 
 class TestStoreSignals:
