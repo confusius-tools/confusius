@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -14,6 +15,7 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as Navigation
 from matplotlib.figure import Figure
 from napari.utils.colormaps import DirectLabelColormap
 from napari.utils.colormaps.standardize_color import transform_color
+from napari.utils.key_bindings import coerce_keybinding
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import QSize, QTimer, Signal
 from qtpy.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
@@ -148,6 +150,21 @@ class SignalPlotter(QWidget):
         self._cursor_timer.setInterval(16)  # ms → ~60 fps
         self._cursor_timer.timeout.connect(self._flush_cursor)
 
+        # Throttle mouse-source updates to ~60 fps, leading-edge: process
+        # immediately when the last update was long enough ago (the common case,
+        # zero added latency), and otherwise schedule a single trailing update so
+        # the final cursor position still gets rendered once a fast burst of
+        # events (which would otherwise pile up faster than a redraw completes)
+        # subsides, rather than queuing every intermediate position.
+        self._mouse_update_min_interval_s = 1 / 60
+        self._last_mouse_update_time: float = 0.0
+        self._mouse_update_timer = QTimer(self)
+        self._mouse_update_timer.setSingleShot(True)
+        self._mouse_update_timer.timeout.connect(self._flush_mouse_update)
+
+        # Previous keymap handler displaced by binding Shift, restored on close.
+        self._displaced_shift_key = None
+
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
@@ -216,6 +233,61 @@ class SignalPlotter(QWidget):
         self._viewer.layers.events.inserted.connect(self._on_layer_change)
         self._viewer.layers.events.removed.connect(self._on_layer_change)
         self._viewer.layers.selection.events.active.connect(self._on_layer_change)
+        self._bind_shift_key()
+
+    def _bind_shift_key(self) -> None:
+        """Bind Shift in the napari keymap to plot the signal at the resting cursor.
+
+        Lets the user press Shift while the cursor is already stationary over an
+        image layer, instead of requiring mouse movement while Shift is held.
+        Any handler already bound to Shift is saved first so it can be restored
+        when the plotter closes.
+        """
+        keybinding = coerce_keybinding("Shift")
+        self._displaced_shift_key = self._viewer.keymap.get(keybinding)
+        self._viewer.bind_key("Shift", self._on_shift_pressed, overwrite=True)
+
+    def _unbind_shift_key(self) -> None:
+        """Restore the keymap entry displaced by `_bind_shift_key`."""
+        keybinding = coerce_keybinding("Shift")
+        if self._displaced_shift_key is not None:
+            self._viewer.keymap[keybinding] = self._displaced_shift_key
+        else:
+            self._viewer.keymap.pop(keybinding, None)
+        self._displaced_shift_key = None
+
+    def _on_shift_pressed(self, viewer: napari.Viewer) -> None:
+        """Plot the signal at the current cursor position when Shift is pressed."""
+        if self._source_mode != "mouse":
+            return
+        layer = self._active_layer()
+        if layer is None:
+            return
+        self._current_layer = layer
+        self._cursor_pos = np.array(viewer.cursor.position)
+        self._schedule_mouse_update()
+
+    def _schedule_mouse_update(self) -> None:
+        """Throttle mouse-source plot updates to ~60 updates per second.
+
+        Leading-edge: updates immediately if the minimum interval has already
+        elapsed, otherwise schedules exactly one trailing update for when it
+        will have elapsed, so a fast burst of events collapses to at most one
+        pending update instead of one call per event.
+        """
+        now = time.monotonic()
+        elapsed = now - self._last_mouse_update_time
+        if elapsed >= self._mouse_update_min_interval_s:
+            self._last_mouse_update_time = now
+            self._update_plot()
+        elif not self._mouse_update_timer.isActive():
+            remaining_ms = round((self._mouse_update_min_interval_s - elapsed) * 1000)
+            self._mouse_update_timer.start(max(remaining_ms, 0))
+
+    def _flush_mouse_update(self) -> None:
+        """Run the trailing update scheduled by `_schedule_mouse_update`."""
+        self._last_mouse_update_time = time.monotonic()
+        self._update_plot()
 
     def _get_colors(self) -> dict:
         """Get current theme colors."""
@@ -469,7 +541,7 @@ class SignalPlotter(QWidget):
         self._current_layer = layer
         # Store raw cursor position, rounding happens during data extraction.
         self._cursor_pos = np.array(viewer.cursor.position)
-        self._update_plot()
+        self._schedule_mouse_update()
 
     def _on_layer_change(self, event) -> None:
         """Handle layer insertion/removal or active-layer change events.
@@ -1379,6 +1451,26 @@ class SignalPlotter(QWidget):
         """
         return [ExportSignal(s.label, s.x_values, s.y_values) for s in signals]
 
+    def _set_ylim_from_data(
+        self, ts: np.ndarray, imported_signals: list[PlotSignal]
+    ) -> None:
+        """Autoscale the y-axis from already-extracted arrays.
+
+        Used by the mouse fast path instead of matplotlib's `relim()`/
+        `autoscale_view()`, which re-derive the data extent from every plotted
+        `Line2D` artist on every call — redundant work here since we already hold
+        the live and imported arrays as numpy arrays. Matches matplotlib's default
+        5% autoscale margin.
+        """
+        arrays = [ts, *(s.y_values for s in imported_signals)]
+        y = np.concatenate(arrays) if len(arrays) > 1 else arrays[0]
+        finite = y[np.isfinite(y)]
+        if finite.size == 0:
+            return
+        ymin, ymax = float(finite.min()), float(finite.max())
+        margin = (ymax - ymin) * 0.05 or (abs(ymin) * 0.05 or 0.5)
+        self._axes.set_ylim(ymin - margin, ymax + margin)
+
     def _try_fast_mouse_update(
         self,
         *,
@@ -1419,10 +1511,9 @@ class SignalPlotter(QWidget):
 
         self._update_legend_if_needed(colors, live_label, imported_signals)
 
-        self._axes.relim()
         self._restore_view(saved_xlim, saved_ylim)
         if self._autoscale:
-            self._axes.autoscale_view(scalex=False, scaley=True)
+            self._set_ylim_from_data(ts, imported_signals)
 
         self._has_plot = True
         self._prev_ts_valid = True
@@ -2021,6 +2112,7 @@ class SignalPlotter(QWidget):
         """
         if self._on_mouse_move in self._viewer.mouse_move_callbacks:
             self._viewer.mouse_move_callbacks.remove(self._on_mouse_move)
+        self._unbind_shift_key()
         if self._signals_store is not None:
             try:
                 self._signals_store.plot_data_changed.disconnect(
