@@ -1047,13 +1047,17 @@ class TestStoredSignalIntegration:
 # ---------------------------------------------------------------------------
 
 
-class TestPinnedSignalDedup:
-    def test_pinned_signal_hidden_while_its_live_origin_is_active(
+class TestPinnedSignalAlwaysVisible:
+    def test_pinned_signal_stays_visible_while_its_live_origin_is_active(
         self, plotter_with_store, store
     ):
+        # A pinned signal is a distinct stored entry (see the "(pinned)" name
+        # suffix applied by _pin_current_signals) and must always render — it
+        # must not be silently hidden just because its live origin is still
+        # active, which previously made pinning look like it had no effect.
         store.pin_signal(
             origin="label-3",
-            name="Label 3",
+            name="Label 3 (pinned)",
             x=np.array([0.0, 1.0]),
             y=np.array([1.0, 2.0]),
             color="#123456",
@@ -1073,65 +1077,22 @@ class TestPinnedSignalDedup:
         )
 
         names = [s.label for s in plotter_with_store._stored_plot_signals()]
-        assert "Label 3" not in names
+        assert "Label 3 (pinned)" in names
 
-    def test_pinned_signal_shown_once_its_live_origin_is_no_longer_active(
-        self, plotter_with_store, store
+    def test_legend_shown_for_a_single_stored_signal(
+        self, plotter_with_store, store, tmp_path
     ):
-        store.pin_signal(
-            origin="label-3",
-            name="Label 3",
-            x=np.array([0.0, 1.0]),
-            y=np.array([1.0, 2.0]),
-            color="#123456",
-            source_label="Pinned from labels",
-        )
-        # Switching to mouse mode replaces the live set entirely.
-        store.register_live_signals(
-            [
-                LiveSignal(
-                    id="mouse-0",
-                    name="Cursor",
-                    color="#abcdef",
-                    visible=True,
-                    source_type="mouse",
-                    source_id=None,
-                )
-            ]
-        )
+        # _render_stored_only's title is generic ("Stored Signals"), unlike the
+        # mouse-hover title which already names the voxel, so even a lone line
+        # needs its own legend entry to be identifiable.
+        path = tmp_path / "single.csv"
+        path.write_text("time,a\n0,1\n1,2\n")
+        store.import_file(path)
 
-        names = [s.label for s in plotter_with_store._stored_plot_signals()]
-        assert "Label 3" in names
+        result = plotter_with_store._render_stored_only()
 
-    def test_pinned_mouse_voxel_is_never_hidden_by_the_fixed_mouse_id(
-        self, plotter_with_store, store
-    ):
-        # The live mouse signal always has the fixed id "mouse-0", not a per-voxel
-        # id, so a pinned voxel (a distinct "mouse-k-j-i" origin) must stay visible
-        # while hovering elsewhere.
-        store.pin_signal(
-            origin="mouse-1-2-3",
-            name="Pinned voxel",
-            x=np.array([0.0, 1.0]),
-            y=np.array([1.0, 2.0]),
-            color="#123456",
-            source_label="Pinned from mouse",
-        )
-        store.register_live_signals(
-            [
-                LiveSignal(
-                    id="mouse-0",
-                    name="Cursor",
-                    color="#abcdef",
-                    visible=True,
-                    source_type="mouse",
-                    source_id=None,
-                )
-            ]
-        )
-
-        names = [s.label for s in plotter_with_store._stored_plot_signals()]
-        assert "Pinned voxel" in names
+        assert result is True
+        assert plotter_with_store._axes.get_legend() is not None
 
 
 class TestPinCurrentSignals:

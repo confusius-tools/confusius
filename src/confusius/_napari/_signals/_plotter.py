@@ -991,9 +991,9 @@ class SignalPlotter(QWidget):
         """Return a pin origin key identifying the voxel at the cursor.
 
         Distinct per voxel (unlike the mouse `LiveSignal.id`, which is the fixed
-        `"mouse-0"`), so pinned voxels are never hidden by the live-signal dedup in
-        [_stored_plot_signals][confusius._napari._signals._plotter.SignalPlotter._stored_plot_signals]
-        while hovering — only re-pinning the exact same voxel updates it in place.
+        `"mouse-0"`), so pinning two different voxels creates two separate stored
+        signals — only re-pinning the exact same voxel updates it in place (see
+        [SignalStore.pin_signal][confusius._napari._signals._store.SignalStore.pin_signal]).
         """
         indices = [round(x) for x in layer.world_to_data(cursor_pos)]
         xaxis_index = self._xaxis_dim_index(layer)
@@ -1006,17 +1006,7 @@ class SignalPlotter(QWidget):
         self._pin_button.setEnabled(bool(signals))
 
     def _pin_current_signals(self) -> None:
-        """Pin every currently plotted live signal into the store as stored signals.
-
-        A pinned entry is hidden from the plot while a live signal with the same
-        origin is still active (see
-        [_stored_plot_signals][confusius._napari._signals._plotter.SignalPlotter._stored_plot_signals]),
-        so pinning without changing source mode or hiding the live signal has no
-        immediately visible effect on the plot itself — it will appear once you
-        switch away, hide the live signal, or the live source (e.g. a repainted
-        label) diverges from the snapshot. It always shows up in the Signal
-        Manager right away.
-        """
+        """Pin every currently plotted live signal into the store as stored signals."""
         if self._signals_store is None or not self._live_plot_signals:
             return
         for signal in self._live_plot_signals:
@@ -1488,21 +1478,9 @@ class SignalPlotter(QWidget):
         return ", ".join(coord_parts)
 
     def _stored_plot_signals(self) -> list[PlotSignal]:
-        """Return stored signals prepared for plotting and export.
-
-        A pinned signal (`pin_origin` set) is skipped while a live signal with a
-        matching id is currently active, so pinning e.g. a label mean doesn't show
-        a duplicate line while that same label is live in the Labels source mode.
-        """
-        live_ids = (
-            {s.id for s in self._signals_store.live_signals()}
-            if self._signals_store is not None
-            else set()
-        )
+        """Return stored signals prepared for plotting and export."""
         plotted = []
         for signals in self._visible_stored_signals():
-            if signals.pin_origin is not None and signals.pin_origin in live_ids:
-                continue
             x_values = np.asarray(signals.x).copy()
             y_values = np.asarray(signals.y, dtype=float).copy()
             if self._zscore:
@@ -1686,7 +1664,9 @@ class SignalPlotter(QWidget):
             xlabel,
             "Z-score" if self._zscore else "Value",
             "Stored Signals",
-            with_legend=len(stored_signals) > 1,
+            # Unlike the mouse-hover title (which already names the voxel), this
+            # generic title doesn't identify a lone line, so always show the legend.
+            with_legend=bool(stored_signals),
         )
         self._restore_view(saved_xlim, saved_ylim)
         self._has_plot = True

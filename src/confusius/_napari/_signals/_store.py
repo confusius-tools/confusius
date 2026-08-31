@@ -51,8 +51,7 @@ class StoredSignal:
         Identifier of the live signal this was pinned from (e.g. `"label-3"`,
         `"mouse-12-34-56"`), or `None` for a signal imported from a file.
         Re-pinning the same origin updates this entry in place instead of
-        creating a duplicate, and a pinned entry is hidden from the plot
-        whenever a live signal with a matching id is currently active.
+        creating a duplicate.
     """
 
     id: str
@@ -269,8 +268,8 @@ class SignalStore(QObject):
         ----------
         origin : str
             Identifier of the live signal being pinned (e.g. `"label-3"`,
-            `"mouse-12-34-56"`). Matches the corresponding `LiveSignal.id` so the
-            plotter can hide the pinned copy while that live signal is active.
+            `"mouse-12-34-56"`), matching the corresponding `LiveSignal.id` where
+            applicable. Used only to detect re-pinning the same source.
         name : str
             Display name for the pinned signal.
         x : numpy.ndarray
