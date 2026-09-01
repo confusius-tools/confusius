@@ -500,7 +500,9 @@ class RegistrationPanel(QWidget):
         )
         operation_layout.addRow(self._moving_label, self._moving_combo)
 
-        self._reference_time_label = QLabel("Reference time index (moving layer)")
+        # Kept short: QFormLayout sizes its label column to the widest label, so a
+        # long one here widens the whole panel and wraps the Mode row's radio pair.
+        self._reference_time_label = QLabel("Reference time")
         self._reference_time_spin = QSpinBox()
         self._reference_time_spin.setMinimum(0)
         self._reference_time_spin.setMaximumWidth(64)
@@ -508,16 +510,6 @@ class RegistrationPanel(QWidget):
             "Time index of the moving layer used as the registration target for within-scan motion correction."
         )
         operation_layout.addRow(self._reference_time_label, self._reference_time_spin)
-
-        self._volumewise_use_fixed_check = QCheckBox("Use a fixed layer")
-        self._volumewise_use_fixed_check.setToolTip(
-            "Register every frame to the Fixed layer below instead of a time index of "
-            "the moving layer."
-        )
-        self._volumewise_use_fixed_check.toggled.connect(
-            self._on_volumewise_fixed_toggled
-        )
-        operation_layout.addRow(self._volumewise_use_fixed_check)
 
         self._moving_mask_combo = QComboBox()
         self._moving_mask_combo.setSizeAdjustPolicy(
@@ -564,7 +556,24 @@ class RegistrationPanel(QWidget):
         self._fixed_label.setToolTip(
             "Reference layer that defines the registration target grid."
         )
-        operation_layout.addRow(self._fixed_label, self._fixed_combo)
+        # Within-scan makes the fixed layer optional, so the checkbox takes the
+        # label's place there; only one of the two is ever visible.
+        self._volumewise_use_fixed_check = QCheckBox("Fixed layer")
+        self._volumewise_use_fixed_check.setToolTip(
+            "Register every frame to this layer instead of a time index of the "
+            "moving layer."
+        )
+        self._volumewise_use_fixed_check.toggled.connect(
+            self._on_volumewise_fixed_toggled
+        )
+        fixed_label_row = QHBoxLayout()
+        fixed_label_row.setContentsMargins(0, 0, 0, 0)
+        fixed_label_row.setSpacing(0)
+        fixed_label_row.addWidget(self._fixed_label)
+        fixed_label_row.addWidget(self._volumewise_use_fixed_check)
+        self._fixed_label_row = QWidget()
+        self._fixed_label_row.setLayout(fixed_label_row)
+        operation_layout.addRow(self._fixed_label_row, self._fixed_combo)
 
         self._fixed_mask_combo = QComboBox()
         self._fixed_mask_combo.setSizeAdjustPolicy(
@@ -1540,11 +1549,11 @@ class RegistrationPanel(QWidget):
         is_volumewise = self._operation() == "register_volumewise"
         use_fixed = is_volumewise and self._volumewise_use_fixed_check.isChecked()
         fixed_enabled = not is_volumewise or use_fixed
-        self._fixed_label.setEnabled(fixed_enabled)
+        self._fixed_label.setVisible(not is_volumewise)
+        self._volumewise_use_fixed_check.setVisible(is_volumewise)
         self._fixed_combo.setEnabled(fixed_enabled)
         self._fixed_scale_label.setEnabled(fixed_enabled)
         self._fixed_scale_combo.setEnabled(fixed_enabled)
-        self._volumewise_use_fixed_check.setVisible(is_volumewise)
         self._reference_time_label.setVisible(is_volumewise)
         self._reference_time_spin.setVisible(is_volumewise)
         self._reference_time_label.setEnabled(not use_fixed)

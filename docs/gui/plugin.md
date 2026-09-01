@@ -369,9 +369,9 @@ Use **Within-scan** for motion correction inside a single time series.
 
 1. Switch **Mode** to **Within-scan**.
 2. Select the time-series **Moving layer**.
-3. Choose the **Reference time index (moving layer)** used as the registration target,
-   or check **Use a fixed layer** and select a spatial-only layer on the same grid in
-   **Fixed layer** instead (for example the mean of a few low-motion frames).
+3. Choose the moving layer's **Reference time** index used as the registration target,
+   or tick **Fixed layer** and select a spatial-only layer on the same grid instead
+   (for example the mean of a few low-motion frames).
 4. Pick a transform model (`translation`, `rigid`, or `affine`).
 5. Click **Run registration**.
 
@@ -379,11 +379,11 @@ Use **Within-scan** for motion correction inside a single time series.
 
 | Parameter | What it does | When it is useful |
 |---|---|---|
-| **Reference time index (moving layer)** | Chooses the time index of the moving layer used as the motion-correction target. Inactive while **Use a fixed layer** is checked. | Pick a representative, sharp frame with little motion. |
-| **Use a fixed layer** / **Fixed layer** | Registers every frame to the selected spatial-only layer on the same grid instead of a time index. The **Fixed layer** selector is inactive until the box is checked. | Use a more stable target than any single frame, for example the mean of a few low-motion frames. |
+| **Reference time** | Chooses the moving layer's time index used as the motion-correction target. Inactive while **Fixed layer** is ticked. | Pick a representative, sharp frame with little motion. |
+| **Fixed layer** | Registers every frame to the selected spatial-only layer on the same grid instead of a time index. Its selector is inactive until the box is ticked. | Use a more stable target than any single frame, for example the mean of a few low-motion frames. |
 | **Transform** | Chooses the volume-wise motion model. | `rigid` is the safest starting point; `affine` is available when motion is more complex. |
 | **Metric** | Chooses the volume-to-reference similarity criterion. | `correlation` is usually a good default for within-recording motion correction. |
-| **Fixed / Moving intensity scaling** | Applies optional intensity scaling (`decibel`, `square root`, or `none`) to the fixed layer and to every frame, only for the optimizer. The fixed scaling only appears with **Use a fixed layer**; the reference frame uses the moving scaling. | Useful when an intensity transform makes anatomy more stable across time for the optimizer, or when the fixed layer is on a different intensity scale than the recording. |
+| **Fixed / Moving intensity scaling** | Applies optional intensity scaling (`decibel`, `square root`, or `none`) to the fixed layer and to every frame, only for the optimizer. The fixed scaling is only active with **Fixed layer** ticked; the reference frame uses the moving scaling. | Useful when an intensity transform makes anatomy more stable across time for the optimizer, or when the fixed layer is on a different intensity scale than the recording. |
 | **Initialization** | Sets the initial volume-wise centering transform. | Most runs can use no initialization. |
 | **Learning rate** | Sets the optimizer step size for each frame. | Within-scan uses a fixed value here; the default is `0.01`. Reduce it if updates look unstable; increase it if frames are already close and convergence is too slow. |
 | **Iterations** | Maximum optimizer steps per frame. | Increase it for harder motion or more flexible transforms. |
