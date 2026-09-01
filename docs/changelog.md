@@ -37,6 +37,9 @@ Current development version for the next ConfUSIus release.
   `data.fusi.register.volumewise` accept a `fixed` VoxelData volume (for example the
   mean of a few low-motion frames) to register every frame to, as an alternative to
   `reference_time` ([#436](https://github.com/confusius-tools/confusius/pull/436)).
+- New [`get_bounding_box`][confusius.xarray.get_bounding_box] returning a VoxelData
+  array's world-space bounding box, one per pose for pose-dependent geometry
+  ([#445](https://github.com/confusius-tools/confusius/pull/445)).
 
 ### :zap: Performance
 
@@ -80,6 +83,9 @@ Released 2026-09-16.
 
 ### :zap: Performance
 
+- [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] with `clip=True` no longer
+  materializes the full world-coordinate grid of an oblique atlas
+  ([#445](https://github.com/confusius-tools/confusius/pull/445)).
 - [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
   longer computes a full SVD, extracting components several times faster on
   large recordings or broad noise masks
