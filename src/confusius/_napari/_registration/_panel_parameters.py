@@ -95,7 +95,7 @@ def get_registration_parameters(panel: RegistrationPanel) -> ModeParameters:
         "fill_value_auto": panel._fill_value_auto_check.isChecked(),
         "fill_value": panel._fill_value_spin.value(),
         "reference_time": panel._reference_time_spin.value(),
-        "volumewise_use_fixed": panel._volumewise_use_fixed_check.isChecked(),
+        "volumewise_use_fixed": panel._fixed_layer_radio.isChecked(),
         "n_jobs": panel._n_jobs_spin.value(),
         "sitk_threads": panel._sitk_threads_spin.value(),
         "optimizer_weights_enabled": panel._optimizer_weights_check.isChecked(),
@@ -169,7 +169,12 @@ def set_registration_parameters(
     panel._fill_value_auto_check.setChecked(params["fill_value_auto"])
     panel._fill_value_spin.setValue(params["fill_value"])
     panel._reference_time_spin.setValue(params["reference_time"])
-    panel._volumewise_use_fixed_check.setChecked(params["volumewise_use_fixed"])
+    # The two target radios are exclusive, so the unwanted one cannot just be
+    # unchecked: check the wanted one and Qt clears the other.
+    if params["volumewise_use_fixed"]:
+        panel._fixed_layer_radio.setChecked(True)
+    else:
+        panel._reference_time_radio.setChecked(True)
     panel._n_jobs_spin.setValue(params["n_jobs"])
     panel._sitk_threads_spin.setValue(params["sitk_threads"])
     panel._keep_diagnostics_check.setChecked(params["keep_diagnostics"])

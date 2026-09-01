@@ -213,28 +213,32 @@ class TestOperationMode:
         assert registration_panel._reference_time_spin.isEnabled()
         assert not registration_panel._n_jobs_row.isHidden()
 
-    def test_volumewise_fixed_toggle_swaps_active_target(self, registration_panel):
-        assert registration_panel._volumewise_use_fixed_check.isHidden()
+    def test_volumewise_target_radios_swap_active_input(self, registration_panel):
+        assert registration_panel._fixed_layer_radio.isHidden()
 
         registration_panel._time_series_radio.setChecked(True)
 
-        assert not registration_panel._volumewise_use_fixed_check.isHidden()
+        assert not registration_panel._fixed_layer_radio.isHidden()
+        assert registration_panel._reference_time_radio.isChecked()
         assert not registration_panel._fixed_combo.isEnabled()
         assert not registration_panel._fixed_scale_combo.isEnabled()
         assert registration_panel._reference_time_spin.isEnabled()
 
-        registration_panel._volumewise_use_fixed_check.setChecked(True)
+        registration_panel._fixed_layer_radio.setChecked(True)
 
+        # Selecting one target clears the other, and only its input stays active.
+        assert not registration_panel._reference_time_radio.isChecked()
         assert registration_panel._fixed_combo.isEnabled()
         assert registration_panel._fixed_scale_combo.isEnabled()
         assert not registration_panel._reference_time_spin.isEnabled()
-        assert not registration_panel._reference_time_label.isEnabled()
-        # Both targets stay on screen; only one of them is active.
+        # Both radios stay on screen and usable, so either target can be picked.
+        assert registration_panel._reference_time_radio.isEnabled()
         assert not registration_panel._fixed_combo.isHidden()
         assert not registration_panel._reference_time_spin.isHidden()
 
-        registration_panel._volumewise_use_fixed_check.setChecked(False)
+        registration_panel._reference_time_radio.setChecked(True)
 
+        assert not registration_panel._fixed_layer_radio.isChecked()
         assert not registration_panel._fixed_combo.isEnabled()
         assert not registration_panel._fixed_scale_combo.isEnabled()
         assert registration_panel._reference_time_spin.isEnabled()
@@ -244,7 +248,7 @@ class TestOperationMode:
     ):
         """Within-scan rows read moving layer, reference time, then fixed layer."""
         registration_panel._time_series_radio.setChecked(True)
-        operation_group = registration_panel._reference_time_label.parentWidget()
+        operation_group = registration_panel._reference_time_radio.parentWidget()
         operation_layout = operation_group.layout()
         assert isinstance(operation_layout, QFormLayout)
 
@@ -254,45 +258,57 @@ class TestOperationMode:
 
         assert (
             _row(registration_panel._moving_label)
-            < _row(registration_panel._reference_time_label)
+            < _row(registration_panel._reference_time_radio)
             < _row(registration_panel._fixed_label_row)
         )
-        # The fixed toggle labels its own combo box instead of taking a row.
+        # Each target radio labels its own input instead of taking a row.
+        assert _row(registration_panel._reference_time_radio) == _row(
+            registration_panel._reference_time_spin
+        )
         assert _row(registration_panel._fixed_label_row) == _row(
             registration_panel._fixed_combo
         )
         assert (
-            registration_panel._volumewise_use_fixed_check.parentWidget()
+            registration_panel._fixed_layer_radio.parentWidget()
             is registration_panel._fixed_label_row
         )
 
-    def test_switching_to_within_scan_does_not_widen_panel(self, registration_panel):
-        # Regression test: a label wider than the between-scan ones grows
-        # QFormLayout's label column, which wraps the Mode row's radio pair.
+    def test_mode_radios_stay_beside_their_label_in_both_modes(
+        self, registration_panel
+    ):
+        """The Mode row never wraps, whatever the active mode's labels are.
+
+        Regression test: the mode radios used to sit in the form's shared label
+        column, so a wider within-scan label pushed them onto their own line.
+        """
         registration_panel.show()
+        registration_panel.resize(registration_panel.minimumSizeHint().width(), 900)
         QApplication.processEvents()
-        between_scan_width = registration_panel.sizeHint().width()
+        mode_label = (
+            registration_panel._single_volume_radio.parentWidget().layout().itemAt(0)
+        ).widget()
+        assert mode_label.text() == "Mode"
+
+        assert mode_label.y() == registration_panel._single_volume_radio.y()
 
         registration_panel._time_series_radio.setChecked(True)
         QApplication.processEvents()
 
-        # A long within-scan label widens QFormLayout's shared label column: at
-        # ~130px extra it pushed the Mode row's radio buttons onto their own line.
-        assert registration_panel.sizeHint().width() <= between_scan_width + 16
+        assert mode_label.y() == registration_panel._single_volume_radio.y()
 
     def test_volumewise_fixed_choice_survives_mode_switch(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
-        registration_panel._volumewise_use_fixed_check.setChecked(True)
+        registration_panel._fixed_layer_radio.setChecked(True)
 
         registration_panel._single_volume_radio.setChecked(True)
 
-        assert registration_panel._volumewise_use_fixed_check.isHidden()
+        assert registration_panel._fixed_layer_radio.isHidden()
         assert registration_panel._reference_time_spin.isHidden()
         assert registration_panel._fixed_combo.isEnabled()
 
         registration_panel._time_series_radio.setChecked(True)
 
-        assert registration_panel._volumewise_use_fixed_check.isChecked()
+        assert registration_panel._fixed_layer_radio.isChecked()
         assert registration_panel._fixed_combo.isEnabled()
         assert not registration_panel._reference_time_spin.isEnabled()
 
@@ -916,7 +932,7 @@ class TestRunRegistration:
         registration_panel._refresh_layers()
         registration_panel._time_series_radio.setChecked(True)
         registration_panel._moving_combo.setCurrentText("moving")
-        registration_panel._volumewise_use_fixed_check.setChecked(True)
+        registration_panel._fixed_layer_radio.setChecked(True)
         registration_panel._fixed_combo.setCurrentText("target")
         registration_panel._scale_combo.setCurrentText("square root")
         registration_panel._fixed_scale_combo.setCurrentText("none")
@@ -1004,7 +1020,35 @@ class TestValidation:
             in registration_panel._layer_validation.text()
         )
 
-    def test_within_scan_fixed_toggle_requires_fixed_layer(
+    def test_within_scan_fixed_target_requires_fixed_layer(
+        self, viewer, registration_panel, sample_voxeldata_3dt, sample_voxeldata_3d
+    ):
+        viewer.add_image(
+            sample_voxeldata_3dt.values,
+            name="moving",
+            metadata={"xarray": sample_voxeldata_3dt},
+        )
+        viewer.add_image(
+            sample_voxeldata_3d.values,
+            name="target",
+            metadata={"xarray": sample_voxeldata_3d},
+        )
+        registration_panel._refresh_layers()
+        registration_panel._time_series_radio.setChecked(True)
+        registration_panel._moving_combo.setCurrentText("moving")
+        registration_panel._fixed_layer_radio.setChecked(True)
+        registration_panel._fixed_combo.setCurrentIndex(-1)
+
+        assert not registration_panel._validate_registration_selection()
+        assert not registration_panel._run_btn.isEnabled()
+        assert "Select a fixed layer" in registration_panel._layer_validation.text()
+
+        registration_panel._fixed_combo.setCurrentText("target")
+
+        assert registration_panel._validate_registration_selection()
+        assert registration_panel._run_btn.isEnabled()
+
+    def test_within_scan_rejects_fixed_layer_with_time_dimension(
         self, viewer, registration_panel, sample_voxeldata_3dt
     ):
         viewer.add_image(
@@ -1012,20 +1056,29 @@ class TestValidation:
             name="moving",
             metadata={"xarray": sample_voxeldata_3dt},
         )
+        viewer.add_image(
+            sample_voxeldata_3dt.values,
+            name="other series",
+            metadata={"xarray": sample_voxeldata_3dt},
+        )
         registration_panel._refresh_layers()
         registration_panel._time_series_radio.setChecked(True)
         registration_panel._moving_combo.setCurrentText("moving")
-        registration_panel._volumewise_use_fixed_check.setChecked(True)
-        registration_panel._fixed_combo.setCurrentIndex(-1)
+        registration_panel._fixed_layer_radio.setChecked(True)
+        registration_panel._fixed_combo.setCurrentText("other series")
 
         assert not registration_panel._validate_registration_selection()
         assert not registration_panel._run_btn.isEnabled()
-        assert "Select a fixed layer" in registration_panel._layer_validation.text()
+        assert (
+            "without a time dimension" in registration_panel._layer_validation.text()
+        )
+        assert "border" in registration_panel._fixed_combo.styleSheet()
 
-        registration_panel._fixed_combo.setCurrentText("moving")
+        # The reference-time target has no such restriction.
+        registration_panel._reference_time_radio.setChecked(True)
 
         assert registration_panel._validate_registration_selection()
-        assert registration_panel._run_btn.isEnabled()
+        assert registration_panel._fixed_combo.styleSheet() == ""
 
     def test_between_scans_accepts_time_series_by_averaging(
         self, viewer, registration_panel, sample_voxeldata_3dt

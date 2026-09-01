@@ -471,20 +471,27 @@ class RegistrationPanel(QWidget):
 
         self._mode_group = QButtonGroup(self)
         mode_row = QHBoxLayout()
+        mode_row.setContentsMargins(0, 0, 0, 0)
         self._single_volume_radio = QRadioButton("Between scans")
         self._time_series_radio = QRadioButton("Within-scan")
         self._single_volume_radio.setChecked(True)
         self._mode_group.addButton(self._single_volume_radio)
         self._mode_group.addButton(self._time_series_radio)
-        mode_row.addWidget(self._single_volume_radio)
-        mode_row.addWidget(self._time_series_radio)
-        operation_layout.addRow(
+        mode_row.addWidget(
             self._make_form_label(
                 "Mode",
                 tooltip="Registration workflow. Use 'Between scans' for moving/fixed registration and 'Within-scan' for frame-to-reference motion correction.",
-            ),
-            mode_row,
+            )
         )
+        mode_row.addWidget(self._single_volume_radio)
+        mode_row.addWidget(self._time_series_radio)
+        mode_row.addStretch()
+        # Spanning row: keeping the mode radios out of the form's shared label
+        # column stops a wide label further down from wrapping them onto their
+        # own line.
+        mode_container = QWidget()
+        mode_container.setLayout(mode_row)
+        operation_layout.addRow(mode_container)
 
         self._moving_label = QLabel("Moving layer")
         self._moving_combo = QComboBox()
@@ -502,14 +509,14 @@ class RegistrationPanel(QWidget):
 
         # Kept short: QFormLayout sizes its label column to the widest label, so a
         # long one here widens the whole panel and wraps the Mode row's radio pair.
-        self._reference_time_label = QLabel("Reference time")
+        self._reference_time_radio = QRadioButton("Reference time")
         self._reference_time_spin = QSpinBox()
         self._reference_time_spin.setMinimum(0)
         self._reference_time_spin.setMaximumWidth(64)
-        self._reference_time_label.setToolTip(
+        self._reference_time_radio.setToolTip(
             "Time index of the moving layer used as the registration target for within-scan motion correction."
         )
-        operation_layout.addRow(self._reference_time_label, self._reference_time_spin)
+        operation_layout.addRow(self._reference_time_radio, self._reference_time_spin)
 
         self._moving_mask_combo = QComboBox()
         self._moving_mask_combo.setSizeAdjustPolicy(
@@ -556,21 +563,25 @@ class RegistrationPanel(QWidget):
         self._fixed_label.setToolTip(
             "Reference layer that defines the registration target grid."
         )
-        # Within-scan makes the fixed layer optional, so the checkbox takes the
-        # label's place there; only one of the two is ever visible.
-        self._volumewise_use_fixed_check = QCheckBox("Fixed layer")
-        self._volumewise_use_fixed_check.setToolTip(
+        # Within-scan picks one of two targets, so a radio button takes the label's
+        # place there; only one of the two is ever visible.
+        self._fixed_layer_radio = QRadioButton("Fixed layer")
+        self._fixed_layer_radio.setToolTip(
             "Register every frame to this layer instead of a time index of the "
             "moving layer."
         )
-        self._volumewise_use_fixed_check.toggled.connect(
-            self._on_volumewise_fixed_toggled
-        )
+        # An explicit group: the two target radios have different parent widgets,
+        # so Qt's sibling auto-exclusivity would not pair them.
+        self._volumewise_target_group = QButtonGroup(self)
+        self._volumewise_target_group.addButton(self._reference_time_radio)
+        self._volumewise_target_group.addButton(self._fixed_layer_radio)
+        self._reference_time_radio.setChecked(True)
+        self._fixed_layer_radio.toggled.connect(self._on_volumewise_fixed_toggled)
         fixed_label_row = QHBoxLayout()
         fixed_label_row.setContentsMargins(0, 0, 0, 0)
         fixed_label_row.setSpacing(0)
         fixed_label_row.addWidget(self._fixed_label)
-        fixed_label_row.addWidget(self._volumewise_use_fixed_check)
+        fixed_label_row.addWidget(self._fixed_layer_radio)
         self._fixed_label_row = QWidget()
         self._fixed_label_row.setLayout(fixed_label_row)
         operation_layout.addRow(self._fixed_label_row, self._fixed_combo)
@@ -1547,16 +1558,15 @@ class RegistrationPanel(QWidget):
     def _update_volumewise_target_state(self) -> None:
         """Enable the fixed-layer or the reference-time target widgets, not both."""
         is_volumewise = self._operation() == "register_volumewise"
-        use_fixed = is_volumewise and self._volumewise_use_fixed_check.isChecked()
+        use_fixed = is_volumewise and self._fixed_layer_radio.isChecked()
         fixed_enabled = not is_volumewise or use_fixed
         self._fixed_label.setVisible(not is_volumewise)
-        self._volumewise_use_fixed_check.setVisible(is_volumewise)
+        self._fixed_layer_radio.setVisible(is_volumewise)
         self._fixed_combo.setEnabled(fixed_enabled)
         self._fixed_scale_label.setEnabled(fixed_enabled)
         self._fixed_scale_combo.setEnabled(fixed_enabled)
-        self._reference_time_label.setVisible(is_volumewise)
+        self._reference_time_radio.setVisible(is_volumewise)
         self._reference_time_spin.setVisible(is_volumewise)
-        self._reference_time_label.setEnabled(not use_fixed)
         self._reference_time_spin.setEnabled(not use_fixed)
 
     def _on_volumewise_fixed_toggled(self, checked: bool) -> None:
@@ -1849,7 +1859,7 @@ class RegistrationPanel(QWidget):
                 self._set_error(f"Unknown transform model: {transform!r}.")
                 return
 
-            use_fixed = self._volumewise_use_fixed_check.isChecked()
+            use_fixed = self._fixed_layer_radio.isChecked()
             fixed_dataarray = None
             fixed_layer_name = None
             fixed_scale_mode = None
