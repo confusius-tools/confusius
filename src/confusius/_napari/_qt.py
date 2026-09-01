@@ -17,12 +17,9 @@ class _NoScrollWheelFilter(QObject):
     """Forward wheel events to the enclosing scroll area instead of the control.
 
     Without this, scrolling the sidebar with the cursor over a combo box or spin
-    box changes that control's value instead of scrolling the sidebar — installed
+    box changes that control's value instead of scrolling the sidebar. Installed
     on every such control so the whole scroll area behaves like one continuous
-    surface. Unconditional (regardless of focus): these controls are also
-    reachable via their up/down arrows or by typing, so trading away
-    wheel-to-adjust entirely removes any risk of the sidebar scroll still being
-    hijacked by a control that Qt considers focused.
+    surface.
     """
 
     def eventFilter(self, watched: QObject | None, event: QEvent | None) -> bool:  # type: ignore
