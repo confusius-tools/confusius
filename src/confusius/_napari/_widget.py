@@ -31,6 +31,7 @@ from qtpy.QtWidgets import (
 
 from confusius._napari._events._store import EventStore
 from confusius._napari._qt import install_no_scroll_wheel_filter
+from confusius._napari._signals._store import SignalStore
 from confusius._napari._theme import make_lucide_icon
 from confusius._napari._time_overlay import _TimeOverlay
 from confusius._utils.colors import RED, RED_DARK
@@ -255,6 +256,10 @@ class ConfUSIusWidget(QWidget):
         # Shared store of BIDS temporal events, used by the event panel, the signal
         # plotter (background shading) and the time overlay (active-event readout).
         self._event_store = EventStore(self)
+        # Shared store of stored/live signals, used by the Signals panel (source of
+        # truth) and the QC panel (adds computed DVARS traces so they're selectable
+        # elsewhere, e.g. as a scrubbing sample mask).
+        self._signal_store = SignalStore(self)
         self._apply_theme()
         self._setup_ui()
         self.viewer.events.theme.connect(self._on_theme_changed)
@@ -555,10 +560,14 @@ class ConfUSIusWidget(QWidget):
         panels = [
             data_panel,
             video_panel,
-            SignalPanel(self.viewer, event_store=self._event_store),
+            SignalPanel(
+                self.viewer,
+                event_store=self._event_store,
+                signal_store=self._signal_store,
+            ),
             RegistrationPanel(self.viewer),
             EventPanel(self.viewer, self._event_store),
-            QCPanel(self.viewer),
+            QCPanel(self.viewer, signal_store=self._signal_store),
         ]
         btns: list[QPushButton] = []
 
