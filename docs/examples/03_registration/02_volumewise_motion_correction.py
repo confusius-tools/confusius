@@ -68,12 +68,15 @@ data
 # any spatial-only volume on the same grid as `fixed`, for example the mean of a few
 # low-motion frames. Here, we're trying to correct for rigid motion, that is,
 # translation and rotations. The default learning rate is conservative; for this
-# recording, `1.0` recovers the inter-frame shifts better.
+# recording, `1.0` recovers the inter-frame shifts better. Depending on the recording,
+# the dynamic range of the data can be quite large, here we use decibel scaling to help
+# the optimizer find the correct alignment.
 
 # %%
 registered = cf.registration.register_volumewise(
     data,
     transform="rigid",
+    moving_intensity_scaling="db",
     metric="correlation",
     learning_rate=1.0,
 )
