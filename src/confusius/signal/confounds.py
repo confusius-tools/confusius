@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import scipy.linalg
 import xarray as xr
+from sklearn.utils.extmath import randomized_svd
 
 from confusius._utils.mask import validate_spatial_or_feature_mask
 from confusius._utils.stack import find_stack_level
@@ -277,6 +278,99 @@ def regress_confounds(
     return result
 
 
+def _left_singular_vectors_via_eigh(
+    values: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the left singular vectors/values of `values` via a Gram-matrix eigh.
+
+    Equivalent to `U, s, _ = scipy.linalg.svd(values, full_matrices=False)`, but
+    computed by eigendecomposing whichever of `values @ values.T` (shape
+    `(n_time, n_time)`) or `values.T @ values` (shape `(n_voxels, n_voxels)`) is
+    smaller, instead of the full SVD of `values` itself — this is CompCor's usual
+    shape (a handful to a few thousand timepoints against anywhere from hundreds
+    to tens of thousands of selected noise voxels), where SVD's cost scales with
+    both dimensions but the eigendecomposition only needs to factor the smaller
+    of the two Gram matrices, matching nilearn's CompCor implementation for the
+    `n_time < n_voxels` case and its mirror image otherwise.
+
+    Parameters
+    ----------
+    values : (n_time, n_voxels) numpy.ndarray
+        Standardized noise signals.
+
+    Returns
+    -------
+    U : (n_time, k) numpy.ndarray
+        Left singular vectors, `k = min(n_time, n_voxels)`, ordered by
+        descending singular value.
+    s : (k,) numpy.ndarray
+        Singular values, descending.
+    """
+    n_time, n_voxels = values.shape
+
+    if n_time <= n_voxels:
+        eigvals, U = scipy.linalg.eigh(values @ values.T, check_finite=False)
+        order = np.argsort(eigvals)[::-1]
+        eigvals = np.clip(eigvals[order], 0.0, None)
+        U = U[:, order]
+    else:
+        eigvals, V = scipy.linalg.eigh(values.T @ values, check_finite=False)
+        order = np.argsort(eigvals)[::-1]
+        eigvals = np.clip(eigvals[order], 0.0, None)
+        V = V[:, order]
+        s = np.sqrt(eigvals)
+        # u_i = X @ v_i / s_i; guard s_i == 0 (rank-deficient / zero-variance
+        # directions) instead of dividing by zero.
+        safe_s = np.where(s > 0, s, 1.0)
+        U = np.where(s > 0, (values @ V) / safe_s, 0.0)
+        return U, s
+
+    return U, np.sqrt(eigvals)
+
+
+def _top_left_singular_vectors(
+    values: np.ndarray, n_components: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the top `n_components` left singular vectors/values of `values`.
+
+    Uses `sklearn.utils.extmath.randomized_svd` when the matrix is large and
+    `n_components` is small relative to both dimensions — mirroring
+    `sklearn.decomposition.PCA`'s own "randomized" solver heuristic. CompCor
+    typically keeps only a handful of components (5-30) out of potentially
+    thousands of timepoints and tens of thousands of selected voxels, where
+    even `_left_singular_vectors_via_eigh`'s reduced Gram-matrix eigendecomposition
+    computes the full spectrum on the smaller side for far more components than
+    are actually kept; randomized SVD instead targets only the requested
+    components directly, without ever forming a Gram matrix. Falls back to the
+    exact eigendecomposition otherwise, since the random projection makes this
+    an approximation (still validated against exact SVD via correlation in
+    `tests/unit/test_signal/test_compcor.py`, matching to several nines for the
+    top few components on realistic spectra).
+
+    Parameters
+    ----------
+    values : (n_time, n_voxels) numpy.ndarray
+        Standardized noise signals.
+    n_components : int
+        Number of components to keep.
+
+    Returns
+    -------
+    U : (n_time, n_components) numpy.ndarray
+        Top left singular vectors, descending by singular value.
+    s : (n_components,) numpy.ndarray
+        Top singular values, descending.
+    """
+    min_dim = min(values.shape)
+
+    if values.size > 500 * 500 and n_components < 0.8 * min_dim:
+        U, s, _Vt = randomized_svd(values, n_components=n_components, random_state=0)
+        return U, s
+
+    U, s = _left_singular_vectors_via_eigh(values)
+    return U[:, :n_components], s[:n_components]
+
+
 def _extract_compcor_components(
     noise_signals: xr.DataArray,
     n_components: int,
@@ -309,9 +403,10 @@ def _extract_compcor_components(
     1. Removing zero-variance voxels.
     2. Detrending (if requested).
     3. Standardizing (z-score) to give equal weight to each space.
-    4. Computing SVD.
-    5. Extracting first n_components from U matrix.
-    6. Computing explained variance from singular values.
+    4. Computing the top `n_components` left singular vectors/values (see
+       `_top_left_singular_vectors`).
+    5. Computing explained variance from the total variance in the data and the
+       kept singular values.
     """
     noise_signals = remove_zero_variance_voxels(noise_signals)
 
@@ -323,21 +418,40 @@ def _extract_compcor_components(
     if hasattr(noise_signals.data, "chunks"):
         import dask.array as da
 
-        svd = cast(
-            Callable[..., tuple[np.ndarray, np.ndarray, np.ndarray]],
-            da.linalg.svd,
-        )
-        U, s, _Vt = svd(noise_signals.data)
-        components = U[:, :n_components]
-        total_variance = (s**2).sum()
-        explained_variance_ratio = (s[:n_components] ** 2) / total_variance
+        dask_values = noise_signals.data
+        min_dim = min(dask_values.shape)
+        if dask_values.size > 500 * 500 and n_components < 0.8 * min_dim:
+            # dask's randomized-SVD counterpart to _top_left_singular_vectors,
+            # for the same reason: CompCor keeps far fewer components than
+            # either dimension, so a full (dask) SVD does needless work.
+            # n_power_iter=4 matches the accuracy sklearn's randomized_svd
+            # targets by default (its 'auto' n_iter is 4-7 for typical CompCor
+            # component counts); seed=0 keeps results reproducible.
+            U, s, _V = da.linalg.svd_compressed(
+                dask_values, k=n_components, n_power_iter=4, seed=0
+            )
+            components = U
+            total_variance = (dask_values**2).sum()
+            explained_variance_ratio = (s**2) / total_variance
+        else:
+            svd = cast(
+                Callable[..., tuple[np.ndarray, np.ndarray, np.ndarray]],
+                da.linalg.svd,
+            )
+            U, s, _Vt = svd(dask_values)
+            components = U[:, :n_components]
+            total_variance = (s**2).sum()
+            explained_variance_ratio = (s[:n_components] ** 2) / total_variance
     else:
-        U, s, _Vt = scipy.linalg.svd(
-            noise_signals.values, full_matrices=False, check_finite=False
-        )
-        components = U[:, :n_components]
-        total_variance = (s**2).sum()
-        explained_variance_ratio = (s[:n_components] ** 2) / total_variance
+        values = noise_signals.values
+        components, s = _top_left_singular_vectors(values, n_components)
+        # Total variance equals the sum of ALL singular values squared (the
+        # Frobenius norm identity trace(X^T X) = sum(x_ij^2) = sum(s_i^2)), so
+        # it can be read directly off the data without computing the full
+        # spectrum — needed since `_top_left_singular_vectors` may only return
+        # the top `n_components` singular values, not all of them.
+        total_variance = float(np.sum(values**2))
+        explained_variance_ratio = (s**2) / total_variance
 
     result = xr.DataArray(
         components,
