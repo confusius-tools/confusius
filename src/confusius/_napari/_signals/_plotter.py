@@ -192,8 +192,10 @@ class SignalPlotter(QWidget):
         self._mouse_update_timer.setSingleShot(True)
         self._mouse_update_timer.timeout.connect(self._flush_mouse_update)
 
-        # Previous keymap handler displaced by binding Shift, restored on close.
+        # Previous keymap handler displaced by binding Shift, restored once Shift is
+        # unbound (leaving mouse source mode, or on close).
         self._displaced_shift_key = None
+        self._shift_bound: bool = False
 
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding,
@@ -273,28 +275,37 @@ class SignalPlotter(QWidget):
         self._viewer.layers.events.inserted.connect(self._on_layer_change)
         self._viewer.layers.events.removed.connect(self._on_layer_change)
         self._viewer.layers.selection.events.active.connect(self._on_layer_change)
-        self._bind_shift_key()
+        if self._source_mode == "mouse":
+            self._bind_shift_key()
 
     def _bind_shift_key(self) -> None:
         """Bind Shift in the napari keymap to plot the signal at the resting cursor.
 
         Lets the user press Shift while the cursor is already stationary over an
-        image layer, instead of requiring mouse movement while Shift is held.
-        Any handler already bound to Shift is saved first so it can be restored
-        when the plotter closes.
+        image layer, instead of requiring mouse movement while Shift is held. Any
+        handler already bound to Shift is saved first so it can be restored once
+        Shift is unbound. Idempotent, and scoped to mouse source mode by
+        `set_source_mode` (rather than held for the plotter's whole lifetime) so
+        another binding on bare Shift is only displaced while actually in mouse mode.
         """
+        if self._shift_bound:
+            return
         keybinding = coerce_keybinding("Shift")
         self._displaced_shift_key = self._viewer.keymap.get(keybinding)
         self._viewer.bind_key("Shift", self._on_shift_pressed, overwrite=True)
+        self._shift_bound = True
 
     def _unbind_shift_key(self) -> None:
-        """Restore the keymap entry displaced by `_bind_shift_key`."""
+        """Restore the keymap entry displaced by `_bind_shift_key`. Idempotent."""
+        if not self._shift_bound:
+            return
         keybinding = coerce_keybinding("Shift")
         if self._displaced_shift_key is not None:
             self._viewer.keymap[keybinding] = self._displaced_shift_key
         else:
             self._viewer.keymap.pop(keybinding, None)
         self._displaced_shift_key = None
+        self._shift_bound = False
 
     def _on_shift_pressed(self, viewer: napari.Viewer) -> None:
         """Plot the signal at the current cursor position when Shift is pressed."""
@@ -1036,6 +1047,7 @@ class SignalPlotter(QWidget):
         self._source_mode = mode
         self._invalidate_mouse_cache()
         if mode == "mouse":
+            self._bind_shift_key()
             self._register_mouse_live_signal()
             # Invalidate the saved zoom state so the first mouse-hover plot does not
             # restore the [0, 1] xlim left by the cleared axes.
@@ -1045,8 +1057,10 @@ class SignalPlotter(QWidget):
             if not self._render_stored_only():
                 self._show_instructions()
         elif mode == "points":
+            self._unbind_shift_key()
             self._update_plot_from_points()
         else:
+            self._unbind_shift_key()
             self._update_plot_from_labels()
 
     def set_points_layer(self, layer) -> None:

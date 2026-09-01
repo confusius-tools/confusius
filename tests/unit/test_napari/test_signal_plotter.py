@@ -180,6 +180,47 @@ class TestOnMouseMove:
 
 
 # ---------------------------------------------------------------------------
+# Shift keybinding scoped to mouse source mode
+# ---------------------------------------------------------------------------
+
+
+def _bound_shift_handler(viewer):
+    from napari.utils.key_bindings import coerce_keybinding
+
+    return viewer.keymap.get(coerce_keybinding("Shift"))
+
+
+class TestShiftKeyBinding:
+    def test_bound_by_default_in_mouse_mode(self, viewer, plotter):
+        assert _bound_shift_handler(viewer) == plotter._on_shift_pressed
+
+    def test_unbound_when_leaving_mouse_mode(self, viewer, plotter):
+        plotter.set_source_mode("labels")
+        assert _bound_shift_handler(viewer) is None
+
+    def test_rebound_when_returning_to_mouse_mode(self, viewer, plotter):
+        plotter.set_source_mode("labels")
+        plotter.set_source_mode("mouse")
+        assert _bound_shift_handler(viewer) == plotter._on_shift_pressed
+
+    def test_preserves_a_pre_existing_shift_binding_while_in_other_modes(
+        self, viewer, plotter
+    ):
+        def other_handler(viewer):
+            pass
+
+        # Simulate another binding claiming Shift while this widget isn't using it.
+        plotter.set_source_mode("labels")
+        viewer.bind_key("Shift", other_handler, overwrite=True)
+
+        plotter.set_source_mode("mouse")
+        assert _bound_shift_handler(viewer) == plotter._on_shift_pressed
+
+        plotter.set_source_mode("labels")
+        assert _bound_shift_handler(viewer) is other_handler
+
+
+# ---------------------------------------------------------------------------
 # _get_xaxis_coords
 # ---------------------------------------------------------------------------
 
