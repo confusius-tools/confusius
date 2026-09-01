@@ -244,6 +244,13 @@ Released 2026-08-31.
   with string coordinates (e.g. a recording-id stack dim); such a dimension now
   falls back to scale 1/origin 0 like any other missing world geometry
   ([#409](https://github.com/confusius-tools/confusius/pull/409)).
+- [`register_volume`][confusius.registration.register_volume]'s live progress plot no
+  longer draws every slice in the composite overlay for volumes with many slices,
+  which made the mosaic slow to render and hard to read. The composite now shows at
+  most 9 evenly spaced slices by default (a 3x3 grid), configurable via the new
+  `max_composite_slices` parameter (`None` restores the previous behaviour of
+  plotting every slice)
+  ([#368](https://github.com/confusius-tools/confusius/issues/368)).
 
 ### :wrench: Maintenance
 
