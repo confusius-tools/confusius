@@ -236,7 +236,7 @@ class FUSIRegistrationAccessor:
         abort_event: Event | None = None,
         keep_diagnostics: bool = False,
     ) -> xr.DataArray:
-        """Register all volumes to a reference volume.
+        """Register all volumes to a reference time point or a reference volume.
 
         Parameters
         ----------
