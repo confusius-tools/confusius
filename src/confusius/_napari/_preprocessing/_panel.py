@@ -10,6 +10,7 @@ from typing import Literal, NamedTuple, TypeVar, cast
 import napari
 import numpy as np
 import xarray as xr
+from napari.layers import Layer
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error
 from qtpy.QtCore import Qt
@@ -1192,14 +1193,16 @@ class PreprocessingPanel(QWidget):
     # Confound / sample-mask resolution
     # ------------------------------------------------------------------
 
-    def _extract_live_series(self, live: LiveSignal, image_layer) -> _RawSignal | None:
+    def _extract_live_series(
+        self, live: LiveSignal, image_layer: Layer
+    ) -> _RawSignal | None:
         """Re-extract a live signal's raw trace against `image_layer`.
 
         Parameters
         ----------
         live : LiveSignal
             Live signal to extract. Must be of type `"point"` or `"label"`.
-        image_layer : napari.layers.Image
+        image_layer : Layer
             Image layer to pull voxel intensities from (the Preprocessing panel's
             selected source layer, not necessarily the layer the signal was
             plotted against in the Signals panel).
@@ -1259,14 +1262,14 @@ class PreprocessingPanel(QWidget):
             return None
         return x, y
 
-    def _resolve_raw_signal(self, name: str, source_layer) -> _RawSignal | None:
+    def _resolve_raw_signal(self, name: str, source_layer: Layer) -> _RawSignal | None:
         """Look up a confound/mask signal by name and return its raw `(x, y)` trace.
 
         Parameters
         ----------
         name : str
             Combo box selection. `"None"` (or empty) resolves to `None`.
-        source_layer : napari.layers.Image
+        source_layer : Layer
             Currently selected source layer, used as the reference image when the
             named signal is a live point/label signal.
 
@@ -1300,12 +1303,12 @@ class PreprocessingPanel(QWidget):
 
         raise ValueError(f"Signal {name!r} not found.")
 
-    def _build_mask_spec(self, source_layer) -> _MaskSpec | None:
+    def _build_mask_spec(self, source_layer: Layer) -> _MaskSpec | None:
         """Resolve the sample-mask combo/mode/threshold controls into a `_MaskSpec`.
 
         Parameters
         ----------
-        source_layer : napari.layers.Image
+        source_layer : Layer
             Currently selected source layer, forwarded to `_resolve_raw_signal`.
 
         Returns
@@ -1489,16 +1492,32 @@ class PreprocessingPanel(QWidget):
         worker.start()
 
     def _on_compcor_returned(self, result: xr.DataArray, layer_name: str) -> None:
-        """Pin each CompCor component into the shared store as a stored signal."""
+        """Pin each CompCor component into the shared store as a stored signal.
+
+        Recomputing with fewer components than a previous run drops the
+        now-unproduced trailing components from the store instead of leaving them
+        behind as stale signals.
+        """
         try:
+            n_components = result.sizes["component"]
+            origin_prefix = f"compcor-{layer_name}-"
+            stale_ids = [
+                signal.id
+                for signal in self._signal_store.stored_signals()
+                if signal.pin_origin is not None
+                and signal.pin_origin.startswith(origin_prefix)
+                and int(signal.pin_origin.removeprefix(origin_prefix)) >= n_components
+            ]
+            self._signal_store.remove_signals(stale_ids)
+
             time_values = (
                 np.asarray(result.coords[TIME_DIM].values)
                 if TIME_DIM in result.coords
                 else np.arange(result.sizes[TIME_DIM], dtype=float)
             )
-            for i in range(result.sizes["component"]):
+            for i in range(n_components):
                 self._signal_store.pin_signal(
-                    origin=f"compcor-{layer_name}-{i}",
+                    origin=f"{origin_prefix}{i}",
                     name=f"CompCor {i} ({layer_name})",
                     x=time_values,
                     y=np.asarray(result.isel(component=i).values, dtype=float),
