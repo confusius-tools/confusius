@@ -117,6 +117,13 @@ Released 2026-08-31.
   matched against each voxel dimension's world-space direction); a sweep that
   isn't cleanly aligned with a single voxel dimension can never form the
   regular grid consolidation requires, so no override was needed.
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like]'s `interpolation`
+  parameter defaults to `"auto"` instead of `"linear"`: `"nearest"` is picked for
+  integer-dtype data (e.g. atlas region labels) and `"linear"` otherwise, so
+  resampling an integer mask no longer silently blends label values unless
+  `interpolation` is explicitly overridden
+  ([#375](https://github.com/confusius-tools/confusius/issues/375)).
 
 **Other:**
 
