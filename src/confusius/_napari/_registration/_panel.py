@@ -1868,7 +1868,7 @@ class RegistrationPanel(QWidget):
                 use_multi_resolution=volumewise_payload["use_multi_resolution"],
                 resample_interpolation=volumewise_payload["resample_interpolation"],
                 number_of_histogram_bins=volumewise_payload["number_of_histogram_bins"],
-                intensity_scaling=volumewise_payload["scale"],
+                moving_intensity_scaling=volumewise_payload["scale"],
                 convergence_minimum_value=volumewise_payload[
                     "convergence_minimum_value"
                 ],

@@ -74,15 +74,25 @@ class TestRegisterVolumewise:
         self, sample_voxeldata_2dt_registration, intensity_scaling
     ):
         """An unknown mode or non-positive exponent raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid intensity_scaling"):
+        with pytest.raises(ValueError, match="Invalid moving_intensity_scaling"):
             register_volumewise(
-                sample_voxeldata_2dt_registration, intensity_scaling=intensity_scaling
+                sample_voxeldata_2dt_registration,
+                moving_intensity_scaling=intensity_scaling,
+            )
+
+    def test_fixed_intensity_scaling_without_fixed_raises(
+        self, sample_voxeldata_2dt_registration
+    ):
+        """`fixed_intensity_scaling` without a `fixed` volume raises ValueError."""
+        with pytest.raises(ValueError, match="only applies to a 'fixed' volume"):
+            register_volumewise(
+                sample_voxeldata_2dt_registration, fixed_intensity_scaling="db"
             )
 
     def test_float_intensity_scaling_is_forwarded_to_register_volume(
         self, sample_voxeldata_2dt_registration, monkeypatch
     ):
-        """intensity_scaling is forwarded as both fixed and moving scaling."""
+        """moving_intensity_scaling is forwarded as both fixed and moving scaling."""
         import confusius.registration.volumewise as volumewise_module
 
         calls: list[tuple[float | str, float | str]] = []
@@ -108,10 +118,46 @@ class TestRegisterVolumewise:
             sample_voxeldata_2dt_registration,
             n_jobs=1,
             transform="translation",
-            intensity_scaling=2.0,
+            moving_intensity_scaling=2.0,
         )
 
         assert calls and all(scaling == (2.0, 2.0) for scaling in calls)
+
+    def test_fixed_intensity_scaling_is_forwarded_to_register_volume(
+        self, sample_voxeldata_2dt_registration, monkeypatch
+    ):
+        """With `fixed`, each side gets its own scaling."""
+        import confusius.registration.volumewise as volumewise_module
+
+        calls: list[tuple[float | str, float | str]] = []
+        original_register_volume = volumewise_module.register_volume
+
+        def spy_register_volume(
+            *args,
+            fixed_intensity_scaling="none",
+            moving_intensity_scaling="none",
+            **kwargs,
+        ):
+            calls.append((fixed_intensity_scaling, moving_intensity_scaling))
+            return original_register_volume(
+                *args,
+                fixed_intensity_scaling=fixed_intensity_scaling,
+                moving_intensity_scaling=moving_intensity_scaling,
+                **kwargs,
+            )
+
+        monkeypatch.setattr(volumewise_module, "register_volume", spy_register_volume)
+
+        register_volumewise(
+            sample_voxeldata_2dt_registration,
+            n_jobs=1,
+            transform="translation",
+            fixed=sample_voxeldata_2dt_registration.mean("time"),
+            fixed_intensity_scaling="db",
+            moving_intensity_scaling=2.0,
+        )
+
+        assert calls and all(scaling == ("db", 2.0) for scaling in calls)
 
     def test_h5py_backed_raises_with_parallel_jobs(self, scan_2d):
         """h5py-backed DataArray (from a .scan file) raises TypeError when n_jobs != 1."""
