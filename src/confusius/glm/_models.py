@@ -34,27 +34,6 @@ def _positive_reciprocal(x: npt.NDArray[np.floating]) -> npt.NDArray[np.floating
     return np.where(x == 0, 0, 1.0 / x)
 
 
-def _sum_of_squares(a: npt.NDArray[np.floating]) -> npt.NDArray[np.float64]:
-    """Return the sum of squares down each column, accumulated in float64.
-
-    Faster than `numpy.sum(a**2, axis=0)`, which materializes the squared array, and
-    exact enough to subtract from: fUSI data is often float32, and a float32
-    accumulation costs ~1e-5 relative error once the result feeds a difference of
-    two large sums of squares.
-
-    Parameters
-    ----------
-    a : (n_timepoints, n_voxels) numpy.ndarray
-        Array to reduce along its first axis.
-
-    Returns
-    -------
-    (n_voxels,) numpy.ndarray
-        Sum of the squared entries of each column.
-    """
-    return np.einsum("tv,tv->v", a, a, dtype=np.float64)
-
-
 class OLSModel:
     """Ordinary Least Squares regression model.
 
@@ -136,20 +115,13 @@ class OLSModel:
         """
         return X
 
-    def fit(
-        self, Y: npt.NDArray[np.floating], *, keep_residuals: bool = True
-    ) -> RegressionResults:
+    def fit(self, Y: npt.NDArray[np.floating]) -> RegressionResults:
         """Fit the model to data.
 
         Parameters
         ----------
         Y : (n_timepoints, n_voxels) numpy.ndarray
             Data with time in rows, voxels/features in columns.
-        keep_residuals : bool, default: True
-            Whether to keep the whitened residuals on the results. When `False` the
-            residual sum of squares is read off the normal equations instead, which
-            avoids allocating a second `(n_timepoints, n_voxels)` array, and
-            `whitened_residuals` is left unset so `sse`/`mse`/`residuals` raise.
 
         Returns
         -------
@@ -162,21 +134,12 @@ class OLSModel:
         # Estimate parameters: beta = (X^T X)^-1 X^T Y.
         beta = self.pinv_design @ whitened_Y
 
-        whitened_residuals: npt.NDArray[np.floating] | None = None
-        if keep_residuals:
-            whitened_residuals = whitened_Y - self.whitened_design @ beta
-            rss = _sum_of_squares(whitened_residuals)
-        else:
-            # `beta` solves the normal equations `X'X b = X'Y`, so the residual sum
-            # of squares collapses to `||Y||² - b·(X'Y)` and never needs the residual
-            # array. Both terms are large and close for the low-R² data a GLM
-            # usually sees, hence the float64 accumulation inside
-            # `_sum_of_squares`/`einsum`.
-            rss = _sum_of_squares(whitened_Y) - np.einsum(
-                "kv,kv->v", beta, self.whitened_design.T @ whitened_Y, dtype=np.float64
-            )
+        whitened_residuals = whitened_Y - self.whitened_design @ beta
 
-        # Estimate dispersion (variance): sigma^2 = RSS / (n - p).
+        # Estimate dispersion (variance): sigma^2 = RSS / (n - p). Sum the residuals
+        # rather than using `||Y||² - beta·(X'Y)`; see `ARModel.fit` for why that
+        # identity goes negative on voxels the design fits exactly.
+        rss = np.sum(whitened_residuals**2, axis=0)
         if self.df_residuals > 0:
             dispersion = rss / self.df_residuals
         else:
@@ -276,9 +239,7 @@ class ARModel:
             whitened[(i + 1) :] -= self.rho[i] * Y[: -(i + 1)]
         return whitened
 
-    def fit(
-        self, Y: npt.NDArray[np.floating], *, keep_residuals: bool = True
-    ) -> RegressionResults:
+    def fit(self, Y: npt.NDArray[np.floating]) -> RegressionResults:
         """Fit the AR model per voxel.
 
         Each voxel's time series and the shared design matrix are whitened using that
@@ -289,11 +250,6 @@ class ARModel:
         ----------
         Y : (n_timepoints, n_voxels) numpy.ndarray
             Data with time in rows, voxels in columns.
-        keep_residuals : bool, default: True
-            Whether to keep the whitened residuals on the results. When `False` the
-            residual sum of squares is read off the normal equations instead, which
-            avoids allocating a second `(n_timepoints, n_voxels)` array, and
-            `whitened_residuals` is left unset so `sse`/`mse`/`residuals` raise.
 
         Returns
         -------
@@ -378,23 +334,20 @@ class ARModel:
         # beta: (V, K) transposed to (K, V) to match convention.
         beta = np.einsum("vij,vj->vi", cov_beta, XtY).T
 
-        wresid: npt.NDArray[np.floating] | None = None
-        if keep_residuals:
-            # Whitened residuals: wresid = wY - wX @ beta, computed without wX.
-            # wX[v] @ beta[:,v] = X @ beta[:,v] - sum_i rho[i,v] * L[i] @ beta[:,v]
-            wresid = whitened_Y - X @ beta
-            for i in range(self.order):
-                wresid += self.rho[i] * (L[i] @ beta)  # rho[i]: (V,), L[i]@beta: (T,V)
-            rss = _sum_of_squares(wresid)
-        else:
-            # `beta[v]` solves `XtX[v] b = XtY[v]`, so per voxel the residual sum of
-            # squares collapses to `||wY||² - b·XtY`, as in `OLSModel.fit`. This skips
-            # the two `(n_timepoints, n_voxels)` products above, which otherwise
-            # dominate the fit once the pseudoinverse is gone.
-            rss = _sum_of_squares(whitened_Y) - np.einsum(
-                "kv,vk->v", beta, XtY, dtype=np.float64
-            )
+        # Whitened residuals: wresid = wY - wX @ beta, computed without wX.
+        # wX[v] @ beta[:,v] = X @ beta[:,v] - sum_i rho[i,v] * L[i] @ beta[:,v]
+        #
+        # Summing these is the expensive half of the fit, and `beta` solves the normal
+        # equations, so `rss = ||wY||² - beta·XtY` looks like a free win. It is not:
+        # atlas-resampled recordings carry whole constant regions outside the recorded
+        # field of view that the design explains exactly, and there that identity
+        # subtracts two equal quantities, so its sign is pure rounding. A negative rss
+        # gives a negative dispersion and NaN in every map downstream.
+        wresid = whitened_Y - X @ beta
+        for i in range(self.order):
+            wresid += self.rho[i] * (L[i] @ beta)  # rho[i]: (V,), L[i]@beta: (T,V)
 
+        rss = np.sum(wresid**2, axis=0)
         if self.df_residuals > 0:
             dispersion: npt.NDArray[np.float64] = rss / self.df_residuals
         else:
@@ -432,10 +385,8 @@ class RegressionResults:
         Fitted model instance.
     whitened_Y : (n_timepoints, n_voxels) numpy.ndarray
         Whitened data.
-    whitened_residuals : (n_timepoints, n_voxels) numpy.ndarray, optional
-        Whitened residuals. If not provided, the diagnostic properties
-        (`residuals`, `sse`, `mse`) raise, as they do after
-        [`_strip_heavy_fields`][confusius.glm._models.RegressionResults._strip_heavy_fields].
+    whitened_residuals : (n_timepoints, n_voxels) numpy.ndarray
+        Whitened residuals.
     dispersion : (n_voxels,) numpy.ndarray
         Residual variance estimate per voxel.
     cov : (n_regressors, n_regressors) numpy.ndarray
@@ -463,7 +414,7 @@ class RegressionResults:
         Y: npt.NDArray[np.floating],
         model: OLSModel | ARModel,
         whitened_Y: npt.NDArray[np.floating],
-        whitened_residuals: npt.NDArray[np.floating] | None,
+        whitened_residuals: npt.NDArray[np.floating],
         dispersion: npt.NDArray[np.floating],
         cov: npt.NDArray[np.floating],
     ) -> None:
@@ -554,15 +505,14 @@ class RegressionResults:
         Raises
         ------
         RuntimeError
-            If `whitened_residuals` was never kept or was dropped via
-            `minimize_memory=True`.
+            If `whitened_residuals` was dropped via `minimize_memory=True`.
         """
         if self.whitened_residuals is None:
             raise RuntimeError(
                 "whitened_residuals was dropped by minimize_memory=True; "
                 "refit with minimize_memory=False to access sse/mse."
             )
-        return _sum_of_squares(self.whitened_residuals)
+        return np.sum(self.whitened_residuals**2, axis=0)
 
     @property
     def mse(self) -> npt.NDArray[np.floating]:

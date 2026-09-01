@@ -82,21 +82,34 @@ class TestFirstLevelModelFit:
         # Diagnostic accessors work.
         assert np.all(np.isfinite(results.residuals))
 
+    # A voxel with zero residual variance divides by zero in `_positive_reciprocal`,
+    # which is expected and already handled; this test is about the resulting maps.
+    @pytest.mark.filterwarnings("ignore:divide by zero:RuntimeWarning")
     @pytest.mark.parametrize("noise_model", ["ols", "ar1"])
-    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-    def test_minimize_memory_preserves_statistics(
-        self, fusi_data, events, noise_model, dtype
+    def test_perfectly_fitted_voxels_keep_finite_statistics(
+        self, fusi_data, frame_times, events, rng, noise_model
     ):
-        """`minimize_memory` must not change the contrast maps.
+        """Voxels the design explains exactly must not poison the statistics.
 
-        With `minimize_memory=True` the residual sum of squares is read off the normal
-        equations rather than summed from the residual array, and it scales every
-        `t`-statistic, so the two paths have to agree. `float32` is covered because
-        fUSI recordings are commonly stored that way and the normal-equations form is
-        a difference of two large sums of squares, which loses about five significant
-        digits if it is accumulated at the input dtype.
+        Resampling a recording onto an atlas grid leaves large constant-in-time
+        regions outside the recorded field of view, which the design's constant
+        regressor explains completely. Their residual sum of squares is zero to
+        within rounding, so recovering it as a difference of two large quantities
+        instead of by summing the residuals returns a small negative number whose
+        sign is pure rounding, and the negative dispersion turns every downstream map
+        into NaN. Half the voxels here are exact linear combinations of the design,
+        scaled up so the cancellation is far larger than the true residual.
         """
-        fusi_data = fusi_data.astype(dtype)
+        design_matrix = make_first_level_design_matrix(frame_times, events=events)
+        design = design_matrix.to_numpy()
+
+        fusi_data = fusi_data.copy()
+        flat = fusi_data.values.reshape(len(frame_times), -1)
+        n_exact = flat.shape[1] // 2
+        flat[:, :n_exact] = design @ (
+            rng.standard_normal((design.shape[1], n_exact)) * 50.0
+        )
+
         maps = {}
         for minimize_memory in (True, False):
             model = FirstLevelModel(
@@ -104,7 +117,7 @@ class TestFirstLevelModelFit:
                 minimize_memory=minimize_memory,
                 show_progress=False,
             )
-            model.fit(fusi_data, events=events)
+            model.fit(fusi_data, design_matrices=design_matrix)
             maps[minimize_memory] = {
                 output_type: model.compute_contrast(
                     "A - B", output_type=output_type
@@ -113,6 +126,7 @@ class TestFirstLevelModelFit:
             }
 
         for output_type, expected in maps[False].items():
+            assert np.all(np.isfinite(maps[True][output_type])), output_type
             assert_allclose(maps[True][output_type], expected, rtol=1e-9)
 
     def test_fit_with_confounds(self, fusi_data, events, rng):
