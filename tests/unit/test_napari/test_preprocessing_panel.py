@@ -1003,6 +1003,7 @@ class TestCompcorSubprocess:
         # ProcessPoolExecutor needs to pickle both the callable and its
         # arguments/return value; a closure or an object carrying a Qt/napari
         # reference would fail here even though it works when called directly.
+        import multiprocessing
         from concurrent.futures import ProcessPoolExecutor
 
         from confusius._napari._preprocessing._panel import _compcor_subprocess
@@ -1010,7 +1011,13 @@ class TestCompcorSubprocess:
         values = rng.random((20, 3, 4, 5))
         time_values = np.arange(20, dtype=float) * 0.5
 
-        with ProcessPoolExecutor(max_workers=1) as pool:
+        # "spawn", not the platform-default "fork" on Linux: this test runs inside
+        # a pytest session that has already initialised Qt/napari (open X11/GL
+        # connections, GUI event loops), and forking a process with those resources
+        # already open can crash the child immediately (BrokenProcessPool) — the
+        # same hazard `_run_compcor` avoids in production for the same reason.
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=1, mp_context=context) as pool:
             result_time, result_values = pool.submit(
                 _compcor_subprocess,
                 values,
