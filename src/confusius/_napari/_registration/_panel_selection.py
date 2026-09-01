@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from qtpy.QtWidgets import QComboBox
 
@@ -115,7 +115,7 @@ def get_layer_by_name(panel: RegistrationPanel, name: str) -> Layer | None:
         Matching layer when present, otherwise `None`.
     """
     try:
-        return cast("Layer", panel.viewer.layers[name])
+        return panel.viewer.layers[name]
     except KeyError:
         return None
 
