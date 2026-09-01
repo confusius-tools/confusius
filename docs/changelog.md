@@ -10,6 +10,12 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :bug: Fixes
+
+- **napari plugin:** Scrolling the sidebar with the mouse wheel no longer gets
+  hijacked by whichever combo box or spin box the cursor happens to be over
+  ([#431](https://github.com/confusius-tools/confusius/pull/431)).
+
 ## 0.7.0
 
 Released 2026-08-31.
