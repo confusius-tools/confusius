@@ -23,7 +23,7 @@ Current development version for the next ConfUSIus release.
   [`plot_matrix`][confusius.plotting.plot_matrix] now honor a `vmin` or `vmax` passed
   on its own under `auto_range=True`: a lone bound sets the symmetric range to
   `[-|bound|, |bound|]`
-  ([#443](https://github.com/confusius-tools/confusius/pull/443)).
+  ([#445](https://github.com/confusius-tools/confusius/pull/445)).
 
 ### :books: Documentation
 
