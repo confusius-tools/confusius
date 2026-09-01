@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import brainglobe_atlasapi
+import dask.array as da
 import numpy as np
 import pytest
 import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
+import confusius.datasets._brainglobe as brainglobe_module
 from confusius.datasets import fetch_brainglobe_atlas
 from confusius.validation import validate_atlas
 
@@ -22,6 +24,8 @@ class _FakeBgAtlas:
             "check_latest": check_latest,
         }
         shape = (4, 6, 8)
+        # Not read directly by fetch_brainglobe_atlas (that goes through the
+        # lazily-loaded arrays below), kept only in case a test wants the raw data.
         self.template = np.ones(shape, dtype=np.uint16)
         self.annotation = np.zeros(shape, dtype=np.uint32)
         self.hemispheres = np.ones(shape, dtype=np.uint8)
@@ -44,7 +48,14 @@ class _FakeBgAtlas:
             "orientation": "asr",
             "shape": list(shape),
             "resolution": [25, 25, 25],
+            "symmetric": True,
+            "annotation_set": {
+                "location": "/annotation-sets/fake/1_0",
+                "template": {"location": "/templates/fake/1_0"},
+            },
         }
+        self._template_pyramid_level = 0
+        self._annotation_pyramid_level = 0
 
 
 @pytest.fixture
@@ -58,6 +69,19 @@ def fake_atlases(monkeypatch: pytest.MonkeyPatch) -> list[_FakeBgAtlas]:
         return atlas
 
     monkeypatch.setattr(brainglobe_atlasapi, "BrainGlobeAtlas", factory)
+
+    def fake_load_lazy_ngff_array(atlas, location, name, pyramid_level):
+        source = {
+            "templates/fake/1_0": atlas.template,
+            "annotation-sets/fake/1_0": (
+                atlas.annotation if "annotation" in name.lower() else atlas.hemispheres
+            ),
+        }[location]
+        return da.from_array(source)
+
+    monkeypatch.setattr(
+        brainglobe_module, "_load_lazy_ngff_array", fake_load_lazy_ngff_array
+    )
     return created
 
 

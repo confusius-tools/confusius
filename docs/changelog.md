@@ -207,6 +207,11 @@ Released 2026-08-31.
   over dozens of regions (e.g. combining all of an ontology's major divisions into one
   coarse map) is over an order of magnitude faster
   ([#412](https://github.com/confusius-tools/confusius/pull/412)).
+- `fetch_brainglobe_atlas`'s `reference`/`annotation` are now backed by lazy
+  `dask.array.Array` data instead of being eagerly materialized to
+  `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
+  even when only metadata or a small region is needed
+  ([#415](https://github.com/confusius-tools/confusius/pull/415)).
 
 ### :bug: Fixes
 
