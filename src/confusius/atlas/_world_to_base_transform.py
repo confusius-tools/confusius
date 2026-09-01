@@ -385,18 +385,20 @@ def _drop_vertices_outside_grid(
     voxel_dims = list(get_voxel_to_world_spatial_dims(reference))
     spacing = reference.fusi.spacing
     # Corner-mapped bounds: never materializes the lazily derived z/y/x coordinate
-    # grids of an oblique affine (#444). Rows are (min, max), columns z/y/x.
-    bounds = get_bounding_box(reference).values
+    # grids of an oblique affine (#444).
+    bbox = get_bounding_box(reference)
     inside = np.ones(len(vertices), dtype=bool)
-    for axis, voxel_dim in enumerate(voxel_dims):
+    for axis, (dim, voxel_dim) in enumerate(zip(WORLD_DIMS, voxel_dims, strict=True)):
         # Keep the same one-voxel margin the field interpolation is padded to, so a
         # vertex within `spacing` of a boundary (e.g. the anterior/posterior tips of the
         # Allen brain) is retained rather than clipped. `fusi.spacing` is keyed by voxel
         # dim (k/j/i), not world dim (z/y/x) -- look it up by the matching voxel dim.
         coord_spacing = spacing.get(voxel_dim)
         margin = coord_spacing if coord_spacing is not None else 0.0
-        inside &= (vertices[:, axis] >= bounds[0, axis] - margin) & (
-            vertices[:, axis] <= bounds[1, axis] + margin
+        low = bbox.sel(bound="min", component=dim).item()
+        high = bbox.sel(bound="max", component=dim).item()
+        inside &= (vertices[:, axis] >= low - margin) & (
+            vertices[:, axis] <= high + margin
         )
 
     keep_idx = np.where(inside)[0]
