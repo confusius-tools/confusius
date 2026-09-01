@@ -12,8 +12,8 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
-- [`FirstLevelModel`][confusius.glm.FirstLevelModel] accepts `show_progress` to display
-  a progress bar over the runs being fitted
+- [`FirstLevelModel`][confusius.glm.FirstLevelModel] accepts `show_progress=True` to
+  display a progress bar over the runs being fitted
   ([#310](https://github.com/confusius-tools/confusius/issues/310)).
 
 ### :zap: Performance

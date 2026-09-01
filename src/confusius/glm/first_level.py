@@ -171,7 +171,7 @@ class FirstLevelModel(BaseEstimator):
     mask : xarray.DataArray, optional
         Boolean spatial mask selecting voxels to include in model fitting. Must match
         the spatial dimensions and coordinates of each run.
-    show_progress : bool, default: True
+    show_progress : bool, default: False
         Whether to display a progress bar counting the runs fitted so far.
 
     Attributes
@@ -216,7 +216,7 @@ class FirstLevelModel(BaseEstimator):
         uniformity_tolerance: float = 1e-2,
         smoothing_fwhm: float | dict[str, float] | None = None,
         mask: xr.DataArray | None = None,
-        show_progress: bool = True,
+        show_progress: bool = False,
     ) -> None:
         self.hrf_model = hrf_model
         self.drift_model = drift_model
