@@ -14,13 +14,13 @@ Current development version for the next ConfUSIus release.
 
 - New [`get_bounding_box`][confusius.xarray.get_bounding_box] returning a VoxelData
   array's world-space bounding box, one per pose for pose-dependent geometry
-  ([#445](https://github.com/confusius-tools/confusius/pull/445)).
+  ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 
 ### :zap: Performance
 
 - [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] with `clip=True` no longer
   materializes the full world-coordinate grid of an oblique atlas
-  ([#445](https://github.com/confusius-tools/confusius/pull/445)).
+  ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 - [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
   longer computes a full SVD, extracting components several times faster on
   large recordings or broad noise masks
