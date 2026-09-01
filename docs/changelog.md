@@ -16,6 +16,23 @@ Current development version for the next ConfUSIus release.
   combo box or spin box the cursor happens to be over
   ([#431](https://github.com/confusius-tools/confusius/pull/431)).
 
+### :sparkles: Enhancements
+
+- **napari plugin:** The signal plotter's mouse source now updates when Shift is
+  pressed while the cursor is already resting on a voxel, not only while moving;
+  a live signal (mouse voxel, a point, or a label region) can now be pinned so it
+  persists across source-mode switches instead of being dropped, reusable
+  wherever stored signals are — imported and pinned signals now share one
+  concept (`StoredSignal`) throughout the signal store, plotter, and manager
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+
+### :zap: Performance
+
+- **napari plugin:** Mouse-driven signal plotting no longer lags or jitters on
+  large recordings — updates are now throttled to the display refresh rate
+  instead of running unbounded on every raw mouse-move event
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+
 ## 0.7.0
 
 Released 2026-08-31.
