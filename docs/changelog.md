@@ -10,12 +10,28 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- [`FirstLevelModel`][confusius.glm.FirstLevelModel] accepts `show_progress=True` to
+  display a progress bar over the runs being fitted
+  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
+
 ### :zap: Performance
 
 - [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
   longer computes a full SVD, extracting components several times faster on
   large recordings or broad noise masks
   ([#434](https://github.com/confusius-tools/confusius/pull/434)).
+- [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] is roughly twice as fast,
+  with the larger gain on the default `noise_model="ar1"`
+  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
+
+### :bug: Fixes
+
+- [`FirstLevelModel.compute_contrast`][confusius.glm.FirstLevelModel.compute_contrast]
+  no longer emits a divide-by-zero `RuntimeWarning` on recordings containing voxels with
+  no variance over time, such as those outside the recorded field of view
+  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
 
 ### :books: Documentation
 

@@ -156,16 +156,48 @@ class TestARModel:
         )
         assert abs(white_ac) < abs(raw_ac)
 
-    def test_ar_degenerate_design(self, design_matrix, response_matrix):
-        """AR model handles collinear design columns."""
-        design_matrix[:, 0] = design_matrix[:, 1] + design_matrix[:, 2]
-        n_voxels = response_matrix.shape[1]
-        rho = np.full((1, n_voxels), 0.9)
-        model = ARModel(design_matrix, rho=rho)
-        results = model.fit(response_matrix)
+    @pytest.mark.parametrize("degenerate", [False, True])
+    @pytest.mark.parametrize("rho_bound", [0.8, 50.0])
+    def test_ar_beta_matches_per_voxel_lstsq(
+        self, design_matrix, response_matrix, degenerate, rho_bound
+    ):
+        """Batched AR beta matches an explicit per-voxel least-squares solve.
 
-        assert results.df_model == 9
-        assert results.df_residuals == 31
+        `ARModel.fit` never materializes the per-voxel whitened designs, and it
+        inverts the batched normal equations two different ways depending on whether
+        the design is full rank. Both branches must reproduce the min-norm solution
+        that `lstsq` gives on the whitened design built voxel by voxel.
+
+        `rho_bound=50` covers coefficients far outside the stationary range. Whitening
+        multiplies the design by a unit lower triangular factor, so it preserves rank
+        for any rho and the full-rank branch's batched `inv` stays well defined; a rho
+        big enough to break that would surface here as a `LinAlgError`.
+        """
+        if degenerate:
+            design_matrix[:, 0] = design_matrix[:, 1] + design_matrix[:, 2]
+        n_time, n_regressors = design_matrix.shape
+        n_voxels = response_matrix.shape[1]
+        rho = np.linspace(-rho_bound, rho_bound, n_voxels)[np.newaxis, :]
+
+        results = ARModel(design_matrix, rho=rho).fit(response_matrix)
+
+        lag = np.zeros_like(design_matrix)
+        lag[1:] = design_matrix[:-1]
+        whitened_Y = response_matrix.copy()
+        whitened_Y[1:] -= rho[0] * response_matrix[:-1]
+        expected = np.stack(
+            [
+                np.linalg.lstsq(
+                    design_matrix - rho[0, v] * lag, whitened_Y[:, v], rcond=None
+                )[0]
+                for v in range(n_voxels)
+            ],
+            axis=1,
+        )
+
+        assert results.df_model == (n_regressors - 1 if degenerate else n_regressors)
+        assert results.df_residuals == n_time - results.df_model
+        assert_allclose(results.theta, expected, rtol=1e-9, atol=1e-10)
 
     def test_ar_invalid_rho_shape(self, design_matrix):
         """AR rho must be 2D with shape (order, n_voxels)."""
