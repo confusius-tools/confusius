@@ -665,7 +665,7 @@ class VideoPanel(QWidget):
             clims = entry.layer.contrast_limits
             entry.layer.data = data  # type: ignore  # invalid-assignment ignored: data descriptor has a custom __set__
             entry.layer.contrast_limits = clims
-            entry.layer.scale = tuple(scale)
+            entry.layer.scale = tuple(scale)  # ty: ignore[invalid-assignment]
             entry.layer.translate = tuple(translate)
             return
 
