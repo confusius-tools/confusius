@@ -500,6 +500,25 @@ class RegistrationPanel(QWidget):
         )
         operation_layout.addRow(self._moving_label, self._moving_combo)
 
+        self._reference_time_label = QLabel("Reference time index (moving layer)")
+        self._reference_time_spin = QSpinBox()
+        self._reference_time_spin.setMinimum(0)
+        self._reference_time_spin.setMaximumWidth(64)
+        self._reference_time_label.setToolTip(
+            "Time index of the moving layer used as the registration target for within-scan motion correction."
+        )
+        operation_layout.addRow(self._reference_time_label, self._reference_time_spin)
+
+        self._volumewise_use_fixed_check = QCheckBox("Use a fixed layer")
+        self._volumewise_use_fixed_check.setToolTip(
+            "Register every frame to the Fixed layer below instead of a time index of "
+            "the moving layer."
+        )
+        self._volumewise_use_fixed_check.toggled.connect(
+            self._on_volumewise_fixed_toggled
+        )
+        operation_layout.addRow(self._volumewise_use_fixed_check)
+
         self._moving_mask_combo = QComboBox()
         self._moving_mask_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -580,25 +599,6 @@ class RegistrationPanel(QWidget):
             tooltip="Optional Labels layer used as the fixed-image metric mask. Nonzero labels are treated as True.",
         )
         operation_layout.addRow(self._fixed_mask_label, fixed_mask_container)
-
-        self._volumewise_use_fixed_check = QCheckBox("Use a fixed layer")
-        self._volumewise_use_fixed_check.setToolTip(
-            "Register every frame to the Fixed layer above instead of a volume index "
-            "of the moving layer."
-        )
-        self._volumewise_use_fixed_check.toggled.connect(
-            self._on_volumewise_fixed_toggled
-        )
-        operation_layout.addRow(self._volumewise_use_fixed_check)
-
-        self._reference_time_label = QLabel("Reference volume")
-        self._reference_time_spin = QSpinBox()
-        self._reference_time_spin.setMinimum(0)
-        self._reference_time_spin.setMaximumWidth(64)
-        self._reference_time_label.setToolTip(
-            "Volume index used as the registration target for within-scan motion correction."
-        )
-        operation_layout.addRow(self._reference_time_label, self._reference_time_spin)
 
         self._n_jobs_spin = QSpinBox()
         # Expanding: QFormLayout's ExpandingFieldsGrow only grows fields whose
@@ -1535,24 +1535,25 @@ class RegistrationPanel(QWidget):
         if is_bspline:
             self._optimizer_weights_fields.hide()
 
-    def _update_volumewise_fixed_visibility(self) -> None:
-        """Show either the fixed-layer or the reference-volume target widgets."""
+    def _update_volumewise_target_state(self) -> None:
+        """Enable the fixed-layer or the reference-time target widgets, not both."""
         is_volumewise = self._operation() == "register_volumewise"
         use_fixed = is_volumewise and self._volumewise_use_fixed_check.isChecked()
-        show_fixed = not is_volumewise or use_fixed
-        self._fixed_label.setVisible(show_fixed)
-        self._fixed_combo.setVisible(show_fixed)
-        self._fixed_combo.setEnabled(show_fixed)
-        self._fixed_scale_label.setVisible(show_fixed)
-        self._fixed_scale_combo.setVisible(show_fixed)
+        fixed_enabled = not is_volumewise or use_fixed
+        self._fixed_label.setEnabled(fixed_enabled)
+        self._fixed_combo.setEnabled(fixed_enabled)
+        self._fixed_scale_label.setEnabled(fixed_enabled)
+        self._fixed_scale_combo.setEnabled(fixed_enabled)
         self._volumewise_use_fixed_check.setVisible(is_volumewise)
-        self._reference_time_label.setVisible(is_volumewise and not use_fixed)
-        self._reference_time_spin.setVisible(is_volumewise and not use_fixed)
+        self._reference_time_label.setVisible(is_volumewise)
+        self._reference_time_spin.setVisible(is_volumewise)
+        self._reference_time_label.setEnabled(not use_fixed)
+        self._reference_time_spin.setEnabled(not use_fixed)
 
     def _on_volumewise_fixed_toggled(self, checked: bool) -> None:
-        """Swap the within-scan target widgets when the fixed toggle changes."""
+        """Swap the active within-scan target widget when the fixed toggle changes."""
         del checked
-        self._update_volumewise_fixed_visibility()
+        self._update_volumewise_target_state()
         self._validate_registration_selection()
 
     def _on_mode_changed(self) -> None:
@@ -1584,7 +1585,7 @@ class RegistrationPanel(QWidget):
         )
         self._active_operation = new_mode
 
-        self._update_volumewise_fixed_visibility()
+        self._update_volumewise_target_state()
         self._update_reference_time_bounds()
         self._validate_registration_selection()
 
