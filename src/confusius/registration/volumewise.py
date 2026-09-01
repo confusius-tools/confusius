@@ -50,7 +50,7 @@ def register_volumewise(
     abort_event: "Event | None" = None,
     keep_diagnostics: bool = False,
 ) -> xr.DataArray:
-    """Register all volumes in a fUSI recording to a reference volume.
+    """Register all volumes to a reference time point or a reference volume.
 
     Parameters
     ----------
