@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import scipy.special as spspecial
+import xarray as xr
 from numpy.testing import assert_allclose
 
 from confusius.glm._design import make_first_level_design_matrix
@@ -302,6 +303,7 @@ class TestDesignMatrix:
         """DataFrame confounds keep both their names and values."""
         confounds = pd.DataFrame(
             {
+                "time": frame_times,
                 "motion_x": np.linspace(0, 1, len(frame_times)),
                 "motion_y": np.linspace(1, 0, len(frame_times)),
             }
@@ -313,8 +315,99 @@ class TestDesignMatrix:
             confounds=confounds,
         )
 
+        assert "time" not in design.columns
         assert_allclose(design["motion_x"].to_numpy(), confounds["motion_x"].to_numpy())
         assert_allclose(design["motion_y"].to_numpy(), confounds["motion_y"].to_numpy())
+
+    def test_design_matrix_dataframe_confounds_require_time_column(
+        self, frame_times, basic_events
+    ):
+        """DataFrame confounds without a time column are rejected."""
+        confounds = pd.DataFrame({"motion_x": np.linspace(0, 1, len(frame_times))})
+        with pytest.raises(ValueError, match="must have a 'time' column"):
+            make_first_level_design_matrix(
+                frame_times, basic_events, confounds=confounds
+            )
+
+    def test_design_matrix_dataframe_confounds_time_mismatch_raises(
+        self, frame_times, basic_events
+    ):
+        """DataFrame confounds whose time column differs from volume_times fail."""
+        confounds = pd.DataFrame(
+            {"time": frame_times + 1.0, "motion_x": np.linspace(0, 1, len(frame_times))}
+        )
+        with pytest.raises(ValueError, match="time coordinates do not match"):
+            make_first_level_design_matrix(
+                frame_times, basic_events, confounds=confounds
+            )
+
+    @pytest.mark.parametrize(
+        "labels",
+        [
+            np.array([b"motion_x", b"motion_y"]),
+            np.array(["motion_x", "motion_y"], dtype=np.dtypes.StringDType()),
+        ],
+        ids=["bytes", "StringDType"],
+    )
+    def test_design_matrix_dataarray_confounds_named_from_non_unicode_coords(
+        self, frame_times, basic_events, labels
+    ):
+        """Bytes and StringDType coordinates name the columns like str coordinates."""
+        values = np.column_stack(
+            [
+                np.linspace(0.0, 1.0, len(frame_times)),
+                np.linspace(1.0, 0.0, len(frame_times)),
+            ]
+        )
+        confounds = xr.DataArray(
+            values,
+            dims=["time", "confound"],
+            coords={"time": frame_times, "confound": labels},
+        )
+        design = make_first_level_design_matrix(
+            frame_times, basic_events, confounds=confounds
+        )
+        assert_allclose(design["motion_x"].to_numpy(), values[:, 0])
+        assert_allclose(design["motion_y"].to_numpy(), values[:, 1])
+
+    def test_design_matrix_confound_names_with_named_confounds_raises(
+        self, frame_times, basic_events
+    ):
+        """confound_names cannot silently override names carried by confounds."""
+        confounds = pd.DataFrame(
+            {"time": frame_times, "motion_x": np.linspace(0.0, 1.0, len(frame_times))}
+        )
+        with pytest.raises(ValueError, match="confound_names cannot be given"):
+            make_first_level_design_matrix(
+                frame_times, basic_events, confounds=confounds, confound_names=["p"]
+            )
+
+    def test_design_matrix_dataarray_confounds_named_from_string_coords(
+        self, frame_times, basic_events
+    ):
+        """String coordinates name the columns, other coordinates fall back."""
+        values = np.column_stack(
+            [
+                np.linspace(0.0, 1.0, len(frame_times)),
+                np.linspace(1.0, 0.0, len(frame_times)),
+            ]
+        )
+        named = xr.DataArray(
+            values,
+            dims=["time", "confound"],
+            coords={"time": frame_times, "confound": ["motion_x", "motion_y"]},
+        )
+        design = make_first_level_design_matrix(
+            frame_times, basic_events, confounds=named
+        )
+        assert_allclose(design["motion_x"].to_numpy(), values[:, 0])
+        assert_allclose(design["motion_y"].to_numpy(), values[:, 1])
+
+        numbered = named.rename(confound="component").assign_coords(component=[0, 1])
+        design = make_first_level_design_matrix(
+            frame_times, basic_events, confounds=numbered
+        )
+        assert_allclose(design["confound_1"].to_numpy(), values[:, 1])
 
     def test_design_matrix_fir_delays_are_time_shifted(self, frame_times, basic_events):
         """FIR regressors with delays 0, 1, 2 are exact one-sample shifts of each

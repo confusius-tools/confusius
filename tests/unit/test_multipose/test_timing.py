@@ -1,10 +1,13 @@
-"""Tests for shared multipose helpers."""
+"""Tests for multipose timing helpers."""
 
 import numpy as np
 import pytest
 import xarray as xr
 
-from confusius.multipose._utils import build_consolidated_time_coordinate
+from confusius.multipose.timing import (
+    build_consolidated_time_coordinate,
+    consolidate_time_coordinate,
+)
 
 
 def _time_coord(values, **attrs):
@@ -61,3 +64,34 @@ class TestBuildConsolidatedTimeCoordinate:
             )
 
         assert "volume_acquisition_duration" not in result.attrs
+
+
+class TestConsolidateTimeCoordinate:
+    """Tests for consolidate_time_coordinate."""
+
+    def test_1d_coordinate_is_returned_unchanged(self):
+        time_coord = _time_coord(np.arange(3.0), units="s")
+        assert consolidate_time_coordinate(time_coord) is time_coord
+
+    def test_pose_dependent_coordinate_becomes_whole_volume_time(self):
+        # Slices of 0.25 s at t and t + 0.25 (center reference): the volume spans
+        # [t - 0.125, t + 0.375], so its center is t + 0.125.
+        values = np.stack([np.arange(3.0), np.arange(3.0) + 0.25], axis=1)
+        time_coord = xr.DataArray(
+            values,
+            dims=["time", "pose"],
+            attrs={
+                "volume_acquisition_duration": 0.25,
+                "volume_acquisition_reference": "center",
+            },
+        )
+        result = consolidate_time_coordinate(time_coord)
+        assert result.dims == ("time",)
+        np.testing.assert_allclose(result.values, np.arange(3.0) + 0.125)
+        assert result.attrs["volume_acquisition_duration"] == 0.5
+
+    def test_rejects_other_dimensions(self):
+        with pytest.raises(ValueError, match="dimensions"):
+            consolidate_time_coordinate(
+                xr.DataArray(np.zeros((2, 3)), dims=["pose", "time"])
+            )

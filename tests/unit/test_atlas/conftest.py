@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import DracoPy  # ty: ignore[unresolved-import]
+import meshio as mio
 import numpy as np
 import pytest
 import xarray as xr
@@ -13,25 +15,39 @@ from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture(scope="module")
-def obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """OBJ file with six vertices (3 right, 3 left) and two triangle faces.
+def mock_mesh() -> mio.Mesh:
+    """Mesh with six vertices (3 right, 3 left) and two triangle faces, in z/y/x µm.
 
     Vertices 1-3 lie at RL coordinate 50 µm (right hemisphere).
     Vertices 4-6 lie at RL coordinate 150 µm (left hemisphere).
     The atlas midline is at 100 µm (shape[2]=8, resolution=25 µm).
     """
-    mesh_dir = tmp_path_factory.mktemp("meshes")
-    path = mesh_dir / "997.obj"
-    path.write_text(
-        "v 0.0 0.0 50.0\n"
-        "v 100.0 0.0 50.0\n"
-        "v 0.0 100.0 50.0\n"
-        "v 0.0 0.0 150.0\n"
-        "v 100.0 0.0 150.0\n"
-        "v 0.0 100.0 150.0\n"
-        "f 1 2 3\n"
-        "f 4 5 6\n"
+    points = np.array(
+        [
+            [0.0, 0.0, 50.0],
+            [100.0, 0.0, 50.0],
+            [0.0, 100.0, 50.0],
+            [0.0, 0.0, 150.0],
+            [100.0, 0.0, 150.0],
+            [0.0, 100.0, 150.0],
+        ]
     )
+    faces = np.array([[0, 1, 2], [3, 4, 5]])
+    return mio.Mesh(points=points, cells=[("triangle", faces)])
+
+
+@pytest.fixture(scope="module")
+def obj_path(tmp_path_factory: pytest.TempPathFactory, mock_mesh: mio.Mesh) -> Path:
+    """Draco-encoded mesh file for region 997, matching `mock_mesh`'s geometry.
+
+    BrainGlobe stores points as x/y/z nanometres and undoes that (nm -> µm, then
+    XYZ -> ZYX) on read, so the encoded points are the inverse of `mock_mesh`.
+    """
+    raw_points_nm = mock_mesh.points[:, ::-1] * 1000.0
+    raw_faces = mock_mesh.get_cells_type("triangle")[:, ::-1]
+    mesh_dir = tmp_path_factory.mktemp("meshes")
+    path = mesh_dir / "997"
+    path.write_bytes(DracoPy.encode(raw_points_nm, raw_faces, preserve_order=True))
     return path
 
 
@@ -49,7 +65,7 @@ def structure_list(obj_path: Path) -> list[dict]:
             "name": "whole brain",
             "rgb_triplet": [200, 200, 200],
             "structure_id_path": [997],
-            "mesh_filename": str(obj_path),
+            "mesh_filename": obj_path,
         },
         {
             "id": 10,
@@ -77,7 +93,7 @@ def mock_structures(structure_list: list[dict]) -> StructuresDict:
 
 
 @pytest.fixture(scope="module")
-def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
+def atlas_ds(structure_list: list[dict], mock_structures: StructuresDict) -> xr.Dataset:
     """Atlas Dataset built from fully controlled mock data.
 
     Annotation (shape 4, 6, 8):
@@ -144,7 +160,7 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
             "citation": "Mock et al. (2026)",
             "species": "Mus musculus",
             "orientation": "asr",
-            "structures": StructuresDict(structure_list),
+            "structures": mock_structures,
             "world_to_base": np.eye(4),
         },
     )

@@ -29,6 +29,7 @@ from confusius.datasets import (
     fetch_cybis_pereira_2026,
     fetch_khallaf_2026,
     fetch_nunez_elizalde_2022,
+    fetch_pepe_mariani_2026,
     fetch_template_pepe_mariani_2026,
 )
 
@@ -95,6 +96,15 @@ def _prefetch_pepe_mariani_template() -> None:
     # docs/examples/04_connectivity/02_atlas_seed_map.py,
     # docs/examples/05_atlases_and_templates/01_saving_resampled_atlas.py
     fetch_template_pepe_mariani_2026()
+
+    # docs/examples/01_io/03_load_multipose_recordings.py
+    fetch_pepe_mariani_2026(
+        datasets="rawdata",
+        subjects="cp230420a",
+        sessions="1MEDISOses5",
+        acqs="3dfusi",
+        datatypes="fusi",
+    )
 
 
 def _prefetch_allen_atlas() -> None:
