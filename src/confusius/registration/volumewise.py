@@ -30,7 +30,8 @@ def register_volumewise(
     n_jobs: int = -1,
     transform: Literal["translation", "rigid", "affine"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
-    intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float | None = None,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     number_of_histogram_bins: int = 50,
     learning_rate: float | Literal["auto"] = 0.01,
     number_of_iterations: int = 100,
@@ -63,9 +64,9 @@ def register_volumewise(
         Spatial-only VoxelData array to register every frame to, for example the
         mean of a few low-motion frames of `data`. Must share `data`'s voxel grid
         (same `k`/`j`/`i` coordinates and voxel-to-world affine) and have no
-        `time` dimension. `intensity_scaling` is applied to it as to any reference
-        frame. If not provided, the frame at `reference_time` is used. Cannot be
-        combined with `reference_time`.
+        `time` dimension. Its own `fixed_intensity_scaling` applies to it. If not
+        provided, the frame at `reference_time` is used. Cannot be combined with
+        `reference_time`.
     n_jobs : int, default: -1
         Number of parallel jobs. Negative values resolve to `max(1, os.cpu_count() + 1
         + n_jobs)`, so `-1` means all CPUs, `-2` means all minus one, and so on.
@@ -79,11 +80,17 @@ def register_volumewise(
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
-    intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
-        Intensity transform applied to the reference volume and to every frame, only
-        for the registration optimizer. Floats apply power scaling with that
-        exponent; `"sqrt"` is an alias for `0.5`. Returned/resampled data keeps the
-        original input intensities.
+    fixed_intensity_scaling : {"none", "db", "sqrt"} or float, optional
+        Intensity transform applied to `fixed`, only for the registration optimizer.
+        Useful when `fixed` comes from another source than `data` and does not share
+        its intensity range. Only allowed together with `fixed`; the reference frame
+        selected by `reference_time` always uses `moving_intensity_scaling`. If not
+        provided, `fixed` is scaled with `moving_intensity_scaling` too.
+    moving_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
+        Intensity transform applied to every frame of `data`, only for the
+        registration optimizer. Floats apply power scaling with that exponent;
+        `"sqrt"` is an alias for `0.5`. Returned/resampled data keeps the original
+        input intensities.
     number_of_histogram_bins : int, default: 50
         Number of histogram bins used by Mattes mutual information. Only
         relevant when `metric="mattes_mi"`.
@@ -176,9 +183,9 @@ def register_volumewise(
     Raises
     ------
     ValueError
-        If both `reference_time` and `fixed` are given, or if `fixed` has a `time`
-        dimension, is not a VoxelData array, or does not share `data`'s voxel
-        grid.
+        If both `reference_time` and `fixed` are given, if `fixed_intensity_scaling`
+        is given without `fixed`, or if `fixed` has a `time` dimension, is not a
+        VoxelData array, or does not share `data`'s voxel grid.
     TypeError
         If `n_jobs != 1` and `data` is backed by an h5py dataset. See Notes.
 
@@ -206,7 +213,20 @@ def register_volumewise(
     if reference_time is not None and fixed is not None:
         raise ValueError("Pass either 'reference_time' or 'fixed', not both.")
 
-    validate_intensity_scaling(intensity_scaling, "intensity_scaling")
+    validate_intensity_scaling(moving_intensity_scaling, "moving_intensity_scaling")
+    if fixed_intensity_scaling is None:
+        # The reference is a frame of `data`, or a `fixed` volume the caller did not
+        # scale separately, so the moving scaling applies to both sides.
+        ref_intensity_scaling = moving_intensity_scaling
+    else:
+        if fixed is None:
+            raise ValueError(
+                "'fixed_intensity_scaling' only applies to a 'fixed' volume. The "
+                "reference frame picked by 'reference_time' is a frame of 'data' "
+                "and is scaled with 'moving_intensity_scaling'."
+            )
+        validate_intensity_scaling(fixed_intensity_scaling, "fixed_intensity_scaling")
+        ref_intensity_scaling = fixed_intensity_scaling
 
     if n_jobs != 1 and is_h5py_backed(data):
         raise TypeError(
@@ -287,10 +307,8 @@ def register_volumewise(
             ref_da,
             transform_type=transform,
             metric=metric,
-            # The reference is a frame of the same recording, or a user-provided
-            # volume of the same modality, so one scaling applies to both sides.
-            fixed_intensity_scaling=intensity_scaling,
-            moving_intensity_scaling=intensity_scaling,
+            fixed_intensity_scaling=ref_intensity_scaling,
+            moving_intensity_scaling=moving_intensity_scaling,
             number_of_histogram_bins=number_of_histogram_bins,
             learning_rate=learning_rate,
             number_of_iterations=number_of_iterations,

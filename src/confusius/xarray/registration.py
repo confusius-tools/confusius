@@ -216,6 +216,8 @@ class FUSIRegistrationAccessor:
         n_jobs: int = -1,
         transform: Literal["translation", "rigid", "affine"] = "rigid",
         metric: Literal["correlation", "mattes_mi"] = "correlation",
+        fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float | None = None,
+        moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
         number_of_histogram_bins: int = 50,
         learning_rate: float | Literal["auto"] = 0.01,
         number_of_iterations: int = 100,
@@ -254,6 +256,16 @@ class FUSIRegistrationAccessor:
             Type of transform to use for registration.
         metric : {"correlation", "mattes_mi"}, default: "correlation"
             Similarity metric for registration.
+        fixed_intensity_scaling : {"none", "db", "sqrt"} or float, optional
+            Intensity transform applied to `fixed`, only for the registration
+            optimizer. Only allowed together with `fixed`; the reference frame
+            selected by `reference_time` always uses `moving_intensity_scaling`. If
+            not provided, `fixed` is scaled with `moving_intensity_scaling` too.
+        moving_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
+            Intensity transform applied to every frame, only for the registration
+            optimizer. Floats apply power scaling with that exponent; `"sqrt"` is an
+            alias for `0.5`. Returned/resampled data keeps the original input
+            intensities.
         number_of_histogram_bins : int, default: 50
             Number of histogram bins (only used when `metric="mattes_mi"`).
         learning_rate : float or "auto", default: 0.01
@@ -328,6 +340,8 @@ class FUSIRegistrationAccessor:
             n_jobs=n_jobs,
             transform=transform,
             metric=metric,
+            fixed_intensity_scaling=fixed_intensity_scaling,
+            moving_intensity_scaling=moving_intensity_scaling,
             number_of_histogram_bins=number_of_histogram_bins,
             learning_rate=learning_rate,
             number_of_iterations=number_of_iterations,
