@@ -1070,7 +1070,8 @@ class TestValidation:
         assert not registration_panel._validate_registration_selection()
         assert not registration_panel._run_btn.isEnabled()
         assert (
-            "without a time dimension" in registration_panel._layer_validation.text()
+            registration_panel._layer_validation.text()
+            == "Fixed layer must not have a time dimension."
         )
         assert "border" in registration_panel._fixed_combo.styleSheet()
 

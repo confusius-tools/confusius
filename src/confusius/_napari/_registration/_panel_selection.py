@@ -414,7 +414,7 @@ def validate_registration_selection(panel: RegistrationPanel) -> bool:
                 set_layer_validation_style(
                     panel,
                     fixed_invalid=True,
-                    message="Within-scan registration requires a fixed layer without a time dimension.",
+                    message="Fixed layer must not have a time dimension.",
                 )
                 set_run_btn_enabled(panel, False)
                 return False
