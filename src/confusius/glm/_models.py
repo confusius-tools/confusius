@@ -294,24 +294,41 @@ class ARModel:
         B_sym = B + B.transpose(0, 2, 1)  # B[i] + B[i].T for each lag.
 
         # `XtX[v] = A - sum_i rho[i,v]·B_sym[i] + sum_{ij} rho[i,v]·rho[j,v]·C[i,j]`.
+        # The three-operand term needs `optimize=True` to contract pairwise; einsum's
+        # default builds the whole `(order, order, V, K, K)` intermediate, which costs
+        # ~6x more at AR(2) and grows with the order. The two-operand term is faster
+        # without it.
         XtX = (
             A[np.newaxis]
             - np.einsum("iv,ikl->vkl", self.rho, B_sym)
-            + np.einsum("iv,jv,ijkl->vkl", self.rho, self.rho, C)
+            + np.einsum("iv,jv,ijkl->vkl", self.rho, self.rho, C, optimize=True)
         )  # (V, K, K)
 
         # P = X.T @ whitened_Y — clean cross of X with whitened Y. (K, V).
         P = X.T @ whitened_Y
         # Q[i] = L[i].T @ whitened_Y — lagged cross with whitened Y. (order, K, V).
-        Q = np.einsum("itk,tv->ikv", L, whitened_Y)
+        # `optimize=True` routes this through BLAS instead of einsum's own loop; on a
+        # (600, 15) design and 147k voxels that is ~30x faster.
+        Q = np.einsum("itk,tv->ikv", L, whitened_Y, optimize=True)
         # `XtY[v] = P[:, v] - sum_i rho[i,v] · Q[i, :, v]`.
         XtY = P.T - np.einsum("iv,ikv->vk", self.rho, Q)  # (V, K)
 
-        # Per-voxel normalized covariance and beta via pseudoinverse, so a
-        # rank-deficient user-supplied design produces a min-norm solution
-        # instead of a `LinAlgError` (matches `OLSModel`'s `spl.pinv` and
-        # nilearn's single-rho `ARModel`, which inherits OLS's pinv).
-        cov_beta = np.linalg.pinv(XtX)  # (V, K, K)
+        # Per-voxel normalized covariance and beta. `pinv` is the general answer: a
+        # rank-deficient design gives a min-norm solution instead of a `LinAlgError`
+        # (matching `OLSModel`'s `spl.pinv` and nilearn's single-rho `ARModel`, which
+        # inherits OLS's pinv). But `pinv` is a batched SVD over V matrices and
+        # dominates the fit -- ~6x the cost of the LU-based `inv` on a (147k, 15, 15)
+        # stack, for results that agree to ~1e-14. A full-rank design keeps every
+        # `XtX[v]` invertible except for pathological rho, so take `inv` there and keep
+        # `pinv` for the rank-deficient case, where `inv` would silently return garbage
+        # rather than raise.
+        if self.df_model == K:
+            try:
+                cov_beta = np.linalg.inv(XtX)  # (V, K, K)
+            except np.linalg.LinAlgError:
+                cov_beta = np.linalg.pinv(XtX)
+        else:
+            cov_beta = np.linalg.pinv(XtX)  # (V, K, K)
         # beta: (V, K) transposed to (K, V) to match convention.
         beta = np.einsum("vij,vj->vi", cov_beta, XtY).T
 
