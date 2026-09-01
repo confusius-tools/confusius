@@ -20,7 +20,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_units,
 )
 from confusius._utils.stack import find_stack_level
-from confusius.multipose._utils import build_consolidated_time_coordinate
+from confusius.multipose.timing import build_consolidated_time_coordinate
 from confusius.validation import ensure_voxeldata
 
 

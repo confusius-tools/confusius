@@ -1,4 +1,4 @@
-"""Shared helpers for the multipose module."""
+"""Timing helpers shared across the multipose module and other pose-aware consumers."""
 
 import warnings
 from typing import Any
@@ -7,6 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._dims import POSE_DIM, TIME_DIM
 from confusius._utils.stack import find_stack_level
 from confusius.timing import convert_time_reference
 
@@ -20,10 +21,11 @@ def build_consolidated_time_coordinate(
 
     Shared by [consolidate_poses][confusius.multipose.consolidate_poses] (reducing a
     pose-dependent `(time, pose)`-shaped `time` coordinate into a consolidated
-    `slice_time`) and [stack_poses][confusius.multipose.stack_poses] (building a
+    `slice_time`), [stack_poses][confusius.multipose.stack_poses] (building a
     fresh whole-array `time` coordinate from independently loaded poses' own
-    timestamps) -- both need the same reference/duration accounting to turn
-    per-`(time, pose)` timestamps into one whole-stack time value per time point.
+    timestamps), and other pose-aware consumers that need to summarize
+    per-`(time, pose)` timestamps into one whole-array time value per time point
+    (e.g. [compute_compcor_confounds][confusius.signal.compute_compcor_confounds]).
 
     Parameters
     ----------
@@ -98,3 +100,54 @@ def build_consolidated_time_coordinate(
         )
 
     return xr.DataArray(volume_times, dims=["time"], attrs=time_attrs)
+
+
+def consolidate_time_coordinate(time_coord: xr.DataArray) -> xr.DataArray:
+    """Return the whole-volume `time` coordinate of a possibly pose-dependent one.
+
+    Per-volume quantities such as confounds and sample masks are timed by the whole
+    volume, not by one pose. A 1D `(time,)` coordinate is returned unchanged; a
+    pose-dependent `(time, pose)` coordinate is reduced to one whole-volume time value
+    per timepoint with `build_consolidated_time_coordinate`, which spans the full pose
+    sequence (earliest to latest pose) and honors `volume_acquisition_reference`. The
+    first pose's timestamps only anchor the output's attrs, and are used directly as a
+    fallback when per-pose timing metadata are insufficient to compute a whole-volume
+    duration. Mirrors [`consolidate_poses`][confusius.multipose.consolidate_poses].
+
+    Parameters
+    ----------
+    time_coord : (time,) or (time, pose) xarray.DataArray
+        `time` coordinate of a VoxelData array.
+
+    Returns
+    -------
+    (time,) xarray.DataArray
+        Whole-volume `time` coordinate carrying the attrs of `time_coord`.
+
+    Raises
+    ------
+    ValueError
+        If `time_coord` has dimensions other than `(time,)` or `(time, pose)`.
+
+    Warns
+    -----
+    UserWarning
+        If per-pose timing metadata are insufficient to infer the whole-volume time,
+        in which case the first pose's timestamps are used (see
+        `build_consolidated_time_coordinate`).
+    """
+    if time_coord.dims == (TIME_DIM,):
+        return time_coord
+    if time_coord.dims != (TIME_DIM, POSE_DIM):
+        raise ValueError(
+            "time coordinate must have dimensions ('time',) or ('time', 'pose'), got "
+            f"{time_coord.dims}"
+        )
+    first_pose_time = xr.DataArray(
+        np.asarray(time_coord.isel({POSE_DIM: 0}).values),
+        dims=[TIME_DIM],
+        attrs=dict(time_coord.attrs),
+    )
+    return build_consolidated_time_coordinate(
+        first_pose_time, np.asarray(time_coord.values), dict(time_coord.attrs)
+    )

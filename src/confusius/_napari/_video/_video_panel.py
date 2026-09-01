@@ -570,10 +570,11 @@ class VideoPanel(QWidget):
             self._displayed_dims = (order[-2], order[-1])
 
             # Save and enable grid mode with a single-row layout.
-            self._grid_was_enabled = self._viewer.grid.enabled
-            self._grid_shape_was = tuple(self._viewer.grid.shape)
-            self._viewer.grid.enabled = True
-            self._viewer.grid.shape = (1, -1)
+            grid = self._viewer.canvas.grid
+            self._grid_was_enabled = grid.enabled
+            self._grid_shape_was = tuple(grid.shape)
+            grid.enabled = True
+            grid.shape = (1, -1)
 
             # Connect dim-order guard.
             self._viewer.dims.events.order.connect(self._on_dim_order_changed)
@@ -664,7 +665,7 @@ class VideoPanel(QWidget):
             clims = entry.layer.contrast_limits
             entry.layer.data = data  # type: ignore  # invalid-assignment ignored: data descriptor has a custom __set__
             entry.layer.contrast_limits = clims
-            entry.layer.scale = tuple(scale)
+            entry.layer.scale = tuple(scale)  # ty: ignore[invalid-assignment]
             entry.layer.translate = tuple(translate)
             return
 
@@ -737,8 +738,9 @@ class VideoPanel(QWidget):
     def _on_last_video_removed(self) -> None:
         """Restore viewer state after the last video is removed."""
         self._disconnect()
-        self._viewer.grid.enabled = self._grid_was_enabled
-        self._viewer.grid.shape = self._grid_shape_was
+        grid = self._viewer.canvas.grid
+        grid.enabled = self._grid_was_enabled
+        grid.shape = self._grid_shape_was
         self._ref_layer = None
         self._axis_labels = ()
         self._units = []
