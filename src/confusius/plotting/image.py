@@ -546,8 +546,9 @@ def _resolve_stat_map_style(
     layout:
 
     - Both positive and negative values: diverging, symmetric `[-m, m]` range
-      where `m = max(|vmin|, |vmax|)` (using the resolved bounds above), with
-      `cmap` defaulting to `_STAT_MAP_DIVERGING_CMAP`.
+      where `m = max(|vmin|, |vmax|)` over the bounds actually provided, falling
+      back to the largest magnitude in `data` when neither is given, with `cmap`
+      defaulting to `_STAT_MAP_DIVERGING_CMAP`.
     - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
       defaulting to `_STAT_MAP_SEQUENTIAL_CMAP`.
     - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
@@ -574,7 +575,10 @@ def _resolve_stat_map_style(
         )
 
     if data_min < 0 < data_max:
-        abs_max = max(abs(resolved_vmin), abs(resolved_vmax))
+        # A bound given on its own caps the symmetric range by itself: falling back
+        # to the data's own min/max for the missing one would drop it silently.
+        explicit = [abs(bound) for bound in (vmin, vmax) if bound is not None]
+        abs_max = max(explicit) if explicit else max(abs(data_min), abs(data_max))
         return -abs_max, abs_max, cmap if cmap is not None else _STAT_MAP_DIVERGING_CMAP
 
     if data_max > 0:
@@ -2006,22 +2010,27 @@ class VolumePlotter:
         vmin : float, optional
             Lower bound of the colormap. If not provided, defaults to the minimum
             value of `stat_map`, computed over the full array rather than just the
-            displayed slices. Ignored when `norm` is provided, or when
-            `auto_range=True` and `stat_map` has only non-negative values.
+            displayed slices. Ignored when `norm` is provided, when
+            `auto_range=True` and `stat_map` has only non-negative values, or when
+            `auto_range=True`, `stat_map` spans both signs and `vmax` is given on
+            its own (see `auto_range`).
         vmax : float, optional
             Upper bound of the colormap. If not provided, defaults to the maximum
             value of `stat_map`, computed over the full array rather than just the
-            displayed slices. Ignored when `norm` is provided, or when
-            `auto_range=True` and `stat_map` has only non-positive values.
+            displayed slices. Ignored when `norm` is provided, when
+            `auto_range=True` and `stat_map` has only non-positive values, or when
+            `auto_range=True`, `stat_map` spans both signs and `vmin` is given on
+            its own (see `auto_range`).
         auto_range : bool, default: True
             Whether to pick the colormap range and default colormap automatically
             based on the sign of `stat_map`:
 
             - Both positive and negative values: diverging, symmetric `[-m, m]`
-              range where `m = max(|vmin|, |vmax|)` (using the resolved bounds
-              above), with `cmap` defaulting to `"coolwarm"` — the right choice for
-              diverging statistics where the sign is meaningful (e.g. t-statistics,
-              correlation coefficients, PCA/ICA component maps).
+              range where `m = max(|vmin|, |vmax|)` over the bounds actually
+              provided, falling back to the largest magnitude in `stat_map` when
+              neither is given, with `cmap` defaulting to `"coolwarm"` — the right
+              choice for diverging statistics where the sign is meaningful (e.g.
+              t-statistics, correlation coefficients, PCA/ICA component maps).
             - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
               defaulting to `"viridis"` — the right choice for non-diverging
               statistics where only magnitude matters (e.g. R², F-statistics).
@@ -3497,22 +3506,27 @@ def plot_stat_map(
     vmin : float, optional
         Lower bound of the colormap. If not provided, defaults to the minimum value
         of `stat_map`, computed over the full array rather than just the displayed
-        slices. Ignored when `norm` is provided, or when `auto_range=True` and
-        `stat_map` has only non-negative values.
+        slices. Ignored when `norm` is provided, when `auto_range=True` and
+        `stat_map` has only non-negative values, or when `auto_range=True`,
+        `stat_map` spans both signs and `vmax` is given on its own (see
+        `auto_range`).
     vmax : float, optional
         Upper bound of the colormap. If not provided, defaults to the maximum value
         of `stat_map`, computed over the full array rather than just the displayed
-        slices. Ignored when `norm` is provided, or when `auto_range=True` and
-        `stat_map` has only non-positive values.
+        slices. Ignored when `norm` is provided, when `auto_range=True` and
+        `stat_map` has only non-positive values, or when `auto_range=True`,
+        `stat_map` spans both signs and `vmin` is given on its own (see
+        `auto_range`).
     auto_range : bool, default: True
         Whether to pick the colormap range and default colormap automatically based
         on the sign of `stat_map`:
 
         - Both positive and negative values: diverging, symmetric `[-m, m]` range
-          where `m = max(|vmin|, |vmax|)` (using the resolved bounds above),
-          with `cmap` defaulting to `"coolwarm"` — the right choice for diverging
-          statistics where the sign is meaningful (e.g. t-statistics, correlation
-          coefficients, PCA/ICA component maps).
+          where `m = max(|vmin|, |vmax|)` over the bounds actually provided,
+          falling back to the largest magnitude in `stat_map` when neither is
+          given, with `cmap` defaulting to `"coolwarm"` — the right choice for
+          diverging statistics where the sign is meaningful (e.g. t-statistics,
+          correlation coefficients, PCA/ICA component maps).
         - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
           defaulting to `"viridis"` — the right choice for non-diverging
           statistics where only magnitude matters (e.g. R², F-statistics).

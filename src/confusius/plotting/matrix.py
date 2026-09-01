@@ -54,7 +54,8 @@ def _resolve_matrix_style(
     When `auto_range` is `True` (default), the sign of `values` determines the layout:
 
     - Both positive and negative values: diverging, symmetric `[-m, m]` range where
-      `m = max(|vmin|, |vmax|)` (using the resolved bounds above), with `cmap`
+      `m = max(|vmin|, |vmax|)` over the bounds actually provided, falling back to
+      the largest magnitude in `values` when neither is given, with `cmap`
       defaulting to `_MATRIX_DIVERGING_CMAP`.
     - Only non-negative values: sequential `[0, vmax]` range, with `cmap` defaulting
       to `_MATRIX_SEQUENTIAL_CMAP`.
@@ -80,7 +81,10 @@ def _resolve_matrix_style(
         )
 
     if data_min < 0 < data_max:
-        abs_max = max(abs(resolved_vmin), abs(resolved_vmax))
+        # A bound given on its own caps the symmetric range by itself: falling back
+        # to the data's own min/max for the missing one would drop it silently.
+        explicit = [abs(bound) for bound in (vmin, vmax) if bound is not None]
+        abs_max = max(explicit) if explicit else max(abs(data_min), abs(data_max))
         return -abs_max, abs_max, cmap if cmap is not None else _MATRIX_DIVERGING_CMAP
 
     if data_max > 0:
@@ -487,19 +491,22 @@ def plot_matrix(
         always used as-is regardless of `auto_range`.
     vmin : float, optional
         Lower bound of the colormap. If not provided, defaults to the minimum value
-        in `matrix`. Ignored when `auto_range` resolves to a range anchored at zero
-        (see below).
+        in `matrix`. Ignored when `auto_range=True` and `matrix` has only
+        non-negative values, or when `auto_range=True`, `matrix` spans both signs
+        and `vmax` is given on its own (see below).
     vmax : float, optional
         Upper bound of the colormap. If not provided, defaults to the maximum value
         in `matrix`. Ignored when `auto_range=True` and `matrix` has only
-        non-positive values.
+        non-positive values, or when `auto_range=True`, `matrix` spans both signs
+        and `vmin` is given on its own (see below).
     auto_range : bool, default: True
         Whether to pick the colormap range and default colormap automatically based
         on the sign of `matrix`:
 
         - Both positive and negative values: diverging, symmetric `[-m, m]` range
-          where `m = max(|vmin|, |vmax|)` (using the resolved bounds above), with
-          `cmap` defaulting to `"coolwarm"`.
+          where `m = max(|vmin|, |vmax|)` over the bounds actually provided,
+          falling back to the largest magnitude in `matrix` when neither is given,
+          with `cmap` defaulting to `"coolwarm"`.
         - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
           defaulting to `"viridis"`.
         - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
