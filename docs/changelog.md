@@ -10,6 +10,13 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :zap: Performance
+
+- [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
+  longer computes a full SVD, extracting components several times faster on
+  large recordings or broad noise masks
+  ([#434](https://github.com/confusius-tools/confusius/pull/434)).
+
 ### :frame_photo: Napari plugin
 
 - Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
