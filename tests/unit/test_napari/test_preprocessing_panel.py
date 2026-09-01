@@ -1033,6 +1033,14 @@ class TestCompcorSubprocess:
 
 
 class TestComputeCompcor:
+    """Each test here waits on a real ProcessPoolExecutor(spawn) run.
+
+    Spawning a fresh interpreter and reimporting confusius' dependency stack (numpy,
+    scipy, sklearn, xarray, dask) can take several seconds on a loaded CI runner —
+    especially on Windows, where process creation is inherently slower than
+    fork — so these use a longer waitUntil timeout than the rest of the file.
+    """
+
     def test_matches_direct_compute_compcor_confounds_call(
         self, qtbot, viewer, panel, signals_store, sample_voxeldata_3dt
     ):
@@ -1054,7 +1062,7 @@ class TestComputeCompcor:
         panel._compcor_components_spin.setValue(2)
 
         panel._compute_compcor()
-        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 2, timeout=5000)
+        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 2, timeout=20000)
 
         noise_mask = xr.zeros_like(
             sample_voxeldata_3dt.isel(time=0, drop=True), dtype=bool
@@ -1094,11 +1102,11 @@ class TestComputeCompcor:
 
         panel._compcor_components_spin.setValue(4)
         panel._compute_compcor()
-        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 4, timeout=5000)
+        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 4, timeout=20000)
 
         panel._compcor_components_spin.setValue(2)
         panel._compute_compcor()
-        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 2, timeout=5000)
+        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 2, timeout=20000)
 
         stored_names = {s.name for s in signals_store.stored_signals()}
         assert stored_names == {
@@ -1127,7 +1135,7 @@ class TestComputeCompcor:
         assert panel._compcor_progress.isVisibleTo(panel)
         assert not panel._progress.isVisibleTo(panel)
 
-        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 5, timeout=5000)
+        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 5, timeout=20000)
         assert not panel._compcor_progress.isVisibleTo(panel)
 
     def test_recomputing_updates_signals_in_place(
@@ -1149,7 +1157,7 @@ class TestComputeCompcor:
         panel._compcor_components_spin.setValue(1)
 
         panel._compute_compcor()
-        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 1, timeout=5000)
+        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 1, timeout=20000)
         panel._compute_compcor()
         qtbot.wait(500)  # Give a second run a chance to (wrongly) duplicate.
 
