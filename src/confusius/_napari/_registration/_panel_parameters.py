@@ -48,7 +48,7 @@ def get_default_registration_parameters(
         "fill_value_auto": True,
         "fill_value": 0.0,
         "reference_time": 0,
-        "n_jobs": -1,
+        "n_workers": -1,
         "sitk_threads": -1,
         "optimizer_weights_enabled": False,
         "optimizer_weights_values": [],
@@ -94,7 +94,7 @@ def get_registration_parameters(panel: RegistrationPanel) -> ModeParameters:
         "fill_value_auto": panel._fill_value_auto_check.isChecked(),
         "fill_value": panel._fill_value_spin.value(),
         "reference_time": panel._reference_time_spin.value(),
-        "n_jobs": panel._n_jobs_spin.value(),
+        "n_workers": panel._n_workers_spin.value(),
         "sitk_threads": panel._sitk_threads_spin.value(),
         "optimizer_weights_enabled": panel._optimizer_weights_check.isChecked(),
         "optimizer_weights_values": panel._optimizer_weight_values(),
@@ -167,7 +167,7 @@ def set_registration_parameters(
     panel._fill_value_auto_check.setChecked(params["fill_value_auto"])
     panel._fill_value_spin.setValue(params["fill_value"])
     panel._reference_time_spin.setValue(params["reference_time"])
-    panel._n_jobs_spin.setValue(params["n_jobs"])
+    panel._n_workers_spin.setValue(params["n_workers"])
     panel._sitk_threads_spin.setValue(params["sitk_threads"])
     panel._keep_diagnostics_check.setChecked(params["keep_diagnostics"])
     panel._advanced_toggle.setChecked(params["advanced_open"])

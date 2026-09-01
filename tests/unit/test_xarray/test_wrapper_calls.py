@@ -292,7 +292,6 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d):
     assert (
         sample_voxeldata_3d.fusi.register.volumewise(
             reference_time=2,
-            n_jobs=1,
             transform="translation",
             metric="mattes_mi",
             number_of_histogram_bins=20,
@@ -318,7 +317,6 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d):
         sample_voxeldata_3d,
         {
             "reference_time": 2,
-            "n_jobs": 1,
             "transform": "translation",
             "metric": "mattes_mi",
             "number_of_histogram_bins": 20,

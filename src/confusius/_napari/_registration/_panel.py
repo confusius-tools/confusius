@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from threading import Event
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, cast
 
 import numpy as np
+from distributed import Client as DistributedClient
+from distributed import Event as DistributedEvent
 from napari.qt.threading import thread_worker
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
@@ -153,7 +156,7 @@ class ModeParameters(TypedDict):
     fill_value_auto: bool
     fill_value: float
     reference_time: int
-    n_jobs: int
+    n_workers: int
     sitk_threads: int
     optimizer_weights_enabled: bool
     optimizer_weights_values: list[float]
@@ -203,7 +206,6 @@ class VolumewiseRegistrationRunPayload(RegistrationRunPayloadBase):
     transform: VolumewiseTransformType
     mesh_size: tuple[int, int, int]
     reference_time: int
-    n_jobs: int
 
 
 class ApplyTransformPayload(TypedDict):
@@ -263,7 +265,8 @@ class RegistrationPanel(QWidget):
         super().__init__()
         self.viewer = viewer
         self._worker = None
-        self._abort_event: Event | None = None
+        self._abort_event: Event | DistributedEvent | None = None
+        self._dask_client: DistributedClient | None = None
         self._loaded_transform_payload: TransformPayload | None = None
         self._optimizer_weight_spins: list[QDoubleSpinBox] = []
         # Per-run progress state. Set on the GUI thread before the worker starts.
@@ -587,18 +590,18 @@ class RegistrationPanel(QWidget):
         )
         operation_layout.addRow(self._reference_time_label, self._reference_time_spin)
 
-        self._n_jobs_spin = QSpinBox()
+        self._n_workers_spin = QSpinBox()
         # Expanding: QFormLayout's ExpandingFieldsGrow only grows fields whose
         # policy is Expanding/MinimumExpanding, and spinboxes are not by
         # default — they would otherwise stay at hint width in advanced rows.
-        self._n_jobs_spin.setSizePolicy(
+        self._n_workers_spin.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self._n_jobs_spin.setRange(-128, 128)
-        self._n_jobs_spin.setMaximumWidth(56)
-        self._n_jobs_spin.setSpecialValueText("auto")
-        self._n_jobs_spin.setToolTip(
-            "Number of workers for time-series registration. -1 uses all CPUs."
+        self._n_workers_spin.setRange(-1, 128)
+        self._n_workers_spin.setMaximumWidth(56)
+        self._n_workers_spin.setSpecialValueText("auto")
+        self._n_workers_spin.setToolTip(
+            "Number of Dask worker processes for time-series registration. -1 uses all CPUs."
         )
 
         self._layer_validation = QLabel("")
@@ -938,11 +941,11 @@ class RegistrationPanel(QWidget):
             tooltip="Whether to store the full per-frame optimizer traces for within-scan registration.",
         )
 
-        self._n_jobs_row = self._make_advanced_row(
+        self._n_workers_row = self._make_advanced_row(
             advanced_layout,
-            "Parallel jobs",
-            self._n_jobs_spin,
-            tooltip="Number of parallel workers used for within-scan registration. -1 uses all CPUs.",
+            "Parallel workers",
+            self._n_workers_spin,
+            tooltip="Number of Dask worker processes used for within-scan registration. -1 uses all CPUs.",
         )
 
         self._sitk_threads_spin = QSpinBox()
@@ -1549,7 +1552,7 @@ class RegistrationPanel(QWidget):
         )
         self._reference_time_label.setVisible(is_volumewise)
         self._reference_time_spin.setVisible(is_volumewise)
-        self._n_jobs_row.setVisible(is_volumewise)
+        self._n_workers_row.setVisible(is_volumewise)
         self._sitk_threads_row.setVisible(not is_volumewise)
 
         self._learning_rate_auto_check.setVisible(not is_volumewise)
@@ -1594,6 +1597,9 @@ class RegistrationPanel(QWidget):
         """Restore the idle UI state after background work."""
         self._worker = None
         self._abort_event = None
+        if self._dask_client is not None:
+            self._dask_client.close()
+            self._dask_client = None
         self._run_btn.show()
         self._run_btn.setEnabled(True)
         self._run_btn.setText("Run registration")
@@ -1662,9 +1668,9 @@ class RegistrationPanel(QWidget):
             if self._optimizer_weights_check.isChecked() and transform != "bspline"
             else None
         )
-        self._abort_event = Event()
-
         if operation == "register_volume":
+            self._abort_event = Event()
+
             if fixed_layer is None:
                 self._set_error("Select a fixed layer.")
                 return
@@ -1844,8 +1850,29 @@ class RegistrationPanel(QWidget):
                     self._mesh_size_x_spin.value(),
                 ),
                 "reference_time": self._reference_time_spin.value(),
-                "n_jobs": self._n_jobs_spin.value(),
             }
+            n_workers = self._n_workers_spin.value()
+            if n_workers < 0:
+                # Same "-1 = auto" resolution as register_volumewise's own
+                # auto-created Client, kept local rather than importing a private
+                # name across the module boundary.
+                n_workers = (
+                    max(1, len(os.sched_getaffinity(0)))
+                    if hasattr(os, "sched_getaffinity")
+                    else max(1, os.cpu_count() or 1)
+                )
+            self._dask_client = DistributedClient(
+                n_workers=n_workers,
+                threads_per_worker=1,
+                processes=True,
+                dashboard_address=":0",
+            )
+            # A distributed.Event (not threading.Event) is required so that
+            # abort_event stays live across worker processes -- see
+            # register_volumewise's Notes. Constructing it requires an active
+            # distributed.Client, hence self._dask_client above.
+            self._abort_event = DistributedEvent()
+
             progress_reporter = setup_volumewise_progress(
                 self,
                 moving_layer=cast("Image", moving_layer),
@@ -1860,7 +1887,6 @@ class RegistrationPanel(QWidget):
             worker = thread_worker(register_volumewise)(
                 moving,
                 reference_time=volumewise_payload["reference_time"],
-                n_jobs=volumewise_payload["n_jobs"],
                 transform=volumewise_payload["transform"],
                 metric=volumewise_payload["metric"],
                 learning_rate=learning_rate,

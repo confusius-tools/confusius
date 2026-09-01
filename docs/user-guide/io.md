@@ -257,10 +257,10 @@ world coordinates are derived from voxel indices and affines.
 
 !!! warning "SCAN files and parallel processing"
     SCAN v1 files are HDF5 files, and h5py datasets **cannot be pickled**. This means
-    lazy SCAN DataArrays cannot be passed to functions that use parallel workers (e.g.,
-    [`register_volumewise`][confusius.registration.register_volumewise] with `n_jobs !=
-    1`). Call `.compute()` to load the data into memory before running any parallel
-    operation:
+    lazy SCAN DataArrays cannot be sent to a Dask `distributed.Client` worker process,
+    which is how functions like
+    [`register_volumewise`][confusius.registration.register_volumewise] parallelize.
+    Call `.compute()` to load the data into memory first:
 
     ```python
     import confusius as cf
@@ -268,9 +268,6 @@ world coordinates are derived from voxel indices and affines.
     fusi = cf.load("recording.scan").compute()  # materialize first
     fusi = cf.registration.register_volumewise(fusi)
     ```
-
-    Alternatively, use `n_jobs=1` for serial processing (slower but works with lazy
-    SCAN data).
 
 #### SCAN v2 (binary format)
 

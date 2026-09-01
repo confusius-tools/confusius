@@ -10,6 +10,35 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- [`register_volumewise`][confusius.registration.register_volumewise] now parallelizes
+  with a Dask `distributed.Client` instead of joblib. The `n_jobs` parameter is gone:
+  parallelism is controlled by the ambient `distributed.Client` if one is active, or a
+  local one created automatically otherwise (one worker process per CPU). `abort_event`
+  must now be a `distributed.Event` rather than a `threading.Event`, so a live update
+  is visible from a frame already running on a separate worker process; constructing
+  one requires an active `distributed.Client`. h5py-backed (SCAN) input now always
+  raises `TypeError` (previously: only when `n_jobs != 1`) — materialize it with
+  `.compute()` first
+  ([#440](https://github.com/confusius-tools/confusius/pull/440)).
+
+### :sparkles: Enhancements
+
+- [`register_volumewise`][confusius.registration.register_volumewise] no longer
+  materializes the full recording into memory before registering it: each frame is
+  read lazily as it's dispatched, so a Dask-backed recording is only pulled into
+  memory frame by frame
+  ([#440](https://github.com/confusius-tools/confusius/pull/440)).
+
+### :frame_photo: Napari plugin
+
+- The within-scan registration panel's "Parallel jobs" control is now "Parallel
+  workers", controlling a Dask `distributed.Client` the panel creates and sizes for
+  the run instead of joblib workers, following
+  [`register_volumewise`][confusius.registration.register_volumewise]'s move to Dask
+  ([#440](https://github.com/confusius-tools/confusius/pull/440)).
+
 ## 0.7.0
 
 Released 2026-08-31.

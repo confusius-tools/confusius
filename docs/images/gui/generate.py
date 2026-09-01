@@ -1047,7 +1047,6 @@ try:
     registration_panel8._reference_time_spin.setValue(n_frames // 2)
     registration_panel8._learning_rate_auto_check.setChecked(False)
     registration_panel8._learning_rate_edit.setValue(1.0)
-    registration_panel8._n_jobs_spin.setValue(-1)
     registration_panel8._keep_diagnostics_check.setChecked(False)
     registration_panel8._validate_registration_selection()
     _qt_sleep(100)

@@ -209,7 +209,7 @@ class TestOperationMode:
         registration_panel._time_series_radio.setChecked(True)
         assert registration_panel._fixed_combo.isHidden()
         assert not registration_panel._reference_time_spin.isHidden()
-        assert not registration_panel._n_jobs_row.isHidden()
+        assert not registration_panel._n_workers_row.isHidden()
 
     def test_between_scan_shows_masks_and_sitk_threads(self, registration_panel):
         registration_panel._advanced_toggle.setChecked(True)
@@ -229,7 +229,7 @@ class TestOperationMode:
         registration_panel._single_volume_radio.setChecked(True)
         assert not registration_panel._fixed_combo.isHidden()
         assert registration_panel._reference_time_spin.isHidden()
-        assert registration_panel._n_jobs_row.isHidden()
+        assert registration_panel._n_workers_row.isHidden()
 
     def test_learning_rate_auto_disables_edit(self, registration_panel):
         assert registration_panel._learning_rate_auto_check.isChecked()
@@ -248,7 +248,7 @@ class TestOperationMode:
     def test_mode_switch_preserves_session_parameters(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
         registration_panel._learning_rate_edit.setValue(0.23)
-        registration_panel._n_jobs_spin.setValue(3)
+        registration_panel._n_workers_spin.setValue(3)
         registration_panel._scale_combo.setCurrentText("square root")
 
         registration_panel._single_volume_radio.setChecked(True)
@@ -261,7 +261,7 @@ class TestOperationMode:
         assert registration_panel._learning_rate_auto_check.isHidden()
         assert not registration_panel._learning_rate_auto_check.isChecked()
         assert registration_panel._learning_rate_edit.value() == pytest.approx(0.23)
-        assert registration_panel._n_jobs_spin.value() == 3
+        assert registration_panel._n_workers_spin.value() == 3
         assert registration_panel._scale_combo.currentText() == "square root"
 
         registration_panel._single_volume_radio.setChecked(True)
@@ -750,6 +750,17 @@ class TestRunRegistration:
             _fake_thread_worker,
         )
 
+        class _FakeDaskClient:
+            def close(self) -> None:
+                return None
+
+        class _FakeDaskEvent:
+            def is_set(self) -> bool:
+                return False
+
+            def set(self) -> None:
+                return None
+
         if within_scan:
             moving = create_voxeldata(
                 np.zeros((2, 4, 6, 8), dtype=np.float32),
@@ -764,6 +775,18 @@ class TestRunRegistration:
             monkeypatch.setattr(
                 "confusius._napari._registration._panel.setup_volumewise_progress",
                 lambda *_args, **_kwargs: None,
+            )
+            # thread_worker is faked below, so _end_work() (which would close
+            # self._dask_client) never runs -- avoid leaking a real Dask cluster by
+            # faking Client/Event construction too; this test only checks kwarg
+            # forwarding, not Dask cluster behavior.
+            monkeypatch.setattr(
+                "confusius._napari._registration._panel.DistributedClient",
+                lambda **_kwargs: _FakeDaskClient(),
+            )
+            monkeypatch.setattr(
+                "confusius._napari._registration._panel.DistributedEvent",
+                _FakeDaskEvent,
             )
         else:
             moving = create_voxeldata(
@@ -807,6 +830,86 @@ class TestRunRegistration:
             assert kwargs["fixed_mask"].dtype == bool
             assert kwargs["moving_mask"].dtype == bool
         assert registration_panel._worker is not None
+
+    def test_volumewise_run_creates_and_closes_dask_client(
+        self, viewer, registration_panel, monkeypatch
+    ):
+        """A volumewise run creates a Dask Client and closes it in _end_work()."""
+
+        class _FakeSignal:
+            def connect(self, _slot):
+                return None
+
+        class _FakeWorker:
+            def __init__(self) -> None:
+                self.returned = _FakeSignal()
+                self.errored = _FakeSignal()
+                self.finished = _FakeSignal()
+
+            def start(self) -> None:
+                return None
+
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel.thread_worker",
+            lambda func: lambda *a, **kw: _FakeWorker(),
+        )
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel.setup_volumewise_progress",
+            lambda *_args, **_kwargs: None,
+        )
+
+        created_clients: list[Any] = []
+
+        class _FakeDaskClient:
+            def __init__(self, **kwargs) -> None:
+                self.kwargs = kwargs
+                self.closed = False
+                created_clients.append(self)
+
+            def close(self) -> None:
+                self.closed = True
+
+        class _FakeDaskEvent:
+            def is_set(self) -> bool:
+                return False
+
+            def set(self) -> None:
+                return None
+
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel.DistributedClient",
+            _FakeDaskClient,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel.DistributedEvent",
+            _FakeDaskEvent,
+        )
+
+        moving = create_voxeldata(
+            np.zeros((2, 4, 6, 8), dtype=np.float32),
+            dims=("time", "k", "j", "i"),
+            time=np.arange(2),
+            spacing=(0.3, 0.2, 0.1),
+        )
+        viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        registration_panel._time_series_radio.setChecked(True)
+        registration_panel._refresh_layers()
+        registration_panel._moving_combo.setCurrentText("moving")
+        registration_panel._n_workers_spin.setValue(3)
+
+        registration_panel._run_registration()
+
+        assert len(created_clients) == 1
+        assert created_clients[0].kwargs["n_workers"] == 3
+        assert isinstance(registration_panel._abort_event, _FakeDaskEvent)
+        assert registration_panel._dask_client is created_clients[0]
+        assert not created_clients[0].closed
+
+        registration_panel._end_work()
+
+        assert created_clients[0].closed
+        assert registration_panel._dask_client is None
+        assert registration_panel._abort_event is None
 
 
 class TestAbort:
