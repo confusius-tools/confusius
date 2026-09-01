@@ -10,6 +10,18 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- [`FirstLevelModel`][confusius.glm.FirstLevelModel] accepts `show_progress` to display
+  a progress bar over the runs being fitted
+  ([#310](https://github.com/confusius-tools/confusius/issues/310)).
+
+### :zap: Performance
+
+- [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] is roughly twice as fast,
+  with the larger gain on the default `noise_model="ar1"`
+  ([#310](https://github.com/confusius-tools/confusius/issues/310)).
+
 ## 0.7.0
 
 Released 2026-08-31.

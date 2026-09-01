@@ -84,9 +84,10 @@ def _fit_run(
     if ar_order == 0:
         # Pure OLS.
         model = OLSModel(design_array)
-        results = model.fit(data_2d)
+        results = model.fit(data_2d, keep_residuals=not minimize_memory)
     else:
-        # Two-pass: OLS → estimate AR → refit with AR whitening.
+        # Two-pass: OLS → estimate AR → refit with AR whitening. The first pass always
+        # keeps its residuals: the AR coefficients are estimated from them.
         ols_model = OLSModel(design_array)
         ols_results = ols_model.fit(data_2d)
         # OLS whitening is the identity, so `whitened_residuals` already holds the raw
@@ -96,7 +97,7 @@ def _fit_run(
         ols_residuals = cast("npt.NDArray[np.floating]", ols_results.whitened_residuals)
         rho_per_voxel, _ = estimate_ar_coeffs(ols_residuals, order=ar_order)
         ar_model = ARModel(design_array, rho_per_voxel)
-        results = ar_model.fit(data_2d)
+        results = ar_model.fit(data_2d, keep_residuals=not minimize_memory)
 
     if minimize_memory:
         # Drop large per-run arrays (Y, whitened_Y, whitened_residuals and the

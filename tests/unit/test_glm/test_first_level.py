@@ -82,6 +82,39 @@ class TestFirstLevelModelFit:
         # Diagnostic accessors work.
         assert np.all(np.isfinite(results.residuals))
 
+    @pytest.mark.parametrize("noise_model", ["ols", "ar1"])
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+    def test_minimize_memory_preserves_statistics(
+        self, fusi_data, events, noise_model, dtype
+    ):
+        """`minimize_memory` must not change the contrast maps.
+
+        With `minimize_memory=True` the residual sum of squares is read off the normal
+        equations rather than summed from the residual array, and it scales every
+        `t`-statistic, so the two paths have to agree. `float32` is covered because
+        fUSI recordings are commonly stored that way and the normal-equations form is
+        a difference of two large sums of squares, which loses about five significant
+        digits if it is accumulated at the input dtype.
+        """
+        fusi_data = fusi_data.astype(dtype)
+        maps = {}
+        for minimize_memory in (True, False):
+            model = FirstLevelModel(
+                noise_model=noise_model,
+                minimize_memory=minimize_memory,
+                show_progress=False,
+            )
+            model.fit(fusi_data, events=events)
+            maps[minimize_memory] = {
+                output_type: model.compute_contrast(
+                    "A - B", output_type=output_type
+                ).values
+                for output_type in ("effect", "variance", "zscore")
+            }
+
+        for output_type, expected in maps[False].items():
+            assert_allclose(maps[True][output_type], expected, rtol=1e-9)
+
     def test_fit_with_confounds(self, fusi_data, events, rng):
         confounds = pd.DataFrame(
             {
