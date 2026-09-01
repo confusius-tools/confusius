@@ -50,6 +50,9 @@ Current development version for the next ConfUSIus release.
   `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
   even when only metadata or a small region is needed
   ([#415](https://github.com/confusius-tools/confusius/pull/415)).
+- [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] with `clip=True` no longer
+  materializes the full world-coordinate grid of an oblique atlas
+  ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 
 ### :bug: Fixes
 
@@ -85,9 +88,6 @@ Released 2026-09-16.
 
 ### :zap: Performance
 
-- [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] with `clip=True` no longer
-  materializes the full world-coordinate grid of an oblique atlas
-  ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 - [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
   longer computes a full SVD, extracting components several times faster on
   large recordings or broad noise masks
