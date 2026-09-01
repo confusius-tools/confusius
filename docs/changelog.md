@@ -177,9 +177,6 @@ Released 2026-08-31.
   for matching JSON sidecars, so shared metadata stored at the dataset root or parent
   folders is preserved when loading recordings
   ([#359](https://github.com/confusius-tools/confusius/pull/359)).
-- [`FirstLevelModel`][confusius.glm.FirstLevelModel] accepts `n_jobs` to fit multiple
-  runs in parallel through joblib worker processes (`-1` uses all CPUs)
-  ([#310](https://github.com/confusius-tools/confusius/issues/310)).
 
 ### :zap: Performance
 

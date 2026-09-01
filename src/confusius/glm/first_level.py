@@ -9,15 +9,14 @@ License. See `NOTICE` file for details.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 import pandas as pd
 import xarray as xr
-from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator
 
-from confusius._utils.io import is_h5py_backed
+from confusius._utils.progress import progress_bar
 from confusius.extract import extract_with_mask, unmask
 from confusius.glm._contrasts import Contrast
 from confusius.glm._design import (
@@ -50,8 +49,6 @@ def _fit_run(
     minimize_memory: bool,
 ) -> RegressionResults:
     """Fit the GLM of a single run.
-
-    Module-level so joblib's loky workers can pickle it by reference.
 
     Parameters
     ----------
@@ -92,7 +89,12 @@ def _fit_run(
         # Two-pass: OLS → estimate AR → refit with AR whitening.
         ols_model = OLSModel(design_array)
         ols_results = ols_model.fit(data_2d)
-        rho_per_voxel, _ = estimate_ar_coeffs(ols_results.residuals, order=ar_order)
+        # OLS whitening is the identity, so `whitened_residuals` already holds the raw
+        # residuals. The `residuals` property recomputes `Y - design @ theta` and
+        # allocates a second `(n_volumes, n_voxels)` array for the same values. The
+        # cast is safe because these results are stripped only further down.
+        ols_residuals = cast("npt.NDArray[np.floating]", ols_results.whitened_residuals)
+        rho_per_voxel, _ = estimate_ar_coeffs(ols_residuals, order=ar_order)
         ar_model = ARModel(design_array, rho_per_voxel)
         results = ar_model.fit(data_2d)
 
@@ -169,15 +171,8 @@ class FirstLevelModel(BaseEstimator):
     mask : xarray.DataArray, optional
         Boolean spatial mask selecting voxels to include in model fitting. Must match
         the spatial dimensions and coordinates of each run.
-    n_jobs : int, default: 1
-        Number of joblib worker processes used to fit runs in parallel. Negative
-        values resolve to `max(1, os.cpu_count() + 1 + n_jobs)`, so `-1` means all
-        CPUs, `-2` means all minus one, and so on. Use `1` to fit runs sequentially
-        in the current process. With any other value each run is sent to a worker
-        process, so run data must be picklable (lazily loaded h5py-backed arrays
-        are not; call `.compute()` first). joblib caps the BLAS/OpenMP threads of
-        each worker so the workers together do not oversubscribe the CPU, unless
-        you set `OMP_NUM_THREADS`-style variables yourself.
+    show_progress : bool, default: True
+        Whether to display a progress bar counting the runs fitted so far.
 
     Attributes
     ----------
@@ -221,7 +216,7 @@ class FirstLevelModel(BaseEstimator):
         uniformity_tolerance: float = 1e-2,
         smoothing_fwhm: float | dict[str, float] | None = None,
         mask: xr.DataArray | None = None,
-        n_jobs: int = 1,
+        show_progress: bool = True,
     ) -> None:
         self.hrf_model = hrf_model
         self.drift_model = drift_model
@@ -235,7 +230,7 @@ class FirstLevelModel(BaseEstimator):
         self.uniformity_tolerance = uniformity_tolerance
         self.smoothing_fwhm = smoothing_fwhm
         self.mask = mask
-        self.n_jobs = n_jobs
+        self.show_progress = show_progress
 
     def fit(
         self,
@@ -287,10 +282,6 @@ class FirstLevelModel(BaseEstimator):
             If neither `events` nor `design_matrices` is provided, if list lengths
             are inconsistent across arguments, or if runs have different spatial
             shapes or mismatched spatial coordinates.
-        TypeError
-            If `n_jobs != 1` and a run is backed by an h5py dataset (lazily loaded
-            SCAN data), which cannot be pickled to joblib workers. Call `.compute()`
-            on the run first, or use `n_jobs=1`.
         """
         if isinstance(run_data, xr.DataArray):
             run_data = [run_data]
@@ -298,13 +289,6 @@ class FirstLevelModel(BaseEstimator):
             ensure_voxeldata(run, require_time=True, require_unchunked_time=True)
             for run in run_data
         ]
-        if self.n_jobs != 1 and any(is_h5py_backed(run) for run in run_data):
-            raise TypeError(
-                "A run is backed by an h5py dataset, which cannot be serialized for "
-                "parallel processing with joblib. Call .compute() to materialize the "
-                "runs into memory before calling fit, or use n_jobs=1 for sequential "
-                "processing."
-            )
         if self.mask is not None:
             self.mask = ensure_voxeldata(self.mask, allow_extra_dims=False)
         n_runs = len(run_data)
@@ -384,22 +368,22 @@ class FirstLevelModel(BaseEstimator):
                 allow_extra_dims=False,
             )
 
-        # joblib's default loky backend caps the BLAS/OpenMP thread pool of each
-        # worker at `cpu_count() // n_jobs`, so parallel runs do not oversubscribe the
-        # CPU, while `n_jobs=1` runs sequentially in-process with the full thread
-        # pool. See
-        # https://joblib.readthedocs.io/en/stable/parallel.html#avoiding-over-subscription-of-cpu-resources.
-        self.results_: list[RegressionResults] = Parallel(n_jobs=self.n_jobs)(
-            delayed(_fit_run)(
-                run,
-                self._effective_mask_,
-                dm.to_numpy(),
-                self.smoothing_fwhm,
-                ar_order,
-                self.minimize_memory,
-            )
-            for run, dm in zip(run_data, design_matrices_list, strict=True)
-        )
+        self.results_: list[RegressionResults] = []
+        with progress_bar(
+            "Fitting runs...", total=n_runs, show=self.show_progress
+        ) as advance:
+            for run, dm in zip(run_data, design_matrices_list, strict=True):
+                self.results_.append(
+                    _fit_run(
+                        run,
+                        self._effective_mask_,
+                        dm.to_numpy(),
+                        self.smoothing_fwhm,
+                        ar_order,
+                        self.minimize_memory,
+                    )
+                )
+                advance()
 
         return self
 
