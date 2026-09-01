@@ -153,6 +153,7 @@ class ModeParameters(TypedDict):
     fill_value_auto: bool
     fill_value: float
     reference_time: int
+    volumewise_use_fixed: bool
     n_jobs: int
     sitk_threads: int
     optimizer_weights_enabled: bool
@@ -202,7 +203,9 @@ class VolumewiseRegistrationRunPayload(RegistrationRunPayloadBase):
     operation: Literal["register_volumewise"]
     transform: VolumewiseTransformType
     mesh_size: tuple[int, int, int]
-    reference_time: int
+    reference_time: int | None
+    fixed_layer_name: str | None
+    fixed_scale: ScaleMode | None
     n_jobs: int
 
 
@@ -578,6 +581,16 @@ class RegistrationPanel(QWidget):
         )
         operation_layout.addRow(self._fixed_mask_label, fixed_mask_container)
 
+        self._volumewise_use_fixed_check = QCheckBox("Use a fixed layer")
+        self._volumewise_use_fixed_check.setToolTip(
+            "Register every frame to the Fixed layer above instead of a volume index "
+            "of the moving layer."
+        )
+        self._volumewise_use_fixed_check.toggled.connect(
+            self._on_volumewise_fixed_toggled
+        )
+        operation_layout.addRow(self._volumewise_use_fixed_check)
+
         self._reference_time_label = QLabel("Reference volume")
         self._reference_time_spin = QSpinBox()
         self._reference_time_spin.setMinimum(0)
@@ -690,10 +703,8 @@ class RegistrationPanel(QWidget):
         )
         params_layout.addRow(self._fixed_scale_label, self._fixed_scale_combo)
 
-        # Labelled "Moving intensity scaling" between scans and "Intensity scaling"
-        # within-scan, where it applies to the reference and every frame.
         self._scale_combo = self._make_scale_combo(
-            "Intensity scaling applied to the moving layer (within-scan: to the reference and every frame), only by the registration optimizer; result layers keep original intensities."
+            "Intensity scaling applied to the moving layer (within-scan: to every frame, and to the reference unless a separate fixed scaling applies), only by the registration optimizer; result layers keep original intensities."
         )
         self._scale_label = self._make_form_label(
             "Moving intensity scaling", tooltip=self._scale_combo.toolTip()
@@ -1524,6 +1535,26 @@ class RegistrationPanel(QWidget):
         if is_bspline:
             self._optimizer_weights_fields.hide()
 
+    def _update_volumewise_fixed_visibility(self) -> None:
+        """Show either the fixed-layer or the reference-volume target widgets."""
+        is_volumewise = self._operation() == "register_volumewise"
+        use_fixed = is_volumewise and self._volumewise_use_fixed_check.isChecked()
+        show_fixed = not is_volumewise or use_fixed
+        self._fixed_label.setVisible(show_fixed)
+        self._fixed_combo.setVisible(show_fixed)
+        self._fixed_combo.setEnabled(show_fixed)
+        self._fixed_scale_label.setVisible(show_fixed)
+        self._fixed_scale_combo.setVisible(show_fixed)
+        self._volumewise_use_fixed_check.setVisible(is_volumewise)
+        self._reference_time_label.setVisible(is_volumewise and not use_fixed)
+        self._reference_time_spin.setVisible(is_volumewise and not use_fixed)
+
+    def _on_volumewise_fixed_toggled(self, checked: bool) -> None:
+        """Swap the within-scan target widgets when the fixed toggle changes."""
+        del checked
+        self._update_volumewise_fixed_visibility()
+        self._validate_registration_selection()
+
     def _on_mode_changed(self) -> None:
         """Update the panel when the registration mode changes."""
         new_mode = self._operation()
@@ -1535,20 +1566,10 @@ class RegistrationPanel(QWidget):
                 get_registration_parameters(self)
             )
 
-        self._fixed_label.setVisible(not is_volumewise)
-        self._fixed_combo.setVisible(not is_volumewise)
-        self._fixed_combo.setEnabled(not is_volumewise)
         self._fixed_mask_label.setVisible(not is_volumewise)
         self._fixed_mask_row.setVisible(not is_volumewise)
         self._moving_mask_label.setVisible(not is_volumewise)
         self._moving_mask_row.setVisible(not is_volumewise)
-        self._fixed_scale_label.setVisible(not is_volumewise)
-        self._fixed_scale_combo.setVisible(not is_volumewise)
-        self._scale_label.setText(
-            "Intensity scaling" if is_volumewise else "Moving intensity scaling"
-        )
-        self._reference_time_label.setVisible(is_volumewise)
-        self._reference_time_spin.setVisible(is_volumewise)
         self._n_jobs_row.setVisible(is_volumewise)
         self._sitk_threads_row.setVisible(not is_volumewise)
 
@@ -1563,6 +1584,7 @@ class RegistrationPanel(QWidget):
         )
         self._active_operation = new_mode
 
+        self._update_volumewise_fixed_visibility()
         self._update_reference_time_bounds()
         self._validate_registration_selection()
 
@@ -1817,6 +1839,22 @@ class RegistrationPanel(QWidget):
                 self._set_error(f"Unknown transform model: {transform!r}.")
                 return
 
+            use_fixed = self._volumewise_use_fixed_check.isChecked()
+            fixed_dataarray = None
+            fixed_layer_name = None
+            fixed_scale_mode = None
+            if use_fixed:
+                if fixed_layer is None:
+                    self._set_error("Select a fixed layer.")
+                    return
+                try:
+                    fixed_dataarray = _get_source_dataarray(fixed_layer)
+                except Exception as exc:  # noqa: BLE001
+                    self._set_error(str(exc))
+                    return
+                fixed_layer_name = fixed_layer.name
+                fixed_scale_mode = self._current_scale_mode(fixed=True)
+
             volumewise_payload: VolumewiseRegistrationRunPayload = {
                 "operation": "register_volumewise",
                 "moving_layer_name": moving_layer.name,
@@ -1843,7 +1881,11 @@ class RegistrationPanel(QWidget):
                     self._mesh_size_y_spin.value(),
                     self._mesh_size_x_spin.value(),
                 ),
-                "reference_time": self._reference_time_spin.value(),
+                "reference_time": None
+                if use_fixed
+                else self._reference_time_spin.value(),
+                "fixed_layer_name": fixed_layer_name,
+                "fixed_scale": fixed_scale_mode,
                 "n_jobs": self._n_jobs_spin.value(),
             }
             progress_reporter = setup_volumewise_progress(
@@ -1860,6 +1902,7 @@ class RegistrationPanel(QWidget):
             worker = thread_worker(register_volumewise)(
                 moving,
                 reference_time=volumewise_payload["reference_time"],
+                fixed=fixed_dataarray,
                 n_jobs=volumewise_payload["n_jobs"],
                 transform=volumewise_payload["transform"],
                 metric=volumewise_payload["metric"],
@@ -1868,6 +1911,7 @@ class RegistrationPanel(QWidget):
                 use_multi_resolution=volumewise_payload["use_multi_resolution"],
                 resample_interpolation=volumewise_payload["resample_interpolation"],
                 number_of_histogram_bins=volumewise_payload["number_of_histogram_bins"],
+                fixed_intensity_scaling=volumewise_payload["fixed_scale"],
                 moving_intensity_scaling=volumewise_payload["scale"],
                 convergence_minimum_value=volumewise_payload[
                     "convergence_minimum_value"

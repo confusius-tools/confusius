@@ -388,6 +388,14 @@ def validate_registration_selection(panel: RegistrationPanel) -> bool:
             )
             set_run_btn_enabled(panel, False)
             return False
+        if panel._volumewise_use_fixed_check.isChecked() and fixed_layer is None:
+            set_layer_validation_style(
+                panel,
+                fixed_invalid=True,
+                message="Select a fixed layer, or uncheck 'Use a fixed layer'.",
+            )
+            set_run_btn_enabled(panel, False)
+            return False
         init_message = validate_initial_transform_selection(
             panel,
             operation=operation,
