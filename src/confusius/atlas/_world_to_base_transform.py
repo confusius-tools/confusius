@@ -22,7 +22,7 @@ from confusius._utils.geometry import (
     has_voxel_to_world_index,
 )
 from confusius.registration.bspline import sample_displacement_field_like
-from confusius.xarray import create_voxeldata
+from confusius.xarray import create_voxeldata, get_bounding_box
 
 WorldToBaseTransform = npt.NDArray[np.float64] | xr.DataArray
 """Pull transform mapping the atlas's world coordinates back to base atlas space.
@@ -382,20 +382,21 @@ def _drop_vertices_outside_grid(
     faces : numpy.ndarray
         Faces whose three vertices all survived, reindexed into the new vertex array.
     """
-    dims = list(WORLD_DIMS)
     voxel_dims = list(get_voxel_to_world_spatial_dims(reference))
     spacing = reference.fusi.spacing
+    # Corner-mapped bounds: never materializes the lazily derived z/y/x coordinate
+    # grids of an oblique affine (#444). Rows are (min, max), columns z/y/x.
+    bounds = get_bounding_box(reference).values
     inside = np.ones(len(vertices), dtype=bool)
-    for axis, (dim, voxel_dim) in enumerate(zip(dims, voxel_dims, strict=True)):
-        coord = reference.coords[dim].values
+    for axis, voxel_dim in enumerate(voxel_dims):
         # Keep the same one-voxel margin the field interpolation is padded to, so a
         # vertex within `spacing` of a boundary (e.g. the anterior/posterior tips of the
         # Allen brain) is retained rather than clipped. `fusi.spacing` is keyed by voxel
         # dim (k/j/i), not world dim (z/y/x) -- look it up by the matching voxel dim.
         coord_spacing = spacing.get(voxel_dim)
         margin = coord_spacing if coord_spacing is not None else 0.0
-        inside &= (vertices[:, axis] >= coord.min() - margin) & (
-            vertices[:, axis] <= coord.max() + margin
+        inside &= (vertices[:, axis] >= bounds[0, axis] - margin) & (
+            vertices[:, axis] <= bounds[1, axis] + margin
         )
 
     keep_idx = np.where(inside)[0]
