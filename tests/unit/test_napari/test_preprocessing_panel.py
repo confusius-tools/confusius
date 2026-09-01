@@ -1075,6 +1075,37 @@ class TestComputeCompcor:
             rtol=1e-5,
         )
 
+    def test_recomputing_with_fewer_components_drops_stale_signals(
+        self, qtbot, viewer, panel, signals_store, sample_voxeldata_3dt
+    ):
+        plot_napari(
+            sample_voxeldata_3dt,
+            viewer=viewer,
+            show_colorbar=False,
+            show_scale_bar=False,
+        )
+        labels = np.zeros(sample_voxeldata_3dt.shape[1:], dtype=np.int32)
+        labels[:2] = 1
+        viewer.add_labels(labels, name="wm")
+
+        panel._refresh_layer_combos()
+        panel._source_combo.setCurrentText("power_doppler")
+        panel._compcor_mask_combo.setCurrentText("wm")
+
+        panel._compcor_components_spin.setValue(4)
+        panel._compute_compcor()
+        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 4, timeout=5000)
+
+        panel._compcor_components_spin.setValue(2)
+        panel._compute_compcor()
+        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 2, timeout=5000)
+
+        stored_names = {s.name for s in signals_store.stored_signals()}
+        assert stored_names == {
+            "CompCor 0 (power_doppler)",
+            "CompCor 1 (power_doppler)",
+        }
+
     def test_shows_its_own_busy_indicator_not_the_shared_one(
         self, qtbot, viewer, panel, signals_store, sample_voxeldata_3dt
     ):
