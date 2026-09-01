@@ -8,7 +8,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 import xarray as xr
-from qtpy.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication, QFormLayout
 
 from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._napari._registration._panel_progress import (
@@ -205,34 +205,59 @@ class TestOperationMode:
         assert registration_panel._register_panel.isHidden()
         assert not registration_panel._transforms_panel.isHidden()
 
-    def test_volumewise_hides_fixed_selector(self, registration_panel):
+    def test_volumewise_disables_fixed_selector(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
-        assert registration_panel._fixed_combo.isHidden()
+        assert not registration_panel._fixed_combo.isHidden()
+        assert not registration_panel._fixed_combo.isEnabled()
         assert not registration_panel._reference_time_spin.isHidden()
+        assert registration_panel._reference_time_spin.isEnabled()
         assert not registration_panel._n_jobs_row.isHidden()
 
-    def test_volumewise_fixed_toggle_swaps_target_widgets(self, registration_panel):
+    def test_volumewise_fixed_toggle_swaps_active_target(self, registration_panel):
         assert registration_panel._volumewise_use_fixed_check.isHidden()
 
         registration_panel._time_series_radio.setChecked(True)
 
         assert not registration_panel._volumewise_use_fixed_check.isHidden()
-        assert registration_panel._fixed_combo.isHidden()
-        assert registration_panel._fixed_scale_combo.isHidden()
-        assert not registration_panel._reference_time_spin.isHidden()
+        assert not registration_panel._fixed_combo.isEnabled()
+        assert not registration_panel._fixed_scale_combo.isEnabled()
+        assert registration_panel._reference_time_spin.isEnabled()
 
         registration_panel._volumewise_use_fixed_check.setChecked(True)
 
+        assert registration_panel._fixed_combo.isEnabled()
+        assert registration_panel._fixed_scale_combo.isEnabled()
+        assert not registration_panel._reference_time_spin.isEnabled()
+        assert not registration_panel._reference_time_label.isEnabled()
+        # Both targets stay on screen; only one of them is active.
         assert not registration_panel._fixed_combo.isHidden()
-        assert not registration_panel._fixed_scale_combo.isHidden()
-        assert registration_panel._reference_time_spin.isHidden()
-        assert registration_panel._reference_time_label.isHidden()
+        assert not registration_panel._reference_time_spin.isHidden()
 
         registration_panel._volumewise_use_fixed_check.setChecked(False)
 
-        assert registration_panel._fixed_combo.isHidden()
-        assert registration_panel._fixed_scale_combo.isHidden()
-        assert not registration_panel._reference_time_spin.isHidden()
+        assert not registration_panel._fixed_combo.isEnabled()
+        assert not registration_panel._fixed_scale_combo.isEnabled()
+        assert registration_panel._reference_time_spin.isEnabled()
+
+    def test_volumewise_target_rows_are_ordered_under_moving_layer(
+        self, registration_panel
+    ):
+        """Within-scan rows read moving layer, reference time, toggle, fixed layer."""
+        registration_panel._time_series_radio.setChecked(True)
+        operation_group = registration_panel._reference_time_label.parentWidget()
+        operation_layout = operation_group.layout()
+        assert isinstance(operation_layout, QFormLayout)
+
+        def _row(widget):
+            row, _role = operation_layout.getWidgetPosition(widget)
+            return row
+
+        assert (
+            _row(registration_panel._moving_label)
+            < _row(registration_panel._reference_time_label)
+            < _row(registration_panel._volumewise_use_fixed_check)
+            < _row(registration_panel._fixed_label)
+        )
 
     def test_volumewise_fixed_choice_survives_mode_switch(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
@@ -241,13 +266,14 @@ class TestOperationMode:
         registration_panel._single_volume_radio.setChecked(True)
 
         assert registration_panel._volumewise_use_fixed_check.isHidden()
-        assert not registration_panel._fixed_combo.isHidden()
+        assert registration_panel._reference_time_spin.isHidden()
+        assert registration_panel._fixed_combo.isEnabled()
 
         registration_panel._time_series_radio.setChecked(True)
 
         assert registration_panel._volumewise_use_fixed_check.isChecked()
-        assert not registration_panel._fixed_combo.isHidden()
-        assert registration_panel._reference_time_spin.isHidden()
+        assert registration_panel._fixed_combo.isEnabled()
+        assert not registration_panel._reference_time_spin.isEnabled()
 
     def test_between_scan_shows_masks_and_sitk_threads(self, registration_panel):
         registration_panel._advanced_toggle.setChecked(True)
@@ -307,13 +333,15 @@ class TestOperationMode:
         assert registration_panel._scale_combo.currentText() == "none"
         assert registration_panel._fixed_scale_combo.currentText() == "square root"
 
-    def test_fixed_scale_combo_hidden_within_scan_by_default(self, registration_panel):
-        assert not registration_panel._fixed_scale_combo.isHidden()
+    def test_fixed_scale_combo_disabled_within_scan_by_default(
+        self, registration_panel
+    ):
+        assert registration_panel._fixed_scale_combo.isEnabled()
         assert registration_panel._scale_label.text() == "Moving intensity scaling"
 
         registration_panel._time_series_radio.setChecked(True)
 
-        assert registration_panel._fixed_scale_combo.isHidden()
+        assert not registration_panel._fixed_scale_combo.isEnabled()
         assert registration_panel._scale_label.text() == "Moving intensity scaling"
 
     def test_advanced_group_is_collapsed_by_default(self, registration_panel):
