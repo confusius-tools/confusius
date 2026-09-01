@@ -503,7 +503,7 @@ def test_compute_compcor_dask_svd_compressed_path(rng):
     """Above the size/n_components gate, the Dask path must use svd_compressed too.
 
     Built from a known, well-separated ground-truth spectrum (plus a small noise
-    floor), same reasoning as `test_top_left_singular_vectors_randomized_path_
+    floor), same reasoning as `test_compute_top_left_singular_vectors_randomized_path_
     matches_exact_svd`: with no real spectral gap, individual singular vectors
     are numerically ill-defined, so a meaningful comparison needs one.
     """
@@ -646,7 +646,7 @@ def test_compute_compcor_confounds_multipose_pools_poses_and_time_coordinate(
 
 
 # ---------------------------------------------------------------------------
-# _left_singular_vectors_via_eigh
+# _compute_left_singular_vectors_via_eigh
 # ---------------------------------------------------------------------------
 
 
@@ -655,12 +655,12 @@ def test_compute_compcor_confounds_multipose_pools_poses_and_time_coordinate(
     [(20, 200), (200, 20), (50, 50)],
     ids=["wide (time < voxels)", "tall (time > voxels)", "square"],
 )
-def test_left_singular_vectors_via_eigh_matches_svd(rng, n_time, n_voxels):
-    from confusius.signal.confounds import _left_singular_vectors_via_eigh
+def test_compute_left_singular_vectors_via_eigh_matches_svd(rng, n_time, n_voxels):
+    from confusius.signal.confounds import _compute_left_singular_vectors_via_eigh
 
     values = rng.standard_normal((n_time, n_voxels))
 
-    U, s = _left_singular_vectors_via_eigh(values)
+    U, s = _compute_left_singular_vectors_via_eigh(values)
     U_ref, s_ref, _ = np.linalg.svd(values, full_matrices=False)
 
     k = min(n_time, n_voxels)
@@ -674,26 +674,26 @@ def test_left_singular_vectors_via_eigh_matches_svd(rng, n_time, n_voxels):
 
 
 # ---------------------------------------------------------------------------
-# _top_left_singular_vectors
+# _compute_top_left_singular_vectors
 # ---------------------------------------------------------------------------
 
 
-def test_top_left_singular_vectors_uses_exact_path_for_small_matrices(rng):
+def test_compute_top_left_singular_vectors_uses_exact_path_for_small_matrices(rng):
     """Below the size/n_components gate, the result must be exactly the eigh path."""
     from confusius.signal.confounds import (
-        _left_singular_vectors_via_eigh,
-        _top_left_singular_vectors,
+        _compute_left_singular_vectors_via_eigh,
+        _compute_top_left_singular_vectors,
     )
 
     values = rng.standard_normal((30, 40))
-    U, s = _top_left_singular_vectors(values, n_components=5)
-    U_ref, s_ref = _left_singular_vectors_via_eigh(values)
+    U, s = _compute_top_left_singular_vectors(values, n_components=5)
+    U_ref, s_ref = _compute_left_singular_vectors_via_eigh(values)
 
     assert_allclose(s, s_ref[:5])
     assert_allclose(U, U_ref[:, :5])
 
 
-def test_top_left_singular_vectors_randomized_path_matches_exact_svd(rng):
+def test_compute_top_left_singular_vectors_randomized_path_matches_exact_svd(rng):
     """Above the gate, randomized SVD must still closely match the true top components.
 
     Built from a known, well-separated ground-truth spectrum (plus a small noise
@@ -702,7 +702,7 @@ def test_top_left_singular_vectors_randomized_path_matches_exact_svd(rng):
     near-degenerate subspace is an equally valid solution), so comparing them
     directly would not be a meaningful test.
     """
-    from confusius.signal.confounds import _top_left_singular_vectors
+    from confusius.signal.confounds import _compute_top_left_singular_vectors
 
     n_time, n_voxels, n_components = 300, 20_000, 5
     u_true, _ = np.linalg.qr(rng.standard_normal((n_time, n_components)))
@@ -718,7 +718,7 @@ def test_top_left_singular_vectors_randomized_path_matches_exact_svd(rng):
     assert values.size > 500 * 500
     assert n_components < 0.8 * min(n_time, n_voxels)
 
-    U, s = _top_left_singular_vectors(values, n_components)
+    U, s = _compute_top_left_singular_vectors(values, n_components)
     U_ref, s_ref, _ = np.linalg.svd(values, full_matrices=False)
 
     assert U.shape == (n_time, n_components)
@@ -729,13 +729,62 @@ def test_top_left_singular_vectors_randomized_path_matches_exact_svd(rng):
         assert corr > 0.999
 
 
-def test_top_left_singular_vectors_reproducible(rng):
+def test_compute_top_left_singular_vectors_reproducible(rng):
     """A fixed random_state must give identical results across calls."""
-    from confusius.signal.confounds import _top_left_singular_vectors
+    from confusius.signal.confounds import _compute_top_left_singular_vectors
 
     values = rng.standard_normal((300, 20_000))
-    U1, s1 = _top_left_singular_vectors(values, n_components=5)
-    U2, s2 = _top_left_singular_vectors(values, n_components=5)
+    U1, s1 = _compute_top_left_singular_vectors(values, n_components=5)
+    U2, s2 = _compute_top_left_singular_vectors(values, n_components=5)
 
     assert_allclose(U1, U2)
     assert_allclose(s1, s2)
+
+
+# ---------------------------------------------------------------------------
+# _compute_top_left_singular_vectors_dask
+# ---------------------------------------------------------------------------
+
+
+def test_compute_top_left_singular_vectors_dask_uses_exact_path_for_small_matrices(
+    rng,
+):
+    """Below the size/n_components gate, the result must be the exact (chunked) SVD."""
+    from confusius.signal.confounds import _compute_top_left_singular_vectors_dask
+
+    values = rng.standard_normal((30, 40))
+    dask_values = da.from_array(values, chunks=(-1, -1))
+
+    U, s = _compute_top_left_singular_vectors_dask(dask_values, n_components=5)
+    U_ref, s_ref, _ = np.linalg.svd(values, full_matrices=False)
+
+    assert_allclose(s.compute(), s_ref[:5], rtol=1e-6, atol=1e-8)
+    for i in range(5):
+        assert_allclose(
+            np.abs(U[:, i].compute()), np.abs(U_ref[:, i]), rtol=1e-5, atol=1e-8
+        )
+
+
+def test_compute_top_left_singular_vectors_dask_randomized_path_matches_exact_svd(rng):
+    """Above the gate, must match the same ground truth as the numpy randomized path."""
+    from confusius.signal.confounds import _compute_top_left_singular_vectors_dask
+
+    n_time, n_voxels, n_components = 300, 20_000, 5
+    u_true, _ = np.linalg.qr(rng.standard_normal((n_time, n_components)))
+    v_true, _ = np.linalg.qr(rng.standard_normal((n_voxels, n_components)))
+    s_true = np.array([50.0, 40.0, 30.0, 20.0, 10.0])
+    values = u_true @ np.diag(s_true) @ v_true.T
+    values += 0.01 * rng.standard_normal((n_time, n_voxels))
+    dask_values = da.from_array(values, chunks=(-1, 2000))
+
+    assert values.size > 500 * 500
+    assert n_components < 0.8 * min(n_time, n_voxels)
+
+    U, s = _compute_top_left_singular_vectors_dask(dask_values, n_components)
+    U, s = U.compute(), s.compute()
+    U_ref, s_ref, _ = np.linalg.svd(values, full_matrices=False)
+
+    assert_allclose(s, s_ref[:n_components], rtol=1e-3)
+    for i in range(n_components):
+        corr = np.abs(np.corrcoef(U[:, i], U_ref[:, i])[0, 1])
+        assert corr > 0.999
