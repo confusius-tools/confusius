@@ -311,6 +311,11 @@ def set_layer_validation_style(
     panel._fixed_combo.setStyleSheet(error_style if fixed_invalid else normal_style)
     panel._moving_label.setStyleSheet("color: #e05555;" if moving_invalid else "")
     panel._fixed_label.setStyleSheet("color: #e05555;" if fixed_invalid else "")
+    # The checkbox stands in for the fixed label within-scan, so it carries the
+    # same invalid styling there.
+    panel._volumewise_use_fixed_check.setStyleSheet(
+        "color: #e05555;" if fixed_invalid else ""
+    )
     panel._reference_time_label.setStyleSheet("")
     if message:
         panel._layer_validation.setText(message)

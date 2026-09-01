@@ -1103,8 +1103,8 @@ def build_default_tour(
             title="Within-scan Inputs",
             body=(
                 "For <b>Within-scan</b>, choose one layer with a time dimension, then "
-                "pick the <b>Reference time index</b> that every frame should align "
-                "to, or check <b>Use a fixed layer</b> to align them to another layer "
+                "pick the <b>Reference time</b> index that every frame should align "
+                "to, or tick <b>Fixed layer</b> to align them to another layer "
                 "instead."
             ),
             anchor="left",

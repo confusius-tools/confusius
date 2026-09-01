@@ -242,7 +242,7 @@ class TestOperationMode:
     def test_volumewise_target_rows_are_ordered_under_moving_layer(
         self, registration_panel
     ):
-        """Within-scan rows read moving layer, reference time, toggle, fixed layer."""
+        """Within-scan rows read moving layer, reference time, then fixed layer."""
         registration_panel._time_series_radio.setChecked(True)
         operation_group = registration_panel._reference_time_label.parentWidget()
         operation_layout = operation_group.layout()
@@ -255,9 +255,30 @@ class TestOperationMode:
         assert (
             _row(registration_panel._moving_label)
             < _row(registration_panel._reference_time_label)
-            < _row(registration_panel._volumewise_use_fixed_check)
-            < _row(registration_panel._fixed_label)
+            < _row(registration_panel._fixed_label_row)
         )
+        # The fixed toggle labels its own combo box instead of taking a row.
+        assert _row(registration_panel._fixed_label_row) == _row(
+            registration_panel._fixed_combo
+        )
+        assert (
+            registration_panel._volumewise_use_fixed_check.parentWidget()
+            is registration_panel._fixed_label_row
+        )
+
+    def test_switching_to_within_scan_does_not_widen_panel(self, registration_panel):
+        # Regression test: a label wider than the between-scan ones grows
+        # QFormLayout's label column, which wraps the Mode row's radio pair.
+        registration_panel.show()
+        QApplication.processEvents()
+        between_scan_width = registration_panel.sizeHint().width()
+
+        registration_panel._time_series_radio.setChecked(True)
+        QApplication.processEvents()
+
+        # A long within-scan label widens QFormLayout's shared label column: at
+        # ~130px extra it pushed the Mode row's radio buttons onto their own line.
+        assert registration_panel.sizeHint().width() <= between_scan_width + 16
 
     def test_volumewise_fixed_choice_survives_mode_switch(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
