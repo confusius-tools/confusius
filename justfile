@@ -7,6 +7,7 @@ set windows-shell := ["pwsh.exe", "-c"]
 
 # Build the examples gallery from docs/examples/*.py.
 gallery:
+    uv run python tools/prefetch_doc_datasets.py
     uv run python tools/build_gallery.py
 
 # Remove generated gallery artifacts and the gallery cache.

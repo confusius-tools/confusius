@@ -12,7 +12,10 @@ from confusius.validation.registration import (
     validate_bspline,
     validate_displacement_field,
 )
-from confusius.validation.time_series import validate_time_series
+from confusius.validation.time_series import (
+    ensure_time_aligned,
+    validate_time_series,
+)
 from confusius.validation.units import validate_matching_spatial_units
 from confusius.validation.voxeldata import (
     canonicalize_voxeldata,
@@ -24,6 +27,7 @@ __all__ = [
     "canonicalize_voxeldata",
     "ensure_labels",
     "ensure_mask",
+    "ensure_time_aligned",
     "ensure_voxeldata",
     "validate_atlas",
     "validate_bspline",

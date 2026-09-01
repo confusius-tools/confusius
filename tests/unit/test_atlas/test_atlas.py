@@ -5,6 +5,7 @@ testing against the implementation itself.
 """
 
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,12 @@ from confusius.io import load_atlas, save_atlas
 from confusius.io.atlas import structures_from_json, structures_to_json
 from confusius.validation import validate_atlas
 from confusius.xarray import create_voxeldata
+
+
+def _mesh_bundle_tail(path: Path) -> Path:
+    """Trailing path components `_plan_mesh_bundle` keeps: last 6, anchor dropped."""
+    relative_parts = [part for part in path.parts if part != path.anchor]
+    return Path(*relative_parts[-6:])
 
 
 def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
@@ -104,7 +111,7 @@ class TestStructuresSerialization:
     ) -> None:
         """The complete mesh path is preserved (fetched atlases read from the cache)."""
         rebuilt = structures_from_json(structures_to_json(mock_structures))
-        assert rebuilt[997]["mesh_filename"] == str(obj_path)
+        assert rebuilt[997]["mesh_filename"] == obj_path
 
 
 class TestStructureMetadata:
@@ -329,7 +336,7 @@ class TestGetMasks:
 class TestGetMesh:
     """Tests for the accessor's get_mesh.
 
-    The OBJ mesh (from conftest) has:
+    The mock mesh (from conftest) has:
       Vertices 0-2 at RL = 50 µm  → right hemisphere (< midline 100 µm)
       Vertices 3-5 at RL = 150 µm → left  hemisphere (≥ midline 100 µm)
       Face 0: triangle (0, 1, 2) — entirely right
@@ -351,7 +358,8 @@ class TestGetMesh:
                 [0.0, 0.1, 0.15],
             ]
         )
-        np.testing.assert_allclose(vertices_mm, expected)
+        # Draco is lossy, so the round-tripped mesh is only close, not bit-exact.
+        np.testing.assert_allclose(vertices_mm, expected, atol=1e-6)
 
     def test_both_sides_returns_all_faces(self, atlas_ds: xr.Dataset) -> None:
         vertices, faces = atlas_ds.atlas.get_mesh(997, side="both")
@@ -514,11 +522,18 @@ class TestIO:
             loaded.atlas.get_masks(10).values, atlas_ds.atlas.get_masks(10).values
         )
 
-    def test_meshes_bundled_into_store(self, atlas_ds: xr.Dataset, tmp_path) -> None:
-        """The region OBJ files are copied into the store's meshes/ subdirectory."""
+    def test_meshes_bundled_into_store(
+        self, atlas_ds: xr.Dataset, obj_path: Path, tmp_path
+    ) -> None:
+        """The region mesh files are copied under the store's meshes/ subdirectory.
+
+        The bundled layout mirrors the source path's trailing components (up to 6, as
+        BrainGlobe's own S3-key derivation uses), not a bare basename, so bundling
+        meshes from different atlases into the same store can't collide.
+        """
         path = tmp_path / "atlas.zarr"
         save_atlas(atlas_ds, path)
-        assert (path / "meshes" / "997.obj").is_file()
+        assert (path / "meshes" / _mesh_bundle_tail(obj_path)).is_file()
 
     def test_save_suppresses_consolidated_metadata_warning(
         self, atlas_ds: xr.Dataset, tmp_path, monkeypatch
@@ -540,13 +555,16 @@ class TestIO:
         assert not caught
 
     def test_loaded_mesh_filename_points_into_store(
-        self, atlas_ds: xr.Dataset, tmp_path
+        self, atlas_ds: xr.Dataset, obj_path: Path, tmp_path
     ) -> None:
         path = tmp_path / "atlas.zarr"
         save_atlas(atlas_ds, path)
         loaded = load_atlas(path)
         structures = loaded.attrs["structures"]
-        assert structures[997]["mesh_filename"] == str(path / "meshes" / "997.obj")
+        assert (
+            structures[997]["mesh_filename"]
+            == path / "meshes" / _mesh_bundle_tail(obj_path)
+        )
         assert structures[10]["mesh_filename"] is None
 
     def test_get_mesh_reads_bundle_when_source_is_gone(
@@ -554,8 +572,8 @@ class TestIO:
     ) -> None:
         """A loaded atlas renders meshes from the bundle, without the original source."""
         # Point a copy of the atlas at a throwaway mesh we are free to delete.
-        source = tmp_path / "src_997.obj"
-        source.write_text(obj_path.read_text())
+        source = tmp_path / "src_997"
+        source.write_bytes(obj_path.read_bytes())
         records = [dict(record) for record in structure_list]
         for record in records:
             if record["id"] == 997:
@@ -569,8 +587,50 @@ class TestIO:
 
         loaded = load_atlas(path)
         vertices, faces = loaded.atlas.get_mesh(997)
-        np.testing.assert_array_equal(vertices, atlas_ds.atlas.get_mesh(997)[0])
+        # Draco is lossy, so the round-tripped mesh is only close, not bit-exact.
+        np.testing.assert_allclose(vertices, atlas_ds.atlas.get_mesh(997)[0], atol=1e-4)
         assert len(faces) == 2
+
+    def test_undownloaded_mesh_rebased_for_lazy_download(
+        self, atlas_ds: xr.Dataset, structure_list: list[dict], tmp_path
+    ) -> None:
+        """A mesh never downloaded before save is not bundled, but stays fetchable.
+
+        BrainGlobe fetches meshes lazily; a region whose mesh was never accessed has no
+        file to bundle. save_atlas keeps only the trailing path components BrainGlobe
+        needs to derive the S3 key, and load_atlas re-points mesh_filename under the
+        store's meshes/ subdirectory (same as a bundled mesh) so get_mesh can still
+        trigger a lazy download straight into the store, on any machine.
+        """
+        never_downloaded = tmp_path / "never_downloaded" / "997"
+        records = [dict(record) for record in structure_list]
+        for record in records:
+            if record["id"] == 997:
+                record["mesh_filename"] = str(never_downloaded)
+        ds = atlas_ds.copy()
+        ds.attrs = {**atlas_ds.attrs, "structures": StructuresDict(records)}
+
+        path = tmp_path / "atlas.zarr"
+        save_atlas(ds, path)
+        expected = path / "meshes" / _mesh_bundle_tail(never_downloaded)
+        assert not expected.exists()
+
+        loaded = load_atlas(path)
+        assert loaded.attrs["structures"][997]["mesh_filename"] == expected
+
+    def test_get_mesh_wraps_brainglobe_error(
+        self, atlas_ds: xr.Dataset, structure_list: list[dict], tmp_path
+    ) -> None:
+        """A mesh that cannot be found locally or remotely raises a friendly RuntimeError."""
+        records = [dict(record) for record in structure_list]
+        for record in records:
+            if record["id"] == 997:
+                record["mesh_filename"] = tmp_path / "missing" / "997"
+        ds = atlas_ds.copy()
+        ds.attrs = {**atlas_ds.attrs, "structures": StructuresDict(records)}
+
+        with pytest.raises(RuntimeError, match="save_atlas"):
+            ds.atlas.get_mesh(997)
 
 
 class TestNonlinearMesh:

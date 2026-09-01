@@ -4,74 +4,26 @@ Portions of this file are derived from Nilearn, which is licensed under the BSD-
 License. See `NOTICE` file for details.
 """
 
+import warnings
 from collections.abc import Callable
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
+import pandas as pd
 import scipy.linalg
 import xarray as xr
+from sklearn.utils.extmath import randomized_svd
 
 from confusius._utils.mask import validate_spatial_or_feature_mask
+from confusius._utils.stack import find_stack_level
+from confusius.multipose.timing import consolidate_time_coordinate
 from confusius.signal._utils import remove_zero_variance_voxels
 from confusius.signal.detrending import detrend as detrend_signals
 from confusius.signal.standardization import standardize
-from confusius.validation import validate_time_series
-from confusius.validation.coordinates import validate_matching_coordinates
+from confusius.validation import ensure_time_aligned, validate_time_series
 
-
-def _validate_confounds(signals: xr.DataArray, confounds: xr.DataArray) -> np.ndarray:
-    """Validate confounds array matches signals.
-
-    Parameters
-    ----------
-    signals : xarray.DataArray
-        Signals with 'time' dimension.
-    confounds : xarray.DataArray
-        Confound regressors to validate.
-
-    Returns
-    -------
-    numpy.ndarray
-        Validated 2D confounds array.
-
-    Raises
-    ------
-    ValueError
-        If confounds have incorrect shape or time dimension mismatch.
-    TypeError
-        If confounds are not an xarray.DataArray.
-    """
-    if not isinstance(confounds, xr.DataArray):
-        raise TypeError(
-            f"confounds must be an xarray.DataArray, got {type(confounds).__name__}"
-        )
-
-    if "time" not in confounds.dims:
-        raise ValueError("confounds DataArray must have a 'time' dimension")
-    if "time" in signals.coords and "time" in confounds.coords:
-        try:
-            validate_matching_coordinates(signals, confounds, "time")
-        except ValueError as exc:
-            raise ValueError(
-                "confounds time coordinates do not match signals time coordinates"
-            ) from exc
-
-    confounds_da = confounds.transpose("time", ...)
-    confounds_values = confounds_da.values
-
-    if confounds_values.ndim == 1:
-        confounds_values = np.atleast_2d(confounds_values).T
-    elif confounds_values.ndim != 2:
-        raise ValueError(f"confounds must be 1D or 2D, got {confounds_values.ndim}D")
-
-    n_time = signals.sizes["time"]
-    if confounds_values.shape[0] != n_time:
-        raise ValueError(
-            f"confounds time dimension ({confounds_values.shape[0]}) does not match "
-            f"signals time dimension ({n_time})"
-        )
-
-    return confounds_values
+if TYPE_CHECKING:
+    import dask.array as da
 
 
 def _prepare_confounds_for_regression(
@@ -197,7 +149,7 @@ def _regress_confounds_wrapper(data, axis, confounds, standardize_confounds):
 
 def regress_confounds(
     signals: xr.DataArray,
-    confounds: xr.DataArray,
+    confounds: xr.DataArray | np.ndarray | pd.DataFrame,
     standardize_confounds: bool = True,
 ) -> xr.DataArray:
     """Remove confounds from signals via linear regression.
@@ -218,10 +170,17 @@ def regress_confounds(
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
             `data.chunk({'time': -1})`.
 
-    confounds : (time, n_confounds) xarray.DataArray
+    confounds : (time, n_confounds) xarray.DataArray, numpy.ndarray, or \
+            pandas.DataFrame
         Confound regressors to remove. Can have shape `(time,)` for a single
-        confound. The time dimension and coordinates must match the signals within
-        the default coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`).
+        confound. A DataArray must have a `time` dimension; a
+        DataFrame must have a `time` column, its other numeric columns being the
+        confounds; a NumPy array must have time along its first axis. `time`
+        coordinates must match those of `signals` within the default
+        coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`); an input without
+        `time` coordinates is assumed ordered like `signals` and takes its `time`
+        coordinates, with a warning since alignment cannot be verified (see
+        [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]).
     standardize_confounds : bool, default: True
         Whether to z-score confounds before regression. If `False`, confounds are
         divided by their maximum absolute value for numerical stability without
@@ -239,7 +198,15 @@ def regress_confounds(
         If `signals` does not have a `time` dimension, or if `confounds` have
         mismatched time dimension or invalid shape.
     TypeError
-        If `confounds` is not an xarray DataArray.
+        If `confounds` is not a DataArray, NumPy array, or DataFrame.
+
+    Warns
+    -----
+    UserWarning
+        If `confounds` has no `time` coordinates, since alignment cannot be verified.
+    UserWarning
+        If `signals` has a `pose` dimension, since the same confounds are regressed
+        from every pose.
 
     Notes
     -----
@@ -289,7 +256,15 @@ def regress_confounds(
     """
     time_axis, _ = validate_time_series(signals, "confound regression")
 
-    confounds_array = _validate_confounds(signals, confounds)
+    confounds_array = ensure_time_aligned(
+        signals, confounds, "confounds", ndim=2
+    ).values
+    if "pose" in signals.dims:
+        warnings.warn(
+            "signals have a 'pose' dimension: the same confounds are regressed from "
+            "every pose. To use per-pose confounds, regress each pose separately.",
+            stacklevel=find_stack_level(),
+        )
 
     result = xr.apply_ufunc(
         _regress_confounds_wrapper,
@@ -304,6 +279,145 @@ def regress_confounds(
     )
 
     return result
+
+
+def _compute_left_singular_vectors_via_eigh(
+    values: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the left singular vectors/values of `values` via a Gram-matrix eigh.
+
+    Equivalent to `scipy.linalg.svd(values, full_matrices=False)`, but eigendecomposes
+    whichever of `values @ values.T` or `values.T @ values` is smaller instead of the
+    full SVD of `values` — cheaper here since CompCor's noise signals are usually far
+    wider or taller than square (timepoints versus selected noise voxels), matching
+    nilearn's CompCor implementation.
+
+    Parameters
+    ----------
+    values : (n_time, n_voxels) numpy.ndarray
+        Standardized noise signals.
+
+    Returns
+    -------
+    U : (n_time, k) numpy.ndarray
+        Left singular vectors, `k = min(n_time, n_voxels)`, ordered by
+        descending singular value.
+    s : (k,) numpy.ndarray
+        Singular values, descending.
+    """
+    n_time, n_voxels = values.shape
+
+    if n_time <= n_voxels:
+        eigvals, U = scipy.linalg.eigh(values @ values.T, check_finite=False)
+        order = np.argsort(eigvals)[::-1]
+        eigvals = np.clip(eigvals[order], 0.0, None)
+        U = U[:, order]
+    else:
+        eigvals, V = scipy.linalg.eigh(values.T @ values, check_finite=False)
+        order = np.argsort(eigvals)[::-1]
+        eigvals = np.clip(eigvals[order], 0.0, None)
+        V = V[:, order]
+        s = np.sqrt(eigvals)
+        # u_i = X @ v_i / s_i; guard s_i == 0 (rank-deficient / zero-variance
+        # directions) instead of dividing by zero.
+        safe_s = np.where(s > 0, s, 1.0)
+        U = np.where(s > 0, (values @ V) / safe_s, 0.0)
+        return U, s
+
+    return U, np.sqrt(eigvals)
+
+
+_RANDOMIZED_SVD_SIZE_THRESHOLD = 500 * 500
+"""Matrix size above which the randomized-SVD path is used, if `n_components` also
+clears `_RANDOMIZED_SVD_COMPONENT_FRACTION`. Mirrors `sklearn.decomposition.PCA`'s
+"randomized" solver heuristic.
+"""
+
+_RANDOMIZED_SVD_COMPONENT_FRACTION = 0.8
+"""`n_components` must stay below this fraction of `min(values.shape)` for the
+randomized-SVD path to apply — otherwise there's little work left to save.
+"""
+
+
+def _compute_top_left_singular_vectors(
+    values: np.ndarray, n_components: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the top `n_components` left singular vectors/values of `values`.
+
+    Uses `sklearn.utils.extmath.randomized_svd` above a size/`n_components`
+    threshold: CompCor keeps only a handful of components (5-30) out of
+    potentially thousands of timepoints/voxels, so targeting those directly is
+    cheaper than `_compute_left_singular_vectors_via_eigh`'s full spectrum. Falls
+    back to the exact eigendecomposition otherwise (validated against exact SVD in
+    `tests/unit/test_signal/test_compcor.py`).
+
+    Parameters
+    ----------
+    values : (n_time, n_voxels) numpy.ndarray
+        Standardized noise signals.
+    n_components : int
+        Number of components to keep.
+
+    Returns
+    -------
+    U : (n_time, n_components) numpy.ndarray
+        Top left singular vectors, descending by singular value.
+    s : (n_components,) numpy.ndarray
+        Top singular values, descending.
+    """
+    min_dim = min(values.shape)
+
+    if (
+        values.size > _RANDOMIZED_SVD_SIZE_THRESHOLD
+        and n_components < _RANDOMIZED_SVD_COMPONENT_FRACTION * min_dim
+    ):
+        U, s, _Vt = randomized_svd(values, n_components=n_components, random_state=0)
+        return U, s
+
+    U, s = _compute_left_singular_vectors_via_eigh(values)
+    return U[:, :n_components], s[:n_components]
+
+
+def _compute_top_left_singular_vectors_dask(
+    values: "da.Array", n_components: int
+) -> tuple["da.Array", "da.Array"]:
+    """Return the top `n_components` left singular vectors/values of a dask array.
+
+    Dask's randomized-SVD counterpart to `_compute_top_left_singular_vectors`, for
+    the same reason and above the same threshold — `svd_compressed`'s
+    `n_power_iter=4` matches `randomized_svd`'s default accuracy; `seed=0` keeps
+    results reproducible. Falls back to a full (chunked) SVD otherwise.
+
+    Parameters
+    ----------
+    values : (n_time, n_voxels) dask.array.Array
+        Standardized noise signals.
+    n_components : int
+        Number of components to keep.
+
+    Returns
+    -------
+    U : (n_time, n_components) dask.array.Array
+        Top left singular vectors, descending by singular value.
+    s : (n_components,) dask.array.Array
+        Top singular values, descending.
+    """
+    import dask.array as da
+
+    min_dim = min(values.shape)
+
+    if (
+        values.size > _RANDOMIZED_SVD_SIZE_THRESHOLD
+        and n_components < _RANDOMIZED_SVD_COMPONENT_FRACTION * min_dim
+    ):
+        U, s, _V = da.linalg.svd_compressed(
+            values, k=n_components, n_power_iter=4, seed=0
+        )
+        return U, s
+
+    svd = cast(Callable[..., tuple["da.Array", "da.Array", "da.Array"]], da.linalg.svd)
+    U, s, _Vt = svd(values)
+    return U[:, :n_components], s[:n_components]
 
 
 def _extract_compcor_components(
@@ -338,9 +452,12 @@ def _extract_compcor_components(
     1. Removing zero-variance voxels.
     2. Detrending (if requested).
     3. Standardizing (z-score) to give equal weight to each space.
-    4. Computing SVD.
-    5. Extracting first n_components from U matrix.
-    6. Computing explained variance from singular values.
+    4. Computing the top `n_components` left singular vectors/values (see
+       `_compute_top_left_singular_vectors`/`_compute_top_left_singular_vectors_dask`).
+    5. Computing explained variance from the total variance in the data (the
+       Frobenius norm identity `trace(X^T X) = sum(x_ij^2) = sum(s_i^2)`, read
+       directly off the data since only the top singular values are kept) and the
+       kept singular values.
     """
     noise_signals = remove_zero_variance_voxels(noise_signals)
 
@@ -350,23 +467,17 @@ def _extract_compcor_components(
     noise_signals = standardize(noise_signals, method="zscore")
 
     if hasattr(noise_signals.data, "chunks"):
-        import dask.array as da
-
-        svd = cast(
-            Callable[..., tuple[np.ndarray, np.ndarray, np.ndarray]],
-            da.linalg.svd,
+        components, s = _compute_top_left_singular_vectors_dask(
+            noise_signals.data, n_components
         )
-        U, s, _Vt = svd(noise_signals.data)
-        components = U[:, :n_components]
-        total_variance = (s**2).sum()
-        explained_variance_ratio = (s[:n_components] ** 2) / total_variance
+        total_variance = (noise_signals.data**2).sum()
     else:
-        U, s, _Vt = scipy.linalg.svd(
-            noise_signals.values, full_matrices=False, check_finite=False
+        components, s = _compute_top_left_singular_vectors(
+            noise_signals.values, n_components
         )
-        components = U[:, :n_components]
-        total_variance = (s**2).sum()
-        explained_variance_ratio = (s[:n_components] ** 2) / total_variance
+        total_variance = float(np.sum(noise_signals.values**2))
+
+    explained_variance_ratio = (s**2) / total_variance
 
     result = xr.DataArray(
         components,
@@ -537,6 +648,18 @@ def compute_compcor_confounds(
         time_dim = "time"
         spatial_dims = [d for d in signals.dims if d != time_dim]
         signals_flat = signals.stack(space=spatial_dims)
+
+        time_coord = signals.coords.get("time")
+        if time_coord is not None and time_coord.dims == ("time", "pose"):
+            # Folding `pose` into `space` above breaks the per-pose (time, pose)
+            # `time` coordinate: stacking broadcasts it to (time, space), one
+            # timestamp per voxel instead of one per timepoint. CompCor pools
+            # voxels across poses into a single PCA, so replace it with one
+            # consolidated whole-array time value per timepoint, using the same
+            # reference/duration accounting as consolidate_poses.
+            signals_flat = signals_flat.assign_coords(
+                time=consolidate_time_coordinate(time_coord)
+            )
 
     n_voxels = signals_flat.sizes["space"]
 

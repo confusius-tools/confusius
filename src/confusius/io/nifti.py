@@ -1399,6 +1399,13 @@ def load_nifti(
     `i` and derived world coordinates `z`, `y`, `x`. `coordinate_affine` controls which
     NIfTI header affine defines that voxel-to-world mapping.
 
+    Gzip-compressed `.nii.gz` files do not support true random access. Repeated lazy
+    partial reads, such as per-frame loops, may decompress the file again for each
+    independent Dask computation. If the file fits in memory, use `.compute()` for
+    ordinary eager processing, or `.persist()` before many downstream Dask operations
+    that should stay chunked and parallel. For larger repeated random-access workloads,
+    prefer Zarr or uncompressed `.nii`.
+
     World-to-world affines are stored in `da.attrs["affines"]`, a dict keyed by
     affine name. Each value is a 4×4 affine in ConfUSIus `(z, y, x)` convention that
     maps **world coordinates** (as stored in `da.coords`) to world-space

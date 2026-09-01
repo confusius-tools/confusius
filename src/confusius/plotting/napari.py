@@ -66,7 +66,10 @@ def plot_napari(
         Whether to show the scale bar.
     dim_order : tuple[str, ...], optional
         Dimension ordering for the spatial axes (last three dimensions). If not
-        provided, the ordering of the last three dimensions in `data` is used.
+        provided, singleton spatial dimensions (e.g. the elevation axis of a
+        single-slice acquisition) are placed first so the canvas always shows the
+        two axes that actually vary; otherwise the dimensions' native ordering in
+        `data` is used.
     viewer : napari.Viewer, optional
         Existing napari viewer to add the layer to. If not provided, a new viewer
         is created.
@@ -175,11 +178,20 @@ def plot_napari(
 
     data = sort_coords_for_plot(data, spatial_dims)
 
-    if dim_order is not None and set(dim_order) != set(spatial_dims):
-        raise ValueError(
-            f"dim_order {dim_order} does not match spatial dimensions {spatial_dims}. "
-            "Ensure 'dim_order' contains all spatial dimension names."
-        )
+    if dim_order is not None:
+        if set(dim_order) != set(spatial_dims):
+            raise ValueError(
+                f"dim_order {dim_order} does not match spatial dimensions "
+                f"{spatial_dims}. Ensure 'dim_order' contains all spatial "
+                "dimension names."
+            )
+    else:
+        # Planar data has one or more singleton spatial dims (e.g. the elevation
+        # axis of a single-slice acquisition). Default to displaying those as
+        # sliders rather than relying on napari's "last two axes are the canvas"
+        # convention, so the canvas always shows the two axes that actually vary,
+        # regardless of how the voxel-to-world affine maps them.
+        dim_order = tuple(sorted(spatial_dims, key=lambda d: data.sizes[d] != 1))
 
     scale, coord_translates, axis_labels, all_units, non_uniform, spacing = (
         get_napari_layer_geometry(data)
@@ -283,7 +295,7 @@ def plot_napari(
             layer.features = build_roi_labels_features(roi_labels)
 
     assert viewer is not None
-    viewer.scale_bar.visible = show_scale_bar
+    viewer.canvas.overlays.scale_bar.visible = show_scale_bar
 
     return viewer, layer
 

@@ -346,7 +346,7 @@ def _open_sample(sample_key: str) -> list[FullLayerData]:
     spec = _SAMPLE_SPECS[sample_key]
     viewer = napari.current_viewer()
     if viewer is not None:
-        viewer.scale_bar.visible = True
+        viewer.canvas.overlays.scale_bar.visible = True
     dialog = QProgressDialog(viewer.window._qt_window if viewer is not None else None)
     dialog.setWindowTitle(spec.title)
     dialog.setLabelText(spec.initial_status)
