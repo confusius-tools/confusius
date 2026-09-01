@@ -25,6 +25,10 @@ Current development version for the next ConfUSIus release.
   wherever stored signals are — imported and pinned signals now share one
   concept (`StoredSignal`) throughout the signal store, plotter, and manager
   ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+- **napari plugin:** A DVARS trace computed in the Quality Control panel is now
+  added to the shared signal store, making it selectable elsewhere in the plugin
+  without first exporting and re-importing it
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
 
 ### :zap: Performance
 
