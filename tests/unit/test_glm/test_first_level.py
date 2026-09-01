@@ -82,9 +82,6 @@ class TestFirstLevelModelFit:
         # Diagnostic accessors work.
         assert np.all(np.isfinite(results.residuals))
 
-    # A voxel with zero residual variance divides by zero in `_positive_reciprocal`,
-    # which is expected and already handled; this test is about the resulting maps.
-    @pytest.mark.filterwarnings("ignore:divide by zero:RuntimeWarning")
     @pytest.mark.parametrize("noise_model", ["ols", "ar1"])
     def test_perfectly_fitted_voxels_keep_finite_statistics(
         self, fusi_data, frame_times, events, rng, noise_model
@@ -98,7 +95,10 @@ class TestFirstLevelModelFit:
         instead of by summing the residuals returns a small negative number whose
         sign is pure rounding, and the negative dispersion turns every downstream map
         into NaN. Half the voxels here are exact linear combinations of the design,
-        scaled up so the cancellation is far larger than the true residual.
+        scaled up so the cancellation is far larger than the true residual. One voxel
+        is left at zero, as an atlas grid leaves it outside the recorded field of
+        view, giving the exactly-zero residual variance that a reciprocal has to
+        survive without warning.
         """
         design_matrix = make_first_level_design_matrix(frame_times, events=events)
         design = design_matrix.to_numpy()
@@ -109,6 +109,7 @@ class TestFirstLevelModelFit:
         flat[:, :n_exact] = design @ (
             rng.standard_normal((design.shape[1], n_exact)) * 50.0
         )
+        flat[:, 0] = 0.0
 
         maps = {}
         for minimize_memory in (True, False):

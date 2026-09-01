@@ -31,7 +31,9 @@ def _positive_reciprocal(x: npt.NDArray[np.floating]) -> npt.NDArray[np.floating
     (n,) or (n, m) numpy.ndarray
         Element-wise reciprocal with zeros preserved as zeros.
     """
-    return np.where(x == 0, 0, 1.0 / x)
+    # `np.where` evaluates both branches, so `1.0 / x` would warn on the zeros the
+    # select is there to discard. `np.divide` skips them instead.
+    return np.divide(1.0, x, out=np.zeros_like(x), where=x != 0)
 
 
 class OLSModel:

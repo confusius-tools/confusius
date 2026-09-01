@@ -22,6 +22,13 @@ Current development version for the next ConfUSIus release.
   with the larger gain on the default `noise_model="ar1"`
   ([#310](https://github.com/confusius-tools/confusius/issues/310)).
 
+### :bug: Fixes
+
+- [`FirstLevelModel.compute_contrast`][confusius.glm.FirstLevelModel.compute_contrast]
+  no longer emits a divide-by-zero `RuntimeWarning` on recordings containing voxels with
+  no variance over time, such as those outside the recorded field of view
+  ([#310](https://github.com/confusius-tools/confusius/issues/310)).
+
 ## 0.7.0
 
 Released 2026-08-31.
