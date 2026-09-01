@@ -17,6 +17,12 @@ Current development version for the next ConfUSIus release.
   large recordings or broad noise masks
   ([#434](https://github.com/confusius-tools/confusius/pull/434)).
 
+### :books: Documentation
+
+- Clarified when to use `.compute()` or `.persist()` before repeated partial reads from
+  gzip-compressed NIfTI files
+  ([#441](https://github.com/confusius-tools/confusius/pull/441)).
+
 ### :frame_photo: Napari plugin
 
 - Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
