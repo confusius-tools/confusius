@@ -14,20 +14,36 @@ Current development version for the next ConfUSIus release.
 
 - [`FirstLevelModel`][confusius.glm.FirstLevelModel] accepts `show_progress=True` to
   display a progress bar over the runs being fitted
-  ([#310](https://github.com/confusius-tools/confusius/issues/310)).
+  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
 
 ### :zap: Performance
 
+- [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
+  longer computes a full SVD, extracting components several times faster on
+  large recordings or broad noise masks
+  ([#434](https://github.com/confusius-tools/confusius/pull/434)).
 - [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] is roughly twice as fast,
   with the larger gain on the default `noise_model="ar1"`
-  ([#310](https://github.com/confusius-tools/confusius/issues/310)).
+  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
 
 ### :bug: Fixes
 
 - [`FirstLevelModel.compute_contrast`][confusius.glm.FirstLevelModel.compute_contrast]
   no longer emits a divide-by-zero `RuntimeWarning` on recordings containing voxels with
   no variance over time, such as those outside the recorded field of view
-  ([#310](https://github.com/confusius-tools/confusius/issues/310)).
+  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
+
+### :books: Documentation
+
+- Clarified when to use `.compute()` or `.persist()` before repeated partial reads from
+  gzip-compressed NIfTI files
+  ([#441](https://github.com/confusius-tools/confusius/pull/441)).
+
+### :frame_photo: Napari plugin
+
+- Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
+  combo box or spin box the cursor happens to be over
+  ([#431](https://github.com/confusius-tools/confusius/pull/431)).
 
 ## 0.7.0
 
