@@ -467,15 +467,15 @@ def _extract_compcor_components(
     noise_signals = standardize(noise_signals, method="zscore")
 
     if hasattr(noise_signals.data, "chunks"):
-        dask_values = noise_signals.data
         components, s = _compute_top_left_singular_vectors_dask(
-            dask_values, n_components
+            noise_signals.data, n_components
         )
-        total_variance = (dask_values**2).sum()
+        total_variance = (noise_signals.data**2).sum()
     else:
-        values = noise_signals.values
-        components, s = _compute_top_left_singular_vectors(values, n_components)
-        total_variance = float(np.sum(values**2))
+        components, s = _compute_top_left_singular_vectors(
+            noise_signals.values, n_components
+        )
+        total_variance = float(np.sum(noise_signals.values**2))
 
     explained_variance_ratio = (s**2) / total_variance
 
