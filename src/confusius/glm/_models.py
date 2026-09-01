@@ -322,15 +322,14 @@ class ARModel:
         # (matching `OLSModel`'s `spl.pinv` and nilearn's single-rho `ARModel`, which
         # inherits OLS's pinv). But `pinv` is a batched SVD over V matrices and
         # dominates the fit -- ~6x the cost of the LU-based `inv` on a (147k, 15, 15)
-        # stack, for results that agree to ~1e-14. A full-rank design keeps every
-        # `XtX[v]` invertible except for pathological rho, so take `inv` there and keep
-        # `pinv` for the rank-deficient case, where `inv` would silently return garbage
-        # rather than raise.
+        # stack, for results that agree to ~1e-14. Whitening left-multiplies the design
+        # by `I - sum_i rho[i]·S^(i+1)`, with `S` the one-step shift: that factor is
+        # unit lower triangular, so it is invertible for every rho no matter how
+        # extreme, and a full-rank design keeps every `XtX[v]` positive definite. `inv`
+        # is safe there. `pinv` stays for the rank-deficient case, where `inv` would
+        # silently return garbage rather than raise.
         if self.df_model == K:
-            try:
-                cov_beta = np.linalg.inv(XtX)  # (V, K, K)
-            except np.linalg.LinAlgError:
-                cov_beta = np.linalg.pinv(XtX)
+            cov_beta = np.linalg.inv(XtX)  # (V, K, K)
         else:
             cov_beta = np.linalg.pinv(XtX)  # (V, K, K)
         # beta: (V, K) transposed to (K, V) to match convention.

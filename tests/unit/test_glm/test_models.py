@@ -157,8 +157,9 @@ class TestARModel:
         assert abs(white_ac) < abs(raw_ac)
 
     @pytest.mark.parametrize("degenerate", [False, True])
+    @pytest.mark.parametrize("rho_bound", [0.8, 50.0])
     def test_ar_beta_matches_per_voxel_lstsq(
-        self, design_matrix, response_matrix, degenerate
+        self, design_matrix, response_matrix, degenerate, rho_bound
     ):
         """Batched AR beta matches an explicit per-voxel least-squares solve.
 
@@ -166,12 +167,17 @@ class TestARModel:
         inverts the batched normal equations two different ways depending on whether
         the design is full rank. Both branches must reproduce the min-norm solution
         that `lstsq` gives on the whitened design built voxel by voxel.
+
+        `rho_bound=50` covers coefficients far outside the stationary range. Whitening
+        multiplies the design by a unit lower triangular factor, so it preserves rank
+        for any rho and the full-rank branch's batched `inv` stays well defined; a rho
+        big enough to break that would surface here as a `LinAlgError`.
         """
         if degenerate:
             design_matrix[:, 0] = design_matrix[:, 1] + design_matrix[:, 2]
         n_time, n_regressors = design_matrix.shape
         n_voxels = response_matrix.shape[1]
-        rho = np.linspace(-0.8, 0.8, n_voxels)[np.newaxis, :]
+        rho = np.linspace(-rho_bound, rho_bound, n_voxels)[np.newaxis, :]
 
         results = ARModel(design_matrix, rho=rho).fit(response_matrix)
 
@@ -191,7 +197,7 @@ class TestARModel:
 
         assert results.df_model == (n_regressors - 1 if degenerate else n_regressors)
         assert results.df_residuals == n_time - results.df_model
-        assert_allclose(results.theta, expected, atol=1e-10)
+        assert_allclose(results.theta, expected, rtol=1e-9, atol=1e-10)
 
     def test_ar_invalid_rho_shape(self, design_matrix):
         """AR rho must be 2D with shape (order, n_voxels)."""
