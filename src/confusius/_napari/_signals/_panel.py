@@ -47,8 +47,8 @@ class SignalPanel(QWidget):
         Shared store of temporal events whose intervals are shaded on the plot.
     signal_store : SignalStore, optional
         Shared store of stored/live signals. If not provided, a private store is
-        created. Pass the same instance used elsewhere (e.g. the QC panel) so
-        stored signals are available across panels.
+        created. Pass the same instance used elsewhere (e.g. the QC panel or the
+        Preprocessing panel) so stored signals are available across panels.
     """
 
     def __init__(
@@ -67,6 +67,12 @@ class SignalPanel(QWidget):
         )
         self._cached_xaxis_dim_index: int | None = None
         self._setup_ui()
+        # Construct (but don't dock) the plotter immediately: live-signal
+        # extraction/registration happens as part of its rendering, so e.g.
+        # painting a Labels layer must register/update live signals in the shared
+        # store even if "Show Signal Plot" was never clicked.
+        self._ensure_plotter_instance()
+        self._sync_source_to_plotter()
         viewer.events.theme.connect(self._on_theme_changed)
 
     def _setup_ui(self) -> None:
@@ -276,12 +282,12 @@ class SignalPanel(QWidget):
         self._ymax_spin.setEnabled(not checked)
         self._apply_settings()
 
-    def _ensure_plotter(self) -> SignalPlotter:
-        """Return the bottom-dock SignalPlotter.
+    def _ensure_plotter_instance(self) -> SignalPlotter:
+        """Return the SignalPlotter, constructing it (undocked) on first call.
 
-        Creates and docks the widget on first call. If the dock was closed (the
-        plotter's parent becomes None after napari removes it), re-docks it. When the
-        plotter is already in a live dock this is a no-op.
+        Separate from `_ensure_plotter` so live-signal extraction/registration
+        (which happens as part of rendering) works even before the plot dock has
+        ever been shown.
         """
         if self._plotter is None:
             self._plotter = SignalPlotter(
@@ -290,11 +296,21 @@ class SignalPanel(QWidget):
                 event_store=self._event_store,
             )
             self._plotter.frame_clicked.connect(self._on_frame_clicked)
+        return self._plotter
 
-        if self._plotter.parent() is None:
+    def _ensure_plotter(self) -> SignalPlotter:
+        """Return the bottom-dock SignalPlotter.
+
+        Creates and docks the widget on first call. If the dock was closed (the
+        plotter's parent becomes None after napari removes it), re-docks it. When the
+        plotter is already in a live dock this is a no-op.
+        """
+        plotter = self._ensure_plotter_instance()
+
+        if plotter.parent() is None:
             # Widget is not docked, create (or re-create) the dock.
             dock = self._viewer.window.add_dock_widget(
-                self._plotter, name="Signal Plot", area="bottom"
+                plotter, name="Signal Plot", area="bottom"
             )
 
             # Disable the button while the dock is visible; re-enable on hide/close.
@@ -345,9 +361,9 @@ class SignalPanel(QWidget):
         self._apply_settings()
         self._sync_source_to_plotter()
         if self._cursor_check.isChecked():
-            self._plotter.set_xaxis_cursor(self._current_xaxis_world())
+            plotter.set_xaxis_cursor(self._current_xaxis_world())
 
-        return self._plotter
+        return plotter
 
     def _show_plot(self) -> None:
         """Show or re-dock the signal plot widget."""
@@ -708,17 +724,22 @@ class SignalPanel(QWidget):
     def _spatial_info(
         self,
     ) -> tuple[
-        tuple[int, ...] | None, tuple[float, ...] | None, tuple[float, ...] | None
+        tuple[int, ...] | None,
+        tuple[float, ...] | None,
+        tuple[float, ...] | None,
+        tuple | None,
     ]:
-        """Return (shape, scale, translate) for the spatial axes of the first signal layer.
+        """Return (shape, scale, translate, units) for the spatial axes of the first signal layer.
 
         Spatial axes are those named `z`, `y`, or `x` in the xarray metadata.
         This always covers the full spatial volume regardless of which dims are
         currently displayed or used as sliders.
 
-        All three values come from the *same* layer so they are guaranteed to
-        be consistent.  Returns `(None, None, None)` when no suitable layer
-        is found.
+        All four values come from the *same* layer so they are guaranteed to be
+        consistent — in particular, `units` must match the reference image layer's
+        so a new Points/Labels layer doesn't trigger napari's "Inconsistent units
+        across layers" warning. Returns `(None, None, None, None)` when no suitable
+        layer is found.
         """
         for layer in self._viewer.layers:
             if layer._type_string != "image":
@@ -735,27 +756,29 @@ class SignalPanel(QWidget):
                 shape = tuple(da.shape[i] for i in spatial_indices)
                 scale = tuple(float(layer.scale[i]) for i in spatial_indices)
                 translate = tuple(float(layer.translate[i]) for i in spatial_indices)
-                return shape, scale, translate
+                units = tuple(layer.units[i] for i in spatial_indices)
+                return shape, scale, translate, units
             # Fallback: treat dim 0 as the signal axis for 4D+ layers without xarray.
             if layer.data.ndim >= 4:
                 return (
                     layer.data.shape[1:],
                     tuple(float(s) for s in layer.scale[1:]),
                     tuple(float(t) for t in layer.translate[1:]),
+                    tuple(layer.units[1:]),
                 )
-        return None, None, None
+        return None, None, None, None
 
     def _create_points_layer(self) -> None:
         """Add a new 3D Points layer (no time axis) to the viewer.
 
         The layer is initialised with no points and `out_of_slice_display` enabled so
-        that added points are always visible regardless of the current time step. Scale
-        and translate are copied from the reference image so the layer is aligned and
-        brush/point sizes match the data.
+        that added points are always visible regardless of the current time step. Scale,
+        translate, and units are copied from the reference image so the layer is
+        aligned and brush/point sizes match the data.
         """
         import numpy as np
 
-        shape, scale, translate = self._spatial_info()
+        shape, scale, translate, units = self._spatial_info()
         ndim = len(shape) if shape is not None else 3
         kwargs: dict = {}
         if scale is not None:
@@ -765,6 +788,8 @@ class SignalPanel(QWidget):
             kwargs["size"] = 2.0
         if translate is not None:
             kwargs["translate"] = translate
+        if units is not None:
+            kwargs["units"] = units
         layer = self._viewer.add_points(  # type: ignore
             np.empty((0, ndim)),
             name="Points (3D)",
@@ -776,19 +801,21 @@ class SignalPanel(QWidget):
     def _create_labels_layer(self) -> None:
         """Add a new 3D Labels layer (no time axis) to the viewer.
 
-        Shape, scale, and translate are derived from the first image layer with
-        xarray metadata so the labels are pixel-aligned with the image and the
+        Shape, scale, translate, and units are derived from the first image layer
+        with xarray metadata so the labels are pixel-aligned with the image and the
         paint brush maps to the correct voxel positions.
         """
         import numpy as np
 
-        shape, scale, translate = self._spatial_info()
+        shape, scale, translate, units = self._spatial_info()
         shape = shape or (64, 64, 64)
         kwargs: dict = {}
         if scale is not None:
             kwargs["scale"] = scale
         if translate is not None:
             kwargs["translate"] = translate
+        if units is not None:
+            kwargs["units"] = units
         self._viewer.add_labels(  # type: ignore
             np.zeros(shape, dtype=np.int32),
             name="Labels (3D)",
