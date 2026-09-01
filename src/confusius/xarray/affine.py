@@ -1,5 +1,6 @@
 """Xarray accessor for affine transform operations."""
 
+import itertools
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -19,6 +20,84 @@ from confusius._utils.geometry import (
 
 if TYPE_CHECKING:
     import numpy.typing as npt
+
+
+def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
+    """Return the world-space bounding box of a VoxelData array.
+
+    Bounds are of voxel centers (the voxel coordinate values mapped through the
+    voxel-to-world affine), without any half-voxel expansion or margin. The result
+    is exact for any affine, including oblique ones, without materializing the
+    lazily derived world coordinates: each world coordinate is an affine function
+    of the voxel coordinates, so its extremes over the grid are attained at the
+    corners of the voxel-coordinate box.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array, normalized with
+        [ensure_voxeldata][confusius.validation.ensure_voxeldata] (scalar-indexed
+        voxel dims are restored as singletons before computing the bounds).
+
+    Returns
+    -------
+    (2, 3) xarray.DataArray
+        Bounding box with dims `(bound, component)`, where `bound` is
+        `["min", "max"]` and `component` is `["z", "y", "x"]`, and a `units` attr
+        from the voxel-to-world index. Pose-dependent geometry adds a leading
+        `pose` dim carrying the input's `pose` coordinate, one bounding box per
+        pose.
+
+    Raises
+    ------
+    TypeError
+        If `data` is not an `xarray.DataArray`.
+    ValueError
+        If `data` is not a valid VoxelData array.
+
+    Examples
+    --------
+    >>> bbox = get_bounding_box(volume)
+    >>> bbox.sel(bound="min", component="z").item()
+    """
+    from confusius.validation import ensure_voxeldata
+
+    data = ensure_voxeldata(data)
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
+    affine = get_voxel_to_world_affine(data)
+
+    # The 8 corners of the voxel-coordinate box, as homogeneous column vectors.
+    corners = np.array(
+        list(
+            itertools.product(
+                *(
+                    (data.coords[dim].values.min(), data.coords[dim].values.max())
+                    for dim in voxel_dims
+                )
+            )
+        ),
+        dtype=np.float64,
+    )
+    corners_h = np.hstack([corners, np.ones((len(corners), 1))]).T
+
+    # (npose, 4, 4) @ (4, 8) broadcasts to one corner set per pose.
+    world_corners = (affine @ corners_h)[..., :-1, :]
+    bounds = np.stack([world_corners.min(axis=-1), world_corners.max(axis=-1)], axis=-2)
+
+    coords: dict[str, npt.ArrayLike] = {
+        "bound": np.array(["min", "max"], dtype=np.str_),
+        "component": np.array(WORLD_DIMS, dtype=np.str_),
+    }
+    dims = ("bound", "component")
+    if affine.ndim == 3:
+        dims = (POSE_DIM, *dims)
+        coords[POSE_DIM] = data.coords[POSE_DIM].values
+    return xr.DataArray(
+        bounds,
+        dims=dims,
+        coords=coords,
+        attrs={"units": get_voxel_to_world_units(data)},
+    )
 
 
 def get_relative_affine(
