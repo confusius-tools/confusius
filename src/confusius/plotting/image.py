@@ -35,6 +35,7 @@ from confusius.plotting._hover import (
 from confusius.plotting._utils import (
     _auto_fg_color,
     _get_distinct_colors,
+    _resolve_colormap_style,
     _resolve_font_sizes,
     _style_colorbar,
     coerce_complex_to_magnitude,
@@ -513,86 +514,6 @@ def _resolve_norm(
     assert resolved_norm is not None
 
     return resolved_norm
-
-
-_STAT_MAP_DIVERGING_CMAP = "coolwarm"
-"""Default colormap for diverging statistical maps (see `plot_stat_map`)."""
-
-_STAT_MAP_SEQUENTIAL_CMAP = "viridis"
-"""Default colormap for non-negative statistical maps (see `plot_stat_map`)."""
-
-_STAT_MAP_SEQUENTIAL_CMAP_NEGATIVE = "viridis_r"
-"""Default colormap for non-positive statistical maps (see `plot_stat_map`).
-
-Reversed relative to `_STAT_MAP_SEQUENTIAL_CMAP` so that, in both the
-non-negative and non-positive cases, values near zero map to the same end of
-the colormap (dark purple) and the most extreme magnitude maps to the other
-end (yellow).
-"""
-
-
-def _resolve_stat_map_style(
-    data: xr.DataArray,
-    vmin: float | None,
-    vmax: float | None,
-    cmap: "str | Colormap | None",
-    auto_range: bool,
-) -> tuple[float, float, "str | Colormap"]:
-    """Resolve `(vmin, vmax, cmap)` for a statistical map.
-
-    `vmin`/`vmax` fall back to the actual min/max of `data` when not provided.
-
-    When `auto_range` is `True` (default), the sign of `data` determines the
-    layout:
-
-    - Both positive and negative values: diverging, symmetric `[-m, m]` range
-      where `m = max(|vmin|, |vmax|)` over the bounds actually provided, falling
-      back to the largest magnitude in `data` when neither is given, with `cmap`
-      defaulting to `_STAT_MAP_DIVERGING_CMAP`.
-    - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
-      defaulting to `_STAT_MAP_SEQUENTIAL_CMAP`.
-    - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
-      defaulting to `_STAT_MAP_SEQUENTIAL_CMAP_NEGATIVE`.
-
-    When `auto_range` is `False`, the resolved `vmin`/`vmax` are used directly with
-    no zero-anchoring, and `cmap` defaults to `_STAT_MAP_DIVERGING_CMAP` regardless
-    of `data`'s sign. In both cases, an explicitly provided `cmap` is always used
-    as-is.
-    """
-    values = data.values.ravel().astype(float)
-    values = values[np.isfinite(values)]
-    data_min = float(values.min()) if len(values) > 0 else 0.0
-    data_max = float(values.max()) if len(values) > 0 else 1.0
-
-    resolved_vmin = vmin if vmin is not None else data_min
-    resolved_vmax = vmax if vmax is not None else data_max
-
-    if not auto_range:
-        return (
-            resolved_vmin,
-            resolved_vmax,
-            cmap if cmap is not None else _STAT_MAP_DIVERGING_CMAP,
-        )
-
-    if data_min < 0 < data_max:
-        # A bound given on its own caps the symmetric range by itself: falling back
-        # to the data's own min/max for the missing one would drop it silently.
-        explicit = [abs(bound) for bound in (vmin, vmax) if bound is not None]
-        abs_max = max(explicit) if explicit else max(abs(data_min), abs(data_max))
-        return -abs_max, abs_max, cmap if cmap is not None else _STAT_MAP_DIVERGING_CMAP
-
-    if data_max > 0:
-        return (
-            0.0,
-            resolved_vmax,
-            cmap if cmap is not None else _STAT_MAP_SEQUENTIAL_CMAP,
-        )
-
-    return (
-        resolved_vmin,
-        0.0,
-        cmap if cmap is not None else _STAT_MAP_SEQUENTIAL_CMAP_NEGATIVE,
-    )
 
 
 def _threshold_slices(
@@ -2118,7 +2039,7 @@ class VolumePlotter:
         >>> plotter = plotter.add_stat_map(t_map, threshold=3.0)
         """
         stat_map = stat_map.compute()
-        resolved_vmin, resolved_vmax, resolved_cmap = _resolve_stat_map_style(
+        resolved_vmin, resolved_vmax, resolved_cmap = _resolve_colormap_style(
             stat_map, vmin, vmax, cmap, auto_range
         )
         return self.add_volume(

@@ -2,9 +2,10 @@
 
 import warnings
 from collections.abc import Hashable, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import VOXEL_DIMS, WORLD_DIMS
@@ -13,6 +14,7 @@ from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
     from matplotlib.colorbar import Colorbar
+    from matplotlib.colors import Colormap
 
 
 def _relative_luminance(color: str) -> float:
@@ -146,6 +148,101 @@ def _style_colorbar(
     cbar.ax.yaxis.label.set_color(text_color)
     if label_fontsize is not None:
         cbar.ax.yaxis.label.set_fontsize(label_fontsize)
+
+
+_DIVERGING_CMAP = "coolwarm"
+"""Default colormap for data spanning both signs (see `_resolve_colormap_style`)."""
+
+_SEQUENTIAL_CMAP = "viridis"
+"""Default colormap for non-negative data (see `_resolve_colormap_style`)."""
+
+_SEQUENTIAL_CMAP_NEGATIVE = "viridis_r"
+"""Default colormap for non-positive data (see `_resolve_colormap_style`).
+
+Reversed relative to `_SEQUENTIAL_CMAP` so that, in both the non-negative and
+non-positive cases, values near zero map to the same end of the colormap (dark
+purple) and the most extreme magnitude maps to the other end (yellow).
+"""
+
+
+def _resolve_colormap_style(
+    data: "npt.NDArray[Any] | xr.DataArray",
+    vmin: float | None,
+    vmax: float | None,
+    cmap: "str | Colormap | None",
+    auto_range: bool,
+) -> tuple[float, float, "str | Colormap"]:
+    """Resolve `(vmin, vmax, cmap)` from the sign of `data` and the bounds given.
+
+    Shared by `plot_stat_map` and `plot_matrix` so both expose the same
+    `auto_range` semantics.
+
+    When `auto_range` is `True`, the sign of `data` determines the layout:
+
+    - Both positive and negative values: diverging, symmetric `[-m, m]` range
+      where `m = max(|vmin|, |vmax|)` over the bounds actually provided, falling
+      back to the largest magnitude in `data` when neither is given, with `cmap`
+      defaulting to `_DIVERGING_CMAP`.
+    - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
+      defaulting to `_SEQUENTIAL_CMAP`.
+    - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
+      defaulting to `_SEQUENTIAL_CMAP_NEGATIVE`.
+
+    When `auto_range` is `False`, `vmin`/`vmax` are used directly with no
+    zero-anchoring, and `cmap` defaults to `_DIVERGING_CMAP` regardless of
+    `data`'s sign. In both cases, an explicitly provided `cmap` is always used
+    as-is.
+
+    Parameters
+    ----------
+    data : numpy.ndarray or xarray.DataArray
+        Values to be colormapped. Non-finite entries are ignored.
+    vmin : float, optional
+        Lower bound of the colormap. If not provided, falls back to the smallest
+        finite value in `data`, except in the diverging branch described above.
+    vmax : float, optional
+        Upper bound of the colormap. If not provided, falls back to the largest
+        finite value in `data`, except in the diverging branch described above.
+    cmap : str or matplotlib.colors.Colormap, optional
+        Colormap to use. If not provided, one is picked from the sign of `data`.
+    auto_range : bool
+        Whether to anchor the range on zero based on the sign of `data`.
+
+    Returns
+    -------
+    vmin : float
+        Resolved lower bound of the colormap.
+    vmax : float
+        Resolved upper bound of the colormap.
+    cmap : str or matplotlib.colors.Colormap
+        Resolved colormap.
+    """
+    values = np.asarray(data).ravel().astype(float)
+    values = values[np.isfinite(values)]
+    data_min = float(values.min()) if values.size > 0 else 0.0
+    data_max = float(values.max()) if values.size > 0 else 1.0
+
+    resolved_vmin = vmin if vmin is not None else data_min
+    resolved_vmax = vmax if vmax is not None else data_max
+
+    if not auto_range:
+        return (
+            resolved_vmin,
+            resolved_vmax,
+            cmap if cmap is not None else _DIVERGING_CMAP,
+        )
+
+    if data_min < 0 < data_max:
+        # A bound given on its own caps the symmetric range by itself: falling back
+        # to the data's own min/max for the missing one would drop it silently.
+        explicit = [abs(bound) for bound in (vmin, vmax) if bound is not None]
+        abs_max = max(explicit) if explicit else max(abs(data_min), abs(data_max))
+        return -abs_max, abs_max, cmap if cmap is not None else _DIVERGING_CMAP
+
+    if data_max > 0:
+        return 0.0, resolved_vmax, cmap if cmap is not None else _SEQUENTIAL_CMAP
+
+    return resolved_vmin, 0.0, cmap if cmap is not None else _SEQUENTIAL_CMAP_NEGATIVE
 
 
 def coerce_complex_to_magnitude(data: xr.DataArray, caller: str) -> xr.DataArray:
