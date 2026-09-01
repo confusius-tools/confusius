@@ -10,6 +10,23 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+
+### :boom: Breaking changes
+
+- [`register_volumewise`][confusius.registration.register_volumewise]'s
+  `intensity_scaling` is renamed to `moving_intensity_scaling`, and a new
+  `fixed_intensity_scaling` scales a user-provided `fixed` volume separately (only
+  allowed together with `fixed`; it defaults to `moving_intensity_scaling`). Both are
+  now also exposed on `data.fusi.register.volumewise`
+  ([#376](https://github.com/confusius-tools/confusius/issues/376)).
+
+### :sparkles: Enhancements
+
+- [`register_volumewise`][confusius.registration.register_volumewise] and
+  `data.fusi.register.volumewise` accept a `fixed` VoxelData volume (for example the
+  mean of a few low-motion frames) to register every frame to, as an alternative to
+  `reference_time` ([#376](https://github.com/confusius-tools/confusius/issues/376)).
+
 ### :zap: Performance
 
 - [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no

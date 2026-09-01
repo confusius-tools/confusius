@@ -64,9 +64,11 @@ data
 # Volumewise registration can be applied using
 # [`register_volumewise`][confusius.registration.register_volumewise]. By default, each
 # volume (or frame in this case) is registered to the first acquired volume. You may
-# choose any other reference timepoint using the `reference_time`. Here, we're trying to
-# correct for rigid motion—that is, translation and rotations. The default learning rate
-# is conservative; for this recording, `1.0` recovers the inter-frame shifts better.
+# choose any other reference timepoint using the `reference_time`. Alternatively, pass
+# any spatial-only volume on the same grid as `fixed`, for example the mean of a few
+# low-motion frames. Here, we're trying to correct for rigid motion, that is,
+# translation and rotations. The default learning rate is conservative; for this
+# recording, `1.0` recovers the inter-frame shifts better.
 
 # %%
 registered = cf.registration.register_volumewise(
