@@ -67,9 +67,9 @@ def _validate_meshes_available(structures: "StructuresDict") -> None:
     """Raise ValueError unless some structure references a mesh source.
 
     A structure's `mesh_filename` is either `None` (this atlas has no meshes) or a path;
-    `get_mesh` needs at least one non-`None` entry. The path need not exist on disk yet:
-    BrainGlobe fetches meshes lazily from its remote store on first access, so a freshly
-    fetched atlas legitimately has no mesh files cached locally.
+    `get_meshes` needs at least one non-`None` entry. The path need not exist on disk
+    yet: BrainGlobe fetches meshes lazily from its remote store on first access, so a
+    freshly fetched atlas legitimately has no mesh files cached locally.
 
     Parameters
     ----------
@@ -87,7 +87,7 @@ def _validate_meshes_available(structures: "StructuresDict") -> None:
     if not has_mesh:
         raise ValueError(
             "Atlas has no usable region meshes: no structure references a mesh source, "
-            "so get_mesh cannot run (require_mesh_use=True)."
+            "so get_meshes cannot run (require_mesh_use=True)."
         )
 
 
@@ -114,7 +114,7 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
        `attrs["affines"]`), the matrices must be equal — a mismatch means the variables
        are not on a common world frame.
     7. **Mesh use** (only when `require_mesh_use` is set): `attrs["world_to_base"]` — the
-       pull mesh transform get_mesh needs — is present, and at least one structure
+       pull mesh transform get_meshes needs — is present, and at least one structure
        references a mesh file that exists on disk.
 
     Parameters
@@ -122,7 +122,7 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
     ds : xarray.Dataset
         Dataset to validate as an atlas.
     require_mesh_use : bool, default: False
-        Whether to also require the machinery `get_mesh` needs: the `world_to_base`
+        Whether to also require the machinery `get_meshes` needs: the `world_to_base`
         transform attribute and at least one existing region mesh file.
 
     Raises
@@ -208,7 +208,7 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
         if "world_to_base" not in ds.attrs:
             raise ValueError(
                 "Atlas Dataset is missing 'world_to_base', required for mesh operations "
-                "(require_mesh_use=True): it is the transform get_mesh uses to place mesh "
+                "(require_mesh_use=True): it is the transform get_meshes uses to place mesh "
                 "vertices in the atlas's world space."
             )
         _validate_meshes_available(ds.attrs["structures"])
