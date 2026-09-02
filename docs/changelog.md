@@ -16,7 +16,7 @@ Current development version for the next ConfUSIus release.
   [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] take `regions`/`sides` instead of
   `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
   requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
-  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+  ([#448](https://github.com/confusius-tools/confusius/pull/448)).
 
 ### :sparkles: Enhancements
 
@@ -25,7 +25,7 @@ Current development version for the next ConfUSIus release.
   ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 - [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] downloads every
   region mesh in one batched call on the first fetch, so meshes are available offline
-  afterwards ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+  afterwards ([#448](https://github.com/confusius-tools/confusius/pull/448)).
 
 ### :zap: Performance
 
