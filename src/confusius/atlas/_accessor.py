@@ -874,16 +874,17 @@ def get_atlas_mesh(
                 "Not all BrainGlobe atlases include mesh files."
             )
 
-        # BrainGlobe lazily downloads the mesh from its remote store on this access if
-        # it is not already cached locally, so mesh_filename need not exist on disk yet.
+        # fetch_brainglobe_atlas prefetches every mesh, so this normally reads a cached
+        # file. BrainGlobe still downloads lazily on this access when the file is
+        # absent: prefetch skipped offline, or a store saved before meshes were cached.
         try:
             mesh = structures[rid]["mesh"]
         except RuntimeError as error:
             raise RuntimeError(
-                f"Could not load the mesh for region '{region}' (id {rid}): {error} If "
-                "this atlas was loaded with load_atlas, the mesh may not have been "
-                "downloaded before save_atlas ran; see the warning on save_atlas for "
-                "when such a mesh can still be fetched."
+                f"Could not load the mesh for region '{region}' (id {rid}): {error} "
+                "BrainGlobe may provide no mesh for this region, the mesh may not be "
+                "cached while offline, or, for an atlas loaded with load_atlas, it may "
+                "not have been downloaded before save_atlas ran."
             ) from error
         vertices_um = mesh.points  # (N, 3) in microns
         faces = mesh.get_cells_type("triangle")
