@@ -133,3 +133,11 @@ def test_non_dataarray_raises():
     """A bare numpy array is rejected."""
     with pytest.raises(TypeError):
         get_bounding_box(np.zeros((2, 3, 4)))  # ty: ignore[invalid-argument-type]
+
+
+def test_accessor_matches_function(rng):
+    """The `.fusi.affine.bounding_box` property returns the same bounds."""
+    data = create_voxeldata(
+        rng.random((4, 5, 6)), dims=("k", "j", "i"), voxel_to_world=OBLIQUE_AFFINE
+    )
+    assert_allclose(data.fusi.affine.bounding_box.values, get_bounding_box(data).values)
