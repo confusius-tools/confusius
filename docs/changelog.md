@@ -10,6 +10,14 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] /
+  [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] take `regions`/`sides` instead of
+  `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
+  requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
+  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+
 ### :sparkles: Enhancements
 
 - New [`get_bounding_box`][confusius.xarray.get_bounding_box] returning a VoxelData
