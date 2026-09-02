@@ -281,6 +281,14 @@ class TestOperationMode:
         Regression test: the mode radios used to sit in the form's shared label
         column, so a wider within-scan label pushed them onto their own line.
         """
+
+        def _shares_a_line(first, second):
+            # Top edges differ across platforms because a label and a radio have
+            # different heights, so compare the spans instead of the y offsets.
+            return max(first.y(), second.y()) <= min(
+                first.geometry().bottom(), second.geometry().bottom()
+            )
+
         registration_panel.show()
         registration_panel.resize(registration_panel.minimumSizeHint().width(), 900)
         QApplication.processEvents()
@@ -289,12 +297,12 @@ class TestOperationMode:
         ).widget()
         assert mode_label.text() == "Mode"
 
-        assert mode_label.y() == registration_panel._single_volume_radio.y()
+        assert _shares_a_line(mode_label, registration_panel._single_volume_radio)
 
         registration_panel._time_series_radio.setChecked(True)
         QApplication.processEvents()
 
-        assert mode_label.y() == registration_panel._single_volume_radio.y()
+        assert _shares_a_line(mode_label, registration_panel._single_volume_radio)
 
     def test_volumewise_fixed_choice_survives_mode_switch(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
