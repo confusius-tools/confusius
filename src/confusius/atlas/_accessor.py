@@ -273,7 +273,7 @@ class AtlasAccessor:
 
     # ── Meshes ────────────────────────────────────────────────────────────────────────
 
-    def get_mesh(
+    def get_meshes(
         self,
         regions: int | str | Sequence[int | str],
         sides: (
@@ -337,11 +337,11 @@ class AtlasAccessor:
 
         Examples
         --------
-        >>> vertices, faces = ds.atlas.get_mesh("VISp")["VISp"]
-        >>> ds.atlas.get_mesh(["VISp", "AUDp"], sides=["left", "both"]).keys()
+        >>> vertices, faces = ds.atlas.get_meshes("VISp")["VISp"]
+        >>> ds.atlas.get_meshes(["VISp", "AUDp"], sides=["left", "both"]).keys()
         dict_keys(['VISp_L', 'AUDp'])
         """
-        return get_atlas_mesh(self._ds, regions, sides, clip=clip)
+        return get_atlas_meshes(self._ds, regions, sides, clip=clip)
 
     # ── Resampling ────────────────────────────────────────────────────────────────────
 
@@ -385,7 +385,7 @@ class AtlasAccessor:
         -------
         xarray.Dataset
             Resampled atlas Dataset on the requested grid. Meshes returned by
-            `get_mesh` are transformed through the composed `world_to_base` attribute.
+            `get_meshes` are transformed through the composed `world_to_base` attribute.
         """
         resampled_ref = resample_volume(
             self.reference,
@@ -461,7 +461,7 @@ class AtlasAccessor:
         -------
         xarray.Dataset
             Resampled atlas Dataset with exactly `reference`'s voxel labels and
-            voxel-to-world affine. Meshes returned by `get_mesh` are transformed
+            voxel-to-world affine. Meshes returned by `get_meshes` are transformed
             through the composed `world_to_base` attribute.
 
         Raises
@@ -546,9 +546,9 @@ class AtlasAccessor:
 #
 # These free functions are the implementation behind the matching `AtlasAccessor` methods:
 # each validates `ds` as an atlas, then operates on it, and the accessor method is a thin
-# wrapper (`ds.atlas.get_mesh(...)` calls `get_mesh(ds, ...)`). Import them as
-# `confusius.atlas.get_atlas_mesh` / `search_atlas` / `get_atlas_masks` to operate on a
-# Dataset directly.
+# wrapper (`ds.atlas.get_meshes(...)` calls `get_meshes(ds, ...)`). Import them as
+# `confusius.atlas.get_atlas_meshes` / `search_atlas` / `get_atlas_masks` to operate on
+# a Dataset directly.
 
 
 def _normalize_regions_and_sides(
@@ -560,7 +560,7 @@ def _normalize_regions_and_sides(
     """Broadcast `regions` and `sides` into two validated, equal-length lists.
 
     Shared by [`get_atlas_masks`][confusius.atlas.get_atlas_masks] and
-    [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh], which both accept a single region
+    [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes], which both accept a single region
     or a sequence, with either a single side applied to all of them or one side per region.
 
     Parameters
@@ -784,7 +784,7 @@ def get_atlas_masks(
     return result
 
 
-def get_atlas_mesh(
+def get_atlas_meshes(
     ds: xr.Dataset,
     regions: int | str | Sequence[int | str],
     sides: (
@@ -848,8 +848,8 @@ def get_atlas_mesh(
     Examples
     --------
     >>> import confusius as cf
-    >>> vertices, faces = cf.atlas.get_atlas_mesh(ds, "root")["root"]
-    >>> cf.atlas.get_atlas_mesh(ds, ["VISp", "AUDp"], sides=["left", "both"]).keys()
+    >>> vertices, faces = cf.atlas.get_atlas_meshes(ds, "root")["root"]
+    >>> cf.atlas.get_atlas_meshes(ds, ["VISp", "AUDp"], sides=["left", "both"]).keys()
     dict_keys(['VISp_L', 'AUDp'])
     """
     validate_atlas(ds, require_mesh_use=True)

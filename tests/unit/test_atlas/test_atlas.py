@@ -1,6 +1,6 @@
 """Tests for atlas Datasets, the `.atlas` accessor, and atlas I/O.
 
-Reference implementations are used for get_masks and get_mesh to avoid
+Reference implementations are used for get_masks and get_meshes to avoid
 testing against the implementation itself.
 """
 
@@ -338,7 +338,7 @@ class TestGetMasks:
 
 
 class TestGetMesh:
-    """Tests for the accessor's get_mesh.
+    """Tests for the accessor's get_meshes.
 
     Root's mesh (from conftest) has:
       Vertices 0-2 at RL = 50 µm  → right hemisphere (< midline 100 µm)
@@ -349,12 +349,12 @@ class TestGetMesh:
     The child region's OBJ mesh has three vertices and one face, all in the right
     hemisphere.
 
-    get_mesh converts µm → mm (factor 1e-3); the identity mesh vertex transform leaves the
+    get_meshes converts µm → mm (factor 1e-3); the identity mesh vertex transform leaves the
     millimetre vertices unchanged.
     """
 
     def test_vertices_transformed_to_mm(self, atlas_ds: xr.Dataset) -> None:
-        vertices_mm, _ = atlas_ds.atlas.get_mesh(997)["root"]
+        vertices_mm, _ = atlas_ds.atlas.get_meshes(997)["root"]
         expected = np.array(
             [
                 [0.0, 0.0, 0.05],
@@ -369,47 +369,47 @@ class TestGetMesh:
         np.testing.assert_allclose(vertices_mm, expected, atol=1e-6)
 
     def test_both_sides_returns_all_faces(self, atlas_ds: xr.Dataset) -> None:
-        vertices, faces = atlas_ds.atlas.get_mesh(997)["root"]
+        vertices, faces = atlas_ds.atlas.get_meshes(997)["root"]
         assert len(vertices) == 6
         assert len(faces) == 2
 
     def test_right_side_clips_to_right_hemisphere(self, atlas_ds: xr.Dataset) -> None:
-        vertices, faces = atlas_ds.atlas.get_mesh(997, sides="right")["root_R"]
+        vertices, faces = atlas_ds.atlas.get_meshes(997, sides="right")["root_R"]
         assert len(vertices) == 3
         assert len(faces) == 1
         np.testing.assert_array_equal(faces, [[0, 1, 2]])
         assert np.all(vertices[:, 2] < 0.1)
 
     def test_left_side_clips_to_left_hemisphere(self, atlas_ds: xr.Dataset) -> None:
-        vertices, faces = atlas_ds.atlas.get_mesh(997, sides="left")["root_L"]
+        vertices, faces = atlas_ds.atlas.get_meshes(997, sides="left")["root_L"]
         assert len(vertices) == 3
         assert len(faces) == 1
         np.testing.assert_array_equal(faces, [[0, 1, 2]])
         assert np.all(vertices[:, 2] >= 0.1)
 
     def test_faces_dtype_is_int32(self, atlas_ds: xr.Dataset) -> None:
-        _, faces = atlas_ds.atlas.get_mesh(997)["root"]
+        _, faces = atlas_ds.atlas.get_meshes(997)["root"]
         assert faces.dtype == np.int32
 
     def test_str_acronym_gives_same_result_as_integer_id(
         self, atlas_ds: xr.Dataset
     ) -> None:
-        vertices_id, faces_id = atlas_ds.atlas.get_mesh(997)["root"]
-        vertices_str, faces_str = atlas_ds.atlas.get_mesh("root")["root"]
+        vertices_id, faces_id = atlas_ds.atlas.get_meshes(997)["root"]
+        vertices_str, faces_str = atlas_ds.atlas.get_meshes("root")["root"]
         np.testing.assert_array_equal(vertices_id, vertices_str)
         np.testing.assert_array_equal(faces_id, faces_str)
 
     def test_region_without_mesh_raises(self, atlas_ds: xr.Dataset) -> None:
         with pytest.raises(ValueError, match="No mesh file"):
-            atlas_ds.atlas.get_mesh(20)
+            atlas_ds.atlas.get_meshes(20)
 
     def test_unknown_region_raises(self, atlas_ds: xr.Dataset) -> None:
         with pytest.raises(KeyError):
-            atlas_ds.atlas.get_mesh(9999)
+            atlas_ds.atlas.get_meshes(9999)
 
     def test_empty_regions_raises(self, atlas_ds: xr.Dataset) -> None:
         with pytest.raises(ValueError, match="at least one region"):
-            atlas_ds.atlas.get_mesh([])
+            atlas_ds.atlas.get_meshes([])
 
     def test_batched_regions_match_individual_calls(self, atlas_ds: xr.Dataset) -> None:
         """Regions requested together come back exactly as requested one at a time.
@@ -417,17 +417,19 @@ class TestGetMesh:
         The batch transforms every region's vertices in one pass and splits the result
         back apart, so differently sized meshes catch a mis-split.
         """
-        batched = atlas_ds.atlas.get_mesh([997, 10])
+        batched = atlas_ds.atlas.get_meshes([997, 10])
 
         assert list(batched) == ["root", "ch"]
         for acronym, region in zip(["root", "ch"], [997, 10]):
-            expected_vertices, expected_faces = atlas_ds.atlas.get_mesh(region)[acronym]
+            expected_vertices, expected_faces = atlas_ds.atlas.get_meshes(region)[
+                acronym
+            ]
             np.testing.assert_array_equal(batched[acronym][0], expected_vertices)
             np.testing.assert_array_equal(batched[acronym][1], expected_faces)
 
     def test_per_region_sides_disambiguate_keys(self, atlas_ds: xr.Dataset) -> None:
         """The same region on both sides must not collide on a single dict key."""
-        meshes = atlas_ds.atlas.get_mesh([997, 997], sides=["left", "right"])
+        meshes = atlas_ds.atlas.get_meshes([997, 997], sides=["left", "right"])
 
         assert list(meshes) == ["root_L", "root_R"]
         assert np.all(meshes["root_L"][0][:, 2] >= 0.1)
@@ -619,10 +621,10 @@ class TestIO:
         source.unlink()  # the BrainGlobe cache / original mesh is now unavailable.
 
         loaded = load_atlas(path)
-        vertices, faces = loaded.atlas.get_mesh(997)["root"]
+        vertices, faces = loaded.atlas.get_meshes(997)["root"]
         # Draco is lossy, so the round-tripped mesh is only close, not bit-exact.
         np.testing.assert_allclose(
-            vertices, atlas_ds.atlas.get_mesh(997)["root"][0], atol=1e-4
+            vertices, atlas_ds.atlas.get_meshes(997)["root"][0], atol=1e-4
         )
         assert len(faces) == 2
 
@@ -634,7 +636,7 @@ class TestIO:
         BrainGlobe fetches meshes lazily; a region whose mesh was never accessed has no
         file to bundle. save_atlas keeps only the trailing path components BrainGlobe
         needs to derive the S3 key, and load_atlas re-points mesh_filename under the
-        store's meshes/ subdirectory (same as a bundled mesh) so get_mesh can still
+        store's meshes/ subdirectory (same as a bundled mesh) so get_meshes can still
         trigger a lazy download straight into the store, on any machine.
         """
         never_downloaded = tmp_path / "never_downloaded" / "997"
@@ -665,7 +667,7 @@ class TestIO:
         ds.attrs = {**atlas_ds.attrs, "structures": StructuresDict(records)}
 
         with pytest.raises(RuntimeError, match="save_atlas"):
-            ds.atlas.get_mesh(997)
+            ds.atlas.get_meshes(997)
 
 
 class TestNonlinearMesh:
@@ -684,8 +686,8 @@ class TestNonlinearMesh:
         data[2] = 0.01  # component 2 == x
         ds = _with_world_to_base_transform(atlas_ds, _field_on_grid(reference, data))
 
-        warped, _ = ds.atlas.get_mesh(997)["root"]
-        base, _ = atlas_ds.atlas.get_mesh(997)["root"]
+        warped, _ = ds.atlas.get_meshes(997)["root"]
+        base, _ = atlas_ds.atlas.get_meshes(997)["root"]
         expected = base.copy()
         expected[:, 2] -= 0.01
         np.testing.assert_allclose(warped, expected, atol=1e-6)
@@ -699,7 +701,7 @@ class TestNonlinearMesh:
         data[2] = 0.5  # inverts to a -0.5 shift, pushing every vertex off the grid
         ds = _with_world_to_base_transform(atlas_ds, _field_on_grid(reference, data))
 
-        vertices, faces = ds.atlas.get_mesh(997)["root"]
+        vertices, faces = ds.atlas.get_meshes(997)["root"]
         assert vertices.shape == (0, 3)
         assert faces.shape == (0, 3)
 
@@ -722,8 +724,8 @@ class TestNonlinearMesh:
         )
         ds = _with_world_to_base_transform(atlas_ds, bspline)
 
-        warped, _ = ds.atlas.get_mesh(997)["root"]
-        base, _ = atlas_ds.atlas.get_mesh(997)["root"]
+        warped, _ = ds.atlas.get_meshes(997)["root"]
+        base, _ = atlas_ds.atlas.get_meshes(997)["root"]
         expected = base.copy()
         expected[:, 2] -= 0.01
         np.testing.assert_allclose(warped, expected, atol=1e-6)
@@ -751,8 +753,8 @@ class TestNonlinearMesh:
         transform[2, 3] = 0.02  # +0.02 pull on x → mesh x shifted by -0.02
         resampled = atlas_ds.atlas.resample_like(atlas_ds.atlas.reference, transform)
 
-        warped, _ = resampled.atlas.get_mesh(997)["root"]
-        base, _ = atlas_ds.atlas.get_mesh(997)["root"]
+        warped, _ = resampled.atlas.get_meshes(997)["root"]
+        base, _ = atlas_ds.atlas.get_meshes(997)["root"]
         expected = base.copy()
         expected[:, 2] -= 0.02
         np.testing.assert_allclose(warped, expected, atol=1e-5)
@@ -778,7 +780,7 @@ class TestNonlinearMesh:
     def test_nonlinear_atlas_roundtrips_through_zarr(
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:
-        """The displacement-field transform serializes and get_mesh works post-load."""
+        """The displacement-field transform serializes and get_meshes still works."""
         reference = atlas_ds.atlas.reference
         data = np.zeros((3, *reference.shape))
         data[2] = 0.01
@@ -793,8 +795,8 @@ class TestNonlinearMesh:
         assert isinstance(loaded.attrs["world_to_base"], xr.DataArray)
         assert "world_to_base" not in loaded.data_vars
         np.testing.assert_allclose(
-            loaded.atlas.get_mesh(997)["root"][0],
-            resampled.atlas.get_mesh(997)["root"][0],
+            loaded.atlas.get_meshes(997)["root"][0],
+            resampled.atlas.get_meshes(997)["root"][0],
             atol=1e-6,
         )
 
@@ -833,7 +835,7 @@ class TestTransformComposition:
     resample_like composes the atlas's stored pull transform with the new one, so a chain
     of resamples must agree with a single resample by the composed transform. These cover
     the affine·affine, identity, and affine·nonlinear composition paths, plus the
-    initialization-seeded field inversion get_mesh uses.
+    initialization-seeded field inversion get_meshes uses.
     """
 
     def test_composed_affine_resamples_match_single_step(
@@ -852,8 +854,8 @@ class TestTransformComposition:
 
         np.testing.assert_allclose(two_step.attrs["world_to_base"], a @ b)
         np.testing.assert_allclose(
-            two_step.atlas.get_mesh(997)["root"][0],
-            one_step.atlas.get_mesh(997)["root"][0],
+            two_step.atlas.get_meshes(997)["root"][0],
+            one_step.atlas.get_meshes(997)["root"][0],
             atol=1e-6,
         )
 
@@ -887,15 +889,15 @@ class TestTransformComposition:
         # dense displacement field but must warp the mesh exactly like the affine alone.
         assert isinstance(composed.attrs["world_to_base"], xr.DataArray)
         np.testing.assert_allclose(
-            composed.atlas.get_mesh(997)["root"][0],
-            affine_only.atlas.get_mesh(997)["root"][0],
+            composed.atlas.get_meshes(997)["root"][0],
+            affine_only.atlas.get_meshes(997)["root"][0],
             atol=1e-5,
         )
 
     def test_get_mesh_seeds_field_inversion_with_bspline_initialization(
         self, atlas_ds: xr.Dataset
     ) -> None:
-        """A bspline_initialization affine seeds the field inversion get_mesh runs."""
+        """A bspline_initialization affine seeds the field inversion get_meshes runs."""
         reference = atlas_ds.atlas.reference
         data = np.zeros((3, *reference.shape))
         data[2] = 0.01
@@ -905,8 +907,8 @@ class TestTransformComposition:
         field.attrs["affines"] = {"bspline_initialization": init}
         ds = _with_world_to_base_transform(atlas_ds, field)
 
-        warped, _ = ds.atlas.get_mesh(997)["root"]
-        base, _ = atlas_ds.atlas.get_mesh(997)["root"]
+        warped, _ = ds.atlas.get_meshes(997)["root"]
+        base, _ = atlas_ds.atlas.get_meshes(997)["root"]
         expected = base.copy()
         expected[:, 2] -= 0.01
         np.testing.assert_allclose(warped, expected, atol=1e-6)
@@ -918,7 +920,7 @@ class TestTransformComposition:
 
         Unlike `test_bspline_transform_samples_field` (which sets the bspline
         transform directly, only exercising `_apply_world_to_base_transform`'s own
-        bspline branch at `get_mesh` time), resampling an atlas whose *stored*
+        bspline branch at `get_meshes` time), resampling an atlas whose *stored*
         transform is a bspline_transform by a genuinely new (non-identity) affine
         routes through `_compose_world_to_base_transforms` -> `_transform_points`,
         which has its own equivalent bspline branch for the old transform side.
@@ -1036,8 +1038,8 @@ class TestStandaloneOperations:
             atlas_ds.atlas.get_masks(10).values,
         )
 
-        vertices, faces = cf.atlas.get_atlas_mesh(atlas_ds, 997)["root"]
-        acc_vertices, acc_faces = atlas_ds.atlas.get_mesh(997)["root"]
+        vertices, faces = cf.atlas.get_atlas_meshes(atlas_ds, 997)["root"]
+        acc_vertices, acc_faces = atlas_ds.atlas.get_meshes(997)["root"]
         np.testing.assert_array_equal(vertices, acc_vertices)
         np.testing.assert_array_equal(faces, acc_faces)
         assert len(faces) == 2  # the fixture mesh has two triangles.
@@ -1046,7 +1048,7 @@ class TestStandaloneOperations:
         """A Dataset missing a required variable is rejected before any work."""
         not_atlas = atlas_ds.drop_vars("hemispheres")
         with pytest.raises(ValueError, match="hemispheres"):
-            cf.atlas.get_atlas_mesh(not_atlas, 997)
+            cf.atlas.get_atlas_meshes(not_atlas, 997)
         with pytest.raises(ValueError, match="hemispheres"):
             cf.atlas.get_atlas_masks(not_atlas, 10)
         with pytest.raises(ValueError, match="hemispheres"):

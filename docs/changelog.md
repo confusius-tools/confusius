@@ -12,10 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
-- [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] /
-  [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] take `regions`/`sides` instead of
-  `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
-  requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
+- `get_mesh`/`get_atlas_mesh` are now
+  [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes] /
+  [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes], taking `regions`/`sides` and
+  returning a `{acronym: (vertices, faces)}` dict with one entry per requested region,
+  under `_L`/`_R`-suffixed keys for single-hemisphere requests
   ([#448](https://github.com/confusius-tools/confusius/pull/448)).
 
 ### :sparkles: Enhancements
@@ -29,7 +30,7 @@ Current development version for the next ConfUSIus release.
 
 ### :zap: Performance
 
-- [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] with `clip=True` no longer
+- [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes] with `clip=True` no longer
   materializes the full world-coordinate grid of an oblique atlas
   ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 - [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
@@ -314,7 +315,7 @@ Released 2026-07-18.
 - The `Atlas` class has been replaced by an [`xarray.Dataset`][xarray.Dataset] with a
   registered `.atlas` accessor. Fetch an atlas by name with
   [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and call operations
-  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_mesh`, `ds.atlas.search`,
+  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_meshes`, `ds.atlas.search`,
   `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset.
   Name-based loading moved to `confusius.datasets`; atlas construction from a loaded
   BrainGlobe atlas is now internal to the datasets module

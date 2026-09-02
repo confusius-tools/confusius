@@ -187,8 +187,8 @@ def fetch_brainglobe_atlas(
 
     The first fetch of an atlas also downloads every region surface mesh, in one batched
     call rather than BrainGlobe's one-at-a-time lazy download, so
-    [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] works offline afterwards. If
-    the BrainGlobe bucket is unreachable, meshes fall back to that lazy download on
+    [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes] works offline afterwards.
+    If the BrainGlobe bucket is unreachable, meshes fall back to that lazy download on
     first use.
 
     Parameters
