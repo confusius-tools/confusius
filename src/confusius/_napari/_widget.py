@@ -31,6 +31,7 @@ from qtpy.QtWidgets import (
 
 from confusius._napari._events._store import EventStore
 from confusius._napari._qt import install_no_scroll_wheel_filter
+from confusius._napari._signals._store import SignalStore
 from confusius._napari._theme import make_lucide_icon
 from confusius._napari._time_overlay import _TimeOverlay
 from confusius._utils.colors import RED, RED_DARK
@@ -157,6 +158,20 @@ QComboBox {{
     border-radius: 3px;
     padding: 4px 6px;
 }}
+QListWidget {{
+    background: {input_bg};
+    color: {input_fg};
+    border: 1px solid {input_border};
+    border-radius: 3px;
+}}
+QListWidget::item:selected {{
+    background: {accent};
+    color: {accent_fg};
+}}
+QListWidget::item:selected:!active {{
+    background: {accent};
+    color: {accent_fg};
+}}
 
 /* ---- Buttons ---- */
 QPushButton {{
@@ -255,6 +270,11 @@ class ConfUSIusWidget(QWidget):
         # Shared store of BIDS temporal events, used by the event panel, the signal
         # plotter (background shading) and the time overlay (active-event readout).
         self._event_store = EventStore(self)
+        # Shared store of stored/live signals, used by the Signals panel (source of
+        # truth), the QC panel (adds computed DVARS traces so they're selectable
+        # elsewhere, e.g. as a scrubbing sample mask), and the Preprocessing panel
+        # (confounds/sample mask sourcing).
+        self._signal_store = SignalStore(self)
         self._apply_theme()
         self._setup_ui()
         self.viewer.events.theme.connect(self._on_theme_changed)
@@ -521,6 +541,7 @@ class ConfUSIusWidget(QWidget):
         from confusius._napari._data._load_panel import DataPanel
         from confusius._napari._data._save_panel import SavePanel
         from confusius._napari._events._panel import EventPanel
+        from confusius._napari._preprocessing._panel import PreprocessingPanel
         from confusius._napari._qc._panel import QCPanel
         from confusius._napari._registration._panel import RegistrationPanel
         from confusius._napari._signals._panel import SignalPanel
@@ -549,16 +570,22 @@ class ConfUSIusWidget(QWidget):
             ("Video", "video"),
             ("Signals", "chart-line"),
             ("Registration", "images"),
+            ("Preprocessing", "brush-cleaning"),
             ("Events", "calendar-clock"),
             ("Quality Control", "clipboard-check"),
         ]
         panels = [
             data_panel,
             video_panel,
-            SignalPanel(self.viewer, event_store=self._event_store),
+            SignalPanel(
+                self.viewer,
+                event_store=self._event_store,
+                signal_store=self._signal_store,
+            ),
             RegistrationPanel(self.viewer),
+            PreprocessingPanel(self.viewer, signal_store=self._signal_store),
             EventPanel(self.viewer, self._event_store),
-            QCPanel(self.viewer),
+            QCPanel(self.viewer, signal_store=self._signal_store),
         ]
         btns: list[QPushButton] = []
 

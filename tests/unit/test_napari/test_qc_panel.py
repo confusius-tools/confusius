@@ -100,3 +100,49 @@ class TestRefreshLayers:
         layer = viewer.add_image(np.zeros((10, 4, 6, 8)), name="my_layer")
         viewer.layers.remove(layer)
         assert qc_panel._layer_combo.count() == 0
+
+
+# ---------------------------------------------------------------------------
+# _store_dvars_signal
+# ---------------------------------------------------------------------------
+
+
+class TestStoreDvarsSignal:
+    def test_noop_without_a_signal_store(self, viewer):
+        from confusius._napari._qc._panel import QCPanel
+
+        panel = QCPanel(viewer)
+        dvars = xr.DataArray([0.1, 0.2, 0.3], dims=["time"], coords={"time": [0, 1, 2]})
+        panel._store_dvars_signal(dvars, "my_layer")  # Must not raise.
+
+    def test_adds_dvars_to_the_signal_store(self, viewer):
+        from confusius._napari._qc._panel import QCPanel
+        from confusius._napari._signals._store import SignalStore
+
+        store = SignalStore()
+        panel = QCPanel(viewer, signal_store=store)
+        dvars = xr.DataArray([0.1, 0.2, 0.3], dims=["time"], coords={"time": [0, 1, 2]})
+
+        panel._store_dvars_signal(dvars, "my_layer")
+
+        stored = store.stored_signals()
+        assert len(stored) == 1
+        assert stored[0].name == "DVARS (my_layer)"
+        np.testing.assert_array_equal(stored[0].y, [0.1, 0.2, 0.3])
+        np.testing.assert_array_equal(stored[0].x, [0, 1, 2])
+
+    def test_recomputing_updates_in_place_instead_of_duplicating(self, viewer):
+        from confusius._napari._qc._panel import QCPanel
+        from confusius._napari._signals._store import SignalStore
+
+        store = SignalStore()
+        panel = QCPanel(viewer, signal_store=store)
+        first = xr.DataArray([0.1, 0.2], dims=["time"], coords={"time": [0, 1]})
+        second = xr.DataArray([0.9, 0.8], dims=["time"], coords={"time": [0, 1]})
+
+        panel._store_dvars_signal(first, "my_layer")
+        panel._store_dvars_signal(second, "my_layer")
+
+        stored = store.stored_signals()
+        assert len(stored) == 1
+        np.testing.assert_array_equal(stored[0].y, [0.9, 0.8])

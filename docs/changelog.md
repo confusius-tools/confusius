@@ -28,6 +28,26 @@ Current development version for the next ConfUSIus release.
 - Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
   combo box or spin box the cursor happens to be over
   ([#431](https://github.com/confusius-tools/confusius/pull/431)).
+- The signal plotter's mouse source now updates when Shift is pressed while the
+  cursor is already resting on a voxel, not only while moving; a live signal
+  (mouse voxel, a point, or a label region) can now be pinned so it persists
+  across source-mode switches instead of being dropped, reusable wherever stored
+  signals are — imported and pinned signals now share one concept
+  (`StoredSignal`) throughout the signal store, plotter, and manager
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+- Mouse-driven signal plotting no longer lags or jitters on large recordings —
+  updates are now throttled to the display refresh rate instead of running
+  unbounded on every raw mouse-move event
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+- A DVARS trace computed in the Quality Control panel is now added to the
+  shared signal store, making it selectable elsewhere in the plugin without
+  first exporting and re-importing it
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+- Added a Preprocessing panel, covering temporal resampling, spatial smoothing,
+  detrending, temporal filtering, standardization, confound regression
+  (including CompCor confound extraction), and scrubbing, with sample masks
+  and confounds sourced directly from stored signals
+  ([#435](https://github.com/confusius-tools/confusius/pull/435)).
 
 ## 0.7.0
 

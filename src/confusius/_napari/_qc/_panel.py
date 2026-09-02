@@ -24,6 +24,8 @@ from qtpy.QtWidgets import (
 
 from confusius._dims import TIME_DIM
 from confusius._napari._qc._plots import QCPlotsWidget
+from confusius._napari._signals._store import SignalStore
+from confusius._napari._utils import CATEGORICAL_COLORS
 from confusius.plotting.image import _prepare_carpet_data
 from confusius.plotting.napari import plot_napari
 from confusius.qc import compute_cv, compute_dvars, compute_tsnr
@@ -76,11 +78,18 @@ class QCPanel(QWidget):
     ----------
     viewer : napari.Viewer
         The active napari viewer instance.
+    signal_store : SignalStore, optional
+        Shared store of stored/live signals. If provided, each computed DVARS trace
+        is also added there (as `"DVARS (<layer>)"`), making it selectable as a
+        Preprocessing panel confound/sample mask.
     """
 
-    def __init__(self, viewer: napari.Viewer) -> None:
+    def __init__(
+        self, viewer: napari.Viewer, signal_store: SignalStore | None = None
+    ) -> None:
         super().__init__()
         self.viewer = viewer
+        self._signal_store = signal_store
         # Cached reference to the inner plot widget (survives dock closure because
         # napari re-parents it to None rather than destroying it).
         self._qc_plots: QCPlotsWidget | None = None
@@ -352,6 +361,7 @@ class QCPanel(QWidget):
 
                 if "dvars" in results:
                     qc_widget.update_dvars(results["dvars"], layer_name=layer_name)
+                    self._store_dvars_signal(results["dvars"], layer_name)
 
                 if "carpet" in results:
                     qc_widget.update_carpet(results["carpet"], layer_name=layer_name)
@@ -387,6 +397,23 @@ class QCPanel(QWidget):
             show_error(str(exc))
         finally:
             self._end_work()
+
+    def _store_dvars_signal(self, dvars_da: xr.DataArray, layer_name: str) -> None:
+        """Add a computed DVARS trace to the shared signal store, if any.
+
+        Re-pinned under a `layer_name`-derived origin, so recomputing DVARS for the
+        same layer updates the stored signal in place instead of duplicating it.
+        """
+        if self._signal_store is None:
+            return
+        self._signal_store.pin_signal(
+            origin=f"dvars-{layer_name}",
+            name=f"DVARS ({layer_name})",
+            x=dvars_da.coords[TIME_DIM].values,
+            y=dvars_da.values,
+            color=CATEGORICAL_COLORS[0],
+            source_label=f"QC: {layer_name}",
+        )
 
     def _on_compute_error(self, exc: Exception) -> None:
         self._end_work()
