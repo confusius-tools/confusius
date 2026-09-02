@@ -47,6 +47,9 @@ Current development version for the next ConfUSIus release.
   returning a VoxelData array's world-space bounding box enclosing the full extent of
   its voxels, one per pose for pose-dependent geometry
   ([#446](https://github.com/confusius-tools/confusius/pull/446)).
+- [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] downloads every
+  region mesh in one batched call on the first fetch, so meshes are available offline
+  afterwards ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
 
 ### :zap: Performance
 
