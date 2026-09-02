@@ -1386,6 +1386,53 @@ def get_voxel_to_world_units(data: xr.DataArray) -> str:
     return index.units
 
 
+_LENGTH_UNIT_TO_MM: dict[str, float] = {
+    "mm": 1.0,
+    "cm": 10.0,
+    "m": 1000.0,
+    "um": 1e-3,
+    "µm": 1e-3,
+    "nm": 1e-6,
+}
+"""Mapping from common length-unit strings to millimeters."""
+
+
+def convert_length_units(
+    values: npt.ArrayLike, from_unit: str, to_unit: str = "mm"
+) -> npt.NDArray[np.float64]:
+    """Convert length values between units.
+
+    Parameters
+    ----------
+    values : array_like
+        Length values to convert.
+    from_unit : str
+        Current unit of the values, e.g. the return of
+        [get_voxel_to_world_units][confusius._utils.geometry.get_voxel_to_world_units].
+    to_unit : str, default: "mm"
+        Target unit of the values.
+
+    Returns
+    -------
+    numpy.ndarray
+        Length values converted to `to_unit`.
+
+    Raises
+    ------
+    ValueError
+        If `from_unit` or `to_unit` is not one of `"mm"`, `"cm"`, `"m"`, `"um"`/`"µm"`,
+        `"nm"`.
+    """
+    for unit in (from_unit, to_unit):
+        if unit not in _LENGTH_UNIT_TO_MM:
+            raise ValueError(
+                f"Unrecognized length unit {unit!r}; expected one of "
+                f"{sorted(_LENGTH_UNIT_TO_MM)}."
+            )
+    values_array = np.asarray(values, dtype=np.float64)
+    return values_array * (_LENGTH_UNIT_TO_MM[from_unit] / _LENGTH_UNIT_TO_MM[to_unit])
+
+
 def restore_voxel_to_world_index(data: xr.DataArray) -> xr.DataArray:
     """Rebuild voxel-to-world geometry for a dimension restored after being fixed.
 
