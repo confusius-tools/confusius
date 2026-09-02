@@ -42,6 +42,9 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- The registration panel's within-scan mode can register every frame to a fixed
+  layer, with its own intensity scaling, as an alternative to a reference time index
+  ([#376](https://github.com/confusius-tools/confusius/issues/376)).
 - Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
   combo box or spin box the cursor happens to be over
   ([#431](https://github.com/confusius-tools/confusius/pull/431)).

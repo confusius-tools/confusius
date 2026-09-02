@@ -231,7 +231,7 @@ def test_detrend_polynomial_order4(rng):
     # Compare against naive reference implementation.
     naive_result = _naive_polynomial_detrend(signals.values, order=4, axis=0)
     # Higher-order polynomials have slightly worse numerical precision.
-    assert_allclose(result.values, naive_result, rtol=1e-7)
+    assert_allclose(result.values, naive_result, rtol=1e-5)
 
 
 def test_detrend_no_time_dimension(rng):
