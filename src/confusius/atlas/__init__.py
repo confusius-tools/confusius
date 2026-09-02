@@ -7,7 +7,7 @@ with [`save_atlas`][confusius.io.save_atlas] /
 [`load_atlas`][confusius.io.load_atlas], and operate on it through `ds.atlas.*` (see
 [`AtlasAccessor`][confusius.atlas.AtlasAccessor]). The core operations are also exposed
 as standalone functions that take the Dataset as their first argument —
-[`get_atlas_mesh`][confusius.atlas.get_atlas_mesh],
+[`get_atlas_meshes`][confusius.atlas.get_atlas_meshes],
 [`get_atlas_masks`][confusius.atlas.get_atlas_masks], and
 [`search_atlas`][confusius.atlas.search_atlas] — each of which validates its input as
 an atlas first.
@@ -17,13 +17,13 @@ an atlas first.
 from confusius.atlas._accessor import (
     AtlasAccessor,
     get_atlas_masks,
-    get_atlas_mesh,
+    get_atlas_meshes,
     search_atlas,
 )
 
 __all__ = [
     "AtlasAccessor",
     "get_atlas_masks",
-    "get_atlas_mesh",
+    "get_atlas_meshes",
     "search_atlas",
 ]

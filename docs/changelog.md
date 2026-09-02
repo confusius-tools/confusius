@@ -58,7 +58,7 @@ Current development version for the next ConfUSIus release.
   `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
   even when only metadata or a small region is needed
   ([#415](https://github.com/confusius-tools/confusius/pull/415)).
-- [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] with `clip=True` no longer
+- [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes] with `clip=True` no longer
   materializes the full world-coordinate grid of an oblique atlas
   ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 
@@ -394,7 +394,7 @@ Released 2026-07-18.
 - The `Atlas` class has been replaced by an [`xarray.Dataset`][xarray.Dataset] with a
   registered `.atlas` accessor. Fetch an atlas by name with
   [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and call operations
-  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_mesh`, `ds.atlas.search`,
+  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_meshes`, `ds.atlas.search`,
   `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset.
   Name-based loading moved to `confusius.datasets`; atlas construction from a loaded
   BrainGlobe atlas is now internal to the datasets module
