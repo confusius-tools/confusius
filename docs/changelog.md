@@ -25,6 +25,11 @@ Current development version for the next ConfUSIus release.
   allowed together with `fixed`; it defaults to `moving_intensity_scaling`). Both are
   now also exposed on `data.fusi.register.volumewise`
   ([#437](https://github.com/confusius-tools/confusius/pull/437)).
+- [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] /
+  [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] take `regions`/`sides` instead of
+  `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
+  requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
+  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
 
 ### :sparkles: Enhancements
 
