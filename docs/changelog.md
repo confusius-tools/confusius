@@ -26,6 +26,16 @@ Current development version for the next ConfUSIus release.
 - [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] downloads every
   region mesh in one batched call on the first fetch, so meshes are available offline
   afterwards ([#448](https://github.com/confusius-tools/confusius/pull/448)).
+- Added [`plot_surface`][confusius.plotting.plot_surface] to display a triangular mesh as
+  a napari surface layer, and [`plot_atlas_mesh`][confusius.plotting.plot_atlas_mesh]
+  (also reachable as `ds.atlas.plot.mesh`) to display atlas regions with their mesh, name,
+  color, and units read from the atlas, aligned with the reference template or a
+  registered fUSI volume shown with `plot_napari`. Like
+  [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh], it accepts one region or a
+  sequence of them with a single hemisphere filter or one per region, mirroring
+  [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and merges the requested
+  regions into a single surface layer, each drawn in its own atlas color
+  ([#263](https://github.com/confusius-tools/confusius/pull/263)).
 
 ### :zap: Performance
 

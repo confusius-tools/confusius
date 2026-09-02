@@ -12,7 +12,13 @@ from confusius._utils.geometry import (
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
 )
-from confusius.plotting import draw_napari_labels, labels_from_layer, plot_napari
+from confusius.plotting import (
+    draw_napari_labels,
+    labels_from_layer,
+    plot_atlas_mesh,
+    plot_napari,
+    plot_surface,
+)
 from confusius.xarray import create_voxeldata
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
@@ -591,4 +597,194 @@ class TestLabelsFromLayer:
         # DirectLabelColormap built by build_atlas_cmap_and_norm.
         for label, expected_rgb in sample_roi_labels.attrs["rgb_lookup"].items():
             assert result.attrs["rgb_lookup"][label] == expected_rgb
+        viewer.close()
+
+
+class TestPlotSurface:
+    """Tests for plot_surface (bare mesh wire-up)."""
+
+    @staticmethod
+    def _tetra():
+        """Return a simple two-triangle mesh with per-vertex values."""
+        vertices = np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        )
+        faces = np.array([[0, 1, 2], [0, 1, 3]], dtype=np.int32)
+        values = np.array([0.1, 0.4, 0.7, 1.0])
+        return vertices, faces, values
+
+    def test_mesh_and_values_reach_the_layer(self, make_napari_viewer):
+        """Vertices, faces, and per-vertex values round-trip into the Surface layer."""
+        vertices, faces, values = self._tetra()
+        viewer = make_napari_viewer()
+        _, layer = plot_surface(
+            (vertices, faces), values=values, viewer=viewer, show_scale_bar=False
+        )
+
+        npt.assert_array_equal(layer.vertices, vertices)
+        npt.assert_array_equal(layer.faces, faces)
+        npt.assert_array_equal(layer.vertex_values, values)
+        viewer.close()
+
+    def test_switches_viewer_to_3d(self, make_napari_viewer):
+        """A 3D mesh switches the viewer to 3D so the surface is actually visible."""
+        vertices, faces, _ = self._tetra()
+        viewer = make_napari_viewer()
+        assert viewer.dims.ndisplay == 2
+        plot_surface((vertices, faces), viewer=viewer, show_scale_bar=False)
+
+        assert viewer.dims.ndisplay == 3
+        viewer.close()
+
+    def test_flat_surface_when_no_values(self, make_napari_viewer):
+        """Without values the surface is flat (all vertex values equal)."""
+        vertices, faces, _ = self._tetra()
+        viewer = make_napari_viewer()
+        _, layer = plot_surface((vertices, faces), viewer=viewer, show_scale_bar=False)
+
+        assert len(np.unique(layer.vertex_values)) == 1
+        viewer.close()
+
+    def test_overlay_on_existing_viewer(self, sample_voxeldata_3d, make_napari_viewer):
+        """Reuses the passed viewer, adds one layer, and shows the scale bar."""
+        vertices, faces, _ = self._tetra()
+        viewer = make_napari_viewer()
+        plot_napari(sample_voxeldata_3d, viewer=viewer, show_scale_bar=False)
+        n_layers_before = len(viewer.layers)
+
+        returned_viewer, _ = plot_surface((vertices, faces), viewer=viewer)
+
+        assert returned_viewer is viewer
+        assert len(viewer.layers) == n_layers_before + 1
+        assert viewer.canvas.overlays.scale_bar.visible
+        viewer.close()
+
+
+class TestPlotAtlasMesh:
+    """Tests for plot_atlas_mesh and the ds.atlas.plot.mesh accessor."""
+
+    @pytest.mark.parametrize("region", ["root", 997])
+    def test_mesh_name_and_color_come_from_atlas(
+        self, region, atlas_ds, make_napari_viewer
+    ):
+        """The layer's mesh, name, and vertex colors are pulled from the atlas region.
+
+        The region is resolved from either its acronym or its integer id.
+        """
+        viewer = make_napari_viewer()
+        expected_vertices, expected_faces = atlas_ds.atlas.get_mesh(region)["root"]
+        _, layer = plot_atlas_mesh(
+            atlas_ds, region, viewer=viewer, show_scale_bar=False
+        )
+
+        npt.assert_array_equal(layer.vertices, expected_vertices)
+        npt.assert_array_equal(layer.faces, expected_faces)
+        assert layer.name == "whole brain (root)"
+        # root's Allen color is [200, 200, 200]; every vertex is drawn in it.
+        assert layer.vertex_colors is not None
+        npt.assert_allclose(
+            layer.vertex_colors[:, :3],
+            np.full((len(expected_vertices), 3), 200 / 255),
+            atol=1e-6,
+        )
+        viewer.close()
+
+    def test_sides_restricts_mesh_to_one_hemisphere(self, atlas_ds, make_napari_viewer):
+        """`sides` forwards to get_mesh, cutting the mesh down to that hemisphere."""
+        viewer = make_napari_viewer()
+        _, both = plot_atlas_mesh(atlas_ds, "root", viewer=viewer, show_scale_bar=False)
+        _, right = plot_atlas_mesh(
+            atlas_ds, "root", sides="right", viewer=viewer, show_scale_bar=False
+        )
+
+        assert len(right.vertices) < len(both.vertices)
+        assert right.name == "whole brain (root_R)"
+        viewer.close()
+
+    def test_multiple_regions_merge_into_one_layer(self, atlas_ds, make_napari_viewer):
+        """Regions share a layer, each keeping its own atlas color and its own faces."""
+        viewer = make_napari_viewer()
+        root_vertices, _ = atlas_ds.atlas.get_mesh("root")["root"]
+        child_vertices, child_faces = atlas_ds.atlas.get_mesh("ch")["ch"]
+        _, layer = plot_atlas_mesh(
+            atlas_ds, ["root", "ch"], viewer=viewer, show_scale_bar=False
+        )
+
+        assert len(layer.vertices) == len(root_vertices) + len(child_vertices)
+        # The child's faces must be re-indexed onto its own vertices, which sit after
+        # root's in the merged array.
+        npt.assert_array_equal(
+            layer.faces[-len(child_faces) :], child_faces + len(root_vertices)
+        )
+        # root is [200, 200, 200] and the child region is [255, 0, 0].
+        assert layer.vertex_colors is not None
+        npt.assert_allclose(
+            layer.vertex_colors[0, :3], np.full(3, 200 / 255), atol=1e-6
+        )
+        npt.assert_allclose(layer.vertex_colors[-1, :3], [1.0, 0.0, 0.0], atol=1e-6)
+        assert layer.name == "root, ch"
+        viewer.close()
+
+    def test_values_drive_colormap_instead_of_region_color(
+        self, atlas_ds, make_napari_viewer
+    ):
+        """Per-vertex values reach the layer and suppress the per-region colors."""
+        viewer = make_napari_viewer()
+        vertices, _ = atlas_ds.atlas.get_mesh("root")["root"]
+        values = np.linspace(0.0, 1.0, len(vertices))
+        _, layer = plot_atlas_mesh(
+            atlas_ds, "root", values=values, viewer=viewer, show_scale_bar=False
+        )
+
+        npt.assert_array_equal(layer.vertex_values, values)
+        assert layer.vertex_colors is None
+        viewer.close()
+
+    def test_units_taken_from_atlas(self, atlas_ds, make_napari_viewer):
+        """The layer units are derived from the reference coordinates (mm)."""
+        viewer = make_napari_viewer()
+        _, layer = plot_atlas_mesh(atlas_ds, "root", viewer=viewer)
+
+        assert viewer.canvas.overlays.scale_bar.visible
+        assert all(str(unit) == "millimeter" for unit in layer.units)
+        viewer.close()
+
+    def test_mesh_aligns_with_reference_image_layer(self, atlas_ds, make_napari_viewer):
+        """A mesh vertex lands on the world position napari gives the matching voxel.
+
+        The atlas is resampled onto a grid whose origin is shifted by one voxel along
+        `x`, so the image layer's `translate` has to be honored for the two layers to
+        line up. The fixture mesh vertex at `(0.1, 0.0, 0.05)` mm is then voxel
+        `(k, j, i) = (2, 0, 0)` of that grid.
+        """
+        grid = create_voxeldata(
+            np.zeros((4, 6, 8), dtype=np.float32),
+            dims=["k", "j", "i"],
+            spacing=(0.05, 0.05, 0.05),
+            origin=(0.0, 0.0, 0.05),
+        )
+        shifted = atlas_ds.atlas.resample_like(grid, np.eye(4))
+        viewer = make_napari_viewer()
+        _, image_layer = plot_napari(
+            shifted.atlas.reference, viewer=viewer, show_scale_bar=False
+        )
+        _, surface_layer = plot_atlas_mesh(
+            shifted, "root", viewer=viewer, show_scale_bar=False
+        )
+
+        vertex = surface_layer.vertices[1]
+        npt.assert_allclose(vertex, [0.1, 0.0, 0.05])
+        npt.assert_allclose(
+            surface_layer.data_to_world(vertex), image_layer.data_to_world((2, 0, 0))
+        )
+        viewer.close()
+
+    def test_accessor_matches_plot_atlas_mesh(self, atlas_ds, make_napari_viewer):
+        """ds.atlas.plot.mesh delegates to plot_atlas_mesh."""
+        viewer = make_napari_viewer()
+        _, layer = atlas_ds.atlas.plot.mesh("root", viewer=viewer, show_scale_bar=False)
+
+        expected_vertices, _ = atlas_ds.atlas.get_mesh("root")["root"]
+        npt.assert_array_equal(layer.vertices, expected_vertices)
+        assert layer.name == "whole brain (root)"
         viewer.close()
