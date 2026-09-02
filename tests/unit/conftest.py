@@ -940,8 +940,8 @@ def obj_path(tmp_path_factory: pytest.TempPathFactory, mock_mesh: mio.Mesh) -> P
 def child_obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Draco-encoded mesh for region 10: three vertices, one face, right hemisphere.
 
-    Deliberately a different vertex count from `obj_path`, so a multi-region `get_mesh`
-    call that mis-splits the batched vertex transform cannot go unnoticed. Points are
+    Deliberately a different vertex count from `obj_path`, so a multi-region
+    `get_meshes` call that mis-splits the batched vertex transform cannot go unnoticed. Points are
     encoded x/y/z in nanometres, the inverse of what BrainGlobe returns on read.
     """
     points = np.array([[0.0, 0.0, 50.0], [50.0, 0.0, 50.0], [0.0, 50.0, 50.0]])
@@ -958,7 +958,7 @@ def child_obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def structure_list(obj_path: Path, child_obj_path: Path) -> list[dict]:
     """Flat BrainGlobe-style structures list: root(997) → child(10) → grandchild(20).
 
-    Root (997) and child (10) have mesh files (absolute paths, so `get_mesh` works
+    Root (997) and child (10) have mesh files (absolute paths, so `get_meshes` works
     without a BrainGlobe cache lookup); the grandchild (20) has none.
     """
     return [
@@ -1013,7 +1013,7 @@ def atlas_ds(structure_list: list[dict], mock_structures: StructuresDict) -> xr.
     """
     shape = (4, 6, 8)
     # 50 µm so the OBJ mesh (z up to 100 µm) stays inside the reference grid, which the
-    # nonlinear get_mesh tests require.
+    # nonlinear get_meshes tests require.
     resolution_mm = 0.05
 
     annotation_data = np.zeros(shape, dtype=np.int32)
