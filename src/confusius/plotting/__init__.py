@@ -4,6 +4,7 @@ __all__ = [
     "VolumePlotter",
     "draw_napari_labels",
     "labels_from_layer",
+    "plot_atlas_mesh",
     "plot_carpet",
     "plot_composite",
     "plot_contours",
@@ -13,6 +14,7 @@ __all__ = [
     "plot_motion_diagnostics",
     "plot_napari",
     "plot_stat_map",
+    "plot_surface",
     "plot_volume",
 ]
 
@@ -33,5 +35,7 @@ from confusius.plotting.motion import plot_motion_diagnostics
 from confusius.plotting.napari import (
     draw_napari_labels,
     labels_from_layer,
+    plot_atlas_mesh,
     plot_napari,
+    plot_surface,
 )

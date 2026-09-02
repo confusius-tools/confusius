@@ -203,12 +203,12 @@ dict_keys(['VISp', 'AUDp'])
 >>> vertices, faces = atlas.atlas.get_mesh("root")["root"]
 ```
 
-napari's `add_surface` takes exactly that pair:
+To display them, [`plot_atlas_mesh`][confusius.plotting.plot_atlas_mesh] (also reachable
+as `atlas.atlas.plot.mesh`) takes the same regions and draws them in napari, each in its
+own atlas color:
 
 ```python
-import napari
-
-napari.Viewer(ndisplay=3).add_surface(atlas.atlas.get_mesh("root")["root"])
+atlas.atlas.plot.mesh("root")
 ```
 
 ![Whole-brain surface mesh of the Allen mouse atlas in napari](../images/atlas/atlas-mesh-root.png)
