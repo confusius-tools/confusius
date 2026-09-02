@@ -530,6 +530,40 @@ class FUSIAffineAccessor:
             return self._obj
         return result
 
+    @property
+    def bounding_box(self) -> xr.DataArray:
+        """World-space bounding box of the wrapped VoxelData array.
+
+        Bounds are of voxel centers, without any half-voxel expansion or margin. See
+        [get_bounding_box][confusius.xarray.affine.get_bounding_box] for details.
+
+        Returns
+        -------
+        (2, 3) xarray.DataArray
+            Bounding box with dims `(bound, component)`, where `bound` is
+            `["min", "max"]` and `component` is `["z", "y", "x"]`, and a `units` attr
+            from the voxel-to-world index. Pose-dependent geometry adds a leading
+            `pose` dim carrying the input's `pose` coordinate, one bounding box per
+            pose.
+
+        Raises
+        ------
+        ValueError
+            If `self` is not a valid VoxelData array.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
+        >>> data.fusi.affine.bounding_box.sel(bound="max", component="x").item()
+        1.5
+        """
+        return get_bounding_box(self._obj)
+
     def to(self, other: xr.DataArray, via: str) -> "npt.NDArray[np.float64]":
         """Return the affine mapping `self`'s world space into `other`'s.
 

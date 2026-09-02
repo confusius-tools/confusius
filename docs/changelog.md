@@ -12,8 +12,10 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
-- New [`get_bounding_box`][confusius.xarray.get_bounding_box] returning a VoxelData
-  array's world-space bounding box, one per pose for pose-dependent geometry
+- New [`get_bounding_box`][confusius.xarray.get_bounding_box], also available as
+  [`data.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box],
+  returning a VoxelData array's world-space bounding box, one per pose for
+  pose-dependent geometry
   ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 
 ### :zap: Performance
