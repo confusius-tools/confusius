@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -16,6 +17,80 @@ from confusius.xarray import create_voxeldata
 if TYPE_CHECKING:
     from brainglobe_atlasapi import BrainGlobeAtlas
     from brainglobe_atlasapi.atlas_name import AtlasName
+
+
+def _fetch_all_meshes(atlas: BrainGlobeAtlas) -> None:
+    """Download every region mesh missing from the BrainGlobe cache in one batched call.
+
+    BrainGlobe fetches meshes lazily, one S3 round trip per region on first access.
+    Fetching them all up front in a single concurrent `s3fs` call is an order of
+    magnitude faster and leaves the meshes available offline.
+
+    Parameters
+    ----------
+    atlas : brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas
+        Loaded BrainGlobe atlas whose structures carry their `mesh_filename`.
+
+    Warns
+    -----
+    UserWarning
+        If the BrainGlobe S3 bucket is unreachable, or if some regions have no mesh on
+        the remote store. Either way the affected meshes are left to BrainGlobe's lazy
+        per-region download on first use.
+    """
+    missing = {
+        str(structure["id"]): Path(structure["mesh_filename"])
+        for structure in atlas.structures.values()
+        if structure.get("mesh_filename") is not None
+    }
+    missing = {rid: path for rid, path in missing.items() if not path.exists()}
+    if not missing:
+        return
+
+    import s3fs
+    from brainglobe_atlasapi.descriptors import V3_MESHES_DIRECTORY, remote_url_s3
+    from brainglobe_atlasapi.utils import check_s3_status
+    from fsspec.callbacks import TqdmCallback
+
+    if not check_s3_status(raise_error=False):
+        warnings.warn(
+            "BrainGlobe's S3 bucket is unreachable; region meshes will be downloaded "
+            "lazily on first use instead.",
+            stacklevel=2,
+        )
+        return
+
+    location = atlas.metadata["annotation_set"]["location"].strip("/")
+    remote_dir = remote_url_s3.format(f"{location}/{V3_MESHES_DIRECTORY}")
+    fs = s3fs.S3FileSystem(anon=True)
+    # One LIST call replaces BrainGlobe's per-mesh `fs.exists` and names the exact keys
+    # absent remotely: a batched `fs.get` only raises a bare "The specified key does
+    # not exist." with no path in it.
+    remote_names = {Path(key).name for key in fs.ls(remote_dir)}
+    absent = sorted(missing.keys() - remote_names, key=int)
+    if absent:
+        warnings.warn(
+            f"BrainGlobe provides no mesh for region id(s) {absent} of atlas "
+            f"'{atlas.atlas_name}'; requesting their mesh will fail.",
+            stacklevel=2,
+        )
+        missing = {rid: path for rid, path in missing.items() if rid in remote_names}
+        if not missing:
+            return
+
+    print(f"Downloading {atlas.atlas_name} atlas meshes:")
+    try:
+        fs.get(
+            [f"{remote_dir}/{rid}" for rid in missing],
+            [str(path) for path in missing.values()],
+            callback=TqdmCallback(),
+        )
+    except BaseException:
+        # Mirror BrainGlobe's `Structure._download_mesh`: never leave a partial mesh in
+        # the cache, since BrainGlobe treats any existing file as a valid mesh.
+        for path in missing.values():
+            path.unlink(missing_ok=True)
+        raise
 
 
 def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
@@ -77,6 +152,8 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
         },
     )
 
+    _fetch_all_meshes(atlas)
+
     return xr.Dataset(
         {
             "reference": reference,
@@ -107,6 +184,12 @@ def fetch_brainglobe_atlas(
     on first call, caching it in BrainGlobe's own atlas cache (shared with other
     BrainGlobe tools), then builds a self-describing atlas
     [`xarray.Dataset`][xarray.Dataset].
+
+    The first fetch of an atlas also downloads every region surface mesh, in one batched
+    call rather than BrainGlobe's one-at-a-time lazy download, so
+    [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] works offline afterwards. If
+    the BrainGlobe bucket is unreachable, meshes fall back to that lazy download on
+    first use.
 
     Parameters
     ----------

@@ -10,11 +10,22 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] /
+  [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] take `regions`/`sides` instead of
+  `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
+  requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
+  ([#448](https://github.com/confusius-tools/confusius/pull/448)).
+
 ### :sparkles: Enhancements
 
 - New [`get_bounding_box`][confusius.xarray.get_bounding_box] returning a VoxelData
   array's world-space bounding box, one per pose for pose-dependent geometry
   ([#446](https://github.com/confusius-tools/confusius/pull/446)).
+- [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] downloads every
+  region mesh in one batched call on the first fetch, so meshes are available offline
+  afterwards ([#448](https://github.com/confusius-tools/confusius/pull/448)).
 
 ### :zap: Performance
 

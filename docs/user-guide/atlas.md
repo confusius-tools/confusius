@@ -193,22 +193,31 @@ plotter.add_contours(atlas.atlas.annotation.sel(z=slice(6, 6)))
 ## Region Surface Meshes
 
 Many BrainGlobe atlases bundle a triangular surface mesh per region.
-[`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] returns the mesh as a `(vertices,
-faces)` pair in the atlas's world space (millimeters), ready to hand to any 3D viewer.
+[`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] takes one region or many and returns
+a `(vertices, faces)` pair per region, keyed by acronym, in the atlas's world space
+(millimeters) and ready to hand to any 3D viewer:
+
+```pycon
+>>> atlas.atlas.get_mesh(["VISp", "AUDp"]).keys()
+dict_keys(['VISp', 'AUDp'])
+>>> vertices, faces = atlas.atlas.get_mesh("root")["root"]
+```
+
 napari's `add_surface` takes exactly that pair:
 
 ```python
 import napari
 
-surface_data = atlas.atlas.get_mesh("root")
-napari.Viewer(ndisplay=3).add_surface(surface_data)
+napari.Viewer(ndisplay=3).add_surface(atlas.atlas.get_mesh("root")["root"])
 ```
 
 ![Whole-brain surface mesh of the Allen mouse atlas in napari](../images/atlas/atlas-mesh-root.png)
 
-Pass `side="left"` or `side="right"` to clip the mesh to one hemisphere. Because meshes
-come back in the atlas's current world space, they stay aligned with the volumes after
-a resample (see below).
+Pass `sides="left"` or `sides="right"` to clip to one hemisphere, or a list of sides to
+choose one per region; single-hemisphere meshes come back under `_L`/`_R`-suffixed keys.
+Because meshes come back in the atlas's current world space, they stay aligned with the
+volumes after a resample (see below). All region meshes are downloaded together the
+first time an atlas is fetched, so they are available offline afterwards.
 
 ## Masks for Regional Analysis
 
