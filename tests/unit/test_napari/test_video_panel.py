@@ -665,7 +665,7 @@ class TestPaddedDimsFollowReference:
     def test_roll_onto_singleton_k_keeps_video_invertible(
         self, viewer, monkeypatch, tmp_path
     ):
-        """Ctrl+E onto a singleton k axis must not give the video a zero scale.
+        """Rolling displayed dims onto a singleton k axis must not give the video a zero scale.
 
         Regression test: world coords are 3-D since the VoxelData model, so a
         median-of-diffs spacing on a constant z came out as 0 and napari raised
