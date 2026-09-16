@@ -28,6 +28,10 @@ Current development version for the next ConfUSIus release.
 - Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
   combo box or spin box the cursor happens to be over
   ([#431](https://github.com/confusius-tools/confusius/pull/431)).
+- Loading a video next to a single-slice recording no longer adds a spurious `z`
+  slider when the slice sits at a nonzero world position, and the video layer now
+  uses the same world axis labels as the recording
+  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
 
 ## 0.7.0
 

@@ -632,3 +632,42 @@ class TestTimeOverlayVideoSync:
         expected_time = float(viewer.dims.point[time_idx])
         expected_text = f"{expected_time:.2f} s"
         assert viewer.canvas.overlays.text.text == expected_text
+
+
+class TestPaddedDimsFollowReference:
+    def test_singleton_k_stays_single_step(self, viewer, monkeypatch, tmp_path):
+        """A single-slice scan whose z origin is nonzero must not grow a k slider.
+
+        Regression test: the video's padded k axis used to sit at world 0 with
+        step 1, so napari merged it with the fUSI slice at z=9 into a 23-step
+        slider.
+        """
+        from confusius.xarray import create_voxeldata
+
+        scan = create_voxeldata(
+            np.random.default_rng(0).random((5, 1, 6, 8)),
+            dims=("time", "k", "j", "i"),
+            dt=0.4,
+            spacing=(0.4, 0.1, 0.1),
+            origin=(9.0, 3.5, -7.0),
+        )
+        _, layer = plot_napari(
+            scan, viewer=viewer, show_colorbar=False, show_scale_bar=False
+        )
+        labels_before = viewer.dims.axis_labels
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.show_info",
+            lambda *_a, **_k: None,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.VideoReaderNP",
+            lambda *_a, **_k: _FakeVideo(n_frames=10, h=48, w=64, rgb=True),
+        )
+        video_path = tmp_path / "video.mp4"
+        video_path.touch()
+
+        VideoPanel(viewer)._add_video(video_path, layer)
+
+        k_idx = list(scan.dims).index("k")
+        assert viewer.dims.nsteps[k_idx] == 1
+        assert viewer.dims.axis_labels == labels_before

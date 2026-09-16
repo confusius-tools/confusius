@@ -482,7 +482,7 @@ class VideoPanel(QWidget):
         self._fusi_time_idx = (
             list(ref_xr.dims).index("time") if "time" in ref_xr.dims else 0
         )
-        self._axis_labels = tuple(ref_xr.dims)
+        self._axis_labels = tuple(ref_layer.axis_labels)
         self._units = list(getattr(ref_layer, "units", [None] * ref_layer.ndim))
 
     def _warn_if_irregular_reference(self, ref_layer) -> None:
@@ -651,10 +651,18 @@ class VideoPanel(QWidget):
             displayed_h, entry.video_w, spatial_scale
         )
 
+        # Padded (non-displayed, non-time) dims inherit the reference layer's
+        # geometry so a singleton slice at a nonzero world origin (e.g. a 2D scan
+        # at z=9 mm) does not merge with the video into a multi-step slider.
+        ref = self._ref_layer
         ndim = len(self._axis_labels)
-        scale = [1.0] * ndim
-        translate = [0.0] * ndim
+        scale = [float(s) for s in ref.scale] if ref is not None else [1.0] * ndim
+        translate = (
+            [float(t) for t in ref.translate] if ref is not None else [0.0] * ndim
+        )
         scale[self._fusi_time_idx] = time_scale
+        # Video frame 0 is the recording start, not the fUSI's first sample time.
+        translate[self._fusi_time_idx] = 0.0
         scale[displayed_v] = spatial_scale
         scale[displayed_h] = spatial_scale
         translate[displayed_v] = translate_v
@@ -841,14 +849,9 @@ class VideoPanel(QWidget):
         if coords.size > 1:
             y_step = float(np.median(np.diff(coords)))
         else:
-            dim_name = self._axis_labels[vertical_dim]
-            xr_da = self._ref_layer.metadata["xarray"]  # type: ignore
-            # A singleton axis has no diff to derive spacing from; `fusi.spacing`
-            # falls back to the affine column norm for that voxel dim in that case.
-            spacing = (
-                xr_da.fusi.spacing.get(dim_name) if dim_name in xr_da.dims else None
-            )
-            y_step = spacing if spacing is not None else 1.0
+            # A singleton axis has no diff to derive spacing from; the layer's
+            # scale already carries the affine spacing for that dim.
+            y_step = float(self._ref_layer.scale[vertical_dim])  # type: ignore
 
         fusi_extent = (y_max - y_min) + abs(y_step)
         return fusi_extent / video_h
