@@ -30,7 +30,8 @@ Current development version for the next ConfUSIus release.
   ([#431](https://github.com/confusius-tools/confusius/pull/431)).
 - Loading a video next to a single-slice recording no longer adds a spurious `z`
   slider when the slice sits at a nonzero world position, and the video layer now
-  uses the same world axis labels as the recording
+  uses the same world axis labels as the recording. Rolling the displayed axes
+  (Ctrl+E) onto a single-slice axis with a video loaded no longer crashes
   ([#452](https://github.com/confusius-tools/confusius/pull/452)).
 
 ## 0.7.0
