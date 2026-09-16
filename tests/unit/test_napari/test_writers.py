@@ -389,26 +389,19 @@ class TestDaFromNapariLayer:
         assert da["x"].attrs["units"] == "mm"
 
     def test_napari_generic_axis_labels_replaced_by_defaults(self) -> None:
-        """Napari's 'axis -N' labels are replaced with ConfUSIus default dim names."""
+        """Napari's generic default labels are replaced with ConfUSIus dim names."""
         from confusius._napari._io._writers import _convert_layer_to_voxeldata
 
         data = np.zeros((4, 6, 8))
-        da = _convert_layer_to_voxeldata(
-            data, {"axis_labels": ["axis -3", "axis -2", "axis -1"]}
-        )
+        da = _convert_layer_to_voxeldata(data, {"axis_labels": ["-3", "-2", "-1"]})
         assert list(da.dims) == ["k", "j", "i"]
+        assert da.shape == (4, 6, 8)
 
     def test_napari_pixel_units_treated_as_absent(self) -> None:
         """Pint pixel/dimensionless units from napari default to VoxelData units."""
+        import pint
 
         from confusius._napari._io._writers import _convert_layer_to_voxeldata
-
-        # Simulate pint Unit objects as napari passes them.
-        class _PixelUnit:
-            def __str__(self) -> str:
-                return "pixel"
-
-        pixel_unit = _PixelUnit()
 
         data = np.zeros((4,))
         da = _convert_layer_to_voxeldata(
@@ -417,11 +410,27 @@ class TestDaFromNapariLayer:
                 "axis_labels": ["z"],
                 "scale": [0.2],
                 "translate": [0.0],
-                "units": [pixel_unit],
+                "units": [pint.Unit("pixel")],
             },
         )
         assert list(da.dims) == ["k", "j", "i"]
         assert da["z"].attrs["units"] == "mm"
+
+    def test_pint_units_use_short_symbol(self) -> None:
+        """Pint units from napari layers are written in short form (`mm`)."""
+        import pint
+
+        from confusius._napari._io._writers import _convert_layer_to_voxeldata
+
+        da = _convert_layer_to_voxeldata(
+            np.zeros((4, 6, 8)),
+            {
+                "axis_labels": ["z", "y", "x"],
+                "units": [pint.Unit("millimeter")] * 3,
+            },
+        )
+        assert da["x"].attrs["units"] == "mm"
+        assert da.fusi.affine.units == "mm"
 
     def test_mismatched_voxel_axis_units_raise(self) -> None:
         """Voxel axes cannot declare different physical units."""

@@ -696,20 +696,25 @@ class SignalPanel(QWidget):
         self._cached_xaxis_dim_index = None
         self._apply_settings()
 
-    def _spatial_info(
-        self,
-    ) -> tuple[
-        tuple[int, ...] | None, tuple[float, ...] | None, tuple[float, ...] | None
-    ]:
-        """Return (shape, scale, translate) for the spatial axes of the first signal layer.
+    def _spatial_info(self) -> tuple[tuple[int, ...], dict[str, Any]] | None:
+        """Return the spatial shape and layer geometry of the first signal layer.
 
         Spatial axes are those named `z`, `y`, or `x` in the xarray metadata.
         This always covers the full spatial volume regardless of which dims are
         currently displayed or used as sliders.
 
-        All three values come from the *same* layer so they are guaranteed to
-        be consistent.  Returns `(None, None, None)` when no suitable layer
-        is found.
+        Returns
+        -------
+        shape : tuple[int, ...]
+            Spatial shape of the reference layer.
+        geometry : dict[str, Any]
+            `scale`, `translate`, `axis_labels`, and `units` restricted to the
+            spatial axes, ready to pass to a napari `add_*` method. All values come
+            from the *same* layer so they are guaranteed to be consistent, and
+            copying `units`/`axis_labels` keeps napari's world units consistent
+            across layers (otherwise it warns and stops rendering units).
+
+        Returns `None` when no suitable layer is found.
         """
         for layer in self._viewer.layers:
             if layer._type_string != "image":
@@ -723,63 +728,59 @@ class SignalPanel(QWidget):
                 ]
                 if not spatial_indices:
                     continue
-                shape = tuple(da.shape[i] for i in spatial_indices)
-                scale = tuple(float(layer.scale[i]) for i in spatial_indices)
-                translate = tuple(float(layer.translate[i]) for i in spatial_indices)
-                return shape, scale, translate
-            # Fallback: treat dim 0 as the signal axis for 4D+ layers without xarray.
-            if layer.data.ndim >= 4:
-                return (
-                    layer.data.shape[1:],
-                    tuple(float(s) for s in layer.scale[1:]),
-                    tuple(float(t) for t in layer.translate[1:]),
-                )
-        return None, None, None
+            elif layer.data.ndim >= 4:
+                # Fallback: treat dim 0 as the signal axis for 4D+ layers without
+                # xarray.
+                spatial_indices = list(range(1, layer.data.ndim))
+            else:
+                continue
+            shape = tuple(layer.data.shape[i] for i in spatial_indices)
+            geometry = {
+                "scale": tuple(float(layer.scale[i]) for i in spatial_indices),
+                "translate": tuple(float(layer.translate[i]) for i in spatial_indices),
+                "axis_labels": tuple(layer.axis_labels[i] for i in spatial_indices),
+                "units": tuple(layer.units[i] for i in spatial_indices),
+            }
+            return shape, geometry
+        return None
 
     def _create_points_layer(self) -> None:
         """Add a new 3D Points layer (no time axis) to the viewer.
 
-        The layer is initialised with no points and `out_of_slice_display` enabled so
-        that added points are always visible regardless of the current time step. Scale
-        and translate are copied from the reference image so the layer is aligned and
-        brush/point sizes match the data.
+        The layer is initialised with no points and a rescaling projection mode so
+        that points stay visible on neighbouring slices. Geometry is copied from the
+        reference image so the layer is aligned and brush/point sizes match the data.
         """
         import numpy as np
 
-        shape, scale, translate = self._spatial_info()
-        ndim = len(shape) if shape is not None else 3
-        kwargs: dict = {}
-        if scale is not None:
-            kwargs["scale"] = scale
+        info = self._spatial_info()
+        ndim = 3
+        kwargs: dict[str, Any] = {}
+        if info is not None:
+            shape, kwargs = info
+            ndim = len(shape)
             # napari's default point size is 10 world-units, which is enormous for
             # mm-scale data.
             kwargs["size"] = 2.0
-        if translate is not None:
-            kwargs["translate"] = translate
-        layer = self._viewer.add_points(  # type: ignore
+        self._viewer.add_points(  # type: ignore
             np.empty((0, ndim)),
             name="Points (3D)",
             ndim=ndim,
+            projection_mode="rescale_linear",
             **kwargs,
         )
-        layer.out_of_slice_display = True
 
     def _create_labels_layer(self) -> None:
         """Add a new 3D Labels layer (no time axis) to the viewer.
 
-        Shape, scale, and translate are derived from the first image layer with
-        xarray metadata so the labels are pixel-aligned with the image and the
-        paint brush maps to the correct voxel positions.
+        Shape and geometry are derived from the first image layer with xarray
+        metadata so the labels are pixel-aligned with the image and the paint brush
+        maps to the correct voxel positions.
         """
         import numpy as np
 
-        shape, scale, translate = self._spatial_info()
-        shape = shape or (64, 64, 64)
-        kwargs: dict = {}
-        if scale is not None:
-            kwargs["scale"] = scale
-        if translate is not None:
-            kwargs["translate"] = translate
+        info = self._spatial_info()
+        shape, kwargs = info if info is not None else ((64, 64, 64), {})
         self._viewer.add_labels(  # type: ignore
             np.zeros(shape, dtype=np.int32),
             name="Labels (3D)",
