@@ -366,6 +366,7 @@ glm = cf.glm.FirstLevelModel(
     drift_model="cosine",
     low_cutoff=0.01,
     noise_model="ar1",
+    show_progress=True
 )
 glm.fit(resampled_fusi_list, events=events, confounds=confounds)
 
