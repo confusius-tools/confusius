@@ -15,6 +15,7 @@ __all__ = [
     "apply_affine",
     "create_voxeldata",
     "db_scale",
+    "get_bounding_box",
     "get_relative_affine",
     "log_scale",
     "power_scale",
@@ -37,6 +38,7 @@ _ATTR_TO_MODULE = {
     "log_scale": "confusius.xarray.scale",
     "power_scale": "confusius.xarray.scale",
     "apply_affine": "confusius.xarray.affine",
+    "get_bounding_box": "confusius.xarray.affine",
     "get_relative_affine": "confusius.xarray.affine",
     "reindex_voxels": "confusius.xarray.affine",
     "reindex_voxels_like": "confusius.xarray.affine",
@@ -60,6 +62,7 @@ if TYPE_CHECKING:
     from confusius.xarray.affine import (
         FUSIAffineAccessor,
         apply_affine,
+        get_bounding_box,
         get_relative_affine,
         reindex_voxels,
         reindex_voxels_like,
