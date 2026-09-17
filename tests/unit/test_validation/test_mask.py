@@ -36,6 +36,41 @@ def test_coerces_integer_label_to_boolean(
     assert_array_equal(result.values.ravel(), mask.values.ravel() != 0)
 
 
+@pytest.mark.parametrize(
+    ("dtype", "non_zero_value"), [(np.int16, 5), (np.float64, 1.0), (np.float32, 3.5)]
+)
+def test_coerces_binary_numeric_mask_to_boolean(
+    sample_voxeldata_3dt, make_sample_voxeldata_mask, dtype, non_zero_value
+):
+    """A binary numeric mask {0, non_zero_value}, of any numeric dtype, becomes bool.
+
+    Covers masks produced by tools without a boolean dtype, e.g. FSL/NiBabel-written
+    NIfTI masks stored as float. See #382.
+    """
+    mask = make_sample_voxeldata_mask(dtype)
+    mask.values.flat[2:5] = non_zero_value
+
+    result = ensure_mask(mask, sample_voxeldata_3dt)
+
+    assert result.dtype == bool
+    assert_array_equal(result.values.ravel(), mask.values.ravel() != 0)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "values"),
+    [(np.int32, (1, 2)), (np.float64, (1.0, 2.5)), (np.float32, (float("nan"), 1.0))],
+)
+def test_rejects_mask_with_multiple_distinct_non_zero_values(
+    sample_voxeldata_3dt, make_sample_voxeldata_mask, dtype, values
+):
+    """A mask with more than one distinct non-zero value is rejected, any dtype."""
+    mask = make_sample_voxeldata_mask(dtype)
+    mask.values.flat[: len(values)] = values
+
+    with pytest.raises(TypeError, match="distinct non-zero"):
+        ensure_mask(mask, sample_voxeldata_3dt)
+
+
 def test_passes_boolean_through(sample_voxeldata_3dt, make_sample_voxeldata_mask):
     """A boolean mask is returned as boolean with its values unchanged."""
     mask = make_sample_voxeldata_mask()

@@ -54,16 +54,28 @@ def test_extract_with_mask_restores_scalar_voxel_dim(
     )
 
 
-def test_extract_with_mask_accepts_single_label_integer_mask(
-    sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
+@pytest.mark.parametrize(
+    ("dtype", "label_value"),
+    [(np.int32, 7), (np.int32, 256), (np.float64, 5.0), (np.float32, 1.0)],
+)
+def test_extract_with_mask_accepts_binary_numeric_mask(
+    sample_voxeldata_3dt: xr.DataArray,
+    make_sample_voxeldata_mask,
+    dtype: type[np.generic],
+    label_value: float,
 ) -> None:
-    """A single non-zero integer label has the same selection as a boolean mask."""
+    """A binary numeric mask (0 and one non-zero value) selects like a boolean mask.
+
+    Covers both a single-label integer mask (produced by
+    `AtlasAccessor.get_masks`) and a float binary mask (produced by tools such as
+    FSL/NiBabel that don't support a boolean NIfTI dtype), see #382.
+    """
     boolean_mask = make_sample_voxeldata_mask()
     boolean_mask.data[0, 1, 2] = True
-    integer_mask = boolean_mask.astype(np.int32) * 7
+    numeric_mask = boolean_mask.astype(dtype) * label_value
 
     expected = extract_with_mask(sample_voxeldata_3dt, boolean_mask)
-    result = extract_with_mask(sample_voxeldata_3dt, integer_mask)
+    result = extract_with_mask(sample_voxeldata_3dt, numeric_mask)
 
     xr.testing.assert_identical(result, expected)
 
@@ -71,18 +83,19 @@ def test_extract_with_mask_accepts_single_label_integer_mask(
 @pytest.mark.parametrize(
     ("dtype", "values", "message"),
     [
-        (float, (1.0,), "single-label integer dtype"),
         (np.int32, (1, 2), "2 distinct non-zero"),
+        (np.float64, (1.0, 2.0), "2 distinct non-zero"),
+        (str, ("a",), "binary numeric dtype"),
     ],
 )
 def test_extract_with_mask_rejects_invalid_mask_values(
     sample_voxeldata_3dt: xr.DataArray,
     make_sample_voxeldata_mask,
-    dtype: type[np.generic] | type[float],
+    dtype: type[np.generic] | type[float] | type[str],
     values: tuple[float, ...],
     message: str,
 ) -> None:
-    """Only boolean and single-label integer masks are accepted."""
+    """Only boolean and binary numeric masks are accepted."""
     mask = make_sample_voxeldata_mask(dtype)
     mask.data.flat[: len(values)] = values
 
@@ -158,11 +171,11 @@ def test_unmask_reconstructs_masked_fusi_grid(
 def test_unmask_rejects_invalid_mask_dtype(
     sample_voxeldata_3dt: xr.DataArray, make_sample_voxeldata_mask
 ) -> None:
-    """Reconstruction rejects masks that are neither boolean nor integer."""
-    mask = make_sample_voxeldata_mask(float)
-    mask.data[0, 1, 2] = 1.0
+    """Reconstruction rejects masks that are neither boolean nor binary numeric."""
+    mask = make_sample_voxeldata_mask(str)
+    mask.data[0, 1, 2] = "a"
 
-    with pytest.raises(TypeError, match="single-label integer dtype"):
+    with pytest.raises(TypeError, match="binary numeric dtype"):
         unmask(np.array([1.0]), mask)
 
 
