@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, NamedTuple, cast
 
 import napari
 import numpy as np
@@ -14,6 +15,7 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as Navigation
 from matplotlib.figure import Figure
 from napari.utils.colormaps import DirectLabelColormap
 from napari.utils.colormaps.standardize_color import transform_color
+from napari.utils.key_bindings import coerce_keybinding
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import QSize, QTimer, Signal
 from qtpy.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
@@ -27,9 +29,9 @@ from confusius._napari._export import (
     write_delimited_signals,
 )
 from confusius._napari._signals._store import (
-    ImportedSignal,
     LiveSignal,
     SignalStore,
+    StoredSignal,
 )
 from confusius._napari._theme import (
     create_export_button,
@@ -48,11 +50,36 @@ _LAYER_LINESTYLES = ["-", "--", "-.", ":"]
 """Line styles to cycle across reference layers for visual distinction when colors are the same."""
 
 
+class LivePlotSignal(NamedTuple):
+    """One currently plotted live signal, snapshotted for `_pin_current_signals`.
+
+    Attributes
+    ----------
+    origin : str
+        Identifier matching the source `LiveSignal.id`, used as the pinned
+        signal's `pin_origin` so re-pinning updates rather than duplicates.
+    name : str
+        Display name to pin.
+    x : numpy.ndarray
+        Time values.
+    y : numpy.ndarray
+        Signal values.
+    color : str
+        Hex color to pin.
+    """
+
+    origin: str
+    name: str
+    x: np.ndarray
+    y: np.ndarray
+    color: str
+
+
 class SignalPlotter(QWidget):
     """Bottom dock widget for live signals plotting.
 
     Supports three source modes: mouse hover (Shift + move), a Points layer, or a Labels
-    layer. Imported signals from a `SignalStore` are overlaid on every plot. The x-axis
+    layer. Stored signals from a `SignalStore` are overlaid on every plot. The x-axis
     dimension is resolved from xarray metadata when available, falling back to the first
     array dimension.
 
@@ -61,7 +88,7 @@ class SignalPlotter(QWidget):
     viewer : napari.Viewer
         The active napari viewer instance.
     store : SignalStore | None, optional
-        Shared store containing imported signals to overlay on the live plot.
+        Shared store containing stored signals to overlay on the live plot.
     event_store : EventStore | None, optional
         Shared store of temporal events whose intervals are shaded as background
         bands on the plot.
@@ -117,6 +144,11 @@ class SignalPlotter(QWidget):
         self._labels_layer = None
         self._ref_layers: list | None = None
 
+        # Currently plotted live signals, refreshed on every successful live plot
+        # update via _set_live_plot_signals. Consumed by _pin_current_signals to
+        # snapshot them into the store.
+        self._live_plot_signals: list[LivePlotSignal] = []
+
         # Debounce timer for labels data changes (painting is fast, replot is slow).
         self._labels_debounce = QTimer(self)
         self._labels_debounce.setSingleShot(True)
@@ -131,7 +163,7 @@ class SignalPlotter(QWidget):
         self._export_signals: list[ExportSignal] = []
         self._mouse_plot_dirty: bool = True
         self._mouse_live_line = None
-        self._mouse_imported_signature: tuple[str, ...] = ()
+        self._mouse_stored_signature: tuple[str, ...] = ()
         self._mouse_legend_signature: tuple[str, ...] = ()
         # Guard flag to prevent infinite color sync loops.
         self._syncing_color: bool = False
@@ -148,6 +180,23 @@ class SignalPlotter(QWidget):
         self._cursor_timer.setInterval(16)  # ms → ~60 fps
         self._cursor_timer.timeout.connect(self._flush_cursor)
 
+        # Throttle mouse-source updates to ~60 fps, leading-edge: process
+        # immediately when the last update was long enough ago (the common case,
+        # zero added latency), and otherwise schedule a single trailing update so
+        # the final cursor position still gets rendered once a fast burst of
+        # events (which would otherwise pile up faster than a redraw completes)
+        # subsides, rather than queuing every intermediate position.
+        self._mouse_update_min_interval_s = 1 / 60
+        self._last_mouse_update_time: float = 0.0
+        self._mouse_update_timer = QTimer(self)
+        self._mouse_update_timer.setSingleShot(True)
+        self._mouse_update_timer.timeout.connect(self._flush_mouse_update)
+
+        # Previous keymap handler displaced by binding Shift, restored once Shift is
+        # unbound (leaving mouse source mode, or on close).
+        self._displaced_shift_key = None
+        self._shift_bound: bool = False
+
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
@@ -159,11 +208,11 @@ class SignalPlotter(QWidget):
             self._signals_store.plot_data_changed.connect(self._on_plot_data_changed)
             self._signals_store.changed.connect(self._refresh_plot)
             self._signals_store.changed.connect(self._sync_live_colors_to_layers)
-            # If there are already imported signals, plot them instead of showing
+            # If there are already stored signals, plot them instead of showing
             # instructions.
-            imported = self._signals_store.imported_signals()
-            if imported and self._render_imported_only():
-                pass  # Successfully plotted imported signal.
+            stored = self._signals_store.stored_signals()
+            if stored and self._render_stored_only():
+                pass  # Successfully plotted stored signal.
             else:
                 self._show_instructions()
         else:
@@ -201,6 +250,16 @@ class SignalPlotter(QWidget):
         )
         self._export_button.setEnabled(False)
         self._toolbar.addWidget(self._export_button)
+        self._pin_button = create_export_button(
+            self._toolbar,
+            "signalPinButton",
+            self._pin_current_signals,
+            text="Pin",
+            tooltip="Pin the currently plotted live signal(s) so they persist across "
+            "source-mode switches, as Stored signals.",
+        )
+        self._pin_button.setEnabled(False)
+        self._toolbar.addWidget(self._pin_button)
         layout.addWidget(self._toolbar)
         layout.addWidget(self._canvas)
 
@@ -216,6 +275,70 @@ class SignalPlotter(QWidget):
         self._viewer.layers.events.inserted.connect(self._on_layer_change)
         self._viewer.layers.events.removed.connect(self._on_layer_change)
         self._viewer.layers.selection.events.active.connect(self._on_layer_change)
+        if self._source_mode == "mouse":
+            self._bind_shift_key()
+
+    def _bind_shift_key(self) -> None:
+        """Bind Shift in the napari keymap to plot the signal at the resting cursor.
+
+        Lets the user press Shift while the cursor is already stationary over an
+        image layer, instead of requiring mouse movement while Shift is held. Any
+        handler already bound to Shift is saved first so it can be restored once
+        Shift is unbound. Idempotent, and scoped to mouse source mode by
+        `set_source_mode` (rather than held for the plotter's whole lifetime) so
+        another binding on bare Shift is only displaced while actually in mouse mode.
+        """
+        if self._shift_bound:
+            return
+        keybinding = coerce_keybinding("Shift")
+        self._displaced_shift_key = self._viewer.keymap.get(keybinding)
+        self._viewer.bind_key("Shift", self._on_shift_pressed, overwrite=True)
+        self._shift_bound = True
+
+    def _unbind_shift_key(self) -> None:
+        """Restore the keymap entry displaced by `_bind_shift_key`. Idempotent."""
+        if not self._shift_bound:
+            return
+        keybinding = coerce_keybinding("Shift")
+        if self._displaced_shift_key is not None:
+            self._viewer.keymap[keybinding] = self._displaced_shift_key
+        else:
+            self._viewer.keymap.pop(keybinding, None)
+        self._displaced_shift_key = None
+        self._shift_bound = False
+
+    def _on_shift_pressed(self, viewer: napari.Viewer) -> None:
+        """Plot the signal at the current cursor position when Shift is pressed."""
+        if self._source_mode != "mouse":
+            return
+        layer = self._active_layer()
+        if layer is None:
+            return
+        self._current_layer = layer
+        self._cursor_pos = np.array(viewer.cursor.position)
+        self._schedule_mouse_update()
+
+    def _schedule_mouse_update(self) -> None:
+        """Throttle mouse-source plot updates to ~60 updates per second.
+
+        Leading-edge: updates immediately if the minimum interval has already
+        elapsed, otherwise schedules exactly one trailing update for when it
+        will have elapsed, so a fast burst of events collapses to at most one
+        pending update instead of one call per event.
+        """
+        now = time.monotonic()
+        elapsed = now - self._last_mouse_update_time
+        if elapsed >= self._mouse_update_min_interval_s:
+            self._last_mouse_update_time = now
+            self._update_plot()
+        elif not self._mouse_update_timer.isActive():
+            remaining_ms = round((self._mouse_update_min_interval_s - elapsed) * 1000)
+            self._mouse_update_timer.start(max(remaining_ms, 0))
+
+    def _flush_mouse_update(self) -> None:
+        """Run the trailing update scheduled by `_schedule_mouse_update`."""
+        self._last_mouse_update_time = time.monotonic()
+        self._update_plot()
 
     def _get_colors(self) -> dict:
         """Get current theme colors."""
@@ -231,6 +354,7 @@ class SignalPlotter(QWidget):
 
         style_plot_toolbar(self._toolbar, colors)
         style_export_button(self._export_button, colors)
+        style_export_button(self._pin_button, colors, icon_name="pin")
 
         for spine in self._axes.spines.values():
             spine.set_edgecolor(colors["fg"])
@@ -469,7 +593,7 @@ class SignalPlotter(QWidget):
         self._current_layer = layer
         # Store raw cursor position, rounding happens during data extraction.
         self._cursor_pos = np.array(viewer.cursor.position)
-        self._update_plot()
+        self._schedule_mouse_update()
 
     def _on_layer_change(self, event) -> None:
         """Handle layer insertion/removal or active-layer change events.
@@ -510,7 +634,7 @@ class SignalPlotter(QWidget):
     def _invalidate_mouse_cache(self) -> None:
         """Reset all mouse-plot cache state, forcing a full redraw on the next update."""
         self._mouse_live_line = None
-        self._mouse_imported_signature = ()
+        self._mouse_stored_signature = ()
         self._mouse_legend_signature = ()
         self._mouse_plot_dirty = True
 
@@ -518,6 +642,7 @@ class SignalPlotter(QWidget):
         """Show a centered message in the plot area with no axes or data."""
         self._clear_export_signals()
         self._invalidate_mouse_cache()
+        self._set_live_plot_signals([])
         self._axes.clear()
         colors = self._get_colors()
         self._axes.text(
@@ -565,7 +690,7 @@ class SignalPlotter(QWidget):
             self._update_plot()
 
     def _on_plot_data_changed(self) -> None:
-        """Reset auto x-range when plotted imported signal membership changes."""
+        """Reset auto x-range when plotted stored signal membership changes."""
         self._has_plot = False
         self._prev_ts_valid = False
         self._mouse_plot_dirty = True
@@ -573,7 +698,7 @@ class SignalPlotter(QWidget):
     def _update_plot(self) -> None:
         """Update the signals plot with current data."""
         if self._current_layer is None or self._cursor_pos is None:
-            self._render_imported_only()
+            self._render_stored_only()
             return
 
         # Preserve zoom state across voxel changes. X limits are always
@@ -628,8 +753,8 @@ class SignalPlotter(QWidget):
                 else None
             )
             if mouse_signal is not None and not mouse_signal.visible:
-                # Mouse signal hidden: only show imported.
-                self._render_imported_only(saved_xlim=saved_xlim, saved_ylim=saved_ylim)
+                # Mouse signal hidden: only show stored.
+                self._render_stored_only(saved_xlim=saved_xlim, saved_ylim=saved_ylim)
                 return
 
             live_label = (
@@ -641,7 +766,21 @@ class SignalPlotter(QWidget):
                 mouse_signal.color if mouse_signal is not None else colors["accent"]
             )
 
-            imported_signals = self._imported_plot_signals()
+            self._set_live_plot_signals(
+                [
+                    LivePlotSignal(
+                        origin=self._mouse_origin_key(
+                            self._current_layer, self._cursor_pos
+                        ),
+                        name=live_label,
+                        x=np.asarray(x_values),
+                        y=np.asarray(ts),
+                        color=live_color,
+                    )
+                ]
+            )
+
+            stored_signals = self._stored_plot_signals()
             coord_str = self._mouse_coord_string()
             title = f"{self._current_layer.name} — ({coord_str})"
 
@@ -654,7 +793,7 @@ class SignalPlotter(QWidget):
                 title=title,
                 saved_xlim=saved_xlim,
                 saved_ylim=saved_ylim,
-                imported_signals=imported_signals,
+                stored_signals=stored_signals,
                 colors=colors,
             ):
                 return
@@ -670,12 +809,12 @@ class SignalPlotter(QWidget):
             )
 
             self._mouse_live_line = self._axes.lines[-1]
-            self._plot_signal_lines(imported_signals, linewidth=1.4, alpha=0.95)
-            self._mouse_imported_signature = self._imported_signature(imported_signals)
-            export_imported = self._plot_signal_to_export(imported_signals)
+            self._plot_signal_lines(stored_signals, linewidth=1.4, alpha=0.95)
+            self._mouse_stored_signature = self._stored_signature(stored_signals)
+            export_stored = self._plot_signal_to_export(stored_signals)
             self._set_export_signals(
                 [ExportSignal(live_label, np.asarray(x_values), np.asarray(ts))]
-                + export_imported
+                + export_stored
             )
 
         if ts is not None:
@@ -692,10 +831,10 @@ class SignalPlotter(QWidget):
             self._prev_ts_valid = True
             self._mouse_plot_dirty = False
             self._mouse_legend_signature = self._legend_signature(
-                live_label, imported_signals
+                live_label, stored_signals
             )
         else:
-            if self._render_imported_only(saved_xlim=saved_xlim, saved_ylim=saved_ylim):
+            if self._render_stored_only(saved_xlim=saved_xlim, saved_ylim=saved_ylim):
                 return
             self._clear_export_signals()
             self._prev_ts_valid = False
@@ -859,6 +998,40 @@ class SignalPlotter(QWidget):
 
         return data[tuple(ind)]
 
+    def _mouse_origin_key(self, layer, cursor_pos: np.ndarray) -> str:
+        """Return a pin origin key identifying the voxel at the cursor.
+
+        Distinct per voxel (unlike the mouse `LiveSignal.id`, which is the fixed
+        `"mouse-0"`), so pinning two different voxels creates two separate stored
+        signals — only re-pinning the exact same voxel updates it in place (see
+        [SignalStore.pin_signal][confusius._napari._signals._store.SignalStore.pin_signal]).
+        """
+        indices = [round(x) for x in layer.world_to_data(cursor_pos)]
+        xaxis_index = self._xaxis_dim_index(layer)
+        spatial = [v for i, v in enumerate(indices) if i != xaxis_index]
+        return "mouse-" + "-".join(str(v) for v in spatial)
+
+    def _set_live_plot_signals(self, signals: list[LivePlotSignal]) -> None:
+        """Update the currently-pinnable live signals and the Pin button state."""
+        self._live_plot_signals = signals
+        self._pin_button.setEnabled(bool(signals))
+
+    def _pin_current_signals(self) -> None:
+        """Pin every currently plotted live signal into the store as stored signals."""
+        if self._signals_store is None or not self._live_plot_signals:
+            return
+        for signal in self._live_plot_signals:
+            self._signals_store.pin_signal(
+                origin=signal.origin,
+                # Distinct from the live signal's name so the two are never
+                # visually indistinguishable duplicates in the legend/manager.
+                name=f"{signal.name} (pinned)",
+                x=signal.x,
+                y=signal.y,
+                color=signal.color,
+                source_label=f"Pinned from {self._source_mode}",
+            )
+
     # ------------------------------------------------------------------
     # Source mode — public setters
     # ------------------------------------------------------------------
@@ -874,17 +1047,20 @@ class SignalPlotter(QWidget):
         self._source_mode = mode
         self._invalidate_mouse_cache()
         if mode == "mouse":
+            self._bind_shift_key()
             self._register_mouse_live_signal()
             # Invalidate the saved zoom state so the first mouse-hover plot does not
             # restore the [0, 1] xlim left by the cleared axes.
             self._has_plot = False
             self._prev_ts_valid = False
-            # Only show instructions if there are no imported signal to display.
-            if not self._render_imported_only():
+            # Only show instructions if there are no stored signal to display.
+            if not self._render_stored_only():
                 self._show_instructions()
         elif mode == "points":
+            self._unbind_shift_key()
             self._update_plot_from_points()
         else:
+            self._unbind_shift_key()
             self._update_plot_from_labels()
 
     def set_points_layer(self, layer) -> None:
@@ -1262,11 +1438,11 @@ class SignalPlotter(QWidget):
         """Clear the currently exported signal."""
         self._set_export_signals([])
 
-    def _visible_imported_signals(self) -> list[ImportedSignal]:
-        """Return visible imported signals from the shared store."""
+    def _visible_stored_signals(self) -> list[StoredSignal]:
+        """Return visible stored signals from the shared store."""
         if self._signals_store is None:
             return []
-        return self._signals_store.visible_imported_signals()
+        return self._signals_store.visible_stored_signals()
 
     def _mouse_coord_string(self) -> str:
         """Return the current mouse coordinates formatted for the plot title.
@@ -1315,10 +1491,10 @@ class SignalPlotter(QWidget):
 
         return ", ".join(coord_parts)
 
-    def _imported_plot_signals(self) -> list[PlotSignal]:
-        """Return imported signals prepared for plotting and export."""
+    def _stored_plot_signals(self) -> list[PlotSignal]:
+        """Return stored signals prepared for plotting and export."""
         plotted = []
-        for signals in self._visible_imported_signals():
+        for signals in self._visible_stored_signals():
             x_values = np.asarray(signals.x).copy()
             y_values = np.asarray(signals.y, dtype=float).copy()
             if self._zscore:
@@ -1353,15 +1529,15 @@ class SignalPlotter(QWidget):
                     label=s.label,
                 )
 
-    def _imported_signature(self, signals: list[PlotSignal]) -> tuple[str, ...]:
-        """Return a lightweight signature for imported signals already on the axes."""
+    def _stored_signature(self, signals: list[PlotSignal]) -> tuple[str, ...]:
+        """Return a lightweight signature for stored signals already on the axes."""
         return tuple(s.label for s in signals)
 
     def _legend_signature(
-        self, live_label: str, imported_signals: list[PlotSignal]
+        self, live_label: str, stored_signals: list[PlotSignal]
     ) -> tuple[str, ...]:
         """Return the legend content signature for the current mouse plot."""
-        return (live_label, *self._imported_signature(imported_signals))
+        return (live_label, *self._stored_signature(stored_signals))
 
     @staticmethod
     def _plot_signal_to_export(signals: list[PlotSignal]) -> list[ExportSignal]:
@@ -1379,6 +1555,26 @@ class SignalPlotter(QWidget):
         """
         return [ExportSignal(s.label, s.x_values, s.y_values) for s in signals]
 
+    def _set_ylim_from_data(
+        self, ts: np.ndarray, stored_signals: list[PlotSignal]
+    ) -> None:
+        """Autoscale the y-axis from already-extracted arrays.
+
+        Used by the mouse fast path instead of matplotlib's `relim()`/
+        `autoscale_view()`, which re-derive the data extent from every plotted
+        `Line2D` artist on every call — redundant work here since we already hold
+        the live and stored arrays as numpy arrays. Matches matplotlib's default
+        5% autoscale margin.
+        """
+        arrays = [ts, *(s.y_values for s in stored_signals)]
+        y = np.concatenate(arrays) if len(arrays) > 1 else arrays[0]
+        finite = y[np.isfinite(y)]
+        if finite.size == 0:
+            return
+        ymin, ymax = float(finite.min()), float(finite.max())
+        margin = (ymax - ymin) * 0.05 or (abs(ymin) * 0.05 or 0.5)
+        self._axes.set_ylim(ymin - margin, ymax + margin)
+
     def _try_fast_mouse_update(
         self,
         *,
@@ -1390,13 +1586,13 @@ class SignalPlotter(QWidget):
         title: str,
         saved_xlim,
         saved_ylim,
-        imported_signals: list[PlotSignal],
+        stored_signals: list[PlotSignal],
         colors: dict,
     ) -> bool:
-        """Update the mouse plot without rebuilding imported overlay lines."""
+        """Update the mouse plot without rebuilding stored overlay lines."""
         if self._mouse_plot_dirty or self._mouse_live_line is None:
             return False
-        if self._mouse_imported_signature != self._imported_signature(imported_signals):
+        if self._mouse_stored_signature != self._stored_signature(stored_signals):
             return False
 
         self._mouse_live_line.set_data(x_values, ts)
@@ -1404,7 +1600,7 @@ class SignalPlotter(QWidget):
         self._mouse_live_line.set_color(live_color)
         self._set_export_signals(
             [ExportSignal(live_label, x_values, ts)]
-            + self._plot_signal_to_export(imported_signals)
+            + self._plot_signal_to_export(stored_signals)
         )
 
         self._axes.set_xlabel(xlabel, color=colors["fg"], fontsize=9)
@@ -1417,12 +1613,11 @@ class SignalPlotter(QWidget):
         if self._show_grid:
             self._axes.grid(True, alpha=0.3, color=colors["fg"])
 
-        self._update_legend_if_needed(colors, live_label, imported_signals)
+        self._update_legend_if_needed(colors, live_label, stored_signals)
 
-        self._axes.relim()
         self._restore_view(saved_xlim, saved_ylim)
         if self._autoscale:
-            self._axes.autoscale_view(scalex=False, scaley=True)
+            self._set_ylim_from_data(ts, stored_signals)
 
         self._has_plot = True
         self._prev_ts_valid = True
@@ -1433,10 +1628,10 @@ class SignalPlotter(QWidget):
         return True
 
     def _update_legend_if_needed(
-        self, colors: dict, live_label: str, imported_signals: list[PlotSignal]
+        self, colors: dict, live_label: str, stored_signals: list[PlotSignal]
     ) -> None:
         """Update the legend only when its entries actually changed."""
-        signature = self._legend_signature(live_label, imported_signals)
+        signature = self._legend_signature(live_label, stored_signals)
         if signature == self._mouse_legend_signature:
             return
 
@@ -1454,24 +1649,25 @@ class SignalPlotter(QWidget):
             )
         self._mouse_legend_signature = signature
 
-    def _render_imported_only(self, saved_xlim=None, saved_ylim=None) -> bool:
-        """Render only imported signals when no live data can be drawn."""
-        imported_signals = self._imported_plot_signals()
-        if not imported_signals:
+    def _render_stored_only(self, saved_xlim=None, saved_ylim=None) -> bool:
+        """Render only stored signals when no live data can be drawn."""
+        self._set_live_plot_signals([])
+        stored_signals = self._stored_plot_signals()
+        if not stored_signals:
             return False
 
         colors = self._get_colors()
         self._axes.clear()
-        self._plot_signal_lines(imported_signals, linewidth=1.4, alpha=0.95)
-        self._set_export_signals(self._plot_signal_to_export(imported_signals))
+        self._plot_signal_lines(stored_signals, linewidth=1.4, alpha=0.95)
+        self._set_export_signals(self._plot_signal_to_export(stored_signals))
         self._mouse_live_line = None
-        self._mouse_imported_signature = self._imported_signature(imported_signals)
-        self._mouse_legend_signature = self._imported_signature(imported_signals)
+        self._mouse_stored_signature = self._stored_signature(stored_signals)
+        self._mouse_legend_signature = self._stored_signature(stored_signals)
         self._mouse_plot_dirty = True
         self._xaxis_coords = None
-        # Label from the active layer when one is present so the imported-only
+        # Label from the active layer when one is present so the stored-only
         # view stays consistent with the live plot; fall back to "Time" for
-        # standalone imported signals (typically a CSV time column).
+        # standalone stored signals (typically a CSV time column).
         xlabel = (
             self._get_xaxis_label(self._current_layer)
             if self._current_layer is not None
@@ -1481,8 +1677,10 @@ class SignalPlotter(QWidget):
             colors,
             xlabel,
             "Z-score" if self._zscore else "Value",
-            "Imported Signals",
-            with_legend=len(imported_signals) > 1,
+            "Stored Signals",
+            # Unlike the mouse-hover title (which already names the voxel), this
+            # generic title doesn't identify a lone line, so always show the legend.
+            with_legend=bool(stored_signals),
         )
         self._restore_view(saved_xlim, saved_ylim)
         self._has_plot = True
@@ -1491,15 +1689,15 @@ class SignalPlotter(QWidget):
         self._canvas.draw_idle()
         return True
 
-    def _show_message_or_imported(
+    def _show_message_or_stored(
         self,
         text: str,
         *,
         saved_xlim=None,
         saved_ylim=None,
     ) -> None:
-        """Show a message when no imported signals are visible, else plot imports only."""
-        if self._render_imported_only(saved_xlim=saved_xlim, saved_ylim=saved_ylim):
+        """Show a message when no stored signals are visible, else plot stored signals only."""
+        if self._render_stored_only(saved_xlim=saved_xlim, saved_ylim=saved_ylim):
             return
         self._show_message(text)
 
@@ -1657,7 +1855,7 @@ class SignalPlotter(QWidget):
             The reference image layers, or `None` if validation failed.
         """
         if source_layer is None:
-            self._show_message_or_imported(
+            self._show_message_or_stored(
                 f"No {source_name} layer selected.\n"
                 "Choose one in the Source section of the panel.",
                 saved_xlim=saved_xlim,
@@ -1666,7 +1864,7 @@ class SignalPlotter(QWidget):
             return None
         ref_layers = self._get_ref_image_layers()
         if not ref_layers:
-            self._show_message_or_imported(
+            self._show_message_or_stored(
                 "No reference image layer found.\nLoad a 4-D image layer first.",
                 saved_xlim=saved_xlim,
                 saved_ylim=saved_ylim,
@@ -1704,7 +1902,7 @@ class SignalPlotter(QWidget):
         saved_xlim,
         saved_ylim,
     ) -> None:
-        """Overlay imported signals, style the axes, and redraw after a multi-signals plot.
+        """Overlay stored signals, style the axes, and redraw after a multi-signals plot.
 
         Shared by `_update_plot_from_points` and `_update_plot_from_labels` once their
         per-signal loops have completed successfully.
@@ -1724,10 +1922,10 @@ class SignalPlotter(QWidget):
         saved_ylim : tuple or None
             Saved y-axis limits to restore.
         """
-        imported_signals = self._imported_plot_signals()
-        self._plot_signal_lines(imported_signals, linewidth=1.4, alpha=0.95)
+        stored_signals = self._stored_plot_signals()
+        self._plot_signal_lines(stored_signals, linewidth=1.4, alpha=0.95)
         self._set_export_signals(
-            export_signals + self._plot_signal_to_export(imported_signals)
+            export_signals + self._plot_signal_to_export(stored_signals)
         )
         xlabel = self._get_xaxis_label(ref_layers[0])
         ylabel = "Z-score" if self._zscore else "Intensity"
@@ -1764,7 +1962,7 @@ class SignalPlotter(QWidget):
 
             n_points = len(points_layer.data)
             if n_points == 0:
-                self._show_message_or_imported(
+                self._show_message_or_stored(
                     "The selected Points layer is empty.",
                     saved_xlim=saved_xlim,
                     saved_ylim=saved_ylim,
@@ -1781,6 +1979,7 @@ class SignalPlotter(QWidget):
             self._axes.clear()
             has_any = False
             export_signals: list[ExportSignal] = []
+            live_plot_signals: list[LivePlotSignal] = []
 
             for point_index in range(n_points):
                 # Check store for visibility/name/color overrides.
@@ -1854,7 +2053,24 @@ class SignalPlotter(QWidget):
                     # Keep x-axis coords from the last successful layer for cursor mapping.
                     self._xaxis_coords = xaxis_coords
                     self._current_layer = img_layer
+                    # Keep the last successful layer's data for pinning too, matching
+                    # the cursor-mapping choice above.
+                    live_plot_signals = [
+                        s
+                        for s in live_plot_signals
+                        if s.origin != f"point-{point_index}"
+                    ]
+                    live_plot_signals.append(
+                        LivePlotSignal(
+                            origin=f"point-{point_index}",
+                            name=pt_name,
+                            x=np.asarray(x),
+                            y=ts,
+                            color=pt_color,
+                        )
+                    )
 
+            self._set_live_plot_signals(live_plot_signals)
             if has_any:
                 self._finalize_multi_signals_plot(
                     export_signals,
@@ -1865,7 +2081,7 @@ class SignalPlotter(QWidget):
                     saved_ylim,
                 )
             else:
-                self._show_message_or_imported(
+                self._show_message_or_stored(
                     "No valid data at the point positions.\n",
                     saved_xlim=saved_xlim,
                     saved_ylim=saved_ylim,
@@ -1901,6 +2117,7 @@ class SignalPlotter(QWidget):
             has_any = False
             shape_mismatch = False
             export_signals: list[ExportSignal] = []
+            live_plot_signals: list[LivePlotSignal] = []
             # Collect all unique labels across layers for registration.
             all_unique_labels: set[int] = set()
 
@@ -1977,6 +2194,20 @@ class SignalPlotter(QWidget):
                         ExportSignal(label, np.asarray(x), np.asarray(ts))
                     )
                     has_any = True
+                    # Keep the last successful layer's data for pinning, matching the
+                    # cursor-mapping choice below.
+                    live_plot_signals = [
+                        s for s in live_plot_signals if s.origin != f"label-{lid_int}"
+                    ]
+                    live_plot_signals.append(
+                        LivePlotSignal(
+                            origin=f"label-{lid_int}",
+                            name=base_name,
+                            x=np.asarray(x),
+                            y=ts,
+                            color=lid_color,
+                        )
+                    )
 
                 # Keep time coords from the last successful layer for cursor mapping.
                 self._xaxis_coords = xaxis_coords
@@ -1986,6 +2217,7 @@ class SignalPlotter(QWidget):
             if all_unique_labels:
                 self._register_labels_live_signals(np.array(sorted(all_unique_labels)))
 
+            self._set_live_plot_signals(live_plot_signals)
             if has_any:
                 self._finalize_multi_signals_plot(
                     export_signals,
@@ -1996,14 +2228,14 @@ class SignalPlotter(QWidget):
                     saved_ylim,
                 )
             elif shape_mismatch:
-                self._show_message_or_imported(
+                self._show_message_or_stored(
                     "Spatial shape of the Labels layer does not match\n"
                     "the reference image. Make sure they share the same grid.",
                     saved_xlim=saved_xlim,
                     saved_ylim=saved_ylim,
                 )
             else:
-                self._show_message_or_imported(
+                self._show_message_or_stored(
                     "No valid data extracted from the Labels layer.",
                     saved_xlim=saved_xlim,
                     saved_ylim=saved_ylim,
@@ -2021,6 +2253,7 @@ class SignalPlotter(QWidget):
         """
         if self._on_mouse_move in self._viewer.mouse_move_callbacks:
             self._viewer.mouse_move_callbacks.remove(self._on_mouse_move)
+        self._unbind_shift_key()
         if self._signals_store is not None:
             try:
                 self._signals_store.plot_data_changed.disconnect(

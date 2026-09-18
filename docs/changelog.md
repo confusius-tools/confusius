@@ -10,6 +10,24 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :frame_photo: Napari plugin
+
+- The signal plotter's mouse source now updates when Shift is pressed while the
+  cursor is already resting on a voxel, not only while moving; a live signal
+  (mouse voxel, a point, or a label region) can now be pinned so it persists
+  across source-mode switches instead of being dropped, reusable wherever stored
+  signals are — imported and pinned signals now share one concept
+  (`StoredSignal`) throughout the signal store, plotter, and manager
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+- Mouse-driven signal plotting no longer lags or jitters on large recordings —
+  updates are now throttled to the display refresh rate instead of running
+  unbounded on every raw mouse-move event
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+- A DVARS trace computed in the Quality Control panel is now added to the
+  shared signal store, making it selectable elsewhere in the plugin without
+  first exporting and re-importing it
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+
 ## 0.7.1
 
 Released 2026-09-16.
