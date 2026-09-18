@@ -436,10 +436,9 @@ array([[ 0., -1.,  0.,  0.],
 
 Applying `world_to_qform` absorbs the rotation into the DataArray's voxel-to-world
 affine, and the derived `z`/`y` coordinates change accordingly. The `qform` space
-becomes the new world space, and `"world_to_qform"` is dropped from the result:
-applying a stored affine by its own key re-anchors the world space to exactly that
-space, so the entry would carry no information any more. The `sform` entry, identity
-before, now holds the inverse rotation, so the `sform` space stays recoverable.
+becomes the new world space, so `"world_to_qform"` is now the identity. The `sform`
+entry, identity before, now holds the inverse rotation, so the `sform` space stays
+recoverable. Applying an affine never removes entries from `.attrs["affines"]`.
 
 ```pycon
 >>> da_q = da.fusi.affine.apply("world_to_qform")
@@ -452,7 +451,10 @@ array([-1., -1., -1., -1.,  0.,  0.,  0.,  0.,  1.,  1.,  1.,  1.])
 {'world_to_sform': array([[ 0.,  1.,  0.,  0.],
        [-1.,  0.,  0.,  0.],
        [ 0.,  0.,  1.,  0.],
-       [ 0.,  0.,  0.,  1.]])}
+       [ 0.,  0.,  0.,  1.]]), 'world_to_qform': array([[1., 0., 0., 0.],
+       [0., 1., 0., 0.],
+       [0., 0., 1., 0.],
+       [0., 0., 0., 1.]])}
 ```
 
 See [Affine Transforms](xarray.md#affine-transforms) in Working with Xarray for
