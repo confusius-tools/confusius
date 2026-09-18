@@ -20,7 +20,8 @@ Current development version for the next ConfUSIus release.
 ### :bug: Fixes
 
 - [`apply_affine`][confusius.xarray.apply_affine] keeps the applied key in
-  `.attrs["affines"]` as the identity when the affine is given by key.
+  `.attrs["affines"]` as the identity when the affine is given by key
+  ([#463](https://github.com/confusius-tools/confusius/pull/463)).
 
 ### :books: Documentation
 
