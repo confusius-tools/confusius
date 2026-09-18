@@ -6,15 +6,12 @@ icon: lucide/history
 
 # Changelog
 
-## 0.7.1.dev0
+## 0.7.2.dev0
 
 Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
-- Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
-  combo box or spin box the cursor happens to be over
-  ([#431](https://github.com/confusius-tools/confusius/pull/431)).
 - The signal plotter's mouse source now updates when Shift is pressed while the
   cursor is already resting on a voxel, not only while moving; a live signal
   (mouse voxel, a point, or a label region) can now be pinned so it persists
@@ -30,6 +27,45 @@ Current development version for the next ConfUSIus release.
   shared signal store, making it selectable elsewhere in the plugin without
   first exporting and re-importing it
   ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+
+## 0.7.1
+
+Released 2026-09-16.
+
+### :zap: Performance
+
+- [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
+  longer computes a full SVD, extracting components several times faster on
+  large recordings or broad noise masks
+  ([#434](https://github.com/confusius-tools/confusius/pull/434)).
+
+### :books: Documentation
+
+- Clarified when to use `.compute()` or `.persist()` before repeated partial reads from
+  gzip-compressed NIfTI files
+  ([#441](https://github.com/confusius-tools/confusius/pull/441)).
+
+### :frame_photo: Napari plugin
+
+- Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
+  combo box or spin box the cursor happens to be over
+  ([#431](https://github.com/confusius-tools/confusius/pull/431)).
+- New Points/Labels layers created from the signals panel now copy the reference
+  image's units and axis labels, so napari keeps rendering units instead of
+  warning about inconsistent units
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- The Save panel now saves a 3D labels layer with a 4D recording as template
+  instead of failing with a `VoxelToWorldIndex` error
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- Saving a user-drawn layer without a template now recognises napari 0.9's default
+  axis names and writes units in short form (`mm`), so the saved file matches the
+  image it was drawn on
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- Loading a video next to a single-slice recording no longer adds a spurious `z`
+  slider when the slice sits at a nonzero world position, and the video layer now
+  uses the same world axis labels as the recording. Rolling the displayed axes
+  (Ctrl+E) onto a single-slice axis with a video loaded no longer crashes
+  ([#452](https://github.com/confusius-tools/confusius/pull/452)).
 
 ## 0.7.0
 
