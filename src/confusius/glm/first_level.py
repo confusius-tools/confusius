@@ -37,7 +37,6 @@ from confusius.validation.mask import validate_mask
 
 if TYPE_CHECKING:
     import numpy.typing as npt
-    import pandas as pd
 
 
 class FirstLevelModel(BaseEstimator):
@@ -167,7 +166,8 @@ class FirstLevelModel(BaseEstimator):
         confounds: (
             pd.DataFrame
             | npt.NDArray[np.floating]
-            | list[pd.DataFrame | npt.NDArray[np.floating] | None]
+            | xr.DataArray
+            | list[pd.DataFrame | npt.NDArray[np.floating] | xr.DataArray | None]
             | None
         ) = None,
         design_matrices: pd.DataFrame | list[pd.DataFrame] | None = None,
@@ -188,8 +188,13 @@ class FirstLevelModel(BaseEstimator):
         events : pandas.DataFrame or list of pandas.DataFrame, optional
             Events table(s) with `onset`, `duration`, and `trial_type` columns. Onsets
             are in the same world time units as the `time` coordinate of `run_data`.
-        confounds : pandas.DataFrame, numpy.ndarray, or list, optional
-            Confound regressors per run.
+        confounds : pandas.DataFrame, numpy.ndarray, xarray.DataArray, or list, \
+                optional
+            Confound regressors per run, `(time, n_confounds)`. A DataFrame must have
+            a `time` column and a DataArray a `time` dimension; their times are
+            validated against `run_data`. A NumPy array is assumed ordered like
+            `run_data` along `time`. A single table is applied to every run, so its
+            times must match every run; pass a list to give each run its own table.
         design_matrices : pandas.DataFrame or list of pandas.DataFrame, optional
             Pre-built design matrices. Overrides `events` / `confounds`.
 
@@ -396,7 +401,8 @@ class FirstLevelModel(BaseEstimator):
         confounds: (
             pd.DataFrame
             | npt.NDArray[np.floating]
-            | list[pd.DataFrame | npt.NDArray[np.floating] | None]
+            | xr.DataArray
+            | list[pd.DataFrame | npt.NDArray[np.floating] | xr.DataArray | None]
             | None
         ),
         design_matrices: pd.DataFrame | list[pd.DataFrame] | None,
@@ -413,8 +419,10 @@ class FirstLevelModel(BaseEstimator):
             Per-run fUSI data, used to extract volume times.
         events : pandas.DataFrame or list of pandas.DataFrame, optional
             Per-run event tables.
-        confounds : pandas.DataFrame, numpy.ndarray, or list, optional
-            Per-run confound regressors.
+        confounds : pandas.DataFrame, numpy.ndarray, xarray.DataArray, or list, \
+                optional
+            Per-run confound regressors. DataFrame and DataArray confounds are
+            validated against the `time` coordinates of each run.
         design_matrices : pandas.DataFrame or list of pandas.DataFrame, optional
             Pre-built design matrices. If provided, `events` and `confounds`
             are ignored.
@@ -477,22 +485,26 @@ class FirstLevelModel(BaseEstimator):
                 f"Got {len(confounds_list)} confound entries for {n_runs} runs."
             )
 
-        return [
-            make_first_level_design_matrix(
-                run_data[run_idx].coords["time"].values,
-                events=events_list[run_idx],
-                hrf_model=self.hrf_model,
-                drift_model=self.drift_model,
-                low_cutoff=self.low_cutoff,
-                drift_order=self.drift_order,
-                fir_delays=self.fir_delays,
-                confounds=confounds_list[run_idx],
-                oversampling=self.oversampling,
-                min_onset=self.min_onset,
-                uniformity_tolerance=self.uniformity_tolerance,
-            )
-            for run_idx in range(n_runs)
-        ]
+        built: list[pd.DataFrame] = []
+        for run_idx in range(n_runs):
+            try:
+                design_matrix = make_first_level_design_matrix(
+                    run_data[run_idx].coords["time"].values,
+                    events=events_list[run_idx],
+                    hrf_model=self.hrf_model,
+                    drift_model=self.drift_model,
+                    low_cutoff=self.low_cutoff,
+                    drift_order=self.drift_order,
+                    fir_delays=self.fir_delays,
+                    confounds=confounds_list[run_idx],
+                    oversampling=self.oversampling,
+                    min_onset=self.min_onset,
+                    uniformity_tolerance=self.uniformity_tolerance,
+                )
+            except ValueError as exc:
+                raise ValueError(f"Run {run_idx}: {exc}") from exc
+            built.append(design_matrix)
+        return built
 
     def _parse_noise_model(self) -> int:
         """Parse `self.noise_model` and return the AR order.

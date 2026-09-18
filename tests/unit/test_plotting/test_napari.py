@@ -4,6 +4,7 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 import xarray as xr
+from napari.layers import Image, Labels
 
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
@@ -50,6 +51,7 @@ class TestPlotNapari:
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
 
+        assert isinstance(layer, Image)
         assert not layer.rgb
         npt.assert_allclose(layer.scale, [0.2, 0.1, 0.05], rtol=1e-5)
         npt.assert_allclose(layer.translate, [1.0, 2.0, 3.0], rtol=1e-5)
@@ -514,6 +516,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
 
+        assert isinstance(labels_layer, Labels)
         result = labels_from_layer(labels_layer, sample_roi_labels)
 
         # np.unique sorts ascending: motor=3, somatosensory=7, visual=42.
@@ -536,6 +539,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
 
+        assert isinstance(labels_layer, Labels)
         result = labels_from_layer(labels_layer, sample_roi_labels)
 
         # World coordinates must still be index-derived, not materialized plain
@@ -559,6 +563,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
 
+        assert isinstance(labels_layer, Labels)
         result = labels_from_layer(labels_layer, sample_voxeldata_3dt)
 
         assert result.dims == ("mask", "k", "j", "i")
@@ -577,6 +582,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
 
+        assert isinstance(labels_layer, Labels)
         result = labels_from_layer(labels_layer, sample_roi_labels)
 
         assert result.attrs["long_name"] == "Drawn label map"

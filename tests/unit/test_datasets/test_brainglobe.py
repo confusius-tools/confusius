@@ -22,9 +22,9 @@ class _FakeBgAtlas:
             "check_latest": check_latest,
         }
         shape = (4, 6, 8)
-        self.reference = np.ones(shape, dtype=np.uint16)
-        self.annotation = np.zeros(shape, dtype=np.int32)
-        self.hemispheres = np.ones(shape, dtype=np.int8)
+        self.template = np.ones(shape, dtype=np.uint16)
+        self.annotation = np.zeros(shape, dtype=np.uint32)
+        self.hemispheres = np.ones(shape, dtype=np.uint8)
         self.structures = StructuresDict(
             [
                 {

@@ -30,6 +30,7 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._napari._events._store import EventStore
+from confusius._napari._qt import install_no_scroll_wheel_filter
 from confusius._napari._theme import make_lucide_icon
 from confusius._napari._time_overlay import _TimeOverlay
 from confusius._utils.colors import RED, RED_DARK
@@ -653,5 +654,9 @@ class ConfUSIusWidget(QWidget):
         self._accordion_panels = dict(zip([e[0] for e in tab_entries], panels))
         # Exposed so the guided tour can follow in-flight panel animations.
         self._accordion_anims = panel_anims
+
+        # A combo/spin box under the cursor otherwise captures wheel scrolling
+        # (changing its value) instead of letting it scroll the sidebar.
+        install_no_scroll_wheel_filter(container)
 
         return container

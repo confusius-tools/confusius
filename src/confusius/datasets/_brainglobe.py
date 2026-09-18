@@ -55,10 +55,10 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
             attrs=attrs,
         )
 
-    reference = _build(atlas.reference.astype(np.float32), {"cmap": "gray"})
+    reference = _build(atlas.template.astype(np.float32), {"cmap": "gray"})
 
     annotation = _build(
-        atlas.annotation.astype(np.int32),
+        atlas.annotation.view(np.int32),
         {
             "rgb_lookup": rgb_lookup,
             "roi_labels": roi_labels,
@@ -70,7 +70,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     world_to_base = np.eye(4)
 
     hemispheres = _build(
-        atlas.hemispheres.astype(np.int8),
+        atlas.hemispheres.view(np.int8),
         {
             "left": int(getattr(atlas, "left_hemisphere_value", 1)),
             "right": int(getattr(atlas, "right_hemisphere_value", 2)),

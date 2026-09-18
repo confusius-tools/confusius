@@ -75,6 +75,14 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     ValueError
         If the file extension is not supported, or the Zarr store at `path` wasn't
         written by [`save`][confusius.io.save] (no `attrs["voxel_to_world"]`).
+
+    Notes
+    -----
+    Gzip-compressed NIfTI files (`.nii.gz`) do not support true random access. Repeated
+    lazy partial reads, such as per-frame loops, may decompress the file again for each
+    independent Dask computation. If the file fits in memory, use `.compute()` for eager
+    processing, or `.persist()` before many downstream Dask operations. For larger
+    repeated random-access workloads, prefer Zarr or uncompressed `.nii`.
     """
     path = check_path(path)
     name = path.name
