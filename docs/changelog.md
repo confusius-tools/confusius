@@ -21,6 +21,14 @@ Released 2026-09-16.
   large recordings or broad noise masks
   ([#434](https://github.com/confusius-tools/confusius/pull/434)).
 
+### :bug: Fixes
+
+- [`plot_stat_map`][confusius.plotting.plot_stat_map] and
+  [`plot_matrix`][confusius.plotting.plot_matrix] now honor a `vmin` or `vmax` passed
+  on its own under `auto_range=True`: a lone bound sets the symmetric range to
+  `[-|bound|, |bound|]`
+  ([#445](https://github.com/confusius-tools/confusius/pull/445)).
+
 ### :books: Documentation
 
 - Clarified when to use `.compute()` or `.persist()` before repeated partial reads from
