@@ -6,25 +6,26 @@ import xarray as xr
 from confusius.validation.voxeldata import ensure_voxeldata, validate_voxeldata
 
 
-def _check_spatial_alignment(
+def check_spatial_alignment(
     spatial_da: xr.DataArray, data: xr.DataArray, name: str
 ) -> None:
     """Check that `spatial_da` and `data` share the same VoxelData grid.
 
     Assumes both are already canonical VoxelData arrays (see
-    [`validate_voxeldata`][confusius.validation.validate_voxeldata]) -- callers that
+    [`validate_voxeldata`][confusius.validation.validate_voxeldata]); callers that
     may not be should canonicalize first via
     [`ensure_voxeldata`][confusius.validation.ensure_voxeldata]. `xarray.align` with
     `join="exact"` dispatches to the `VoxelToWorldIndex`'s `equals`, which compares
     both the voxel-space `k`/`j`/`i` coordinates (what `reindex_like`/`stack` actually
-    key alignment on) and the underlying `voxel_to_world` affine — so two arrays
+    key alignment on) and the underlying `voxel_to_world` affine, so two arrays
     sharing the same voxel-space coordinate labels but different affines are correctly
     rejected, not silently treated as aligned.
 
     Parameters
     ----------
     spatial_da : xarray.DataArray
-        Canonical VoxelData array to check (mask or labels).
+        Canonical VoxelData array to check (for example a mask, labels, or a
+        registration target).
     data : xarray.DataArray
         Canonical reference VoxelData array.
     name : str
@@ -131,7 +132,7 @@ def validate_mask(
     check_mask_dtype(mask, mask_name)
     validate_voxeldata(mask, allow_extra_dims=True)
     validate_voxeldata(data, allow_extra_dims=True)
-    _check_spatial_alignment(mask, data, mask_name)
+    check_spatial_alignment(mask, data, mask_name)
 
     if require_exact_dims:
         expected_dims = tuple(str(d) for d in data.dims if d != "time")
@@ -252,7 +253,7 @@ def validate_labels(
 
     validate_voxeldata(labels, allow_extra_dims=True)
     validate_voxeldata(data, allow_extra_dims=True)
-    _check_spatial_alignment(labels, data, labels_name)
+    check_spatial_alignment(labels, data, labels_name)
 
 
 def ensure_labels(
