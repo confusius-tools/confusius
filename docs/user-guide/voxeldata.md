@@ -438,7 +438,7 @@ Applying `world_to_qform` absorbs the rotation into the DataArray's voxel-to-wor
 affine, and the derived `z`/`y` coordinates change accordingly. The `qform` space
 becomes the new world space, so `"world_to_qform"` is now the identity. The `sform`
 entry, identity before, now holds the inverse rotation, so the `sform` space stays
-recoverable. Applying an affine never removes entries from `.attrs["affines"]`.
+recoverable.
 
 ```pycon
 >>> da_q = da.fusi.affine.apply("world_to_qform")
