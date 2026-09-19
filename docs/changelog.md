@@ -6,10 +6,9 @@ icon: lucide/history
 
 # Changelog
 
-## 0.7.1.dev0
+## 0.7.2.dev0
 
 Current development version for the next ConfUSIus release.
-
 
 ### :boom: Breaking changes
 
@@ -26,6 +25,10 @@ Current development version for the next ConfUSIus release.
   `data.fusi.register.volumewise` accept a `fixed` VoxelData volume (for example the
   mean of a few low-motion frames) to register every frame to, as an alternative to
   `reference_time` ([#376](https://github.com/confusius-tools/confusius/issues/376)).
+
+## 0.7.1
+
+Released 2026-09-16.
 
 ### :zap: Performance
 
@@ -45,6 +48,22 @@ Current development version for the next ConfUSIus release.
 - Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
   combo box or spin box the cursor happens to be over
   ([#431](https://github.com/confusius-tools/confusius/pull/431)).
+- New Points/Labels layers created from the signals panel now copy the reference
+  image's units and axis labels, so napari keeps rendering units instead of
+  warning about inconsistent units
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- The Save panel now saves a 3D labels layer with a 4D recording as template
+  instead of failing with a `VoxelToWorldIndex` error
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- Saving a user-drawn layer without a template now recognises napari 0.9's default
+  axis names and writes units in short form (`mm`), so the saved file matches the
+  image it was drawn on
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- Loading a video next to a single-slice recording no longer adds a spurious `z`
+  slider when the slice sits at a nonzero world position, and the video layer now
+  uses the same world axis labels as the recording. Rolling the displayed axes
+  (Ctrl+E) onto a single-slice axis with a video loaded no longer crashes
+  ([#452](https://github.com/confusius-tools/confusius/pull/452)).
 
 ## 0.7.0
 
