@@ -96,8 +96,9 @@ def apply_affine(
     Returns
     -------
     xarray.DataArray
-        `da` with updated spatial coordinates and updated `attrs["affines"]`. When
-        `affine` is a string, that key is dropped from the result.
+        `da` with updated spatial coordinates and updated `attrs["affines"]`. No
+        entry is removed: when `affine` is a string, that key is kept as the
+        identity, since the world frame now is that named space.
 
     Raises
     ------
@@ -164,11 +165,11 @@ def apply_affine(
     inv_affine = np.linalg.inv(affine_array)
     for stored_key, val in stored.items():
         if stored_key == applied_key:
-            # Composing this stored affine with itself is deterministically
-            # identity (arr @ inv(arr) == I), regardless of what it held --
-            # applying "by key" means "move the world frame to align with
-            # this named affine," which by construction leaves nothing to
-            # report here.
+            # The world frame now is this named space. Store an exact identity
+            # instead of `arr @ inv(arr)`, which carries floating-point error.
+            new_affines[stored_key] = np.broadcast_to(
+                np.eye(affine_array.shape[-1]), affine_array.shape
+            ).copy()
             continue
         arr = np.asarray(val, dtype=np.float64)
         if arr.ndim in (2, 3):
@@ -514,7 +515,8 @@ class FUSIAffineAccessor:
         -------
         xarray.DataArray
             The DataArray with updated spatial coordinates and `attrs["affines"]`.
-            When `affine` is a string, that key is dropped from the result.
+            No entry is removed: when `affine` is a string, that key is kept as the
+            identity, since the world frame now is that named space.
 
         Raises
         ------

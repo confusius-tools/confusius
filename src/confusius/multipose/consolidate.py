@@ -36,8 +36,9 @@ def _consolidate_linked_affines(
     named affine (e.g. `world_to_brain`). One shaped like the main per-pose stack is
     assumed to be a constant left-link of it, i.e. there exists a constant `(4, 4)`
     matrix `L` such that `A[p] = L @ main_per_pose[p]` for all poses. The
-    consolidated counterpart is then `L @ main_consolidated`. Affines that already
-    have shape `(4, 4)` are passed through unchanged.
+    consolidated counterpart is then `L @ main_consolidated`. A per-pose stack that
+    is identical for every pose collapses to that single `(4, 4)` affine instead.
+    Affines that already have shape `(4, 4)` are passed through unchanged.
 
     Parameters
     ----------
@@ -64,7 +65,12 @@ def _consolidate_linked_affines(
     main_inv0 = np.linalg.inv(main_per_pose[0])
     for key, value in affines.items():
         arr = np.asarray(value)
-        if arr.shape == main_per_pose.shape:
+        if arr.shape == main_per_pose.shape and np.allclose(arr, arr[0]):
+            # Same world-to-reference affine for every pose (e.g. the identity stack
+            # that `apply_affine` keeps for a key applied per pose). Consolidation
+            # does not move the world frame, so the entry collapses to one affine.
+            new_affines[key] = arr[0]
+        elif arr.shape == main_per_pose.shape:
             link = arr[0] @ main_inv0
             if not np.allclose(arr, link @ main_per_pose, rtol=1e-6, atol=1e-12):
                 raise ValueError(

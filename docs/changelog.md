@@ -21,6 +21,12 @@ Released 2026-09-16.
   large recordings or broad noise masks
   ([#434](https://github.com/confusius-tools/confusius/pull/434)).
 
+### :bug: Fixes
+
+- [`apply_affine`][confusius.xarray.apply_affine] keeps the applied key in
+  `.attrs["affines"]` as the identity when the affine is given by key
+  ([#463](https://github.com/confusius-tools/confusius/pull/463)).
+
 ### :books: Documentation
 
 - Clarified when to use `.compute()` or `.persist()` before repeated partial reads from
