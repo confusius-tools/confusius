@@ -22,9 +22,10 @@ Released 2026-09-16.
 
 ### :zap: Performance
 
-- [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no longer
-  computes a full SVD, extracting components several times faster on large recordings or
-  broad noise masks ([#434](https://github.com/confusius-tools/confusius/pull/434)).
+- [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
+  longer computes a full SVD, extracting components several times faster on
+  large recordings or broad noise masks
+  ([#434](https://github.com/confusius-tools/confusius/pull/434)).
 
 ### :books: Documentation
 
