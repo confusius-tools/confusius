@@ -33,13 +33,21 @@ def timed(name, func, repeat=3):
         out = func()
         sync()
         rows.append(time.perf_counter() - t0)
-    return {"name": name, "times_s": rows, "median_s": float(np.median(rows)), "last": out}
+    return {
+        "name": name,
+        "times_s": rows,
+        "median_s": float(np.median(rows)),
+        "last": out,
+    }
 
 
 def gpu_smooth(data: xr.DataArray, fwhm: float) -> cp.ndarray:
     sigma_factor = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
     spacing = data.fusi.spacing
-    sigmas = [0.0 if dim == "time" else fwhm * sigma_factor / float(spacing[dim]) for dim in data.dims]
+    sigmas = [
+        0.0 if dim == "time" else fwhm * sigma_factor / float(spacing[dim])
+        for dim in data.dims
+    ]
     data_gpu = cp.asarray(np.asarray(data.data))
     return cp_ndimage.gaussian_filter(data_gpu, sigma=sigmas)
 
@@ -51,7 +59,9 @@ def gpu_standardize(x: cp.ndarray) -> cp.ndarray:
     return cp.where(std < np.finfo(np.float64).eps, cp.nan, y)
 
 
-def gpu_regress(x: cp.ndarray, confounds: cp.ndarray, *, standardize_confounds: bool) -> cp.ndarray:
+def gpu_regress(
+    x: cp.ndarray, confounds: cp.ndarray, *, standardize_confounds: bool
+) -> cp.ndarray:
     c = confounds
     if standardize_confounds:
         c = c - c.mean(axis=0)
@@ -67,7 +77,9 @@ def gpu_regress(x: cp.ndarray, confounds: cp.ndarray, *, standardize_confounds: 
     return x - q @ (q.T @ x)
 
 
-def gpu_compcor(smoothed: cp.ndarray, white_matter_mask: np.ndarray) -> tuple[cp.ndarray, cp.ndarray]:
+def gpu_compcor(
+    smoothed: cp.ndarray, white_matter_mask: np.ndarray
+) -> tuple[cp.ndarray, cp.ndarray]:
     flat = smoothed.reshape(smoothed.shape[0], -1)
     selected = cp.asarray(white_matter_mask.ravel().astype(bool))
     noise = flat[:, selected]
@@ -82,11 +94,15 @@ def gpu_compcor(smoothed: cp.ndarray, white_matter_mask: np.ndarray) -> tuple[cp
     return u[:, :1], explained
 
 
-def gpu_clean_cosine(data_4d: cp.ndarray, confounds: cp.ndarray, dt: float, low_cutoff: float) -> cp.ndarray:
+def gpu_clean_cosine(
+    data_4d: cp.ndarray, confounds: cp.ndarray, dt: float, low_cutoff: float
+) -> cp.ndarray:
     shape = data_4d.shape
     flat = data_4d.reshape(shape[0], -1)
     regs, _ = make_cosine_drift_regressors(shape[0], low_cutoff, dt)
-    all_confounds = cp.concatenate([confounds, cp.asarray(regs, dtype=flat.dtype)], axis=1)
+    all_confounds = cp.concatenate(
+        [confounds, cp.asarray(regs, dtype=flat.dtype)], axis=1
+    )
     cleaned = gpu_regress(flat, all_confounds, standardize_confounds=False)
     return cleaned.reshape(shape)
 
@@ -106,7 +122,10 @@ def gpu_corr_maps(cleaned: cp.ndarray, seeds: cp.ndarray) -> cp.ndarray:
     x = flat - flat.mean(axis=0)
     s = seeds - seeds.mean(axis=0)
     numerator = x.T @ s
-    denom = cp.sqrt(cp.sum(x * x, axis=0))[:, None] * cp.sqrt(cp.sum(s * s, axis=0))[None, :]
+    denom = (
+        cp.sqrt(cp.sum(x * x, axis=0))[:, None]
+        * cp.sqrt(cp.sum(s * s, axis=0))[None, :]
+    )
     maps = cp.where(denom == 0, 0.0, numerator / denom).T
     return maps.reshape(seeds.shape[1], *cleaned.shape[1:])
 
@@ -155,7 +174,9 @@ def prepare_example():
     subject_to_atlas = world_to_sform @ np.linalg.inv(affine)
     atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)
     atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
-    seed_masks = atlas_native.atlas.get_masks(["SSp-bfd", "RSP", "HIP", "VPM"], sides="right")
+    seed_masks = atlas_native.atlas.get_masks(
+        ["SSp-bfd", "RSP", "HIP", "VPM"], sides="right"
+    )
     white_matter = atlas_native.atlas.get_masks("fiber tracts").isel(mask=0)
     return data, seed_masks, white_matter
 
@@ -167,7 +188,11 @@ def cpu_pipeline(data, seed_masks, white_matter):
     )
     mapper = cf.connectivity.SeedBasedMaps(
         seed_masks=seed_masks,
-        clean_kwargs={"low_cutoff": 0.01, "filter_method": "cosine", "confounds": acompcor},
+        clean_kwargs={
+            "low_cutoff": 0.01,
+            "filter_method": "cosine",
+            "confounds": acompcor,
+        },
     )
     mapper.fit(smoothed)
     return mapper.maps_.compute()
@@ -197,8 +222,16 @@ def main():
     }
     print(json.dumps({"setup": setup}, indent=2), flush=True)
 
-    cpu = timed("cpu original signal+stats", lambda: cpu_pipeline(data, seed_masks, white_matter), repeat=3)
-    gpu = timed("gpu all signal+stats incl copy-out", lambda: gpu_pipeline(data, seed_masks, white_matter), repeat=3)
+    cpu = timed(
+        "cpu original signal+stats",
+        lambda: cpu_pipeline(data, seed_masks, white_matter),
+        repeat=3,
+    )
+    gpu = timed(
+        "gpu all signal+stats incl copy-out",
+        lambda: gpu_pipeline(data, seed_masks, white_matter),
+        repeat=3,
+    )
 
     cpu_maps = np.asarray(cpu.pop("last"))
     gpu_last = gpu.pop("last")
