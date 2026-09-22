@@ -267,7 +267,9 @@ class TestMakeNapariProgressFactory:
 class TestRegisterVolumeWithNapariFactory:
     """End-to-end: register_volume calls the injected napari factory."""
 
-    def test_factory_is_invoked_and_iterated_signal_fires(self, qtbot):
+    def test_factory_is_invoked_and_iterated_signal_fires(
+        self, qtbot, singleton_registration_volume
+    ):
         import xarray as xr
 
         from confusius.registration.volume import register_volume
@@ -290,8 +292,8 @@ class TestRegisterVolumeWithNapariFactory:
 
         with qtbot.waitSignal(bridge.finished, timeout=5000):
             result, _transform, _diagnostics = register_volume(
-                da,
-                da,
+                singleton_registration_volume,
+                singleton_registration_volume,
                 transform_type="translation",
                 show_progress=True,
                 progress_plotter=factory,
@@ -303,5 +305,5 @@ class TestRegisterVolumeWithNapariFactory:
         # at least one intermediate resampled array.
         assert len(spy.payloads) >= 1
         for payload in spy.payloads:
-            assert payload.shape == da.shape
-        assert result.shape == da.shape
+            assert payload.shape == singleton_registration_volume.shape
+        assert result.shape == singleton_registration_volume.shape

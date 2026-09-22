@@ -11,7 +11,7 @@ import xarray as xr
 from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     import numpy.typing as npt
 
@@ -45,7 +45,7 @@ def _attrs_equal(a: Any, b: Any) -> bool:
     return bool(result)
 
 
-def consensus_attrs(arrays: Sequence[xr.DataArray]) -> dict[str, Any]:
+def intersect_attrs(arrays: Sequence[xr.DataArray]) -> dict[str, Any]:
     """Return DataArray attributes shared and equal across all `arrays`.
 
     Used to propagate consistent provenance/metadata through reductions that combine
@@ -352,54 +352,3 @@ def resolve_contrast_vector(
         return contrast_def
 
     raise ValueError("Contrast must be a string, 1D, or 2D array.")
-
-
-def to_spatial_dataarray(
-    flat: npt.NDArray[np.floating],
-    *,
-    spatial_dims: tuple[str, ...],
-    spatial_shape: tuple[int, ...],
-    coords: Mapping[str, xr.Variable],
-    attrs: Mapping[str, object],
-    name: str,
-) -> xr.DataArray:
-    """Reshape a flat voxel array into a spatial [`xarray.DataArray`][xarray.DataArray].
-
-    Handles both scalar maps `(n_voxels,)` and *F*-contrast effect maps
-    `(contrast_dim, n_voxels)`; in the second case a leading `contrast_dim` axis is
-    added.
-
-    Parameters
-    ----------
-    flat : (n_voxels,) or (contrast_dim, n_voxels) numpy.ndarray
-        Flat statistical map.
-    spatial_dims : tuple of str
-        Names of the spatial dimensions in their array layout order.
-    spatial_shape : tuple of int
-        Sizes of the spatial dimensions, matching `spatial_dims`.
-    coords : Mapping[str, xarray.Variable]
-        Spatial coordinates for any subset of `spatial_dims`. Missing dims have no
-        coordinate on the output.
-    attrs : Mapping[str, object]
-        Base attributes; merged with `long_name=name` and `cmap="coolwarm"`.
-    name : str
-        Value for the `long_name` DataArray attribute.
-
-    Returns
-    -------
-    xarray.DataArray
-        Map reshaped to the given spatial dimensions.
-    """
-    if flat.ndim == 2:
-        volume = flat.reshape((-1, *spatial_shape))
-        dims: tuple[str, ...] = ("contrast_dim", *spatial_dims)
-    else:
-        volume = flat.reshape(spatial_shape)
-        dims = spatial_dims
-
-    return xr.DataArray(
-        volume,
-        dims=dims,
-        coords={d: coords[d] for d in spatial_dims if d in coords},
-        attrs={**attrs, "long_name": name, "cmap": "coolwarm"},
-    )

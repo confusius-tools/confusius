@@ -117,10 +117,10 @@ def _html_block(html: str) -> str:
 def _output_code_block(text: str) -> str:
     """Return a fenced code block for plain-text cell output.
 
-    The block is wrapped in a ``gallery-output`` container so docs CSS can wrap long
+    The block is wrapped in a `gallery-output` container so docs CSS can wrap long
     output lines (warnings, reprs, tracebacks) instead of showing a horizontal
     scrollbar, without affecting the syntax-highlighted input code cells. The
-    ``markdown`` attribute lets Zensical still render the fence as a highlighted block.
+    `markdown` attribute lets Zensical still render the fence as a highlighted block.
 
     Parameters
     ----------
@@ -150,7 +150,7 @@ def _normalize_html_output(html: str) -> str:
             r"<pre class=['\"]xr-text-repr-fallback['\"]>.*?</pre>",
             "",
             html,
-            flags=re.S,
+            flags=re.DOTALL,
         )
         html = html.replace(
             "<div class='xr-wrap' style='display:none'>", "<div class='xr-wrap'>"

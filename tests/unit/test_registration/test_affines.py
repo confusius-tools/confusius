@@ -64,7 +64,9 @@ class TestSitkLinearTransformToAffine:
 
         sitk_transform = affine_to_sitk_linear_transform(affine)
 
-        assert_array_almost_equal(sitk_linear_transform_to_affine(sitk_transform), affine)
+        assert_array_almost_equal(
+            sitk_linear_transform_to_affine(sitk_transform), affine
+        )
 
     def test_composite_transform_multiplies_child_affines_in_order(self):
         """Composite transforms compose child affines in SimpleITK's application order."""
@@ -80,10 +82,9 @@ class TestSitkLinearTransformToAffine:
         composite.AddTransform(outer)
         composite.AddTransform(inner)
 
-        expected = (
-            sitk_linear_transform_to_affine(outer)
-            @ sitk_linear_transform_to_affine(inner)
-        )
+        expected = sitk_linear_transform_to_affine(
+            outer
+        ) @ sitk_linear_transform_to_affine(inner)
 
         assert_array_almost_equal(sitk_linear_transform_to_affine(composite), expected)
 

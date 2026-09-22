@@ -111,6 +111,10 @@ The [Data I/O Panel](plugin.md#saving-data) save section lets you export any lay
 NIfTI or Zarr. Select the layer, optionally pick a template layer to borrow physical
 coordinates from, enter an output path, and click **Save**.
 
+!!! warning "Multi-pose data"
+    Saving multi-pose data from the GUI is not yet supported. Use the Python API to
+    consolidate poses first or select a single pose before saving.
+
 ### Alternative: napari file writers
 
 ConfUSIus also registers native napari writers for NIfTI and Zarr files. These let you

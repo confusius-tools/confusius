@@ -9,7 +9,7 @@ import pytest
 
 @pytest.fixture
 def gallery_tree(tmp_path: Path) -> Path:
-    """Create a minimal docs/examples/-style tree under ``tmp_path``."""
+    """Create a minimal docs/examples/-style tree under `tmp_path`."""
     root = tmp_path / "examples"
     (root / "io").mkdir(parents=True)
     (root / "io" / "_section.md").write_text("# Input/Output\n\nIO examples.\n")

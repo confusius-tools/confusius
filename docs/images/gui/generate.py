@@ -48,7 +48,7 @@ from napari.qt import get_qapp
 from qtpy.QtCore import QEventLoop, Qt, QTimer
 from rich.console import Console
 
-import confusius as cf  # noqa: F401  # Register xarray accessors.
+import confusius as cf  # Register xarray accessors.
 from confusius.datasets import fetch_cybis_pereira_2026, fetch_nunez_elizalde_2022
 
 HERE = Path(__file__).parent
@@ -223,17 +223,38 @@ def _normalized_correlation(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.sum(a0 * b0) / denom)
 
 
+def _axis_values(data, coord_name: str) -> np.ndarray:
+    """Return axis coordinate values for a voxel-affine world coordinate."""
+    coord = data.coords[coord_name]
+    if coord.ndim == 1:
+        return np.asarray(coord.values, dtype=float)
+    voxel_dim = {"z": "k", "y": "j", "x": "i"}[coord_name]
+    indexers = {dim: 0 for dim in coord.dims if dim != voxel_dim}
+    return np.asarray(coord.isel(indexers).values, dtype=float)
+
+
+def _isel_axis(data, coord_name: str, index: int):
+    """Select by dense position along a voxel-affine world coordinate."""
+    dim = (
+        coord_name
+        if coord_name in data.dims
+        else {"z": "k", "y": "j", "x": "i"}[coord_name]
+    )
+    return data.isel({dim: index})
+
+
 def _best_matching_z_coordinate(reference_2d, volume_3d) -> float:
     """Find the z coordinate in `volume_3d` best matching `reference_2d`."""
+    z_values = _axis_values(volume_3d, "z")
     scores = [
         _normalized_correlation(
             np.asarray(reference_2d.values),
-            np.asarray(volume_3d.isel(z=i).values),
+            np.asarray(_isel_axis(volume_3d, "z", i).values),
         )
-        for i in range(volume_3d.sizes["z"])
+        for i in range(z_values.size)
     ]
     best_idx = int(np.argmax(scores))
-    return float(volume_3d["z"].values[best_idx])
+    return float(z_values[best_idx])
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +311,7 @@ if not structure_tree_csv.exists():
     )
 
 atlas_mask = cf.load(atlas_path).compute().round().astype(np.int32)
-target_z = _best_matching_z_coordinate(_mean_display.isel(z=0), angio)
+target_z = _best_matching_z_coordinate(_isel_axis(_mean_display, "z", 0), angio)
 atlas_slice = atlas_mask.sel(z=[target_z], method="nearest")
 
 atlas_labels = np.unique(np.asarray(atlas_mask.values))
@@ -318,7 +339,7 @@ GUI_POINT_LEFT = np.array([0.0, left_y, left_x])
 GUI_POINT_RIGHT = np.array([0.0, right_y, right_x])
 console.print(
     "  Using atlas z="
-    f"{float(atlas_slice['z'].values[0]):.3f} "
+    f"{atlas_slice.fusi.origin['z']:.3f} "
     f"for acq-slice{_SLICE_INDEX:02d} {_ROI_STRUCTURE_NAME} ROIs "
     f"({len(GUI_LABEL_IDS)} labels)"
 )
@@ -590,7 +611,7 @@ try:
     # Place points at the centroids of the two atlas-derived cortical ROIs.
     pt_red = GUI_POINT_LEFT
     pt_teal = GUI_POINT_RIGHT
-    pts_layer4 = getattr(viewer4, "add_points")(
+    pts_layer4 = viewer4.add_points(
         np.array([pt_red, pt_teal]),
         name="ROI Points",
         scale=scale_3d4,
@@ -601,7 +622,7 @@ try:
     )
 
     # Open the bottom dock.
-    plotter4 = getattr(ts_panel4, "_ensure_plotter")()
+    plotter4 = ts_panel4._ensure_plotter()
     _qt_sleep(350)
 
     # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
@@ -613,7 +634,7 @@ try:
     # (radio checked, combo enabled and showing "ROI Points"). The radio toggle fires
     # _on_source_mode_changed → _sync_source_to_plotter, which sets the layer and mode
     # on the plotter automatically.
-    getattr(ts_panel4, "_radio_points").setChecked(True)
+    ts_panel4._radio_points.setChecked(True)
     get_qapp().processEvents()
 
     viewer4.window._qt_window.resize(1400, 1050)
@@ -655,7 +676,7 @@ try:
     labels_data[0, GUI_LEFT_ROI] = 1
     labels_data[0, GUI_RIGHT_ROI] = 2
 
-    labels_layer5 = getattr(viewer5, "add_labels")(
+    labels_layer5 = viewer5.add_labels(
         labels_data,
         name="Brain Regions",
         scale=scale_3d5,
@@ -663,7 +684,7 @@ try:
     )
 
     # Open the bottom dock.
-    plotter5 = getattr(ts_panel5, "_ensure_plotter")()
+    plotter5 = ts_panel5._ensure_plotter()
     _qt_sleep(350)
 
     # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
@@ -674,7 +695,7 @@ try:
     # Select the Labels radio button on the panel so the UI reflects the correct state
     # (radio checked, combo enabled and showing "Brain Regions"). The radio toggle fires
     # _on_source_mode_changed → _sync_source_to_plotter automatically.
-    getattr(ts_panel5, "_radio_labels").setChecked(True)
+    ts_panel5._radio_labels.setChecked(True)
     get_qapp().processEvents()
 
     viewer5.window._qt_window.resize(1400, 1050)
@@ -1170,7 +1191,7 @@ try:
 
     # --- Labels layer aligned to the fUSI spatial axes, two painted regions. ---
     da_meta9 = fusi9.metadata["xarray"]
-    spatial9 = [i for i, d in enumerate(da_meta9.dims) if d in ("pose", "z", "y", "x")]
+    spatial9 = [i for i, d in enumerate(da_meta9.dims) if d != "time"]
     spatial_shape9 = tuple(da_meta9.shape[i] for i in spatial9)
     spatial_scale9 = tuple(float(fusi9.scale[i]) for i in spatial9)
     spatial_translate9 = tuple(float(fusi9.translate[i]) for i in spatial9)

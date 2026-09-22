@@ -12,7 +12,12 @@ from sklearn.base import BaseEstimator
 from confusius.extract import extract_with_mask, unmask
 from confusius.extract.labels import extract_with_labels
 from confusius.signal import clean
-from confusius.validation import validate_labels, validate_mask, validate_time_series
+from confusius.validation import (
+    ensure_voxeldata,
+    validate_labels,
+    validate_mask,
+    validate_time_series,
+)
 from confusius.validation.coordinates import validate_matching_coordinates
 
 
@@ -70,7 +75,7 @@ class SeedBasedMaps(BaseEstimator):
     """Seed-based functional connectivity maps from fUSI data.
 
     Computes voxel-wise Pearson correlation maps between one or more seed region signals
-    and every voxel in a fUSI DataArray.
+    and every voxel in a VoxelData array.
 
     Two ways to supply the seed signal are supported:
 
@@ -94,11 +99,11 @@ class SeedBasedMaps(BaseEstimator):
         Integer label maps defining the seed region(s). Two formats are accepted (same
         as [`extract_with_labels`][confusius.extract.extract_with_labels]):
 
-        - **Flat label map**: spatial dims only, e.g. `(z, y, x)`.
+        - **Flat label map**: spatial dims only, e.g. `(k, j, i)`.
           Background voxels are `0`; each unique non-zero integer is a
           separate seed region.
         - **Stacked mask format**: leading `mask` dim followed by spatial
-          dims, e.g. `(mask, z, y, x)`.  Each layer has values in `{0,
+          dims, e.g. `(mask, k, j, i)`.  Each layer has values in `{0,
           region_id}` and regions may overlap.
 
         A boolean mask can be used by converting it first: `mask.astype(int)`. Mutually
@@ -156,40 +161,44 @@ class SeedBasedMaps(BaseEstimator):
     >>> import numpy as np
     >>> import xarray as xr
     >>> from confusius.connectivity import SeedBasedMaps
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> rng = np.random.default_rng(0)
-    >>> data = xr.DataArray(
-    ...     rng.standard_normal((200, 10, 20)),
-    ...     dims=["time", "y", "x"],
-    ...     coords={"time": np.arange(200) * 0.1},
+    >>> data = create_voxeldata(
+    ...     rng.standard_normal((200, 1, 10, 20)),
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.1,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>>
-    >>> labels = xr.DataArray(
-    ...     np.zeros((10, 20), dtype=int),
-    ...     dims=["y", "x"],
+    >>> labels = create_voxeldata(
+    ...     np.zeros((1, 10, 20), dtype=int),
+    ...     dims=("k", "j", "i"),
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> labels[:3, :] = 1   # Region 1: first 3 y-slices.
-    >>> labels[3:6, :] = 2  # Region 2: next 3 y-slices.
+    >>> labels[:, :3, :] = 1   # Region 1: first 3 j-slices.
+    >>> labels[:, 3:6, :] = 2  # Region 2: next 3 j-slices.
     >>>
     >>> mapper = SeedBasedMaps(seed_masks=labels)
     >>> mapper.fit(data)
     SeedBasedMaps(seed_masks=...)
     >>> mapper.maps_.dims
-    ('region', 'y', 'x')
+    ('region', 'k', 'j', 'i')
     >>> mapper.maps_.coords["region"].values
     array([1, 2])
     >>>
     >>> # Single seed from a boolean mask converted to integer.
-    >>> mask = xr.DataArray(
-    ...     np.zeros((10, 20), dtype=bool),
-    ...     dims=["y", "x"],
+    >>> mask = create_voxeldata(
+    ...     np.zeros((1, 10, 20), dtype=bool),
+    ...     dims=("k", "j", "i"),
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> mask[:3, :] = True
+    >>> mask[:, :3, :] = True
     >>> mapper_single = SeedBasedMaps(seed_masks=mask.astype(int))
     >>> mapper_single.fit(data)
     SeedBasedMaps(seed_masks=...)
     >>> mapper_single.maps_.dims  # region dim is squeezed for a single seed
-    ('y', 'x')
+    ('k', 'j', 'i')
 
     Signal-based usage: provide seed signals directly.
 
@@ -202,7 +211,7 @@ class SeedBasedMaps(BaseEstimator):
     >>> mapper_sig.fit(data)
     SeedBasedMaps(seed_signals=...)
     >>> mapper_sig.maps_.dims  # single signal, region dim squeezed
-    ('y', 'x')
+    ('k', 'j', 'i')
     """
 
     def __init__(
@@ -228,8 +237,8 @@ class SeedBasedMaps(BaseEstimator):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            A fUSI DataArray to estimate seed-based maps from.  Must have a `time`
-            dimension.  The spatial dimensions must be compatible with `seed_masks` when
+            VoxelData array to estimate seed-based maps from. Must have
+            a `time` dimension. The spatial dimensions must be compatible with `seed_masks` when
             using mask-based seeding.
 
             !!! warning "Chunking along time"
@@ -266,14 +275,10 @@ class SeedBasedMaps(BaseEstimator):
                 "but both were given."
             )
 
-        # Validate time dimension *before* cleaning so the error message points to the
-        # right cause. check_time_chunks=False here because we re-validate inside
-        # signal.clean if needed.
-        validate_time_series(
-            X, operation_name="SeedBasedMaps.fit", check_time_chunks=False
-        )
+        X = ensure_voxeldata(X, require_time=True)
 
         if self.seed_masks is not None:
+            self.seed_masks = ensure_voxeldata(self.seed_masks, allow_pose=False)
             validate_labels(self.seed_masks, X, "seed_masks")
         else:
             # self.seed_signals is not None, guaranteed by the mutual-exclusivity check
@@ -282,6 +287,9 @@ class SeedBasedMaps(BaseEstimator):
             _validate_seed_signals(self.seed_signals, X)
 
         if self.mask is not None:
+            self.mask = ensure_voxeldata(
+                self.mask, allow_pose=False, allow_extra_dims=False
+            )
             validate_mask(self.mask, X, "mask")
 
         if self.mask is not None:
@@ -434,10 +442,13 @@ def _compute_correlation_maps(
     data_norm = np.sqrt((data_c**2).sum("time"))  # (*spatial_dims,)
     seeds_norm = np.sqrt((seeds_c**2).sum("time"))  # (region,)
 
+    # `xr.where(cond, x, y)` only restores coordinate attrs from `x`, not `y` (see
+    # xarray.computation.computation.where): `x` must be the real VoxelData array,
+    # not the scalar fill value, or the result loses e.g. world-coordinate `units`.
     r = xr.where(
-        data_norm * seeds_norm == 0,
-        0.0,
+        data_norm * seeds_norm != 0,
         numerator / (data_norm * seeds_norm),
+        0.0,
     )
 
     return r.transpose("region", *spatial_dims)

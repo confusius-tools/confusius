@@ -7,7 +7,7 @@ import flox.xarray
 import numpy as np
 import xarray as xr
 
-from confusius.validation import validate_labels
+from confusius.validation import ensure_labels, ensure_voxeldata
 
 _VALID_REDUCTIONS = frozenset({"mean", "sum", "median", "min", "max", "var", "std"})
 """Valid reduction names accepted by `extract_with_labels`."""
@@ -94,27 +94,27 @@ def extract_with_labels(
     labels: xr.DataArray,
     reduction: Literal["mean", "sum", "median", "min", "max", "var", "std"] = "mean",
 ) -> xr.DataArray:
-    """Extract region-aggregated signals from fUSI data using an integer label map.
+    """Extract region-aggregated signals from a VoxelData array.
 
     For each unique non-zero label in `labels`, applies `reduction` across all voxels
-    belonging to that region. The spatial dimensions are collapsed into a single
-    `regions` dimension.
+    belonging to that region. The native voxel dimensions (`k`/`j`/`i`) are collapsed
+    into a single `region` dimension.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Input array with spatial dimensions matching `labels`. Can have any number of
-        non-spatial dimensions (e.g., `time`, `pose`). The spatial dimensions must match
-        those in `labels`.
+        VoxelData array with native voxel dims `k`/`j`/`i` and a
+        `VoxelToWorldIndex`, plus any number of non-spatial dimensions (e.g.,
+        `time`, `pose`). See [`ensure_voxeldata`][confusius.validation.ensure_voxeldata].
     labels : xarray.DataArray
-        Integer label map in one of two formats:
+        Integer label map sharing `data`'s voxel grid, in one of two formats:
 
-        - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+        - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
           labeled `0`; each unique non-zero integer identifies a distinct,
           non-overlapping region. The `region` coordinate of the output holds the
           integer label values.
         - **Stacked mask format**: Has a leading `mask` dimension followed by spatial
-          dims, e.g. `(mask, z, y, x)`. Each layer has exactly one non-zero value
+          dims, e.g. `(mask, k, j, i)`. Each layer has exactly one non-zero value
           identifying its own voxels, and regions may overlap; the non-zero value
           itself is not used to identify the layer, so it may repeat across layers
           (e.g. the same region id for left/right hemisphere layers). The `region`
@@ -132,15 +132,15 @@ def extract_with_labels(
 
         For example (flat label map):
 
-        - `(time, z, y, x)` → `(time, region)`
-        - `(time, pose, z, y, x)` → `(time, pose, region)`
-        - `(z, y, x)` → `(region,)`
+        - `(time, k, j, i)` → `(time, region)`
+        - `(time, pose, k, j, i)` → `(time, pose, region)`
+        - `(k, j, i)` → `(region,)`
 
     Raises
     ------
     ValueError
-        If `labels` dimensions don't match `data`'s spatial dimensions, if
-        coordinates don't match, if `reduction` is not a valid option, or if
+        If `labels` or `data` isn't a VoxelData array, if `labels`'s
+        voxel grid doesn't match `data`'s, if `reduction` is not a valid option, or if
         `labels` contains no non-zero values.
     TypeError
         If `labels` is not integer dtype.
@@ -153,21 +153,24 @@ def extract_with_labels(
 
     Examples
     --------
-    >>> import xarray as xr
     >>> import numpy as np
     >>> from confusius.extract import extract_with_labels
+    >>> from confusius.xarray import create_voxeldata
     >>>
-    >>> # 3D+t data: (time, z, y, x)
-    >>> data = xr.DataArray(
+    >>> # 3D+t data: (time, k, j, i)
+    >>> data = create_voxeldata(
     ...     np.random.randn(100, 10, 20, 30),
-    ...     dims=["time", "z", "y", "x"],
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.5,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> labels = xr.DataArray(
+    >>> labels = create_voxeldata(
     ...     np.zeros((10, 20, 30), dtype=int),
-    ...     dims=["z", "y", "x"],
+    ...     dims=("k", "j", "i"),
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> labels[0, :, :] = 1  # Region 1: first z-slice.
-    >>> labels[1, :, :] = 2  # Region 2: second z-slice.
+    >>> labels[0, :, :] = 1  # Region 1: first k-slice.
+    >>> labels[1, :, :] = 2  # Region 2: second k-slice.
     >>> signals = extract_with_labels(data, labels)
     >>> signals.dims
     ('time', 'region')
@@ -181,7 +184,8 @@ def extract_with_labels(
     >>> signals.coords["region"].values
     array(['VISp_L', 'VISp_R'], dtype=object)
     """
-    validate_labels(labels, data, "labels")
+    data = ensure_voxeldata(data, allow_extra_dims=True)
+    labels = ensure_labels(labels, data, "labels")
 
     if reduction not in _VALID_REDUCTIONS:
         raise ValueError(

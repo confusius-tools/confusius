@@ -263,7 +263,7 @@ class EventPanel(QWidget):
         value : float | None
             The current time, or `None` when no time axis is sliced.
         units : str
-            The time units, defaulting to ``"s"``.
+            The time units, defaulting to `"s"`.
         """
         if not time_is_sliced(self._viewer):
             return None, "s"

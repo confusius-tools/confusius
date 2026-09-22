@@ -1,12 +1,12 @@
 """Atlas Dataset validation utilities."""
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS
+from confusius._dims import VOXEL_DIMS
+from confusius._utils.geometry import has_voxel_to_world_index
 
 if TYPE_CHECKING:
     from brainglobe_atlasapi.structure_class import StructuresDict
@@ -17,7 +17,7 @@ _REQUIRED_ATLAS_DATA_VARS = ("reference", "annotation", "hemispheres")
 _REQUIRED_ATLAS_ATTRS = ("structures",)
 """Attributes every atlas Dataset must carry.
 
-Only `structures` is unconditionally required. The `physical_to_base` transform and usable
+Only `structures` is unconditionally required. The `world_to_base` transform and usable
 region meshes are required only when validating for mesh operations
 (`require_mesh_use=True`); the descriptive metadata the builder adds (`name`, `citation`,
 `species`, `orientation`) is optional.
@@ -28,9 +28,9 @@ def _validate_variable_affines(ds: xr.Dataset) -> None:
     """Check that same-named affines agree across the Dataset's data variables.
 
     Each data variable may carry an `attrs["affines"]` dict mapping a name (e.g.
-    `physical_to_sform`) to a matrix. Two variables that both define an affine of a given
+    `world_to_sform`) to a matrix. Two variables that both define an affine of a given
     name describe the same grid, so those matrices must be equal; a mismatch means the
-    variables are not on a common physical frame and the atlas is invalid.
+    variables are not on a common world frame and the atlas is invalid.
 
     Parameters
     ----------
@@ -59,16 +59,17 @@ def _validate_variable_affines(ds: xr.Dataset) -> None:
                 raise ValueError(
                     f"Atlas variables disagree on affine '{affine_name}': "
                     f"'{first_var}' and '{var_name}' hold different matrices, so they are "
-                    "not on a common physical frame."
+                    "not on a common world frame."
                 )
 
 
 def _validate_meshes_available(structures: "StructuresDict") -> None:
-    """Raise ValueError unless some structure references an existing mesh file.
+    """Raise ValueError unless some structure references a mesh source.
 
-    A structure's `mesh_filename` is either `None` (no mesh) or a path; `get_mesh` needs at
-    least one that resolves to a file on disk. The scan short-circuits at the first existing
-    mesh, so it does not stat every structure.
+    A structure's `mesh_filename` is either `None` (this atlas has no meshes) or a path;
+    `get_mesh` needs at least one non-`None` entry. The path need not exist on disk yet:
+    BrainGlobe fetches meshes lazily from its remote store on first access, so a freshly
+    fetched atlas legitimately has no mesh files cached locally.
 
     Parameters
     ----------
@@ -78,25 +79,22 @@ def _validate_meshes_available(structures: "StructuresDict") -> None:
     Raises
     ------
     ValueError
-        If no structure references a mesh file that exists on disk.
+        If no structure references a mesh source.
     """
     has_mesh = any(
-        structure["mesh_filename"] is not None
-        and Path(structure["mesh_filename"]).is_file()
-        for structure in structures.values()
+        structure["mesh_filename"] is not None for structure in structures.values()
     )
     if not has_mesh:
         raise ValueError(
-            "Atlas has no usable region meshes: no structure references an existing mesh "
-            "file, so get_mesh cannot run (require_mesh_use=True)."
+            "Atlas has no usable region meshes: no structure references a mesh source, "
+            "so get_mesh cannot run (require_mesh_use=True)."
         )
 
 
-def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
+def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
     """Validate that a Dataset is a well-formed atlas.
 
-    Companion to [`validate_fusi_dataarray`][confusius.validation.validate_fusi_dataarray]
-    and [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray]. Checks that
+    Companion to [`validate_voxeldata`][confusius.validation.validate_voxeldata]. Checks that
     `ds` matches the atlas schema produced by
     [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and consumed
     by the `.atlas` accessor:
@@ -104,8 +102,9 @@ def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) ->
     1. **Type**: `ds` is an `xarray.Dataset`.
     2. **Data variables**: `reference`, `annotation`, and `hemispheres` are all present as
        data variables (a `hemispheres` stored as a coordinate is reported as missing).
-    3. **Grid**: the three variables share identical dimensions, and those dimensions are a
-       subset of `(z, y, x)` (2D or 3D, so a resampled single slice is accepted).
+    3. **Grid**: the three variables share identical dimensions, those dimensions are a
+       subset of `(k, j, i)` (a resampled single slice has a singleton `k`), and each
+       variable carries a `VoxelToWorldIndex` deriving its world `z`/`y`/`x` coordinates.
     4. **Data types**: `reference` is floating-point; `annotation` and `hemispheres` are
        integer-valued.
     5. **Attributes**: `attrs["structures"]` is present and is a brainglobe
@@ -113,8 +112,8 @@ def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) ->
        `species`, `orientation`) is not required.
     6. **Affines**: where two data variables both define an affine of the same name (in
        `attrs["affines"]`), the matrices must be equal — a mismatch means the variables
-       are not on a common physical frame.
-    7. **Mesh use** (only when `require_mesh_use` is set): `attrs["physical_to_base"]` — the
+       are not on a common world frame.
+    7. **Mesh use** (only when `require_mesh_use` is set): `attrs["world_to_base"]` — the
        pull mesh transform get_mesh needs — is present, and at least one structure
        references a mesh file that exists on disk.
 
@@ -123,7 +122,7 @@ def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) ->
     ds : xarray.Dataset
         Dataset to validate as an atlas.
     require_mesh_use : bool, default: False
-        Whether to also require the machinery `get_mesh` needs: the `physical_to_base`
+        Whether to also require the machinery `get_mesh` needs: the `world_to_base`
         transform attribute and at least one existing region mesh file.
 
     Raises
@@ -133,15 +132,16 @@ def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) ->
         `annotation`/`hemispheres` are not integer-valued.
     ValueError
         If any required data variable or attribute is missing, if the variables do not
-        share dimensions that are a subset of `(z, y, x)`, if `attrs["structures"]` is not a
-        brainglobe `StructuresDict`, or if `require_mesh_use` is set and `physical_to_base`
-        or usable region meshes are absent.
+        share dimensions that are a subset of `(k, j, i)`, if a variable lacks a
+        `VoxelToWorldIndex`, if `attrs["structures"]` is not a brainglobe
+        `StructuresDict`, or if `require_mesh_use` is set and `world_to_base` or usable
+        region meshes are absent.
 
     Examples
     --------
     >>> from confusius.datasets import fetch_brainglobe_atlas
     >>> atlas = fetch_brainglobe_atlas("allen_mouse_100um")
-    >>> validate_atlas_dataset(atlas)
+    >>> validate_atlas(atlas)
     """
     if not isinstance(ds, xr.Dataset):
         raise TypeError(f"Expected an xarray.Dataset, got {type(ds).__name__}.")
@@ -161,10 +161,16 @@ def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) ->
                 f"Atlas variables must share dimensions; '{name}' has dims "
                 f"{ds[name].dims} but 'reference' has {reference_dims}."
             )
-    if not set(reference_dims).issubset(SPATIAL_DIMS):
+    if not set(reference_dims).issubset(VOXEL_DIMS):
         raise ValueError(
-            f"Atlas dimensions must be a subset of {SPATIAL_DIMS}, got {reference_dims}."
+            f"Atlas dimensions must be a subset of {VOXEL_DIMS}, got {reference_dims}."
         )
+    for name in _REQUIRED_ATLAS_DATA_VARS:
+        if not has_voxel_to_world_index(ds[name]):
+            raise ValueError(
+                f"Atlas variable '{name}' must carry a VoxelToWorldIndex; build it with "
+                "confusius.xarray.create_voxeldata."
+            )
 
     if not np.issubdtype(ds["reference"].dtype, np.floating):
         raise TypeError(
@@ -199,10 +205,10 @@ def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) ->
         )
 
     if require_mesh_use:
-        if "physical_to_base" not in ds.attrs:
+        if "world_to_base" not in ds.attrs:
             raise ValueError(
-                "Atlas Dataset is missing 'physical_to_base', required for mesh operations "
+                "Atlas Dataset is missing 'world_to_base', required for mesh operations "
                 "(require_mesh_use=True): it is the transform get_mesh uses to place mesh "
-                "vertices in the atlas's physical space."
+                "vertices in the atlas's world space."
             )
         _validate_meshes_available(ds.attrs["structures"])

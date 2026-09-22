@@ -27,9 +27,7 @@ class TestRegistrationMetricPlotterBuffer:
         registration_metric_plotter.add_metric(0.1)
         assert registration_metric_plotter.metric_values == [0.5, 0.25, 0.1]
 
-    def test_metric_values_returns_a_copy(
-        self, registration_metric_plotter
-    ) -> None:
+    def test_metric_values_returns_a_copy(self, registration_metric_plotter) -> None:
         registration_metric_plotter.add_metric(1.0)
         snapshot = registration_metric_plotter.metric_values
         snapshot.append(99.0)

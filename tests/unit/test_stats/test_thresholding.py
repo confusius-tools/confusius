@@ -280,15 +280,28 @@ class TestExplicitThreshold:
 class TestMask:
     """Tests for tested-voxel selection."""
 
-    def test_explicit_mask_restricts_and_zeroes(self):
-        """The mask sets the comparison count and zeroes untested voxels."""
-        z = xr.DataArray([[5.0, 2.0, 4.0], [-4.0, 1.0, 3.5]], dims=["y", "x"])
-        mask = xr.DataArray([[True, True, True], [False, False, True]], dims=["y", "x"])
+    def test_explicit_mask_restricts_and_zeroes(
+        self, sample_voxeldata_3d, make_sample_voxeldata_mask
+    ):
+        """The VoxelData mask sets comparison count and zeroes untested voxels."""
+        z = sample_voxeldata_3d.copy(data=np.zeros(sample_voxeldata_3d.shape))
+        z.data[0, 0, 0] = 5.0
+        z.data[0, 0, 1] = 2.0
+        z.data[0, 0, 2] = 4.0
+        z.data[1, 0, 0] = -4.0
+        z.data[1, 0, 1] = 1.0
+        z.data[1, 0, 2] = 3.5
+        mask = make_sample_voxeldata_mask()
+        mask.data[...] = False
+        mask.data[0, 0, :3] = True
+        mask.data[1, 0, 2] = True
+
         out, threshold = apply_statistical_threshold(
             z, mask=mask, method="bonferroni", two_sided=False
         )
-        assert_allclose(threshold, sps.norm.isf(0.05 / 4))  # four tested voxels.
-        assert out.values[1, 0] == 0.0  # untested strong-magnitude voxel is dropped.
+
+        assert_allclose(threshold, sps.norm.isf(0.05 / 4))
+        assert out.values[1, 0, 0] == 0.0
 
     def test_skipzero_changes_comparison_count(self):
         """skipzero drops zero-filled voxels from the comparison count."""

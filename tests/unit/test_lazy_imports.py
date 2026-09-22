@@ -29,7 +29,7 @@ def test_confusius_dir_and_missing_attribute():
     assert "xarray" in exported
 
     with pytest.raises(AttributeError, match="does_not_exist"):
-        getattr(module, "does_not_exist")
+        module.does_not_exist
 
 
 def test_confusius_xarray_lazy_exports():
@@ -49,4 +49,4 @@ def test_confusius_xarray_dir_and_missing_attribute():
     assert "FUSIAccessor" in exported
 
     with pytest.raises(AttributeError, match="does_not_exist"):
-        getattr(module, "does_not_exist")
+        module.does_not_exist

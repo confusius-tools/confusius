@@ -124,15 +124,68 @@ def test_get_index_refreshes_without_persisting(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def test_resolve_index_url_follows_paginated_listings():
+    """The BIDS root and index can appear after the first OSF page."""
+    folder_href = (
+        f"https://api.osf.io/v2/nodes/{_FAKE_PROJECT}/files/osfstorage/folder/"
+    )
+    index_download_url = f"https://files.osf.io/v1/resources/{_FAKE_PROJECT}/index"
+
+    root_page_1 = MagicMock()
+    root_page_1.raise_for_status.return_value = None
+    root_page_1.json.return_value = {
+        "data": [{"attributes": {"name": "other-folder"}}],
+        "links": {"next": "root-page-2"},
+    }
+    root_page_2 = MagicMock()
+    root_page_2.raise_for_status.return_value = None
+    root_page_2.json.return_value = {
+        "data": [
+            {
+                "attributes": {"name": _FAKE_BIDS_ROOT},
+                "relationships": {
+                    "files": {"links": {"related": {"href": folder_href}}}
+                },
+            }
+        ],
+        "links": {"next": None},
+    }
+    folder_page_1 = MagicMock()
+    folder_page_1.raise_for_status.return_value = None
+    folder_page_1.json.return_value = {
+        "data": [{"attributes": {"name": "sub-01"}}],
+        "links": {"next": "folder-page-2"},
+    }
+    folder_page_2 = MagicMock()
+    folder_page_2.raise_for_status.return_value = None
+    folder_page_2.json.return_value = {
+        "data": [
+            {
+                "attributes": {"name": _INDEX_FILENAME},
+                "links": {"download": index_download_url},
+            }
+        ],
+        "links": {"next": None},
+    }
+
+    with patch(
+        "confusius.datasets._osf.requests.get",
+        side_effect=[root_page_1, root_page_2, folder_page_1, folder_page_2],
+    ):
+        assert resolve_index_url(_FAKE_PROJECT, _FAKE_BIDS_ROOT) == index_download_url
+
+
 def test_resolve_index_url_raises_if_bids_folder_not_on_osf():
     """RuntimeError propagates when the BIDS root folder is missing on OSF."""
     resp = MagicMock()
     resp.raise_for_status.return_value = None
     resp.json.return_value = {"data": [{"attributes": {"name": "other-folder"}}]}
 
-    with patch("confusius.datasets._osf.requests.get", return_value=resp):
-        with pytest.raises(RuntimeError, match=_FAKE_BIDS_ROOT):
-            resolve_index_url(_FAKE_PROJECT, _FAKE_BIDS_ROOT)
+    with (
+        patch("confusius.datasets._osf.requests.get", return_value=resp),
+        pytest.raises(RuntimeError, match=_FAKE_BIDS_ROOT),
+    ):
+        resolve_index_url(_FAKE_PROJECT, _FAKE_BIDS_ROOT)
 
 
 def test_resolve_index_url_raises_if_index_file_not_on_osf():
@@ -158,12 +211,14 @@ def test_resolve_index_url_raises_if_index_file_not_on_osf():
     folder_resp.raise_for_status.return_value = None
     folder_resp.json.return_value = {"data": []}
 
-    with patch(
-        "confusius.datasets._osf.requests.get",
-        side_effect=[root_resp, folder_resp],
+    with (
+        patch(
+            "confusius.datasets._osf.requests.get",
+            side_effect=[root_resp, folder_resp],
+        ),
+        pytest.raises(RuntimeError, match=_INDEX_FILENAME),
     ):
-        with pytest.raises(RuntimeError, match=_INDEX_FILENAME):
-            resolve_index_url(_FAKE_PROJECT, _FAKE_BIDS_ROOT)
+        resolve_index_url(_FAKE_PROJECT, _FAKE_BIDS_ROOT)
 
 
 # ---------------------------------------------------------------------------

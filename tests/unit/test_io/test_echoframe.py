@@ -10,6 +10,18 @@ import xarray as xr
 
 from confusius.io.echoframe import load_echoframe_dat, load_echoframe_metadata
 
+_VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
+
+
+def get_world_coord_1d(data: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = data.coords[name]
+    dim = _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
+
 
 def _create_echoframe_metadata(
     path: Path,
@@ -50,19 +62,15 @@ def _create_echoframe_metadata(
 
         if crop and cropping_roi is not None:
             recon_spec["croppingROI"] = np.array([cropping_roi], dtype=np.float64)
-            z = int(cropping_roi[1] - cropping_roi[0] + 1)
-            x = int(cropping_roi[3] - cropping_roi[2] + 1)
         else:
-            z = n_z
-            x = n_x
-            recon_spec["nz"] = np.array([[z]], dtype=np.int32)
-            recon_spec["nx"] = np.array([[x]], dtype=np.int32)
+            recon_spec["nz"] = np.array([[n_z]], dtype=np.int32)
+            recon_spec["nx"] = np.array([[n_x]], dtype=np.int32)
 
         receive_spec["nRepeats"] = np.array([n_volumes], dtype=np.int32)
         receive_spec["transmitReceiveTimeMus"] = np.array([transmit_receive_time_mus])
 
-        recon_spec["xAxis"] = np.linspace(0, x * 0.1, x)
-        recon_spec["zAxis"] = np.linspace(0, z * 0.05, z)
+        recon_spec["xAxis"] = np.linspace(0, n_x * 0.1, n_x)
+        recon_spec["zAxis"] = np.linspace(0, n_z * 0.05, n_z)
         recon_spec["c0"] = np.array([1540.0])
         recon_spec["method"] = np.array([ord(c) for c in "DAS"], dtype=np.uint8)
         probe_spec["Fc"] = np.array([15.625e6])
@@ -171,15 +179,15 @@ def echoframe_dat_with_padding(tmp_path, echoframe_meta_file):
 def echoframe_dat_cropped(tmp_path):
     """Create synthetic EchoFrame files with cropping enabled."""
     meta_path = tmp_path / "ScanParameters.mat"
-    # Cropping ROI: [z_start=1, z_end=4, x_start=1, x_end=3]
+    # Cropping ROI: [z_start=2, z_end=5, x_start=2, x_end=4]
     # This gives z=4, x=3 (smaller than full 6x4).
     _create_echoframe_metadata(
-        meta_path, n_x=6, n_z=6, n_volumes=3, crop=True, cropping_roi=[1, 4, 1, 3]
+        meta_path, n_x=6, n_z=6, n_volumes=3, crop=True, cropping_roi=[2, 5, 2, 4]
     )
 
     dat_path = tmp_path / "fUSi_BF.dat"
     _create_echoframe_dat_file(
-        dat_path, n_blocks=1, n_x=6, n_z=6, n_volumes=3, padding_bytes=0
+        dat_path, n_blocks=1, n_x=3, n_z=4, n_volumes=3, padding_bytes=0
     )
     return dat_path, meta_path
 
@@ -194,13 +202,13 @@ class TestLoadEchoFrameDat:
         data = load_echoframe_dat(dat_path, meta_path)
 
         assert isinstance(data, xr.DataArray)
-        assert data.dims == ("time", "z", "y", "x")
-        assert data.shape == (6, 1, 6, 4)  # (n_blocks * n_volumes, 1, n_z, n_x)
+        assert data.dims == ("time", "k", "j", "i")
+        assert data.shape == (6, 1, 6, 4)  # (n_blocks * n_volumes, 1, n_j, n_i)
         assert data.dtype == np.complex64
 
         # Verify values match the known pattern (block_idx+1, 1).
-        block_0 = data.isel(time=0, z=0, y=0, x=0).compute().item()
-        block_1 = data.isel(time=3, z=0, y=0, x=0).compute().item()
+        block_0 = data.isel(time=0, k=0, j=0, i=0).compute().item()
+        block_1 = data.isel(time=3, k=0, j=0, i=0).compute().item()
         assert block_0 == complex(1.0, 1.0), "Block 0 corrupted"
         assert block_1 == complex(2.0, 1.0), "Block 1 corrupted"
 
@@ -219,8 +227,8 @@ class TestLoadEchoFrameDat:
         expected_block_0 = complex(1.0, 1.0)
         expected_block_1 = complex(2.0, 1.0)
 
-        block_0 = data.isel(time=0, z=0, y=0, x=0).compute().item()
-        block_1 = data.isel(time=3, z=0, y=0, x=0).compute().item()
+        block_0 = data.isel(time=0, k=0, j=0, i=0).compute().item()
+        block_1 = data.isel(time=3, k=0, j=0, i=0).compute().item()
         assert block_0 == expected_block_0, "Block 0 is corrupted"
         assert block_1 == expected_block_1, (
             f"Block 1 is corrupted! Got {block_1}, expected {expected_block_1}. "
@@ -233,7 +241,7 @@ class TestLoadEchoFrameDat:
 
         data = load_echoframe_dat(dat_path, meta_path)
 
-        # With cropping ROI [1, 4, 1, 3]: z=4, x=3; 1 block * 3 volumes = 3 in time.
+        # With cropping ROI [2, 5, 2, 4]: z=4, x=3; 1 block * 3 volumes = 3 in time.
         assert data.shape == (3, 1, 4, 3)
 
     def test_missing_dat_file(self, tmp_path, echoframe_meta_file):
@@ -281,10 +289,10 @@ class TestLoadEchoFrameDat:
         assert first_block.shape == (3, 1, 6, 4)
         assert last_block.shape == (3, 1, 6, 4)
         # Known pattern: block 0 → complex(1, 1), block 1 → complex(2, 1).
-        assert first_block.isel(time=0, z=0, y=0, x=0).compute().item() == complex(
+        assert first_block.isel(time=0, k=0, j=0, i=0).compute().item() == complex(
             1.0, 1.0
         )
-        assert last_block.isel(time=0, z=0, y=0, x=0).compute().item() == complex(
+        assert last_block.isel(time=0, k=0, j=0, i=0).compute().item() == complex(
             2.0, 1.0
         )
 
@@ -304,9 +312,11 @@ class TestLoadEchoFrameDat:
         data = load_echoframe_dat(dat_path, meta_path)
         meta = load_echoframe_metadata(meta_path)
 
-        np.testing.assert_allclose(data.coords["x"].values, meta["lateral_coords"])
-        np.testing.assert_allclose(data.coords["y"].values, meta["axial_coords"])
-        np.testing.assert_allclose(data.coords["z"].values, [0.0])
+        np.testing.assert_allclose(
+            get_world_coord_1d(data, "x"), meta["lateral_coords"]
+        )
+        np.testing.assert_allclose(get_world_coord_1d(data, "y"), meta["axial_coords"])
+        np.testing.assert_allclose(get_world_coord_1d(data, "z"), [0.0])
         np.testing.assert_allclose(
             data.coords["time"].values,
             np.arange(6) / meta["compound_sampling_frequency"],
@@ -340,7 +350,7 @@ def echoframe_meta_file_crop(tmp_path):
         n_x=6,
         n_z=6,
         crop=True,
-        cropping_roi=[1, 4, 1, 3],
+        cropping_roi=[2, 5, 2, 4],
     )
     return meta_path
 
@@ -378,9 +388,9 @@ class TestLoadEchoFrameMetadata:
         """`load_echoframe_metadata` applies the cropping ROI to spatial coordinates."""
         meta = load_echoframe_metadata(echoframe_meta_file_crop)
 
-        # ROI [1, 4, 1, 3] (1-indexed) → z: indices 0–3 (4 points), x: indices 0–2 (3 points).
-        assert meta["axial_coords"].size == 4
-        assert meta["lateral_coords"].size == 3
+        # ROI [2, 5, 2, 4] (1-indexed) → z/x coordinates come from the full grid.
+        np.testing.assert_allclose(meta["axial_coords"], np.linspace(0, 0.3, 6)[1:5])
+        np.testing.assert_allclose(meta["lateral_coords"], np.linspace(0, 0.6, 6)[1:4])
 
     def test_missing_file(self, tmp_path):
         """`load_echoframe_metadata` raises `ValueError` for a missing file."""

@@ -3,7 +3,9 @@ AUTC
 AtlasAccessor
 BrainGlobe
 Butterworth
+CCFv3
 CompCor
+ConfUSIus's
 DATs
 DVARS
 Dask
@@ -11,6 +13,7 @@ DataArray
 DataArray's
 DataArrays
 EchoFrame
+FORTRAN
 FSL
 GLMs
 HDF5
@@ -30,6 +33,7 @@ Reindex
 SVD
 SimpleITK
 Verasonics
+VoxelData
 Xarray's
 Zarr
 Zarr's
@@ -48,9 +52,11 @@ electrophysiology
 fUSI
 framewise
 grayplots
+gridded
 hemodynamic
 napari
 netCDF
+neuroanatomical
 neuroanatomy
 non-trivial
 numpydoc

@@ -199,7 +199,7 @@ _SAMPLE_SPECS = {
         initial_status="Checking sample cache...",
         files_resolver=_resolve_rat_registration_pair,
         gamma=0.4,
-        affine_key="physical_to_qform",
+        affine_key="world_to_qform",
     ),
 }
 """Registered napari sample definitions."""
@@ -258,7 +258,7 @@ def _load_sample_dataarray(path: Path, affine_key: str | None) -> xr.DataArray:
     """
     da = load(path).compute()
     if affine_key is not None:
-        da, _ = da.fusi.affine.apply(affine_key)
+        da = da.fusi.affine.apply(affine_key)
     return da
 
 
@@ -346,7 +346,7 @@ def _open_sample(sample_key: str) -> list[FullLayerData]:
     spec = _SAMPLE_SPECS[sample_key]
     viewer = napari.current_viewer()
     if viewer is not None:
-        viewer.scale_bar.visible = True
+        viewer.canvas.overlays.scale_bar.visible = True
     dialog = QProgressDialog(viewer.window._qt_window if viewer is not None else None)
     dialog.setWindowTitle(spec.title)
     dialog.setLabelText(spec.initial_status)

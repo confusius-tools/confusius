@@ -1,6 +1,7 @@
 """Tests for the signal.clean pipeline."""
 
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
@@ -17,9 +18,9 @@ from confusius.signal import (
 )
 
 
-def test_clean_no_processing_returns_original(sample_timeseries):
+def test_clean_no_processing_returns_original(make_sample_timeseries):
     """Test clean returns input when no steps are requested."""
-    signals = sample_timeseries()
+    signals = make_sample_timeseries()
 
     result = clean(
         signals,
@@ -34,9 +35,9 @@ def test_clean_no_processing_returns_original(sample_timeseries):
     assert_allclose(result.coords["time"].values, signals.coords["time"].values)
 
 
-def test_clean_detrend_and_standardize(sample_timeseries):
+def test_clean_detrend_and_standardize(make_sample_timeseries):
     """Test clean detrends and standardizes signals."""
-    signals = sample_timeseries()
+    signals = make_sample_timeseries()
 
     result = clean(
         signals,
@@ -53,9 +54,9 @@ def test_clean_detrend_and_standardize(sample_timeseries):
     assert_allclose(std_per_voxel.values, 1.0, rtol=1e-10)
 
 
-def test_clean_with_confounds_reduces_correlation(sample_timeseries):
+def test_clean_with_confounds_reduces_correlation(make_sample_timeseries):
     """Test confound regression reduces correlation with confounds."""
-    signals = sample_timeseries(n_time=200, n_voxels=3)
+    signals = make_sample_timeseries(n_time=200, n_voxels=3)
     time = np.arange(signals.sizes["time"]) / 100.0
     confound = np.sin(2 * np.pi * time)
     weights = np.array([2.0, -1.0, 0.5])
@@ -82,9 +83,9 @@ def test_clean_with_confounds_reduces_correlation(sample_timeseries):
     assert abs(after) < abs(before) * 1e-2
 
 
-def test_clean_scrub_censors_after_filter(sample_timeseries):
+def test_clean_scrub_censors_after_filter(make_sample_timeseries):
     """Test scrubbing interpolates then censors samples when filtering."""
-    signals = sample_timeseries(n_time=100, sampling_rate=100.0)
+    signals = make_sample_timeseries(n_time=100, sampling_rate=100.0)
     mask_values = np.ones(100, dtype=bool)
     mask_values[[10, 25, 60]] = False
     sample_mask = xr.DataArray(
@@ -102,9 +103,9 @@ def test_clean_scrub_censors_after_filter(sample_timeseries):
     assert result.sizes["time"] == np.sum(mask_values)
 
 
-def test_clean_censors_first_without_filter_or_detrend(sample_timeseries):
+def test_clean_censors_first_without_filter_or_detrend(make_sample_timeseries):
     """Test censoring occurs immediately when no detrend/filter requested."""
-    signals = sample_timeseries(n_time=100, sampling_rate=100.0)
+    signals = make_sample_timeseries(n_time=100, sampling_rate=100.0)
     mask_values = np.ones(100, dtype=bool)
     mask_values[[10, 25, 60]] = False
     sample_mask = xr.DataArray(
@@ -121,9 +122,9 @@ def test_clean_censors_first_without_filter_or_detrend(sample_timeseries):
     assert result.sizes["time"] == np.sum(mask_values)
 
 
-def test_clean_filter_low_pass_matches_filter_butterworth(sample_timeseries):
+def test_clean_filter_low_pass_matches_filter_butterworth(make_sample_timeseries):
     """Test low_pass matches high_cutoff argument."""
-    signals = sample_timeseries(n_time=200, sampling_rate=100.0)
+    signals = make_sample_timeseries(n_time=200, sampling_rate=100.0)
 
     expected = filter_butterworth(signals, high_cutoff=5.0)
     result = clean(
@@ -136,40 +137,40 @@ def test_clean_filter_low_pass_matches_filter_butterworth(sample_timeseries):
     assert_allclose(result.values, expected.values)
 
 
-def test_clean_rejects_non_dict_filter_kwargs(sample_timeseries):
+def test_clean_rejects_non_dict_filter_kwargs(make_sample_timeseries):
     """Test filter_kwargs must be a dict."""
     with pytest.raises(TypeError, match="filter_kwargs must be a dict"):
-        clean(sample_timeseries(), filter_kwargs=1)  # ty: ignore[invalid-argument-type]
+        clean(make_sample_timeseries(), filter_kwargs=1)  # ty: ignore[invalid-argument-type]
 
 
-def test_clean_rejects_cutoffs_inside_filter_kwargs(sample_timeseries):
+def test_clean_rejects_cutoffs_inside_filter_kwargs(make_sample_timeseries):
     """Test cutoffs must be passed directly to clean."""
     with pytest.raises(
         ValueError, match="Pass low_cutoff/high_cutoff directly to clean"
     ):
-        clean(sample_timeseries(), filter_kwargs={"high_cutoff": 1.0})
+        clean(make_sample_timeseries(), filter_kwargs={"high_cutoff": 1.0})
 
 
-def test_clean_rejects_non_dict_interpolate_kwargs(sample_timeseries):
+def test_clean_rejects_non_dict_interpolate_kwargs(make_sample_timeseries):
     """Test interpolate_kwargs must be a dict."""
     with pytest.raises(TypeError, match="interpolate_kwargs must be a dict"):
-        clean(sample_timeseries(), interpolate_kwargs=1)  # ty: ignore[invalid-argument-type]
+        clean(make_sample_timeseries(), interpolate_kwargs=1)  # ty: ignore[invalid-argument-type]
 
 
-def test_clean_rejects_method_inside_interpolate_kwargs(sample_timeseries):
+def test_clean_rejects_method_inside_interpolate_kwargs(make_sample_timeseries):
     """Test interpolate method must be passed directly to clean."""
     with pytest.raises(
         ValueError,
         match="Pass interpolate_method directly to clean, not in interpolate_kwargs",
     ):
-        clean(sample_timeseries(), interpolate_kwargs={"method": "nearest"})
+        clean(make_sample_timeseries(), interpolate_kwargs={"method": "nearest"})
 
 
 def test_clean_filter_with_boundary_censoring_and_confounds_stays_finite(
-    sample_timeseries,
+    make_sample_timeseries,
 ):
     """Test boundary-censored samples do not poison filtered outputs."""
-    signals = sample_timeseries(n_time=100, n_voxels=3, sampling_rate=100.0)
+    signals = make_sample_timeseries(n_time=100, n_voxels=3, sampling_rate=100.0)
     confounds = xr.DataArray(
         np.column_stack(
             [
@@ -200,10 +201,10 @@ def test_clean_filter_with_boundary_censoring_and_confounds_stays_finite(
 
 
 def test_clean_leaves_interior_non_finite_uncorrected_when_ensure_finite_false(
-    sample_timeseries,
+    make_sample_timeseries,
 ):
     """Test an interior non-finite kept sample is not silently repaired."""
-    signals = sample_timeseries(n_time=100, n_voxels=1, sampling_rate=100.0)
+    signals = make_sample_timeseries(n_time=100, n_voxels=1, sampling_rate=100.0)
     signals.values[50, 0] = np.nan  # Interior value at a kept (non-censored) index.
 
     mask_values = np.ones(signals.sizes["time"], dtype=bool)
@@ -224,9 +225,9 @@ def test_clean_leaves_interior_non_finite_uncorrected_when_ensure_finite_false(
     assert not np.any(np.isfinite(result.values))
 
 
-def test_clean_interpolate_kwargs_match_manual_pipeline(sample_timeseries):
+def test_clean_interpolate_kwargs_match_manual_pipeline(make_sample_timeseries):
     """Test interpolate_kwargs are forwarded to pre-scrubbing interpolation."""
-    signals = sample_timeseries(n_time=100, sampling_rate=100.0)
+    signals = make_sample_timeseries(n_time=100, sampling_rate=100.0)
     mask_values = np.ones(signals.sizes["time"], dtype=bool)
     mask_values[[0, -1]] = False
     sample_mask = xr.DataArray(
@@ -253,9 +254,9 @@ def test_clean_interpolate_kwargs_match_manual_pipeline(sample_timeseries):
     assert_allclose(result.values, expected.values)
 
 
-def test_clean_noop_preserves_non_finite_when_ensure_finite_false(sample_timeseries):
+def test_clean_noop_preserves_non_finite_when_ensure_finite_false(make_sample_timeseries):
     """Test ensure_finite=False leaves non-finite values unchanged."""
-    signals = sample_timeseries()
+    signals = make_sample_timeseries()
     signals.values[0, 0] = np.nan
     signals.values[1, 1] = np.inf
 
@@ -265,9 +266,9 @@ def test_clean_noop_preserves_non_finite_when_ensure_finite_false(sample_timeser
     assert np.isinf(result.values[1, 1])
 
 
-def test_clean_ensure_finite_matches_manual_interpolation(sample_timeseries):
+def test_clean_ensure_finite_matches_manual_interpolation(make_sample_timeseries):
     """Test ensure_finite=True matches manual time interpolation."""
-    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=100.0)
+    signals = make_sample_timeseries(n_time=200, n_voxels=3, sampling_rate=100.0)
     confounds = xr.DataArray(
         np.column_stack(
             [
@@ -315,9 +316,9 @@ def test_clean_ensure_finite_matches_manual_interpolation(sample_timeseries):
     assert_allclose(result.values, expected.values)
 
 
-def test_clean_boundary_fill_uses_nearest_kept_sample(sample_timeseries):
+def test_clean_boundary_fill_uses_nearest_kept_sample(make_sample_timeseries):
     """Test censored boundary samples are filled from the nearest kept sample."""
-    signals = sample_timeseries(n_time=100, n_voxels=3, sampling_rate=100.0)
+    signals = make_sample_timeseries(n_time=100, n_voxels=3, sampling_rate=100.0)
     mask_values = np.ones(signals.sizes["time"], dtype=bool)
     mask_values[[0, 1, -2, -1]] = False  # Censor two samples at each boundary.
     sample_mask = xr.DataArray(
@@ -367,9 +368,9 @@ def test_clean_ensure_finite_raises_for_all_non_finite_series():
         clean(signals, ensure_finite=True)
 
 
-def test_clean_psc_restores_original_mean_after_highpass(sample_timeseries):
+def test_clean_psc_restores_original_mean_after_highpass(make_sample_timeseries):
     """Test PSC uses the original mean after mean-removing filtering."""
-    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=100.0) + 100.0
+    signals = make_sample_timeseries(n_time=200, n_voxels=3, sampling_rate=100.0) + 100.0
 
     filtered = filter_butterworth(signals, low_cutoff=1.0)
     expected = standardize(filtered + signals.mean(dim="time"), method="psc")
@@ -382,9 +383,9 @@ def test_clean_psc_restores_original_mean_after_highpass(sample_timeseries):
     assert_allclose(result.values, expected.values)
 
 
-def test_clean_cosine_filter_matches_filter_cosine(sample_timeseries):
+def test_clean_cosine_filter_matches_filter_cosine(make_sample_timeseries):
     """Test clean can use cosine high-pass filtering."""
-    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+    signals = make_sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
 
     expected = filter_cosine(signals, low_cutoff=0.1)
     result = clean(
@@ -422,9 +423,9 @@ def test_clean_cosine_filter_kwargs_are_forwarded():
     assert_allclose(result.values, expected.values)
 
 
-def test_clean_cosine_filter_is_jointly_regressed_with_confounds(sample_timeseries):
+def test_clean_cosine_filter_is_jointly_regressed_with_confounds(make_sample_timeseries):
     """Test cosine drift terms are regressed jointly with user confounds."""
-    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+    signals = make_sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
     time = signals.coords["time"].values
     confounds = xr.DataArray(
         np.column_stack(
@@ -462,9 +463,9 @@ def test_clean_cosine_filter_is_jointly_regressed_with_confounds(sample_timeseri
     assert_allclose(result.values, expected.values)
 
 
-def test_clean_cosine_filter_joint_regression_with_1d_confounds(sample_timeseries):
+def test_clean_cosine_filter_joint_regression_with_1d_confounds(make_sample_timeseries):
     """Test cosine drift terms are appended to 1D confounds."""
-    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+    signals = make_sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
     time = signals.coords["time"].values
     confounds = xr.DataArray(
         np.sin(2 * np.pi * 0.02 * time),
@@ -502,18 +503,29 @@ def test_clean_cosine_filter_joint_regression_with_1d_confounds(sample_timeserie
     assert_allclose(result.values, expected.values)
 
 
-def test_clean_cosine_filter_joint_regression_renames_2d_confound_dim(
-    sample_timeseries,
-):
-    """Test cosine joint regression handles 2D confounds without `confound` dim."""
-    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+
+def _assert_clean_cosine_joint_regression_matches_reference(
+    signals: xr.DataArray, confounds: xr.DataArray
+) -> None:
+    """Compare cosine joint regression to explicit combined confound regression."""
     time = signals.coords["time"].values
-    confounds = xr.DataArray(
-        np.column_stack(
-            [np.sin(2 * np.pi * 0.02 * time), np.cos(2 * np.pi * 0.03 * time)]
-        ),
-        dims=["time", "component"],
-        coords={"time": signals.coords["time"]},
+    design = make_first_level_design_matrix(
+        time, events=None, drift_model="cosine", low_cutoff=0.1
+    )
+    cosine_names = [c for c in design.columns if c.startswith("cosine")] + ["constant"]
+    combined_confounds = xr.DataArray(
+        np.column_stack([confounds.values, design[cosine_names].to_numpy()]),
+        dims=["time", "confound"],
+        coords={
+            "time": signals.coords["time"],
+            "confound": [
+                *[f"confound_{i}" for i in range(confounds.shape[1])],
+                *cosine_names,
+            ],
+        },
+    )
+    expected = regress_confounds(
+        signals, combined_confounds, standardize_confounds=False
     )
 
     result = clean(
@@ -525,14 +537,30 @@ def test_clean_cosine_filter_joint_regression_renames_2d_confound_dim(
         confounds=confounds,
     )
 
-    assert result.shape == signals.shape
+    assert_allclose(result.values, expected.values)
+
+def test_clean_cosine_filter_joint_regression_renames_2d_confound_dim(
+    make_sample_timeseries,
+):
+    """Test cosine joint regression handles 2D confounds without `confound` dim."""
+    signals = make_sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+    time = signals.coords["time"].values
+    confounds = xr.DataArray(
+        np.column_stack(
+            [np.sin(2 * np.pi * 0.02 * time), np.cos(2 * np.pi * 0.03 * time)]
+        ),
+        dims=["time", "component"],
+        coords={"time": signals.coords["time"]},
+    )
+
+    _assert_clean_cosine_joint_regression_matches_reference(signals, confounds)
 
 
 def test_clean_cosine_filter_joint_regression_drops_extra_confound_coords(
-    sample_timeseries,
+    make_sample_timeseries,
 ):
     """Test cosine joint regression ignores auxiliary confound coordinates."""
-    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+    signals = make_sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
     time = signals.coords["time"].values
     confounds = xr.DataArray(
         np.column_stack(
@@ -546,16 +574,7 @@ def test_clean_cosine_filter_joint_regression_drops_extra_confound_coords(
         },
     )
 
-    result = clean(
-        signals,
-        detrend_order=None,
-        standardize_method=None,
-        low_cutoff=0.1,
-        filter_method="cosine",
-        confounds=confounds,
-    )
-
-    assert result.shape == signals.shape
+    _assert_clean_cosine_joint_regression_matches_reference(signals, confounds)
 
 
 def test_clean_cosine_filter_rejects_nonuniform_time():
@@ -571,26 +590,26 @@ def test_clean_cosine_filter_rejects_nonuniform_time():
         clean(signals, low_cutoff=0.1, filter_method="cosine")
 
 
-def test_clean_cosine_filter_rejects_high_cutoff(sample_timeseries):
+def test_clean_cosine_filter_rejects_high_cutoff(make_sample_timeseries):
     """Test cosine filtering cannot be used as a low-pass filter."""
     with pytest.raises(ValueError, match="Cosine filtering only supports low_cutoff"):
-        clean(sample_timeseries(), high_cutoff=1.0, filter_method="cosine")
+        clean(make_sample_timeseries(), high_cutoff=1.0, filter_method="cosine")
 
 
-def test_clean_cosine_filter_rejects_butterworth_kwargs(sample_timeseries):
+def test_clean_cosine_filter_rejects_butterworth_kwargs(make_sample_timeseries):
     """Test cosine filtering rejects Butterworth-only kwargs."""
     with pytest.raises(TypeError, match="unexpected keyword argument 'order'"):
         clean(
-            sample_timeseries(),
+            make_sample_timeseries(),
             low_cutoff=0.1,
             filter_method="cosine",
             filter_kwargs={"order": 3},
         )
 
 
-def test_clean_cosine_filter_rejects_3d_confounds(sample_timeseries):
+def test_clean_cosine_filter_rejects_3d_confounds(make_sample_timeseries):
     """Test cosine joint regression rejects confounds above 2D."""
-    signals = sample_timeseries(n_time=100, n_voxels=3, sampling_rate=10.0)
+    signals = make_sample_timeseries(n_time=100, n_voxels=3, sampling_rate=10.0)
     confounds = xr.DataArray(
         np.zeros((100, 2, 2)),
         dims=["time", "a", "b"],
@@ -606,13 +625,120 @@ def test_clean_cosine_filter_rejects_3d_confounds(sample_timeseries):
         )
 
 
-def test_clean_rejects_invalid_filter_method(sample_timeseries):
+def test_clean_rejects_invalid_filter_method(make_sample_timeseries):
     """Test clean validates `filter_method`."""
     with pytest.raises(
         ValueError, match="filter_method must be 'butterworth' or 'cosine'"
     ):
         clean(
-            sample_timeseries(),
+            make_sample_timeseries(),
             low_cutoff=0.1,
             filter_method="invalid",  # ty: ignore[invalid-argument-type]
         )
+
+
+@pytest.mark.parametrize("filter_method", ["butterworth", "cosine"])
+def test_clean_numpy_inputs_match_dataarray_inputs(
+    make_sample_timeseries, rng, filter_method
+):
+    """Test NumPy sample_mask/confounds match aligned DataArrays through every step."""
+    signals = make_sample_timeseries(n_time=100, sampling_rate=100.0)
+    signals[5, 0] = np.nan
+    mask_values = np.ones(100, dtype=bool)
+    mask_values[[10, 25, 26, 60]] = False
+    confound_values = rng.standard_normal((100, 2))
+    confound_values[40, 1] = np.nan
+    sample_mask = xr.DataArray(
+        mask_values, dims=["time"], coords={"time": signals.coords["time"]}
+    )
+    confounds = xr.DataArray(
+        confound_values,
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"]},
+    )
+
+    def run(sample_mask, confounds):
+        return clean(
+            signals,
+            detrend_order=1,
+            low_cutoff=1.0,
+            filter_method=filter_method,
+            ensure_finite=True,
+            standardize_method="zscore",
+            sample_mask=sample_mask,
+            confounds=confounds,
+        )
+
+    expected = run(sample_mask, confounds)
+    with pytest.warns(UserWarning, match="cannot be verified") as record:
+        result = run(mask_values, confound_values)
+
+    # One warning per NumPy argument; downstream steps receive DataArrays.
+    assert sum("cannot be verified" in str(w.message) for w in record) == 2
+    xr.testing.assert_allclose(result, expected)
+
+
+def test_clean_dataframe_confounds_match_dataarray_confounds(
+    make_sample_timeseries, rng
+):
+    """Test DataFrame confounds with a time column match DataArray confounds."""
+    signals = make_sample_timeseries(n_time=100, sampling_rate=100.0)
+    values = rng.standard_normal((100, 2))
+    confounds = xr.DataArray(
+        values, dims=["time", "confound"], coords={"time": signals.coords["time"]}
+    )
+    frame = pd.DataFrame(
+        {"time": signals.coords["time"].values, "a": values[:, 0], "b": values[:, 1]}
+    )
+
+    expected = clean(
+        signals, detrend_order=1, low_cutoff=1.0, filter_method="cosine", confounds=confounds
+    )
+    result = clean(
+        signals, detrend_order=1, low_cutoff=1.0, filter_method="cosine", confounds=frame
+    )
+
+    xr.testing.assert_allclose(result, expected)
+
+
+@pytest.mark.parametrize("filter_method", ["butterworth", "cosine"])
+def test_clean_multipose_numpy_inputs_match_per_pose(
+    rng, sample_voxeldata_3dt_pose, filter_method
+):
+    """Test pose-dependent signals clean like each pose separately: NumPy confounds
+    and sample_mask apply to every pose and the `(time, pose)` time coord survives."""
+    n_time = sample_voxeldata_3dt_pose.sizes["time"]
+    confounds = rng.standard_normal((n_time, 2))
+    sample_mask = np.ones(n_time, dtype=bool)
+    sample_mask[[0, 4, n_time - 1]] = False
+    time_coord = sample_voxeldata_3dt_pose.coords["time"].values
+
+    # order=1 to stay within the fixture's 10 timepoints (sosfiltfilt requires
+    # more samples than its padlen, which grows with order); cutoffs kept below
+    # the fixture's 1 Hz Nyquist frequency (dt=0.5s). clean() mutates filter_kwargs
+    # in place, so each call gets its own dict.
+    def run(data):
+        return clean(
+            data,
+            detrend_order=1,
+            low_cutoff=0.05,
+            high_cutoff=0.3 if filter_method == "butterworth" else None,
+            filter_method=filter_method,
+            filter_kwargs={"order": 1} if filter_method == "butterworth" else None,
+            confounds=confounds,
+            sample_mask=sample_mask,
+        )
+
+    with pytest.warns(UserWarning) as record:
+        result = run(sample_voxeldata_3dt_pose)
+    messages = [str(warning.message) for warning in record]
+    # One alignment warning per NumPy input at entry, none from internal steps.
+    assert sum("cannot be verified" in m for m in messages) == 2
+    assert sum("regressed from every pose" in m for m in messages) == 1
+    assert result.coords["time"].dims == ("time", "pose")
+    assert_allclose(result.coords["time"].values, time_coord[sample_mask])
+
+    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
+        with pytest.warns(UserWarning, match="cannot be verified"):
+            expected = run(sample_voxeldata_3dt_pose.sel(pose=pose))
+        xr.testing.assert_allclose(result.sel(pose=pose), expected)

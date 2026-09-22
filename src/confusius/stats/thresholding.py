@@ -27,8 +27,8 @@ import numpy as np
 import scipy.stats as sps
 from scipy.ndimage import generate_binary_structure, label
 
+from confusius._utils.mask import validate_spatial_or_feature_mask
 from confusius._utils.stack import find_stack_level
-from confusius.validation.mask import validate_mask
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -224,7 +224,7 @@ def _build_mask(
         Boolean array with the spatial shape of `stat_map`, True for tested voxels.
     """
     if mask is not None:
-        validate_mask(mask, stat_map, mask_name="mask")
+        mask = validate_spatial_or_feature_mask(stat_map, mask, mask_name="mask")
         return mask.transpose(*stat_map.dims).values.astype(bool)
 
     selected = np.ones(stat_map.shape, dtype=bool)

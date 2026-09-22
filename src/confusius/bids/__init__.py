@@ -27,8 +27,6 @@ Examples
 """
 
 from confusius.bids.coordinates import (
-    DIM_TO_SLICE_ENCODING_DIRECTION,
-    SLICE_ENCODING_DIRECTION_TO_DIM,
     create_bids_slice_timing_from_coordinate,
     create_slice_time_coordinate_from_bids,
 )
@@ -43,10 +41,8 @@ from confusius.bids.validation import (
 
 __all__ = [
     "DEFAULT_TRIAL_TYPE",
-    "DIM_TO_SLICE_ENCODING_DIRECTION",
     "EXPLICIT_BIDS_FIELD_MAPPINGS",
     "FUSI_BIDS_FIELDS",
-    "SLICE_ENCODING_DIRECTION_TO_DIM",
     "FUSIBIDSMetadata",
     "create_bids_slice_timing_from_coordinate",
     "create_slice_time_coordinate_from_bids",

@@ -11,18 +11,18 @@ from confusius.qc import compute_cv, compute_tsnr
 class TestReferenceImplementation:
     """Tests comparing against naive reference implementations."""
 
-    def test_tsnr_matches_naive(self, sample_timeseries):
+    def test_tsnr_matches_naive(self, make_sample_timeseries):
         """tSNR must equal voxel-wise mean divided by standard deviation."""
-        signals = sample_timeseries()
+        signals = make_sample_timeseries()
 
         expected = signals.mean("time") / signals.std("time")
         result = compute_tsnr(signals)
 
         assert_allclose(result.values, expected.values, rtol=1e-10)
 
-    def test_cv_matches_naive(self, sample_timeseries):
+    def test_cv_matches_naive(self, make_sample_timeseries):
         """CV must equal voxel-wise standard deviation divided by mean."""
-        signals = sample_timeseries()
+        signals = make_sample_timeseries()
 
         expected = signals.std("time") / signals.mean("time")
         result = compute_cv(signals)

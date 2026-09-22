@@ -15,7 +15,7 @@ quickstart-light.png.
 
 from pathlib import Path
 
-import confusius as cf  # noqa: F401  # Registers xarray accessors.
+import confusius as cf  # Registers xarray accessors.
 from confusius.datasets import fetch_nunez_elizalde_2022
 
 HERE = Path(__file__).parent

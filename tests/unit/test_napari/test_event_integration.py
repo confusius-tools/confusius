@@ -11,25 +11,34 @@ from confusius._napari._events._store import EventStore
 from confusius._napari._signals._plotter import SignalPlotter
 from confusius._napari._time_overlay import _TimeOverlay
 from confusius.plotting import plot_napari
+from confusius.xarray import create_voxeldata
 
 
 def _make_4d_da(rng, time_attrs=None):
-    """Create a minimal 4D DataArray with a time coordinate in seconds."""
+    """Create a minimal 4D DataArray with a time coordinate in seconds.
+
+    The `time` coordinate carries complete acquisition-window attrs
+    (`volume_acquisition_reference`/`volume_acquisition_duration`/`units`) by
+    default, matching what every canonically-constructed DataArray carries. Pass
+    `time_attrs` with specific keys omitted to test a genuinely incomplete `time`
+    coordinate (e.g. data assembled by hand outside the usual construction path).
+    """
     shape = (5, 4, 6, 8)
     data = rng.random(shape).astype(np.float32)
-    return xr.DataArray(
+    default_attrs = {
+        "units": "s",
+        "volume_acquisition_reference": "start",
+        "volume_acquisition_duration": 1.0,
+    }
+    return create_voxeldata(
         data,
-        dims=["time", "z", "y", "x"],
-        coords={
-            "time": xr.DataArray(
-                np.arange(5) * 1.0,
-                dims=["time"],
-                attrs={"units": "s", **(time_attrs or {})},
-            ),
-            "z": xr.DataArray(np.arange(4) * 0.2, dims=["z"]),
-            "y": xr.DataArray(np.arange(6) * 0.1, dims=["y"]),
-            "x": xr.DataArray(np.arange(8) * 0.05, dims=["x"]),
-        },
+        dims=("time", "k", "j", "i"),
+        time=xr.DataArray(
+            np.arange(5) * 1.0,
+            dims=["time"],
+            attrs=default_attrs if time_attrs is None else time_attrs,
+        ),
+        spacing=(0.2, 0.1, 0.05),
     )
 
 
@@ -71,22 +80,32 @@ def test_overlay_names_active_event(rng, make_napari_viewer):
 
     # Move to time = 2.0 s (frame 2), which is inside the events.
     viewer.dims.set_current_step(overlay._time_idx, 2)
-    assert "stim [1.00 s, 3.00 s)" in viewer.text_overlay.text
+    assert "stim [1.00 s, 3.00 s)" in viewer.canvas.overlays.text.text
     # Names longer than 10 characters are truncated to 8 + ellipsis.
-    assert "whisker_... [1.00 s, 3.00 s)" in viewer.text_overlay.text
-    assert "whisker_stimulation_left" not in viewer.text_overlay.text
+    assert "whisker_... [1.00 s, 3.00 s)" in viewer.canvas.overlays.text.text
+    assert "whisker_stimulation_left" not in viewer.canvas.overlays.text.text
 
     # Move to time = 4.0 s (frame 4), outside the event.
     viewer.dims.set_current_step(overlay._time_idx, 4)
-    assert "stim" not in viewer.text_overlay.text
+    assert "stim" not in viewer.canvas.overlays.text.text
 
 
 def test_overlay_snaps_unsampled_event_to_next_frame(rng, make_napari_viewer):
     """An event no frame samples appears on the next frame's overlay."""
     viewer = make_napari_viewer()
-    plot_napari(
-        _make_4d_da(rng), viewer=viewer, show_colorbar=False, show_scale_bar=False
+    # A short acquisition duration relative to the 1 s frame spacing leaves a real gap
+    # between frames' windows (a canonical time coordinate always has a
+    # volume_acquisition_reference/duration, so a fully degenerate point-window, as a
+    # missing duration would otherwise produce, is no longer a state real data is in).
+    da = _make_4d_da(
+        rng,
+        time_attrs={
+            "units": "s",
+            "volume_acquisition_reference": "start",
+            "volume_acquisition_duration": 0.15,
+        },
     )
+    plot_napari(da, viewer=viewer, show_colorbar=False, show_scale_bar=False)
     store = EventStore()
     store.add_event(1.2, 0.1, "stim")  # entirely between frames at 1.0 and 2.0
     store.add_event(-0.5, 0.0, "blip")  # before the recording
@@ -97,20 +116,20 @@ def test_overlay_snaps_unsampled_event_to_next_frame(rng, make_napari_viewer):
     overlay.check()
 
     viewer.dims.set_current_step(overlay._time_idx, 0)
-    assert "blip [-0.50 s, -0.50 s)" in viewer.text_overlay.text
+    assert "blip [-0.50 s, -0.50 s)" in viewer.canvas.overlays.text.text
 
     viewer.dims.set_current_step(overlay._time_idx, 1)
-    assert "stim" not in viewer.text_overlay.text
-    assert "tick" in viewer.text_overlay.text
+    assert "stim" not in viewer.canvas.overlays.text.text
+    assert "tick" in viewer.canvas.overlays.text.text
 
     viewer.dims.set_current_step(overlay._time_idx, 2)
-    assert "stim [1.20 s, 1.30 s)" in viewer.text_overlay.text
+    assert "stim [1.20 s, 1.30 s)" in viewer.canvas.overlays.text.text
     # Regression: an event at exactly a frame's timestamp must not be repeated
     # on the following frame.
-    assert "tick" not in viewer.text_overlay.text
+    assert "tick" not in viewer.canvas.overlays.text.text
 
     viewer.dims.set_current_step(overlay._time_idx, 3)
-    assert "stim" not in viewer.text_overlay.text
+    assert "stim" not in viewer.canvas.overlays.text.text
 
 
 def test_overlay_uses_acquisition_window(rng, make_napari_viewer):
@@ -119,6 +138,7 @@ def test_overlay_uses_acquisition_window(rng, make_napari_viewer):
     da = _make_4d_da(
         rng,
         time_attrs={
+            "units": "s",
             "volume_acquisition_reference": "start",
             "volume_acquisition_duration": 0.8,
         },
@@ -133,22 +153,22 @@ def test_overlay_uses_acquisition_window(rng, make_napari_viewer):
     overlay.check()
 
     viewer.dims.set_current_step(overlay._time_idx, 2)
-    assert "stim" in viewer.text_overlay.text
-    assert "gap" not in viewer.text_overlay.text
+    assert "stim" in viewer.canvas.overlays.text.text
+    assert "gap" not in viewer.canvas.overlays.text.text
 
     viewer.dims.set_current_step(overlay._time_idx, 3)
-    assert "gap [2.85 s, 2.90 s)" in viewer.text_overlay.text
-    assert "stim" not in viewer.text_overlay.text
+    assert "gap [2.85 s, 2.90 s)" in viewer.canvas.overlays.text.text
+    assert "stim" not in viewer.canvas.overlays.text.text
 
 
 def test_overlay_window_falls_back_to_time_spacing(rng, make_napari_viewer):
-    """With a reference but no duration, the frame spacing tiles the windows.
+    """With uniform frame spacing, the acquisition window tiles the frame spacing.
 
     A short event between two frame timestamps is then attributed to the frame
     whose acquisition covers it, not snapped to the next frame.
     """
     viewer = make_napari_viewer()
-    da = _make_4d_da(rng, time_attrs={"volume_acquisition_reference": "start"})
+    da = _make_4d_da(rng)
     plot_napari(da, viewer=viewer, show_colorbar=False, show_scale_bar=False)
     store = EventStore()
     store.add_event(1.5, 0.0, "dirac")  # between frames 1 and 2
@@ -159,10 +179,10 @@ def test_overlay_window_falls_back_to_time_spacing(rng, make_napari_viewer):
 
     # Frames are 1 s apart, so frame 1's window is [1.0, 2.0) and covers the event.
     viewer.dims.set_current_step(overlay._time_idx, 1)
-    assert "dirac [1.50 s, 1.50 s)" in viewer.text_overlay.text
+    assert "dirac [1.50 s, 1.50 s)" in viewer.canvas.overlays.text.text
 
     viewer.dims.set_current_step(overlay._time_idx, 2)
-    assert "dirac" not in viewer.text_overlay.text
+    assert "dirac" not in viewer.canvas.overlays.text.text
 
 
 def test_panel_binds_keys_while_visible(make_napari_viewer):

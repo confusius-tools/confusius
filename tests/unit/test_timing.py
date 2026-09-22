@@ -95,7 +95,7 @@ def test_convert_time_reference_rejects_invalid_reference() -> None:
 
 
 def test_convert_time_reference_shifts_with_reference_factor() -> None:
-    """Reference conversion preserves the expected physical offset."""
+    """Reference conversion preserves the expected world offset."""
     converted = convert_time_reference(
         np.array([0.0, 1.0]),
         volume_duration=0.2,
@@ -192,6 +192,42 @@ def test_resample_time_handles_dask_with_changed_time_length() -> None:
     assert result.shape == (3, 2)
     assert_allclose(result.sel(x=0).values, [1.5, 2.5, 3.5])
     assert_allclose(result.sel(x=1).values, [15.0, 25.0, 35.0])
+
+
+def test_resample_time_preserves_float32_dtype() -> None:
+    """Float32 inputs stay float32 after resampling."""
+    data = xr.DataArray(
+        np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
+        dims=("time",),
+        coords={"time": [0.0, 1.0, 2.0, 3.0]},
+    )
+
+    result = resample_time(data, [0.5, 1.5, 2.5])
+
+    assert result.dtype == np.float32
+    assert_allclose(result.values, [1.5, 2.5, 3.5])
+
+
+def test_resample_time_preserves_dask_float32_dtype() -> None:
+    """Dask-backed float32 inputs stay float32 after resampling."""
+    data = xr.DataArray(
+        np.array(
+            [
+                [1.0, 10.0],
+                [2.0, 20.0],
+                [3.0, 30.0],
+                [4.0, 40.0],
+            ],
+            dtype=np.float32,
+        ),
+        dims=("time", "x"),
+        coords={"time": [0.0, 1.0, 2.0, 3.0], "x": [0, 1]},
+    ).chunk({"time": -1, "x": 1})
+
+    result = resample_time(data, [0.5, 1.5, 2.5])
+
+    assert result.dtype == np.float32
+    assert result.compute().dtype == np.float32
 
 
 def test_resample_time_warns_and_falls_back_for_short_cubic_series() -> None:

@@ -170,15 +170,25 @@ class FUSIAccessor:
     def spacing(self) -> dict[str, float | None]:
         """Coordinate spacing for all dimensions.
 
-        Spacing is computed as the median of consecutive coordinate differences.
-        A coordinate is considered uniform if every interval is within 1% of the
-        median interval (per-interval `|diff - median| <= 0.01 * |median|`).
+        Spacing is reported in DataArray dimension order. For native voxel dimensions
+        `k/j/i`, each voxel-space dimension receives its world step length derived
+        from the voxel-to-world affine column norm and the 1D voxel-coordinate
+        step. A coordinate is considered uniform if every interval is within 1% of the
+        median interval (per-interval `|diff - median| <= 0.01 * |median|`). `time`
+        has no such fallback: `volume_acquisition_duration` is the time to acquire one
+        volume, not the step between volumes, so a singleton or non-uniform `time`
+        reports `None` here like any other dimension without a defined step.
 
         Returns
         -------
         dict[str, float | None]
-            Spacing per dimension, in DataArray dimension order. Returns `None` for
-            dimensions with non-uniform or undefined spacing, with a warning.
+            Spacing per dimension. Returns `None` for dimensions with non-uniform or
+            undefined spacing, with a warning.
+
+        Raises
+        ------
+        ValueError
+            If `self` does not carry a voxel-to-world index.
 
         Examples
         --------
@@ -186,28 +196,57 @@ class FUSIAccessor:
         >>> import numpy as np
         >>> import confusius  # noqa: F401
         >>> data = xr.DataArray(
-        ...     np.zeros((10, 20)),
-        ...     dims=["y", "x"],
-        ...     coords={"y": np.arange(10) * 0.2, "x": np.arange(20) * 0.1},
+        ...     np.zeros((3, 10, 20)),
+        ...     dims=["k", "j", "i"],
+        ...     coords={"k": np.arange(3), "j": np.arange(10), "i": np.arange(20)},
+        ... )
+        >>> data = data.fusi.affine.set_voxel_to_world(
+        ...     np.diag([0.2, 0.1, 0.05, 1.0])
         ... )
         >>> data.fusi.spacing
-        {'y': 0.2, 'x': 0.1}
+        {'k': 0.2, 'j': 0.1, 'i': 0.05}
         """
-        from confusius._utils.coordinates import get_coordinate_spacings
+        from confusius._utils.coordinates import get_coordinate_spacing_info
+        from confusius._utils.geometry import (
+            get_voxel_to_world_index_spacing,
+            has_voxel_to_world_index,
+        )
 
-        return get_coordinate_spacings(self._obj)
+        if not has_voxel_to_world_index(self._obj):
+            raise ValueError("DataArray must have a voxel-to-world index.")
+
+        voxel_spacing = get_voxel_to_world_index_spacing(self._obj)
+        missing_dims = [
+            str(dim) for dim in self._obj.dims if str(dim) not in voxel_spacing
+        ]
+        regular_spacing = {
+            dim: get_coordinate_spacing_info(dim, self._obj, 1e-2).value
+            for dim in missing_dims
+        }
+        return {
+            dim_str: voxel_spacing[dim_str]
+            if dim_str in voxel_spacing
+            else regular_spacing[dim_str]
+            for dim_str in (str(dim) for dim in self._obj.dims)
+        }
 
     @property
     def origin(self) -> dict[str, float]:
-        """Physical origin (first coordinate value) for all dimensions.
+        """World origin metadata for the DataArray.
 
-        For each dimension, returns the first coordinate value. If a coordinate is
-        missing, warns and falls back to `0.0`.
+        Non-spatial dimensions use their first coordinate value. Spatial origin is
+        returned in world coordinate order as the world location of the first
+        sampled voxel under the DataArray's voxel-to-world affine.
 
         Returns
         -------
         dict[str, float]
-            Origin per dimension, in DataArray dimension order.
+            Origin metadata for the DataArray.
+
+        Raises
+        ------
+        ValueError
+            If `self` does not carry a voxel-to-world index.
 
         Examples
         --------
@@ -215,16 +254,68 @@ class FUSIAccessor:
         >>> import numpy as np
         >>> import confusius  # noqa: F401
         >>> data = xr.DataArray(
-        ...     np.zeros((10, 20)),
-        ...     dims=["y", "x"],
-        ...     coords={"y": np.arange(10) * 0.2, "x": np.arange(20) * 0.1},
+        ...     np.zeros((3, 10, 20)),
+        ...     dims=["k", "j", "i"],
+        ...     coords={"k": np.arange(3), "j": np.arange(10), "i": np.arange(20)},
         ... )
+        >>> voxel_to_world = np.array(
+        ...     [[0.2, 0.0, 0.0, 1.0], [0.0, 0.1, 0.0, 2.0], [0.0, 0.0, 0.05, 3.0], [0.0, 0.0, 0.0, 1.0]]
+        ... )
+        >>> data = data.fusi.affine.set_voxel_to_world(voxel_to_world)
         >>> data.fusi.origin
-        {'y': 0.0, 'x': 0.0}
+        {'z': 1.0, 'y': 2.0, 'x': 3.0}
         """
         from confusius._utils.coordinates import get_coordinate_origins
+        from confusius._utils.geometry import (
+            get_voxel_to_world_index_origin,
+            get_voxel_to_world_spatial_dims,
+            has_voxel_to_world_index,
+        )
 
-        return get_coordinate_origins(self._obj)
+        if not has_voxel_to_world_index(self._obj):
+            raise ValueError("DataArray must have a voxel-to-world index.")
+
+        voxel_dims = set(get_voxel_to_world_spatial_dims(self._obj))
+        regular_origin = get_coordinate_origins(self._obj)
+        return {
+            **{
+                dim_str: regular_origin[dim_str]
+                for dim_str in (str(dim) for dim in self._obj.dims)
+                if dim_str not in voxel_dims
+            },
+            **get_voxel_to_world_index_origin(self._obj),
+        }
+
+    @property
+    def direction(self):
+        """World-space direction matrix for the present spatial geometry.
+
+        Columns are unit world-space direction vectors for each voxel-space axis
+        (`k`/`j`/`i`, in that order); rows correspond to world axes (`z`/`y`/`x`, in
+        that order). Direction is expressed in dense array-position terms: a voxel
+        coordinate that runs descending (e.g. after `.isel(dim=slice(None, None,
+        -1))`) flips the sign of its column, since array position always counts up
+        from 0 regardless of the coordinate's own direction.
+
+        Returns
+        -------
+        (3, 3) numpy.ndarray
+            Identity for axis-aligned data. For oblique data, the columns are the
+            unit world-space directions of the voxel axes.
+
+        Raises
+        ------
+        ValueError
+            If `self` does not carry a voxel-to-world index.
+        """
+        from confusius._utils.geometry import (
+            get_voxel_to_world_direction_matrix,
+            has_voxel_to_world_index,
+        )
+
+        if not has_voxel_to_world_index(self._obj):
+            raise ValueError("DataArray must have a voxel-to-world index.")
+        return get_voxel_to_world_direction_matrix(self._obj)
 
     @property
     def affine(self) -> FUSIAffineAccessor:
@@ -274,7 +365,7 @@ class FUSIAccessor:
         >>> import numpy as np
         >>> import confusius  # noqa: F401
         >>> data = xr.DataArray(
-        ...     np.zeros((10, 32, 1, 64)), dims=["time", "z", "y", "x"]
+        ...     np.zeros((10, 32, 1, 64)), dims=["time", "k", "j", "i"]
         ... )
         >>> data.fusi.save("recording.nii.gz")
         """

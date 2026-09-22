@@ -65,7 +65,7 @@ def fetch_template_huang_2025(
     """Fetch the Huang et al. (2025) mouse vascular fUSI template.
 
     Downloads the template from OSF on first call, caches it locally, and returns the
-    loaded NIfTI as an Xarray DataArray.
+    loaded NIfTI as a VoxelData array.
 
     Parameters
     ----------

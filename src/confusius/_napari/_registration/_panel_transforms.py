@@ -14,7 +14,7 @@ from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtWidgets import QFileDialog
 
-from confusius._dims import SPATIAL_DIMS
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._napari._registration._panel_utils import (
     _get_image_display_kwargs_from_layer,
     _get_source_dataarray,
@@ -151,7 +151,7 @@ def _make_manual_transform_payload(layer: Layer) -> AffineTransformPayload:
     """
     data = _get_source_dataarray(layer)
     spatial_data = _prepare_between_scan_data(data)
-    spatial_dims = [str(dim) for dim in spatial_data.dims if dim in SPATIAL_DIMS]
+    spatial_dims = [str(dim) for dim in spatial_data.dims if dim in VOXEL_DIMS]
     manual_affine = _get_spatial_manual_affine_from_layer(
         layer, spatial_dims=spatial_dims
     )
@@ -347,7 +347,7 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
     for layer in panel.viewer.layers:
         try:
             data = _get_source_dataarray(layer)
-            spatial_dims = [str(dim) for dim in data.dims if dim in SPATIAL_DIMS]
+            spatial_dims = [str(dim) for dim in data.dims if dim in VOXEL_DIMS]
             if not spatial_dims:
                 continue
             manual_affine = _get_spatial_manual_affine_from_layer(
@@ -589,7 +589,7 @@ def get_selected_initial_transform(
             "or fixed layer."
         )
 
-    spatial_dims = [str(dim) for dim in moving.dims if dim in SPATIAL_DIMS]
+    spatial_dims = [str(dim) for dim in moving.dims if dim in VOXEL_DIMS]
     moving_affine = _get_spatial_manual_affine_from_layer(
         moving_layer,
         spatial_dims=spatial_dims,
@@ -797,10 +797,10 @@ def apply_selected_transform(panel: RegistrationPanel) -> None:
     worker = thread_worker(resample_volume)(
         moving,
         transform,
-        shape=output_grid["shape"],
-        spacing=output_grid["spacing"],
-        origin=output_grid["origin"],
-        dims=output_grid["dims"],
+        output_sizes=dict(zip(VOXEL_DIMS, output_grid["shape"], strict=True)),
+        output_spacing=dict(zip(VOXEL_DIMS, output_grid["spacing"], strict=True)),
+        output_origin=dict(zip(WORLD_DIMS, output_grid["origin"], strict=True)),
+        output_direction=np.asarray(output_grid["direction"], dtype=float),
         interpolation=panel._current_resample_interpolation(),
     )
     apply_payload: ApplyTransformPayload = {
@@ -861,10 +861,10 @@ def apply_selected_inverse_transform(panel: RegistrationPanel) -> None:
     worker = thread_worker(resample_volume)(
         moving,
         transform,
-        shape=output_grid["shape"],
-        spacing=output_grid["spacing"],
-        origin=output_grid["origin"],
-        dims=output_grid["dims"],
+        output_sizes=dict(zip(VOXEL_DIMS, output_grid["shape"], strict=True)),
+        output_spacing=dict(zip(VOXEL_DIMS, output_grid["spacing"], strict=True)),
+        output_origin=dict(zip(WORLD_DIMS, output_grid["origin"], strict=True)),
+        output_direction=np.asarray(output_grid["direction"], dtype=float),
         interpolation=panel._current_resample_interpolation(),
     )
     apply_payload: ApplyTransformPayload = {
@@ -908,20 +908,16 @@ def on_apply_transform_finished(
         else "apply_transform"
     )
 
-    # resample_volume rebuilds output coordinates as bare arrays; re-attach the
-    # voxdim/units metadata recorded in the grid payload so downstream consumers
-    # (e.g. plot_napari layer scale and units) see the same coordinate metadata
-    # as a register_volume result, including the spacing of singleton dims.
-    grid = payload["output_grid"]
-    for dim, spacing, units in zip(
-        grid["dims"], grid["spacing"], grid["units"], strict=True
-    ):
-        if dim not in registered.coords:
-            continue
-        coord_attrs = registered.coords[dim].attrs
-        coord_attrs["voxdim"] = abs(spacing)
-        if units is not None:
-            coord_attrs["units"] = units
+    # resample_volume already carries over its input's unit, but the grid payload
+    # is the recorded ground truth for what the reference used at apply-transform
+    # time actually declared; go through the index-aware accessor (a plain
+    # `.coords[...].attrs[...] = ...` mutation would be silently discarded the next
+    # time an operation touches the index) so downstream consumers (e.g.
+    # plot_napari layer scale and units) see the same unit as a register_volume
+    # result.
+    grid_units = payload["output_grid"]["units"]
+    if grid_units and grid_units[0] is not None:
+        registered = registered.fusi.affine.set_units(grid_units[0])
 
     name = panel._make_unique_layer_name(
         f"{payload['moving_layer_name']} → {payload['target_layer_name']}"

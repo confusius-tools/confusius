@@ -126,7 +126,9 @@ class TestSymMatrixToVec:
         vec = rng.random(p)
         diagonal = rng.random(n + 1)
         sym = vector_to_symmetric_matrix(vec, diagonal=diagonal)
-        assert_array_almost_equal(symmetric_matrix_to_vector(sym, discard_diagonal=True), vec)
+        assert_array_almost_equal(
+            symmetric_matrix_to_vector(sym, discard_diagonal=True), vec
+        )
 
     def test_round_trip_batch(self, rng):
         """Batch (multiple matrices) round-trip."""

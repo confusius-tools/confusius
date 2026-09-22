@@ -3,37 +3,32 @@ import pytest
 import xarray as xr
 
 from confusius.validation import validate_matching_spatial_units
+from confusius.xarray import create_voxeldata
 
 
-def test_matching_spatial_units_ignores_missing_coords() -> None:
-    left = xr.DataArray(np.zeros((2, 2)), dims=("y", "x"), coords={"x": [0.0, 1.0]})
-    right = xr.DataArray(
-        np.zeros((2, 2)),
-        dims=("y", "x"),
-        coords={
-            "y": xr.Variable("y", [0.0, 1.0], attrs={"units": "mm"}),
-            "x": xr.Variable("x", [0.0, 1.0], attrs={"units": "mm"}),
-        },
+def _make_voxeldata() -> xr.DataArray:
+    return create_voxeldata(
+        np.zeros((2, 2, 2)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
     )
+
+
+def test_matching_spatial_units_passes_when_equal() -> None:
+    left = _make_voxeldata()
+    right = _make_voxeldata()
     validate_matching_spatial_units((("left", left), ("right", right)))
 
 
+def test_matching_spatial_units_raises_when_lacking_geometry() -> None:
+    left = _make_voxeldata()
+    right = left.drop_vars(("z", "y", "x"))
+
+    with pytest.raises(ValueError, match="voxel-to-world index"):
+        validate_matching_spatial_units((("left", left), ("right", right)))
+
+
 def test_matching_spatial_units_raises_on_mismatch() -> None:
-    left = xr.DataArray(
-        np.zeros((2, 2)),
-        dims=("y", "x"),
-        coords={
-            "y": xr.Variable("y", [0.0, 1.0], attrs={"units": "mm"}),
-            "x": xr.Variable("x", [0.0, 1.0], attrs={"units": "mm"}),
-        },
-    )
-    right = xr.DataArray(
-        np.zeros((2, 2)),
-        dims=("y", "x"),
-        coords={
-            "y": xr.Variable("y", [0.0, 1.0], attrs={"units": "um"}),
-            "x": xr.Variable("x", [0.0, 1.0], attrs={"units": "um"}),
-        },
-    )
-    with pytest.raises(ValueError, match=r"dimension 'y'.*mm.*um"):
+    left = _make_voxeldata()
+    right = _make_voxeldata().fusi.affine.set_units("um")
+
+    with pytest.raises(ValueError, match=r"left='mm'.*right='um'"):
         validate_matching_spatial_units((("left", left), ("right", right)))

@@ -9,10 +9,11 @@ import xarray as xr
 
 from confusius.registration._utils import (
     abort_on_sigint,
-    dataarray_to_sitk_image,
     expand_thin_dims,
     replace_affines_attr,
     set_sitk_thread_count,
+    validate_intensity_scaling,
+    voxeldata_to_sitk_image,
 )
 from confusius.registration.affines import (
     affine_to_sitk_linear_transform,
@@ -34,7 +35,11 @@ def _validate_register_volume_inputs(
     moving_mask: xr.DataArray | None,
     transform_type: Literal["translation", "rigid", "affine", "bspline"],
     metric: Literal["correlation", "mattes_mi"],
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float,
     number_of_histogram_bins: int,
+    metric_sampling_percentage: float | None,
+    metric_sampling_seed: int | None,
     learning_rate: float | Literal["auto"],
     number_of_iterations: int,
     convergence_window_size: int,
@@ -44,15 +49,15 @@ def _validate_register_volume_inputs(
     shrink_factors: Sequence[int],
     smoothing_sigmas: Sequence[int],
     resample_interpolation: Literal["linear", "bspline"],
-) -> tuple[xr.DataArray | None, xr.DataArray | None]:
+) -> tuple[xr.DataArray, xr.DataArray, xr.DataArray | None, xr.DataArray | None]:
     """Validate all inputs to `register_volume` before any computation.
 
     Parameters
     ----------
     moving : xarray.DataArray
-        Volume to register.
+        Spatial-only VoxelData array to register.
     fixed : xarray.DataArray
-        Reference volume.
+        Spatial-only VoxelData array used as the reference volume.
     fixed_mask : xarray.DataArray or None
         Mask for fixed image. If provided, must have same dimensions as fixed.
     moving_mask : xarray.DataArray or None
@@ -61,8 +66,17 @@ def _validate_register_volume_inputs(
         Transform model name.
     metric : {"correlation", "mattes_mi"}
         Similarity metric name.
+    fixed_intensity_scaling : {"none", "db", "sqrt"} or float
+        Intensity transform applied to `fixed` before optimization.
+    moving_intensity_scaling : {"none", "db", "sqrt"} or float
+        Intensity transform applied to `moving` before optimization.
     number_of_histogram_bins : int
         Number of histogram bins for Mattes mutual information.
+    metric_sampling_percentage : float, optional
+        Random metric sampling percentage in `(0, 1]`. If not provided, all voxels
+        are used without random sampling.
+    metric_sampling_seed : int, optional
+        Random metric sampling seed.
     learning_rate : float or "auto"
         Optimizer step size or `"auto"`.
     number_of_iterations : int
@@ -80,6 +94,10 @@ def _validate_register_volume_inputs(
 
     Returns
     -------
+    moving : xarray.DataArray
+        Canonicalized moving volume.
+    fixed : xarray.DataArray
+        Canonicalized fixed volume.
     fixed_mask : xarray.DataArray or None
         `fixed_mask` coerced to boolean dtype, or None if not provided.
     moving_mask : xarray.DataArray or None
@@ -93,25 +111,17 @@ def _validate_register_volume_inputs(
     # --- DataArray dims and ndim ---
     if "time" in fixed.dims or "time" in moving.dims:
         raise ValueError(
-            "register_volume expects spatial-only DataArrays. "
+            "register_volume expects spatial-only VoxelData arrays. "
             "For volume-wise registration, use register_volumewise."
         )
 
-    from confusius.validation import validate_fusi_dataarray
+    from confusius.validation import ensure_voxeldata
 
-    validate_fusi_dataarray(
-        moving,
-        require_time=False,
-        allow_pose=False,
-        allow_extra_dims=False,
-        minimum_spatial_dims=2,
+    moving = ensure_voxeldata(
+        moving, require_time=False, allow_pose=False, allow_extra_dims=False
     )
-    validate_fusi_dataarray(
-        fixed,
-        require_time=False,
-        allow_pose=False,
-        allow_extra_dims=False,
-        minimum_spatial_dims=2,
+    fixed = ensure_voxeldata(
+        fixed, require_time=False, allow_pose=False, allow_extra_dims=False
     )
     validate_matching_spatial_units((("moving", moving), ("fixed", fixed)))
 
@@ -142,6 +152,9 @@ def _validate_register_volume_inputs(
         raise ValueError(
             f"Invalid metric {metric!r}. Expected one of {sorted(valid_metrics)}."
         )
+
+    validate_intensity_scaling(fixed_intensity_scaling, "fixed_intensity_scaling")
+    validate_intensity_scaling(moving_intensity_scaling, "moving_intensity_scaling")
 
     valid_initializations = {"center_geometry", "center_moments"}
     if (
@@ -193,13 +206,38 @@ def _validate_register_volume_inputs(
             f"got {number_of_histogram_bins!r}."
         )
 
+    if metric_sampling_percentage is not None and (
+        not isinstance(metric_sampling_percentage, (int, float))
+        or not np.isfinite(metric_sampling_percentage)
+        or not 0 < metric_sampling_percentage <= 1
+    ):
+        raise ValueError(
+            "metric_sampling_percentage must be a positive finite float no larger "
+            f"than 1; got {metric_sampling_percentage!r}."
+        )
+
+    if metric_sampling_seed is not None and (
+        metric_sampling_percentage is None or metric_sampling_percentage >= 1
+    ):
+        raise ValueError(
+            "metric_sampling_seed requires metric_sampling_percentage below 1."
+        )
+
+    if metric_sampling_seed is not None and (
+        not isinstance(metric_sampling_seed, int) or metric_sampling_seed < 0
+    ):
+        raise ValueError(
+            f"metric_sampling_seed must be a non-negative integer; got "
+            f"{metric_sampling_seed!r}."
+        )
+
     # --- Mask validation ---
-    from confusius.validation import validate_mask
+    from confusius.validation import ensure_mask
 
     if fixed_mask is not None:
-        fixed_mask = validate_mask(fixed_mask, fixed, "fixed_mask")
+        fixed_mask = ensure_mask(fixed_mask, fixed, "fixed_mask")
     if moving_mask is not None:
-        moving_mask = validate_mask(moving_mask, moving, "moving_mask")
+        moving_mask = ensure_mask(moving_mask, moving, "moving_mask")
 
     # --- Multi-resolution consistency ---
     if len(shrink_factors) != len(smoothing_sigmas):
@@ -208,7 +246,37 @@ def _validate_register_volume_inputs(
             f"got {len(shrink_factors)} and {len(smoothing_sigmas)}."
         )
 
-    return fixed_mask, moving_mask
+    return moving, fixed, fixed_mask, moving_mask
+
+
+def _apply_intensity_scaling(
+    data: xr.DataArray, intensity_scaling: Literal["none", "db", "sqrt"] | float
+) -> xr.DataArray:
+    """Apply optional intensity scaling for optimizer inputs.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Input VoxelData array.
+    intensity_scaling : {"none", "db", "sqrt"} or float
+        Scaling mode to apply. Assumed already validated by
+        `validate_intensity_scaling`. Floats apply power scaling with that
+        exponent.
+
+    Returns
+    -------
+    xarray.DataArray
+        Scaled data for optimization, or `data` unchanged.
+    """
+    if intensity_scaling == "none":
+        return data
+    from confusius.xarray.scale import db_scale, power_scale
+
+    if intensity_scaling == "db":
+        return db_scale(data)
+    if intensity_scaling == "sqrt":
+        return power_scale(data, exponent=0.5)
+    return power_scale(data, exponent=float(intensity_scaling))
 
 
 def _translate_registration_runtime_error(
@@ -239,7 +307,7 @@ def _translate_registration_runtime_error(
 
     parts = [
         "SimpleITK could not compute valid optimizer scales for this registration.",
-        "Some transform parameters have near-zero physical effect, so the gradient-descent optimizer cannot choose a stable step size.",
+        "Some transform parameters have near-zero world effect, so the gradient-descent optimizer cannot choose a stable step size.",
     ]
     if transform_type == "bspline":
         parts.append(
@@ -270,7 +338,11 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving_mask: xr.DataArray | None = ...,
     transform_type: Literal["translation", "rigid", "affine"],
     metric: Literal["correlation", "mattes_mi"] = ...,
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
+    metric_sampling_percentage: float | None = ...,
+    metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
@@ -305,7 +377,11 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving_mask: xr.DataArray | None = ...,
     transform_type: Literal["bspline"],
     metric: Literal["correlation", "mattes_mi"] = ...,
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
+    metric_sampling_percentage: float | None = ...,
+    metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
@@ -339,7 +415,11 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
     metric: Literal["correlation", "mattes_mi"] = ...,
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
+    metric_sampling_percentage: float | None = ...,
+    metric_sampling_seed: int | None = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
@@ -373,7 +453,11 @@ def register_volume(
     moving_mask: xr.DataArray | None = None,
     transform_type: Literal["translation", "rigid", "affine", "bspline"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     number_of_histogram_bins: int = 50,
+    metric_sampling_percentage: float | None = None,
+    metric_sampling_seed: int | None = None,
     learning_rate: float | Literal["auto"] = "auto",
     number_of_iterations: int = 100,
     convergence_minimum_value: float = 1e-6,
@@ -396,17 +480,20 @@ def register_volume(
     progress_plotter: "Callable[..., VolumeRegistrationProgress] | None" = None,
     abort_event: "Event | None" = None,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":
-    """Register a single 2D or 3D volume to a fixed reference.
+    """Register a single 3D volume to a fixed reference.
 
     Voxel spacing and origin are automatically extracted from the DataArray coordinates.
-    Both inputs must be spatial-only (no `time` dimension).
+    Both inputs must be spatial-only (no `time` dimension). Single-slice recordings are
+    supported as 3D volumes with a singleton `k` axis.
 
     Parameters
     ----------
     moving : xarray.DataArray
-        Volume to register to `fixed`. Must be 2D or 3D.
+        Volume to register to `fixed`. Must be a 3D volume with dimensions `k`, `j`, `i`
+        (single-slice recordings use a singleton `k` axis).
     fixed : xarray.DataArray
-        Reference volume. Must be 2D or 3D. Need not have the same shape as `moving`.
+        Reference volume. Must be a 3D volume with dimensions `k`, `j`, `i`. Need not
+        have the same shape as `moving`.
         When spatial coordinate `units` metadata is present on both `moving` and
         `fixed`, it must match.
     fixed_mask : xarray.DataArray, optional
@@ -431,9 +518,22 @@ def register_volume(
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
+    fixed_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
+        Intensity transform applied to `fixed` only for the registration optimizer.
+        Floats apply power scaling with that exponent; `"sqrt"` is an alias for `0.5`.
+    moving_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
+        Intensity transform applied to `moving` only for the registration optimizer,
+        with the same options as `fixed_intensity_scaling`. Returned/resampled data
+        keeps the original input intensities.
     number_of_histogram_bins : int, default: 50
         Number of histogram bins used by Mattes mutual information. Only
         relevant when using `"mattes_mi"` metric.
+    metric_sampling_percentage : float, optional
+        Percentage of voxels randomly sampled when computing the metric, in `(0, 1]`.
+        If not provided, all voxels are used without random sampling.
+    metric_sampling_seed : int, optional
+        Seed for random metric sampling. Only used when `metric_sampling_percentage < 1`.
+        If not provided, SimpleITK's default `sitkWallClock` seed is used.
     learning_rate : float or "auto", default: "auto"
         Optimizer step size in normalized units. `"auto"` re-estimates the rate at
         every iteration. A float uses that value directly; if registration diverges or
@@ -459,11 +559,11 @@ def register_volume(
         For `transform_type="bspline"`, centering modes are ignored but affine
         initialization is supported.
     optimizer_weights : list of float, optional
-        Per-parameter weights applied on top of the auto-estimated physical shift
+        Per-parameter weights applied on top of the auto-estimated world shift
         scales. `None` uses identity weights (all ones). A list is passed directly to
         SimpleITK's `SetOptimizerWeights`; its length must match the number of
-        transform parameters (3 for 2D rigid, 6 for 3D rigid, 6 for 2D affine, 12 for 3D
-        affine). The weight for each parameter is multiplied into the effective step
+        transform parameters (6 for rigid, 12 for affine). The weight for each
+        parameter is multiplied into the effective step
         size: `0` freezes a parameter entirely, values in `(0, 1)` slow it down, and
         `1` leaves it unchanged. For the 3D Euler transform the parameter order is
         `[angleX, angleY, angleZ, tx, ty, tz]`; to disable rotations around x and y
@@ -539,20 +639,19 @@ def register_volume(
     -------
     registered : xarray.DataArray
         When `resample=True`, the moving volume resampled onto the fixed grid with
-        coordinates matching `fixed` and physical-space affines inherited from `fixed`.
+        coordinates matching `fixed` and world-space affines inherited from `fixed`.
         When `resample=False`, the original moving volume with its original coordinates
         and attributes.
-    transform : (N+1, N+1) numpy.ndarray or xarray.DataArray or None
+    transform : (4, 4) numpy.ndarray or xarray.DataArray or None
         Estimated registration transform. For linear transforms (`"translation"`,
-        `"rigid"`, `"affine"`), returns a homogeneous affine matrix of shape `(N+1,
-        N+1)` in physical space, where `N` is the spatial dimensionality (2 or 3).
-        Follows SimpleITK's pull/inverse convention: the matrix maps fixed-space
+        `"rigid"`, `"affine"`), returns a homogeneous `(4, 4)` affine matrix in world
+        space. Follows SimpleITK's pull/inverse convention: the matrix maps fixed-space
         coordinates to moving-space coordinates. For `transform_type="bspline"`,
         returns an `xarray.DataArray` containing the B-spline control-point grid, not a
-        dense deformation field. The first dimension is `component` with length `N`,
-        followed by spatial dimensions in ConfUSIus order (`("y", "x")` in 2D or
-        `("z", "y", "x")` in 3D). The coordinate values along each spatial axis are
-        the physical positions of the control points. Attributes include `type =
+        dense deformation field. The first dimension is `component` with length 3,
+        followed by spatial dimensions in ConfUSIus order (`("k", "j", "i")`). The
+        coordinate values along each spatial axis are
+        the world positions of the control points. Attributes include `type =
         "bspline_transform"`, the spline `order`, and the control-grid `direction`
         matrix. When an affine `initialization` was also supplied, the DataArray also
         includes `attrs["affines"]["bspline_initialization"]` so that the full
@@ -566,17 +665,22 @@ def register_volume(
     Raises
     ------
     ValueError
-        If either input contains a `time` dimension or is not 2D or 3D.
+        If either input contains a `time` dimension or does not contain the spatial
+        dimensions `k`, `j`, and `i`.
     ValueError
         If `moving` or `fixed` contains NaN values.
     ValueError
-        If `transform_type`, `metric`, `initialization`, or
-        `resample_interpolation` is not a recognised value.
+        If `transform_type`, `metric`, `fixed_intensity_scaling`,
+        `moving_intensity_scaling`, `initialization`, or `resample_interpolation`
+        is not a recognised value.
     ValueError
         If `learning_rate` is not a positive finite float or `"auto"`.
     ValueError
         If `number_of_iterations`, `convergence_window_size`, or
         `number_of_histogram_bins` is not a positive integer.
+    ValueError
+        If `metric_sampling_percentage` is outside `(0, 1]`, or if
+        `metric_sampling_seed` is negative or provided without random sampling.
     ValueError
         If `shrink_factors` and `smoothing_sigmas` have different lengths.
     ValueError
@@ -590,14 +694,18 @@ def register_volume(
     """
     import SimpleITK as sitk
 
-    fixed_mask, moving_mask = _validate_register_volume_inputs(
+    moving, fixed, fixed_mask, moving_mask = _validate_register_volume_inputs(
         moving=moving,
         fixed=fixed,
         fixed_mask=fixed_mask,
         moving_mask=moving_mask,
         transform_type=transform_type,
         metric=metric,
+        fixed_intensity_scaling=fixed_intensity_scaling,
+        moving_intensity_scaling=moving_intensity_scaling,
         number_of_histogram_bins=number_of_histogram_bins,
+        metric_sampling_percentage=metric_sampling_percentage,
+        metric_sampling_seed=metric_sampling_seed,
         learning_rate=learning_rate,
         number_of_iterations=number_of_iterations,
         convergence_window_size=convergence_window_size,
@@ -607,15 +715,22 @@ def register_volume(
         resample_interpolation=resample_interpolation,
     )
 
-    fixed_sitk = dataarray_to_sitk_image(fixed)
-    moving_sitk = dataarray_to_sitk_image(moving)
+    fixed_sitk = voxeldata_to_sitk_image(fixed)
+    moving_sitk = voxeldata_to_sitk_image(moving)
+    fixed_optimizer_sitk = voxeldata_to_sitk_image(
+        _apply_intensity_scaling(fixed, fixed_intensity_scaling)
+    )
+    moving_optimizer_sitk = voxeldata_to_sitk_image(
+        _apply_intensity_scaling(moving, moving_intensity_scaling)
+    )
 
     # SimpleITK's multi-resolution pyramid and interpolation fail when any spatial
-    # dimension is smaller than 4 voxels (common for 2D+t fUSI recordings with a 1-voxel
-    # depth). We thus expand thin dimensions before registration; the originals are kept
-    # as the resample source/reference so the output grid is never affected.
-    fixed_reg = expand_thin_dims(fixed_sitk)
-    moving_reg = expand_thin_dims(moving_sitk)
+    # dimension is smaller than 4 voxels (common for single-slice fUSI recordings with
+    # a 1-voxel depth). We thus expand thin dimensions before registration; the
+    # originals are kept as the resample source/reference so the output grid is never
+    # affected.
+    fixed_reg = expand_thin_dims(fixed_optimizer_sitk)
+    moving_reg = expand_thin_dims(moving_optimizer_sitk)
 
     # CenteredTransformInitializer (and the registration method) require both images to
     # have the same pixel type. Cast moving to fixed's type when they differ.
@@ -649,20 +764,29 @@ def register_volume(
             numberOfHistogramBins=number_of_histogram_bins
         )
 
+    if metric_sampling_percentage is not None and metric_sampling_percentage < 1:
+        registration.SetMetricSamplingStrategy(registration.RANDOM)
+        if metric_sampling_seed is None:
+            registration.SetMetricSamplingPercentage(metric_sampling_percentage)
+        else:
+            registration.SetMetricSamplingPercentage(
+                metric_sampling_percentage, metric_sampling_seed
+            )
+
     registration.SetInterpolator(sitk.sitkLinear)
 
     # --- Masks ---
     if fixed_mask is not None:
         # Convert boolean mask to uint8 for SimpleITK
         fixed_mask_uint8 = fixed_mask.astype(np.uint8)
-        fixed_mask_sitk = dataarray_to_sitk_image(fixed_mask_uint8)
+        fixed_mask_sitk = voxeldata_to_sitk_image(fixed_mask_uint8)
         # Expand mask if image was expanded
         fixed_mask_sitk = expand_thin_dims(fixed_mask_sitk)
         registration.SetMetricFixedMask(fixed_mask_sitk)
     if moving_mask is not None:
         # Convert boolean mask to uint8 for SimpleITK
         moving_mask_uint8 = moving_mask.astype(np.uint8)
-        moving_mask_sitk = dataarray_to_sitk_image(moving_mask_uint8)
+        moving_mask_sitk = voxeldata_to_sitk_image(moving_mask_uint8)
         # Expand mask if image was expanded
         moving_mask_sitk = expand_thin_dims(moving_mask_sitk)
         registration.SetMetricMovingMask(moving_mask_sitk)
@@ -682,7 +806,7 @@ def register_volume(
     )
 
     # Normalise parameter scales so that a unit step in each parameter produces the same
-    # physical displacement. This is always applied regardless of learning_rate, so a
+    # world displacement. This is always applied regardless of learning_rate, so a
     # user-supplied float is interpreted in these normalised units. If registration
     # diverges, reduce learning_rate accordingly.
     registration.SetOptimizerScalesFromPhysicalShift()
@@ -707,7 +831,7 @@ def register_volume(
         )
     else:
         if transform_type == "translation":
-            sitk_centering_transform: sitk.Transform = sitk.TranslationTransform(ndim)
+            sitk_centering_transform = sitk.TranslationTransform(ndim)
         elif transform_type == "rigid":
             sitk_centering_transform = (
                 sitk.Euler2DTransform() if ndim == 2 else sitk.Euler3DTransform()
@@ -715,10 +839,26 @@ def register_volume(
         else:
             sitk_centering_transform = sitk.AffineTransform(ndim)
 
-        # CenteredTransformInitializer requires a transform with a center parameter
-        # (e.g. Euler, Affine). TranslationTransform has no center, so centering
-        # initialization is always skipped for translation.
-        if initialization_mode == "center_geometry" and transform_type != "translation":
+        # When a precomputed affine initialization is supplied, place the transform
+        # centre at the fixed image centre so rigid/affine refinement rotates around
+        # a sensible pivot. Centering modes (center_geometry/center_moments) are
+        # skipped in that case, since the affine is treated as the full starting
+        # alignment.
+        if affine_initialization is not None and isinstance(
+            sitk_centering_transform,
+            (sitk.Euler2DTransform, sitk.Euler3DTransform, sitk.AffineTransform),
+        ):
+            fixed_center_index = [0.5 * (size - 1) for size in fixed_reg.GetSize()]
+            fixed_center = fixed_reg.TransformContinuousIndexToPhysicalPoint(
+                fixed_center_index
+            )
+            sitk_centering_transform.SetCenter(fixed_center)
+        elif (
+            initialization_mode == "center_geometry" and transform_type != "translation"
+        ):
+            # CenteredTransformInitializer requires a transform with a center
+            # parameter (e.g. Euler, Affine). TranslationTransform has no center, so
+            # centering initialization is always skipped for translation.
             sitk_centering_transform = sitk.CenteredTransformInitializer(
                 fixed_reg,
                 moving_reg,
@@ -861,6 +1001,10 @@ def register_volume(
         attrs=moving.attrs.copy(),
     )
     if resample:
+        # result already carries fixed's own VoxelToWorldIndex (reused from
+        # fixed.coords above), so only the unrelated attrs["affines"] metadata --
+        # fixed's relationship to other world reference frames -- needs swapping
+        # in for moving's.
         replace_affines_attr(result, fixed)
 
     if transform_type == "bspline":

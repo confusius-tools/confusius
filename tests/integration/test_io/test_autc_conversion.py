@@ -9,7 +9,21 @@ import pytest
 import xarray as xr
 import zarr
 
+import confusius as cf
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius.io.autc import convert_autc_dats_to_zarr
+
+_VOXEL_DIM_BY_WORLD_NAME = dict(zip(WORLD_DIMS, VOXEL_DIMS, strict=True))
+
+
+def get_world_coord_1d(data: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = data.coords[name]
+    dim = _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
 
 
 class TestAUTCConversion:
@@ -28,8 +42,14 @@ class TestAUTCConversion:
         """
         output_path = tmp_path / "output.zarr"
 
-        custom_lateral_coords = np.linspace(-10, 10, 4)
-        custom_axial_coords = np.linspace(0, 20, 6)
+        custom_lateral_spacing = 20.0 / 3.0
+        custom_lateral_origin = -10.0
+        custom_axial_spacing = 4.0
+        custom_axial_origin = 0.0
+        custom_lateral_coords = (
+            custom_lateral_origin + custom_lateral_spacing * np.arange(4)
+        )
+        custom_axial_coords = custom_axial_origin + custom_axial_spacing * np.arange(6)
 
         # Block times that would be extracted by rig-specific utilities.
         block_times = np.array([1.0, 3.0, 5.0, 7.0])
@@ -37,8 +57,8 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=custom_lateral_coords,
-            axial_coords=custom_axial_coords,
+            spacing=(0.4, custom_axial_spacing, custom_lateral_spacing),
+            origin=(0.0, custom_axial_origin, custom_lateral_origin),
             transmit_frequency=3000000.0,
             probe_n_elements=64,
             probe_pitch=0.00025,
@@ -67,9 +87,15 @@ class TestAUTCConversion:
             np.testing.assert_allclose(iq[0, 0, 0, 0], block1_frame1_value)
             np.testing.assert_allclose(iq[3, 0, 0, 0], block2_frame1_value)
 
-            np.testing.assert_allclose(ds["x"].values, custom_lateral_coords)
-            np.testing.assert_allclose(ds["z"].values, np.array([0.0]))
-            np.testing.assert_allclose(ds["y"].values, custom_axial_coords)
+            assert "voxel_to_world" in ds["iq"].attrs
+            iq_loaded = cf.io.load(output_path)
+            np.testing.assert_allclose(
+                get_world_coord_1d(iq_loaded, "x"), custom_lateral_coords
+            )
+            np.testing.assert_allclose(get_world_coord_1d(iq_loaded, "z"), [0.0])
+            np.testing.assert_allclose(
+                get_world_coord_1d(iq_loaded, "y"), custom_axial_coords
+            )
 
             expected_times = np.array(
                 [
@@ -96,19 +122,10 @@ class TestAUTCConversion:
                 3 / 1500.0
             )
 
-            assert ds["z"].attrs["units"] == "mm"
-            assert ds["z"].attrs["long_name"] == "Elevation"
+            assert iq_loaded.coords["z"].attrs["units"] == "mm"
+            assert iq_loaded.coords["y"].attrs["units"] == "mm"
+            assert iq_loaded.coords["x"].attrs["units"] == "mm"
 
-            assert ds["y"].attrs["units"] == "mm"
-            assert ds["y"].attrs["long_name"] == "Depth"
-
-            assert ds["x"].attrs["units"] == "mm"
-            assert ds["x"].attrs["long_name"] == "Lateral"
-
-            # Verify voxdim is stored as per-coordinate attribute.
-            assert ds["z"].attrs["voxdim"] == pytest.approx(0.4)
-            assert ds["y"].attrs["voxdim"] == pytest.approx(4.0)
-            assert ds["x"].attrs["voxdim"] == pytest.approx(20.0 / 3.0)
             assert ds["iq"].attrs["transmit_frequency"] == 3000000.0
             assert ds["iq"].attrs["probe_number_of_elements"] == 64
             assert ds["iq"].attrs["probe_pitch"] == 0.00025
@@ -122,45 +139,29 @@ class TestAUTCConversion:
         """Test overwriting existing Zarr output."""
         output_path = tmp_path / "output.zarr"
 
-        with pytest.warns(UserWarning, match="coords not provided"):
-            convert_autc_dats_to_zarr(
-                synthetic_autc_session,
-                output_path,
-                show_progress=False,
-            )
+        convert_autc_dats_to_zarr(
+            synthetic_autc_session,
+            output_path,
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            show_progress=False,
+        )
 
         first_shape = cast(
             zarr.Array, zarr.open_group(output_path, mode="r")["iq"]
         ).shape
 
-        with pytest.warns(UserWarning, match="coords not provided"):
-            convert_autc_dats_to_zarr(
-                synthetic_autc_session,
-                output_path,
-                overwrite=True,
-                show_progress=False,
-            )
+        convert_autc_dats_to_zarr(
+            synthetic_autc_session,
+            output_path,
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            overwrite=True,
+            show_progress=False,
+        )
 
         second_shape = cast(
             zarr.Array, zarr.open_group(output_path, mode="r")["iq"]
         ).shape
         assert first_shape == second_shape
-
-    def test_frames_per_shard_not_multiple(self, synthetic_autc_session, tmp_path):
-        """Raise `ValueError` when `frames_per_shard` is not a multiple of `frames_per_chunk`."""
-        output_path = tmp_path / "output.zarr"
-
-        with pytest.raises(
-            ValueError,
-            match="frames_per_shard.*must be a multiple of.*frames_per_chunk",
-        ):
-            convert_autc_dats_to_zarr(
-                synthetic_autc_session,
-                output_path,
-                frames_per_chunk=3,
-                frames_per_shard=5,
-                show_progress=False,
-            )
 
     def test_block_times_without_frequency_error(
         self, synthetic_autc_session, tmp_path
@@ -175,7 +176,33 @@ class TestAUTCConversion:
             convert_autc_dats_to_zarr(
                 synthetic_autc_session,
                 output_path,
+                spacing=(0.4, 4.0, 20.0 / 3.0),
                 block_times=[0.0, 1.0, 2.0],
+                show_progress=False,
+            )
+
+    def test_spacing_wrong_length_error(self, synthetic_autc_session, tmp_path):
+        """Raise `ValueError` when `spacing` does not have length 3."""
+        output_path = tmp_path / "output.zarr"
+
+        with pytest.raises(ValueError, match="spacing must have length 3"):
+            convert_autc_dats_to_zarr(
+                synthetic_autc_session,
+                output_path,
+                spacing=(0.4, 4.0),
+                show_progress=False,
+            )
+
+    def test_origin_wrong_length_error(self, synthetic_autc_session, tmp_path):
+        """Raise `ValueError` when `origin` does not have length 3."""
+        output_path = tmp_path / "output.zarr"
+
+        with pytest.raises(ValueError, match="origin must have length 3"):
+            convert_autc_dats_to_zarr(
+                synthetic_autc_session,
+                output_path,
+                spacing=(0.4, 4.0, 20.0 / 3.0),
+                origin=(0.0, 0.0),
                 show_progress=False,
             )
 
@@ -190,6 +217,7 @@ class TestAUTCConversion:
             convert_autc_dats_to_zarr(
                 synthetic_autc_session,
                 output_path,
+                spacing=(0.4, 4.0, 20.0 / 3.0),
                 zarr_kwargs={"shape": (10, 6, 1, 4)},
                 show_progress=False,
             )
@@ -210,10 +238,10 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=np.linspace(-10, 10, 4),
-            axial_coords=np.linspace(0, 20, 6),
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            origin=(0.0, 0.0, -10.0),
             frames_per_chunk=3,
-            frames_per_shard=6,
+            chunks_per_shard=2,
             show_progress=False,
         )
 
@@ -269,8 +297,8 @@ class TestAUTCConversion:
                 convert_autc_dats_to_zarr(
                     synthetic_autc_session,
                     output_path,
-                    lateral_coords=np.linspace(-10, 10, 4),
-                    axial_coords=np.linspace(0, 20, 6),
+                    spacing=(0.4, 4.0, 20.0 / 3.0),
+                    origin=(0.0, 0.0, -10.0),
                     show_progress=False,
                 )
 
@@ -287,8 +315,8 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=np.linspace(-10, 10, 4),
-            axial_coords=np.linspace(0, 20, 6),
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            origin=(0.0, 0.0, -10.0),
             compound_sampling_frequency=1000.0,
             show_progress=False,
         )
@@ -312,8 +340,8 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=np.linspace(-10, 10, 4),
-            axial_coords=np.linspace(0, 20, 6),
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            origin=(0.0, 0.0, -10.0),
             compound_sampling_frequency=500.0,
             skip_first_blocks=1,
             show_progress=False,
@@ -345,8 +373,8 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=np.linspace(-10, 10, 4),
-            axial_coords=np.linspace(0, 20, 6),
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            origin=(0.0, 0.0, -10.0),
             compound_sampling_frequency=500.0,
             skip_last_blocks=1,
             show_progress=False,
@@ -377,8 +405,8 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=np.linspace(-10, 10, 4),
-            axial_coords=np.linspace(0, 20, 6),
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            origin=(0.0, 0.0, -10.0),
             compound_sampling_frequency=500.0,
             block_times=block_times,
             skip_first_blocks=1,
@@ -405,6 +433,7 @@ class TestAUTCConversion:
             convert_autc_dats_to_zarr(
                 synthetic_autc_session,
                 output_path,
+                spacing=(0.4, 4.0, 20.0 / 3.0),
                 skip_first_blocks=2,
                 skip_last_blocks=2,  # Would skip all 4 blocks.
                 show_progress=False,

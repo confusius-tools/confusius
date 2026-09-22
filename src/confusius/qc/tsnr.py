@@ -24,7 +24,7 @@ def compute_tsnr(signals: xr.DataArray) -> xr.DataArray:
     ----------
     signals : (time, ...) xarray.DataArray
         Signals to compute tSNR from. Must have a `time` dimension. Additional
-        dimensions represent spatial locations (e.g., `space`, `z`/`y`/`x`).
+        dimensions represent spatial locations (e.g., `space`, `k`/`j`/`i`).
 
     Returns
     -------
@@ -85,7 +85,7 @@ def compute_tsnr(signals: xr.DataArray) -> xr.DataArray:
     (50,)
     """
     validate_time_series(
-        signals, operation_name="compute_tsnr", check_time_chunks=False
+        signals, operation_name="compute_tsnr", require_unchunked_time=False
     )
 
     tsnr = signals.mean("time") / signals.std("time")
@@ -110,7 +110,7 @@ def compute_cv(signals: xr.DataArray) -> xr.DataArray:
     ----------
     signals : (time, ...) xarray.DataArray
         Signals to compute CV from. Must have a `time` dimension. Additional
-        dimensions represent spatial locations (e.g., `space`, `z`/`y`/`x`).
+        dimensions represent spatial locations (e.g., `space`, `k`/`j`/`i`).
 
     Returns
     -------
@@ -152,7 +152,9 @@ def compute_cv(signals: xr.DataArray) -> xr.DataArray:
     >>> cv.shape
     (50,)
     """
-    validate_time_series(signals, operation_name="compute_cv", check_time_chunks=False)
+    validate_time_series(
+        signals, operation_name="compute_cv", require_unchunked_time=False
+    )
 
     cv = signals.std("time") / signals.mean("time")
     cv.attrs.update(

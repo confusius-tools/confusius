@@ -9,7 +9,7 @@ import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
 from confusius.datasets import fetch_brainglobe_atlas
-from confusius.validation import validate_atlas_dataset
+from confusius.validation import validate_atlas
 
 
 class _FakeBgAtlas:
@@ -22,9 +22,9 @@ class _FakeBgAtlas:
             "check_latest": check_latest,
         }
         shape = (4, 6, 8)
-        self.reference = np.ones(shape, dtype=np.uint16)
-        self.annotation = np.zeros(shape, dtype=np.int32)
-        self.hemispheres = np.ones(shape, dtype=np.int8)
+        self.template = np.ones(shape, dtype=np.uint16)
+        self.annotation = np.zeros(shape, dtype=np.uint32)
+        self.hemispheres = np.ones(shape, dtype=np.uint8)
         self.structures = StructuresDict(
             [
                 {
@@ -67,7 +67,7 @@ def test_returns_valid_atlas_dataset(fake_atlases: list[_FakeBgAtlas]) -> None:
     assert set(result.data_vars) == {"reference", "annotation", "hemispheres"}
     assert result.attrs["name"] == "allen_mouse_25um"
     # The builder output must satisfy the atlas validator.
-    validate_atlas_dataset(result)
+    validate_atlas(result)
 
 
 def test_defaults_check_latest_off_and_brainglobe_default_cache(

@@ -31,7 +31,7 @@ def compute_dvars(
     ----------
     signals : (time, ...) xarray.DataArray
         Signals to compute DVARS from. Must have a `time` dimension. Any additional
-        dimensions (e.g., `pose`, `z`, `y`, `x`) are flattened to a single `space`
+        dimensions (e.g., `pose`, `k`, `j`, `i`) are flattened to a single `space`
         dimension before computation.
     standardize : bool, default: True
         Whether to computed the standardized DVARS. When `True`, the DVARS values are
@@ -132,7 +132,7 @@ def compute_dvars(
     from scipy import stats as sp_stats
 
     validate_time_series(
-        signals, operation_name="compute_dvars", check_time_chunks=False
+        signals, operation_name="compute_dvars", require_unchunked_time=False
     )
 
     time_coords = signals.coords["time"]

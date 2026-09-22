@@ -17,15 +17,16 @@ import pandas as pd
 import xarray as xr
 from sklearn.base import BaseEstimator
 
+from confusius.extract import unmask
 from confusius.glm._contrasts import Contrast
 from confusius.glm._models import OLSModel, RegressionResults
 from confusius.glm._utils import (
-    consensus_attrs,
+    intersect_attrs,
     resolve_contrast_vector,
     select_contrast_map,
-    to_spatial_dataarray,
 )
 from confusius.glm.first_level import FirstLevelModel
+from confusius.validation import ensure_voxeldata
 from confusius.validation.coordinates import validate_matching_coordinates
 
 if TYPE_CHECKING:
@@ -218,9 +219,9 @@ class SecondLevelModel(BaseEstimator):
         ------
         ValueError
             If `second_level_input` is empty, if `FirstLevelModel` objects are passed
-            without `first_level_contrast`, if maps have inconsistent spatial shapes
-            or mismatched spatial coordinates, or if `design_matrix` row count does
-            not match the number of inputs.
+            without `first_level_contrast`, if a map is not valid VoxelData, if maps
+            have inconsistent spatial shapes or mismatched spatial coordinates, or if
+            `design_matrix` row count does not match the number of inputs.
         TypeError
             If `second_level_input` is not a list of `FirstLevelModel` or
             `xarray.DataArray`.
@@ -275,12 +276,14 @@ class SecondLevelModel(BaseEstimator):
         model = OLSModel(dm.to_numpy(dtype=np.float64))
         self.results_: RegressionResults = model.fit(Y)
         self.design_matrix_: pd.DataFrame = dm
-        self._spatial_dims: tuple[str, ...] = ref_dims
-        self._spatial_shape: tuple[int, ...] = ref_shape
-        self._coords: dict[str, xr.Variable] = {
-            str(d): ref.coords[d] for d in ref_dims if d in ref.coords
-        }
-        self._input_attrs: dict[str, object] = consensus_attrs(maps)
+        self._input_attrs: dict[str, object] = intersect_attrs(maps)
+
+        # _resolve_input always canonicalizes maps via ensure_voxeldata, so ref is
+        # always VoxelData; an all-True mask on its grid lets compute_contrast
+        # reconstruct maps via unmask, matching FirstLevelModel's pattern.
+        self._effective_mask_: xr.DataArray = ensure_voxeldata(
+            ref.copy(data=np.ones(ref.shape, dtype=bool)), allow_extra_dims=False
+        )
 
         return self
 
@@ -289,7 +292,7 @@ class SecondLevelModel(BaseEstimator):
         second_level_input: list[xr.DataArray] | list[FirstLevelModel],
         first_level_contrast: str | npt.NDArray[np.floating] | None,
     ) -> list[xr.DataArray]:
-        """Resolve second_level_input to a list of spatial DataArrays.
+        """Resolve second_level_input to a list of VoxelData arrays.
 
         Parameters
         ----------
@@ -301,12 +304,13 @@ class SecondLevelModel(BaseEstimator):
         Returns
         -------
         list of xarray.DataArray
-            Spatial contrast maps ready for fitting.
+            VoxelData arrays ready for fitting.
 
         Raises
         ------
         ValueError
-            If `FirstLevelModel` objects are passed without `first_level_contrast`.
+            If `FirstLevelModel` objects are passed without `first_level_contrast`,
+            or if a resolved map is not valid VoxelData.
         TypeError
             If elements are neither `FirstLevelModel` nor `xarray.DataArray`.
         """
@@ -320,11 +324,13 @@ class SecondLevelModel(BaseEstimator):
                 m.compute_contrast(first_level_contrast, output_type="effect")
                 for m in second_level_input
             ]
+            maps = [ensure_voxeldata(m, allow_pose=False) for m in maps]
             _validate_second_level_maps(maps)
             return maps
 
         if all(isinstance(m, xr.DataArray) for m in second_level_input):
             maps = [m for m in second_level_input if isinstance(m, xr.DataArray)]
+            maps = [ensure_voxeldata(m, allow_pose=False) for m in maps]
             _validate_second_level_maps(maps)
             return maps
 
@@ -380,13 +386,11 @@ class SecondLevelModel(BaseEstimator):
             self.results_, contrast_vec, stat_type=stat_type, baseline=baseline
         )
         flat = select_contrast_map(contrast_obj, output_type)
-        return to_spatial_dataarray(
+        return unmask(
             flat,
-            spatial_dims=self._spatial_dims,
-            spatial_shape=self._spatial_shape,
-            coords=self._coords,
-            attrs=self._input_attrs,
-            name=output_type,
+            self._effective_mask_,
+            new_dims=["contrast_dim"] if flat.ndim == 2 else None,
+            attrs={**self._input_attrs, "long_name": output_type, "cmap": "coolwarm"},
         )
 
     def _check_is_fitted(self) -> None:

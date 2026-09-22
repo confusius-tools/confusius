@@ -123,8 +123,10 @@ from confusius.datasets import fetch_nunez_elizalde_2022
 
 # Download dataset (cached after the first run, ~30 MB).
 bids_root = fetch_nunez_elizalde_2022(
-    subjects="CR022", sessions="20201011",
-    tasks="spontaneous", acqs="slice03",
+    subjects="CR022",
+    sessions="20201011",
+    tasks="spontaneous",
+    acqs="slice03",
 )
 
 # Load power Doppler time series.
@@ -132,16 +134,14 @@ data = cf.load(
     bids_root
     / "sub-CR022/ses-20201011/fusi"
     / "sub-CR022_ses-20201011_task-spontaneous"
-      "_acq-slice03_pwd.nii.gz"
+    "_acq-slice03_pwd.nii.gz"
 )
 
 # Average over time and convert to dB scale.
 mean_db = data.mean("time").fusi.scale.db()
 
 # Plot all z-slices.
-mean_db.fusi.plot.volume(
-    cmap="gray", cbar_label="Power Doppler (dB)"
-)
+mean_db.fusi.plot.volume(cmap="gray", cbar_label="Power Doppler (dB)")
 ```
 
 </div>

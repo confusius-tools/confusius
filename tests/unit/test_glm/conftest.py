@@ -1,7 +1,7 @@
 """Shared fixtures for GLM tests.
 
 Mirrors the conventions of the project-wide
-[`sample_3dt_volume`][tests.unit.conftest.sample_3dt_volume] fixture (mm spatial
+[`sample_voxeldata_3dt`][tests.unit.conftest.sample_voxeldata_3dt] fixture (mm spatial
 coordinates, units/attrs metadata) but uses the longer time series GLM model
 fitting needs to estimate conditions plus drift cleanly.
 """
@@ -10,6 +10,12 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
+
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+)
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture
@@ -33,60 +39,121 @@ def events():
 
 
 @pytest.fixture
+def make_glm_test_dataarray():
+    """Build valid fUSI arrays for GLM tests without constructor helper."""
+
+    def factory(data, dims, *, time=None):
+        shape = np.shape(data)
+        coord_time = None
+        if "time" in dims:
+            n_time = shape[dims.index("time")]
+            coord_time = xr.DataArray(
+                np.arange(n_time) if time is None else time,
+                dims=("time",),
+                attrs={"units": "s"},
+            )
+        return create_voxeldata(
+            data,
+            dims=dims,
+            time=coord_time,
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+        )
+
+    return factory
+
+
+@pytest.fixture
 def fusi_data(rng, frame_times):
-    """Small `(time, z, y, x)` DataArray with mm spatial coordinates."""
+    """Small `(time, k, j, i)` VoxelData array."""
     n_time = len(frame_times)
-    return xr.DataArray(
+    return create_voxeldata(
         rng.standard_normal((n_time, 2, 3, 4)),
-        dims=["time", "z", "y", "x"],
-        coords={
-            "time": frame_times,
-            "z": np.arange(2) * 0.5,
-            "y": np.arange(3) * 0.1,
-            "x": np.arange(4) * 0.1,
-        },
+        dims=("time", "k", "j", "i"),
+        time=frame_times,
+        spacing=(0.5, 0.1, 0.1),
+        origin=(0.0, 0.0, 0.0),
     )
 
 
 @pytest.fixture
 def fusi_data_2d(rng, frame_times):
-    """Small `(time, y, x)` DataArray (no `z` axis)."""
+    """Small `(time, 1, j, i)` VoxelData array."""
     n_time = len(frame_times)
-    return xr.DataArray(
+    return create_voxeldata(
         rng.standard_normal((n_time, 5, 6)),
-        dims=["time", "y", "x"],
-        coords={
-            "time": frame_times,
-            "y": np.arange(5) * 0.1,
-            "x": np.arange(6) * 0.1,
-        },
+        dims=("time", "j", "i"),
+        time=frame_times,
+        spacing=(1.0, 0.1, 0.1),
+        origin=(0.0, 0.0, 0.0),
+    )
+
+
+@pytest.fixture
+def fusi_data_pose(rng, frame_times):
+    """Small `(time, pose, k, j, i)` DataArray with two poses.
+
+    Spatial shape matches `fusi_data`; poses share the same voxel-to-world
+    affine, so results should match fitting each pose slice independently.
+    """
+    n_time = len(frame_times)
+    n_pose = 2
+    affine = np.stack([np.eye(4) for _ in range(n_pose)])
+    return create_voxeldata(
+        rng.standard_normal((n_time, n_pose, 2, 3, 4)),
+        dims=("time", "pose", "k", "j", "i"),
+        time=frame_times,
+        pose=np.arange(n_pose),
+        voxel_to_world=affine,
     )
 
 
 @pytest.fixture
 def spatial_maps(rng):
     """10 spatial maps of shape `(2, 3, 4)` for group-level tests."""
-    return [
-        xr.DataArray(
-            rng.standard_normal((2, 3, 4)),
-            dims=["z", "y", "x"],
-            coords={
-                "z": np.arange(2) * 0.5,
-                "y": np.arange(3) * 0.1,
-                "x": np.arange(4) * 0.1,
-            },
+    maps = []
+    for _ in range(10):
+        maps.append(
+            create_voxeldata(
+                rng.standard_normal((2, 3, 4)),
+                dims=("k", "j", "i"),
+                spacing=(0.5, 0.1, 0.1),
+                origin=(0.0, 0.0, 0.0),
+            )
         )
-        for _ in range(10)
-    ]
+    return maps
+
+
+@pytest.fixture
+def spatial_maps_with_mismatched_k(spatial_maps):
+    """Spatial maps where the second map has mismatched native `k` coordinates."""
+    second = spatial_maps[1]
+    bad = attach_voxel_to_world_index(
+        xr.DataArray(
+            second.data,
+            dims=second.dims,
+            coords={
+                "k": second.coords["k"].values + 10,
+                "j": second.coords["j"].values,
+                "i": second.coords["i"].values,
+            },
+        ),
+        get_voxel_to_world_affine(second),
+    )
+    return [spatial_maps[0], bad]
 
 
 @pytest.fixture
 def spatial_maps_2d(rng):
     """8 spatial maps of shape `(5, 6)` (no `z` axis)."""
-    return [
-        xr.DataArray(
-            rng.standard_normal((5, 6)),
-            dims=["y", "x"],
+    maps = []
+    for _ in range(8):
+        maps.append(
+            create_voxeldata(
+                rng.standard_normal((5, 6)),
+                dims=("j", "i"),
+                spacing=(1.0, 0.1, 0.1),
+                origin=(0.0, 0.0, 0.0),
+            )
         )
-        for _ in range(8)
-    ]
+    return maps

@@ -297,8 +297,11 @@ class SignalsManagerDialog(QDialog):
         selection_model = self._table.selectionModel()
         if selection_model is None:
             return
-        for index in selection_model.selectedRows():
-            item = self._table.item(index.row(), 1)
+        rows = [index.row() for index in selection_model.selectedRows()]
+        if not rows and self._table.currentRow() >= 0:
+            rows = [self._table.currentRow()]
+        for row in rows:
+            item = self._table.item(row, 1)
             if item is None:
                 continue
             signal_id = item.data(Qt.ItemDataRole.UserRole)

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from confusius._dims import TIME_DIM
-from confusius.timing import convert_time_reference, get_representative_time_step
+from confusius.timing import convert_time_reference
 
 if TYPE_CHECKING:
     import napari
@@ -162,12 +162,10 @@ def read_frame_window(
 
     The window is derived from the time coordinate's
     `volume_acquisition_reference` (`"start"`, `"center"`, or `"end"`) and
-    `volume_acquisition_duration` attributes. When the reference is present but
-    the duration is missing or invalid, the representative time step is used as
-    the duration so the windows tile the recording. Without a valid reference,
-    each frame's window degenerates to the point at its timestamp. The first
-    frame's previous window is `(-inf, -inf)`, so events before the recording
-    are attributed to the first frame.
+    `volume_acquisition_duration` attributes, which every ConfUSIus fUSI
+    DataArray with a `time` dimension carries. The first frame's previous
+    window is `(-inf, -inf)`, so events before the recording are attributed to
+    the first frame.
 
     Parameters
     ----------
@@ -182,8 +180,8 @@ def read_frame_window(
     tuple[tuple[float, float], tuple[float, float]] | None
         `((start, end), (previous_start, previous_end))` of the current and
         previous frames' windows in the time coordinate's units, or `None` when
-        the layer lacks xarray time metadata or the resolved index is out of
-        range.
+        the layer lacks xarray time metadata (e.g. a plain napari layer with no
+        ConfUSIus DataArray attached) or the resolved index is out of range.
     """
     if layer is None:
         return None
@@ -196,16 +194,8 @@ def read_frame_window(
 
     coords = da.coords[TIME_DIM].values
     attrs = da.coords[TIME_DIM].attrs
-    reference = attrs.get("volume_acquisition_reference")
-    attr_duration = attrs.get("volume_acquisition_duration")
-    duration: float | None = None
-    if reference in ("start", "center", "end"):
-        if isinstance(attr_duration, int | float) and attr_duration > 0:
-            duration = float(attr_duration)
-        else:
-            step_duration, _ = get_representative_time_step(da)
-            if step_duration is not None and step_duration > 0:
-                duration = float(step_duration)
+    reference = attrs["volume_acquisition_reference"]
+    duration = float(attrs["volume_acquisition_duration"])
 
     def _window(timestamp: float) -> tuple[float, float]:
         """Return the acquisition window `(start, end)` of one frame timestamp.
@@ -218,11 +208,8 @@ def read_frame_window(
         Returns
         -------
         tuple[float, float]
-            Window bounds; degenerates to `(timestamp, timestamp)` when no
-            window duration could be resolved.
+            Window bounds `(start, start + duration)`.
         """
-        if duration is None:
-            return float(timestamp), float(timestamp)
         start = float(
             convert_time_reference(
                 timestamp, duration, from_reference=reference, to_reference="start"

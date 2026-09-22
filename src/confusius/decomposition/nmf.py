@@ -1,4 +1,4 @@
-"""Non-negative matrix factorization for `(time, ...)` fUSI DataArrays."""
+"""Non-negative matrix factorization for VoxelData arrays."""
 
 from typing import Literal
 
@@ -11,7 +11,7 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class NMF(_BaseFUSIDecomposer):
-    r"""Non-negative matrix factorization (NMF) for fUSI data.
+    r"""Non-negative matrix factorization (NMF) for VoxelData arrays.
 
     Find two non-negative matrices, i.e. matrices with all non-negative elements,
     (`W`, `H`) whose product approximates the non-negative matrix `X`. This
@@ -110,17 +110,18 @@ class NMF(_BaseFUSIDecomposer):
     mode : {"temporal", "spatial"}, default: "temporal"
         Whether to fit NMF along temporal or spatial orientation:
 
-        - `"temporal"`: fit on `(time, voxels)`. The transformed data `W` are
+        - `"temporal"`: fit on `(time, space)`. The transformed data `W` are
           non-negative temporal time courses and the components matrix `H` reshapes to
           spatial maps.
-        - `"spatial"`: fit on `(voxels, time)`. In the underlying sklearn fit, `W` lives
+        - `"spatial"`: fit on `(space, time)`. In the underlying sklearn fit, `W` lives
           on voxels and `H` lives on timepoints because the data matrix is transposed.
           This wrapper still exposes `maps_` as spatial maps and `transform` as `(time,
           component)` signals.
 
     mask : xarray.DataArray, optional
-        Boolean spatial mask selecting voxels to include during fitting and projection.
-        Must match the spatial dimensions and coordinates of the input data.
+        Boolean VoxelData mask selecting which voxels to include during fitting and
+        projection. Must match the non-`time` dimensions of the input data in the
+        same order.
 
     Attributes
     ----------
@@ -140,9 +141,6 @@ class NMF(_BaseFUSIDecomposer):
         Actual number of iterations.
     n_features_in_ : int
         Number of features seen during fit.
-    feature_names_in_ : (n_features_in_,) numpy.ndarray
-        Names of features seen during fit. Defined only when flattened feature
-        labels are all strings.
 
     Notes
     -----
@@ -151,9 +149,9 @@ class NMF(_BaseFUSIDecomposer):
     because the data matrix is transposed.
 
     In `"spatial"` mode, the estimator is still fitted with `sklearn.decomposition.NMF`,
-    but on the transposed data matrix `(voxels, time)`. The wrapper then computes
-    `(time, component)` signals by projecting the original `(time, voxel)` matrix onto
-    the fitted spatial maps, so that `transform` and `inverse_transform` keep the same
+    but on the transposed data matrix `(space, time)`. The wrapper then computes `(time,
+    component)` signals by projecting the original `(time, voxel)` matrix onto the
+    fitted spatial maps, so that `transform` and `inverse_transform` keep the same
     public API in both modes.
 
     References
@@ -171,17 +169,19 @@ class NMF(_BaseFUSIDecomposer):
     Examples
     --------
     >>> import numpy as np
-    >>> import xarray as xr
     >>> from confusius.decomposition import NMF
+    >>> from confusius.xarray import create_voxeldata
     >>>
     >>> rng = np.random.default_rng(0)
     >>> k = 5
     >>> n_t, n_z, n_y, n_x = 200, 4, 6, 8
     >>> temporal = rng.random((n_t, k))
     >>> spatial = rng.random((k, n_z * n_y * n_x))
-    >>> data = xr.DataArray(
+    >>> data = create_voxeldata(
     ...     (10.0 * (temporal @ spatial) + 1.0).reshape(n_t, n_z, n_y, n_x),
-    ...     dims=["time", "z", "y", "x"],
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.1,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>>
     >>> nmf = NMF(n_components=k, init="nndsvda", random_state=0)
@@ -190,7 +190,7 @@ class NMF(_BaseFUSIDecomposer):
     ('time', 'component')
     >>> reconstructed = nmf.inverse_transform(signals)
     >>> reconstructed.dims
-    ('time', 'z', 'y', 'x')
+    ('time', 'k', 'j', 'i')
     """
 
     _signals_long_name = "NMF signals"
@@ -231,12 +231,12 @@ class NMF(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "NMF":
-        """Fit NMF on `(time, ...)` fUSI data.
+        """Fit NMF on a VoxelData array.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input fUSI data. Must be non-negative.
+            VoxelData array. Must be non-negative.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
 
@@ -259,7 +259,7 @@ class NMF(_BaseFUSIDecomposer):
                 f"mode must be 'temporal' or 'spatial', got '{self.mode}'."
             )
 
-        X_proc, spatial_dims, feature_mask = self._prepare_data(
+        X_proc, spatial_dims, mask = self._prepare_data(
             X,
             check_layout=False,
             operation_name="NMF.fit",
@@ -287,14 +287,13 @@ class NMF(_BaseFUSIDecomposer):
             shuffle=self.shuffle,
         )
 
-        self._store_fit_metadata(X, X_proc, spatial_dims, feature_mask)
+        self._store_fit_metadata(X, X_proc, spatial_dims, mask)
 
         if self.mode == "temporal":
             self._fit_temporal(nmf, X_proc)
         else:
             self._fit_spatial(nmf, X_proc)
 
-        self._store_feature_names(X)
         return self
 
     def _fit_temporal(

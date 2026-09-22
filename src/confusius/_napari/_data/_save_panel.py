@@ -22,7 +22,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._napari._io._writers import _compute_dataarray_from_layer
+from confusius._napari._io._writers import _convert_layer_to_voxeldata
 
 if TYPE_CHECKING:
     import napari
@@ -52,7 +52,7 @@ class SavePanel(QWidget):
       labels layers).
     - **Template**: coordinates are borrowed from a second layer that *does*
       carry a DataArray (e.g. the fUSI image on which the labels were drawn).
-      This preserves the full physical coordinate system and all DataArray
+      This preserves the full world coordinate system and all DataArray
       attributes. When the layer has fewer dimensions than the template (e.g. a
       3D labels layer with a 4D image template), the trailing spatial dimensions
       of the template are used.
@@ -106,7 +106,7 @@ class SavePanel(QWidget):
         self._template_combo.setToolTip(
             "Optional: borrow coordinates and metadata from this layer.\n"
             "Useful when saving labels drawn on top of a ConfUSIus image layer\n"
-            "to preserve physical coordinates. The layer must have been loaded\n"
+            "to preserve world coordinates. The layer must have been loaded\n"
             "via the ConfUSIus reader."
         )
 
@@ -234,18 +234,17 @@ class SavePanel(QWidget):
                     attrs=template_da.attrs,
                 )
             elif layer_shape == template_da.shape[-ndim:]:
-                # Layer has fewer dimensions (e.g. 3D labels vs 4D template):
-                # use the trailing spatial dimensions of the template.
-                spatial_dims = template_da.dims[-ndim:]
-                spatial_coords = {
-                    d: template_da.coords[d]
-                    for d in spatial_dims
-                    if d in template_da.coords
-                }
+                # Layer has fewer dimensions (e.g. 3D labels vs 4D template): use
+                # the trailing spatial dimensions of the template. Reduce with
+                # `isel` rather than picking coordinates by name so the
+                # VoxelToWorldIndex (and the world coordinates it derives) survive.
+                spatial = template_da.isel(
+                    dict.fromkeys(template_da.dims[:-ndim], 0), drop=True
+                )
                 return xr.DataArray(
                     layer.data,
-                    dims=spatial_dims,
-                    coords=spatial_coords,
+                    dims=spatial.dims,
+                    coords=spatial.coords,
                     attrs=template_da.attrs,
                 )
             else:
@@ -272,7 +271,7 @@ class SavePanel(QWidget):
             "translate": list(layer.translate),
             "units": units,
         }
-        return _compute_dataarray_from_layer(layer.data, meta)
+        return _convert_layer_to_voxeldata(layer.data, meta)
 
     # ------------------------------------------------------------------
     # Work management

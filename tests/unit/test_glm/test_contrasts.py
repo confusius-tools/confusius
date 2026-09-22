@@ -6,7 +6,6 @@ from numpy.testing import assert_allclose, assert_almost_equal, assert_array_equ
 
 from confusius.glm._contrasts import Contrast
 
-
 # -----------------------------------------------------------------------------
 # Contrast.from_estimate construction tests
 # -----------------------------------------------------------------------------
@@ -125,9 +124,7 @@ class TestFStatistic:
         effect = np.ones((2, 5)) * 3.0
         variance = np.ones(5)
 
-        contrast = Contrast.from_estimate(
-            effect, variance, stat_type="F", baseline=1.0
-        )
+        contrast = Contrast.from_estimate(effect, variance, stat_type="F", baseline=1.0)
 
         assert_allclose(contrast.statistic, np.ones(5) * 4.0)
 
@@ -230,12 +227,8 @@ class TestContrastArithmetic:
     def test_add_different_dimensions_raises(self):
         """Cannot add contrasts with different dimensions."""
         # Both F-type but different dimensions.
-        con1 = Contrast.from_estimate(
-            np.ones(5), np.ones(5), dim=1, stat_type="F"
-        )
-        con2 = Contrast.from_estimate(
-            np.ones((2, 5)), np.ones(5), dim=2, stat_type="F"
-        )
+        con1 = Contrast.from_estimate(np.ones(5), np.ones(5), dim=1, stat_type="F")
+        con2 = Contrast.from_estimate(np.ones((2, 5)), np.ones(5), dim=2, stat_type="F")
 
         with pytest.raises(ValueError, match="dimensions"):
             con1 + con2

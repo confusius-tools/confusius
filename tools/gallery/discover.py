@@ -1,4 +1,4 @@
-"""Discover example source files under ``docs/examples/``."""
+"""Discover example source files under `docs/examples/`."""
 
 from __future__ import annotations
 

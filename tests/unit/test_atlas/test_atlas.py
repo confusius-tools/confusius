@@ -5,6 +5,7 @@ testing against the implementation itself.
 """
 
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -13,31 +14,41 @@ import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
 import confusius as cf
+from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius.io import load_atlas, save_atlas
 from confusius.io.atlas import structures_from_json, structures_to_json
-from confusius.validation import validate_atlas_dataset
+from confusius.validation import validate_atlas
+from confusius.xarray import create_voxeldata
+
+
+def _mesh_bundle_tail(path: Path) -> Path:
+    """Trailing path components `_plan_mesh_bundle` keeps: last 6, anchor dropped."""
+    relative_parts = [part for part in path.parts if part != path.anchor]
+    return Path(*relative_parts[-6:])
 
 
 def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
-    """Build a displacement-field transform DataArray on `reference`'s grid."""
-    dims = [str(d) for d in reference.dims]
-    return xr.DataArray(
+    """Build a canonical displacement-field transform DataArray on `reference`'s grid."""
+    grid_info = get_grid_info_from_dataarray(reference)
+    dims = grid_info["dims"]
+    voxel_to_world = np.eye(len(dims) + 1, dtype=np.float64)
+    voxel_to_world[:-1, :-1] = np.diag(grid_info["spacing"])
+    voxel_to_world[:-1, -1] = grid_info["origin"]
+    return create_voxeldata(
         data,
-        dims=["component", *dims],
-        coords={
-            "component": np.array(dims, dtype=np.str_),
-            **{d: reference.coords[d] for d in dims},
-        },
+        dims=("component", *dims),
+        extra_coords={"component": np.array(dims, dtype=np.str_)},
+        voxel_to_world=voxel_to_world,
         attrs={"type": "displacement_field_transform"},
     )
 
 
-def _with_physical_to_base_transform(
-    atlas_ds: xr.Dataset, transform: xr.DataArray
+def _with_world_to_base_transform(
+    atlas_ds: xr.Dataset, transform: xr.DataArray | np.ndarray
 ) -> xr.Dataset:
-    """Return a copy of `atlas_ds` carrying `transform` as its physical_to_base transform."""
+    """Return a copy of `atlas_ds` carrying `transform` as its world_to_base transform."""
     ds = atlas_ds.copy()
-    ds.attrs = {**atlas_ds.attrs, "physical_to_base": transform}
+    ds.attrs = {**atlas_ds.attrs, "world_to_base": transform}
     return ds
 
 
@@ -55,11 +66,15 @@ class TestBuilder:
             atlas_ds.atlas.annotation,
             atlas_ds.atlas.hemispheres,
         ]:
-            assert da.dims == ("z", "y", "x")
+            assert da.dims == ("k", "j", "i")
+            assert type(da.xindexes["x"]).__name__ == "VoxelToWorldIndex"
 
-        for dim in ["z", "y", "x"]:
+        for dim, voxel_dim in zip(["z", "y", "x"], ["k", "j", "i"], strict=True):
             coord = atlas_ds.atlas.annotation.coords[dim]
-            np.testing.assert_allclose(coord.values[1], coord.attrs["voxdim"])
+            assert coord.dims == ("k", "j", "i")
+            other_dims = {d: 0 for d in coord.dims if d != voxel_dim}
+            coord_1d = coord.isel(other_dims)
+            np.testing.assert_allclose(coord_1d.values[1] - coord_1d.values[0], 0.05)
 
     def test_hemispheres_is_data_var(self, atlas_ds: xr.Dataset) -> None:
         """hemispheres must be a data variable, not a coordinate.
@@ -73,6 +88,7 @@ class TestBuilder:
         # It must not leak onto the other variables as a coordinate.
         assert "hemispheres" not in atlas_ds["annotation"].coords
         assert "hemispheres" not in atlas_ds["reference"].coords
+
 
 class TestStructuresSerialization:
     """Round-trip the structure hierarchy through JSON (W0)."""
@@ -95,7 +111,7 @@ class TestStructuresSerialization:
     ) -> None:
         """The complete mesh path is preserved (fetched atlases read from the cache)."""
         rebuilt = structures_from_json(structures_to_json(mock_structures))
-        assert rebuilt[997]["mesh_filename"] == str(obj_path)
+        assert rebuilt[997]["mesh_filename"] == obj_path
 
 
 class TestStructureMetadata:
@@ -240,7 +256,7 @@ class TestGetMasks:
 
     def test_multiple_regions_stacked_shape(self, atlas_ds: xr.Dataset) -> None:
         result = atlas_ds.atlas.get_masks([10, 20])
-        assert result.dims == ("mask", "z", "y", "x")
+        assert result.dims == ("mask", "k", "j", "i")
         assert result.sizes["mask"] == 2
 
     def test_multiple_regions_masks_coord_contains_acronyms(
@@ -290,14 +306,14 @@ class TestGetMasks:
         np.testing.assert_array_equal((left > 0) | (right > 0), both > 0)
 
     def test_2d_slice_preserves_spatial_dims(self, atlas_ds: xr.Dataset) -> None:
-        sliced = atlas_ds.isel(z=0, drop=True)
+        sliced = atlas_ds.isel(k=0, drop=True)
         result = sliced.atlas.get_masks(10)
-        assert result.dims == ("mask", "y", "x")
+        assert result.dims == ("mask", "j", "i")
         np.testing.assert_array_equal(
-            result.coords["y"], sliced["annotation"].coords["y"]
+            result.coords["j"], sliced["annotation"].coords["j"]
         )
         np.testing.assert_array_equal(
-            result.coords["x"], sliced["annotation"].coords["x"]
+            result.coords["i"], sliced["annotation"].coords["i"]
         )
 
     def test_sides_length_mismatch_raises(self, atlas_ds: xr.Dataset) -> None:
@@ -320,7 +336,7 @@ class TestGetMasks:
 class TestGetMesh:
     """Tests for the accessor's get_mesh.
 
-    The OBJ mesh (from conftest) has:
+    The mock mesh (from conftest) has:
       Vertices 0-2 at RL = 50 µm  → right hemisphere (< midline 100 µm)
       Vertices 3-5 at RL = 150 µm → left  hemisphere (≥ midline 100 µm)
       Face 0: triangle (0, 1, 2) — entirely right
@@ -342,7 +358,8 @@ class TestGetMesh:
                 [0.0, 0.1, 0.15],
             ]
         )
-        np.testing.assert_allclose(vertices_mm, expected)
+        # Draco is lossy, so the round-tripped mesh is only close, not bit-exact.
+        np.testing.assert_allclose(vertices_mm, expected, atol=1e-6)
 
     def test_both_sides_returns_all_faces(self, atlas_ds: xr.Dataset) -> None:
         vertices, faces = atlas_ds.atlas.get_mesh(997, side="both")
@@ -461,14 +478,14 @@ class TestIO:
         assert "cmap" in loaded["annotation"].attrs
         assert "norm" in loaded["annotation"].attrs
 
-    def test_physical_to_base_restored_as_array(
+    def test_world_to_base_restored_as_array(
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:
-        """The affine physical_to_base reloads as a numpy array, not a JSON list."""
+        """The affine world_to_base reloads as a numpy array, not a JSON list."""
         path = tmp_path / "atlas.zarr"
         save_atlas(atlas_ds, path)
         loaded = load_atlas(path)
-        transform = loaded.attrs["physical_to_base"]
+        transform = loaded.attrs["world_to_base"]
         assert isinstance(transform, np.ndarray)
         np.testing.assert_allclose(transform, np.eye(4))
 
@@ -480,14 +497,14 @@ class TestIO:
             [[1.0, 0, 0, 0.5], [0, 1, 0, -0.2], [0, 0, 1, 0.3], [0, 0, 0, 1.0]]
         )
         reference = atlas_ds.atlas.reference.copy()
-        reference.attrs = {**reference.attrs, "affines": {"physical_to_sform": aff}}
+        reference.attrs = {**reference.attrs, "affines": {"world_to_sform": aff}}
         resampled = atlas_ds.atlas.resample_like(reference, np.eye(4))
         assert "affines" in resampled["reference"].attrs  # guards the scenario.
 
         path = tmp_path / "atlas.zarr"
         save_atlas(resampled, path)
         loaded = load_atlas(path)
-        got = loaded["reference"].attrs["affines"]["physical_to_sform"]
+        got = loaded["reference"].attrs["affines"]["world_to_sform"]
         assert isinstance(got, np.ndarray)
         np.testing.assert_allclose(got, aff)
 
@@ -505,11 +522,18 @@ class TestIO:
             loaded.atlas.get_masks(10).values, atlas_ds.atlas.get_masks(10).values
         )
 
-    def test_meshes_bundled_into_store(self, atlas_ds: xr.Dataset, tmp_path) -> None:
-        """The region OBJ files are copied into the store's meshes/ subdirectory."""
+    def test_meshes_bundled_into_store(
+        self, atlas_ds: xr.Dataset, obj_path: Path, tmp_path
+    ) -> None:
+        """The region mesh files are copied under the store's meshes/ subdirectory.
+
+        The bundled layout mirrors the source path's trailing components (up to 6, as
+        BrainGlobe's own S3-key derivation uses), not a bare basename, so bundling
+        meshes from different atlases into the same store can't collide.
+        """
         path = tmp_path / "atlas.zarr"
         save_atlas(atlas_ds, path)
-        assert (path / "meshes" / "997.obj").is_file()
+        assert (path / "meshes" / _mesh_bundle_tail(obj_path)).is_file()
 
     def test_save_suppresses_consolidated_metadata_warning(
         self, atlas_ds: xr.Dataset, tmp_path, monkeypatch
@@ -531,13 +555,16 @@ class TestIO:
         assert not caught
 
     def test_loaded_mesh_filename_points_into_store(
-        self, atlas_ds: xr.Dataset, tmp_path
+        self, atlas_ds: xr.Dataset, obj_path: Path, tmp_path
     ) -> None:
         path = tmp_path / "atlas.zarr"
         save_atlas(atlas_ds, path)
         loaded = load_atlas(path)
         structures = loaded.attrs["structures"]
-        assert structures[997]["mesh_filename"] == str(path / "meshes" / "997.obj")
+        assert (
+            structures[997]["mesh_filename"]
+            == path / "meshes" / _mesh_bundle_tail(obj_path)
+        )
         assert structures[10]["mesh_filename"] is None
 
     def test_get_mesh_reads_bundle_when_source_is_gone(
@@ -545,8 +572,8 @@ class TestIO:
     ) -> None:
         """A loaded atlas renders meshes from the bundle, without the original source."""
         # Point a copy of the atlas at a throwaway mesh we are free to delete.
-        source = tmp_path / "src_997.obj"
-        source.write_text(obj_path.read_text())
+        source = tmp_path / "src_997"
+        source.write_bytes(obj_path.read_bytes())
         records = [dict(record) for record in structure_list]
         for record in records:
             if record["id"] == 997:
@@ -560,8 +587,50 @@ class TestIO:
 
         loaded = load_atlas(path)
         vertices, faces = loaded.atlas.get_mesh(997)
-        np.testing.assert_array_equal(vertices, atlas_ds.atlas.get_mesh(997)[0])
+        # Draco is lossy, so the round-tripped mesh is only close, not bit-exact.
+        np.testing.assert_allclose(vertices, atlas_ds.atlas.get_mesh(997)[0], atol=1e-4)
         assert len(faces) == 2
+
+    def test_undownloaded_mesh_rebased_for_lazy_download(
+        self, atlas_ds: xr.Dataset, structure_list: list[dict], tmp_path
+    ) -> None:
+        """A mesh never downloaded before save is not bundled, but stays fetchable.
+
+        BrainGlobe fetches meshes lazily; a region whose mesh was never accessed has no
+        file to bundle. save_atlas keeps only the trailing path components BrainGlobe
+        needs to derive the S3 key, and load_atlas re-points mesh_filename under the
+        store's meshes/ subdirectory (same as a bundled mesh) so get_mesh can still
+        trigger a lazy download straight into the store, on any machine.
+        """
+        never_downloaded = tmp_path / "never_downloaded" / "997"
+        records = [dict(record) for record in structure_list]
+        for record in records:
+            if record["id"] == 997:
+                record["mesh_filename"] = str(never_downloaded)
+        ds = atlas_ds.copy()
+        ds.attrs = {**atlas_ds.attrs, "structures": StructuresDict(records)}
+
+        path = tmp_path / "atlas.zarr"
+        save_atlas(ds, path)
+        expected = path / "meshes" / _mesh_bundle_tail(never_downloaded)
+        assert not expected.exists()
+
+        loaded = load_atlas(path)
+        assert loaded.attrs["structures"][997]["mesh_filename"] == expected
+
+    def test_get_mesh_wraps_brainglobe_error(
+        self, atlas_ds: xr.Dataset, structure_list: list[dict], tmp_path
+    ) -> None:
+        """A mesh that cannot be found locally or remotely raises a friendly RuntimeError."""
+        records = [dict(record) for record in structure_list]
+        for record in records:
+            if record["id"] == 997:
+                record["mesh_filename"] = tmp_path / "missing" / "997"
+        ds = atlas_ds.copy()
+        ds.attrs = {**atlas_ds.attrs, "structures": StructuresDict(records)}
+
+        with pytest.raises(RuntimeError, match="save_atlas"):
+            ds.atlas.get_mesh(997)
 
 
 class TestNonlinearMesh:
@@ -578,7 +647,7 @@ class TestNonlinearMesh:
         reference = atlas_ds.atlas.reference
         data = np.zeros((3, *reference.shape))
         data[2] = 0.01  # component 2 == x
-        ds = _with_physical_to_base_transform(atlas_ds, _field_on_grid(reference, data))
+        ds = _with_world_to_base_transform(atlas_ds, _field_on_grid(reference, data))
 
         warped, _ = ds.atlas.get_mesh(997)
         base, _ = atlas_ds.atlas.get_mesh(997)
@@ -593,7 +662,7 @@ class TestNonlinearMesh:
         reference = atlas_ds.atlas.reference
         data = np.zeros((3, *reference.shape))
         data[2] = 0.5  # inverts to a -0.5 shift, pushing every vertex off the grid
-        ds = _with_physical_to_base_transform(atlas_ds, _field_on_grid(reference, data))
+        ds = _with_world_to_base_transform(atlas_ds, _field_on_grid(reference, data))
 
         vertices, faces = ds.atlas.get_mesh(997)
         assert vertices.shape == (0, 3)
@@ -608,7 +677,7 @@ class TestNonlinearMesh:
         data[2] = 0.01
         field = _field_on_grid(reference, data)
         monkeypatch.setattr(
-            "confusius.atlas._physical_to_base_transform.sample_displacement_field_like",
+            "confusius.atlas._world_to_base_transform.sample_displacement_field_like",
             lambda transform, ref: field,
         )
         bspline = xr.DataArray(
@@ -616,7 +685,7 @@ class TestNonlinearMesh:
             dims=["cz", "cy", "cx", "comp"],
             attrs={"type": "bspline_transform"},
         )
-        ds = _with_physical_to_base_transform(atlas_ds, bspline)
+        ds = _with_world_to_base_transform(atlas_ds, bspline)
 
         warped, _ = ds.atlas.get_mesh(997)
         base, _ = atlas_ds.atlas.get_mesh(997)
@@ -628,8 +697,8 @@ class TestNonlinearMesh:
         self, atlas_ds: xr.Dataset
     ) -> None:
         resampled = atlas_ds.atlas.resample_like(atlas_ds.atlas.reference, np.eye(4))
-        assert isinstance(resampled.attrs["physical_to_base"], np.ndarray)
-        assert "physical_to_base" not in resampled.data_vars
+        assert isinstance(resampled.attrs["world_to_base"], np.ndarray)
+        assert "world_to_base" not in resampled.data_vars
 
     def test_resample_like_field_stores_transform_as_dataarray_attr(
         self, atlas_ds: xr.Dataset
@@ -637,9 +706,9 @@ class TestNonlinearMesh:
         reference = atlas_ds.atlas.reference
         field = _field_on_grid(reference, np.zeros((3, *reference.shape)))
         resampled = atlas_ds.atlas.resample_like(reference, field)
-        assert isinstance(resampled.attrs["physical_to_base"], xr.DataArray)
-        assert "physical_to_base" not in resampled.data_vars
-        validate_atlas_dataset(resampled)
+        assert isinstance(resampled.attrs["world_to_base"], xr.DataArray)
+        assert "world_to_base" not in resampled.data_vars
+        validate_atlas(resampled)
 
     def test_resample_like_affine_shifts_mesh(self, atlas_ds: xr.Dataset) -> None:
         """An affine pull translation warps the mesh by its inverse."""
@@ -652,6 +721,24 @@ class TestNonlinearMesh:
         expected = base.copy()
         expected[:, 2] -= 0.02
         np.testing.assert_allclose(warped, expected, atol=1e-5)
+
+    def test_resample_like_ignores_reference_time_dimension(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """A `reference` with a `time` dim still resamples, using only its spatial grid."""
+        reference = atlas_ds.atlas.reference
+        with_time = create_voxeldata(
+            reference.data[np.newaxis],
+            dims=["time", "k", "j", "i"],
+            time=[0.0],
+            dt=1.0,
+            voxel_to_world=reference.fusi.affine.voxel_to_world,
+        )
+        resampled = atlas_ds.atlas.resample_like(with_time, np.eye(4))
+        expected = atlas_ds.atlas.resample_like(reference, np.eye(4))
+
+        assert "time" not in resampled["reference"].dims
+        xr.testing.assert_allclose(resampled["reference"], expected["reference"])
 
     def test_nonlinear_atlas_roundtrips_through_zarr(
         self, atlas_ds: xr.Dataset, tmp_path
@@ -668,8 +755,8 @@ class TestNonlinearMesh:
         save_atlas(resampled, path)
         loaded = load_atlas(path)
 
-        assert isinstance(loaded.attrs["physical_to_base"], xr.DataArray)
-        assert "physical_to_base" not in loaded.data_vars
+        assert isinstance(loaded.attrs["world_to_base"], xr.DataArray)
+        assert "world_to_base" not in loaded.data_vars
         np.testing.assert_allclose(
             loaded.atlas.get_mesh(997)[0], resampled.atlas.get_mesh(997)[0], atol=1e-6
         )
@@ -680,17 +767,31 @@ class TestNonlinearMesh:
         by_like = atlas_ds.atlas.resample_like(reference, np.eye(4))
         by_grid = atlas_ds.atlas.resample(
             np.eye(4),
-            shape=reference.shape,
-            spacing=[0.05, 0.05, 0.05],
-            origin=[0.0, 0.0, 0.0],
-            dims=["z", "y", "x"],
+            output_sizes=reference.sizes,
+            output_spacing=reference.fusi.spacing,
+            output_origin=reference.fusi.origin,
+            output_direction=reference.fusi.direction,
         )
         for var in ["reference", "annotation", "hemispheres"]:
             np.testing.assert_array_equal(by_like[var].values, by_grid[var].values)
 
+    def test_resample_preserves_output_direction(self, atlas_ds: xr.Dataset) -> None:
+        """The explicit-grid API forwards its output direction to every atlas map."""
+        direction = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]])
+        result = atlas_ds.atlas.resample(
+            np.eye(4),
+            output_sizes=atlas_ds.atlas.reference.sizes,
+            output_spacing=atlas_ds.atlas.reference.fusi.spacing,
+            output_origin=atlas_ds.atlas.reference.fusi.origin,
+            output_direction=direction,
+        )
+
+        for name in ["reference", "annotation", "hemispheres"]:
+            np.testing.assert_allclose(result[name].fusi.direction, direction)
+
 
 class TestTransformComposition:
-    """Composing physical_to_base pull transforms across successive resamples.
+    """Composing world_to_base pull transforms across successive resamples.
 
     resample_like composes the atlas's stored pull transform with the new one, so a chain
     of resamples must agree with a single resample by the composed transform. These cover
@@ -712,7 +813,7 @@ class TestTransformComposition:
         )
         one_step = atlas_ds.atlas.resample_like(reference, a @ b)
 
-        np.testing.assert_allclose(two_step.attrs["physical_to_base"], a @ b)
+        np.testing.assert_allclose(two_step.attrs["world_to_base"], a @ b)
         np.testing.assert_allclose(
             two_step.atlas.get_mesh(997)[0],
             one_step.atlas.get_mesh(997)[0],
@@ -729,7 +830,7 @@ class TestTransformComposition:
         once = atlas_ds.atlas.resample_like(reference, a)
         twice = once.atlas.resample_like(reference, np.eye(4))
 
-        np.testing.assert_allclose(twice.attrs["physical_to_base"], a)
+        np.testing.assert_allclose(twice.attrs["world_to_base"], a)
 
     def test_affine_then_zero_field_matches_the_affine_mesh(
         self, atlas_ds: xr.Dataset
@@ -747,7 +848,7 @@ class TestTransformComposition:
 
         # A zero field is the identity, so the affine·field composition is stored as a
         # dense displacement field but must warp the mesh exactly like the affine alone.
-        assert isinstance(composed.attrs["physical_to_base"], xr.DataArray)
+        assert isinstance(composed.attrs["world_to_base"], xr.DataArray)
         np.testing.assert_allclose(
             composed.atlas.get_mesh(997)[0],
             affine_only.atlas.get_mesh(997)[0],
@@ -765,13 +866,102 @@ class TestTransformComposition:
         init = np.eye(4)
         init[2, 3] = 0.01  # its inverse seeds the iteration near the true pre-image
         field.attrs["affines"] = {"bspline_initialization": init}
-        ds = _with_physical_to_base_transform(atlas_ds, field)
+        ds = _with_world_to_base_transform(atlas_ds, field)
 
         warped, _ = ds.atlas.get_mesh(997)
         base, _ = atlas_ds.atlas.get_mesh(997)
         expected = base.copy()
         expected[:, 2] -= 0.01
         np.testing.assert_allclose(warped, expected, atol=1e-6)
+
+    def test_compose_stored_bspline_transform_samples_field(
+        self, atlas_ds: xr.Dataset, monkeypatch
+    ) -> None:
+        """Composing a new affine onto a stored bspline transform samples it.
+
+        Unlike `test_bspline_transform_samples_field` (which sets the bspline
+        transform directly, only exercising `_apply_world_to_base_transform`'s own
+        bspline branch at `get_mesh` time), resampling an atlas whose *stored*
+        transform is a bspline_transform by a genuinely new (non-identity) affine
+        routes through `_compose_world_to_base_transforms` -> `_transform_points`,
+        which has its own equivalent bspline branch for the old transform side.
+        """
+        reference = atlas_ds.atlas.reference
+        data = np.zeros((3, *reference.shape))
+        data[2] = 0.01
+        field = _field_on_grid(reference, data)
+        monkeypatch.setattr(
+            "confusius.atlas._world_to_base_transform.sample_displacement_field_like",
+            lambda transform, ref: field,
+        )
+        bspline = xr.DataArray(
+            np.zeros((2, 2, 2, 3)),
+            dims=["cz", "cy", "cx", "comp"],
+            attrs={"type": "bspline_transform"},
+        )
+        ds = _with_world_to_base_transform(atlas_ds, bspline)
+        affine = np.eye(4)
+        affine[2, 3] = 0.02
+
+        composed = ds.atlas.resample_like(reference, affine)
+
+        assert isinstance(composed.attrs["world_to_base"], xr.DataArray)
+
+    def test_compose_rejects_wrong_shape_stored_affine(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """A malformed stored world_to_base affine (e.g. from a foreign/corrupted
+        Zarr store, never passed through `resample_like`'s own validation) is
+        rejected at composition time rather than propagated silently."""
+        ds = _with_world_to_base_transform(atlas_ds, np.eye(3))
+        reference = atlas_ds.atlas.reference
+        # A DataArray new_transform (not an ndarray) forces the full point-based
+        # composition path, which is what actually validates the old transform's
+        # shape; an all-ndarray composition would instead crash on `@` itself.
+        new_transform = _field_on_grid(reference, np.zeros((3, *reference.shape)))
+
+        with pytest.raises(ValueError, match="shape \\(4, 4\\)"):
+            ds.atlas.resample_like(reference, new_transform)
+
+    def test_compose_rejects_stored_field_without_voxel_to_world_index(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """A stored displacement field with no voxel-to-world index is rejected.
+
+        `_interpolate_displacement_field` requires a real index to derive its
+        world-space sampling grid; a plain, non-indexed field DataArray (e.g. from
+        a foreign/corrupted store) must raise clearly instead of failing deep in
+        `.fusi.spacing`/`.fusi.origin`.
+        """
+        reference = atlas_ds.atlas.reference
+        bad_field = xr.DataArray(
+            np.zeros((3, *reference.shape)),
+            dims=["component", *reference.dims],
+            attrs={"type": "displacement_field_transform"},
+        )
+        ds = _with_world_to_base_transform(atlas_ds, bad_field)
+        new_transform = _field_on_grid(reference, np.zeros((3, *reference.shape)))
+
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            ds.atlas.resample_like(reference, new_transform)
+
+    def test_compose_rejects_unsupported_stored_transform_type_attr(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """A malformed stored DataArray transform (bad attrs['type']) is rejected
+        at composition time rather than propagated silently."""
+        reference = atlas_ds.atlas.reference
+        bad = xr.DataArray(
+            np.zeros((3, *reference.shape)),
+            dims=["comp", *reference.dims],
+            attrs={"type": "not_a_real_transform_type"},
+        )
+        ds = _with_world_to_base_transform(atlas_ds, bad)
+        affine = np.eye(4)
+        affine[2, 3] = 0.02  # non-identity: composition can't short-circuit on it.
+
+        with pytest.raises(ValueError, match="attrs\\['type'\\]"):
+            ds.atlas.resample_like(reference, affine)
 
 
 class TestGroupbyIntegration:
@@ -781,10 +971,8 @@ class TestGroupbyIntegration:
         self, atlas_ds: xr.Dataset
     ) -> None:
         rng = np.random.default_rng(0)
-        data = xr.DataArray(
-            rng.standard_normal(atlas_ds.atlas.annotation.shape).astype(np.float32),
-            dims=["z", "y", "x"],
-            coords={d: atlas_ds.atlas.annotation.coords[d] for d in ["z", "y", "x"]},
+        data = atlas_ds.atlas.annotation.copy(
+            data=rng.standard_normal(atlas_ds.atlas.annotation.shape).astype(np.float32)
         )
         grouped = data.groupby(atlas_ds.atlas.annotation.rename("annotation")).mean()
 
@@ -803,7 +991,9 @@ class TestStandaloneOperations:
         self, atlas_ds: xr.Dataset
     ) -> None:
         """Standalone helpers return the same outputs as the accessor on a valid atlas."""
-        assert cf.atlas.search_atlas(atlas_ds, "gc", field="acronym").index.tolist() == [20]
+        assert cf.atlas.search_atlas(
+            atlas_ds, "gc", field="acronym"
+        ).index.tolist() == [20]
         np.testing.assert_array_equal(
             cf.atlas.get_atlas_masks(atlas_ds, 10).values,
             atlas_ds.atlas.get_masks(10).values,
