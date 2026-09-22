@@ -166,10 +166,9 @@ def apply_affine(
     for stored_key, val in stored.items():
         if stored_key == applied_key:
             # The world frame now is this named space. Store an exact identity
-            # instead of `arr @ inv(arr)`, which carries floating-point error.
-            new_affines[stored_key] = np.broadcast_to(
-                np.eye(affine_array.shape[-1]), affine_array.shape
-            ).copy()
+            # instead of `arr @ inv(arr)`, which carries floating-point error. A
+            # single `(4, 4)` identity is valid even for pose-stacked data.
+            new_affines[stored_key] = np.eye(affine_array.shape[-1])
             continue
         arr = np.asarray(val, dtype=np.float64)
         if arr.ndim in (2, 3):
