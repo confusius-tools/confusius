@@ -16,7 +16,7 @@ from confusius._napari._theme import get_napari_colors, style_plot_toolbar
 from confusius._utils.motion_plotting import get_dark_motion_color_cycle
 from confusius.registration.motion import (
     compute_framewise_displacement,
-    extract_motion_parameters,
+    create_motion_dataframe,
 )
 
 if TYPE_CHECKING:
@@ -118,13 +118,13 @@ class VolumewiseRegistrationDiagnosticsPlotter(QWidget):
         self._iteration_ax = self._optimizer_ax.twinx()
         self._rotation_lines = self._setup_motion_axis(
             self._rotation_ax,
-            ["rotation"] if self._reference.ndim == 2 else ["rot_x", "rot_y", "rot_z"],
+            ["rot_x", "rot_y", "rot_z"],
             ylabel="Rotation (deg)",
             title="Motion estimates",
         )
         self._translation_lines = self._setup_motion_axis(
             self._translation_ax,
-            [f"trans_{dim}" for dim in ("x", "y", "z") if dim in self._reference.dims],
+            ["trans_x", "trans_y", "trans_z"],
             ylabel="Translation (mm)",
         )
         self._fd_lines = self._setup_motion_axis(
@@ -269,21 +269,12 @@ class VolumewiseRegistrationDiagnosticsPlotter(QWidget):
         affine = self._affines[frame_index]
         if affine is None:
             return
-        params = extract_motion_parameters([affine])[0]
-        if affine.shape[0] == 3:
-            values = {"rotation": params[0]}
-            for dim in ("x", "y", "z"):
-                if dim in self._reference.dims:
-                    values[f"trans_{dim}"] = params[1 + self._reference.dims.index(dim)]
-        else:
-            values = {f"rot_{dim}": params[i] for i, dim in enumerate(("x", "y", "z"))}
-            values.update(
-                {f"trans_{dim}": params[3 + i] for i, dim in enumerate(("x", "y", "z"))}
-            )
-        for key, value in values.items():
+        # create_motion_dataframe owns the affine-parameter -> named-axis mapping.
+        row = create_motion_dataframe([affine], self._reference).iloc[0]
+        for key in (*self._rotation_lines, *self._translation_lines):
             self._motion_values.setdefault(
                 key, np.full(self._n_frames, np.nan, dtype=float)
-            )[frame_index] = value
+            )[frame_index] = row[key]
         for left in (frame_index - 1, frame_index):
             right = left + 1
             if left < 0 or right >= self._n_frames:

@@ -192,7 +192,7 @@ class TestNapariVolumewiseRegistrationProgressReporter:
         with qtbot.waitSignals(
             [bridge.frame_progress, bridge.frame_completed], timeout=1000
         ):
-            reporter.frame_completed(1, frame, np.eye(3), diagnostics)
+            reporter.frame_completed(1, frame, np.eye(4), diagnostics)
 
         assert progress_payloads == [(1, 3)]
         assert len(frame_payloads) == 1
@@ -200,7 +200,7 @@ class TestNapariVolumewiseRegistrationProgressReporter:
         np.testing.assert_array_equal(frame_payloads[0][1], frame.values)
         assert len(diagnostics_payloads) == 1
         assert diagnostics_payloads[0][0] == 1
-        np.testing.assert_array_equal(diagnostics_payloads[0][1], np.eye(3))
+        np.testing.assert_array_equal(diagnostics_payloads[0][1], np.eye(4))
         assert diagnostics_payloads[0][2] is diagnostics
 
     def test_frame_completed_accumulates_unique_progress(self, qtbot):
@@ -222,8 +222,8 @@ class TestNapariVolumewiseRegistrationProgressReporter:
             status="completed",
         )
 
-        reporter.frame_completed(1, frame, np.eye(3), diagnostics)
-        reporter.frame_completed(2, frame, np.eye(3), diagnostics)
+        reporter.frame_completed(1, frame, np.eye(4), diagnostics)
+        reporter.frame_completed(2, frame, np.eye(4), diagnostics)
 
         qtbot.waitUntil(lambda: len(progress_payloads) == 2, timeout=1000)
         assert progress_payloads == [(1, 3), (2, 3)]
@@ -270,20 +270,7 @@ class TestRegisterVolumeWithNapariFactory:
     def test_factory_is_invoked_and_iterated_signal_fires(
         self, qtbot, singleton_registration_volume
     ):
-        import xarray as xr
-
         from confusius.registration.volume import register_volume
-
-        arr = np.zeros((16, 16), dtype=np.float32)
-        arr[6:10, 6:10] = 1.0
-        da = xr.DataArray(
-            arr,
-            dims=("y", "x"),
-            coords={
-                "y": np.arange(16) * 0.1,
-                "x": np.arange(16) * 0.1,
-            },
-        )
 
         bridge = NapariVolumeRegistrationProgressPlotterBridge()
         spy = _SignalSpy()

@@ -1294,7 +1294,7 @@ class TestVolumewiseProgress:
             dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
         )
-        progress.frame_completed(1, frame, np.eye(3), _FakeDiagnostics(n_iterations=2))
+        progress.frame_completed(1, frame, np.eye(4), _FakeDiagnostics(n_iterations=2))
 
         assert registration_panel._progress.value() == 1
         np.testing.assert_array_equal(

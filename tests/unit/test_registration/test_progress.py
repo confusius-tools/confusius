@@ -19,6 +19,7 @@ from confusius.registration.progress import (
 from confusius.registration.volumewise_progress import (
     MatplotlibVolumewiseRegistrationProgressPlotter,
 )
+from confusius.xarray import create_voxeldata
 
 
 @pytest.fixture(autouse=True)
@@ -47,6 +48,13 @@ def _make_diagnostics(
         n_iterations=n_iterations,
         stop_condition="done",
         status="completed",
+    )
+
+
+def _make_reference():
+    """Return a tiny singleton-k VoxelData reference with unit spacing."""
+    return create_voxeldata(
+        np.zeros((1, 2, 2)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
     )
 
 
@@ -392,9 +400,7 @@ class TestMatplotlibVolumewiseRegistrationProgressPlotter:
 
     def test_updates_completed_frames_by_index(self):
         """Out-of-order frame completion fills the matching slots."""
-        import xarray as xr
-
-        frame = xr.DataArray(np.zeros((2, 2)), dims=("y", "x"))
+        frame = _make_reference()
         with pytest.warns(UserWarning, match="non-interactive"):
             plotter = MatplotlibVolumewiseRegistrationProgressPlotter(
                 3,
@@ -404,8 +410,8 @@ class TestMatplotlibVolumewiseRegistrationProgressPlotter:
                 redraw_every=1,
             )
 
-        plotter.frame_completed(2, frame, np.eye(3), _make_diagnostics(-0.2, 4))
-        plotter.frame_completed(0, frame, np.eye(3), _make_diagnostics(-1.0, 2))
+        plotter.frame_completed(2, frame, np.eye(4), _make_diagnostics(-0.2, 4))
+        plotter.frame_completed(0, frame, np.eye(4), _make_diagnostics(-1.0, 2))
 
         np.testing.assert_allclose(plotter.metric_values, [-1.0, np.nan, -0.2])
         np.testing.assert_allclose(plotter.n_iterations, [2, np.nan, 4])
@@ -415,15 +421,13 @@ class TestMatplotlibVolumewiseRegistrationProgressPlotter:
 
     def test_default_redraw_every_skips_first_render(self):
         """Default redraw cadence buffers early frames without drawing."""
-        import xarray as xr
-
-        frame = xr.DataArray(np.zeros((2, 2)), dims=("y", "x"))
+        frame = _make_reference()
         with pytest.warns(UserWarning, match="non-interactive"):
             plotter = MatplotlibVolumewiseRegistrationProgressPlotter(
                 3, reference=frame
             )
 
-        plotter.frame_completed(0, frame, np.eye(3), _make_diagnostics(-1.0, 2))
+        plotter.frame_completed(0, frame, np.eye(4), _make_diagnostics(-1.0, 2))
 
         np.testing.assert_allclose(plotter.metric_values, [-1.0, np.nan, np.nan])
         assert len(plotter._metric_line.get_xdata()) == 0
@@ -431,17 +435,7 @@ class TestMatplotlibVolumewiseRegistrationProgressPlotter:
 
     def test_updates_3d_motion_and_fd(self):
         """3D affines populate rotation, translation, and FD lines."""
-        import xarray as xr
-
-        reference = xr.DataArray(
-            np.zeros((2, 2, 2)),
-            dims=("z", "y", "x"),
-            coords={
-                "z": np.arange(2),
-                "y": np.arange(2),
-                "x": np.arange(2),
-            },
-        )
+        reference = _make_reference()
         with pytest.warns(UserWarning, match="non-interactive"):
             plotter = MatplotlibVolumewiseRegistrationProgressPlotter(
                 2, reference=reference, redraw_every=1
@@ -460,9 +454,7 @@ class TestMatplotlibVolumewiseRegistrationProgressPlotter:
 
     def test_none_affine_update_is_ignored(self):
         """Missing affine slots are ignored by the motion-value updater."""
-        import xarray as xr
-
-        frame = xr.DataArray(np.zeros((2, 2)), dims=("y", "x"))
+        frame = _make_reference()
         with pytest.warns(UserWarning, match="non-interactive"):
             plotter = MatplotlibVolumewiseRegistrationProgressPlotter(
                 1, reference=frame
@@ -475,8 +467,6 @@ class TestMatplotlibVolumewiseRegistrationProgressPlotter:
 
     def test_missing_ipython_uses_script_mode(self, monkeypatch):
         """ImportError while detecting IPython falls back to script rendering."""
-        import xarray as xr
-
         original_import = builtins.__import__
 
         def _guarded_import(name, *args, **kwargs):
@@ -485,7 +475,7 @@ class TestMatplotlibVolumewiseRegistrationProgressPlotter:
             return original_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", _guarded_import)
-        frame = xr.DataArray(np.zeros((2, 2)), dims=("y", "x"))
+        frame = _make_reference()
         with pytest.warns(UserWarning, match="non-interactive"):
             plotter = MatplotlibVolumewiseRegistrationProgressPlotter(
                 1, reference=frame
@@ -497,7 +487,6 @@ class TestMatplotlibVolumewiseRegistrationProgressPlotter:
     def test_notebook_mode_displays_and_closes(self, monkeypatch):
         """Notebook mode renders through IPython display and closes on finish."""
         import matplotlib.pyplot as plt
-        import xarray as xr
 
         display_calls: list[tuple[object, bool]] = []
         closed_figures: list[object] = []
@@ -515,11 +504,11 @@ class TestMatplotlibVolumewiseRegistrationProgressPlotter:
         monkeypatch.setitem(sys.modules, "IPython.display", fake_display)
         monkeypatch.setattr(plt, "close", lambda fig: closed_figures.append(fig))
 
-        frame = xr.DataArray(np.zeros((2, 2)), dims=("y", "x"))
+        frame = _make_reference()
         plotter = MatplotlibVolumewiseRegistrationProgressPlotter(
             1, reference=frame, redraw_every=1
         )
-        plotter.frame_completed(0, frame, np.eye(3), _make_diagnostics(-1.0, 2))
+        plotter.frame_completed(0, frame, np.eye(4), _make_diagnostics(-1.0, 2))
         plotter.close()
 
         assert display_calls

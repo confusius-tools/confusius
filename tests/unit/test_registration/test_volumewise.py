@@ -43,7 +43,7 @@ def _fake_register_volume(_volume, _ref_da, **kwargs):
         stop_condition="done",
         status="completed",
     )
-    return _volume.copy(), np.eye(3), diagnostics
+    return _volume.copy(), np.eye(4), diagnostics
 
 
 class TestRegisterVolumewise:
@@ -129,14 +129,14 @@ class TestRegisterVolumewise:
             result = register_volumewise(dask_data, n_jobs=2, transform="translation")
         assert result.shape == sample_voxeldata_2dt_registration.shape
 
-    def test_dask_time_chunks_of_one_do_not_warn(self, sample_2d_dataarray):
+    def test_dask_time_chunks_of_one_do_not_warn(self, sample_voxeldata_2dt_registration):
         """Dask data chunked one volume at a time avoids the chunk warning."""
         import dask.array as da
 
         dask_data = xr.DataArray(
-            da.from_array(sample_2d_dataarray.values, chunks=(1, 32, 32)),
-            dims=sample_2d_dataarray.dims,
-            coords=sample_2d_dataarray.coords,
+            da.from_array(sample_voxeldata_2dt_registration.values, chunks=(1, 1, 32, 32)),
+            dims=sample_voxeldata_2dt_registration.dims,
+            coords=sample_voxeldata_2dt_registration.coords,
         )
 
         with warnings.catch_warnings(record=True) as warnings_record:
@@ -148,7 +148,7 @@ class TestRegisterVolumewise:
                 show_progress=False,
             )
 
-        assert result.shape == sample_2d_dataarray.shape
+        assert result.shape == sample_voxeldata_2dt_registration.shape
         assert not any("volume-by-volume" in str(w.message) for w in warnings_record)
 
     def test_show_progress_false_skips_joblib_progress_import(
@@ -225,11 +225,11 @@ class TestRegisterVolumewise:
         )
         assert reporter.closed
 
-    def test_plot_progress_uses_plotter_factory(self, sample_2d_dataarray, monkeypatch):
+    def test_plot_progress_uses_plotter_factory(self, sample_voxeldata_2dt_registration, monkeypatch):
         reporter = _FakeVolumewiseRegistrationProgress()
 
         def _factory(n_frames, *, reference=None, time_coords=None, time_units=None):
-            assert n_frames == sample_2d_dataarray.sizes["time"]
+            assert n_frames == sample_voxeldata_2dt_registration.sizes["time"]
             assert reference is not None
             del time_units
             reporter.time_coords = time_coords
@@ -241,7 +241,7 @@ class TestRegisterVolumewise:
         )
 
         result = register_volumewise(
-            sample_2d_dataarray,
+            sample_voxeldata_2dt_registration,
             n_jobs=1,
             transform="translation",
             show_progress=False,
@@ -249,12 +249,12 @@ class TestRegisterVolumewise:
             progress_plotter=_factory,
         )
 
-        assert result.shape == sample_2d_dataarray.shape
+        assert result.shape == sample_voxeldata_2dt_registration.shape
         assert sorted(reporter.completed_frames) == list(
-            range(sample_2d_dataarray.sizes["time"])
+            range(sample_voxeldata_2dt_registration.sizes["time"])
         )
         assert reporter.time_coords is not None
-        assert_allclose(reporter.time_coords, sample_2d_dataarray["time"].values)
+        assert_allclose(reporter.time_coords, sample_voxeldata_2dt_registration["time"].values)
         assert reporter.closed
 
     def test_abort_during_run_skips_not_yet_started_frames(
