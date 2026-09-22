@@ -10,26 +10,6 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
-## 0.7.1
-
-Released 2026-09-16.
-
-### :zap: Performance
-
-- [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
-  longer computes a full SVD, extracting components several times faster on
-  large recordings or broad noise masks
-  ([#434](https://github.com/confusius-tools/confusius/pull/434)).
-
-### :bug: Fixes
-
-- [`apply_affine`][confusius.xarray.apply_affine] keeps the applied key in
-  `.attrs["affines"]` as the identity when the affine is given by key
-  ([#463](https://github.com/confusius-tools/confusius/pull/463)).
-## 0.7.2.dev0
-
-Current development version for the next ConfUSIus release.
-
 ### :bug: Fixes
 
 - [`apply_affine`][confusius.xarray.apply_affine] keeps the applied key in
