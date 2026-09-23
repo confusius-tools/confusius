@@ -94,6 +94,27 @@ def test_returns_valid_atlas_dataset(fake_atlases: list[_FakeBgAtlas]) -> None:
     validate_atlas(result)
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("template", np.float32),
+        ("annotation", np.int32),
+        ("hemispheres", np.int8),
+    ],
+)
+def test_converts_brainglobe_arrays_to_voxeldata(
+    fake_atlases: list[_FakeBgAtlas], source: str, expected: type[np.generic]
+) -> None:
+    result = fetch_brainglobe_atlas("allen_mouse_25um")
+    data_var = "reference" if source == "template" else source
+
+    assert result[data_var].dtype == expected
+    assert result[data_var].dims == ("k", "j", "i")
+    np.testing.assert_allclose(
+        result[data_var].x.isel(k=0, j=0).to_numpy(), np.arange(8) * 0.025
+    )
+
+
 def test_defaults_check_latest_off_and_brainglobe_default_cache(
     fake_atlases: list[_FakeBgAtlas],
 ) -> None:
