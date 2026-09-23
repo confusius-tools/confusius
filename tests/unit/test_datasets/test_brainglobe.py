@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+
 import brainglobe_atlasapi
 import dask.array as da
 import numpy as np
@@ -12,6 +15,22 @@ from brainglobe_atlasapi.structure_class import StructuresDict
 import confusius.datasets._brainglobe as brainglobe_module
 from confusius.datasets import fetch_brainglobe_atlas
 from confusius.validation import validate_atlas
+
+
+class _FakeFs:
+    """Minimal filesystem stand-in that records downloads."""
+
+    def __init__(self) -> None:
+        self.downloads: list[tuple[object, object, bool, object | None]] = []
+
+    def get(
+        self,
+        remote_path: object,
+        resolution_path: object,
+        recursive: bool = True,
+        callback: object | None = None,
+    ) -> None:
+        self.downloads.append((remote_path, resolution_path, recursive, callback))
 
 
 class _FakeBgAtlas:
@@ -56,6 +75,8 @@ class _FakeBgAtlas:
         }
         self._template_pyramid_level = 0
         self._annotation_pyramid_level = 0
+        self.root_dir = Path(".")
+        self.fs = _FakeFs()
 
 
 @pytest.fixture
@@ -113,6 +134,41 @@ def test_converts_brainglobe_arrays_to_voxeldata(
     np.testing.assert_allclose(
         result[data_var].x.isel(k=0, j=0).to_numpy(), np.arange(8) * 0.025
     )
+
+
+def test_fetch_loads_ngff_arrays_lazily_and_downloads_missing_resolution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    atlas = _FakeBgAtlas("allen_mouse_25um")
+    atlas.metadata["symmetric"] = False
+    atlas.root_dir = tmp_path
+    monkeypatch.setattr(
+        brainglobe_atlasapi, "BrainGlobeAtlas", lambda *args, **kwargs: atlas
+    )
+
+    def fake_from_ngff_zarr(path):
+        path = str(path)
+        if "template" in path:
+            data = atlas.template
+        elif "hemispheres" in path:
+            data = atlas.hemispheres
+        else:
+            data = atlas.annotation
+        return SimpleNamespace(
+            metadata=SimpleNamespace(datasets=[SimpleNamespace(path="0")]),
+            images=[SimpleNamespace(data=da.from_array(data))],
+        )
+
+    import ngff_zarr
+
+    monkeypatch.setattr(ngff_zarr, "from_ngff_zarr", fake_from_ngff_zarr)
+
+    result = fetch_brainglobe_atlas("allen_mouse_25um")
+
+    assert isinstance(result.reference.data, da.Array)
+    assert isinstance(result.annotation.data, da.Array)
+    assert isinstance(result.hemispheres.data, da.Array)
+    assert len(atlas.fs.downloads) == 3
 
 
 def test_defaults_check_latest_off_and_brainglobe_default_cache(
