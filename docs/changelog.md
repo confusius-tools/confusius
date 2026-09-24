@@ -6,9 +6,19 @@ icon: lucide/history
 
 # Changelog
 
-## 0.7.2.dev0
+## 0.8.0.dev0
 
 Current development version for the next ConfUSIus release.
+
+### :boom: Breaking changes
+
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like]'s `interpolation`
+  parameter defaults to `"auto"` instead of `"linear"`: `"nearest"` is picked for
+  integer-dtype data (e.g. atlas region labels) and `"linear"` otherwise, so
+  resampling an integer mask no longer silently blends label values unless
+  `interpolation` is explicitly overridden
+  ([#375](https://github.com/confusius-tools/confusius/issues/375)).
 
 ### :zap: Performance
 
