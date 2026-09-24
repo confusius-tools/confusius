@@ -18,13 +18,13 @@ Current development version for the next ConfUSIus release.
   integer-dtype data (e.g. atlas region labels) and `"linear"` otherwise, so
   resampling an integer mask no longer silently blends label values unless
   `interpolation` is explicitly overridden
-  ([#375](https://github.com/confusius-tools/confusius/issues/375)).
+  ([#436](https://github.com/confusius-tools/confusius/pull/436)).
 - [`register_volumewise`][confusius.registration.register_volumewise]'s
   `intensity_scaling` is renamed to `moving_intensity_scaling`, and a new
   `fixed_intensity_scaling` scales a user-provided `fixed` volume separately (only
   allowed together with `fixed`; it defaults to `moving_intensity_scaling`). Both are
   now also exposed on `data.fusi.register.volumewise`
-  ([#376](https://github.com/confusius-tools/confusius/issues/376)).
+  ([#437](https://github.com/confusius-tools/confusius/pull/437)).
 
 ### :sparkles: Enhancements
 
@@ -32,11 +32,11 @@ Current development version for the next ConfUSIus release.
   (0 and at most one non-zero value, e.g. `{0, 1}` or `{0.0, 5.0}`) is now accepted
   and coerced to boolean, covering masks written by tools without a boolean dtype
   (e.g. FSL/NiBabel NIfTI masks stored as float)
-  ([#382](https://github.com/confusius-tools/confusius/issues/382)).
+  ([#418](https://github.com/confusius-tools/confusius/pull/418)).
 - [`register_volumewise`][confusius.registration.register_volumewise] and
   `data.fusi.register.volumewise` accept a `fixed` VoxelData volume (for example the
   mean of a few low-motion frames) to register every frame to, as an alternative to
-  `reference_time` ([#376](https://github.com/confusius-tools/confusius/issues/376)).
+  `reference_time` ([#436](https://github.com/confusius-tools/confusius/pull/436)).
 
 ### :zap: Performance
 
@@ -67,6 +67,12 @@ Current development version for the next ConfUSIus release.
   on its own under `auto_range=True`: a lone bound sets the symmetric range to
   `[-|bound|, |bound|]`
   ([#445](https://github.com/confusius-tools/confusius/pull/445)).
+
+### :frame_photo: Napari plugin
+
+- The registration panel's within-scan mode can register every frame to a fixed
+  layer, with its own intensity scaling, as an alternative to a reference time index
+  ([#376](https://github.com/confusius-tools/confusius/issues/376)).
 
 ## 0.7.1
 
