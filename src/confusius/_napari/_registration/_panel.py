@@ -1563,8 +1563,10 @@ class RegistrationPanel(QWidget):
         self._fixed_label.setVisible(not is_volumewise)
         self._fixed_layer_radio.setVisible(is_volumewise)
         self._fixed_combo.setEnabled(fixed_enabled)
-        self._fixed_scale_label.setEnabled(fixed_enabled)
-        self._fixed_scale_combo.setEnabled(fixed_enabled)
+        # A reference-time target has no fixed layer, so its scaling row is dropped
+        # instead of greyed out.
+        self._fixed_scale_label.setVisible(fixed_enabled)
+        self._fixed_scale_combo.setVisible(fixed_enabled)
         self._reference_time_radio.setVisible(is_volumewise)
         self._reference_time_spin.setVisible(is_volumewise)
         self._reference_time_spin.setEnabled(not use_fixed)

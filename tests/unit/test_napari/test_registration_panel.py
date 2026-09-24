@@ -221,7 +221,7 @@ class TestOperationMode:
         assert not registration_panel._fixed_layer_radio.isHidden()
         assert registration_panel._reference_time_radio.isChecked()
         assert not registration_panel._fixed_combo.isEnabled()
-        assert not registration_panel._fixed_scale_combo.isEnabled()
+        assert registration_panel._fixed_scale_combo.isHidden()
         assert registration_panel._reference_time_spin.isEnabled()
 
         registration_panel._fixed_layer_radio.setChecked(True)
@@ -229,7 +229,7 @@ class TestOperationMode:
         # Selecting one target clears the other, and only its input stays active.
         assert not registration_panel._reference_time_radio.isChecked()
         assert registration_panel._fixed_combo.isEnabled()
-        assert registration_panel._fixed_scale_combo.isEnabled()
+        assert not registration_panel._fixed_scale_combo.isHidden()
         assert not registration_panel._reference_time_spin.isEnabled()
         # Both radios stay on screen and usable, so either target can be picked.
         assert registration_panel._reference_time_radio.isEnabled()
@@ -240,7 +240,7 @@ class TestOperationMode:
 
         assert not registration_panel._fixed_layer_radio.isChecked()
         assert not registration_panel._fixed_combo.isEnabled()
-        assert not registration_panel._fixed_scale_combo.isEnabled()
+        assert registration_panel._fixed_scale_combo.isHidden()
         assert registration_panel._reference_time_spin.isEnabled()
 
     def test_volumewise_target_rows_are_ordered_under_moving_layer(
@@ -381,12 +381,12 @@ class TestOperationMode:
     def test_fixed_scale_combo_disabled_within_scan_by_default(
         self, registration_panel
     ):
-        assert registration_panel._fixed_scale_combo.isEnabled()
+        assert not registration_panel._fixed_scale_combo.isHidden()
         assert registration_panel._scale_label.text() == "Moving intensity scaling"
 
         registration_panel._time_series_radio.setChecked(True)
 
-        assert not registration_panel._fixed_scale_combo.isEnabled()
+        assert registration_panel._fixed_scale_combo.isHidden()
         assert registration_panel._scale_label.text() == "Moving intensity scaling"
 
     def test_advanced_group_is_collapsed_by_default(self, registration_panel):
