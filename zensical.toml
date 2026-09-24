@@ -74,10 +74,6 @@ nav = [
             { "Create a VoxelData array from a MAT file" = "examples/_built/io/create_voxeldata_from_mat.md" },
             { "Load multi-pose recordings" = "examples/_built/io/load_multipose_recordings.md" },
         ]},
-        { "Plotting" = [
-            { "Plotting basics" = "examples/_built/plotting/plotting_basics.md" },
-            { "Overlays, ROI contours, and composites" = "examples/_built/plotting/overlays_and_contours.md" },
-        ]},
         { "Registration" = [
             { "Registration of two sessions from the same subject" = "examples/_built/registration/register_volume_same_subject.md" },
             { "Motion correction of a single recording" = "examples/_built/registration/volumewise_motion_correction.md" },

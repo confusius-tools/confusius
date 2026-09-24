@@ -80,14 +80,14 @@ def test_overlay_names_active_event(rng, make_napari_viewer):
 
     # Move to time = 2.0 s (frame 2), which is inside the events.
     viewer.dims.set_current_step(overlay._time_idx, 2)
-    assert "stim [1.00 s, 3.00 s)" in viewer.text_overlay.text
+    assert "stim [1.00 s, 3.00 s)" in viewer.canvas.overlays.text.text
     # Names longer than 10 characters are truncated to 8 + ellipsis.
-    assert "whisker_... [1.00 s, 3.00 s)" in viewer.text_overlay.text
-    assert "whisker_stimulation_left" not in viewer.text_overlay.text
+    assert "whisker_... [1.00 s, 3.00 s)" in viewer.canvas.overlays.text.text
+    assert "whisker_stimulation_left" not in viewer.canvas.overlays.text.text
 
     # Move to time = 4.0 s (frame 4), outside the event.
     viewer.dims.set_current_step(overlay._time_idx, 4)
-    assert "stim" not in viewer.text_overlay.text
+    assert "stim" not in viewer.canvas.overlays.text.text
 
 
 def test_overlay_snaps_unsampled_event_to_next_frame(rng, make_napari_viewer):
@@ -116,20 +116,20 @@ def test_overlay_snaps_unsampled_event_to_next_frame(rng, make_napari_viewer):
     overlay.check()
 
     viewer.dims.set_current_step(overlay._time_idx, 0)
-    assert "blip [-0.50 s, -0.50 s)" in viewer.text_overlay.text
+    assert "blip [-0.50 s, -0.50 s)" in viewer.canvas.overlays.text.text
 
     viewer.dims.set_current_step(overlay._time_idx, 1)
-    assert "stim" not in viewer.text_overlay.text
-    assert "tick" in viewer.text_overlay.text
+    assert "stim" not in viewer.canvas.overlays.text.text
+    assert "tick" in viewer.canvas.overlays.text.text
 
     viewer.dims.set_current_step(overlay._time_idx, 2)
-    assert "stim [1.20 s, 1.30 s)" in viewer.text_overlay.text
+    assert "stim [1.20 s, 1.30 s)" in viewer.canvas.overlays.text.text
     # Regression: an event at exactly a frame's timestamp must not be repeated
     # on the following frame.
-    assert "tick" not in viewer.text_overlay.text
+    assert "tick" not in viewer.canvas.overlays.text.text
 
     viewer.dims.set_current_step(overlay._time_idx, 3)
-    assert "stim" not in viewer.text_overlay.text
+    assert "stim" not in viewer.canvas.overlays.text.text
 
 
 def test_overlay_uses_acquisition_window(rng, make_napari_viewer):
@@ -153,12 +153,12 @@ def test_overlay_uses_acquisition_window(rng, make_napari_viewer):
     overlay.check()
 
     viewer.dims.set_current_step(overlay._time_idx, 2)
-    assert "stim" in viewer.text_overlay.text
-    assert "gap" not in viewer.text_overlay.text
+    assert "stim" in viewer.canvas.overlays.text.text
+    assert "gap" not in viewer.canvas.overlays.text.text
 
     viewer.dims.set_current_step(overlay._time_idx, 3)
-    assert "gap [2.85 s, 2.90 s)" in viewer.text_overlay.text
-    assert "stim" not in viewer.text_overlay.text
+    assert "gap [2.85 s, 2.90 s)" in viewer.canvas.overlays.text.text
+    assert "stim" not in viewer.canvas.overlays.text.text
 
 
 def test_overlay_window_falls_back_to_time_spacing(rng, make_napari_viewer):
@@ -179,10 +179,10 @@ def test_overlay_window_falls_back_to_time_spacing(rng, make_napari_viewer):
 
     # Frames are 1 s apart, so frame 1's window is [1.0, 2.0) and covers the event.
     viewer.dims.set_current_step(overlay._time_idx, 1)
-    assert "dirac [1.50 s, 1.50 s)" in viewer.text_overlay.text
+    assert "dirac [1.50 s, 1.50 s)" in viewer.canvas.overlays.text.text
 
     viewer.dims.set_current_step(overlay._time_idx, 2)
-    assert "dirac" not in viewer.text_overlay.text
+    assert "dirac" not in viewer.canvas.overlays.text.text
 
 
 def test_panel_binds_keys_while_visible(make_napari_viewer):

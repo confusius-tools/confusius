@@ -423,6 +423,28 @@ class TestPlotComposite:
         with pytest.raises(ValueError, match="time"):
             plot_composite(sample_voxeldata_3dt, sample_voxeldata_3dt)
 
+    def test_default_slice_mode_uses_singleton_world_dim_for_planar_data(
+        self, matplotlib_pyplot
+    ):
+        """plot_composite defaults to the plane-normal world axis for 2D scans."""
+        data = create_voxeldata(
+            np.arange(1 * 4 * 5, dtype=float).reshape(1, 4, 5),
+            dims=("k", "j", "i"),
+            voxel_to_world=np.array(
+                [
+                    [0.0, 0.0, -0.11, 6.785],
+                    [0.0, 0.1, 0.0, 65.0],
+                    [1.0, 0.0, 0.0, -2.7],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+        )
+
+        plotter = plot_composite(data, data, resample=False)
+
+        assert plotter.slice_mode == "x"
+        assert _axes(plotter).shape == (1, 1)
+
 
 class TestAddCompositeVisualRegression:
     """Visual regression tests for VolumePlotter.add_composite."""

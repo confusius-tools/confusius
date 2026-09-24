@@ -290,7 +290,7 @@ maps, or 3D angiography data.
 
     pwd = cf.load("sub-01_task-awake_pwd.zarr")
 
-    # All elevation slices in an auto-sized grid.
+    # Planar data defaults to its singleton world dimension; full 3D data defaults to z.
     plotter = pwd.fusi.plot.volume()
     ```
 
@@ -302,7 +302,7 @@ maps, or 3D angiography data.
 
     pwd = cf.load("sub-01_task-awake_pwd.zarr")
 
-    # All elevation slices in an auto-sized grid.
+    # Planar data defaults to its singleton world dimension; full 3D data defaults to z.
     plotter = cf.plotting.plot_volume(pwd)
     ```
 
@@ -315,7 +315,8 @@ Contours](#overlaying-contours)).
 ![Mean power Doppler volume](../images/visualization/plot-volume-grid-dark.png#only-dark)
 
 When the data has multiple slices along the sliced dimension, `plot_volume` lays them
-out automatically in an approximately square grid:
+out automatically in an approximately square grid. Pass `slice_mode` explicitly to
+choose a different world slicing direction:
 
 ```python
 angio = cf.load("sub-01_acq-angio_pwd.zarr")
@@ -357,11 +358,12 @@ plotter = angio.fusi.scale.db().fusi.plot.volume(
 
 ### Slicing Over a Non-Spatial Dimension
 
-`slice_mode` isn't limited to a spatial axis (`z`/`y`/`x`) — any other dim works too,
-e.g. `time`, `pose`, or a `region` dim such as the one a seed-based connectivity map is
+`slice_mode` can be a world axis (`z`/`y`/`x`) or any extra non-voxel dim, e.g.
+`time`, `pose`, or a `region` dim such as the one a seed-based connectivity map is
 stacked along (see [below](#statistical-maps) and the [seed-based connectivity
-example](../examples/_built/connectivity/atlas_seed_map.md)). Each requested coordinate
-along that dim becomes its own panel, the same as slicing over `z`.
+example](../examples/_built/connectivity/atlas_seed_map.md)). Native voxel dims
+(`k`/`j`/`i`) are not valid slice modes. Each requested coordinate along that dim
+becomes its own panel, the same as slicing over `z`.
 
 Display is always in world space, labeled in mm. For already axis-aligned data this is a
 cheap dim rename onto a regular world grid — the same display `z`/`y`/`x` slicing

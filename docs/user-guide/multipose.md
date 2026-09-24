@@ -60,6 +60,10 @@ the `time` coordinate mean, because both are per-pose rather than per-array.
     Correction](#slice-timing-correction) below), which accounts for the fact that
     different poses were not acquired simultaneously.
 
+    Per-volume quantities such as confounds and sample masks are timed by the whole
+    volume, not by one pose: their 1D `time` coordinate is the whole-volume time, as
+    a consolidated array would have.
+
 These two rules—pose-dependent world coordinates, pose-dependent timing—drive
 everything else in this guide: how multi-pose data is loaded and built, what you can
 and cannot do with it directly, and what consolidation resolves.

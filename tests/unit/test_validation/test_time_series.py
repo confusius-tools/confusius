@@ -33,6 +33,18 @@ def test_validate_time_series_raises_for_single_timepoint():
         validate_time_series(signals, "filtering")
 
 
+def test_validate_time_series_raises_for_unsorted_time_when_required():
+    """Sorted-time validation should reject non-increasing coordinates."""
+    signals = xr.DataArray(
+        [1.0, 3.0, 2.0, 4.0],
+        dims=["time"],
+        coords={"time": [0.0, 2.0, 1.0, 3.0]},
+    )
+
+    with pytest.raises(ValueError, match="strictly increasing"):
+        validate_time_series(signals, "resampling", require_sorted_time=True)
+
+
 def test_validate_time_series_returns_spacing_when_uniform_time_required():
     """Uniform-time validation should return the time spacing."""
     signals = xr.DataArray(

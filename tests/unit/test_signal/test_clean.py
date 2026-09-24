@@ -1,6 +1,7 @@
 """Tests for the signal.clean pipeline."""
 
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
@@ -634,3 +635,110 @@ def test_clean_rejects_invalid_filter_method(make_sample_timeseries):
             low_cutoff=0.1,
             filter_method="invalid",  # ty: ignore[invalid-argument-type]
         )
+
+
+@pytest.mark.parametrize("filter_method", ["butterworth", "cosine"])
+def test_clean_numpy_inputs_match_dataarray_inputs(
+    make_sample_timeseries, rng, filter_method
+):
+    """Test NumPy sample_mask/confounds match aligned DataArrays through every step."""
+    signals = make_sample_timeseries(n_time=100, sampling_rate=100.0)
+    signals[5, 0] = np.nan
+    mask_values = np.ones(100, dtype=bool)
+    mask_values[[10, 25, 26, 60]] = False
+    confound_values = rng.standard_normal((100, 2))
+    confound_values[40, 1] = np.nan
+    sample_mask = xr.DataArray(
+        mask_values, dims=["time"], coords={"time": signals.coords["time"]}
+    )
+    confounds = xr.DataArray(
+        confound_values,
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"]},
+    )
+
+    def run(sample_mask, confounds):
+        return clean(
+            signals,
+            detrend_order=1,
+            low_cutoff=1.0,
+            filter_method=filter_method,
+            ensure_finite=True,
+            standardize_method="zscore",
+            sample_mask=sample_mask,
+            confounds=confounds,
+        )
+
+    expected = run(sample_mask, confounds)
+    with pytest.warns(UserWarning, match="cannot be verified") as record:
+        result = run(mask_values, confound_values)
+
+    # One warning per NumPy argument; downstream steps receive DataArrays.
+    assert sum("cannot be verified" in str(w.message) for w in record) == 2
+    xr.testing.assert_allclose(result, expected)
+
+
+def test_clean_dataframe_confounds_match_dataarray_confounds(
+    make_sample_timeseries, rng
+):
+    """Test DataFrame confounds with a time column match DataArray confounds."""
+    signals = make_sample_timeseries(n_time=100, sampling_rate=100.0)
+    values = rng.standard_normal((100, 2))
+    confounds = xr.DataArray(
+        values, dims=["time", "confound"], coords={"time": signals.coords["time"]}
+    )
+    frame = pd.DataFrame(
+        {"time": signals.coords["time"].values, "a": values[:, 0], "b": values[:, 1]}
+    )
+
+    expected = clean(
+        signals, detrend_order=1, low_cutoff=1.0, filter_method="cosine", confounds=confounds
+    )
+    result = clean(
+        signals, detrend_order=1, low_cutoff=1.0, filter_method="cosine", confounds=frame
+    )
+
+    xr.testing.assert_allclose(result, expected)
+
+
+@pytest.mark.parametrize("filter_method", ["butterworth", "cosine"])
+def test_clean_multipose_numpy_inputs_match_per_pose(
+    rng, sample_voxeldata_3dt_pose, filter_method
+):
+    """Test pose-dependent signals clean like each pose separately: NumPy confounds
+    and sample_mask apply to every pose and the `(time, pose)` time coord survives."""
+    n_time = sample_voxeldata_3dt_pose.sizes["time"]
+    confounds = rng.standard_normal((n_time, 2))
+    sample_mask = np.ones(n_time, dtype=bool)
+    sample_mask[[0, 4, n_time - 1]] = False
+    time_coord = sample_voxeldata_3dt_pose.coords["time"].values
+
+    # order=1 to stay within the fixture's 10 timepoints (sosfiltfilt requires
+    # more samples than its padlen, which grows with order); cutoffs kept below
+    # the fixture's 1 Hz Nyquist frequency (dt=0.5s). clean() mutates filter_kwargs
+    # in place, so each call gets its own dict.
+    def run(data):
+        return clean(
+            data,
+            detrend_order=1,
+            low_cutoff=0.05,
+            high_cutoff=0.3 if filter_method == "butterworth" else None,
+            filter_method=filter_method,
+            filter_kwargs={"order": 1} if filter_method == "butterworth" else None,
+            confounds=confounds,
+            sample_mask=sample_mask,
+        )
+
+    with pytest.warns(UserWarning) as record:
+        result = run(sample_voxeldata_3dt_pose)
+    messages = [str(warning.message) for warning in record]
+    # One alignment warning per NumPy input at entry, none from internal steps.
+    assert sum("cannot be verified" in m for m in messages) == 2
+    assert sum("regressed from every pose" in m for m in messages) == 1
+    assert result.coords["time"].dims == ("time", "pose")
+    assert_allclose(result.coords["time"].values, time_coord[sample_mask])
+
+    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
+        with pytest.warns(UserWarning, match="cannot be verified"):
+            expected = run(sample_voxeldata_3dt_pose.sel(pose=pose))
+        xr.testing.assert_allclose(result.sel(pose=pose), expected)

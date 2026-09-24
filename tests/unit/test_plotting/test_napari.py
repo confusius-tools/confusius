@@ -4,6 +4,7 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 import xarray as xr
+from napari.layers import Image, Labels
 
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
@@ -50,6 +51,7 @@ class TestPlotNapari:
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
 
+        assert isinstance(layer, Image)
         assert not layer.rgb
         npt.assert_allclose(layer.scale, [0.2, 0.1, 0.05], rtol=1e-5)
         npt.assert_allclose(layer.translate, [1.0, 2.0, 3.0], rtol=1e-5)
@@ -184,6 +186,48 @@ class TestPlotNapari:
             )
         viewer.close()
 
+    def test_default_dim_order_puts_singleton_planar_axis_first(
+        self, make_napari_viewer
+    ):
+        """A singleton spatial axis defaults to a slider, not the canvas.
+
+        Reproduces the napari-side issue reported on #407: a permuted
+        voxel-to-world affine can map a data array's singleton native dim (the
+        planar acquisition's elevation axis) onto any world axis after resampling
+        to an axis-aligned grid, not necessarily the one that ends up last in
+        native dim order. Without inferring this, napari's default "last two axes
+        are the canvas" convention could put the singleton axis in the canvas.
+        """
+        # Permutation affine: world z <- native i, world y <- native j,
+        # world x <- native k. Native k is the singleton axis, so after resampling
+        # to an axis-aligned grid it ends up mapped to world x, and (being native
+        # k) it lands first rather than last in native dim order.
+        voxel_to_world = np.array(
+            [
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        data = create_voxeldata(
+            np.arange(1 * 3 * 4, dtype=float).reshape(1, 3, 4),
+            dims=("k", "j", "i"),
+            voxel_to_world=voxel_to_world,
+        )
+        viewer = make_napari_viewer()
+        _, layer = plot_napari(
+            data, viewer=viewer, show_colorbar=False, show_scale_bar=False
+        )
+
+        singleton_dim = next(
+            i
+            for i, size in enumerate(layer.metadata["xarray"].sizes.values())
+            if size == 1
+        )
+        assert singleton_dim not in viewer.dims.order[-2:]
+        viewer.close()
+
     def test_labels_layer_preserves_xarray_metadata(
         self, sample_voxeldata_3dt, make_napari_viewer
     ):
@@ -305,7 +349,9 @@ class TestPlotNapari:
         affine, not coordinate direction, encodes orientation), so reversing `j`/`i`
         keeps `data` valid while still requiring the pre-display sort.
         """
-        data = sample_voxeldata_3d.copy().isel(j=slice(None, None, -1), i=slice(None, None, -1))
+        data = sample_voxeldata_3d.copy().isel(
+            j=slice(None, None, -1), i=slice(None, None, -1)
+        )
 
         viewer = make_napari_viewer()
         _, layer = plot_napari(
@@ -470,6 +516,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
 
+        assert isinstance(labels_layer, Labels)
         result = labels_from_layer(labels_layer, sample_roi_labels)
 
         # np.unique sorts ascending: motor=3, somatosensory=7, visual=42.
@@ -492,6 +539,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
 
+        assert isinstance(labels_layer, Labels)
         result = labels_from_layer(labels_layer, sample_roi_labels)
 
         # World coordinates must still be index-derived, not materialized plain
@@ -515,6 +563,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
 
+        assert isinstance(labels_layer, Labels)
         result = labels_from_layer(labels_layer, sample_voxeldata_3dt)
 
         assert result.dims == ("mask", "k", "j", "i")
@@ -533,6 +582,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
 
+        assert isinstance(labels_layer, Labels)
         result = labels_from_layer(labels_layer, sample_roi_labels)
 
         assert result.attrs["long_name"] == "Drawn label map"

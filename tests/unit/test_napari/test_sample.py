@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
@@ -80,7 +81,8 @@ class _Dims:
 
 class _Viewer:
     def __init__(self):
-        self.scale_bar = _ScaleBar()
+        scale_bar = _ScaleBar()
+        self.canvas = SimpleNamespace(overlays=SimpleNamespace(scale_bar=scale_bar))
         self.dims = _Dims()
         self.window = Mock()
         self.window._qt_window = object()
@@ -170,7 +172,7 @@ def test_open_awake_mouse_sample_sets_default_gamma_and_shows_scale_bar(
     assert isinstance(data, np.ndarray)
     assert layer_type == "image"
     assert kwargs["gamma"] == 0.4
-    assert viewer.scale_bar.visible is True
+    assert viewer.canvas.overlays.scale_bar.visible is True
     # The sample's dims are pushed onto the viewer sliders (napari does not do
     # this for the sample path on its own).
     assert viewer.dims.axis_labels == ("z", "y", "x")
