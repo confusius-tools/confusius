@@ -6,9 +6,19 @@ icon: lucide/history
 
 # Changelog
 
-## 0.7.2.dev0
+## 0.8.0.dev0
 
 Current development version for the next ConfUSIus release.
+
+### :boom: Breaking changes
+
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like]'s `interpolation`
+  parameter defaults to `"auto"` instead of `"linear"`: `"nearest"` is picked for
+  integer-dtype data (e.g. atlas region labels) and `"linear"` otherwise, so
+  resampling an integer mask no longer silently blends label values unless
+  `interpolation` is explicitly overridden
+  ([#375](https://github.com/confusius-tools/confusius/issues/375)).
 
 ### :sparkles: Enhancements
 
@@ -25,6 +35,16 @@ Current development version for the next ConfUSIus release.
   `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
   even when only metadata or a small region is needed
   ([#415](https://github.com/confusius-tools/confusius/pull/415)).
+
+### :bug: Fixes
+
+- [`consolidate_poses`][confusius.multipose.consolidate_poses]'s regularity check no
+  longer rejects realistic stage jitter on small pose steps (e.g. a 100 um step
+  previously tolerated only ~1 um of jitter under a pure 1% relative tolerance). The
+  check now combines a new `atol` parameter (default: 5 um, converted to the array's own
+  world units) with `rtol`, matching typical stepper-motor stage repeatability at small
+  step sizes while keeping `rtol` in control at larger ones
+  ([#363](https://github.com/confusius-tools/confusius/issues/363)).
 
 ## 0.7.1
 

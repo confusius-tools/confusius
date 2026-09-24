@@ -116,7 +116,7 @@ def resample_volume(
     output_spacing: Mapping[Hashable, SupportsFloat | SupportsIndex],
     output_origin: Mapping[Hashable, SupportsFloat | SupportsIndex],
     output_direction: npt.ArrayLike,
-    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
     fill_value: float | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
@@ -172,8 +172,10 @@ def resample_volume(
         `(3, 3)` matrix whose columns are the unit world-space direction of each
         output voxel axis, in native `k/j/i` column order. `reference.fusi.direction`
         can be passed directly.
-    interpolation : {"linear", "nearest", "bspline"}, default: "linear"
-        Interpolation method used during resampling.
+    interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
+        Interpolation method used during resampling. `"auto"` picks `"nearest"` when
+        `moving` has an integer dtype (e.g. atlas region labels), and `"linear"`
+        otherwise.
     fill_value : float, optional
         Value assigned to voxels that fall outside the moving image's field of view
         after resampling. If not provided, defaults to `float(moving.min())`, which
@@ -262,11 +264,19 @@ def resample_volume(
     ref.SetOrigin(resolved_output_origin)
     ref.SetDirection(direction.ravel().tolist())
 
-    if interpolation == "nearest":
+    resolved_interpolation = interpolation
+    if resolved_interpolation == "auto":
+        # Integer dtypes hold discrete labels (e.g. atlas region masks), where linear
+        # blending would produce nonsense values between labels.
+        resolved_interpolation = (
+            "nearest" if np.issubdtype(moving.dtype, np.integer) else "linear"
+        )
+
+    if resolved_interpolation == "nearest":
         sitk_interpolation = sitk.sitkNearestNeighbor
-    elif interpolation == "linear":
+    elif resolved_interpolation == "linear":
         sitk_interpolation = sitk.sitkLinear
-    elif interpolation == "bspline":
+    elif resolved_interpolation == "bspline":
         sitk_interpolation = sitk.sitkBSpline
     else:
         raise ValueError(f"Invalid interpolation: {interpolation}")
@@ -332,7 +342,7 @@ def resample_like(
     moving: xr.DataArray,
     reference: xr.DataArray,
     transform: "npt.NDArray[np.floating] | xr.DataArray",
-    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
     fill_value: float | None = None,
     default_value: float | None = None,
     sitk_threads: int = -1,
@@ -371,8 +381,10 @@ def resample_like(
         When `transform` is a DataArray and spatial coordinate `units` metadata is
         present on both it and `reference`, those units must also match.
 
-    interpolation : {"linear", "nearest", "bspline"}, default: "linear"
-        Interpolation method used during resampling.
+    interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
+        Interpolation method used during resampling. `"auto"` picks `"nearest"` when
+        `moving` has an integer dtype (e.g. atlas region labels), and `"linear"`
+        otherwise.
     fill_value : float, optional
         Value assigned to voxels that fall outside the moving image's field of view
         after resampling. If not provided, defaults to `float(moving.min())`, which
