@@ -595,6 +595,24 @@ class TestConsolidatePoses:
         ):
             consolidate_poses(da)
 
+    def test_near_identical_pose_positions_raise(self) -> None:
+        """Numerically identical pose translations are rejected as no sweep."""
+        npose = 3
+        data = np.random.default_rng(17).random((npose, 2, 4, 3))
+        affines = np.stack([np.eye(4) for _ in range(npose)])
+        for i in range(npose):
+            affines[i, :3, 3][0] = i * 1e-14
+
+        da = create_voxeldata(
+            data,
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
+            voxel_to_world=affines,
+        )
+
+        with pytest.raises(ValueError, match="poses have identical world positions"):
+            consolidate_poses(da)
+
     def test_degenerate_voxel_axis_raises(self) -> None:
         """consolidate_poses raises ValueError when the primary voxel-to-world
         geometry has a degenerate (effectively zero-length) voxel axis, since the
