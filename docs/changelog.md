@@ -23,9 +23,9 @@ Current development version for the next ConfUSIus release.
   updates are now throttled to the display refresh rate instead of running
   unbounded on every raw mouse-move event
   ([#429](https://github.com/confusius-tools/confusius/pull/429)).
-- A DVARS trace computed in the Quality Control panel is now added to the
-  shared signal store, making it selectable elsewhere in the plugin without
-  first exporting and re-importing it
+- A DVARS trace computed in the Quality Control panel is now plotted in the
+  Signals panel as a stored signal, opening that plot if needed, instead of in a
+  separate QC plot tab
   ([#429](https://github.com/confusius-tools/confusius/pull/429)).
 
 ## 0.7.1

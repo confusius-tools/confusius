@@ -85,12 +85,16 @@ class TestXaxisDimIndex:
         layer = _Layer(np.zeros((10, 4, 6, 8)))
         assert plotter._xaxis_dim_index(layer) == 0
 
-    def test_returns_zero_when_no_time_dim_in_metadata(self, plotter, sample_voxeldata_3d):
+    def test_returns_zero_when_no_time_dim_in_metadata(
+        self, plotter, sample_voxeldata_3d
+    ):
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": sample_voxeldata_3d})
         assert plotter._xaxis_dim_index(layer) == 0
 
     def test_returns_zero_when_time_is_first_dim(self, plotter, sample_voxeldata_3dt):
-        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt})
+        layer = _Layer(
+            np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt}
+        )
         assert plotter._xaxis_dim_index(layer) == 0
 
     def test_returns_correct_index_when_time_is_not_first(self, plotter):
@@ -237,7 +241,9 @@ class TestGetXaxisCoords:
         assert plotter._get_xaxis_coords(layer) is None
 
     def test_returns_correct_coords(self, plotter, sample_voxeldata_3dt):
-        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt})
+        layer = _Layer(
+            np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt}
+        )
         coords = plotter._get_xaxis_coords(layer)
         npt.assert_array_equal(coords, sample_voxeldata_3dt.coords["time"].values)
 
@@ -249,9 +255,7 @@ class TestGetXaxisCoords:
             np.zeros((4, 6, 8)),
             dims=["plane", "row", "col"],
             coords={
-                "plane": xr.DataArray(
-                    plane, dims=["plane"], attrs={"units": "mm"}
-                )
+                "plane": xr.DataArray(plane, dims=["plane"], attrs={"units": "mm"})
             },
         )
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
@@ -292,7 +296,9 @@ class TestGetXaxisLabel:
 
     def test_uses_units_from_time_coord(self, plotter, sample_voxeldata_3dt):
         # sample_voxeldata_3dt has time attrs={"units": "s"}, no long_name.
-        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt})
+        layer = _Layer(
+            np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt}
+        )
         assert plotter._get_xaxis_label(layer) == "Time (s)"
 
     def test_uses_long_name_and_units(self, plotter):
@@ -1164,6 +1170,19 @@ class TestPinCurrentSignals:
         origins = {s.pin_origin for s in store.stored_signals()}
         assert origins == {"label-1", "label-2"}
 
+    def test_pins_raw_values_when_zscore_is_enabled(
+        self, plotter_with_store, store, rng
+    ):
+        data = rng.random((10, 4, 6, 8))
+        plotter_with_store._current_layer = _Layer(data)
+        plotter_with_store._cursor_pos = np.array([0, 1, 2, 3])
+        plotter_with_store.set_zscore(True)
+        plotter_with_store._update_plot()
+
+        plotter_with_store._pin_current_signals()
+
+        npt.assert_allclose(store.stored_signals()[0].y, data[:, 1, 2, 3])
+
     def test_pin_button_disabled_when_no_live_signal_is_plotted(
         self, plotter_with_store
     ):
@@ -1185,3 +1204,39 @@ class TestPinCurrentSignals:
             ]
         )
         assert plotter_with_store._pin_button.isEnabled() is True
+
+
+class TestPointColorSync:
+    def test_store_color_reaches_layer_and_selected_point_swatch(
+        self, viewer, plotter_with_store, store
+    ):
+        img = viewer.add_image(np.random.default_rng(0).random((10, 4, 6, 8)))
+        points = viewer.add_points(np.array([[1, 2, 3], [2, 3, 4]]), ndim=3)
+        plotter_with_store.set_ref_layers([img])
+        plotter_with_store.set_points_layer(points)
+        plotter_with_store.set_source_mode("points")
+        points.selected_data = {0}
+
+        store.set_live_signal_color("point-0", "#123456")
+
+        npt.assert_allclose(
+            points.face_color[0], [0x12 / 255, 0x34 / 255, 0x56 / 255, 1]
+        )
+        npt.assert_allclose(points.face_color[1], [1, 1, 1, 1])
+        assert points.current_face_color.startswith("#123456")
+
+    def test_controls_swatch_color_reaches_store(
+        self, viewer, plotter_with_store, store
+    ):
+        img = viewer.add_image(np.random.default_rng(0).random((10, 4, 6, 8)))
+        points = viewer.add_points(np.array([[1, 2, 3], [2, 3, 4]]), ndim=3)
+        plotter_with_store.set_ref_layers([img])
+        plotter_with_store.set_points_layer(points)
+        plotter_with_store.set_source_mode("points")
+        points.selected_data = {1}
+
+        # The layer controls swatch sets `current_face_color`, not `face_color`.
+        points.current_face_color = "#123456"
+
+        assert store.get_live_signal("point-1").color == "#123456"
+        assert store.get_live_signal("point-0").color == "#ffffff"

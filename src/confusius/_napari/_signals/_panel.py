@@ -255,7 +255,7 @@ class SignalPanel(QWidget):
         # Show plot button, disabled while the dock is visible.
         self._show_btn = QPushButton("Show Signal Plot")
         self._show_btn.setObjectName("primary_btn")
-        self._show_btn.clicked.connect(self._show_plot)
+        self._show_btn.clicked.connect(self.show_plot)
         layout.addWidget(self._show_btn)
 
         self._manage_btn = QPushButton("Manage Signals")
@@ -349,7 +349,7 @@ class SignalPanel(QWidget):
 
         return self._plotter
 
-    def _show_plot(self) -> None:
+    def show_plot(self) -> None:
         """Show or re-dock the signal plot widget."""
         # If the plotter is already in a live dock, just raise it.
         if self._plotter is not None and self._plotter.parent() is not None:

@@ -63,7 +63,8 @@ class LivePlotSignal(NamedTuple):
     x : numpy.ndarray
         Time values.
     y : numpy.ndarray
-        Signal values.
+        Raw signal values, before any z-scoring, so a pinned copy follows the
+        plotter's z-score toggle like every other stored signal.
     color : str
         Hex color to pin.
     """
@@ -737,6 +738,7 @@ class SignalPlotter(QWidget):
         # Update stored x-axis coordinates for cursor mapping.
         self._xaxis_coords = self._get_xaxis_coords(self._current_layer)
         if ts is not None:
+            raw_ts = np.asarray(ts, dtype=float)
             if self._zscore:
                 ts = self._apply_zscore(ts)
 
@@ -774,7 +776,7 @@ class SignalPlotter(QWidget):
                         ),
                         name=live_label,
                         x=np.asarray(x_values),
-                        y=np.asarray(ts),
+                        y=raw_ts,
                         color=live_color,
                     )
                 ]
@@ -1076,16 +1078,21 @@ class SignalPlotter(QWidget):
                 self._points_layer.events.data.disconnect(self._on_points_data_changed)
             except RuntimeError:
                 pass
-            try:
-                self._points_layer.events.face_color.disconnect(
-                    self._on_points_color_changed
-                )
-            except RuntimeError:
-                pass
+            for event in (
+                self._points_layer.events.face_color,
+                self._points_layer.events.current_face_color,
+            ):
+                try:
+                    event.disconnect(self._on_points_color_changed)
+                except RuntimeError:
+                    pass
         self._points_layer = layer
         if layer is not None:
             layer.events.data.connect(self._on_points_data_changed)
             layer.events.face_color.connect(self._on_points_color_changed)
+            # The layer controls swatch recolors the selected points through
+            # `current_face_color`, which emits only this event, not `face_color`.
+            layer.events.current_face_color.connect(self._on_points_color_changed)
         if self._source_mode == "points":
             self._update_plot_from_points()
 
@@ -1342,6 +1349,14 @@ class SignalPlotter(QWidget):
                             colors = self._points_layer.face_color.copy()
                             colors[point_index] = rgba
                             self._points_layer.face_color = colors
+                            # napari only refreshes `current_face_color` (the layer
+                            # controls swatch) when the selection changes, so a
+                            # selected point's swatch would keep the old color.
+                            if set(self._points_layer.selected_data) == {point_index}:
+                                with self._points_layer.block_update_properties():
+                                    self._points_layer.current_face_color = (
+                                        signals.color
+                                    )
                 elif signals.source_type == "label" and self._labels_layer is not None:
                     lid = signals.source_id
                     if lid is not None:
@@ -2027,6 +2042,7 @@ class SignalPlotter(QWidget):
                         continue
 
                     ts = np.asarray(ts, dtype=float)
+                    raw_ts = ts
                     if self._zscore:
                         ts = self._apply_zscore(ts)
 
@@ -2065,7 +2081,7 @@ class SignalPlotter(QWidget):
                             origin=f"point-{point_index}",
                             name=pt_name,
                             x=np.asarray(x),
-                            y=ts,
+                            y=raw_ts,
                             color=pt_color,
                         )
                     )
@@ -2170,7 +2186,7 @@ class SignalPlotter(QWidget):
 
                     mask = labels_spatial == lid
                     ts = np.asarray(img_arr[mask].mean(axis=0), dtype=float)  # (T,)
-
+                    raw_ts = ts
                     if self._zscore:
                         ts = self._apply_zscore(ts)
 
@@ -2204,7 +2220,7 @@ class SignalPlotter(QWidget):
                             origin=f"label-{lid_int}",
                             name=base_name,
                             x=np.asarray(x),
-                            y=ts,
+                            y=raw_ts,
                             color=lid_color,
                         )
                     )
