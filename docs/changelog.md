@@ -38,6 +38,13 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`register_volume`][confusius.registration.register_volume]'s live progress plot no
+  longer draws every slice in the composite overlay for volumes with many slices,
+  which made the mosaic slow to render and hard to read. The composite now shows at
+  most 9 evenly spaced slices by default (a 3x3 grid), configurable via the new
+  `max_composite_slices` parameter (`None` restores the previous behaviour of
+  plotting every slice)
+  ([#368](https://github.com/confusius-tools/confusius/issues/368)).
 - [`consolidate_poses`][confusius.multipose.consolidate_poses]'s regularity check no
   longer rejects realistic stage jitter on small pose steps (e.g. a 100 um step
   previously tolerated only ~1 um of jitter under a pure 1% relative tolerance). The
