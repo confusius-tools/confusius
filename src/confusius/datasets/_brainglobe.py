@@ -24,7 +24,7 @@ def _load_lazy_ngff_array(
 ) -> da.Array:
     """Lazily load one BrainGlobe v3 zarr array as a Dask array.
 
-    ``brainglobe_atlasapi.core.Atlas.template``/``.annotation``/``.hemispheres``
+    `brainglobe_atlasapi.core.Atlas.template`/`.annotation`/`.hemispheres`
     resolve the on-disk zarr path, download it if missing, then call
     `.compute()` before returning — there is no public lazy-loading entry
     point (see [brainglobe/brainglobe-atlasapi#882](https://github.com/brainglobe/brainglobe-atlasapi/issues/882)).
