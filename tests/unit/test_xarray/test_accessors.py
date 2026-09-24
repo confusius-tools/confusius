@@ -115,6 +115,16 @@ class TestFUSIAccessor:
 
         np.testing.assert_allclose(result.values, expected_db)
 
+    def test_db_scale_default_factor_complex_data(self):
+        """db_scale defaults to factor=20 for complex-valued data."""
+        data = xr.DataArray([1 + 0j, 3 + 4j, 0 + 5j])
+        result = data.fusi.scale.db()
+
+        expected_magnitudes = np.array([1.0, 5.0, 5.0])
+        expected_db = 20 * np.log10(expected_magnitudes / 5.0)
+
+        np.testing.assert_allclose(result.values, expected_db)
+
     def test_db_scale_with_zero(self):
         """db_scale handles zeros (produces -inf)."""
         data = xr.DataArray([0, 1, 10])

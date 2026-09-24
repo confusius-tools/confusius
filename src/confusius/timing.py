@@ -460,13 +460,18 @@ def resample_time(
     Raises
     ------
     ValueError
-        If `data` does not have a `time` dimension or has only 1 timepoint.
+        If `data` does not have a `time` dimension, has only 1 timepoint, or its `time`
+        coordinate is not strictly increasing.
     """
-    validate_time_series(data, "time resampling")
+    validate_time_series(data, "time resampling", require_sorted_time=True)
 
     time_coord = data.coords[TIME_DIM].values
     new_time_arr = np.asarray(new_time)
-    output_dtype = np.result_type(data.dtype, np.float64)
+    output_dtype = (
+        data.dtype
+        if np.issubdtype(data.dtype, np.floating)
+        else np.result_type(data.dtype, np.float64)
+    )
 
     result = xr.apply_ufunc(
         interpolate_timeseries,

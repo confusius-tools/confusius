@@ -79,7 +79,10 @@ class FUSIPlotAccessor:
             Whether to show the scale bar.
         dim_order : tuple[str, ...], optional
             Dimension ordering for the spatial axes (last three dimensions). If not
-            provided, the ordering of the last three dimensions in `data` is used.
+            provided, singleton spatial dimensions (e.g. the elevation axis of a
+            single-slice acquisition) are placed first so the canvas always shows
+            the two axes that actually vary; otherwise the dimensions' native
+            ordering in `data` is used.
         viewer : napari.Viewer, optional
             Existing napari viewer to add the layer to. If not provided, a new
             viewer is created.
@@ -370,7 +373,7 @@ class FUSIPlotAccessor:
     def volume(
         self,
         slice_coords: list[Hashable] | None = None,
-        slice_mode: str = "z",
+        slice_mode: str | None = None,
         transpose: bool = False,
         nrows: int | None = None,
         ncols: int | None = None,
@@ -410,9 +413,12 @@ class FUSIPlotAccessor:
             Coordinate values along `slice_mode` at which to extract slices.
             Slices are selected by nearest-neighbour lookup. If not provided,
             all coordinate values along `slice_mode` are used.
-        slice_mode : str, default: "z"
-            Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`,
-            `"time"`). After slicing, each panel must be 2D.
+        slice_mode : str, optional
+            World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+            slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid
+            slice modes. If not provided, planar data is sliced along its singleton
+            world dimension and full 3D data is sliced along `"z"`. After slicing,
+            each panel must be 2D.
         transpose : bool, default: False
             Whether to swap the row/column display dims of each slice panel.
         nrows : int, optional
@@ -605,8 +611,9 @@ class FUSIPlotAccessor:
         linestyles : str, default: "solid"
             Line style for contour lines (e.g. `"solid"`, `"dashed"`).
         slice_mode : str, default: "z"
-            Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`).
-            After slicing, each panel must be 2D.
+            World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+            slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid
+            slice modes. After slicing, each panel must be 2D.
         slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along `slice_mode` at which to extract slices.
             Slices are selected by nearest-neighbour lookup. If not provided, all
@@ -747,8 +754,9 @@ class FUSIPlotAccessor:
             Slices are selected by nearest-neighbour lookup. If not provided,
             all coordinate values from this DataArray are used.
         slice_mode : str, default: "z"
-            Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
-            slicing, each panel must be 2D.
+            World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+            slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid
+            slice modes. After slicing, each panel must be 2D.
         transpose : bool, default: False
             Whether to swap the row/column display dims of each slice panel.
         alpha : float or numpy.ndarray, optional
@@ -912,8 +920,9 @@ class FUSIPlotAccessor:
             values from `bg_volume` (or this DataArray when `bg_volume` is not
             provided) along `slice_mode` are used.
         slice_mode : str, default: "z"
-            Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`, `"time"`).
-            After slicing, each panel must be 2D.
+            World dimension (`"z"`, `"y"`, `"x"`) or extra non-voxel dimension to
+            slice. Native voxel dimensions (`"k"`, `"j"`, `"i"`) are not valid
+            slice modes. After slicing, each panel must be 2D.
         transpose : bool, default: False
             Whether to swap the row/column display dims of each slice panel.
         bg_kwargs : dict, optional

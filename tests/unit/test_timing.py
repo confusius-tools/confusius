@@ -194,6 +194,42 @@ def test_resample_time_handles_dask_with_changed_time_length() -> None:
     assert_allclose(result.sel(x=1).values, [15.0, 25.0, 35.0])
 
 
+def test_resample_time_preserves_float32_dtype() -> None:
+    """Float32 inputs stay float32 after resampling."""
+    data = xr.DataArray(
+        np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
+        dims=("time",),
+        coords={"time": [0.0, 1.0, 2.0, 3.0]},
+    )
+
+    result = resample_time(data, [0.5, 1.5, 2.5])
+
+    assert result.dtype == np.float32
+    assert_allclose(result.values, [1.5, 2.5, 3.5])
+
+
+def test_resample_time_preserves_dask_float32_dtype() -> None:
+    """Dask-backed float32 inputs stay float32 after resampling."""
+    data = xr.DataArray(
+        np.array(
+            [
+                [1.0, 10.0],
+                [2.0, 20.0],
+                [3.0, 30.0],
+                [4.0, 40.0],
+            ],
+            dtype=np.float32,
+        ),
+        dims=("time", "x"),
+        coords={"time": [0.0, 1.0, 2.0, 3.0], "x": [0, 1]},
+    ).chunk({"time": -1, "x": 1})
+
+    result = resample_time(data, [0.5, 1.5, 2.5])
+
+    assert result.dtype == np.float32
+    assert result.compute().dtype == np.float32
+
+
 def test_resample_time_warns_and_falls_back_for_short_cubic_series() -> None:
     """Cubic interpolation falls back to linear when there are too few points."""
     data = xr.DataArray(

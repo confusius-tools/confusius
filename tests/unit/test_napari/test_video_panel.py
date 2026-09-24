@@ -224,29 +224,23 @@ class TestComputeSpatialParams:
         assert panel._compute_spatial_scale(2, 48) == 1.0
 
     def test_scale_matches_scan_height(self, panel, sample_voxeldata_3dt):
-        """Scale is isotropic, derived from the vertical axis extent."""
-        # vertical_dim=2 -> "y" coord.
+        """Scale is isotropic: video height spans the full y extent."""
+        # vertical_dim=2 -> "y" (j).
         scale = panel._compute_spatial_scale(2, 48)
 
-        y_coords = sample_voxeldata_3dt.coords["y"].values.astype(np.float64)
-        y_min, y_max = y_coords.min(), y_coords.max()
-        y_step = float(np.median(np.diff(y_coords)))
-        expected_scale = (y_max - y_min + abs(y_step)) / 48
-        assert scale == pytest.approx(expected_scale)
-
-    def test_scale_defaults_when_coords_missing(self, panel):
-        panel._axis_labels = ("time", "z", "foo", "bar")
-        assert panel._compute_spatial_scale(2, 48) == 1.0
+        expected = (
+            sample_voxeldata_3dt.fusi.spacing["j"] * sample_voxeldata_3dt.sizes["j"]
+        )
+        assert scale * 48 == pytest.approx(expected)
 
     def test_scale_z_vertical(self, panel, sample_voxeldata_3dt):
-        """When z is the vertical axis, scale uses z-coordinates."""
-        scale = panel._compute_spatial_scale(1, 48)  # dim 1 = "z".
+        """When z is the vertical axis, video height spans the z extent."""
+        scale = panel._compute_spatial_scale(1, 48)  # dim 1 = "z" (k).
 
-        z_coords = sample_voxeldata_3dt.coords["z"].values.astype(np.float64)
-        z_min, z_max = z_coords.min(), z_coords.max()
-        z_step = float(np.median(np.diff(z_coords)))
-        expected_scale = (z_max - z_min + abs(z_step)) / 48
-        assert scale == pytest.approx(expected_scale)
+        expected = (
+            sample_voxeldata_3dt.fusi.spacing["k"] * sample_voxeldata_3dt.sizes["k"]
+        )
+        assert scale * 48 == pytest.approx(expected)
 
     def test_center_translate_without_ref_layer(self, panel):
         panel._ref_layer = None
@@ -259,9 +253,6 @@ class TestComputeSpatialParams:
 
         y_coords = sample_voxeldata_3dt.coords["y"].values.astype(np.float64)
         center_y = (float(y_coords.min()) + float(y_coords.max())) / 2
-        expected_translate = center_y - scale * (48 - 1) / 2
-        assert translate == pytest.approx(expected_translate)
-        # Centre video pixel lands on the fUSI centre.
         assert translate + scale * (48 - 1) / 2 == pytest.approx(center_y)
 
     def test_center_translate_horizontal_axis(self, panel, sample_voxeldata_3dt):
@@ -272,8 +263,7 @@ class TestComputeSpatialParams:
 
         x_coords = sample_voxeldata_3dt.coords["x"].values.astype(np.float64)
         center_x = (float(x_coords.min()) + float(x_coords.max())) / 2
-        expected = center_x - scale * (video_w - 1) / 2
-        assert translate_h == pytest.approx(expected)
+        assert translate_h + scale * (video_w - 1) / 2 == pytest.approx(center_x)
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +348,9 @@ class TestReferenceWarning:
             "confusius._napari._video._video_panel.show_warning",
             warnings_seen.append,
         )
-        time_values = sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
+        time_values = (
+            sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
+        )
         time_values[2:] += 0.02
         irregular = sample_voxeldata_3dt.assign_coords(
             time=("time", time_values, sample_voxeldata_3dt.coords["time"].attrs)
@@ -391,7 +383,9 @@ class TestReferenceWarning:
             "confusius._napari._video._video_panel.VideoReaderNP",
             lambda *_args, **_kwargs: _FakeVideo(n_frames=10, h=48, w=64, rgb=True),
         )
-        time_values = sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
+        time_values = (
+            sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
+        )
         time_values[2:] += 0.02
         irregular = sample_voxeldata_3dt.assign_coords(
             time=("time", time_values, sample_voxeldata_3dt.coords["time"].attrs)
@@ -627,4 +621,87 @@ class TestTimeOverlayVideoSync:
         # The overlay should fall back to dims.point (no xarray).
         expected_time = float(viewer.dims.point[time_idx])
         expected_text = f"{expected_time:.2f} s"
-        assert viewer.text_overlay.text == expected_text
+        assert viewer.canvas.overlays.text.text == expected_text
+
+
+class TestPaddedDimsFollowReference:
+    def test_singleton_k_stays_single_step(self, viewer, monkeypatch, tmp_path):
+        """A single-slice scan whose z origin is nonzero must not grow a k slider.
+
+        Regression test: the video's padded k axis used to sit at world 0 with
+        step 1, so napari merged it with the fUSI slice at z=9 into a 23-step
+        slider.
+        """
+        from confusius.xarray import create_voxeldata
+
+        scan = create_voxeldata(
+            np.random.default_rng(0).random((5, 1, 6, 8)),
+            dims=("time", "k", "j", "i"),
+            dt=0.4,
+            spacing=(0.4, 0.1, 0.1),
+            origin=(9.0, 3.5, -7.0),
+        )
+        _, layer = plot_napari(
+            scan, viewer=viewer, show_colorbar=False, show_scale_bar=False
+        )
+        labels_before = viewer.dims.axis_labels
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.show_info",
+            lambda *_a, **_k: None,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.VideoReaderNP",
+            lambda *_a, **_k: _FakeVideo(n_frames=10, h=48, w=64, rgb=True),
+        )
+        video_path = tmp_path / "video.mp4"
+        video_path.touch()
+
+        VideoPanel(viewer)._add_video(video_path, layer)
+
+        k_idx = list(scan.dims).index("k")
+        assert viewer.dims.nsteps[k_idx] == 1
+        assert viewer.dims.axis_labels == labels_before
+
+    def test_roll_onto_singleton_k_keeps_video_invertible(
+        self, viewer, monkeypatch, tmp_path
+    ):
+        """Rolling displayed dims onto a singleton k axis must not give the video a zero scale.
+
+        Regression test: world coords are 3-D since the VoxelData model, so a
+        median-of-diffs spacing on a constant z came out as 0 and napari raised
+        `LinAlgError: Singular matrix` on the next slice.
+        """
+        from confusius.xarray import create_voxeldata
+
+        scan = create_voxeldata(
+            np.random.default_rng(0).random((5, 1, 6, 8)),
+            dims=("time", "k", "j", "i"),
+            dt=0.4,
+            spacing=(0.4, 0.1, 0.1),
+            origin=(9.0, 3.5, -7.0),
+        )
+        _, layer = plot_napari(
+            scan, viewer=viewer, show_colorbar=False, show_scale_bar=False
+        )
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.show_info",
+            lambda *_a, **_k: None,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.VideoReaderNP",
+            lambda *_a, **_k: _FakeVideo(n_frames=10, h=48, w=64, rgb=True),
+        )
+        video_path = tmp_path / "video.mp4"
+        video_path.touch()
+        panel = VideoPanel(viewer)
+        panel._add_video(video_path, layer)
+
+        viewer.dims.roll()
+
+        video_layer = panel._videos[0].layer
+        assert video_layer is not None
+        video_scale = video_layer.scale
+        assert viewer.dims.displayed == (1, 2)
+        assert all(s > 0 for s in video_scale)
+        # Video height spans the singleton k slice thickness.
+        assert video_scale[1] * 48 == pytest.approx(0.4)

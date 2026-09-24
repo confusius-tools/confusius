@@ -70,7 +70,7 @@ class TestTimeOverlay:
         assert overlay._active
         assert overlay._time_idx is not None
         assert overlay._units == "ms"
-        assert "ms" in viewer.text_overlay.text
+        assert "ms" in viewer.canvas.overlays.text.text
 
     def test_updates_text_when_time_step_changes(
         self, sample_voxeldata_3dt, make_napari_viewer
@@ -92,8 +92,8 @@ class TestTimeOverlay:
 
         expected_time = float(sample_voxeldata_3dt.coords["time"].values[3])
         expected = f"{expected_time:.2f} s"
-        assert viewer.text_overlay.text == expected
-        assert viewer.text_overlay.visible
+        assert viewer.canvas.overlays.text.text == expected
+        assert viewer.canvas.overlays.text.visible
 
     def test_nonuniform_time_matches_xarray_coords(
         self, rng, make_napari_viewer
@@ -123,8 +123,8 @@ class TestTimeOverlay:
         for step, expected_time in enumerate(time_coords):
             viewer.dims.set_current_step(overlay._time_idx, step)
             expected_text = f"{expected_time:.2f} s"
-            assert viewer.text_overlay.text == expected_text, (
-                f"step {step}: overlay shows {viewer.text_overlay.text!r}, "
+            assert viewer.canvas.overlays.text.text == expected_text, (
+                f"step {step}: overlay shows {viewer.canvas.overlays.text.text!r}, "
                 f"expected {expected_text!r}"
             )
 
@@ -180,7 +180,7 @@ class TestTimeOverlay:
         viewer.dims.set_current_step(time_idx, step_for_11)
 
         expected = f"{float(da_b.coords['time'].values[2]):.2f} s"
-        assert viewer.text_overlay.text == expected
+        assert viewer.canvas.overlays.text.text == expected
 
     def test_selecting_non_time_layer_keeps_ref(self, rng, make_napari_viewer) -> None:
         """Selecting a layer without time does not change the reference."""
@@ -247,8 +247,8 @@ class TestTimeOverlay:
 
         assert not overlay._active
         assert overlay._time_idx is None
-        assert not viewer.text_overlay.visible
-        assert viewer.text_overlay.text == ""
+        assert not viewer.canvas.overlays.text.visible
+        assert viewer.canvas.overlays.text.text == ""
 
     def test_removing_ref_layer_resets_reference(self, rng, make_napari_viewer) -> None:
         """Removing the reference layer resets it; a new one is picked."""

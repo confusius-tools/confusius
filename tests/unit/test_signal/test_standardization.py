@@ -68,6 +68,23 @@ def test_standardize_no_time_dimension(rng):
         standardize(signals, method="zscore")
 
 
+def test_standardize_multipose_pose_dependent_time_matches_per_pose(
+    sample_voxeldata_3dt_pose,
+):
+    """Test `pose` is just another dimension: joint standardization matches per-pose runs.
+
+    `sample_voxeldata_3dt_pose` has a pose-dependent `(time, pose)` `time`
+    coordinate holding each pose's own real acquisition timestamps, but
+    `standardize` only relies on positional order along `time`, so standardizing
+    every pose jointly must equal standardizing each pose separately.
+    """
+    result = standardize(sample_voxeldata_3dt_pose, method="zscore")
+
+    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
+        expected = standardize(sample_voxeldata_3dt_pose.sel(pose=pose), method="zscore")
+        xr.testing.assert_allclose(result.sel(pose=pose), expected)
+
+
 def test_standardize_psc_zero_mean():
     """Test NaN-setting for PSC with zero mean voxels."""
     # Create signals with one voxel having zero mean.

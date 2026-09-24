@@ -6,7 +6,7 @@ import xarray as xr
 from scipy.interpolate import interp1d
 
 from confusius.multipose import correct_slice_timings
-from confusius.multipose._utils import build_consolidated_time_coordinate
+from confusius.multipose.timing import build_consolidated_time_coordinate
 from confusius.xarray import create_voxeldata
 
 
@@ -289,7 +289,7 @@ class TestCorrectSliceTiming:
 
         Both paths use the same actual per-pose acquisition times (pose_time_vals);
         the consolidated path's `time` coordinate is derived from them with the same
-        [build_consolidated_time_coordinate][confusius.multipose._utils.build_consolidated_time_coordinate]
+        [build_consolidated_time_coordinate][confusius.multipose.timing.build_consolidated_time_coordinate]
         helper the pose-dependent path uses internally, so both should agree.
         """
         ntime, npose = 20, 4

@@ -42,7 +42,7 @@ def _preserve_view(viewer: napari.Viewer) -> Iterator[None]:
         Control returns to the wrapped block; the saved state is restored when
         it exits, including on early return or exception.
     """
-    camera = viewer.camera
+    camera = viewer.scene.camera
     dims = viewer.dims
     center = tuple(camera.center)
     zoom = camera.zoom
