@@ -20,6 +20,14 @@ Current development version for the next ConfUSIus release.
   `interpolation` is explicitly overridden
   ([#375](https://github.com/confusius-tools/confusius/issues/375)).
 
+### :sparkles: Enhancements
+
+- Masks are no longer required to be strictly boolean dtype: any binary numeric mask
+  (0 and at most one non-zero value, e.g. `{0, 1}` or `{0.0, 5.0}`) is now accepted
+  and coerced to boolean, covering masks written by tools without a boolean dtype
+  (e.g. FSL/NiBabel NIfTI masks stored as float)
+  ([#382](https://github.com/confusius-tools/confusius/issues/382)).
+
 ### :zap: Performance
 
 - `fetch_brainglobe_atlas`'s `reference`/`annotation` are now backed by lazy
