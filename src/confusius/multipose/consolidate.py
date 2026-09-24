@@ -133,7 +133,8 @@ def _detect_sweep_dim(
     pose_axis = vt[0]
 
     col_norms = np.linalg.norm(rotation, axis=0)
-    if np.any(col_norms == 0):
+    # Near-zero axes are degenerate too; otherwise alignment division can dominate.
+    if np.any(np.isclose(col_norms, 0.0, rtol=0.0, atol=1e-12)):
         raise ValueError(
             "Cannot detect the swept voxel dimension: primary voxel-to-world "
             "geometry has a degenerate (zero-length) voxel axis."

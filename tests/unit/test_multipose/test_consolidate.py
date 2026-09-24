@@ -597,14 +597,13 @@ class TestConsolidatePoses:
 
     def test_degenerate_voxel_axis_raises(self) -> None:
         """consolidate_poses raises ValueError when the primary voxel-to-world
-        geometry has a degenerate (zero-length) voxel axis, since the swept voxel
-        dimension can't be matched against a zero-length column of the rotation
-        block.
+        geometry has a degenerate (effectively zero-length) voxel axis, since the
+        swept voxel dimension can't be matched against that rotation column.
         """
         npose = 3
         data = np.random.default_rng(13).random((npose, 2, 4, 3))
-        # A zero column for `k` makes the rotation block degenerate along one axis.
-        linear = np.diag([0.0, 0.2, 0.2])
+        # A near-zero column for `k` makes the rotation block degenerate along one axis.
+        linear = np.diag([1e-14, 0.2, 0.2])
         affines = np.stack([np.eye(4) for _ in range(npose)])
         for i in range(npose):
             affines[i, :3, :3] = linear
