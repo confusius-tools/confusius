@@ -45,6 +45,11 @@ Current development version for the next ConfUSIus release.
   world units) with `rtol`, matching typical stepper-motor stage repeatability at small
   step sizes while keeping `rtol` in control at larger ones
   ([#363](https://github.com/confusius-tools/confusius/issues/363)).
+- `resample_time`/`resample_to_uniform_time` now raise a clear error on
+  unconsolidated multi-pose data's `(time, pose)`-shaped `time` coordinate
+  instead of crashing with SciPy's generic error; consolidate poses first with
+  [`consolidate_poses`][confusius.multipose.consolidate_poses]
+  ([#424](https://github.com/confusius-tools/confusius/pull/424)).
 - [`plot_stat_map`][confusius.plotting.plot_stat_map] and
   [`plot_matrix`][confusius.plotting.plot_matrix] now honor a `vmin` or `vmax` passed
   on its own under `auto_range=True`: a lone bound sets the symmetric range to

@@ -174,8 +174,8 @@ def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
     require_unchunked_time: bool = True,
     require_sorted_time: bool = False,
     require_uniform_time: Literal[False] = False,
-    require_1d_time: bool = False,
     uniformity_tolerance: float = 1e-2,
+    require_1d_time: bool = False,
 ) -> tuple[int, None]: ...
 
 
@@ -186,8 +186,8 @@ def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
     require_unchunked_time: bool = True,
     require_sorted_time: bool = False,
     require_uniform_time: Literal[True] = True,
-    require_1d_time: bool = False,
     uniformity_tolerance: float = 1e-2,
+    require_1d_time: bool = False,
 ) -> tuple[int, float]: ...
 
 
@@ -197,8 +197,8 @@ def validate_time_series(
     require_unchunked_time: bool = True,
     require_sorted_time: bool = False,
     require_uniform_time: bool = False,
-    require_1d_time: bool = False,
     uniformity_tolerance: float = 1e-2,
+    require_1d_time: bool = False,
 ) -> tuple[int, float | None]:
     """Validate time series for time series processing operations.
 
@@ -225,13 +225,13 @@ def validate_time_series(
         Whether to require strictly increasing `time` coordinates.
     require_uniform_time : bool, default: False
         Whether to require uniformly sampled `time` coordinates and return their spacing.
-    require_1d_time : bool, default: False
-        Whether to require a 1D `time` coordinate, rejecting pose-dependent
-        `(time, pose)`-shaped `time` coordinates from unconsolidated multi-pose data.
     uniformity_tolerance : float, default: 1e-2
         Maximum allowed relative range of consecutive time intervals, defined as
         `(max_interval - min_interval) / median_interval`. Raise a `ValueError` if the
         time coordinate exceeds this threshold.
+    require_1d_time : bool, default: False
+        Whether to require a 1D `time` coordinate, rejecting pose-dependent
+        `(time, pose)`-shaped `time` coordinates from unconsolidated multi-pose data.
 
     Returns
     -------
