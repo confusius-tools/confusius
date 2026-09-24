@@ -482,7 +482,7 @@ class VideoPanel(QWidget):
         self._fusi_time_idx = (
             list(ref_xr.dims).index("time") if "time" in ref_xr.dims else 0
         )
-        self._axis_labels = tuple(ref_xr.dims)
+        self._axis_labels = tuple(ref_layer.axis_labels)
         self._units = list(getattr(ref_layer, "units", [None] * ref_layer.ndim))
 
     def _warn_if_irregular_reference(self, ref_layer) -> None:
@@ -651,10 +651,18 @@ class VideoPanel(QWidget):
             displayed_h, entry.video_w, spatial_scale
         )
 
+        # Padded (non-displayed, non-time) dims inherit the reference layer's
+        # geometry so a singleton slice at a nonzero world origin (e.g. a 2D scan
+        # at z=9 mm) does not merge with the video into a multi-step slider.
+        ref = self._ref_layer
         ndim = len(self._axis_labels)
-        scale = [1.0] * ndim
-        translate = [0.0] * ndim
+        scale = [float(s) for s in ref.scale] if ref is not None else [1.0] * ndim
+        translate = (
+            [float(t) for t in ref.translate] if ref is not None else [0.0] * ndim
+        )
         scale[self._fusi_time_idx] = time_scale
+        # Video frame 0 is the recording start, not the fUSI's first sample time.
+        translate[self._fusi_time_idx] = 0.0
         scale[displayed_v] = spatial_scale
         scale[displayed_h] = spatial_scale
         translate[displayed_v] = translate_v
@@ -790,32 +798,36 @@ class VideoPanel(QWidget):
     # Spatial transform
     # ------------------------------------------------------------------
 
-    def _lookup_coord(self, dim_idx: int) -> np.ndarray | None:
-        """Return the reference xarray coordinate for *dim_idx*, or None.
+    def _get_ref_axis_span(self, dim_idx: int) -> tuple[float, float] | None:
+        """Return the reference layer's `(step, n)` along a viewer dim, or None.
 
-        Returns `None` when there is no reference layer, no xarray
-        metadata, or the corresponding coordinate does not exist.
+        Reads the napari layer's `scale` and data shape rather than the xarray
+        world coordinates: since the VoxelData model those coordinates are
+        3-D `(k, j, i)` arrays, so a median-of-diffs spacing on them is 0 for
+        any axis the world coordinate does not vary along (e.g. `z` on a
+        single-slice scan).
+
+        Parameters
+        ----------
+        dim_idx : int
+            Viewer dim index.
+
+        Returns
+        -------
+        step : float
+            World spacing along `dim_idx` (may be negative for flipped axes).
+        n : float
+            Number of reference samples along `dim_idx`.
         """
         ref = self._ref_layer
         if ref is None:
             return None
-
         try:
-            xr_da = ref.metadata.get("xarray")
+            return float(ref.scale[dim_idx]), float(ref.data.shape[dim_idx])
         except RuntimeError:
             # Layer's C++ wrapper was deleted.
             self._ref_layer = None
             return None
-        if xr_da is None:
-            return None
-
-        dim_name = self._axis_labels[dim_idx]
-        world_dim = {"k": "z", "j": "y", "i": "x"}.get(dim_name, dim_name)
-        coord_name = world_dim if world_dim in xr_da.coords else dim_name
-        if coord_name not in xr_da.coords:
-            return None
-
-        return np.asarray(xr_da.coords[coord_name], dtype=np.float64)
 
     def _compute_spatial_scale(self, vertical_dim: int, video_h: int) -> float:
         """Return the isotropic spatial scale for the video.
@@ -832,26 +844,17 @@ class VideoPanel(QWidget):
             should match.
         video_h : int
             Video height in pixels.
+
+        Returns
+        -------
+        float
+            World units per video pixel, or `1.0` without a reference layer.
         """
-        coords = self._lookup_coord(vertical_dim)
-        if coords is None or coords.size == 0:
+        span = self._get_ref_axis_span(vertical_dim)
+        if span is None:
             return 1.0
-
-        y_min, y_max = float(coords.min()), float(coords.max())
-        if coords.size > 1:
-            y_step = float(np.median(np.diff(coords)))
-        else:
-            dim_name = self._axis_labels[vertical_dim]
-            xr_da = self._ref_layer.metadata["xarray"]  # type: ignore
-            # A singleton axis has no diff to derive spacing from; `fusi.spacing`
-            # falls back to the affine column norm for that voxel dim in that case.
-            spacing = (
-                xr_da.fusi.spacing.get(dim_name) if dim_name in xr_da.dims else None
-            )
-            y_step = spacing if spacing is not None else 1.0
-
-        fusi_extent = (y_max - y_min) + abs(y_step)
-        return fusi_extent / video_h
+        step, n = span
+        return abs(step) * n / video_h
 
     def _compute_axis_center_translate(
         self, dim_idx: int, video_n: int, scale: float
@@ -860,14 +863,27 @@ class VideoPanel(QWidget):
 
         The video's centre pixel along `dim_idx` (at index
         `(video_n - 1) / 2`) is placed at the midpoint of the fUSI
-        coordinate range, so the video overlays the scan in both
-        spatial axes.
-        """
-        coords = self._lookup_coord(dim_idx)
-        if coords is None or coords.size == 0:
-            return 0.0
+        extent, so the video overlays the scan in both spatial axes.
 
-        center = (float(coords.min()) + float(coords.max())) / 2
+        Parameters
+        ----------
+        dim_idx : int
+            Viewer dim index.
+        video_n : int
+            Video size in pixels along `dim_idx`.
+        scale : float
+            World units per video pixel along `dim_idx`.
+
+        Returns
+        -------
+        float
+            Translation along `dim_idx`, or `0.0` without a reference layer.
+        """
+        span = self._get_ref_axis_span(dim_idx)
+        if span is None:
+            return 0.0
+        step, n = span
+        center = float(self._ref_layer.translate[dim_idx]) + step * (n - 1) / 2  # type: ignore
         return center - scale * (video_n - 1) / 2
 
     # ------------------------------------------------------------------

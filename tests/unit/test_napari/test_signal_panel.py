@@ -52,3 +52,25 @@ class TestAvailableXaxisDims:
         ]
         assert items == ["time", "k"]
         assert panel._xaxis_combo.currentText() == "time"
+
+
+class TestCreateLayers:
+    """New Points/Labels layers must share the reference image's units and axis labels."""
+
+    @pytest.fixture
+    def image_layer(self, viewer, sample_voxeldata_3dt):
+        from confusius.plotting.napari import plot_napari
+
+        _, layer = plot_napari(sample_voxeldata_3dt, viewer=viewer)
+        return layer
+
+    @pytest.mark.parametrize("method", ["_create_points_layer", "_create_labels_layer"])
+    def test_new_layer_matches_reference_geometry(self, viewer, panel, image_layer, method):
+        getattr(panel, method)()
+        new_layer = viewer.layers[-1]
+        assert new_layer.units == image_layer.units[1:]
+        assert new_layer.axis_labels == image_layer.axis_labels[1:]
+        assert new_layer.scale.tolist() == image_layer.scale[1:].tolist()
+        assert new_layer.translate.tolist() == image_layer.translate[1:].tolist()
+        # Consistent units keep napari from dropping units for rendering.
+        assert viewer.layers.extent.units is not None
