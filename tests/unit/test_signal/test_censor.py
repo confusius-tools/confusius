@@ -2,6 +2,7 @@
 
 import dask.array as da
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
@@ -147,12 +148,76 @@ def test_interpolate_missing_time_coords(make_sample_timeseries):
         interpolate_samples(signals, sample_mask)
 
 
-def test_interpolate_rejects_non_dataarray_mask(make_sample_timeseries):
-    """Test sample_mask must be an xarray.DataArray."""
+def test_interpolate_rejects_non_array_mask(make_sample_timeseries):
+    """Test sample_mask must be an xarray.DataArray or a NumPy array."""
     signals = make_sample_timeseries(n_time=100)
 
-    with pytest.raises(TypeError, match="sample_mask must be an xarray.DataArray"):
-        interpolate_samples(signals, np.ones(100, dtype=bool))  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match="must be an xarray.DataArray or numpy.ndarray"):
+        interpolate_samples(signals, [True] * 100)  # ty: ignore[invalid-argument-type]
+
+
+def test_dataframe_mask_rejected(make_sample_timeseries):
+    """Test sample_mask does not accept a DataFrame."""
+    signals = make_sample_timeseries(n_time=100)
+    frame = pd.DataFrame(
+        {"time": signals.coords["time"].values, "keep": np.ones(100, dtype=bool)}
+    )
+
+    with pytest.raises(TypeError, match="must be an xarray.DataArray or numpy.ndarray"):
+        censor_samples(signals, frame)  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize("func", [interpolate_samples, censor_samples])
+def test_numpy_mask_matches_dataarray_mask(
+    func, make_sample_timeseries, sample_mask_with_gaps
+):
+    """Test a NumPy sample_mask warns and matches the aligned DataArray result."""
+    signals = make_sample_timeseries(n_time=100)
+    expected = func(signals, sample_mask_with_gaps)
+
+    with pytest.warns(UserWarning, match="cannot be verified"):
+        result = func(signals, sample_mask_with_gaps.values)
+
+    xr.testing.assert_allclose(result, expected)
+
+
+def test_numpy_mask_rejects_wrong_length(make_sample_timeseries):
+    """Test a NumPy sample_mask length must match the time dimension."""
+    signals = make_sample_timeseries(n_time=100)
+
+    with pytest.raises(ValueError, match=r"sample_mask length \(99\) must match"):
+        censor_samples(signals, np.ones(99, dtype=bool))
+
+
+def test_numpy_mask_with_pose_dependent_time_coordinates(sample_voxeldata_3dt_pose):
+    """Test a NumPy sample_mask works when signals carry `(time, pose)` time coords."""
+    mask = np.ones(sample_voxeldata_3dt_pose.sizes["time"], dtype=bool)
+    mask[[2, 5]] = False
+
+    with pytest.warns(UserWarning, match="cannot be verified"):
+        result = censor_samples(sample_voxeldata_3dt_pose, mask)
+
+    assert_allclose(result.values, sample_voxeldata_3dt_pose.values[mask])
+
+
+def test_interpolate_pose_dependent_time_matches_per_pose(sample_voxeldata_3dt_pose):
+    """Test `(time, pose)` signals are interpolated pose by pose on their own
+    timestamps and keep the pose-dependent coordinate."""
+    n_time = sample_voxeldata_3dt_pose.sizes["time"]
+    mask = np.ones(n_time, dtype=bool)
+    mask[[0, 4, 5, n_time - 1]] = False
+
+    with pytest.warns(UserWarning, match="cannot be verified"):
+        result = interpolate_samples(sample_voxeldata_3dt_pose, mask)
+
+    assert result.coords["time"].dims == ("time", "pose")
+    assert_allclose(
+        result.coords["time"].values, sample_voxeldata_3dt_pose.coords["time"].values
+    )
+    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
+        with pytest.warns(UserWarning, match="cannot be verified"):
+            expected = interpolate_samples(sample_voxeldata_3dt_pose.sel(pose=pose), mask)
+        assert_allclose(result.sel(pose=pose).values, expected.values)
 
 
 def test_interpolate_rejects_mask_without_time_dimension(make_sample_timeseries):
@@ -171,7 +236,7 @@ def test_interpolate_rejects_non_boolean_mask(make_sample_timeseries):
         np.ones(100, dtype=int), dims=["time"], coords={"time": signals.coords["time"]}
     )
 
-    with pytest.raises(ValueError, match="sample_mask must be boolean DataArray"):
+    with pytest.raises(ValueError, match="sample_mask must be boolean"):
         interpolate_samples(signals, sample_mask)
 
 
@@ -184,7 +249,7 @@ def test_interpolate_rejects_non_1d_mask(make_sample_timeseries):
         coords={"time": signals.coords["time"]},
     )
 
-    with pytest.raises(ValueError, match="Boolean sample_mask must be 1D"):
+    with pytest.raises(ValueError, match="sample_mask must be 1D"):
         interpolate_samples(signals, sample_mask)
 
 

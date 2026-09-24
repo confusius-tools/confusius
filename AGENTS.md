@@ -232,7 +232,8 @@ Scopes: `io`/`nifti`/`autc`/`zarr` (I/O), `signal`/`spatial`/`iq`/`reduce`/`clut
 current development version's `X.Y.Z.devN` heading (never a released version), under
 section labels in this order (only add the ones you need):
 `:boom: Breaking changes`, `:sparkles: Enhancements`, `:zap: Performance`,
-`:bug: Fixes`, `:books: Documentation`, `:wrench: Maintenance`. napari-plugin entries
-may be prefixed **[Napari plugin]**. Write from the user's perspective (effect, not
-implementation), ending with a PR link:
-`([#123](https://github.com/confusius-tools/confusius/pull/123))`.
+`:bug: Fixes`, `:books: Documentation`, `:wrench: Maintenance`, `:frame_photo: Napari
+plugin`. Any entry about the napari plugin goes under `:frame_photo: Napari plugin`
+instead of its type section, and that section always comes last in the version.
+Write from the user's perspective (effect, not implementation), ending with a PR
+link: `([#123](https://github.com/confusius-tools/confusius/pull/123))`.

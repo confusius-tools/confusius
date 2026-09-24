@@ -6,9 +6,93 @@ icon: lucide/history
 
 # Changelog
 
-## 0.7.0.dev0
+## 0.8.0.dev0
 
 Current development version for the next ConfUSIus release.
+
+### :boom: Breaking changes
+
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like]'s `interpolation`
+  parameter defaults to `"auto"` instead of `"linear"`: `"nearest"` is picked for
+  integer-dtype data (e.g. atlas region labels) and `"linear"` otherwise, so
+  resampling an integer mask no longer silently blends label values unless
+  `interpolation` is explicitly overridden
+  ([#375](https://github.com/confusius-tools/confusius/issues/375)).
+
+### :sparkles: Enhancements
+
+- Masks are no longer required to be strictly boolean dtype: any binary numeric mask
+  (0 and at most one non-zero value, e.g. `{0, 1}` or `{0.0, 5.0}`) is now accepted
+  and coerced to boolean, covering masks written by tools without a boolean dtype
+  (e.g. FSL/NiBabel NIfTI masks stored as float)
+  ([#382](https://github.com/confusius-tools/confusius/issues/382)).
+
+### :zap: Performance
+
+- `fetch_brainglobe_atlas`'s `reference`/`annotation` are now backed by lazy
+  `dask.array.Array` data instead of being eagerly materialized to
+  `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
+  even when only metadata or a small region is needed
+  ([#415](https://github.com/confusius-tools/confusius/pull/415)).
+
+### :bug: Fixes
+
+- [`consolidate_poses`][confusius.multipose.consolidate_poses]'s regularity check no
+  longer rejects realistic stage jitter on small pose steps (e.g. a 100 um step
+  previously tolerated only ~1 um of jitter under a pure 1% relative tolerance). The
+  check now combines a new `atol` parameter (default: 5 um, converted to the array's own
+  world units) with `rtol`, matching typical stepper-motor stage repeatability at small
+  step sizes while keeping `rtol` in control at larger ones
+  ([#363](https://github.com/confusius-tools/confusius/issues/363)).
+- [`plot_stat_map`][confusius.plotting.plot_stat_map] and
+  [`plot_matrix`][confusius.plotting.plot_matrix] now honor a `vmin` or `vmax` passed
+  on its own under `auto_range=True`: a lone bound sets the symmetric range to
+  `[-|bound|, |bound|]`
+  ([#445](https://github.com/confusius-tools/confusius/pull/445)).
+
+## 0.7.1
+
+Released 2026-09-16.
+
+### :zap: Performance
+
+- [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
+  longer computes a full SVD, extracting components several times faster on
+  large recordings or broad noise masks
+  ([#434](https://github.com/confusius-tools/confusius/pull/434)).
+
+### :books: Documentation
+
+- Clarified when to use `.compute()` or `.persist()` before repeated partial reads from
+  gzip-compressed NIfTI files
+  ([#441](https://github.com/confusius-tools/confusius/pull/441)).
+
+### :frame_photo: Napari plugin
+
+- Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
+  combo box or spin box the cursor happens to be over
+  ([#431](https://github.com/confusius-tools/confusius/pull/431)).
+- New Points/Labels layers created from the signals panel now copy the reference
+  image's units and axis labels, so napari keeps rendering units instead of
+  warning about inconsistent units
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- The Save panel now saves a 3D labels layer with a 4D recording as template
+  instead of failing with a `VoxelToWorldIndex` error
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- Saving a user-drawn layer without a template now recognises napari 0.9's default
+  axis names and writes units in short form (`mm`), so the saved file matches the
+  image it was drawn on
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- Loading a video next to a single-slice recording no longer adds a spurious `z`
+  slider when the slice sits at a nonzero world position, and the video layer now
+  uses the same world axis labels as the recording. Rolling the displayed axes
+  (Ctrl+E) onto a single-slice axis with a video loaded no longer crashes
+  ([#452](https://github.com/confusius-tools/confusius/pull/452)).
+
+## 0.7.0
+
+Released 2026-08-31.
 
 ### :boom: Breaking changes
 
@@ -95,6 +179,15 @@ Current development version for the next ConfUSIus release.
   isn't cleanly aligned with a single voxel dimension can never form the
   regular grid consolidation requires, so no override was needed.
 
+**Other:**
+
+- DataFrame `confounds` passed to
+  [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] or
+  [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix] must
+  now have a `time` column matching the run's `time` coordinates. `confound_names` can
+  no longer be combined with `confounds` that already carry names
+  ([#398](https://github.com/confusius-tools/confusius/pull/398)).
+
 ### :sparkles: Enhancements
 
 **VoxelData model:**
@@ -130,6 +223,19 @@ Current development version for the next ConfUSIus release.
   the overlay-only counterpart of
   [`plot_stat_map`][confusius.plotting.plot_stat_map]
   ([#392](https://github.com/confusius-tools/confusius/pull/392)).
+- [`clean`][confusius.signal.clean],
+  [`regress_confounds`][confusius.signal.regress_confounds],
+  [`censor_samples`][confusius.signal.censor_samples], and
+  [`interpolate_samples`][confusius.signal.interpolate_samples] now accept NumPy
+  `confounds` and `sample_mask` (time along the first axis); they take the signals'
+  `time` coordinates and warn since alignment cannot be verified, as do DataArrays
+  without `time` coordinates. `confounds` can also be a DataFrame with a `time`
+  column, validated like DataArray `time` coordinates; its other columns must be
+  numeric and unique. [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] and
+  [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix]
+  now accept `confounds` as a `(time, n_confounds)` DataArray, validated against the
+  run's `time` coordinates
+  ([#398](https://github.com/confusius-tools/confusius/pull/398)).
 - [`register_volume`][confusius.registration.register_volume] now supports random
   metric sampling via `metric_sampling_percentage` (`None` by default, disabling
   random sampling), with optional deterministic seeding via `metric_sampling_seed`,
@@ -152,8 +258,27 @@ Current development version for the next ConfUSIus release.
   folders is preserved when loading recordings
   ([#359](https://github.com/confusius-tools/confusius/pull/359)).
 
+### :zap: Performance
+
+- `Atlas.get_masks`/`get_atlas_masks` no longer forces `xarray.concat` to recompute
+  and compare the full lazily derived world-coordinate grid across every requested
+  region (all layers share one grid by construction), the dominant cost for
+  multi-region calls; it also now scans the annotation volume once per 8-region batch
+  via a bitmask lookup instead of once per region. Together, a `get_masks([...])` call
+  over dozens of regions (e.g. combining all of an ontology's major divisions into one
+  coarse map) is over an order of magnitude faster
+  ([#412](https://github.com/confusius-tools/confusius/pull/412)).
+
 ### :bug: Fixes
 
+- [`clean`][confusius.signal.clean], [`regress_confounds`][confusius.signal.regress_confounds],
+  [`censor_samples`][confusius.signal.censor_samples], and
+  [`interpolate_samples`][confusius.signal.interpolate_samples] now handle signals with
+  pose-dependent `(time, pose)` `time` coordinates: `confounds` and `sample_mask` are
+  aligned with the whole-volume time (as
+  [`consolidate_poses`][confusius.multipose.consolidate_poses] computes
+  it), NumPy inputs take that time, and signals are interpolated pose by pose
+  ([#398](https://github.com/confusius-tools/confusius/pull/398)).
 - `plot_volume`/`plot_composite` now default planar VoxelData arrays to their
   singleton world dimension and preserve singleton display axes for explicit
   spatial slicing. `plot_napari`/`fusi.plot.napari` now default singleton spatial
@@ -185,6 +310,11 @@ Current development version for the next ConfUSIus release.
 
 - **[Napari plugin]** ConfUSIus now requires napari 0.9.0 or newer
   ([#413](https://github.com/confusius-tools/confusius/pull/413)).
+
+### :wrench: Maintenance
+
+- Bumped the `brainglobe-atlasapi` dependency to v3
+  ([#412](https://github.com/confusius-tools/confusius/pull/412)).
 
 ## 0.6.1
 

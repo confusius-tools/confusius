@@ -2,14 +2,35 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+
 import brainglobe_atlasapi
+import dask.array as da
 import numpy as np
 import pytest
 import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
+import confusius.datasets._brainglobe as brainglobe_module
 from confusius.datasets import fetch_brainglobe_atlas
 from confusius.validation import validate_atlas
+
+
+class _FakeFs:
+    """Minimal filesystem stand-in that records downloads."""
+
+    def __init__(self) -> None:
+        self.downloads: list[tuple[object, object, bool, object | None]] = []
+
+    def get(
+        self,
+        remote_path: object,
+        resolution_path: object,
+        recursive: bool = True,
+        callback: object | None = None,
+    ) -> None:
+        self.downloads.append((remote_path, resolution_path, recursive, callback))
 
 
 class _FakeBgAtlas:
@@ -22,9 +43,11 @@ class _FakeBgAtlas:
             "check_latest": check_latest,
         }
         shape = (4, 6, 8)
-        self.reference = np.ones(shape, dtype=np.uint16)
-        self.annotation = np.zeros(shape, dtype=np.int32)
-        self.hemispheres = np.ones(shape, dtype=np.int8)
+        # Not read directly by fetch_brainglobe_atlas (that goes through the
+        # lazily-loaded arrays below), kept only in case a test wants the raw data.
+        self.template = np.ones(shape, dtype=np.uint16)
+        self.annotation = np.zeros(shape, dtype=np.uint32)
+        self.hemispheres = np.ones(shape, dtype=np.uint8)
         self.structures = StructuresDict(
             [
                 {
@@ -44,7 +67,16 @@ class _FakeBgAtlas:
             "orientation": "asr",
             "shape": list(shape),
             "resolution": [25, 25, 25],
+            "symmetric": True,
+            "annotation_set": {
+                "location": "/annotation-sets/fake/1_0",
+                "template": {"location": "/templates/fake/1_0"},
+            },
         }
+        self._template_pyramid_level = 0
+        self._annotation_pyramid_level = 0
+        self.root_dir = Path(".")
+        self.fs = _FakeFs()
 
 
 @pytest.fixture
@@ -58,6 +90,19 @@ def fake_atlases(monkeypatch: pytest.MonkeyPatch) -> list[_FakeBgAtlas]:
         return atlas
 
     monkeypatch.setattr(brainglobe_atlasapi, "BrainGlobeAtlas", factory)
+
+    def fake_load_lazy_ngff_array(atlas, location, name, pyramid_level):
+        source = {
+            "templates/fake/1_0": atlas.template,
+            "annotation-sets/fake/1_0": (
+                atlas.annotation if "annotation" in name.lower() else atlas.hemispheres
+            ),
+        }[location]
+        return da.from_array(source)
+
+    monkeypatch.setattr(
+        brainglobe_module, "_load_lazy_ngff_array", fake_load_lazy_ngff_array
+    )
     return created
 
 
@@ -68,6 +113,62 @@ def test_returns_valid_atlas_dataset(fake_atlases: list[_FakeBgAtlas]) -> None:
     assert result.attrs["name"] == "allen_mouse_25um"
     # The builder output must satisfy the atlas validator.
     validate_atlas(result)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("template", np.float32),
+        ("annotation", np.int32),
+        ("hemispheres", np.int8),
+    ],
+)
+def test_converts_brainglobe_arrays_to_voxeldata(
+    fake_atlases: list[_FakeBgAtlas], source: str, expected: type[np.generic]
+) -> None:
+    result = fetch_brainglobe_atlas("allen_mouse_25um")
+    data_var = "reference" if source == "template" else source
+
+    assert result[data_var].dtype == expected
+    assert result[data_var].dims == ("k", "j", "i")
+    np.testing.assert_allclose(
+        result[data_var].x.isel(k=0, j=0).to_numpy(), np.arange(8) * 0.025
+    )
+
+
+def test_fetch_loads_ngff_arrays_lazily_and_downloads_missing_resolution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    atlas = _FakeBgAtlas("allen_mouse_25um")
+    atlas.metadata["symmetric"] = False
+    atlas.root_dir = tmp_path
+    monkeypatch.setattr(
+        brainglobe_atlasapi, "BrainGlobeAtlas", lambda *args, **kwargs: atlas
+    )
+
+    def fake_from_ngff_zarr(path):
+        path = str(path)
+        if "template" in path:
+            data = atlas.template
+        elif "hemispheres" in path:
+            data = atlas.hemispheres
+        else:
+            data = atlas.annotation
+        return SimpleNamespace(
+            metadata=SimpleNamespace(datasets=[SimpleNamespace(path="0")]),
+            images=[SimpleNamespace(data=da.from_array(data))],
+        )
+
+    import ngff_zarr
+
+    monkeypatch.setattr(ngff_zarr, "from_ngff_zarr", fake_from_ngff_zarr)
+
+    result = fetch_brainglobe_atlas("allen_mouse_25um")
+
+    assert isinstance(result.reference.data, da.Array)
+    assert isinstance(result.annotation.data, da.Array)
+    assert isinstance(result.hemispheres.data, da.Array)
+    assert len(atlas.fs.downloads) == 3
 
 
 def test_defaults_check_latest_off_and_brainglobe_default_cache(

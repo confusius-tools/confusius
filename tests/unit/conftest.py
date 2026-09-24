@@ -633,22 +633,27 @@ def sample_voxeldata_3dt(rng):
 
 @pytest.fixture
 def sample_voxeldata_3dt_pose(sample_voxeldata_3dt):
-    """3D+t+pose volume (time, pose, k, j, i) with per-pose geometry.
+    """3D+t+pose volume (time, pose, k, j, i) with per-pose geometry and timing.
 
     Spatial coordinates match `sample_voxeldata_3dt` for pose 0. Pose 1 is translated
     in world space so tests exercise the VoxelData invariant that `pose` requires a
-    distinct affine per pose.
+    distinct affine per pose. Poses are acquired sequentially, half a frame apart, so
+    `time` is genuinely pose-dependent (`(time, pose)`) rather than shared across
+    poses -- the real shape for multi-pose recordings per the VoxelData model, see
+    docs/user-guide/multipose.md.
     """
     base_affine = get_voxel_to_world_affine(sample_voxeldata_3dt)
     pose_affine = base_affine.copy()
     pose_affine[:3, 3] += [0.4, 0.0, 0.0]
+    base_time = sample_voxeldata_3dt.coords["time"].values
+    pose_time_offset = np.diff(base_time).mean() / 2
     return create_voxeldata(
         np.stack(
             [sample_voxeldata_3dt.values, sample_voxeldata_3dt.values + 1.0], axis=1
         ),
         name=sample_voxeldata_3dt.name,
         dims=("time", "pose", "k", "j", "i"),
-        time=sample_voxeldata_3dt.coords["time"],
+        time=np.stack([base_time, base_time + pose_time_offset], axis=1),
         pose=[0, 1],
         attrs=sample_voxeldata_3dt.attrs.copy(),
         voxel_to_world=np.stack([base_affine, pose_affine]),
