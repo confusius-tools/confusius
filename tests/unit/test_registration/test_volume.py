@@ -1191,6 +1191,30 @@ class TestResampleVolume:
         )
         assert_allclose(result_auto.values, result_linear.values)
 
+    def test_bspline_interpolation_resamples(
+        self, sample_voxeldata_2d_registration
+    ):
+        """`interpolation="bspline"` runs through the SimpleITK B-spline interpolator."""
+        result = resample_volume(
+            sample_voxeldata_2d_registration,
+            np.eye(4),
+            interpolation="bspline",
+            **_resample_volume_grid_kwargs(sample_voxeldata_2d_registration),
+        )
+        assert_allclose(
+            result.values, sample_voxeldata_2d_registration.values, atol=1e-7
+        )
+
+    def test_invalid_interpolation_raises(self, sample_voxeldata_2d_registration):
+        """Unknown interpolation names raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid interpolation"):
+            resample_volume(
+                sample_voxeldata_2d_registration,
+                np.eye(4),
+                interpolation="bogus",  # ty: ignore[invalid-argument-type]
+                **_resample_volume_grid_kwargs(sample_voxeldata_2d_registration),
+            )
+
     def test_multiple_extra_dims_matches_looped_resample(
         self,
         sample_voxeldata_2d_extra_dim_registration,
