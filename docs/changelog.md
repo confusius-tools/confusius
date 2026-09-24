@@ -27,6 +27,11 @@ Current development version for the next ConfUSIus release.
   and coerced to boolean, covering masks written by tools without a boolean dtype
   (e.g. FSL/NiBabel NIfTI masks stored as float)
   ([#382](https://github.com/confusius-tools/confusius/issues/382)).
+- Added [`from_nifti`][confusius.io.from_nifti]/[`to_nifti`][confusius.io.to_nifti] to
+  convert directly between a VoxelData array and an in-memory
+  `nibabel.Nifti1Image`/`nibabel.Nifti2Image`, with no file I/O, for interoperating
+  with libraries such as nilearn
+  ([#372](https://github.com/confusius-tools/confusius/issues/372)).
 
 ### :zap: Performance
 
@@ -264,11 +269,6 @@ Released 2026-08-31.
   for matching JSON sidecars, so shared metadata stored at the dataset root or parent
   folders is preserved when loading recordings
   ([#359](https://github.com/confusius-tools/confusius/pull/359)).
-- Added [`from_nifti`][confusius.io.from_nifti]/[`to_nifti`][confusius.io.to_nifti] to
-  convert directly between a VoxelData array and an in-memory
-  `nibabel.Nifti1Image`/`nibabel.Nifti2Image`, with no file I/O, for interoperating
-  with libraries such as nilearn
-  ([#372](https://github.com/confusius-tools/confusius/issues/372)).
 
 ### :zap: Performance
 
