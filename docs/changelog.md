@@ -6,9 +6,46 @@ icon: lucide/history
 
 # Changelog
 
-## 0.7.1.dev0
+## 0.8.0.dev0
 
 Current development version for the next ConfUSIus release.
+
+### :boom: Breaking changes
+
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like]'s `interpolation`
+  parameter defaults to `"auto"` instead of `"linear"`: `"nearest"` is picked for
+  integer-dtype data (e.g. atlas region labels) and `"linear"` otherwise, so
+  resampling an integer mask no longer silently blends label values unless
+  `interpolation` is explicitly overridden
+  ([#375](https://github.com/confusius-tools/confusius/issues/375)).
+
+### :zap: Performance
+
+- `fetch_brainglobe_atlas`'s `reference`/`annotation` are now backed by lazy
+  `dask.array.Array` data instead of being eagerly materialized to
+  `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
+  even when only metadata or a small region is needed
+  ([#415](https://github.com/confusius-tools/confusius/pull/415)).
+
+### :bug: Fixes
+
+- [`consolidate_poses`][confusius.multipose.consolidate_poses]'s regularity check no
+  longer rejects realistic stage jitter on small pose steps (e.g. a 100 um step
+  previously tolerated only ~1 um of jitter under a pure 1% relative tolerance). The
+  check now combines a new `atol` parameter (default: 5 um, converted to the array's own
+  world units) with `rtol`, matching typical stepper-motor stage repeatability at small
+  step sizes while keeping `rtol` in control at larger ones
+  ([#363](https://github.com/confusius-tools/confusius/issues/363)).
+- [`plot_stat_map`][confusius.plotting.plot_stat_map] and
+  [`plot_matrix`][confusius.plotting.plot_matrix] now honor a `vmin` or `vmax` passed
+  on its own under `auto_range=True`: a lone bound sets the symmetric range to
+  `[-|bound|, |bound|]`
+  ([#445](https://github.com/confusius-tools/confusius/pull/445)).
+
+## 0.7.1
+
+Released 2026-09-16.
 
 ### :zap: Performance
 
@@ -16,14 +53,6 @@ Current development version for the next ConfUSIus release.
   longer computes a full SVD, extracting components several times faster on
   large recordings or broad noise masks
   ([#434](https://github.com/confusius-tools/confusius/pull/434)).
-
-### :bug: Fixes
-
-- [`plot_stat_map`][confusius.plotting.plot_stat_map] and
-  [`plot_matrix`][confusius.plotting.plot_matrix] now honor a `vmin` or `vmax` passed
-  on its own under `auto_range=True`: a lone bound sets the symmetric range to
-  `[-|bound|, |bound|]`
-  ([#445](https://github.com/confusius-tools/confusius/pull/445)).
 
 ### :books: Documentation
 
@@ -36,6 +65,22 @@ Current development version for the next ConfUSIus release.
 - Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
   combo box or spin box the cursor happens to be over
   ([#431](https://github.com/confusius-tools/confusius/pull/431)).
+- New Points/Labels layers created from the signals panel now copy the reference
+  image's units and axis labels, so napari keeps rendering units instead of
+  warning about inconsistent units
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- The Save panel now saves a 3D labels layer with a 4D recording as template
+  instead of failing with a `VoxelToWorldIndex` error
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- Saving a user-drawn layer without a template now recognises napari 0.9's default
+  axis names and writes units in short form (`mm`), so the saved file matches the
+  image it was drawn on
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- Loading a video next to a single-slice recording no longer adds a spurious `z`
+  slider when the slice sits at a nonzero world position, and the video layer now
+  uses the same world axis labels as the recording. Rolling the displayed axes
+  (Ctrl+E) onto a single-slice axis with a video loaded no longer crashes
+  ([#452](https://github.com/confusius-tools/confusius/pull/452)).
 
 ## 0.7.0
 
