@@ -37,6 +37,13 @@ Current development version for the next ConfUSIus release.
   `max_composite_slices` parameter (`None` restores the previous behaviour of
   plotting every slice)
   ([#368](https://github.com/confusius-tools/confusius/issues/368)).
+- [`consolidate_poses`][confusius.multipose.consolidate_poses]'s regularity check no
+  longer rejects realistic stage jitter on small pose steps (e.g. a 100 um step
+  previously tolerated only ~1 um of jitter under a pure 1% relative tolerance). The
+  check now combines a new `atol` parameter (default: 5 um, converted to the array's own
+  world units) with `rtol`, matching typical stepper-motor stage repeatability at small
+  step sizes while keeping `rtol` in control at larger ones
+  ([#363](https://github.com/confusius-tools/confusius/issues/363)).
 
 ## 0.7.1
 
