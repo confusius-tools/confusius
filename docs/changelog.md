@@ -10,6 +10,14 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :zap: Performance
+
+- `fetch_brainglobe_atlas`'s `reference`/`annotation` are now backed by lazy
+  `dask.array.Array` data instead of being eagerly materialized to
+  `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
+  even when only metadata or a small region is needed
+  ([#415](https://github.com/confusius-tools/confusius/pull/415)).
+
 ## 0.7.1
 
 Released 2026-09-16.
