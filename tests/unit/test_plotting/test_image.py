@@ -926,6 +926,150 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         assert result is sample_voxeldata_3d_oblique
 
 
+class TestVolumePlotterAddVolumePhaseLock:
+    """Regression tests for #391: an overlaid volume's independently-resampled
+    display grid must be phase-locked to the first volume plotted on the same
+    `VolumePlotter`, not merely at the same resolution.
+
+    Mirrors a real rigid-registration workflow: two volumes covering the same
+    physical region, one rotated and translated (by a non-integer number of
+    voxels) relative to the other but at matching in-plane resolution --
+    exactly the case where the two volumes' grid cells should coincide.
+    """
+
+    @pytest.fixture
+    def rotated_translated_pair(self, sample_voxeldata_3d):
+        """`sample_voxeldata_3d` and a copy rotated+shifted in the y/x plane.
+
+        The shift (0.37 mm in y, 0.22 mm in x) is deliberately not a multiple of
+        either axis's own spacing (0.1 mm / 0.05 mm), so an independently
+        computed bounding-box origin for the rotated copy would land out of
+        phase with the original's grid.
+        """
+        theta = np.deg2rad(2.0)
+        world_transform = np.array(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, np.cos(theta), -np.sin(theta), 0.37],
+                [0.0, np.sin(theta), np.cos(theta), 0.22],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        fixed = sample_voxeldata_3d
+        moving = fixed.fusi.affine.apply(world_transform)
+        return fixed, moving
+
+    def test_overlaid_volume_in_plane_cells_coincide_with_first_volume(
+        self, matplotlib_pyplot, rotated_translated_pair
+    ):
+        """The two in-plane axes' origins land on the same grid after overlay."""
+        fixed, moving = rotated_translated_pair
+
+        plotter = plot_volume(fixed, slice_mode="z", show_colorbar=False)
+        plotter.add_volume(moving, show_colorbar=False)
+
+        fixed_prepped, _ = plotter._prepare_slice_inputs(fixed)
+        moving_prepped, _ = plotter._prepare_slice_inputs(moving)
+
+        for world_dim in ("y", "x"):
+            fixed_coord = _world_coord_1d(fixed_prepped, world_dim)
+            moving_coord = _world_coord_1d(moving_prepped, world_dim)
+            spacing = float(np.diff(fixed_coord)[0])
+            assert float(np.diff(moving_coord)[0]) == pytest.approx(spacing)
+
+            phase_residual = (float(moving_coord[0]) - float(fixed_coord[0])) % spacing
+            # Congruent mod spacing means the residual is ~0 or ~spacing (the
+            # boundary float `%` can land on either side of).
+            assert min(phase_residual, spacing - phase_residual) == pytest.approx(
+                0.0, abs=1e-6
+            )
+
+    def test_without_phase_lock_the_grids_are_measurably_out_of_phase(
+        self, rotated_translated_pair
+    ):
+        """Sanity check that the fixture's shift isn't accidentally already
+        in-phase -- i.e. that the regression test above is actually exercising
+        `snap_origin_to_phase`, not passing by coincidence."""
+        from confusius._utils.plotting import resample_to_axis_aligned_world_grid
+
+        fixed, moving = rotated_translated_pair
+        fixed_grid = resample_to_axis_aligned_world_grid(fixed, reference=None)
+        moving_grid = resample_to_axis_aligned_world_grid(moving, reference=None)
+
+        for world_dim in ("y", "x"):
+            fixed_coord = _world_coord_1d(fixed_grid, world_dim)
+            moving_coord = _world_coord_1d(moving_grid, world_dim)
+            spacing = float(np.diff(fixed_coord)[0])
+            phase_residual = (float(moving_coord[0]) - float(fixed_coord[0])) % spacing
+            assert min(phase_residual, spacing - phase_residual) > 0.01
+
+    def test_axis_aligned_but_phase_mismatched_panel_is_still_resampled(
+        self, sample_voxeldata_3d
+    ):
+        """Regression for #391 (real allen_mouse_100um + Huang 2025 template
+        repro): a *non-oblique* panel -- no rotation, same world origin -- at
+        a different resolution must still be resampled onto a phase-locked
+        grid, not returned unchanged just because it's already axis-aligned.
+
+        Calls `_resample_to_planar_world_grid` directly (as
+        `_resample_pose_slices_to_world_grid` does per pose panel) so the
+        axis-aligned-but-mismatched branch is exercised deterministically --
+        going through `add_volume` can instead take the oblique branch, since
+        `.isel(pose=...)` can leave enough floating-point noise for
+        `has_axis_aligned_voxel_to_world_index` to read `False`, even though
+        the end result is numerically the same either way.
+        """
+        from collections.abc import Hashable
+
+        from confusius._utils.geometry import has_axis_aligned_voxel_to_world_index
+        from confusius._utils.plotting import AxisPhase
+        from confusius.plotting.image import _resample_to_planar_world_grid
+
+        fixed = sample_voxeldata_3d.isel(k=[0])
+        moving_affine = fixed.fusi.affine.voxel_to_world.copy()
+        moving_affine[1, 1] /= 2.0  # halve j (y) spacing
+        moving_affine[2, 2] /= 2.0  # halve i (x) spacing
+        moving = create_voxeldata(
+            np.random.default_rng(11).random((1, 12, 16)),
+            dims=("k", "j", "i"),
+            voxel_to_world=moving_affine,
+        )
+        assert has_axis_aligned_voxel_to_world_index(moving)
+
+        axis_origins: dict[Hashable, AxisPhase] = {
+            world_dim: AxisPhase(
+                origin=float(_world_coord_1d(fixed, world_dim)[0]),
+                spacing=float(np.diff(_world_coord_1d(fixed, world_dim))[0]),
+            )
+            for world_dim in ("y", "x")
+        }
+        result, _ = _resample_to_planar_world_grid(
+            moving,
+            slice_mode="pose",
+            interpolation="linear",
+            fill_value=None,
+            axis_origins=axis_origins,
+        )
+
+        assert result is not moving
+        for world_dim in ("y", "x"):
+            phase = axis_origins[world_dim]
+            result_coord = _world_coord_1d(result, world_dim)
+            # moving's own spacing is half the reference's -- resampling must
+            # preserve its own resolution, only the origin gets phase-locked.
+            spacing = float(np.diff(result_coord)[0])
+            assert spacing == pytest.approx(phase.spacing / 2.0)
+            # Cell *edges*, not centers, are what get phase-locked (see
+            # snap_origin_to_phase) -- checking edge congruence is the correct
+            # invariant at a resolution ratio other than 1.
+            own_edge = float(result_coord[0]) - spacing / 2.0
+            phase_edge = phase.origin - phase.spacing / 2.0
+            phase_residual = (own_edge - phase_edge) % spacing
+            assert min(phase_residual, spacing - phase_residual) == pytest.approx(
+                0.0, abs=1e-6
+            )
+
+
 class TestVolumePlotterAddVolume:
     """Tests for VolumePlotter.add_volume method."""
 
@@ -1999,6 +2143,86 @@ class TestPlotVolumeVisualRegression:
         subset_coords = _world_coord_1d(volume, "z")[[0, 3]].tolist()
         subset_data = volume.sel(z=subset_coords)
         plotter.add_volume(subset_data, cmap="hot", alpha=0.5)
+
+        return plotter.figure
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_volume_overlay_rotated_translated_moving(
+        self, matplotlib_pyplot, reproducible_baseline_voxeldata
+    ):
+        """Regression baseline for #391: an overlaid volume rotated + translated
+        by a non-integer number of voxels (mirroring a rigid-registration
+        fixed/moving pair) must be phase-locked to the first volume's in-plane
+        grid, not merely resampled at the same resolution -- a phase mismatch
+        would show as visible fringing/misalignment between the two volumes'
+        cells at their shared edges.
+        """
+        # Small enough that `moving` still overlaps most of `fixed`'s own extent
+        # (0.35 x 0.25 mm) -- otherwise the two volumes wouldn't share any cell
+        # edges for a phase mismatch to show up at.
+        fixed = reproducible_baseline_voxeldata
+        theta = np.deg2rad(2.0)
+        world_transform = np.array(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, np.cos(theta), -np.sin(theta), 0.12],
+                [0.0, np.sin(theta), np.cos(theta), 0.13],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        moving = fixed.fusi.affine.apply(world_transform)
+
+        plotter = plot_volume(fixed, slice_mode="z")
+        plotter.add_volume(moving, cmap="hot", alpha=0.5)
+
+        return plotter.figure
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_volume_overlay_different_spacing_moving(
+        self, matplotlib_pyplot, reproducible_baseline_voxeldata
+    ):
+        """Regression baseline for #391: an overlaid volume at *half* `fixed`'s
+        in-plane spacing (e.g. a higher-resolution moving scan), rotated +
+        translated by a non-integer number of voxels.
+
+        Phase-locking a finer grid's own origin to the coarser grid's origin
+        (a voxel *center*) only guarantees every other fine cell *center*
+        lands on a coarse cell center or edge -- it does not guarantee the
+        fine grid's cell *corners* nest cleanly within the coarse grid's
+        cells. A correct fix must phase-lock to a corner/edge reference
+        instead, so the finer grid's cell boundaries never fall at an
+        arbitrary offset inside a coarser cell.
+        """
+        fixed = reproducible_baseline_voxeldata
+        rng = np.random.default_rng(7)
+        moving = create_voxeldata(
+            rng.random((4, 12, 16)),
+            dims=("k", "j", "i"),
+            spacing=(0.1, 0.025, 0.025),
+            origin=(0.0, 0.0, 0.0),
+            attrs={"long_name": "Intensity", "units": "a.u."},
+        )
+        theta = np.deg2rad(2.0)
+        world_transform = np.array(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, np.cos(theta), -np.sin(theta), 0.12],
+                [0.0, np.sin(theta), np.cos(theta), 0.13],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        moving = moving.fusi.affine.apply(world_transform)
+
+        plotter = plot_volume(fixed, slice_mode="z")
+        plotter.add_volume(moving, cmap="hot", alpha=0.5)
 
         return plotter.figure
 
