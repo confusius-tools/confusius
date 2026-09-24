@@ -176,18 +176,19 @@ class TestPlotStatMap:
         assert norm.vmax == 5.0
         assert norm.vmin == -5.0
 
-    def test_vmax_alone_does_not_cap_the_range_when_data_min_is_larger(
-        self, sample_voxeldata_3d, matplotlib_pyplot
+    @pytest.mark.parametrize("bound", [{"vmax": 5.0}, {"vmin": -5.0}])
+    def test_a_lone_bound_caps_the_symmetric_range(
+        self, bound, sample_voxeldata_3d, matplotlib_pyplot
     ):
-        """vmin defaults to the data's actual min when not given, so a lone vmax
-        smaller than |data min| does not shrink the symmetric range."""
+        """A bound given on its own sets the symmetric range by itself, rather than
+        losing to the data's own min/max on the side left out."""
         stat_map = _signed_stat_map(sample_voxeldata_3d)  # min=-10, max=10
         plotter = plot_stat_map(
-            stat_map, bg_volume=sample_voxeldata_3d, slice_mode="z", vmax=5.0
+            stat_map, bg_volume=sample_voxeldata_3d, slice_mode="z", **bound
         )
         norm = _axes(plotter).ravel()[0].collections[-1].norm
-        assert norm.vmax == 10.0
-        assert norm.vmin == -10.0
+        assert norm.vmax == 5.0
+        assert norm.vmin == -5.0
 
     def test_auto_range_uses_sequential_range_and_viridis_for_nonneg_data(
         self, sample_voxeldata_3d, matplotlib_pyplot
