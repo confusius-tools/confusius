@@ -534,7 +534,7 @@ class TestMatplotlibVolumewiseRegistrationProgressPlotter:
         assert display_calls
         assert closed_figures == [plotter.figure]
 
-class TestMatplotlibRegistrationProgressPlotterMaxCompositeSlices:
+class TestMatplotlibVolumeRegistrationProgressPlotterMaxCompositeSlices:
     """Tests for the composite mosaic's slice-count cap."""
 
     @staticmethod
@@ -549,7 +549,7 @@ class TestMatplotlibRegistrationProgressPlotterMaxCompositeSlices:
     ):
         """With the default cap, the mosaic grid matches 9 slices, not all 20."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_many_slices,
             moving_img_many_slices,
@@ -573,7 +573,7 @@ class TestMatplotlibRegistrationProgressPlotterMaxCompositeSlices:
     ):
         """`max_composite_slices=None` disables the cap and plots all 20 slices."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_many_slices,
             moving_img_many_slices,
@@ -598,7 +598,7 @@ class TestMatplotlibRegistrationProgressPlotterMaxCompositeSlices:
     ):
         """A custom `max_composite_slices` caps the mosaic at that many slices."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_many_slices,
             moving_img_many_slices,
@@ -623,7 +623,7 @@ class TestMatplotlibRegistrationProgressPlotterMaxCompositeSlices:
     ):
         """The default cap does not truncate volumes with fewer slices than the cap."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_3d,
             moving_img_3d,
