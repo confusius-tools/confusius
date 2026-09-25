@@ -48,6 +48,9 @@ Current development version for the next ConfUSIus release.
   `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
   even when only metadata or a small region is needed
   ([#415](https://github.com/confusius-tools/confusius/pull/415)).
+- [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] is roughly twice as fast,
+  with the larger gain on the default `noise_model="ar1"`
+  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
 
 ### :bug: Fixes
 
@@ -70,6 +73,10 @@ Current development version for the next ConfUSIus release.
   on its own under `auto_range=True`: a lone bound sets the symmetric range to
   `[-|bound|, |bound|]`
   ([#445](https://github.com/confusius-tools/confusius/pull/445)).
+- [`FirstLevelModel.compute_contrast`][confusius.glm.FirstLevelModel.compute_contrast]
+  no longer emits a divide-by-zero `RuntimeWarning` on recordings containing voxels with
+  no variance over time, such as those outside the recorded field of view
+  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
 
 ### :frame_photo: Napari plugin
 
@@ -87,16 +94,6 @@ Released 2026-09-16.
   longer computes a full SVD, extracting components several times faster on
   large recordings or broad noise masks
   ([#434](https://github.com/confusius-tools/confusius/pull/434)).
-- [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] is roughly twice as fast,
-  with the larger gain on the default `noise_model="ar1"`
-  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
-
-### :bug: Fixes
-
-- [`FirstLevelModel.compute_contrast`][confusius.glm.FirstLevelModel.compute_contrast]
-  no longer emits a divide-by-zero `RuntimeWarning` on recordings containing voxels with
-  no variance over time, such as those outside the recorded field of view
-  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
 
 ### :books: Documentation
 
