@@ -107,7 +107,7 @@ def _resample_intermediate(
         )
 
 
-class RegistrationProgress(Protocol):
+class VolumeRegistrationProgress(Protocol):
     """Duck-typed contract for an iteration progress reporter.
 
     Implementations are called from the registration thread (SimpleITK's
@@ -124,7 +124,7 @@ class RegistrationProgress(Protocol):
         ...
 
 
-class MatplotlibRegistrationProgressPlotter:
+class MatplotlibVolumeRegistrationProgressPlotter:
     """Plot registration progress in real time.
 
     Displays an optimizer metric curve, a composite fixed/moving overlay, or

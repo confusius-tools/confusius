@@ -5,6 +5,14 @@ from typing import TYPE_CHECKING
 import matplotlib.pyplot as plt
 import numpy as np
 
+from confusius._utils.motion_plotting import (
+    FD_LABELS,
+    OPTIMIZER_ITERATION_COLOR,
+    OPTIMIZER_METRIC_COLOR,
+    get_motion_diagnostic_label,
+    get_motion_diagnostic_linewidth,
+)
+
 if TYPE_CHECKING:
     import pandas as pd
     from matplotlib.figure import Figure
@@ -80,8 +88,13 @@ def plot_motion_diagnostics(
     if rotation_cols:
         ax = axes[panel_index]
         for col in rotation_cols:
-            label = col.replace("rot_", "") if col != "rotation" else None
-            ax.plot(time, np.rad2deg(motion_df[col]), lw=1.6, label=label)
+            label = get_motion_diagnostic_label(col)
+            ax.plot(
+                time,
+                np.rad2deg(motion_df[col]),
+                lw=get_motion_diagnostic_linewidth(col),
+                label=label,
+            )
         ax.set_ylabel("Rotation (deg)")
         ax.set_title("Motion estimates")
         if any(col != "rotation" for col in rotation_cols):
@@ -91,7 +104,12 @@ def plot_motion_diagnostics(
     if translation_cols:
         ax = axes[panel_index]
         for col in translation_cols:
-            ax.plot(time, motion_df[col], lw=1.6, label=col.removeprefix("trans_"))
+            ax.plot(
+                time,
+                motion_df[col],
+                lw=get_motion_diagnostic_linewidth(col),
+                label=get_motion_diagnostic_label(col),
+            )
         ax.set_ylabel("Translation (mm)")
         ax.legend(frameon=False, ncol=len(translation_cols))
         panel_index += 1
@@ -99,22 +117,22 @@ def plot_motion_diagnostics(
     if displacement_cols:
         ax = axes[panel_index]
         for col in displacement_cols:
-            label = {
-                "mean_fd": "Mean FD",
-                "max_fd": "Max FD",
-                "rms_fd": "RMS FD",
-            }[col]
-            lw = 1.8 if col == "mean_fd" else 1.2
-            ax.plot(time, motion_df[col], lw=lw, label=label)
+            ax.plot(
+                time,
+                motion_df[col],
+                lw=get_motion_diagnostic_linewidth(col),
+                label=FD_LABELS[col],
+            )
         ax.set_ylabel("Displacement (mm)")
         ax.legend(frameon=False, ncol=len(displacement_cols))
         panel_index += 1
 
     if has_metric or has_iterations:
-        metric_color = "#d93a54"
-        iteration_color = "#3ad9a4"
+        metric_color = OPTIMIZER_METRIC_COLOR
+        iteration_color = OPTIMIZER_ITERATION_COLOR
         ax = axes[panel_index]
         ax.set_title("Optimizer summary")
+        ax.tick_params(axis="x", colors="white")
         if has_metric:
             ax.plot(
                 time,
@@ -125,6 +143,7 @@ def plot_motion_diagnostics(
             ax.set_ylabel("Final metric", color=metric_color)
             ax.tick_params(axis="y", colors=metric_color)
             ax.spines["left"].set_color(metric_color)
+            ax.spines["right"].set_visible(False)
         if has_iterations:
             iter_ax = ax.twinx() if has_metric else ax
             iter_ax.plot(
@@ -135,8 +154,16 @@ def plot_motion_diagnostics(
                 alpha=0.9,
             )
             iter_ax.set_ylabel("Iterations", color=iteration_color)
+            iter_ax.tick_params(axis="x", colors="white")
             iter_ax.tick_params(axis="y", colors=iteration_color)
             iter_ax.spines["right" if has_metric else "left"].set_color(iteration_color)
+            if has_metric:
+                iter_ax.spines["left"].set_visible(False)
 
-    axes[-1].set_xlabel("Time (s)" if motion_df.index.name == "time" else "Frame")
+    if motion_df.index.name == "time":
+        time_units = motion_df.attrs.get("time_units", "s")
+        xlabel = f"Time ({time_units})"
+    else:
+        xlabel = "Frame"
+    axes[-1].set_xlabel(xlabel)
     return fig, axes

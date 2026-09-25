@@ -1,5 +1,6 @@
 """Unit tests for volumewise registration functions."""
 
+import warnings
 from threading import Event
 
 import numpy as np
@@ -43,21 +44,36 @@ def _create_shifted_frames_data(volume: xr.DataArray) -> xr.DataArray:
     )
 
 
-class _FakeVolumewiseProgressReporter:
+class _FakeVolumewiseRegistrationProgress:
     def __init__(self) -> None:
         self.completed_frames: list[int] = []
         self.closed = False
+        self.time_coords = None
 
     def frame_completed(
         self,
         frame_index: int,
         registered_frame: xr.DataArray,
+        affine_matrix: np.ndarray,
         diagnostics: RegistrationDiagnostics,
     ) -> None:
+        del registered_frame, affine_matrix, diagnostics
         self.completed_frames.append(frame_index)
 
     def close(self) -> None:
         self.closed = True
+
+
+def _fake_register_volume(_volume, _ref_da, **kwargs):
+    diagnostics = RegistrationDiagnostics(
+        metric="correlation",
+        metric_values=np.asarray([-1.0, -0.5]),
+        final_metric_value=-0.5,
+        n_iterations=2,
+        stop_condition="done",
+        status="completed",
+    )
+    return _volume.copy(), np.eye(4), diagnostics
 
 
 class TestRegisterVolumewise:
@@ -167,7 +183,8 @@ class TestRegisterVolumewise:
     def test_h5py_backed_works_with_n_jobs_1(self, scan_2d):
         """h5py-backed DataArray (from a .scan file) with n_jobs=1 does not raise."""
         # n_jobs=1 (serial) should not raise for h5py-backed data.
-        result = register_volumewise(scan_2d, n_jobs=1, transform="translation")
+        with pytest.warns(UserWarning, match="volume-by-volume"):
+            result = register_volumewise(scan_2d, n_jobs=1, transform="translation")
         assert result.shape == scan_2d.shape
 
     def test_non_h5py_dask_backed_does_not_raise(
@@ -184,8 +201,31 @@ class TestRegisterVolumewise:
             coords=sample_voxeldata_2dt_registration.coords,
             attrs=sample_voxeldata_2dt_registration.attrs,
         )
-        result = register_volumewise(dask_data, n_jobs=2, transform="translation")
+        with pytest.warns(UserWarning, match="volume-by-volume"):
+            result = register_volumewise(dask_data, n_jobs=2, transform="translation")
         assert result.shape == sample_voxeldata_2dt_registration.shape
+
+    def test_dask_time_chunks_of_one_do_not_warn(self, sample_voxeldata_2dt_registration):
+        """Dask data chunked one volume at a time avoids the chunk warning."""
+        import dask.array as da
+
+        dask_data = xr.DataArray(
+            da.from_array(sample_voxeldata_2dt_registration.values, chunks=(1, 1, 32, 32)),
+            dims=sample_voxeldata_2dt_registration.dims,
+            coords=sample_voxeldata_2dt_registration.coords,
+        )
+
+        with warnings.catch_warnings(record=True) as warnings_record:
+            warnings.simplefilter("always")
+            result = register_volumewise(
+                dask_data,
+                n_jobs=1,
+                transform="translation",
+                show_progress=False,
+            )
+
+        assert result.shape == sample_voxeldata_2dt_registration.shape
+        assert not any("volume-by-volume" in str(w.message) for w in warnings_record)
 
     def test_show_progress_false_skips_joblib_progress_import(
         self, sample_voxeldata_2dt_registration, monkeypatch
@@ -240,18 +280,7 @@ class TestRegisterVolumewise:
     def test_progress_reporter_receives_frame_updates(
         self, sample_voxeldata_2dt_registration, monkeypatch
     ):
-        reporter = _FakeVolumewiseProgressReporter()
-
-        def _fake_register_volume(_volume, _ref_da, **kwargs):
-            diagnostics = RegistrationDiagnostics(
-                metric="correlation",
-                metric_values=np.asarray([-1.0, -0.5]),
-                final_metric_value=-0.5,
-                n_iterations=2,
-                stop_condition="done",
-                status="completed",
-            )
-            return _volume.copy(), np.eye(4), diagnostics
+        reporter = _FakeVolumewiseRegistrationProgress()
 
         monkeypatch.setattr(
             "confusius.registration.volumewise.register_volume",
@@ -270,6 +299,38 @@ class TestRegisterVolumewise:
         assert sorted(reporter.completed_frames) == list(
             range(sample_voxeldata_2dt_registration.sizes["time"])
         )
+        assert reporter.closed
+
+    def test_plot_progress_uses_plotter_factory(self, sample_voxeldata_2dt_registration, monkeypatch):
+        reporter = _FakeVolumewiseRegistrationProgress()
+
+        def _factory(n_frames, *, reference=None, time_coords=None, time_units=None):
+            assert n_frames == sample_voxeldata_2dt_registration.sizes["time"]
+            assert reference is not None
+            del time_units
+            reporter.time_coords = time_coords
+            return reporter
+
+        monkeypatch.setattr(
+            "confusius.registration.volumewise.register_volume",
+            _fake_register_volume,
+        )
+
+        result = register_volumewise(
+            sample_voxeldata_2dt_registration,
+            n_jobs=1,
+            transform="translation",
+            show_progress=False,
+            plot_progress=True,
+            progress_plotter=_factory,
+        )
+
+        assert result.shape == sample_voxeldata_2dt_registration.shape
+        assert sorted(reporter.completed_frames) == list(
+            range(sample_voxeldata_2dt_registration.sizes["time"])
+        )
+        assert reporter.time_coords is not None
+        assert_allclose(reporter.time_coords, sample_voxeldata_2dt_registration["time"].values)
         assert reporter.closed
 
     def test_abort_during_run_skips_not_yet_started_frames(
