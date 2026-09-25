@@ -457,6 +457,11 @@ class TestConsolidatePoses:
         result_primary = consolidate_poses(da_primary)
         result_rebased = consolidate_poses(da_secondary.fusi.affine.apply("my_affine"))
         np.testing.assert_array_equal(result_primary.values, result_rebased.values)
+        # The applied key stays as identity: the consolidated world frame still is
+        # the "my_affine" space.
+        np.testing.assert_array_equal(
+            result_rebased.attrs["affines"]["my_affine"], np.eye(4)
+        )
         np.testing.assert_array_equal(
             result_primary.coords["k"].values, result_rebased.coords["k"].values
         )

@@ -67,6 +67,9 @@ Current development version for the next ConfUSIus release.
   on its own under `auto_range=True`: a lone bound sets the symmetric range to
   `[-|bound|, |bound|]`
   ([#445](https://github.com/confusius-tools/confusius/pull/445)).
+- [`apply_affine`][confusius.xarray.apply_affine] keeps the applied key in
+  `.attrs["affines"]` as the identity when the affine is given by key
+  ([#463](https://github.com/confusius-tools/confusius/pull/463)).
 
 ### :frame_photo: Napari plugin
 
