@@ -211,7 +211,9 @@ def test_forwards_data_dir_and_check_latest(
 
 
 @pytest.fixture
-def mesh_fake_atlases(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+def mesh_fake_atlases(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_atlases: list[_FakeBgAtlas]
+) -> Path:
     """Patch BrainGlobeAtlas to a fake whose meshes are not cached yet, S3 reachable."""
 
     def factory(atlas_name, brainglobe_dir=None, check_latest=True):
@@ -251,8 +253,7 @@ def test_prefetches_missing_meshes_in_one_batched_call(
 
     [(rpaths, lpaths)] = fake_s3.calls
     remote_dir = (
-        "s3://brainglobe/atlas/annotation-sets/fake-annotation/1_0/"
-        "annotations.precomputed/mesh"
+        "s3://brainglobe/atlas/annotation-sets/fake/1_0/annotations.precomputed/mesh"
     )
     assert sorted(rpaths) == [f"{remote_dir}/10", f"{remote_dir}/997"]
     # Remote keys and local files are paired by structure id, in the same order.
