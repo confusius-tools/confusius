@@ -1126,6 +1126,13 @@ def test_has_voxel_to_world_index_true_with_only_one_active_voxel_dim(
     assert has_voxel_to_world_index(mostly_fixed) is True
 
 
+def test_has_voxel_to_world_index_false_without_index() -> None:
+    """A plain DataArray without voxel-to-world geometry returns `False`."""
+    plain = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
+
+    assert has_voxel_to_world_index(plain) is False
+
+
 def test_restore_world_coords_rebuilds_geometry_after_expand_dims(
     sample_voxeldata_3d_irregular_voxels,
 ) -> None:

@@ -6,18 +6,70 @@ icon: lucide/history
 
 # Changelog
 
-## 0.7.2.dev0
+## 0.8.0.dev0
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like]'s `interpolation`
+  parameter defaults to `"auto"` instead of `"linear"`: `"nearest"` is picked for
+  integer-dtype data (e.g. atlas region labels) and `"linear"` otherwise, so
+  resampling an integer mask no longer silently blends label values unless
+  `interpolation` is explicitly overridden
+  ([#436](https://github.com/confusius-tools/confusius/pull/436)).
+- [`register_volumewise`][confusius.registration.register_volumewise]'s
+  `intensity_scaling` is renamed to `moving_intensity_scaling`, and a new
+  `fixed_intensity_scaling` scales a user-provided `fixed` volume separately (only
+  allowed together with `fixed`; it defaults to `moving_intensity_scaling`). Both are
+  now also exposed on `data.fusi.register.volumewise`
+  ([#437](https://github.com/confusius-tools/confusius/pull/437)).
+
 ### :sparkles: Enhancements
 
+- Masks are no longer required to be strictly boolean dtype: any binary numeric mask
+  (0 and at most one non-zero value, e.g. `{0, 1}` or `{0.0, 5.0}`) is now accepted
+  and coerced to boolean, covering masks written by tools without a boolean dtype
+  (e.g. FSL/NiBabel NIfTI masks stored as float)
+  ([#418](https://github.com/confusius-tools/confusius/pull/418)).
+- [`register_volumewise`][confusius.registration.register_volumewise] and
+  `data.fusi.register.volumewise` accept a `fixed` VoxelData volume (for example the
+  mean of a few low-motion frames) to register every frame to, as an alternative to
+  `reference_time` ([#436](https://github.com/confusius-tools/confusius/pull/436)).
 - [`register_volumewise`][confusius.registration.register_volumewise] can now show live
   motion diagnostics, including motion estimates, framewise displacement, and optimizer
   summaries ([#352](https://github.com/confusius-tools/confusius/pull/352)).
 
+### :zap: Performance
+
+- `fetch_brainglobe_atlas`'s `reference`/`annotation` are now backed by lazy
+  `dask.array.Array` data instead of being eagerly materialized to
+  `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
+  even when only metadata or a small region is needed
+  ([#415](https://github.com/confusius-tools/confusius/pull/415)).
+
 ### :bug: Fixes
 
+- [`register_volume`][confusius.registration.register_volume]'s live progress plot no
+  longer draws every slice in the composite overlay for volumes with many slices,
+  which made the mosaic slow to render and hard to read. The composite now shows at
+  most 9 evenly spaced slices by default (a 3x3 grid), configurable via the new
+  `max_composite_slices` parameter (`None` restores the previous behaviour of
+  plotting every slice)
+  ([#368](https://github.com/confusius-tools/confusius/issues/368)).
+- [`consolidate_poses`][confusius.multipose.consolidate_poses]'s regularity check no
+  longer rejects realistic stage jitter on small pose steps (e.g. a 100 um step
+  previously tolerated only ~1 um of jitter under a pure 1% relative tolerance). The
+  check now combines a new `atol` parameter (default: 5 um, converted to the array's own
+  world units) with `rtol`, matching typical stepper-motor stage repeatability at small
+  step sizes while keeping `rtol` in control at larger ones
+  ([#363](https://github.com/confusius-tools/confusius/issues/363)).
+- [`plot_stat_map`][confusius.plotting.plot_stat_map] and
+  [`plot_matrix`][confusius.plotting.plot_matrix] now honor a `vmin` or `vmax` passed
+  on its own under `auto_range=True`: a lone bound sets the symmetric range to
+  `[-|bound|, |bound|]`
+  ([#445](https://github.com/confusius-tools/confusius/pull/445)).
 - [`register_volumewise`][confusius.registration.register_volumewise] now warns when
   lazy dask inputs use multi-volume time chunks, which can repeatedly read the same
   chunk and slow down volume-by-volume registration
@@ -25,6 +77,9 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- The registration panel's within-scan mode can register every frame to a fixed
+  layer, with its own intensity scaling, as an alternative to a reference time index
+  ([#376](https://github.com/confusius-tools/confusius/issues/376)).
 - The registration panel now shows live volumewise motion diagnostics in
   a floating plot window during motion correction
   ([#352](https://github.com/confusius-tools/confusius/pull/352)).

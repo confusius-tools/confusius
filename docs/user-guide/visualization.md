@@ -438,7 +438,8 @@ By default, `vmin` and `vmax` are taken from the full `stat_map`, and `auto_rang
 picks a suitable range + default colormap automatically:
 
 - Both positive and negative values: diverging, symmetric `[-m, m]` range
-  (`m = max(|vmin|, |vmax|)`), with `cmap="coolwarm"` by default.
+  (`m = max(|vmin|, |vmax|)` over the bounds you pass, or the largest magnitude in
+  `stat_map` when you pass neither), with `cmap="coolwarm"` by default.
 - Only non-negative values (for example R² or F-statistics): sequential `[0, vmax]`
   range, with `cmap="viridis"` by default.
 - Only non-positive values: sequential `[vmin, 0]` range, with `cmap="viridis_r"`
