@@ -25,8 +25,8 @@ Current development version for the next ConfUSIus release.
   allowed together with `fixed`; it defaults to `moving_intensity_scaling`). Both are
   now also exposed on `data.fusi.register.volumewise`
   ([#437](https://github.com/confusius-tools/confusius/pull/437)).
-- [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] /
-  [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] take `regions`/`sides` instead of
+- [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes] /
+  [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes] take `regions`/`sides` instead of
   `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
   requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
   ([#448](https://github.com/confusius-tools/confusius/pull/448)).
@@ -50,6 +50,16 @@ Current development version for the next ConfUSIus release.
 - [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] downloads every
   region mesh in one batched call on the first fetch, so meshes are available offline
   afterwards ([#448](https://github.com/confusius-tools/confusius/pull/448)).
+- Added [`plot_surface`][confusius.plotting.plot_surface] to display a triangular mesh as
+  a napari surface layer, and [`plot_atlas_mesh`][confusius.plotting.plot_atlas_mesh]
+  (also reachable as `ds.atlas.plot.mesh`) to display atlas regions with their mesh, name,
+  color, and units read from the atlas, aligned with the reference template or a
+  registered fUSI volume shown with `plot_napari`. Like
+  [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes], it accepts one region or a
+  sequence of them with a single hemisphere filter or one per region, mirroring
+  [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and merges the requested
+  regions into a single surface layer, each drawn in its own atlas color
+  ([#263](https://github.com/confusius-tools/confusius/pull/263)).
 
 ### :zap: Performance
 

@@ -10,6 +10,7 @@ import pandas as pd
 import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius.atlas._plot import AtlasPlotAccessor
 from confusius.atlas._structures import (
     _build_lookup_df,
     _get_descendant_ids,
@@ -174,6 +175,24 @@ class AtlasAccessor:
         """
         _, norm = build_atlas_cmap_and_norm(self.annotation.attrs["rgb_lookup"])
         return norm
+
+    # ── Plotting ──────────────────────────────────────────────────────────────────────
+
+    @property
+    def plot(self) -> AtlasPlotAccessor:
+        """Plotting namespace for the atlas.
+
+        Returns
+        -------
+        confusius.atlas.AtlasPlotAccessor
+            Accessor exposing atlas plotting methods, e.g.
+            [`mesh`][confusius.atlas.AtlasPlotAccessor.mesh].
+
+        Examples
+        --------
+        >>> atlas.atlas.plot.mesh("VISp")
+        """
+        return AtlasPlotAccessor(self._ds)
 
     # ── Search ────────────────────────────────────────────────────────────────────────
 
