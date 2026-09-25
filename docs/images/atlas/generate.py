@@ -127,6 +127,7 @@ _ok("Saved atlas-annotation-light.png and atlas-annotation-dark.png")
 _section("napari mesh")
 
 try:
+    surface = atlas.atlas.get_meshes(_MESH_REGION)[_MESH_REGION]
     viewer = napari.Viewer(ndisplay=3, show=False)
     atlas.atlas.plot.mesh(_MESH_REGION, viewer=viewer, colormap="gray")
     _napari_screenshot(viewer, str(HERE / "atlas-mesh-root.png"))

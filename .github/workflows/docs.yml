@@ -78,6 +78,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pepe-mariani-2026-template-
 
+      - name: Cache Pepe Mariani dataset
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/confusius/pepe-mariani-2026-bids
+          key: ${{ runner.os }}-pepe-mariani-2026-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
+          restore-keys: |
+            ${{ runner.os }}-pepe-mariani-2026-bids-
+
       - name: Cache BrainGlobe atlases
         uses: actions/cache@v6
         with:

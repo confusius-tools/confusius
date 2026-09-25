@@ -30,7 +30,7 @@ from confusius._utils.napari import (
 )
 from confusius._utils.plotting import resample_to_axis_aligned_world_grid
 from confusius._utils.stack import find_stack_level
-from confusius.atlas import get_atlas_mesh
+from confusius.atlas import get_atlas_meshes
 from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
     sort_coords_for_plot,
@@ -320,7 +320,7 @@ def plot_surface(
     ----------
     mesh : tuple[(N, 3) numpy.ndarray, (M, 3) numpy.ndarray]
         A `(vertices, faces)` pair, as held in each value of the dict returned by
-        [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh]. `vertices` holds the
+        [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes]. `vertices` holds the
         vertex coordinates and `faces` holds zero-indexed triangle vertex indices.
     values : (N,) or (N, T) numpy.ndarray, optional
         Per-vertex scalar values used to color the surface through the layer's
@@ -351,7 +351,7 @@ def plot_surface(
     >>> import confusius as cf
     >>> atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_25um")
     >>> viewer, layer = cf.plotting.plot_surface(
-    ...     atlas.atlas.get_mesh("VISp")["VISp"], colormap="magenta"
+    ...     atlas.atlas.get_meshes("VISp")["VISp"], colormap="magenta"
     ... )
     """
     vertices, faces = mesh
@@ -394,7 +394,7 @@ def plot_atlas_mesh(
     and one or more regions, and the layer's mesh, name, colors, and scale bar unit are
     all pulled from the atlas before handing off to
     [`plot_surface`][confusius.plotting.plot_surface]. The meshes come from
-    [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh], the per-vertex colors from the
+    [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes], the per-vertex colors from the
     atlas' RGB lookup table, and the units from the atlas coordinates.
 
     Every requested region is merged into a single surface layer, each region keeping its
@@ -416,7 +416,7 @@ def plot_atlas_mesh(
         not closed.
     clip : bool, default: True
         Whether to clip the mesh to the reference grid, forwarded to
-        [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh].
+        [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes].
     values : (N,) or (N, T) numpy.ndarray, optional
         Per-vertex scalar values, over the concatenated vertices of all requested regions,
         used to color the surface through the layer's colormap. If not provided, each
@@ -462,10 +462,10 @@ def plot_atlas_mesh(
     ... )
     """
     validate_atlas(atlas)
-    mesh_dict = get_atlas_mesh(atlas, regions, sides, clip=clip)
+    mesh_dict = get_atlas_meshes(atlas, regions, sides, clip=clip)
     structures = atlas.atlas.structures
 
-    # get_atlas_mesh suffixes one-hemisphere keys with _L/_R; structure lookups need the
+    # get_atlas_meshes suffixes one-hemisphere keys with _L/_R; structure lookups need the
     # bare acronym.
     acronyms = {
         label: label if label in structures.acronym_to_id_map else label[:-2]

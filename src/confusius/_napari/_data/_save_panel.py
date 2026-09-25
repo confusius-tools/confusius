@@ -234,18 +234,17 @@ class SavePanel(QWidget):
                     attrs=template_da.attrs,
                 )
             elif layer_shape == template_da.shape[-ndim:]:
-                # Layer has fewer dimensions (e.g. 3D labels vs 4D template):
-                # use the trailing spatial dimensions of the template.
-                spatial_dims = template_da.dims[-ndim:]
-                spatial_coords = {
-                    d: template_da.coords[d]
-                    for d in spatial_dims
-                    if d in template_da.coords
-                }
+                # Layer has fewer dimensions (e.g. 3D labels vs 4D template): use
+                # the trailing spatial dimensions of the template. Reduce with
+                # `isel` rather than picking coordinates by name so the
+                # VoxelToWorldIndex (and the world coordinates it derives) survive.
+                spatial = template_da.isel(
+                    dict.fromkeys(template_da.dims[:-ndim], 0), drop=True
+                )
                 return xr.DataArray(
                     layer.data,
-                    dims=spatial_dims,
-                    coords=spatial_coords,
+                    dims=spatial.dims,
+                    coords=spatial.coords,
                     attrs=template_da.attrs,
                 )
             else:

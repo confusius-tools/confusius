@@ -672,7 +672,7 @@ class TestPlotAtlasMesh:
         The region is resolved from either its acronym or its integer id.
         """
         viewer = make_napari_viewer()
-        expected_vertices, expected_faces = atlas_ds.atlas.get_mesh(region)["root"]
+        expected_vertices, expected_faces = atlas_ds.atlas.get_meshes(region)["root"]
         _, layer = plot_atlas_mesh(
             atlas_ds, region, viewer=viewer, show_scale_bar=False
         )
@@ -690,7 +690,7 @@ class TestPlotAtlasMesh:
         viewer.close()
 
     def test_sides_restricts_mesh_to_one_hemisphere(self, atlas_ds, make_napari_viewer):
-        """`sides` forwards to get_mesh, cutting the mesh down to that hemisphere."""
+        """`sides` forwards to get_meshes, cutting the mesh down to that hemisphere."""
         viewer = make_napari_viewer()
         _, both = plot_atlas_mesh(atlas_ds, "root", viewer=viewer, show_scale_bar=False)
         _, right = plot_atlas_mesh(
@@ -704,8 +704,8 @@ class TestPlotAtlasMesh:
     def test_multiple_regions_merge_into_one_layer(self, atlas_ds, make_napari_viewer):
         """Regions share a layer, each keeping its own atlas color and its own faces."""
         viewer = make_napari_viewer()
-        root_vertices, _ = atlas_ds.atlas.get_mesh("root")["root"]
-        child_vertices, child_faces = atlas_ds.atlas.get_mesh("ch")["ch"]
+        root_vertices, _ = atlas_ds.atlas.get_meshes("root")["root"]
+        child_vertices, child_faces = atlas_ds.atlas.get_meshes("ch")["ch"]
         _, layer = plot_atlas_mesh(
             atlas_ds, ["root", "ch"], viewer=viewer, show_scale_bar=False
         )
@@ -730,7 +730,7 @@ class TestPlotAtlasMesh:
     ):
         """Per-vertex values reach the layer and suppress the per-region colors."""
         viewer = make_napari_viewer()
-        vertices, _ = atlas_ds.atlas.get_mesh("root")["root"]
+        vertices, _ = atlas_ds.atlas.get_meshes("root")["root"]
         values = np.linspace(0.0, 1.0, len(vertices))
         _, layer = plot_atlas_mesh(
             atlas_ds, "root", values=values, viewer=viewer, show_scale_bar=False
@@ -784,7 +784,7 @@ class TestPlotAtlasMesh:
         viewer = make_napari_viewer()
         _, layer = atlas_ds.atlas.plot.mesh("root", viewer=viewer, show_scale_bar=False)
 
-        expected_vertices, _ = atlas_ds.atlas.get_mesh("root")["root"]
+        expected_vertices, _ = atlas_ds.atlas.get_meshes("root")["root"]
         npt.assert_array_equal(layer.vertices, expected_vertices)
         assert layer.name == "whole brain (root)"
         viewer.close()

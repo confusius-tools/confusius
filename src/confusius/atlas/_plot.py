@@ -56,12 +56,12 @@ class AtlasPlotAccessor:
             All requested meshes are merged into a single surface layer.
         sides : {"left", "right", "both"} or sequence thereof, default: "both"
             Hemisphere filter, forwarded to
-            [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh]. Pass a scalar to apply
+            [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes]. Pass a scalar to apply
             the same side to all regions, or a sequence of the same length as `regions`
             for per-region control.
         clip : bool, default: True
             Whether to clip the mesh to the reference grid, forwarded to
-            [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh].
+            [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes].
         values : (N,) or (N, T) numpy.ndarray, optional
             Per-vertex scalar values used to color the surface through the layer's
             colormap. If not provided, each region is drawn in its atlas color.

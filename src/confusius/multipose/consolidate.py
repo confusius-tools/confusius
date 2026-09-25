@@ -15,6 +15,7 @@ import xarray as xr
 from confusius._dims import WORLD_DIMS
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
+    convert_length_units,
     get_voxel_to_world_affine,
     get_voxel_to_world_spatial_dims,
     get_voxel_to_world_units,
@@ -124,7 +125,7 @@ def _detect_sweep_dim(
         raise ValueError("Cannot detect the swept voxel dimension from a single pose.")
     centered = t - t.mean(axis=0)
     _, sv, vt = np.linalg.svd(centered, full_matrices=False)
-    if sv[0] == 0:
+    if np.isclose(sv[0], 0):
         raise ValueError(
             "Cannot detect the swept voxel dimension: poses have identical world "
             "positions."
@@ -132,7 +133,8 @@ def _detect_sweep_dim(
     pose_axis = vt[0]
 
     col_norms = np.linalg.norm(rotation, axis=0)
-    if np.any(col_norms == 0):
+    # Near-zero axes are degenerate too; otherwise alignment division can dominate.
+    if np.any(np.isclose(col_norms, 0.0)):
         raise ValueError(
             "Cannot detect the swept voxel dimension: primary voxel-to-world "
             "geometry has a degenerate (zero-length) voxel axis."
@@ -144,6 +146,7 @@ def _detect_sweep_dim(
 def consolidate_poses(
     da: xr.DataArray,
     rtol: float = 0.01,
+    atol: float | None = None,
 ) -> xr.DataArray:
     """Merge the `pose` dimension into the swept voxel dimension, ordered by position.
 
@@ -193,6 +196,13 @@ def consolidate_poses(
         [`stack_poses`][confusius.multipose.stack_poses].
     rtol : float, default: 0.01
         Relative tolerance for the regularity check (fraction of mean spacing).
+        Combined with `atol` as `abs(spacing - mean_spacing) <= atol + rtol *
+        abs(mean_spacing)` (`numpy.isclose` convention), so `rtol` alone dominates at
+        large step sizes.
+    atol : float, optional
+        Absolute tolerance for the regularity check, in `da`'s world units, combined
+        with `rtol` as described above. If not provided, defaults to 5 um converted to
+        `da`'s units.
 
     Returns
     -------
@@ -215,9 +225,11 @@ def consolidate_poses(
         pose-dependent, if the rotation block of the affine is not constant across
         poses (non-translation sweep), if the swept voxel dimension cannot be
         detected (fewer than two poses, identical pose positions, or a degenerate
-        voxel axis), or if the consolidated positions are not regularly spaced
-        within `rtol` -- which also rejects a sweep that steps along more than one
-        voxel axis at once, since no single voxel dimension can span it.
+        voxel axis), if the consolidated positions are not regularly spaced within
+        `atol`/`rtol` -- which also rejects a sweep that steps along more than one
+        voxel axis at once, since no single voxel dimension can span it -- or if
+        `atol` is not provided and `da`'s world units aren't one of `"mm"`, `"cm"`,
+        `"m"`, `"um"`/`"µm"`, `"nm"`.
 
     Warns
     -----
@@ -228,6 +240,10 @@ def consolidate_poses(
 
     if "pose" not in da.dims:
         raise ValueError("DataArray has no 'pose' dimension.")
+
+    units = get_voxel_to_world_units(da)
+    if atol is None:
+        atol = float(convert_length_units(0.005, "mm", to_unit=units))
 
     # ensure_voxeldata above guarantees da carries a VoxelToWorldIndex, so the voxel dims
     # (and their derived world coordinates) are always available here.
@@ -291,11 +307,14 @@ def consolidate_poses(
 
     diffs: npt.NDArray[np.float64] = np.diff(proj_sorted)
     mean_spacing = float(np.mean(diffs))
-    if not np.allclose(diffs, mean_spacing, rtol=rtol, atol=0):
+    # A pure relative tolerance is unrealistically tight for small steps (e.g. 1% of
+    # a 100 um step is 1 um -- below real stage repeatability); combine with a small
+    # absolute tolerance so it dominates at small step sizes instead. See #363.
+    if not np.allclose(diffs, mean_spacing, rtol=rtol, atol=atol):
         raise ValueError(
             f"Consolidated {sweep_dim} positions are not regularly spaced "
-            f"(spacing range: [{diffs.min():.4f}, {diffs.max():.4f}] mm, "
-            f"mean: {mean_spacing:.4f} mm, rtol={rtol})."
+            f"(spacing range: [{diffs.min():.4f}, {diffs.max():.4f}] {units}, "
+            f"mean: {mean_spacing:.4f} {units}, atol={atol}, rtol={rtol})."
         )
 
     pose_idx = sorted_flat // n_sweep

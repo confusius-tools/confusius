@@ -18,18 +18,25 @@ OBLIQUE_AFFINE = np.array(
 """Oblique voxel-to-world affine whose world coordinates mix all voxel dims."""
 
 
-def _materialized_bounds(data: xr.DataArray) -> np.ndarray:
-    """Reference implementation: reduce the fully materialized world coordinates."""
-    return np.array(
-        [
-            [data.coords[dim].values.min() for dim in "zyx"],
-            [data.coords[dim].values.max() for dim in "zyx"],
-        ]
-    )
+def _pad_half_voxel(values: np.ndarray) -> np.ndarray:
+    """Extend a uniform 1D voxel coordinate by half a step at both ends."""
+    half = 0.5 * (values[1] - values[0]) if len(values) > 1 else 0.5
+    return np.concatenate([[values[0] - half], values, [values[-1] + half]])
+
+
+def _materialized_edge_bounds(data: xr.DataArray) -> np.ndarray:
+    """Reference implementation: map every point of the voxel grid extended by half a
+    voxel at both ends of each dim through the affine, then reduce."""
+    padded = [_pad_half_voxel(data.coords[d].values) for d in ("k", "j", "i")]
+    grid = np.stack(np.meshgrid(*padded, indexing="ij"), axis=-1).reshape(-1, 3)
+    affine = data.fusi.affine.voxel_to_world
+    world = grid @ affine[:3, :3].T + affine[:3, 3]
+    return np.stack([world.min(axis=0), world.max(axis=0)])
 
 
 def test_oblique_bounds_match_materialized_coordinates(rng):
-    """Corner-mapped bounds equal the full-grid reduction for an oblique affine."""
+    """Corner-mapped bounds equal the full-grid reduction of the voxel edges for an
+    oblique affine."""
     data = create_voxeldata(
         rng.random((4, 5, 6)), dims=("k", "j", "i"), voxel_to_world=OBLIQUE_AFFINE
     )
@@ -37,11 +44,12 @@ def test_oblique_bounds_match_materialized_coordinates(rng):
     assert bbox.dims == ("bound", "component")
     assert list(bbox.coords["bound"].values) == ["min", "max"]
     assert list(bbox.coords["component"].values) == ["z", "y", "x"]
-    assert_allclose(bbox.values, _materialized_bounds(data))
+    assert_allclose(bbox.values, _materialized_edge_bounds(data))
 
 
-def test_axis_aligned_bounds_match_coordinate_extremes(rng):
-    """Axis-aligned geometry reproduces the eager 1D coordinate min/max and units."""
+def test_axis_aligned_bounds_are_voxel_edges(rng):
+    """Axis-aligned geometry gives origin minus half a voxel to the last voxel's far
+    edge, with units."""
     data = create_voxeldata(
         rng.random((4, 6, 8)),
         dims=("k", "j", "i"),
@@ -49,12 +57,31 @@ def test_axis_aligned_bounds_match_coordinate_extremes(rng):
         origin=(1.0, 2.0, 3.0),
     )
     bbox = get_bounding_box(data)
-    assert_allclose(bbox.values, _materialized_bounds(data))
+    expected = np.array(
+        [
+            [1.0 - 0.1, 2.0 - 0.05, 3.0 - 0.025],
+            [1.0 + 3 * 0.2 + 0.1, 2.0 + 5 * 0.1 + 0.05, 3.0 + 7 * 0.05 + 0.025],
+        ]
+    )
+    assert_allclose(bbox.values, expected)
     assert bbox.attrs["units"] == "mm"
 
 
-def test_irregular_voxel_coordinates(rng):
-    """Non-contiguous voxel coordinates still give exact bounds."""
+def test_strided_voxel_coordinates_use_coordinate_step(rng):
+    """Subsampled voxel coordinates (step 2) pad by half of *their* step, not 0.5."""
+    data = create_voxeldata(
+        rng.random((4, 6, 8)),
+        dims=("k", "j", "i"),
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+    )
+    strided = data.isel(i=slice(None, None, 2))  # i = 0, 2, 4, 6.
+    bbox = get_bounding_box(strided)
+    assert_allclose(bbox.sel(component="x").values, [-1.0, 7.0])
+
+
+def test_irregular_voxel_coordinates_raise(rng):
+    """Irregular voxel coordinates have no defined voxel extent and are rejected."""
     data = create_voxeldata(
         rng.random((3, 4, 3)),
         dims=("k", "j", "i"),
@@ -63,17 +90,19 @@ def test_irregular_voxel_coordinates(rng):
         i=[0, 2, 3],
         voxel_to_world=OBLIQUE_AFFINE,
     )
-    assert_allclose(get_bounding_box(data).values, _materialized_bounds(data))
+    with pytest.raises(ValueError, match="irregular"):
+        get_bounding_box(data)
 
 
 def test_singleton_dim_slice(rng):
-    """A size-1 voxel dim (canonical 2D slice) keeps the output shape and is exact."""
+    """A size-1 voxel dim (canonical 2D slice) spans one voxel along the affine
+    column, like `fusi.spacing`."""
     data = create_voxeldata(
         rng.random((1, 5, 6)), dims=("k", "j", "i"), voxel_to_world=OBLIQUE_AFFINE
     )
     bbox = get_bounding_box(data)
     assert bbox.dims == ("bound", "component")
-    assert_allclose(bbox.values, _materialized_bounds(data))
+    assert_allclose(bbox.values, _materialized_edge_bounds(data))
 
 
 def test_scalar_isel_input_is_canonicalized(rng):
@@ -101,23 +130,7 @@ def test_pose_dependent_bounds_per_pose(rng):
     assert bbox.dims == ("pose", "bound", "component")
     assert list(bbox.coords["pose"].values) == [10, 20]
     expected = np.stack(
-        [
-            np.stack(
-                [
-                    data.coords[dim].min(dim=("k", "j", "i")).values
-                    for dim in "zyx"
-                ],
-                axis=-1,
-            ),
-            np.stack(
-                [
-                    data.coords[dim].max(dim=("k", "j", "i")).values
-                    for dim in "zyx"
-                ],
-                axis=-1,
-            ),
-        ],
-        axis=1,
+        [_materialized_edge_bounds(data.isel(pose=p)) for p in range(2)]
     )
     assert_allclose(bbox.values, expected)
 
@@ -133,3 +146,11 @@ def test_non_dataarray_raises():
     """A bare numpy array is rejected."""
     with pytest.raises(TypeError):
         get_bounding_box(np.zeros((2, 3, 4)))  # ty: ignore[invalid-argument-type]
+
+
+def test_accessor_matches_function(rng):
+    """The `.fusi.affine.bounding_box` property returns the same bounds."""
+    data = create_voxeldata(
+        rng.random((4, 5, 6)), dims=("k", "j", "i"), voxel_to_world=OBLIQUE_AFFINE
+    )
+    assert_allclose(data.fusi.affine.bounding_box.values, get_bounding_box(data).values)

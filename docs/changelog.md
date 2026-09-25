@@ -6,22 +6,46 @@ icon: lucide/history
 
 # Changelog
 
-## 0.7.1.dev0
+## 0.8.0.dev0
 
 Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
-- [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] /
-  [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] take `regions`/`sides` instead of
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like]'s `interpolation`
+  parameter defaults to `"auto"` instead of `"linear"`: `"nearest"` is picked for
+  integer-dtype data (e.g. atlas region labels) and `"linear"` otherwise, so
+  resampling an integer mask no longer silently blends label values unless
+  `interpolation` is explicitly overridden
+  ([#436](https://github.com/confusius-tools/confusius/pull/436)).
+- [`register_volumewise`][confusius.registration.register_volumewise]'s
+  `intensity_scaling` is renamed to `moving_intensity_scaling`, and a new
+  `fixed_intensity_scaling` scales a user-provided `fixed` volume separately (only
+  allowed together with `fixed`; it defaults to `moving_intensity_scaling`). Both are
+  now also exposed on `data.fusi.register.volumewise`
+  ([#437](https://github.com/confusius-tools/confusius/pull/437)).
+- [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes] /
+  [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes] take `regions`/`sides` instead of
   `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
   requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
   ([#448](https://github.com/confusius-tools/confusius/pull/448)).
 
 ### :sparkles: Enhancements
 
-- New [`get_bounding_box`][confusius.xarray.get_bounding_box] returning a VoxelData
-  array's world-space bounding box, one per pose for pose-dependent geometry
+- Masks are no longer required to be strictly boolean dtype: any binary numeric mask
+  (0 and at most one non-zero value, e.g. `{0, 1}` or `{0.0, 5.0}`) is now accepted
+  and coerced to boolean, covering masks written by tools without a boolean dtype
+  (e.g. FSL/NiBabel NIfTI masks stored as float)
+  ([#418](https://github.com/confusius-tools/confusius/pull/418)).
+- [`register_volumewise`][confusius.registration.register_volumewise] and
+  `data.fusi.register.volumewise` accept a `fixed` VoxelData volume (for example the
+  mean of a few low-motion frames) to register every frame to, as an alternative to
+  `reference_time` ([#436](https://github.com/confusius-tools/confusius/pull/436)).
+- New [`get_bounding_box`][confusius.xarray.get_bounding_box], also available as
+  [`data.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box],
+  returning a VoxelData array's world-space bounding box enclosing the full extent of
+  its voxels, one per pose for pose-dependent geometry
   ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 - [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] downloads every
   region mesh in one batched call on the first fetch, so meshes are available offline
@@ -31,7 +55,7 @@ Current development version for the next ConfUSIus release.
   (also reachable as `ds.atlas.plot.mesh`) to display atlas regions with their mesh, name,
   color, and units read from the atlas, aligned with the reference template or a
   registered fUSI volume shown with `plot_napari`. Like
-  [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh], it accepts one region or a
+  [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes], it accepts one region or a
   sequence of them with a single hemisphere filter or one per region, mirroring
   [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and merges the requested
   regions into a single surface layer, each drawn in its own atlas color
@@ -39,9 +63,49 @@ Current development version for the next ConfUSIus release.
 
 ### :zap: Performance
 
-- [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] with `clip=True` no longer
+- `fetch_brainglobe_atlas`'s `reference`/`annotation` are now backed by lazy
+  `dask.array.Array` data instead of being eagerly materialized to
+  `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
+  even when only metadata or a small region is needed
+  ([#415](https://github.com/confusius-tools/confusius/pull/415)).
+- [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes] with `clip=True` no longer
   materializes the full world-coordinate grid of an oblique atlas
   ([#446](https://github.com/confusius-tools/confusius/pull/446)).
+
+### :bug: Fixes
+
+- [`register_volume`][confusius.registration.register_volume]'s live progress plot no
+  longer draws every slice in the composite overlay for volumes with many slices,
+  which made the mosaic slow to render and hard to read. The composite now shows at
+  most 9 evenly spaced slices by default (a 3x3 grid), configurable via the new
+  `max_composite_slices` parameter (`None` restores the previous behaviour of
+  plotting every slice)
+  ([#368](https://github.com/confusius-tools/confusius/issues/368)).
+- [`consolidate_poses`][confusius.multipose.consolidate_poses]'s regularity check no
+  longer rejects realistic stage jitter on small pose steps (e.g. a 100 um step
+  previously tolerated only ~1 um of jitter under a pure 1% relative tolerance). The
+  check now combines a new `atol` parameter (default: 5 um, converted to the array's own
+  world units) with `rtol`, matching typical stepper-motor stage repeatability at small
+  step sizes while keeping `rtol` in control at larger ones
+  ([#363](https://github.com/confusius-tools/confusius/issues/363)).
+- [`plot_stat_map`][confusius.plotting.plot_stat_map] and
+  [`plot_matrix`][confusius.plotting.plot_matrix] now honor a `vmin` or `vmax` passed
+  on its own under `auto_range=True`: a lone bound sets the symmetric range to
+  `[-|bound|, |bound|]`
+  ([#445](https://github.com/confusius-tools/confusius/pull/445)).
+
+### :frame_photo: Napari plugin
+
+- The registration panel's within-scan mode can register every frame to a fixed
+  layer, with its own intensity scaling, as an alternative to a reference time index
+  ([#376](https://github.com/confusius-tools/confusius/issues/376)).
+
+## 0.7.1
+
+Released 2026-09-16.
+
+### :zap: Performance
+
 - [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
   longer computes a full SVD, extracting components several times faster on
   large recordings or broad noise masks
@@ -58,6 +122,22 @@ Current development version for the next ConfUSIus release.
 - Scrolling the sidebar with the mouse wheel no longer gets hijacked by whichever
   combo box or spin box the cursor happens to be over
   ([#431](https://github.com/confusius-tools/confusius/pull/431)).
+- New Points/Labels layers created from the signals panel now copy the reference
+  image's units and axis labels, so napari keeps rendering units instead of
+  warning about inconsistent units
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- The Save panel now saves a 3D labels layer with a 4D recording as template
+  instead of failing with a `VoxelToWorldIndex` error
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- Saving a user-drawn layer without a template now recognises napari 0.9's default
+  axis names and writes units in short form (`mm`), so the saved file matches the
+  image it was drawn on
+  ([#459](https://github.com/confusius-tools/confusius/pull/459)).
+- Loading a video next to a single-slice recording no longer adds a spurious `z`
+  slider when the slice sits at a nonzero world position, and the video layer now
+  uses the same world axis labels as the recording. Rolling the displayed axes
+  (Ctrl+E) onto a single-slice axis with a video loaded no longer crashes
+  ([#452](https://github.com/confusius-tools/confusius/pull/452)).
 
 ## 0.7.0
 
@@ -324,7 +404,7 @@ Released 2026-07-18.
 - The `Atlas` class has been replaced by an [`xarray.Dataset`][xarray.Dataset] with a
   registered `.atlas` accessor. Fetch an atlas by name with
   [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and call operations
-  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_mesh`, `ds.atlas.search`,
+  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_meshes`, `ds.atlas.search`,
   `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset.
   Name-based loading moved to `confusius.datasets`; atlas construction from a loaded
   BrainGlobe atlas is now internal to the datasets module
