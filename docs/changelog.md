@@ -58,7 +58,8 @@ Current development version for the next ConfUSIus release.
   [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes], it accepts one region or a
   sequence of them with a single hemisphere filter or one per region, mirroring
   [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and merges the requested
-  regions into a single surface layer, each drawn in its own atlas color
+  regions into a single surface layer, each drawn in its own atlas color. Hovering the
+  mesh names the region under the cursor in the status bar
   ([#263](https://github.com/confusius-tools/confusius/pull/263)).
 
 ### :zap: Performance

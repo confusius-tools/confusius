@@ -399,7 +399,8 @@ def plot_atlas_mesh(
 
     Every requested region is merged into a single surface layer, each region keeping its
     own atlas color. The layer is named after the region (its full name and acronym) when
-    a single region is requested, and after the requested acronyms otherwise.
+    a single region is requested, and after the requested acronyms otherwise. Hovering
+    the mesh in 3D names the region under the cursor in the viewer's status bar.
 
     Parameters
     ----------
@@ -472,7 +473,11 @@ def plot_atlas_mesh(
         for label in mesh_dict
     }
 
-    vertices_parts, faces_parts, colors_parts = [], [], []
+    region_names = {
+        label: f"{structures[acronyms[label]]['name']} ({label})" for label in mesh_dict
+    }
+
+    vertices_parts, faces_parts, colors_parts, face_names_parts = [], [], [], []
     n_vertices = 0
     for label, (region_vertices, region_faces) in mesh_dict.items():
         # Offset each region's faces by the running vertex count so the concatenated
@@ -481,9 +486,11 @@ def plot_atlas_mesh(
         vertices_parts.append(region_vertices)
         rgb = np.asarray(structures[acronyms[label]]["rgb_triplet"]) / 255.0
         colors_parts.append(np.tile(rgb, (len(region_vertices), 1)))
+        face_names_parts.append(np.full(len(region_faces), region_names[label]))
         n_vertices += len(region_vertices)
     mesh = (np.concatenate(vertices_parts), np.concatenate(faces_parts))
     vertex_colors = np.concatenate(colors_parts)
+    face_names = np.concatenate(face_names_parts)
 
     if "colormap" not in layer_kwargs and values is None:
         layer_kwargs.setdefault("vertex_colors", vertex_colors)
@@ -501,7 +508,7 @@ def plot_atlas_mesh(
 
     labels = list(mesh_dict)
     if len(labels) == 1:
-        name = f"{structures[acronyms[labels[0]]]['name']} ({labels[0]})"
+        name = region_names[labels[0]]
     else:
         # The layer list is narrow, so a long region list is truncated rather than
         # pushing the rest of the name out of view.
@@ -509,13 +516,68 @@ def plot_atlas_mesh(
         name = head if len(labels) <= 3 else f"{head}, +{len(labels) - 3}"
     layer_kwargs.setdefault("name", name)
 
-    return plot_surface(
+    viewer, layer = plot_surface(
         mesh,
         values=values,
         viewer=viewer,
         show_scale_bar=show_scale_bar,
         **layer_kwargs,
     )
+    _report_face_names_in_status(layer, face_names)
+    return viewer, layer
+
+
+def _report_face_names_in_status(layer: "Surface", face_names: npt.NDArray) -> None:
+    """Make the status bar name the region whose face sits under the cursor.
+
+    A napari Surface layer has no per-face metadata hook: its `get_status` reports the
+    interpolated vertex value only. The viewer looks `get_status` up on the layer
+    instance, so an instance attribute shadowing the method is enough to append
+    `name: <region>` for the face hit by the cursor ray, the way `Labels.get_status`
+    does with `features`.
+
+    Parameters
+    ----------
+    layer : napari.layers.Surface
+        Surface layer whose `get_status` gets wrapped in place.
+    face_names : (M,) numpy.ndarray
+        Display name for each face of `layer.faces`.
+    """
+    base_get_status = layer.get_status
+
+    def get_status(
+        position: npt.ArrayLike | None = None,
+        *,
+        view_direction: npt.ArrayLike | None = None,
+        dims_displayed: list[int] | None = None,
+        world: bool = False,
+        value: Any | None = None,
+    ) -> dict[str, str]:
+        status = base_get_status(
+            position,
+            view_direction=view_direction,
+            dims_displayed=dims_displayed,
+            world=world,
+        )
+        if position is None:
+            return status
+        # ponytail: this ray-casts the mesh a second time per mouse move; memoize
+        # `layer.get_value` if hovering a large mesh lags.
+        hit = layer.get_value(
+            np.asarray(position),
+            view_direction=view_direction,
+            dims_displayed=dims_displayed,
+            world=world,
+        )
+        # In 3D, `Surface.get_value` returns `(interpolated value, face index)`, both
+        # `None` when the ray misses; in 2D it returns a bare `None`.
+        face = hit[1] if isinstance(hit, tuple) else None
+        if face is not None:
+            status["coordinates"] += f"; name: {face_names[face]}"
+            status["value"] += f"; name: {face_names[face]}"
+        return status
+
+    layer.get_status = get_status  # type: ignore
 
 
 def draw_napari_labels(

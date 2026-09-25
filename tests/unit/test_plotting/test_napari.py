@@ -779,6 +779,41 @@ class TestPlotAtlasMesh:
         )
         viewer.close()
 
+    def test_hover_names_region_in_status(self, atlas_ds, make_napari_viewer):
+        """Hovering a face in 3D appends the region's name to the status bar.
+
+        Root keeps only its left face (the `x = 0.15` mm triangle) while the child's
+        single face sits at `x = 0.05` mm, so a ray along `x` from either side of the
+        mesh hits a different region first. A ray past both faces names nothing.
+        """
+        viewer = make_napari_viewer()
+        _, layer = plot_atlas_mesh(
+            atlas_ds,
+            ["root", "ch"],
+            sides=["left", "both"],
+            viewer=viewer,
+            show_scale_bar=False,
+        )
+
+        def status_at(position, direction):
+            return layer.get_status(
+                position,
+                view_direction=np.array(direction),
+                dims_displayed=[0, 1, 2],
+                world=True,
+            )
+
+        from_right = status_at((0.01, 0.01, 0.0), (0.0, 0.0, 1.0))
+        assert from_right["coordinates"].endswith("; name: child region (ch)")
+        assert from_right["value"].endswith("; name: child region (ch)")
+
+        from_left = status_at((0.01, 0.01, 0.2), (0.0, 0.0, -1.0))
+        assert from_left["coordinates"].endswith("; name: whole brain (root_L)")
+
+        miss = status_at((0.5, 0.5, 0.0), (0.0, 0.0, 1.0))
+        assert "name:" not in miss["coordinates"]
+        viewer.close()
+
     def test_accessor_matches_plot_atlas_mesh(self, atlas_ds, make_napari_viewer):
         """ds.atlas.plot.mesh delegates to plot_atlas_mesh."""
         viewer = make_napari_viewer()
