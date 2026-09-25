@@ -348,7 +348,6 @@ class AtlasAccessor:
         KeyError
             If any requested region is not found in the atlas.
         ValueError
-            If the region has no mesh file, or the mesh file cannot be located.
             If `sides` is a sequence whose length does not match `regions`, if any element
             of `sides` is not `"left"`, `"right"`, or `"both"`, or if a region has no mesh
             file.
@@ -569,71 +568,6 @@ class AtlasAccessor:
 # wrapper (`ds.atlas.get_meshes(...)` calls `get_meshes(ds, ...)`). Import them as
 # `confusius.atlas.get_atlas_meshes` / `search_atlas` / `get_atlas_masks` to operate on
 # a Dataset directly.
-
-
-def _normalize_regions_and_sides(
-    regions: int | str | Sequence[int | str],
-    sides: (
-        Literal["left", "right", "both"] | Sequence[Literal["left", "right", "both"]]
-    ),
-) -> tuple[list[int | str], list[str]]:
-    """Broadcast `regions` and `sides` into two validated, equal-length lists.
-
-    Shared by [`get_atlas_masks`][confusius.atlas.get_atlas_masks] and
-    [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes], which both accept a single region
-    or a sequence, with either a single side applied to all of them or one side per region.
-
-    Parameters
-    ----------
-    regions : int or str or sequence of int or str
-        One or more regions, each given as a structure index or acronym.
-    sides : {"left", "right", "both"} or sequence thereof
-        Hemisphere filter, either a scalar applied to every region or a sequence of the
-        same length as `regions`.
-
-    Returns
-    -------
-    region_list : list[int | str]
-        The requested regions as a list.
-    side_list : list[str]
-        One side per region, in `region_list` order.
-
-    Raises
-    ------
-    ValueError
-        If `sides` is a sequence whose length does not match `regions`, or if any element
-        of `sides` is not `"left"`, `"right"`, or `"both"`.
-    """
-    region_list: list[int | str]
-    if isinstance(regions, (int, str)):
-        region_list = [regions]
-    elif isinstance(regions, np.integer):
-        region_list = [int(regions)]
-    else:
-        region_list = list(regions)
-    if not region_list:
-        raise ValueError("'regions' must contain at least one region.")
-
-    side_list: list[str]
-    if isinstance(sides, str):
-        side_list = [sides] * len(region_list)
-    else:
-        side_list = list(sides)
-        if len(side_list) != len(region_list):
-            raise ValueError(
-                f"'sides' has {len(side_list)} elements but 'regions' has "
-                f"{len(region_list)} elements; they must have the same length."
-            )
-
-    valid_sides = {"left", "right", "both"}
-    invalid = [s for s in side_list if s not in valid_sides]
-    if invalid:
-        raise ValueError(
-            f"Invalid side value(s): {invalid!r}. "
-            f"Each element must be one of {sorted(valid_sides)}."
-        )
-
-    return region_list, side_list
 
 
 def _normalize_regions_and_sides(
