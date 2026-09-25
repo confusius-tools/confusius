@@ -9,6 +9,7 @@ import xarray as xr
 from confusius._dims import POSE_DIM, WORLD_DIMS
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
+    get_affine_axis_scalings,
     get_voxel_to_world_affine,
     get_voxel_to_world_direction_matrix,
     get_voxel_to_world_index_origin,
@@ -25,12 +26,15 @@ if TYPE_CHECKING:
 def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
     """Return the world-space bounding box of a VoxelData array.
 
-    Bounds are of voxel centers (the voxel coordinate values mapped through the
-    voxel-to-world affine), without any half-voxel expansion or margin. The result
-    is exact for any affine, including oblique ones, without materializing the
-    lazily derived world coordinates: each world coordinate is an affine function
-    of the voxel coordinates, so its extremes over the grid are attained at the
-    corners of the voxel-coordinate box.
+    The box encloses the full extent of every voxel, not just the voxel centers: the
+    voxel-coordinate range of each `k`/`j`/`i` dim is extended by half a voxel at
+    both ends before mapping through the voxel-to-world affine. The voxel size is
+    [`fusi.spacing`][confusius.xarray.FUSIAccessor.spacing] (so a singleton dim spans
+    one voxel, and irregular voxel coordinates are rejected). The result is exact for
+    any affine, including oblique ones, without
+    materializing the lazily derived world coordinates: each world coordinate is an
+    affine function of the voxel coordinates, so its extremes over the grid are
+    attained at the corners of the (extended) voxel-coordinate box.
 
     Parameters
     ----------
@@ -53,7 +57,8 @@ def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
     TypeError
         If `data` is not an `xarray.DataArray`.
     ValueError
-        If `data` is not a valid VoxelData array.
+        If `data` is not a valid VoxelData array, or if a voxel dim has irregular
+        coordinates (no defined voxel extent).
 
     Examples
     --------
@@ -66,12 +71,29 @@ def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
     voxel_dims = get_voxel_to_world_spatial_dims(data)
     affine = get_voxel_to_world_affine(data)
 
-    # The 8 corners of the voxel-coordinate box, as homogeneous column vectors.
+    # Half a voxel per dim in voxel-coordinate units: `fusi.spacing` (world length per
+    # voxel, `None` for irregular coordinates) divided by the affine column norm
+    # (world length per voxel-coordinate unit).
+    scalings = get_affine_axis_scalings(affine, voxel_dims)
+    half_steps: dict[str, float] = {}
+    for dim, world_spacing in get_voxel_to_world_index_spacing(data).items():
+        if world_spacing is None:
+            raise ValueError(
+                f"Voxel dim '{dim}' has irregular coordinates; the voxel extent, and "
+                "therefore the bounding box, is undefined."
+            )
+        half_steps[dim] = 0.5 * world_spacing / scalings[dim]
+
+    # The 8 corners of the voxel-coordinate box extended by half a voxel per dim, as
+    # homogeneous column vectors.
     corners = np.array(
         list(
             itertools.product(
                 *(
-                    (data.coords[dim].values.min(), data.coords[dim].values.max())
+                    (
+                        data.coords[dim].values.min() - half_steps[dim],
+                        data.coords[dim].values.max() + half_steps[dim],
+                    )
                     for dim in voxel_dims
                 )
             )
@@ -534,7 +556,8 @@ class FUSIAffineAccessor:
     def bounding_box(self) -> xr.DataArray:
         """World-space bounding box of the wrapped VoxelData array.
 
-        Bounds are of voxel centers, without any half-voxel expansion or margin. See
+        Encloses the full extent of every voxel (half a voxel beyond the outermost
+        voxel centers), see
         [get_bounding_box][confusius.xarray.affine.get_bounding_box] for details.
 
         Returns
@@ -549,7 +572,8 @@ class FUSIAffineAccessor:
         Raises
         ------
         ValueError
-            If `self` is not a valid VoxelData array.
+            If `self` is not a valid VoxelData array, or if a voxel dim has irregular
+            coordinates.
 
         Examples
         --------
@@ -560,7 +584,7 @@ class FUSIAffineAccessor:
         ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
         ... )
         >>> data.fusi.affine.bounding_box.sel(bound="max", component="x").item()
-        1.5
+        2.0
         """
         return get_bounding_box(self._obj)
 

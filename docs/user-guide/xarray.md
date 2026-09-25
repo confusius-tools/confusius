@@ -508,8 +508,9 @@ shifted = pwd.fusi.affine.apply(my_affine)
 ```
 
 [`bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] gives the extent of
-the data in world space, computed from the affine alone (exact for oblique geometry,
-and one bounding box per pose when the geometry is pose-dependent):
+the data in world space, enclosing the full extent of every voxel (half a voxel beyond
+the outermost voxel centers). It is computed from the affine alone (exact for oblique
+geometry, and one bounding box per pose when the geometry is pose-dependent):
 
 ```python
 bbox = pwd.fusi.affine.bounding_box  # Dims (bound, component), e.g. ("max", "x").
