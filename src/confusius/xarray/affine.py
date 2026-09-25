@@ -1,5 +1,6 @@
 """Xarray accessor for affine transform operations."""
 
+import itertools
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -8,6 +9,7 @@ import xarray as xr
 from confusius._dims import POSE_DIM, WORLD_DIMS
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
+    get_affine_axis_scalings,
     get_voxel_to_world_affine,
     get_voxel_to_world_direction_matrix,
     get_voxel_to_world_index_origin,
@@ -19,6 +21,105 @@ from confusius._utils.geometry import (
 
 if TYPE_CHECKING:
     import numpy.typing as npt
+
+
+def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
+    """Return the world-space bounding box of a VoxelData array.
+
+    The box encloses the full extent of every voxel, not just the voxel centers: the
+    voxel-coordinate range of each `k`/`j`/`i` dim is extended by half a voxel at
+    both ends before mapping through the voxel-to-world affine. The voxel size is
+    [`fusi.spacing`][confusius.xarray.FUSIAccessor.spacing] (so a singleton dim spans
+    one voxel, and irregular voxel coordinates are rejected). The result is exact for
+    any affine, including oblique ones, without
+    materializing the lazily derived world coordinates: each world coordinate is an
+    affine function of the voxel coordinates, so its extremes over the grid are
+    attained at the corners of the (extended) voxel-coordinate box.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array, normalized with
+        [ensure_voxeldata][confusius.validation.ensure_voxeldata] (scalar-indexed
+        voxel dims are restored as singletons before computing the bounds).
+
+    Returns
+    -------
+    (2, 3) xarray.DataArray
+        Bounding box with dims `(bound, component)`, where `bound` is
+        `["min", "max"]` and `component` is `["z", "y", "x"]`, and a `units` attr
+        from the voxel-to-world index. Pose-dependent geometry adds a leading
+        `pose` dim carrying the input's `pose` coordinate, one bounding box per
+        pose.
+
+    Raises
+    ------
+    TypeError
+        If `data` is not an `xarray.DataArray`.
+    ValueError
+        If `data` is not a valid VoxelData array, or if a voxel dim has irregular
+        coordinates (no defined voxel extent).
+
+    Examples
+    --------
+    >>> bbox = get_bounding_box(volume)
+    >>> bbox.sel(bound="min", component="z").item()
+    """
+    from confusius.validation import ensure_voxeldata
+
+    data = ensure_voxeldata(data)
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
+    affine = get_voxel_to_world_affine(data)
+
+    # Half a voxel per dim in voxel-coordinate units: `fusi.spacing` (world length per
+    # voxel, `None` for irregular coordinates) divided by the affine column norm
+    # (world length per voxel-coordinate unit).
+    scalings = get_affine_axis_scalings(affine, voxel_dims)
+    half_steps: dict[str, float] = {}
+    for dim, world_spacing in get_voxel_to_world_index_spacing(data).items():
+        if world_spacing is None:
+            raise ValueError(
+                f"Voxel dim '{dim}' has irregular coordinates; the voxel extent, and "
+                "therefore the bounding box, is undefined."
+            )
+        half_steps[dim] = 0.5 * world_spacing / scalings[dim]
+
+    # The 8 corners of the voxel-coordinate box extended by half a voxel per dim, as
+    # homogeneous column vectors.
+    corners = np.array(
+        list(
+            itertools.product(
+                *(
+                    (
+                        data.coords[dim].values.min() - half_steps[dim],
+                        data.coords[dim].values.max() + half_steps[dim],
+                    )
+                    for dim in voxel_dims
+                )
+            )
+        ),
+        dtype=np.float64,
+    )
+    corners_h = np.hstack([corners, np.ones((len(corners), 1))]).T
+
+    # (npose, 4, 4) @ (4, 8) broadcasts to one corner set per pose.
+    world_corners = (affine @ corners_h)[..., :-1, :]
+    bounds = np.stack([world_corners.min(axis=-1), world_corners.max(axis=-1)], axis=-2)
+
+    coords: dict[str, npt.ArrayLike] = {
+        "bound": np.array(["min", "max"], dtype=np.str_),
+        "component": np.array(WORLD_DIMS, dtype=np.str_),
+    }
+    dims = ("bound", "component")
+    if affine.ndim == 3:
+        dims = (POSE_DIM, *dims)
+        coords[POSE_DIM] = data.coords[POSE_DIM].values
+    return xr.DataArray(
+        bounds,
+        dims=dims,
+        coords=coords,
+        attrs={"units": get_voxel_to_world_units(data)},
+    )
 
 
 def get_relative_affine(
@@ -450,6 +551,42 @@ class FUSIAffineAccessor:
             self._obj.attrs.update(result.attrs)
             return self._obj
         return result
+
+    @property
+    def bounding_box(self) -> xr.DataArray:
+        """World-space bounding box of the wrapped VoxelData array.
+
+        Encloses the full extent of every voxel (half a voxel beyond the outermost
+        voxel centers), see
+        [get_bounding_box][confusius.xarray.affine.get_bounding_box] for details.
+
+        Returns
+        -------
+        (2, 3) xarray.DataArray
+            Bounding box with dims `(bound, component)`, where `bound` is
+            `["min", "max"]` and `component` is `["z", "y", "x"]`, and a `units` attr
+            from the voxel-to-world index. Pose-dependent geometry adds a leading
+            `pose` dim carrying the input's `pose` coordinate, one bounding box per
+            pose.
+
+        Raises
+        ------
+        ValueError
+            If `self` is not a valid VoxelData array, or if a voxel dim has irregular
+            coordinates.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
+        >>> data.fusi.affine.bounding_box.sel(bound="max", component="x").item()
+        2.0
+        """
+        return get_bounding_box(self._obj)
 
     def to(self, other: xr.DataArray, via: str) -> "npt.NDArray[np.float64]":
         """Return the affine mapping `self`'s world space into `other`'s.

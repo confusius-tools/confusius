@@ -22,7 +22,7 @@ from confusius._utils.geometry import (
     has_voxel_to_world_index,
 )
 from confusius.registration.bspline import sample_displacement_field_like
-from confusius.xarray import create_voxeldata
+from confusius.xarray import create_voxeldata, get_bounding_box
 
 WorldToBaseTransform = npt.NDArray[np.float64] | xr.DataArray
 """Pull transform mapping the atlas's world coordinates back to base atlas space.
@@ -358,13 +358,13 @@ def _drop_vertices_outside_grid(
     faces: npt.NDArray[np.int32],
     reference: xr.DataArray,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
-    """Drop mesh vertices outside the reference grid (plus a margin) and reindex faces.
+    """Drop mesh vertices outside the reference grid's voxel extent and reindex faces.
 
     Applied to warped mesh vertices: a nonlinear warp can move vertices outside the grid
-    and returns NaN for vertices too far outside to interpolate. Vertices beyond the grid
-    by more than one voxel (the padded interpolation margin), and NaN vertices, are
-    dropped along with any face that references them (NaN fails the bounds comparison, so
-    NaN vertices are removed too).
+    and returns NaN for vertices too far outside to interpolate. Vertices outside the
+    reference's world-space bounding box (the outer edges of its voxels), and NaN
+    vertices, are dropped along with any face that references them (NaN fails the
+    bounds comparison, so NaN vertices are removed too).
 
     Parameters
     ----------
@@ -373,7 +373,7 @@ def _drop_vertices_outside_grid(
     faces : (M, 3) numpy.ndarray
         Zero-indexed triangle face indices into `vertices`.
     reference : xarray.DataArray
-        Reference grid whose coordinate bounds define the valid domain.
+        Reference grid whose voxel extent defines the valid domain.
 
     Returns
     -------
@@ -382,21 +382,13 @@ def _drop_vertices_outside_grid(
     faces : numpy.ndarray
         Faces whose three vertices all survived, reindexed into the new vertex array.
     """
-    dims = list(WORLD_DIMS)
-    voxel_dims = list(get_voxel_to_world_spatial_dims(reference))
-    spacing = reference.fusi.spacing
-    inside = np.ones(len(vertices), dtype=bool)
-    for axis, (dim, voxel_dim) in enumerate(zip(dims, voxel_dims, strict=True)):
-        coord = reference.coords[dim].values
-        # Keep the same one-voxel margin the field interpolation is padded to, so a
-        # vertex within `spacing` of a boundary (e.g. the anterior/posterior tips of the
-        # Allen brain) is retained rather than clipped. `fusi.spacing` is keyed by voxel
-        # dim (k/j/i), not world dim (z/y/x) -- look it up by the matching voxel dim.
-        coord_spacing = spacing.get(voxel_dim)
-        margin = coord_spacing if coord_spacing is not None else 0.0
-        inside &= (vertices[:, axis] >= coord.min() - margin) & (
-            vertices[:, axis] <= coord.max() + margin
-        )
+    # Corner-mapped voxel-edge bounds: never materializes the lazily derived z/y/x
+    # coordinate grids of an oblique affine (see #444). The half-voxel extension past
+    # the outermost centers keeps vertices at the brain's tips (e.g. the
+    # anterior/posterior ends of the Allen brain) that the edge-padded field
+    # interpolation still covers.
+    bbox = get_bounding_box(reference).sel(component=list(WORLD_DIMS)).values
+    inside = np.all((vertices >= bbox[0]) & (vertices <= bbox[1]), axis=1)
 
     keep_idx = np.where(inside)[0]
     old_to_new = np.full(len(vertices), -1, dtype=np.int64)
