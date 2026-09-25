@@ -462,6 +462,14 @@ function for motion correction.
 registered = pwd.fusi.register.volumewise(reference_time=0)
 ```
 
+Pass `fixed` to register every frame to any spatial-only volume on the same grid
+instead of a frame index, for example the mean of a few low-motion frames:
+
+```python
+fixed = pwd.isel(time=slice(0, 10)).mean("time")
+registered = pwd.fusi.register.volumewise(fixed=fixed)
+```
+
 Registration operates on a single spatial grid. For multi-pose data, select one pose
 first or consolidate poses before registering.
 
