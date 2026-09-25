@@ -25,6 +25,11 @@ Current development version for the next ConfUSIus release.
   allowed together with `fixed`; it defaults to `moving_intensity_scaling`). Both are
   now also exposed on `data.fusi.register.volumewise`
   ([#437](https://github.com/confusius-tools/confusius/pull/437)).
+- [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] /
+  [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] take `regions`/`sides` instead of
+  `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
+  requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
+  ([#448](https://github.com/confusius-tools/confusius/pull/448)).
 
 ### :sparkles: Enhancements
 
@@ -42,6 +47,9 @@ Current development version for the next ConfUSIus release.
   returning a VoxelData array's world-space bounding box enclosing the full extent of
   its voxels, one per pose for pose-dependent geometry
   ([#446](https://github.com/confusius-tools/confusius/pull/446)).
+- [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] downloads every
+  region mesh in one batched call on the first fetch, so meshes are available offline
+  afterwards ([#448](https://github.com/confusius-tools/confusius/pull/448)).
 
 ### :zap: Performance
 
@@ -50,6 +58,9 @@ Current development version for the next ConfUSIus release.
   `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
   even when only metadata or a small region is needed
   ([#415](https://github.com/confusius-tools/confusius/pull/415)).
+- [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes] with `clip=True` no longer
+  materializes the full world-coordinate grid of an oblique atlas
+  ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 
 ### :bug: Fixes
 
@@ -85,9 +96,6 @@ Released 2026-09-16.
 
 ### :zap: Performance
 
-- [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] with `clip=True` no longer
-  materializes the full world-coordinate grid of an oblique atlas
-  ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 - [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] no
   longer computes a full SVD, extracting components several times faster on
   large recordings or broad noise masks
@@ -386,7 +394,7 @@ Released 2026-07-18.
 - The `Atlas` class has been replaced by an [`xarray.Dataset`][xarray.Dataset] with a
   registered `.atlas` accessor. Fetch an atlas by name with
   [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and call operations
-  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_mesh`, `ds.atlas.search`,
+  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_meshes`, `ds.atlas.search`,
   `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset.
   Name-based loading moved to `confusius.datasets`; atlas construction from a loaded
   BrainGlobe atlas is now internal to the datasets module
