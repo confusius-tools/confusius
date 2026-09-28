@@ -378,6 +378,18 @@ class TestLoadEchoFrameMetadata:
 
         assert meta["beamforming_method"] == "DAS"
 
+    def test_legacy_snake_case_axes(self, echoframe_meta_file_no_crop):
+        """`load_echoframe_metadata` supports legacy EchoFrame axis names."""
+        with h5py.File(echoframe_meta_file_no_crop, "r+") as f:
+            recon_spec = f["ReconSpec"]
+            recon_spec.move("xAxis", "x_axis")
+            recon_spec.move("zAxis", "z_axis")
+
+        meta = load_echoframe_metadata(echoframe_meta_file_no_crop)
+
+        assert meta["lateral_coords"].size == 4
+        assert meta["axial_coords"].size == 6
+
     def test_n_volumes_per_block_extracted(self, echoframe_meta_file_no_crop):
         """`load_echoframe_metadata` extracts the number of volumes per block."""
         meta = load_echoframe_metadata(echoframe_meta_file_no_crop)
