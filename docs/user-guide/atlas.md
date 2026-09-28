@@ -193,7 +193,7 @@ plotter.add_contours(atlas.atlas.annotation.sel(z=slice(6, 6)))
 ## Region Surface Meshes
 
 Many BrainGlobe atlases bundle a triangular surface mesh per region.
-[`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes] takes one region or many and returns
+[`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes] takes one or more regions and returns
 a `(vertices, faces)` pair per region, keyed by acronym, in the atlas's world space
 (millimeters) and ready to hand to any 3D viewer:
 
