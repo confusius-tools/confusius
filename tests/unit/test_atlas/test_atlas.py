@@ -435,6 +435,34 @@ class TestGetMesh:
         assert np.all(meshes["root_L"][0][:, 2] >= 0.1)
         assert np.all(meshes["root_R"][0][:, 2] < 0.1)
 
+    def test_empty_regions_raises(self, atlas_ds: xr.Dataset) -> None:
+        with pytest.raises(ValueError, match="at least one region"):
+            atlas_ds.atlas.get_meshes([])
+
+    def test_batched_regions_match_individual_calls(self, atlas_ds: xr.Dataset) -> None:
+        """Regions requested together come back exactly as requested one at a time.
+
+        The batch transforms every region's vertices in one pass and splits the result
+        back apart, so differently sized meshes catch a mis-split.
+        """
+        batched = atlas_ds.atlas.get_meshes([997, 10])
+
+        assert list(batched) == ["root", "ch"]
+        for acronym, region in zip(["root", "ch"], [997, 10]):
+            expected_vertices, expected_faces = atlas_ds.atlas.get_meshes(region)[
+                acronym
+            ]
+            np.testing.assert_array_equal(batched[acronym][0], expected_vertices)
+            np.testing.assert_array_equal(batched[acronym][1], expected_faces)
+
+    def test_per_region_sides_disambiguate_keys(self, atlas_ds: xr.Dataset) -> None:
+        """The same region on both sides must not collide on a single dict key."""
+        meshes = atlas_ds.atlas.get_meshes([997, 997], sides=["left", "right"])
+
+        assert list(meshes) == ["root_L", "root_R"]
+        assert np.all(meshes["root_L"][0][:, 2] >= 0.1)
+        assert np.all(meshes["root_R"][0][:, 2] < 0.1)
+
 
 class TestAncestors:
     """Tests for the accessor's ancestors, compared against direct treelib traversal."""
@@ -596,9 +624,8 @@ class TestIO:
         save_atlas(atlas_ds, path)
         loaded = load_atlas(path)
         structures = loaded.attrs["structures"]
-        assert (
-            structures[997]["mesh_filename"]
-            == path / "meshes" / _mesh_bundle_tail(obj_path)
+        assert structures[997]["mesh_filename"] == path / "meshes" / _mesh_bundle_tail(
+            obj_path
         )
         assert structures[20]["mesh_filename"] is None
 
