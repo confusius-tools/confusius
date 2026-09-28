@@ -37,6 +37,9 @@ Current development version for the next ConfUSIus release.
   `data.fusi.register.volumewise` accept a `fixed` VoxelData volume (for example the
   mean of a few low-motion frames) to register every frame to, as an alternative to
   `reference_time` ([#436](https://github.com/confusius-tools/confusius/pull/436)).
+- [`register_volumewise`][confusius.registration.register_volumewise] can now show live
+  motion diagnostics, including motion estimates, framewise displacement, and optimizer
+  summaries ([#352](https://github.com/confusius-tools/confusius/pull/352)).
 
 ### :zap: Performance
 
@@ -67,12 +70,19 @@ Current development version for the next ConfUSIus release.
   on its own under `auto_range=True`: a lone bound sets the symmetric range to
   `[-|bound|, |bound|]`
   ([#445](https://github.com/confusius-tools/confusius/pull/445)).
+- [`register_volumewise`][confusius.registration.register_volumewise] now warns when
+  lazy dask inputs use multi-volume time chunks, which can repeatedly read the same
+  chunk and slow down volume-by-volume registration
+  ([#352](https://github.com/confusius-tools/confusius/pull/352)).
 
 ### :frame_photo: Napari plugin
 
 - The registration panel's within-scan mode can register every frame to a fixed
   layer, with its own intensity scaling, as an alternative to a reference time index
   ([#376](https://github.com/confusius-tools/confusius/issues/376)).
+- The registration panel now shows live volumewise motion diagnostics in
+  a floating plot window during motion correction
+  ([#352](https://github.com/confusius-tools/confusius/pull/352)).
 
 ## 0.7.1
 
@@ -333,9 +343,6 @@ Released 2026-08-31.
 
 - **[Napari plugin]** ConfUSIus now requires napari 0.9.0 or newer
   ([#413](https://github.com/confusius-tools/confusius/pull/413)).
-
-### :wrench: Maintenance
-
 - Bumped the `brainglobe-atlasapi` dependency to v3
   ([#412](https://github.com/confusius-tools/confusius/pull/412)).
 
