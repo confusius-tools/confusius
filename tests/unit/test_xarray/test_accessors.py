@@ -975,17 +975,63 @@ class TestAffineApplyMethod:
             result.coords["x"].values, da.coords["x"].values - 3.0
         )
 
-    def test_string_key_applied_dropped_from_result(self):
-        """Applying by key drops that key: composing it with itself is always
-        identity, so the entry carries no information after applying."""
+    def test_string_key_applied_kept_as_identity(self):
+        """Applying by key keeps that key as identity: the world frame now is that
+        named space."""
         shift = np.eye(4)
         shift[:3, 3] = [10.0, 5.0, -3.0]
         da = self._make_scan(
             affines={"world_to_lab": shift, "world_to_atlas": np.eye(4)}
         )
         result = da.fusi.affine.apply("world_to_lab")
-        assert "world_to_lab" not in result.attrs["affines"]
-        assert "world_to_atlas" in result.attrs["affines"]
+        np.testing.assert_array_equal(
+            result.attrs["affines"]["world_to_lab"], np.eye(4)
+        )
+        np.testing.assert_allclose(
+            result.attrs["affines"]["world_to_atlas"], np.linalg.inv(shift)
+        )
+
+    def test_per_pose_key_regains_pose_dependence_after_single_affine_key(self):
+        """Applying a per-pose key stores a single identity; applying a single-affine
+        key afterwards must make the per-pose entry pose-dependent again."""
+        npose = 3
+        rng = np.random.default_rng(0)
+        per_pose = np.stack([np.eye(4)] * npose)
+        per_pose[:, :3, 3] = rng.random((npose, 3))
+        single = np.eye(4)
+        single[:3, 3] = [10.0, 20.0, 30.0]
+        voxel_to_world = np.stack([np.diag([0.1, 0.1, 0.1, 1.0])] * npose)
+        da = create_voxeldata(
+            rng.random((npose, 2, 3, 4)),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
+            voxel_to_world=voxel_to_world,
+            attrs={"affines": {"per_pose": per_pose, "single": single}},
+        )
+
+        in_per_pose = da.fusi.affine.apply("per_pose")
+        np.testing.assert_array_equal(
+            in_per_pose.attrs["affines"]["per_pose"], np.eye(4)
+        )
+        np.testing.assert_allclose(
+            in_per_pose.attrs["affines"]["single"],
+            single @ np.linalg.inv(per_pose),
+            atol=1e-12,
+        )
+
+        in_single = in_per_pose.fusi.affine.apply("single")
+        np.testing.assert_array_equal(in_single.attrs["affines"]["single"], np.eye(4))
+        np.testing.assert_allclose(
+            in_single.attrs["affines"]["per_pose"],
+            per_pose @ np.linalg.inv(single),
+            atol=1e-12,
+        )
+
+        # Round trip back to the per-pose space restores the original geometry.
+        back = in_single.fusi.affine.apply("per_pose")
+        np.testing.assert_allclose(
+            back.fusi.affine.voxel_to_world, per_pose @ voxel_to_world, atol=1e-12
+        )
 
     def test_string_key_missing_affines_attr_raises_value_error(self):
         """A string `affine` raises ValueError when `da` has no `affines` attr."""
