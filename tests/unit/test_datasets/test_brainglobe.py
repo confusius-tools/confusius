@@ -286,6 +286,17 @@ def test_regions_without_remote_mesh_are_skipped_with_warning(
     assert not (mesh_fake_atlases / "10").exists()
 
 
+def test_no_remote_meshes_at_all_skips_download(
+    mesh_fake_atlases: Path, fake_s3: SimpleNamespace
+) -> None:
+    fake_s3.remote_ids.clear()
+
+    with pytest.warns(UserWarning, match=r"no mesh for region id\(s\) \['10', '997'\]"):
+        fetch_brainglobe_atlas("allen_mouse_25um")
+
+    assert fake_s3.calls == []
+
+
 def test_failed_download_removes_partial_files(
     mesh_fake_atlases: Path, fake_s3: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

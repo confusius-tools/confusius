@@ -396,8 +396,12 @@ class TestGetMesh:
     ) -> None:
         vertices_id, faces_id = atlas_ds.atlas.get_meshes(997)["root"]
         vertices_str, faces_str = atlas_ds.atlas.get_meshes("root")["root"]
+        # numpy integer ids (e.g. straight out of a labels array) are accepted too.
+        vertices_np, faces_np = atlas_ds.atlas.get_meshes(np.int64(997))["root"]
         np.testing.assert_array_equal(vertices_id, vertices_str)
         np.testing.assert_array_equal(faces_id, faces_str)
+        np.testing.assert_array_equal(vertices_id, vertices_np)
+        np.testing.assert_array_equal(faces_id, faces_np)
 
     def test_region_without_mesh_raises(self, atlas_ds: xr.Dataset) -> None:
         with pytest.raises(ValueError, match="No mesh file"):
@@ -596,9 +600,8 @@ class TestIO:
         save_atlas(atlas_ds, path)
         loaded = load_atlas(path)
         structures = loaded.attrs["structures"]
-        assert (
-            structures[997]["mesh_filename"]
-            == path / "meshes" / _mesh_bundle_tail(obj_path)
+        assert structures[997]["mesh_filename"] == path / "meshes" / _mesh_bundle_tail(
+            obj_path
         )
         assert structures[20]["mesh_filename"] is None
 
