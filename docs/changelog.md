@@ -75,6 +75,9 @@ Current development version for the next ConfUSIus release.
 - [`apply_affine`][confusius.xarray.apply_affine] keeps the applied key in
   `.attrs["affines"]` as the identity when the affine is given by key
   ([#463](https://github.com/confusius-tools/confusius/pull/463)).
+- [`convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr] now
+  preserves time coordinate attributes when passing `block_times`
+  ([#473](https://github.com/confusius-tools/confusius/pull/473)).
 
 ### :frame_photo: Napari plugin
 
