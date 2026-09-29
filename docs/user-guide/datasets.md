@@ -131,6 +131,28 @@ The same table is available from the command line:
 confusius datasets --list
 ```
 
+## License and Provenance Summary
+
+The ConfUSIus dataset collection aggregates data from multiple source studies. Licenses
+and citation requirements therefore apply **per source dataset** rather than to the
+collection as a whole. Always cite the original dataset and publication for the data you
+use, and check the linked source record for the authoritative license text.
+
+| ConfUSIus identifier | Source record | ConfUSIus-hosted form | License |
+|----------------------|---------------|-----------------------|---------|
+| `nunez-elizalde-2022-bids` | [Figshare `10.6084/m9.figshare.19316228`](https://doi.org/10.6084/m9.figshare.19316228) | fUSI-only conversion/re-export to fUSI-BIDS on OSF | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `pereira-2025-bids` | [Zenodo `10.5281/zenodo.15194839`](https://doi.org/10.5281/zenodo.15194839) | layout and NIfTI-axis re-export to fUSI-BIDS on OSF | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `cybis-pereira-2026-bids` | [Zenodo record `15476373`](https://zenodo.org/records/15476373) | BIDS datatype rename and NIfTI-axis re-export on OSF | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `pepe-mariani-2026-bids` | [Zenodo `10.5281/zenodo.20070510`](https://doi.org/10.5281/zenodo.20070510) | layout, metadata, timing, and NIfTI-axis re-export on OSF | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `landemard-2026-bids` | [UCL Research Data Repository `10.5522/04/31376338`](https://doi.org/10.5522/04/31376338) | fUSI-BIDS dataset mirrored on OSF for file-level access | [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) |
+| `khallaf-2026-bids` | [Edmond `10.17617/3.7QCU1F`](https://doi.org/10.17617/3.7QCU1F) | selected fUSI archive members streamed from Edmond into a local BIDS tree | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `huang-2025-template` | Huang et al. OfUSA template, [bioRxiv `10.1101/2025.09.16.676515`](https://doi.org/10.1101/2025.09.16.676515) | coordinate/axis-converted vascular template NIfTI on OSF | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
+| `pepe-mariani-2026-template` | [Zenodo `10.5281/zenodo.18486493`](https://doi.org/10.5281/zenodo.18486493) | derived ConfUSIus-loadable fUSI template NIfTI on OSF | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+
+[`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] is separate from
+this collection: it downloads BrainGlobe-managed atlases through BrainGlobe's own atlas
+infrastructure and cache.
+
 ## Available fUSI-BIDS Datasets
 
 === "Nunez-Elizalde 2022"
