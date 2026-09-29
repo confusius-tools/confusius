@@ -19,6 +19,7 @@ from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
 from confusius.validation import ensure_voxeldata
+from confusius.validation.mask import check_spatial_alignment
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -43,7 +44,7 @@ def _default_worker_count() -> int:
 
 
 @contextmanager
-def _volumewise_client():
+def _volumewise_client(n_jobs: int):
     """Yield a `submit` callable bound to an active `distributed.Client`.
 
     Yields
@@ -76,8 +77,11 @@ def _volumewise_client():
     # CommClosedError traceback. Not relevant to the caller. dashboard_address=":0":
     # an ephemeral port, so this doesn't collide with another dashboard (this
     # session's own, or a concurrent call's) bound to the default :8787.
+    if n_jobs < 0:
+        n_jobs = max(1, _default_worker_count() + 1 + n_jobs)
+
     with Client(
-        n_workers=_default_worker_count(),
+        n_workers=max(1, n_jobs),
         threads_per_worker=1,
         processes=True,
         silence_logs=logging.ERROR,
@@ -89,10 +93,13 @@ def _volumewise_client():
 def register_volumewise(
     data: xr.DataArray,
     *,
-    reference_time: int = 0,
+    reference_time: int | None = None,
+    fixed: xr.DataArray | None = None,
+    n_jobs: int = -1,
     transform: Literal["translation", "rigid", "affine"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
-    intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float | None = None,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     number_of_histogram_bins: int = 50,
     learning_rate: float | Literal["auto"] = 0.01,
     number_of_iterations: int = 100,
@@ -111,14 +118,27 @@ def register_volumewise(
     abort_event: "Event | None" = None,
     keep_diagnostics: bool = False,
 ) -> xr.DataArray:
-    """Register all volumes in a fUSI recording to a reference volume.
+    """Register all volumes to a reference time point or a reference volume.
 
     Parameters
     ----------
     data : xarray.DataArray
         VoxelData array with a `time` dimension to register.
-    reference_time : int, default: 0
-        Index of the time point to use as registration target.
+    reference_time : int, optional
+        Index of the time point of `data` to use as registration target. If not
+        provided, and `fixed` is not provided either, the first time point (`0`)
+        is used. Cannot be combined with `fixed`.
+    fixed : xarray.DataArray, optional
+        Spatial-only VoxelData array to register every frame to, for example the
+        mean of a few low-motion frames of `data`. Must share `data`'s voxel grid
+        (same `k`/`j`/`i` coordinates and voxel-to-world affine) and have no
+        `time` dimension. Its own `fixed_intensity_scaling` applies to it. If not
+        provided, the frame at `reference_time` is used. Cannot be combined with
+        `reference_time`.
+    n_jobs : int, default: -1
+        Number of parallel jobs for an auto-created local Dask client. Negative
+        values resolve to `max(1, os.cpu_count() + 1 + n_jobs)`; ignored when an
+        ambient `distributed.Client` is active.
     transform : {"translation", "rigid", "affine"}, default: "rigid"
         Transform model to use during registration. `"translation"` allows
         only shifts. `"rigid"` adds rotation. `"affine"` adds scaling and
@@ -128,11 +148,17 @@ def register_volumewise(
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
-    intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
-        Intensity transform applied to the reference volume and to every frame, only
-        for the registration optimizer. Floats apply power scaling with that
-        exponent; `"sqrt"` is an alias for `0.5`. Returned/resampled data keeps the
-        original input intensities.
+    fixed_intensity_scaling : {"none", "db", "sqrt"} or float, optional
+        Intensity transform applied to `fixed`, only for the registration optimizer.
+        Useful when `fixed` comes from another source than `data` and does not share
+        its intensity range. Only allowed together with `fixed`; the reference frame
+        selected by `reference_time` always uses `moving_intensity_scaling`. If not
+        provided, `fixed` is scaled with `moving_intensity_scaling` too.
+    moving_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
+        Intensity transform applied to every frame of `data`, only for the
+        registration optimizer. Floats apply power scaling with that exponent;
+        `"sqrt"` is an alias for `0.5`. Returned/resampled data keeps the original
+        input intensities.
     number_of_histogram_bins : int, default: 50
         Number of histogram bins used by Mattes mutual information. Only
         relevant when `metric="mattes_mi"`.
@@ -216,7 +242,8 @@ def register_volumewise(
     -------
     xarray.DataArray
         Registered data with the same coordinates as input, input attributes,
-        and added motion metadata in `attrs["reference_time"]` and
+        and added motion metadata in `attrs["reference_time"]` (the index of the
+        frame used as target, or `None` when `fixed` was given) and
         `attrs["motion_params"]`. `motion_params` always carries per-frame
         `final_metric_value`, `n_iterations`, and `status` columns. When
         `keep_diagnostics=True`, `attrs["registration_diagnostics"]` also
@@ -226,6 +253,10 @@ def register_volumewise(
 
     Raises
     ------
+    ValueError
+        If both `reference_time` and `fixed` are given, if `fixed_intensity_scaling`
+        is given without `fixed`, or if `fixed` has a `time` dimension, is not a
+        VoxelData array, or does not share `data`'s voxel grid.
     TypeError
         If `data` is backed by an h5py dataset, which cannot be pickled to send it
         to a Dask worker. See Notes.
@@ -272,7 +303,23 @@ def register_volumewise(
     if "time" not in data.dims:
         raise ValueError("Time dimension 'time' not found in data")
 
-    validate_intensity_scaling(intensity_scaling, "intensity_scaling")
+    if reference_time is not None and fixed is not None:
+        raise ValueError("Pass either 'reference_time' or 'fixed', not both.")
+
+    validate_intensity_scaling(moving_intensity_scaling, "moving_intensity_scaling")
+    if fixed_intensity_scaling is None:
+        # The reference is a frame of `data`, or a `fixed` volume the caller did not
+        # scale separately, so the moving scaling applies to both sides.
+        ref_intensity_scaling = moving_intensity_scaling
+    else:
+        if fixed is None:
+            raise ValueError(
+                "'fixed_intensity_scaling' only applies to a 'fixed' volume. The "
+                "reference frame picked by 'reference_time' is a frame of 'data' "
+                "and is scaled with 'moving_intensity_scaling'."
+            )
+        validate_intensity_scaling(fixed_intensity_scaling, "fixed_intensity_scaling")
+        ref_intensity_scaling = fixed_intensity_scaling
 
     data_moved = ensure_voxeldata(
         data,
@@ -282,7 +329,27 @@ def register_volumewise(
     )
 
     n_frames = data_moved.sizes["time"]
-    ref_da = data_moved.isel(time=reference_time)
+    if abort_event is not None and abort_event.__class__.__module__ == "threading":
+        n_jobs = 1
+    if fixed is None:
+        reference_time = 0 if reference_time is None else reference_time
+        ref_da = data_moved.isel(time=reference_time)
+    else:
+        if "time" in fixed.dims:
+            raise ValueError(
+                "'fixed' must be a spatial-only VoxelData array without a time "
+                f"dimension; got dims {fixed.dims}."
+            )
+        ref_da = ensure_voxeldata(
+            fixed, require_time=False, allow_pose=False, allow_extra_dims=False
+        )
+        # Output reuses `data`'s shape and coordinates, so the target must live on
+        # the same voxel grid.
+        check_spatial_alignment(ref_da, data_moved, "'fixed'")
+    # Materialize the target once: a lazy `fixed` (for example a dask mean of a
+    # lazily loaded recording) would otherwise be recomputed for every frame, and
+    # an h5py-backed one cannot be sent to joblib workers at all.
+    ref_da = ref_da.compute()
 
     aborted_affine = np.eye(ref_da.ndim + 1, dtype=float)
     aborted_diagnostics = RegistrationDiagnostics(
@@ -310,10 +377,8 @@ def register_volumewise(
             ref_da,
             transform_type=transform,
             metric=metric,
-            # The reference is a frame of the same recording, so one scaling
-            # applies to both sides.
-            fixed_intensity_scaling=intensity_scaling,
-            moving_intensity_scaling=intensity_scaling,
+            fixed_intensity_scaling=ref_intensity_scaling,
+            moving_intensity_scaling=moving_intensity_scaling,
             number_of_histogram_bins=number_of_histogram_bins,
             learning_rate=learning_rate,
             number_of_iterations=number_of_iterations,
@@ -346,20 +411,7 @@ def register_volumewise(
     statuses = ["aborted"] * n_frames
     diagnostics: list[RegistrationDiagnostics] = [aborted_diagnostics] * n_frames
 
-    if is_h5py_backed(data):
-        raise TypeError(
-            "Data is backed by an h5py dataset, which cannot be pickled to send to "
-            "a Dask distributed.Client worker. Call .compute() to materialize the "
-            "data into memory before calling register_volumewise."
-        )
-
-    with _volumewise_client() as submit:
-        futures = {}
-        for t in range(n_frames):
-            if abort_event is not None and abort_event.is_set():
-                continue
-            futures[submit(_register_one, data_moved.isel(time=t))] = t
-
+    if n_jobs == 1:
         progress_ctx: Progress | nullcontext[None] = (
             Progress() if show_progress else nullcontext()
         )
@@ -370,12 +422,10 @@ def register_volumewise(
                     task_id = progress.add_task(
                         "Registering volumes...", total=n_frames
                     )
-                    if skipped_at_start := n_frames - len(futures):
-                        progress.update(task_id, advance=skipped_at_start)
-
-                for future in as_completed(futures):
-                    t = futures[future]
-                    registered_da, frame_affine, frame_diag = future.result()
+                for t in range(n_frames):
+                    registered_da, frame_affine, frame_diag = _register_one(
+                        data_moved.isel(time=t)
+                    )
                     skipped = (
                         frame_diag.status == "aborted" and frame_diag.n_iterations == 0
                     )
@@ -393,6 +443,57 @@ def register_volumewise(
         finally:
             if progress_reporter is not None:
                 progress_reporter.close()
+    elif is_h5py_backed(data):
+        raise TypeError(
+            "Data is backed by an h5py dataset, which cannot be pickled to send to "
+            "a Dask distributed.Client worker. Call .compute() to materialize the "
+            "data into memory before calling register_volumewise."
+        )
+
+    if n_jobs != 1:
+        with _volumewise_client(n_jobs) as submit:
+            futures = {}
+            for t in range(n_frames):
+                if abort_event is not None and abort_event.is_set():
+                    continue
+                futures[submit(_register_one, data_moved.isel(time=t))] = t
+
+            progress_ctx: Progress | nullcontext[None] = (
+                Progress() if show_progress else nullcontext()
+            )
+            try:
+                with progress_ctx as progress:
+                    task_id = None
+                    if progress is not None:
+                        task_id = progress.add_task(
+                            "Registering volumes...", total=n_frames
+                        )
+                        if skipped_at_start := n_frames - len(futures):
+                            progress.update(task_id, advance=skipped_at_start)
+
+                    for future in as_completed(futures):
+                        t = futures[future]
+                        registered_da, frame_affine, frame_diag = future.result()
+                        skipped = (
+                            frame_diag.status == "aborted"
+                            and frame_diag.n_iterations == 0
+                        )
+                        if not skipped:
+                            output[t] = registered_da.values
+                        affines[t] = frame_affine
+                        final_metric_values[t] = frame_diag.final_metric_value
+                        n_iterations_per_frame[t] = frame_diag.n_iterations
+                        statuses[t] = frame_diag.status
+                        diagnostics[t] = frame_diag
+                        if progress_reporter is not None:
+                            progress_reporter.frame_completed(
+                                t, registered_da, frame_diag
+                            )
+                        if progress is not None and task_id is not None:
+                            progress.update(task_id, advance=1)
+            finally:
+                if progress_reporter is not None:
+                    progress_reporter.close()
 
     time_coords = (
         data_moved.coords["time"].values if "time" in data_moved.coords else None
@@ -418,7 +519,7 @@ def register_volumewise(
     result.attrs["motion_params"] = motion_df
     if keep_diagnostics:
         # The full diagnostics list carries every frame's optimizer metric
-        # trace, which adds up over long recordings — gated behind the flag.
+        # trace, which adds up over long recordings, so it is gated behind the flag.
         result.attrs["registration_diagnostics"] = list(diagnostics)
 
     return result.transpose(*data.dims)

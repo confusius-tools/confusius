@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import napari
+import numpy as np
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error
 from qtpy.QtCore import QSize, Qt, QTimer
@@ -24,11 +25,15 @@ from qtpy.QtWidgets import (
 
 from confusius._dims import TIME_DIM
 from confusius._napari._qc._plots import QCPlotsWidget
+from confusius._napari._signals._store import SignalStore
+from confusius._napari._utils import CATEGORICAL_COLORS
 from confusius.plotting.image import _prepare_carpet_data
 from confusius.plotting.napari import plot_napari
 from confusius.qc import compute_cv, compute_dvars, compute_tsnr
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import xarray as xr
 
 
@@ -61,10 +66,11 @@ def _compute_qc_metrics(
 class QCPanel(QWidget):
     """Right-side panel for computing QC metrics and displaying plots.
 
-    Temporal metrics (DVARS, Carpet plot) are rendered in a bottom dock widget. If the
-    user closes the dock, clicking "Show plots" or "Compute" re-docks the widget (cached
-    plots are preserved). Spatial map metrics (tSNR, CV) are added as new napari layers
-    with correct scale and translate derived from the DataArray's coordinates.
+    The carpet plot is rendered in a bottom dock widget. If the user closes the dock,
+    clicking "Show plots" or "Compute" re-docks the widget (cached plots are
+    preserved). DVARS is added to the shared signal store and shown in the Signals
+    panel plot. Spatial map metrics (tSNR, CV) are added as new napari layers with
+    correct scale and translate derived from the DataArray's coordinates.
 
     DVARS and spatial computations run in a background thread via
     `napari.qt.threading.thread_worker` so the UI remains responsive.
@@ -76,11 +82,25 @@ class QCPanel(QWidget):
     ----------
     viewer : napari.Viewer
         The active napari viewer instance.
+    signal_store : SignalStore, optional
+        Shared store of stored/live signals. If provided, each computed DVARS trace
+        is added there (as `"DVARS (<layer>)"`) so the Signals panel plots it
+        alongside other stored signals.
+    show_signal_plot : callable, optional
+        Called after a DVARS trace is stored, to open (or raise) the Signals panel
+        plot dock so the trace is visible right away.
     """
 
-    def __init__(self, viewer: napari.Viewer) -> None:
+    def __init__(
+        self,
+        viewer: napari.Viewer,
+        signal_store: SignalStore | None = None,
+        show_signal_plot: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__()
         self.viewer = viewer
+        self._signal_store = signal_store
+        self._show_signal_plot = show_signal_plot
         # Cached reference to the inner plot widget (survives dock closure because
         # napari re-parents it to None rather than destroying it).
         self._qc_plots: QCPlotsWidget | None = None
@@ -108,7 +128,7 @@ class QCPanel(QWidget):
         layer_layout.addWidget(self._layer_combo)
         layout.addWidget(layer_group)
 
-        # --- Temporal metrics (bottom dock) ---------------------------
+        # --- Temporal metrics --------------------------------------------
         ts_group = QGroupBox("Temporal metrics")
         self._temporal_group = ts_group
         ts_layout = QVBoxLayout(ts_group)
@@ -271,8 +291,30 @@ class QCPanel(QWidget):
         return self._qc_plots
 
     def _show_plots(self) -> None:
-        """Re-show the QC plots dock without recomputing."""
-        self._ensure_qc_plots()
+        """Re-show the computed QC plots without recomputing.
+
+        Re-docks the carpet plot if one was drawn, and opens the Signals panel plot
+        if a DVARS trace is still in the shared signal store.
+        """
+        if self._qc_plots is not None:
+            self._ensure_qc_plots()
+        if self._has_stored_dvars() and self._show_signal_plot is not None:
+            self._show_signal_plot()
+
+    def _has_stored_dvars(self) -> bool:
+        """Return whether the shared signal store holds a DVARS trace.
+
+        Returns
+        -------
+        bool
+            Whether any stored signal was pinned by this panel.
+        """
+        if self._signal_store is None:
+            return False
+        return any(
+            (signal.pin_origin or "").startswith("dvars-")
+            for signal in self._signal_store.stored_signals()
+        )
 
     # ------------------------------------------------------------------
     # Slots
@@ -347,19 +389,18 @@ class QCPanel(QWidget):
     ) -> None:
         """Main-thread callback: draw plots and add spatial layers."""
         try:
-            if "dvars" in results or "carpet" in results:
+            if "dvars" in results:
+                self._store_dvars_signal(results["dvars"], layer_name)
+
+            if "carpet" in results:
                 qc_widget = self._ensure_qc_plots()
-
-                if "dvars" in results:
-                    qc_widget.update_dvars(results["dvars"], layer_name=layer_name)
-
-                if "carpet" in results:
-                    qc_widget.update_carpet(results["carpet"], layer_name=layer_name)
+                qc_widget.update_carpet(results["carpet"], layer_name=layer_name)
 
                 # Sync cursor to the current slider position so it does not
                 # start at t=0 when plots are first drawn.
                 qc_widget.set_time_cursor(self._current_time_world())
 
+            if "dvars" in results or "carpet" in results:
                 self._show_btn.show()
 
             if "tsnr" in results or "cv" in results:
@@ -387,6 +428,39 @@ class QCPanel(QWidget):
             show_error(str(exc))
         finally:
             self._end_work()
+
+    def _store_dvars_signal(self, dvars_da: xr.DataArray, layer_name: str) -> None:
+        """Add a computed DVARS trace to the shared signal store and show the plot.
+
+        Re-pinned under a `layer_name`-derived origin, so recomputing DVARS for the
+        same layer updates the stored signal in place instead of duplicating it.
+
+        Parameters
+        ----------
+        dvars_da : xarray.DataArray
+            1D DVARS trace, optionally with a `time` coordinate. Without one, the
+            x-axis is the frame index.
+        layer_name : str
+            Name of the source layer, used in the stored signal's name and origin.
+        """
+        if self._signal_store is None:
+            return
+        time_coord = dvars_da.coords.get(TIME_DIM)
+        x = (
+            time_coord.values
+            if time_coord is not None
+            else np.arange(len(dvars_da), dtype=float)
+        )
+        self._signal_store.pin_signal(
+            origin=f"dvars-{layer_name}",
+            name=f"DVARS ({layer_name})",
+            x=x,
+            y=dvars_da.values,
+            color=CATEGORICAL_COLORS[0],
+            source_label=f"QC: {layer_name}",
+        )
+        if self._show_signal_plot is not None:
+            self._show_signal_plot()
 
     def _on_compute_error(self, exc: Exception) -> None:
         self._end_work()

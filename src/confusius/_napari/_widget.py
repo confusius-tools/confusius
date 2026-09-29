@@ -30,6 +30,8 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._napari._events._store import EventStore
+from confusius._napari._qt import install_no_scroll_wheel_filter
+from confusius._napari._signals._store import SignalStore
 from confusius._napari._theme import make_lucide_icon
 from confusius._napari._time_overlay import _TimeOverlay
 from confusius._utils.colors import RED, RED_DARK
@@ -254,6 +256,9 @@ class ConfUSIusWidget(QWidget):
         # Shared store of BIDS temporal events, used by the event panel, the signal
         # plotter (background shading) and the time overlay (active-event readout).
         self._event_store = EventStore(self)
+        # Shared store of stored/live signals, used by the Signals panel (source of
+        # truth) and the QC panel (adds computed DVARS traces to the signal plot).
+        self._signal_store = SignalStore(self)
         self._apply_theme()
         self._setup_ui()
         self.viewer.events.theme.connect(self._on_theme_changed)
@@ -551,13 +556,22 @@ class ConfUSIusWidget(QWidget):
             ("Events", "calendar-clock"),
             ("Quality Control", "clipboard-check"),
         ]
+        signal_panel = SignalPanel(
+            self.viewer,
+            event_store=self._event_store,
+            signal_store=self._signal_store,
+        )
         panels = [
             data_panel,
             video_panel,
-            SignalPanel(self.viewer, event_store=self._event_store),
+            signal_panel,
             RegistrationPanel(self.viewer),
             EventPanel(self.viewer, self._event_store),
-            QCPanel(self.viewer),
+            QCPanel(
+                self.viewer,
+                signal_store=self._signal_store,
+                show_signal_plot=signal_panel.show_plot,
+            ),
         ]
         btns: list[QPushButton] = []
 
@@ -653,5 +667,9 @@ class ConfUSIusWidget(QWidget):
         self._accordion_panels = dict(zip([e[0] for e in tab_entries], panels))
         # Exposed so the guided tour can follow in-flight panel animations.
         self._accordion_anims = panel_anims
+
+        # A combo/spin box under the cursor otherwise captures wheel scrolling
+        # (changing its value) instead of letting it scroll the sidebar.
+        install_no_scroll_wheel_filter(container)
 
         return container

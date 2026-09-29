@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from qtpy.QtWidgets import QComboBox
 
@@ -115,7 +115,7 @@ def get_layer_by_name(panel: RegistrationPanel, name: str) -> Layer | None:
         Matching layer when present, otherwise `None`.
     """
     try:
-        return cast("Layer", panel.viewer.layers[name])
+        return panel.viewer.layers[name]
     except KeyError:
         return None
 
@@ -311,7 +311,10 @@ def set_layer_validation_style(
     panel._fixed_combo.setStyleSheet(error_style if fixed_invalid else normal_style)
     panel._moving_label.setStyleSheet("color: #e05555;" if moving_invalid else "")
     panel._fixed_label.setStyleSheet("color: #e05555;" if fixed_invalid else "")
-    panel._reference_time_label.setStyleSheet("")
+    # The radio button stands in for the fixed label within-scan, so it carries
+    # the same invalid styling there.
+    panel._fixed_layer_radio.setStyleSheet("color: #e05555;" if fixed_invalid else "")
+    panel._reference_time_radio.setStyleSheet("")
     if message:
         panel._layer_validation.setText(message)
         panel._layer_validation.show()
@@ -388,6 +391,33 @@ def validate_registration_selection(panel: RegistrationPanel) -> bool:
             )
             set_run_btn_enabled(panel, False)
             return False
+        if panel._fixed_layer_radio.isChecked():
+            if fixed_layer is None:
+                set_layer_validation_style(
+                    panel,
+                    fixed_invalid=True,
+                    message="Select a fixed layer, or register to a reference time.",
+                )
+                set_run_btn_enabled(panel, False)
+                return False
+            try:
+                fixed = _get_source_dataarray(fixed_layer)
+            except TypeError:
+                set_layer_validation_style(
+                    panel,
+                    fixed_invalid=True,
+                    message="Could not read the selected fixed layer.",
+                )
+                set_run_btn_enabled(panel, False)
+                return False
+            if TIME_DIM in fixed.dims:
+                set_layer_validation_style(
+                    panel,
+                    fixed_invalid=True,
+                    message="Fixed layer must not have a time dimension.",
+                )
+                set_run_btn_enabled(panel, False)
+                return False
         init_message = validate_initial_transform_selection(
             panel,
             operation=operation,

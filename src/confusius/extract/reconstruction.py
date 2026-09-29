@@ -38,9 +38,9 @@ def unmask(
     mask : xarray.DataArray
         VoxelData mask used for the original extraction. Provides spatial dimensions,
         coordinates, and `VoxelToWorldIndex` for reconstruction. Must be either
-        boolean dtype, or integer dtype with exactly one non-zero value (0 =
-        background, one region id = foreground). Spatial dimensions and coordinates
-        must match the original data.
+        boolean dtype, or binary numeric dtype (0 = background, at most one non-zero
+        value = foreground). Spatial dimensions and coordinates must match the
+        original data.
     new_dims : list of str, optional
         Names for leading dimensions when `signals` is a Numpy array. Must match the
         number of leading dimensions `(ndim - 1)`. If not provided, uses `["dim_0",
@@ -68,7 +68,7 @@ def unmask(
         `mask`, or if `new_dims`/`new_dims_coords` are inconsistent with `signals`
         shape.
     TypeError
-        If `mask` is not boolean dtype (or a single-label integer dtype).
+        If `mask` is not boolean dtype (or a binary numeric dtype).
 
     Examples
     --------
