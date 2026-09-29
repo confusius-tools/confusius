@@ -945,22 +945,28 @@ class FUSIPlotAccessor:
         vmin : float, optional
             Lower bound of the colormap. If not provided, defaults to the minimum
             value of this DataArray, computed over the full array rather than just
-            the displayed slices. Ignored when `norm` is provided, or when
-            `auto_range` resolves to a range anchored at zero (see below).
+            the displayed slices. Ignored when `norm` is provided, when
+            `auto_range=True` and this DataArray has only non-negative values, or
+            when `auto_range=True`, this DataArray spans both signs and `vmax` is
+            given on its own (see `auto_range`).
         vmax : float, optional
             Upper bound of the colormap. If not provided, defaults to the maximum
             value of this DataArray, computed over the full array rather than just
-            the displayed slices. Ignored when `norm` is provided, or when
-            `auto_range=True` and this DataArray has only non-positive values.
+            the displayed slices. Ignored when `norm` is provided, when
+            `auto_range=True` and this DataArray has only non-positive values, or
+            when `auto_range=True`, this DataArray spans both signs and `vmin` is
+            given on its own (see `auto_range`).
         auto_range : bool, default: True
             Whether to pick the colormap range and default colormap automatically
             based on the sign of this DataArray:
 
             - Both positive and negative values: diverging, symmetric `[-m, m]`
-              range where `m = max(|vmin|, |vmax|)` (using the resolved bounds
-              above), with `cmap` defaulting to `"coolwarm"` — the right choice
-              for diverging statistics where the sign is meaningful (e.g.
-              t-statistics, correlation coefficients, PCA/ICA component maps).
+              range where `m = max(|vmin|, |vmax|)` over the bounds actually
+              provided, falling back to the largest magnitude in this DataArray
+              when neither is given, with `cmap` defaulting to `"coolwarm"` — the
+              right choice for diverging statistics where the sign is meaningful
+              (e.g. t-statistics, correlation coefficients, PCA/ICA component
+              maps).
             - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
               defaulting to `"viridis"` — the right choice for non-diverging
               statistics where only magnitude matters (e.g. R², F-statistics).

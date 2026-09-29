@@ -288,7 +288,7 @@ def adjust_pvalues(
     pvalue_map : xarray.DataArray
         P-value map with spatial dimensions. Tested voxels must lie in `[0, 1]`.
     mask : xarray.DataArray, optional
-        Boolean (or single-label integer) mask of the tested voxels. If not provided,
+        Boolean (or binary numeric) mask of the tested voxels. If not provided,
         the tested voxels are derived from `pvalue_map` according to `skipzero` and
         `skipna`.
     method : CorrectionMethod, default: "fdr_bh"
@@ -389,7 +389,7 @@ def apply_statistical_threshold(
         Z-scaled statistical map with spatial dimensions. Voxels that do not survive the
         thresholds are set to zero.
     mask : xarray.DataArray, optional
-        Boolean (or single-label integer) mask of the tested voxels. If not provided, the
+        Boolean (or binary numeric) mask of the tested voxels. If not provided, the
         tested voxels are derived from `stat_map` according to `skipzero` and `skipna`.
     alpha : float, default: 0.05
         Significance level. A voxel is kept when its `method`-adjusted p-value is at or

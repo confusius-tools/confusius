@@ -123,6 +123,16 @@ class TestPlotMatrixBehaviour:
         assert image.norm.vmax == pytest.approx(1.0)
         assert image.cmap.name == "coolwarm"
 
+    @pytest.mark.parametrize("bound", [{"vmax": 0.5}, {"vmin": -0.5}])
+    def test_a_lone_bound_caps_the_symmetric_range(self, bound, matplotlib_pyplot):
+        """A bound given on its own sets the symmetric range by itself, rather than
+        losing to the matrix's own min/max on the side left out."""
+        matrix = np.array([[1.0, -0.8], [-0.8, 1.0]])
+        _, ax = plot_matrix(matrix, **bound)
+        image = ax.collections[0]
+        assert image.norm.vmin == pytest.approx(-0.5)
+        assert image.norm.vmax == pytest.approx(0.5)
+
     def test_non_negative_matrix_gets_sequential_range(self, matplotlib_pyplot):
         """A non-negative matrix gets a [0, vmax] range and a sequential cmap."""
         matrix = np.array([[0.2, 0.8], [0.8, 0.2]])

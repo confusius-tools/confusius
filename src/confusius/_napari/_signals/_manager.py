@@ -1,4 +1,4 @@
-"""Floating manager window for imported signals."""
+"""Floating manager window for stored signals."""
 
 from __future__ import annotations
 
@@ -21,6 +21,11 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from confusius._napari._export import (
+    ExportSignal,
+    prompt_delimited_export_path,
+    write_delimited_signals,
+)
 from confusius._napari._signals._store import LiveSignal, SignalStore
 from confusius._napari._theme import get_napari_colors
 
@@ -57,16 +62,17 @@ def _colored_button_style(r: int, g: int, b: int) -> str:
 
 
 class SignalsManagerDialog(QDialog):
-    """Modeless dialog for managing live and imported signals.
+    """Modeless dialog for managing live and stored signals.
 
     Live signals (from mouse, points, or labels layers) appear at the top of the table.
-    They can be renamed, recolored, and hidden but not removed. Imported signals appear
-    below and support the full set of operations.
+    They can be renamed, recolored, and hidden but not removed. Stored signals — either
+    imported from a file or pinned from a live signal — appear below and support the
+    full set of operations.
 
     Parameters
     ----------
     store : SignalStore
-        Shared imported-signals store.
+        Shared stored-signals store.
     parent : QWidget | None, optional
         Optional parent widget.
     """
@@ -95,14 +101,22 @@ class SignalsManagerDialog(QDialog):
         self._import_btn.clicked.connect(self._import_file)
         button_row.addWidget(self._import_btn)
 
+        self._export_btn = QPushButton("Export Selected")
+        self._export_btn.setToolTip(
+            "Export selected stored signals to a CSV or TSV file"
+        )
+        self._export_btn.setStyleSheet(_colored_button_style(80, 120, 200))
+        self._export_btn.clicked.connect(self._export_selected)
+        button_row.addWidget(self._export_btn)
+
         self._remove_btn = QPushButton("Remove")
-        self._remove_btn.setToolTip("Remove selected imported signal")
+        self._remove_btn.setToolTip("Remove selected stored signal")
         self._remove_btn.setStyleSheet(_colored_button_style(200, 80, 80))
         self._remove_btn.clicked.connect(self._remove_selected)
         button_row.addWidget(self._remove_btn)
 
-        self._clear_btn = QPushButton("Clear All Imported")
-        self._clear_btn.setToolTip("Remove all imported signals")
+        self._clear_btn = QPushButton("Clear All Stored")
+        self._clear_btn.setToolTip("Remove all stored signals")
         self._clear_btn.setStyleSheet(_colored_button_style(200, 80, 80))
         self._clear_btn.clicked.connect(self._store.clear)
         button_row.addWidget(self._clear_btn)
@@ -139,16 +153,16 @@ class SignalsManagerDialog(QDialog):
         self._updating_table = True
         try:
             live_list = self._store.live_signals()
-            imported_list = self._store.imported_signals()
-            total = len(live_list) + len(imported_list)
+            stored_list = self._store.stored_signals()
+            total = len(live_list) + len(stored_list)
             self._table.setRowCount(total)
 
             row = 0
             for signal in live_list:
                 self._set_live_row(row, signal)
                 row += 1
-            for signal in imported_list:
-                self._set_imported_row(row, signal)
+            for signal in stored_list:
+                self._set_stored_row(row, signal)
                 row += 1
         finally:
             self._updating_table = False
@@ -192,8 +206,8 @@ class SignalsManagerDialog(QDialog):
         source_item.setFont(italic_font)
         self._table.setItem(row, 3, source_item)
 
-    def _set_imported_row(self, row: int, signal) -> None:
-        """Populate one table row from an imported signal."""
+    def _set_stored_row(self, row: int, signal) -> None:
+        """Populate one table row from a stored signal."""
         visible_item = QTableWidgetItem()
         visible_item.setFlags(
             Qt.ItemFlag.ItemIsEnabled
@@ -275,7 +289,7 @@ class SignalsManagerDialog(QDialog):
             current = live.color if live is not None else "#ffffff"
         else:
             current = next(
-                (s.color for s in self._store.imported_signals() if s.id == signal_id),
+                (s.color for s in self._store.stored_signals() if s.id == signal_id),
                 "#ffffff",
             )
 
@@ -291,12 +305,17 @@ class SignalsManagerDialog(QDialog):
         except Exception as exc:  # noqa: BLE001
             show_error(str(exc))
 
-    def _remove_selected(self) -> None:
-        """Remove the currently selected imported signal (live signals are skipped)."""
+    def _selected_stored_ids(self) -> list[str]:
+        """Return ids of the currently selected stored (non-live) rows.
+
+        Live rows are skipped: the manager only tracks their presentation
+        metadata, not the underlying data, so they can't be removed or exported
+        from here.
+        """
         signal_ids = []
         selection_model = self._table.selectionModel()
         if selection_model is None:
-            return
+            return signal_ids
         rows = [index.row() for index in selection_model.selectedRows()]
         if not rows and self._table.currentRow() >= 0:
             rows = [self._table.currentRow()]
@@ -307,7 +326,41 @@ class SignalsManagerDialog(QDialog):
             signal_id = item.data(Qt.ItemDataRole.UserRole)
             if isinstance(signal_id, str) and not self._is_live_id(signal_id):
                 signal_ids.append(signal_id)
-        self._store.remove_signals(signal_ids)
+        return signal_ids
+
+    def _remove_selected(self) -> None:
+        """Remove the currently selected stored signal (live signals are skipped)."""
+        self._store.remove_signals(self._selected_stored_ids())
+
+    def _export_selected(self) -> None:
+        """Export the currently selected stored signals to a CSV or TSV file."""
+        signal_ids = self._selected_stored_ids()
+        stored_by_id = {s.id: s for s in self._store.stored_signals()}
+        export_signals = [
+            ExportSignal(
+                stored_by_id[sid].name, stored_by_id[sid].x, stored_by_id[sid].y
+            )
+            for sid in signal_ids
+            if sid in stored_by_id
+        ]
+        if not export_signals:
+            show_error("Select one or more stored signals to export.")
+            return
+
+        export_selection = prompt_delimited_export_path(
+            self, "Export Signals", str(Path.home() / "signals.tsv")
+        )
+        if export_selection is None:
+            return
+        path, delimiter = export_selection
+
+        try:
+            write_delimited_signals(path, export_signals, delimiter=delimiter)
+        except Exception as exc:  # noqa: BLE001
+            show_error(str(exc))
+            return
+
+        show_info(f"Exported signals to {path}")
 
     def _import_file(self) -> None:
         """Import one or more CSV or TSV files into the shared store."""

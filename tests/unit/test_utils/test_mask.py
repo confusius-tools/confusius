@@ -48,6 +48,29 @@ class TestValidateSpatialOrFeatureMask:
         with pytest.raises(ValueError, match="Data is missing dimensions"):
             validate_spatial_or_feature_mask(data, mask)
 
+    def test_accepts_binary_numeric_mask(self):
+        """A binary numeric mask (e.g. a float NIfTI-style mask) is coerced to bool.
+
+        Exercises the already-extracted (non-VoxelData) feature path, which routes
+        through the same `check_mask_dtype` choke point as the VoxelData path -- see
+        #382.
+        """
+        data = xr.DataArray(
+            np.zeros((5, 3)),
+            dims=("time", "region"),
+            coords={"region": np.arange(3)},
+        )
+        mask = xr.DataArray(
+            np.array([0.0, 5.0, 0.0]),
+            dims=("region",),
+            coords={"region": np.arange(3)},
+        )
+
+        result = validate_spatial_or_feature_mask(data, mask)
+
+        assert result.dtype == bool
+        np.testing.assert_array_equal(result.values, [False, True, False])
+
     def test_require_exact_dims_rejects_mismatched_order(self):
         """require_exact_dims rejects a mask whose dims don't match data's exactly."""
         data = xr.DataArray(

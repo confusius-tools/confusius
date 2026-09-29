@@ -995,7 +995,7 @@ def build_default_tour(
             body=(
                 "Pick <b>Between scans</b> to align one layer to another, or "
                 "<b>Within-scan</b> to motion-correct a time series against one "
-                "reference volume."
+                "reference frame or fixed layer."
             ),
             anchor="left",
             spotlight_rect=lambda: _united_rect(
@@ -1103,7 +1103,9 @@ def build_default_tour(
             title="Within-scan Inputs",
             body=(
                 "For <b>Within-scan</b>, choose one layer with a time dimension, then "
-                "pick the <b>Reference volume</b> that every frame should align to."
+                "pick <b>Reference time</b> to align every frame to one of its own "
+                "frames, or <b>Fixed layer</b> to align them to another layer "
+                "instead."
             ),
             anchor="left",
             spotlight_rect=_panel_attr_rect(
@@ -1112,7 +1114,7 @@ def build_default_tour(
                 "_time_series_radio",
                 "_moving_label",
                 "_moving_combo",
-                "_reference_time_label",
+                "_reference_time_radio",
                 "_reference_time_spin",
             ),
             tooltip_target=_dock_widget,
