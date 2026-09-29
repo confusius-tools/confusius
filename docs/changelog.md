@@ -25,6 +25,11 @@ Current development version for the next ConfUSIus release.
   allowed together with `fixed`; it defaults to `moving_intensity_scaling`). Both are
   now also exposed on `data.fusi.register.volumewise`
   ([#437](https://github.com/confusius-tools/confusius/pull/437)).
+- [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] /
+  [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] take `regions`/`sides` instead of
+  `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
+  requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
+  ([#448](https://github.com/confusius-tools/confusius/pull/448)).
 
 ### :sparkles: Enhancements
 
@@ -40,6 +45,14 @@ Current development version for the next ConfUSIus release.
 - [`FirstLevelModel`][confusius.glm.FirstLevelModel] accepts `show_progress=True` to
   display a progress bar over the runs being fitted
   ([#442](https://github.com/confusius-tools/confusius/pull/442)).
+- New [`get_bounding_box`][confusius.xarray.get_bounding_box], also available as
+  [`data.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box],
+  returning a VoxelData array's world-space bounding box enclosing the full extent of
+  its voxels, one per pose for pose-dependent geometry
+  ([#446](https://github.com/confusius-tools/confusius/pull/446)).
+- [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] downloads every
+  region mesh in one batched call on the first fetch, so meshes are available offline
+  afterwards ([#448](https://github.com/confusius-tools/confusius/pull/448)).
 
 ### :zap: Performance
 
@@ -51,6 +64,9 @@ Current development version for the next ConfUSIus release.
 - [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] is roughly twice as fast,
   with the larger gain on the default `noise_model="ar1"`
   ([#442](https://github.com/confusius-tools/confusius/pull/442)).
+- [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes] with `clip=True` no longer
+  materializes the full world-coordinate grid of an oblique atlas
+  ([#446](https://github.com/confusius-tools/confusius/pull/446)).
 
 ### :bug: Fixes
 
@@ -77,12 +93,30 @@ Current development version for the next ConfUSIus release.
   no longer emits a divide-by-zero `RuntimeWarning` on recordings containing voxels with
   no variance over time, such as those outside the recorded field of view
   ([#442](https://github.com/confusius-tools/confusius/pull/442)).
+- [`apply_affine`][confusius.xarray.apply_affine] keeps the applied key in
+  `.attrs["affines"]` as the identity when the affine is given by key
+  ([#463](https://github.com/confusius-tools/confusius/pull/463)).
 
 ### :frame_photo: Napari plugin
 
 - The registration panel's within-scan mode can register every frame to a fixed
   layer, with its own intensity scaling, as an alternative to a reference time index
   ([#376](https://github.com/confusius-tools/confusius/issues/376)).
+- The signal plotter's mouse source now updates when Shift is pressed while the
+  cursor is already resting on a voxel, not only while moving; a live signal
+  (mouse voxel, a point, or a label region) can now be pinned so it persists
+  across source-mode switches instead of being dropped, reusable wherever stored
+  signals are — imported and pinned signals now share one concept
+  (`StoredSignal`) throughout the signal store, plotter, and manager
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+- Mouse-driven signal plotting no longer lags or jitters on large recordings —
+  updates are now throttled to the display refresh rate instead of running
+  unbounded on every raw mouse-move event
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+- A DVARS trace computed in the Quality Control panel is now plotted in the
+  Signals panel as a stored signal, opening that plot if needed, instead of in a
+  separate QC plot tab
+  ([#429](https://github.com/confusius-tools/confusius/pull/429)).
 
 ## 0.7.1
 
@@ -388,7 +422,7 @@ Released 2026-07-18.
 - The `Atlas` class has been replaced by an [`xarray.Dataset`][xarray.Dataset] with a
   registered `.atlas` accessor. Fetch an atlas by name with
   [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and call operations
-  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_mesh`, `ds.atlas.search`,
+  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_meshes`, `ds.atlas.search`,
   `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset.
   Name-based loading moved to `confusius.datasets`; atlas construction from a loaded
   BrainGlobe atlas is now internal to the datasets module

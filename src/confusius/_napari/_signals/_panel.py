@@ -45,17 +45,26 @@ class SignalPanel(QWidget):
         The active napari viewer instance.
     event_store : EventStore, optional
         Shared store of temporal events whose intervals are shaded on the plot.
+    signal_store : SignalStore, optional
+        Shared store of stored/live signals. If not provided, a private store is
+        created. Pass the same instance used elsewhere (e.g. the QC panel) so
+        stored signals are available across panels.
     """
 
     def __init__(
-        self, viewer: napari.Viewer, event_store: EventStore | None = None
+        self,
+        viewer: napari.Viewer,
+        event_store: EventStore | None = None,
+        signal_store: SignalStore | None = None,
     ) -> None:
         super().__init__()
         self._viewer = viewer
         self._event_store = event_store
         self._plotter: SignalPlotter | None = None
         self._signals_manager: SignalsManagerDialog | None = None
-        self._signals_store = SignalStore(self)
+        self._signals_store = (
+            signal_store if signal_store is not None else SignalStore(self)
+        )
         self._cached_xaxis_dim_index: int | None = None
         self._setup_ui()
         viewer.events.theme.connect(self._on_theme_changed)
@@ -246,7 +255,7 @@ class SignalPanel(QWidget):
         # Show plot button, disabled while the dock is visible.
         self._show_btn = QPushButton("Show Signal Plot")
         self._show_btn.setObjectName("primary_btn")
-        self._show_btn.clicked.connect(self._show_plot)
+        self._show_btn.clicked.connect(self.show_plot)
         layout.addWidget(self._show_btn)
 
         self._manage_btn = QPushButton("Manage Signals")
@@ -340,7 +349,7 @@ class SignalPanel(QWidget):
 
         return self._plotter
 
-    def _show_plot(self) -> None:
+    def show_plot(self) -> None:
         """Show or re-dock the signal plot widget."""
         # If the plotter is already in a live dock, just raise it.
         if self._plotter is not None and self._plotter.parent() is not None:
