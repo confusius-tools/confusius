@@ -55,7 +55,7 @@ _MESHES_SUBDIR = "meshes"
 
 The mesh files are written as plain sibling files inside the store directory so they
 travel with it when the store is copied or zipped. `load_atlas` re-points each ROI's
-`mesh_filename` here, so `get_mesh` works on a loaded atlas without the BrainGlobe cache.
+`mesh_filename` here, so `get_meshes` works on a loaded atlas without the BrainGlobe cache.
 """
 
 
@@ -218,7 +218,7 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
 
     !!! warning "Undownloaded meshes are not bundled"
         A region whose mesh was never accessed before `save_atlas` keeps its partial
-        BrainGlobe-cache path instead of being bundled. `get_mesh` on the loaded atlas
+        BrainGlobe-cache path instead of being bundled. `get_meshes` on the loaded atlas
         can still trigger BrainGlobe's lazy download from that path.
 
     Parameters
@@ -335,7 +335,7 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
     [`StructuresDict`][brainglobe_atlasapi.structure_class.StructuresDict] in
     `attrs["structures"]`. The `cmap`/`norm` colormap objects dropped on save are rebuilt
     into `annotation.attrs` from `rgb_lookup`, and each ROI's `mesh_filename` is re-pointed
-    at the meshes bundled under the store's `meshes/` subdirectory, so `get_mesh` works on
+    at the meshes bundled under the store's `meshes/` subdirectory, so `get_meshes` works on
     the loaded atlas without the BrainGlobe cache. See the warning on
     [`save_atlas`][confusius.io.save_atlas] for meshes that were not bundled.
 

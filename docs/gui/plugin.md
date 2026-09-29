@@ -369,7 +369,9 @@ Use **Within-scan** for motion correction inside a single time series.
 
 1. Switch **Mode** to **Within-scan**.
 2. Select the time-series **Moving layer**.
-3. Choose the **Reference volume** index used as the registration target.
+3. Pick the registration target: either **Reference time**, a time index of the moving
+   layer, or **Fixed layer**, another layer on the same grid without a time dimension
+   (for example the mean of a few low-motion frames).
 4. Pick a transform model (`translation`, `rigid`, or `affine`).
 5. Click **Run registration**.
 
@@ -377,10 +379,11 @@ Use **Within-scan** for motion correction inside a single time series.
 
 | Parameter | What it does | When it is useful |
 |---|---|---|
-| **Reference volume** | Chooses the volume index used as the motion-correction target. | Pick a representative, sharp frame with little motion. |
+| **Reference time** | Registers every frame to the moving layer's frame at this time index. | Pick a representative, sharp frame with little motion. |
+| **Fixed layer** | Registers every frame to another layer on the same grid instead. The layer must have no time dimension. | Use a more stable target than any single frame, for example the mean of a few low-motion frames. |
 | **Transform** | Chooses the volume-wise motion model. | `rigid` is the safest starting point; `affine` is available when motion is more complex. |
 | **Metric** | Chooses the volume-to-reference similarity criterion. | `correlation` is usually a good default for within-recording motion correction. |
-| **Intensity scaling** | Applies optional intensity scaling (`decibel`, `square root`, or `none`) to the reference and every frame, only for the optimizer. | Useful when an intensity transform makes anatomy more stable across time for the optimizer. |
+| **Fixed / Moving intensity scaling** | Applies optional intensity scaling (`decibel`, `square root`, or `none`) to the fixed layer and to every frame, only for the optimizer. The fixed scaling is only active with **Fixed layer** selected; the reference frame uses the moving scaling. | Useful when an intensity transform makes anatomy more stable across time for the optimizer, or when the fixed layer is on a different intensity scale than the recording. |
 | **Initialization** | Sets the initial volume-wise centering transform. | Most runs can use no initialization. |
 | **Learning rate** | Sets the optimizer step size for each frame. | Within-scan uses a fixed value here; the default is `0.01`. Reduce it if updates look unstable; increase it if frames are already close and convergence is too slow. |
 | **Iterations** | Maximum optimizer steps per frame. | Increase it for harder motion or more flexible transforms. |

@@ -462,6 +462,14 @@ function for motion correction.
 registered = pwd.fusi.register.volumewise(reference_time=0)
 ```
 
+Pass `fixed` to register every frame to any spatial-only volume on the same grid
+instead of a frame index, for example the mean of a few low-motion frames:
+
+```python
+fixed = pwd.isel(time=slice(0, 10)).mean("time")
+registered = pwd.fusi.register.volumewise(fixed=fixed)
+```
+
 Registration operates on a single spatial grid. For multi-pose data, select one pose
 first or consolidate poses before registering.
 
@@ -497,6 +505,15 @@ registered_to_qform = pwd.fusi.affine.apply("world_to_qform")
 
 # By array: apply an arbitrary (4, 4) world-space affine directly.
 shifted = pwd.fusi.affine.apply(my_affine)
+```
+
+[`bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] gives the extent of
+the data in world space, enclosing the full extent of every voxel (half a voxel beyond
+the outermost voxel centers). It is computed from the affine alone (exact for oblique
+geometry, and one bounding box per pose when the geometry is pose-dependent):
+
+```python
+bbox = pwd.fusi.affine.bounding_box  # Dims (bound, component), e.g. ("max", "x").
 ```
 
 To replace a DataArray's voxel-to-world geometry outright (e.g. after computing a new
