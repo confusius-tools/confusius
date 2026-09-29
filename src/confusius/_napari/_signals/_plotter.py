@@ -39,6 +39,7 @@ from confusius._napari._theme import (
     style_export_button,
     style_plot_toolbar,
 )
+from confusius._napari._utils import extract_voxel_trace
 
 if TYPE_CHECKING:
     from confusius._napari._events._store import EventStore
@@ -983,22 +984,41 @@ class SignalPlotter(QWidget):
 
         Always uses the nearest voxel to the cursor position.
         """
-        data = layer.data
-        ind: list[int | slice] = [round(x) for x in layer.world_to_data(cursor_pos)]
+        return extract_voxel_trace(layer, cursor_pos, self._xaxis_dim_index(layer))
 
+    def _mouse_origin_key(self, layer, cursor_pos: np.ndarray) -> str:
+        """Return a pin origin key identifying the voxel at the cursor.
+
+        Distinct per voxel (unlike the mouse `LiveSignal.id`, which is the fixed
+        `"mouse-0"`), so pinning two different voxels creates two separate stored
+        signals — only re-pinning the exact same voxel updates it in place (see
+        [SignalStore.pin_signal][confusius._napari._signals._store.SignalStore.pin_signal]).
+        """
+        indices = [round(x) for x in layer.world_to_data(cursor_pos)]
         xaxis_index = self._xaxis_dim_index(layer)
-        # Replace the x-axis index before bounds-checking: the injected x-axis world
-        # coordinate (typically 0) may fall outside the data range (e.g. when the
-        # coordinate starts at a non-zero offset), which would cause the check to
-        # reject valid spatial positions.
-        ind[xaxis_index] = slice(None)
+        spatial = [v for i, v in enumerate(indices) if i != xaxis_index]
+        return "mouse-" + "-".join(str(v) for v in spatial)
 
-        if not all(
-            0 <= i < max_i for i, max_i in zip(ind, data.shape) if isinstance(i, int)
-        ):
-            return None
+    def _set_live_plot_signals(self, signals: list[LivePlotSignal]) -> None:
+        """Update the currently-pinnable live signals and the Pin button state."""
+        self._live_plot_signals = signals
+        self._pin_button.setEnabled(bool(signals))
 
-        return data[tuple(ind)]
+    def _pin_current_signals(self) -> None:
+        """Pin every currently plotted live signal into the store as stored signals."""
+        if self._signals_store is None or not self._live_plot_signals:
+            return
+        for signal in self._live_plot_signals:
+            self._signals_store.pin_signal(
+                origin=signal.origin,
+                # Distinct from the live signal's name so the two are never
+                # visually indistinguishable duplicates in the legend/manager.
+                name=f"{signal.name} (pinned)",
+                x=signal.x,
+                y=signal.y,
+                color=signal.color,
+                source_label=f"Pinned from {self._source_mode}",
+            )
 
     def _mouse_origin_key(self, layer, cursor_pos: np.ndarray) -> str:
         """Return a pin origin key identifying the voxel at the cursor.
@@ -1294,6 +1314,7 @@ class SignalPlotter(QWidget):
                     visible=True,
                     source_type="point",
                     source_id=point_index,
+                    layer_name=self._points_layer.name,
                 )
             )
         self._signals_store.register_live_signals(signals)
@@ -1306,7 +1327,7 @@ class SignalPlotter(QWidget):
         unique_labels : numpy.ndarray
             Array of nonzero label IDs found in the Labels layer.
         """
-        if self._signals_store is None:
+        if self._signals_store is None or self._labels_layer is None:
             return
         signals = []
         for lid in unique_labels:
@@ -1320,6 +1341,7 @@ class SignalPlotter(QWidget):
                     visible=True,
                     source_type="label",
                     source_id=lid_int,
+                    layer_name=self._labels_layer.name,
                 )
             )
         self._signals_store.register_live_signals(signals)
