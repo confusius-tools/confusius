@@ -195,6 +195,18 @@ class TestEchoFrameConversion:
 
             expected_times = np.array([1.0, 1.001, 1.002, 3.0, 3.001, 3.002])
             np.testing.assert_allclose(ds["time"].values, expected_times, rtol=1e-5)
+            assert set(ds["time"].attrs) == {
+                "units",
+                "long_name",
+                "volume_acquisition_reference",
+                "volume_acquisition_duration",
+            }
+            assert ds["time"].attrs["units"] == "s"
+            assert ds["time"].attrs["long_name"] == "Time"
+            assert ds["time"].attrs["volume_acquisition_reference"] == "start"
+            assert ds["time"].attrs["volume_acquisition_duration"] == pytest.approx(
+                5 / 5000.0
+            )
 
     def test_overwrite_existing(self, synthetic_echoframe_session, tmp_path):
         """Test overwriting existing Zarr output."""

@@ -21,8 +21,8 @@ import numpy as np
 
 from confusius._dims import TIME_DIM, WORLD_DIMS
 
-_NAPARI_GENERIC_AXIS = re.compile(r"^axis -?\d+$")
-"""Matches napari's default generic axis labels (e.g. 'axis -4', 'axis -3', ...)."""
+_NAPARI_GENERIC_AXIS = re.compile(r"^-?\d+$")
+"""Matches napari's default generic axis labels ('-3', '-2', '-1', ...)."""
 
 _NAPARI_NON_PHYSICAL_UNITS = frozenset({"pixel"})
 """Napari units that indicate the absence of physical units."""
@@ -76,11 +76,14 @@ def _convert_layer_to_voxeldata(data: Any, meta: dict[str, Any]) -> xr.DataArray
     scale = list(meta.get("scale") or [1.0] * ndim)
     translate = list(meta.get("translate") or [0.0] * ndim)
 
-    # Napari may pass pint Unit objects rather than strings. Convert to str and treat
-    # non-physical units ('pixel') as absent.
+    # Napari may pass pint Unit objects rather than strings. Use pint's short form
+    # (`mm`, not `millimeter`) so units round-trip unchanged through napari, and
+    # treat non-physical units ('pixel') as absent.
     raw_units = meta.get("units") or [None] * ndim
     units: list[str | None] = [
-        None if u is None or str(u) in _NAPARI_NON_PHYSICAL_UNITS else str(u)
+        None
+        if u is None or str(u) in _NAPARI_NON_PHYSICAL_UNITS
+        else (u if isinstance(u, str) else format(u, "~"))
         for u in raw_units
     ]
 

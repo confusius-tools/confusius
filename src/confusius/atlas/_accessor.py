@@ -273,16 +273,19 @@ class AtlasAccessor:
 
     # ── Meshes ────────────────────────────────────────────────────────────────────────
 
-    def get_mesh(
+    def get_meshes(
         self,
-        region: int | str,
-        side: Literal["left", "right", "both"] = "both",
+        regions: int | str | Sequence[int | str],
+        sides: (
+            Literal["left", "right", "both"]
+            | Sequence[Literal["left", "right", "both"]]
+        ) = "both",
         *,
         clip: bool = True,
-    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
-        """Return vertex coordinates and face indices for a region's mesh.
+    ) -> dict[str, tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]]:
+        """Return one surface mesh per requested region, keyed by acronym.
 
-        Reads the region's mesh, transforms its vertices from micron space to the
+        Reads each region's mesh, transforms its vertices from micron space to the
         DataArrays' current world space (millimetres), then optionally drops
         out-of-grid vertices and clips to one hemisphere. The mesh comes from the
         structure's `mesh_filename`: for a freshly fetched atlas this points into the
@@ -292,38 +295,53 @@ class AtlasAccessor:
 
         Parameters
         ----------
-        region : int or str
-            Structure index or acronym.
-        side : {"left", "right", "both"}, default: "both"
-            Hemisphere to include. `"both"` keeps the full mesh. `"left"` and `"right"`
-            keep only vertices whose nearest `hemispheres` voxel carries that side's label
-            (`hemispheres.attrs["left"]` / `["right"]`), sampled in the current world
-            space. Faces are kept only when all three of their vertices survive, so the
-            cut face is not closed. Sampling the hemisphere map makes this
-            orientation-agnostic and correct after an arbitrary resample.
+        regions : int or str or sequence of int or str
+            One or more regions, each given as a structure index or acronym.
+        sides : {"left", "right", "both"} or sequence thereof, default: "both"
+            Hemisphere filter. Pass a scalar to apply the same side to all regions, or a
+            sequence of the same length as `regions` for per-region control. `"both"`
+            keeps the full mesh. `"left"` and `"right"` keep only vertices whose nearest
+            `hemispheres` voxel carries that side's label (`hemispheres.attrs["left"]` /
+            `["right"]`), sampled in the current world space. Faces are kept only when
+            all three of their vertices survive, so the cut face is not closed. Sampling
+            the hemisphere map makes this orientation-agnostic and correct after an
+            arbitrary resample.
         clip : bool, default: True
-            Whether to clip the final mesh to the current reference grid. If `False`,
-            the mesh will still be transformed to the current world space, but the
-            bounding box will not be respected.
+            Whether to clip each mesh to the current reference grid. Unclipped meshes
+            are still transformed to the current world space but may extend past the
+            grid's bounding box.
 
         Returns
         -------
-        vertices : numpy.ndarray, shape (N, 3)
-            Vertex coordinates in the current world space (millimetres). After a
-            nonlinear resample, vertices warped outside the reference grid are dropped.
-        faces : numpy.ndarray, shape (M, 3)
-            Zero-indexed triangle face indices (int32).
+        dict[str, tuple[(N, 3) numpy.ndarray, (M, 3) numpy.ndarray]]
+            One `(vertices, faces)` pair per requested region, keyed by the region's
+            acronym, suffixed with `_L`/`_R` when the corresponding `side` is
+            `"left"`/`"right"` (left/right requests for the same region would otherwise
+            share a key). `vertices` holds coordinates in the current world space
+            (millimetres); after a nonlinear resample, vertices warped outside the
+            reference grid are dropped. `faces` holds zero-indexed triangle indices
+            (int32).
 
         Raises
         ------
         TypeError
             If `ds` is not a well-formed atlas Dataset.
         KeyError
-            If the requested region is not found in the atlas.
+            If any requested region is not found in the atlas.
         ValueError
-            If the region has no mesh file, or the mesh file cannot be located.
+            If `sides` is a sequence whose length does not match `regions`, if any element
+            of `sides` is not `"left"`, `"right"`, or `"both"`, or if a region has no mesh
+            file.
+        RuntimeError
+            If a region's mesh cannot be downloaded or read.
+
+        Examples
+        --------
+        >>> vertices, faces = ds.atlas.get_meshes("VISp")["VISp"]
+        >>> ds.atlas.get_meshes(["VISp", "AUDp"], sides=["left", "both"]).keys()
+        dict_keys(['VISp_L', 'AUDp'])
         """
-        return get_atlas_mesh(self._ds, region, side, clip=clip)
+        return get_atlas_meshes(self._ds, regions, sides, clip=clip)
 
     # ── Resampling ────────────────────────────────────────────────────────────────────
 
@@ -367,7 +385,7 @@ class AtlasAccessor:
         -------
         xarray.Dataset
             Resampled atlas Dataset on the requested grid. Meshes returned by
-            `get_mesh` are transformed through the composed `world_to_base` attribute.
+            `get_meshes` are transformed through the composed `world_to_base` attribute.
         """
         resampled_ref = resample_volume(
             self.reference,
@@ -443,7 +461,7 @@ class AtlasAccessor:
         -------
         xarray.Dataset
             Resampled atlas Dataset with exactly `reference`'s voxel labels and
-            voxel-to-world affine. Meshes returned by `get_mesh` are transformed
+            voxel-to-world affine. Meshes returned by `get_meshes` are transformed
             through the composed `world_to_base` attribute.
 
         Raises
@@ -528,9 +546,74 @@ class AtlasAccessor:
 #
 # These free functions are the implementation behind the matching `AtlasAccessor` methods:
 # each validates `ds` as an atlas, then operates on it, and the accessor method is a thin
-# wrapper (`ds.atlas.get_mesh(...)` calls `get_mesh(ds, ...)`). Import them as
-# `confusius.atlas.get_atlas_mesh` / `search_atlas` / `get_atlas_masks` to operate on a
-# Dataset directly.
+# wrapper (`ds.atlas.get_meshes(...)` calls `get_meshes(ds, ...)`). Import them as
+# `confusius.atlas.get_atlas_meshes` / `search_atlas` / `get_atlas_masks` to operate on
+# a Dataset directly.
+
+
+def _normalize_regions_and_sides(
+    regions: int | str | Sequence[int | str],
+    sides: (
+        Literal["left", "right", "both"] | Sequence[Literal["left", "right", "both"]]
+    ),
+) -> tuple[list[int | str], list[str]]:
+    """Broadcast `regions` and `sides` into two validated, equal-length lists.
+
+    Shared by [`get_atlas_masks`][confusius.atlas.get_atlas_masks] and
+    [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes], which both accept a single region
+    or a sequence, with either a single side applied to all of them or one side per region.
+
+    Parameters
+    ----------
+    regions : int or str or sequence of int or str
+        One or more regions, each given as a structure index or acronym.
+    sides : {"left", "right", "both"} or sequence thereof
+        Hemisphere filter, either a scalar applied to every region or a sequence of the
+        same length as `regions`.
+
+    Returns
+    -------
+    region_list : list[int | str]
+        The requested regions as a list.
+    side_list : list[str]
+        One side per region, in `region_list` order.
+
+    Raises
+    ------
+    ValueError
+        If `sides` is a sequence whose length does not match `regions`, or if any element
+        of `sides` is not `"left"`, `"right"`, or `"both"`.
+    """
+    region_list: list[int | str]
+    if isinstance(regions, (int, str)):
+        region_list = [regions]
+    elif isinstance(regions, np.integer):
+        region_list = [int(regions)]
+    else:
+        region_list = list(regions)
+    if not region_list:
+        raise ValueError("'regions' must contain at least one region.")
+
+    side_list: list[str]
+    if isinstance(sides, str):
+        side_list = [sides] * len(region_list)
+    else:
+        side_list = list(sides)
+        if len(side_list) != len(region_list):
+            raise ValueError(
+                f"'sides' has {len(side_list)} elements but 'regions' has "
+                f"{len(region_list)} elements; they must have the same length."
+            )
+
+    valid_sides = {"left", "right", "both"}
+    invalid = [s for s in side_list if s not in valid_sides]
+    if invalid:
+        raise ValueError(
+            f"Invalid side value(s): {invalid!r}. "
+            f"Each element must be one of {sorted(valid_sides)}."
+        )
+
+    return region_list, side_list
 
 
 def search_atlas(
@@ -637,27 +720,7 @@ def get_atlas_masks(
     """
     validate_atlas(ds)
 
-    region_list: list[int | str] = (
-        [regions] if isinstance(regions, (int, str)) else list(regions)
-    )
-
-    if isinstance(sides, str):
-        side_list = [sides] * len(region_list)
-    else:
-        side_list = list(sides)
-        if len(side_list) != len(region_list):
-            raise ValueError(
-                f"'sides' has {len(side_list)} elements but 'regions' has "
-                f"{len(region_list)} elements; they must have the same length."
-            )
-
-    _valid_sides = {"left", "right", "both"}
-    invalid = [s for s in side_list if s not in _valid_sides]
-    if invalid:
-        raise ValueError(
-            f"Invalid side value(s): {invalid!r}. "
-            f"Each element must be one of {sorted(_valid_sides)}."
-        )
+    region_list, side_list = _normalize_regions_and_sides(regions, sides)
 
     annotation = ds["annotation"]
     hemispheres = ds["hemispheres"]
@@ -721,16 +784,18 @@ def get_atlas_masks(
     return result
 
 
-def get_atlas_mesh(
+def get_atlas_meshes(
     ds: xr.Dataset,
-    region: int | str,
-    side: Literal["left", "right", "both"] = "both",
+    regions: int | str | Sequence[int | str],
+    sides: (
+        Literal["left", "right", "both"] | Sequence[Literal["left", "right", "both"]]
+    ) = "both",
     *,
     clip: bool = True,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
-    """Return vertex coordinates and face indices for a region's mesh.
+) -> dict[str, tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]]:
+    """Return one surface mesh per requested region, keyed by acronym.
 
-    Reads the region's mesh, transforms its vertices from micron space to the atlas's
+    Reads each region's mesh, transforms its vertices from micron space to the atlas's
     world space (millimetres), then optionally drops out-of-grid vertices and clips to
     one hemisphere. The mesh comes from the structure's `mesh_filename`: for a freshly
     fetched atlas this points into the BrainGlobe cache; for an atlas loaded with
@@ -741,102 +806,145 @@ def get_atlas_mesh(
     ----------
     ds : xarray.Dataset
         Atlas Dataset; validated as an atlas before use.
-    region : int or str
-        Structure index or acronym.
-    side : {"left", "right", "both"}, default: "both"
-        Hemisphere to include. `"both"` keeps the full mesh. `"left"` and `"right"` keep
-        only vertices whose nearest `hemispheres` voxel carries that side's label
-        (`hemispheres.attrs["left"]` / `["right"]`), sampled in the atlas's world space.
-        Faces are kept only when all three of their vertices survive, so the cut face is
-        not closed. Sampling the hemisphere map makes this orientation-agnostic and correct
-        after an arbitrary resample.
+    regions : int or str or sequence of int or str
+        One or more regions, each given as a structure index or acronym.
+    sides : {"left", "right", "both"} or sequence thereof, default: "both"
+        Hemisphere filter. Pass a scalar to apply the same side to all regions, or a
+        sequence of the same length as `regions` for per-region control. `"both"` keeps
+        the full mesh. `"left"` and `"right"` keep only vertices whose nearest
+        `hemispheres` voxel carries that side's label (`hemispheres.attrs["left"]` /
+        `["right"]`), sampled in the atlas's world space. Faces are kept only when all
+        three of their vertices survive, so the cut face is not closed. Sampling the
+        hemisphere map makes this orientation-agnostic and correct after an arbitrary
+        resample.
     clip : bool, default: True
-        Whether to clip the final mesh to the reference grid. If `False`, the mesh is still
-        transformed to the atlas's world space, but the bounding box is not respected.
+        Whether to clip each mesh to the reference grid. Unclipped meshes are still
+        transformed to the atlas's world space but may extend past the grid's bounding
+        box.
 
     Returns
     -------
-    vertices : numpy.ndarray, shape (N, 3)
-        Vertex coordinates in the atlas's world space (millimetres). After a nonlinear
-        resample, vertices warped outside the reference grid are dropped.
-    faces : numpy.ndarray, shape (M, 3)
-        Zero-indexed triangle face indices (int32).
+    dict[str, tuple[(N, 3) numpy.ndarray, (M, 3) numpy.ndarray]]
+        One `(vertices, faces)` pair per requested region, keyed by the region's acronym,
+        suffixed with `_L`/`_R` when the corresponding `side` is `"left"`/`"right"`
+        (left/right requests for the same region would otherwise share a key). `vertices`
+        holds coordinates in the atlas's world space (millimetres); after a nonlinear
+        resample, vertices warped outside the reference grid are dropped. `faces` holds
+        zero-indexed triangle indices (int32).
 
     Raises
     ------
     TypeError
         If `ds` is not a well-formed atlas Dataset.
     KeyError
-        If the requested region is not found in the atlas.
+        If any requested region is not found in the atlas.
     ValueError
-        If `ds` is not a well-formed atlas, or if the region has no mesh file.
+        If `ds` is not a well-formed atlas, if `sides` is a sequence whose length does not
+        match `regions`, if any element of `sides` is not `"left"`, `"right"`, or `"both"`,
+        or if a region has no mesh file.
     RuntimeError
-        If the region's mesh cannot be downloaded or read.
+        If a region's mesh cannot be downloaded or read.
 
     Examples
     --------
     >>> import confusius as cf
-    >>> vertices, faces = cf.atlas.get_atlas_mesh(ds, "root")
+    >>> vertices, faces = cf.atlas.get_atlas_meshes(ds, "root")["root"]
+    >>> cf.atlas.get_atlas_meshes(ds, ["VISp", "AUDp"], sides=["left", "both"]).keys()
+    dict_keys(['VISp_L', 'AUDp'])
     """
     validate_atlas(ds, require_mesh_use=True)
+
+    region_list, side_list = _normalize_regions_and_sides(regions, sides)
 
     structures = ds.attrs["structures"]
     reference = ds["reference"]
     hemispheres = ds["hemispheres"]
     world_to_base = ds.attrs["world_to_base"]
 
-    rid = _resolve_region_id(structures, region)
-    info = structures[rid]
+    def _get_single_mesh(
+        region: int | str,
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
+        rid = _resolve_region_id(structures, region)
+        info = structures[rid]
 
-    mesh_filename = info.get("mesh_filename")
-    if mesh_filename is None:
-        raise ValueError(
-            f"No mesh file available for region '{region}' (id {rid}). "
-            "Not all BrainGlobe atlases include mesh files."
-        )
+        mesh_filename = info.get("mesh_filename")
+        if mesh_filename is None:
+            raise ValueError(
+                f"No mesh file available for region '{region}' (id {rid}). "
+                "Not all BrainGlobe atlases include mesh files."
+            )
 
-    # BrainGlobe lazily downloads the mesh from its remote store on this access if it
-    # is not already cached locally, so mesh_filename need not exist on disk yet.
-    try:
-        mesh = structures[rid]["mesh"]
-    except RuntimeError as error:
-        raise RuntimeError(
-            f"Could not load the mesh for region '{region}' (id {rid}): {error} If this "
-            "atlas was loaded with load_atlas, the mesh may not have been downloaded "
-            "before save_atlas ran; see the warning on save_atlas for when such a mesh "
-            "can still be fetched."
-        ) from error
-    vertices_um = mesh.points  # (N, 3) in microns
-    faces = mesh.get_cells_type("triangle")
+        # fetch_brainglobe_atlas prefetches every mesh, so this normally reads a cached
+        # file. BrainGlobe still downloads lazily on this access when the file is
+        # absent: prefetch skipped offline, or a store saved before meshes were cached.
+        try:
+            mesh = structures[rid]["mesh"]
+        except RuntimeError as error:
+            raise RuntimeError(
+                f"Could not load the mesh for region '{region}' (id {rid}): {error} "
+                "BrainGlobe may provide no mesh for this region, the mesh may not be "
+                "cached while offline, or, for an atlas loaded with load_atlas, it may "
+                "not have been downloaded before save_atlas ran."
+            ) from error
+        vertices_um = mesh.points  # (N, 3) in microns
+        faces = mesh.get_cells_type("triangle")
 
-    vertices_mm = vertices_um * 1e-3  # Convert microns to millimetres.
+        vertices_mm = vertices_um * 1e-3  # Convert microns to millimetres.
+        return vertices_mm, faces
 
-    vertices_mm = _apply_world_to_base_transform(world_to_base, vertices_mm, reference)
+    region_ids = [_resolve_region_id(structures, r) for r in region_list]
+    vertices_per_region, faces_per_region = zip(
+        *(_get_single_mesh(r) for r in region_list)
+    )
 
-    if clip:
-        vertices_mm, faces = _drop_vertices_outside_grid(vertices_mm, faces, reference)
+    vertices_sections = np.cumsum([v.shape[0] for v in vertices_per_region[:-1]])
 
-    if side != "both":
+    # One transform call for all regions: the base transform can be nonlinear, and
+    # evaluating it once on the concatenated vertices is much cheaper than per region.
+    vertices_mm = _apply_world_to_base_transform(
+        world_to_base, np.concatenate(vertices_per_region, axis=0), reference
+    )
+
+    vertices_per_region = np.split(vertices_mm, vertices_sections, axis=0)
+
+    if any(side != "both" for side in side_list):
         from confusius.plotting._utils import (
             materialize_axis_aligned_world_grid_for_display,
         )
 
         hemispheres_grid = materialize_axis_aligned_world_grid_for_display(hemispheres)
-        sel = {
-            d: xr.DataArray(vertices_mm[:, i], dims="point")
-            for i, d in enumerate("zyx")
-        }
-        side_value = hemispheres.attrs[side]
-        hem_points = hemispheres_grid.sel(sel, method="nearest").compute()
+    else:
+        hemispheres_grid = hemispheres
 
-        keep_idx = np.where(hem_points == side_value)[0]
-        old_to_new = np.full(len(vertices_mm), -1, dtype=np.int64)
-        old_to_new[keep_idx] = np.arange(len(keep_idx), dtype=np.int64)
+    mesh_dict: dict[str, tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]] = {}
+    acronyms = [structures[rid]["acronym"] for rid in region_ids]
+    for side, region_vertices, region_faces, acronym in zip(
+        side_list, vertices_per_region, faces_per_region, acronyms
+    ):
+        if side != "both":
+            sel = {
+                d: xr.DataArray(region_vertices[:, i], dims="point")
+                for i, d in enumerate("zyx")
+            }
+            side_value = hemispheres.attrs[side]
+            hem_points = hemispheres_grid.sel(sel, method="nearest").compute()
 
-        new_face_idx = old_to_new[faces]  # (M, 3); -1 for dropped vertices.
-        valid = np.all(new_face_idx >= 0, axis=1)
+            keep_idx = np.where(hem_points == side_value)[0]
+            old_to_new = np.full(len(region_vertices), -1, dtype=np.int64)
+            old_to_new[keep_idx] = np.arange(len(keep_idx), dtype=np.int64)
 
-        vertices_mm = vertices_mm[keep_idx]
-        faces = new_face_idx[valid].astype(np.int32)
+            new_face_idx = old_to_new[region_faces]  # (M, 3); -1 for dropped vertices.
+            valid = np.all(new_face_idx >= 0, axis=1)
 
-    return vertices_mm, faces
+            region_vertices = region_vertices[keep_idx]
+            region_faces = new_face_idx[valid].astype(np.int32)
+            acronym = f"{acronym}_{side[0].upper()}"
+
+        if clip:
+            region_vertices, region_faces = _drop_vertices_outside_grid(
+                region_vertices, region_faces, reference
+            )
+
+        mesh_dict[acronym] = (region_vertices, region_faces)
+
+    return mesh_dict

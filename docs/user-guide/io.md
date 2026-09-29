@@ -127,6 +127,17 @@ an operation requires it.
     da = cf.load("sub-01_task-awake_pwd.nii.gz").compute()
     ```
 
+    For gzip-compressed NIfTI files (`.nii.gz`), repeated lazy partial reads such as
+    per-frame loops may decompress the file again for each independent Dask computation.
+    Use `.compute()` for ordinary eager processing, or `.persist()` before many
+    downstream Dask operations that should stay chunked and parallel:
+
+    ```python
+    da = cf.load("sub-01_task-awake_pwd.nii.gz").persist()
+    ```
+
+    For larger repeated random-access workloads, prefer Zarr or uncompressed `.nii`.
+
 ### Loading Zarr Files
 
 Xarray treats Zarr stores as multi-variable datasets. ConfUSIus'

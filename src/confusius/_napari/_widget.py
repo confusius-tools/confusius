@@ -271,9 +271,7 @@ class ConfUSIusWidget(QWidget):
         # plotter (background shading) and the time overlay (active-event readout).
         self._event_store = EventStore(self)
         # Shared store of stored/live signals, used by the Signals panel (source of
-        # truth), the QC panel (adds computed DVARS traces so they're selectable
-        # elsewhere, e.g. as a scrubbing sample mask), and the Preprocessing panel
-        # (confounds/sample mask sourcing).
+        # truth) and the QC panel (adds computed DVARS traces to the signal plot).
         self._signal_store = SignalStore(self)
         self._apply_theme()
         self._setup_ui()
@@ -574,18 +572,23 @@ class ConfUSIusWidget(QWidget):
             ("Events", "calendar-clock"),
             ("Quality Control", "clipboard-check"),
         ]
+        signal_panel = SignalPanel(
+            self.viewer,
+            event_store=self._event_store,
+            signal_store=self._signal_store,
+        )
         panels = [
             data_panel,
             video_panel,
-            SignalPanel(
-                self.viewer,
-                event_store=self._event_store,
-                signal_store=self._signal_store,
-            ),
+            signal_panel,
             RegistrationPanel(self.viewer),
             PreprocessingPanel(self.viewer, signal_store=self._signal_store),
             EventPanel(self.viewer, self._event_store),
-            QCPanel(self.viewer, signal_store=self._signal_store),
+            QCPanel(
+                self.viewer,
+                signal_store=self._signal_store,
+                show_signal_plot=signal_panel.show_plot,
+            ),
         ]
         btns: list[QPushButton] = []
 

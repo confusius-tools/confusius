@@ -141,22 +141,6 @@ class TestSignalPlotterOnClick:
 
 
 class TestQCPlotsOnClick:
-    def test_dvars_click_emits_time_clicked(self, qc_widget, signal_spy):
-        dvars = xr.DataArray(
-            np.array([0.2, 0.4, 0.6]),
-            dims=["time"],
-            coords={"time": xr.DataArray(np.array([1.0, 1.5, 2.0]), dims=["time"])},
-        )
-        qc_widget.update_dvars(dvars)
-
-        spy = signal_spy()
-        qc_widget.time_clicked.connect(spy)
-
-        event = _FakeMouseEvent(inaxes=qc_widget._dvars_ax, xdata=1.5)
-        qc_widget._on_dvars_click(event)
-
-        assert spy.count == 1
-
     def test_carpet_click_emits_time_clicked(self, qc_widget, signal_spy):
         time_coords = np.array([0.0, 0.5, 1.0, 1.5, 2.0])
         carpet_data = {
@@ -180,15 +164,26 @@ class TestQCPlotsOnClick:
 
         assert spy.count == 1
 
-    def test_dvars_click_ignored_during_pan(self, qc_widget, signal_spy):
-        dvars = xr.DataArray(np.array([0.2, 0.4]), dims=["time"])
-        qc_widget.update_dvars(dvars)
+    def test_carpet_click_ignored_during_pan(self, qc_widget, signal_spy):
+        time_coords = np.array([0.0, 0.5, 1.0])
+        carpet_data = {
+            "signals": xr.DataArray(
+                np.random.default_rng(0).random((4, 3)),
+                dims=["space", "time"],
+                coords={"time": time_coords},
+            ),
+            "vmin": 0.0,
+            "vmax": 1.0,
+            "xlabel": "Time (s)",
+            "time_coord": time_coords,
+        }
+        qc_widget.update_carpet(carpet_data)
 
         spy = signal_spy()
         qc_widget.time_clicked.connect(spy)
-        qc_widget._dvars_toolbar.pan()  # Activate pan mode.
+        qc_widget._carpet_toolbar.pan()  # Activate pan mode.
 
-        event = _FakeMouseEvent(inaxes=qc_widget._dvars_ax, xdata=0.5)
-        qc_widget._on_dvars_click(event)
+        event = _FakeMouseEvent(inaxes=qc_widget._carpet_ax, xdata=0.5)
+        qc_widget._on_carpet_click(event)
 
         assert spy.count == 0

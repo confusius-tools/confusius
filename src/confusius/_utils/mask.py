@@ -36,8 +36,8 @@ def _validate_feature_mask(
     Parameters
     ----------
     mask : xarray.DataArray
-        Mask to validate. Must have boolean dtype, or integer dtype with exactly one
-        non-zero value (0 = background, one region id = foreground).
+        Mask to validate. Must have boolean dtype, or binary numeric dtype (0 =
+        background, at most one non-zero value = foreground).
     data : xarray.DataArray
         Data array to validate `mask` against. May carry dimensions `mask` doesn't
         (e.g. `time`), same as [`ensure_mask`][confusius.validation.ensure_mask].
@@ -55,7 +55,7 @@ def _validate_feature_mask(
     Raises
     ------
     TypeError
-        If `mask` is not a boolean or single-label integer DataArray.
+        If `mask` is not a boolean or binary numeric DataArray.
     ValueError
         If `mask`'s dimensions aren't a subset of `data`'s (or don't match exactly
         when `require_exact_dims` is set), or if their sizes or coordinates disagree.
@@ -112,8 +112,8 @@ def validate_spatial_or_feature_mask(
     data : xarray.DataArray
         Data array to validate `mask` against.
     mask : xarray.DataArray
-        Mask to validate. Must have boolean dtype, or integer dtype with exactly one
-        non-zero value (0 = background, one region id = foreground).
+        Mask to validate. Must have boolean dtype, or binary numeric dtype (0 =
+        background, at most one non-zero value = foreground).
     mask_name : str, default: "mask"
         Name of the mask parameter (used in error messages).
     require_exact_dims : bool, default: False
@@ -128,7 +128,7 @@ def validate_spatial_or_feature_mask(
     Raises
     ------
     TypeError
-        If `mask` is not a boolean or single-label integer DataArray.
+        If `mask` is not a boolean or binary numeric DataArray.
     ValueError
         If `mask` doesn't match `data`'s grid (VoxelData case) or dimensions/sizes/
         coordinates (already-extracted case).
@@ -166,8 +166,8 @@ def select_masked_features(
         array.
     mask : xarray.DataArray
         Mask defining which elements to select, sharing `data`'s dimensions. Must have
-        boolean dtype, or integer dtype with exactly one non-zero value (0 =
-        background, one region id = foreground).
+        boolean dtype, or binary numeric dtype (0 = background, at most one non-zero
+        value = foreground).
     mask_name : str, default: "mask"
         Name of the mask parameter (used in error messages).
     require_exact_dims : bool, default: False
@@ -186,7 +186,7 @@ def select_masked_features(
         If `mask` doesn't match `data`'s grid (VoxelData case) or dimensions/sizes/
         coordinates (already-extracted case).
     TypeError
-        If `mask` is not boolean dtype (or a single-label integer dtype).
+        If `mask` is not boolean dtype (or a binary numeric dtype).
     """
     mask = validate_spatial_or_feature_mask(
         data, mask, mask_name, require_exact_dims=require_exact_dims
