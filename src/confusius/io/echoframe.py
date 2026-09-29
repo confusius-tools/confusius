@@ -110,8 +110,10 @@ def load_echoframe_metadata(meta_path: str | Path) -> EchoFrameMetadata:
         # Spatial coordinates.
         # recon_spec["xAxis"] is lateral (x dimension in ConfUSIus).
         # recon_spec["zAxis"] is depth/axial (y dimension in ConfUSIus).
-        x_axis_full = np.array(recon_spec["xAxis"][:]).flatten()
-        z_axis_full = np.array(recon_spec["zAxis"][:]).flatten()
+        x_axis_name = "xAxis" if "xAxis" in recon_spec else "x_axis"
+        z_axis_name = "zAxis" if "zAxis" in recon_spec else "z_axis"
+        x_axis_full = np.array(recon_spec[x_axis_name][:]).flatten()
+        z_axis_full = np.array(recon_spec[z_axis_name][:]).flatten()
 
         if crop:
             # croppingROI is 1-indexed, convert to 0-indexed.
@@ -599,7 +601,13 @@ def convert_echoframe_dat_to_zarr(
                 for block_start in block_times_array
             ]
         )
-        iq_da = iq_da.assign_coords(time=("time", time_values))
+        iq_da = iq_da.assign_coords(
+            time=xr.DataArray(
+                time_values,
+                dims=[TIME_DIM],
+                attrs=iq_da.coords[TIME_DIM].attrs,
+            )
+        )
 
     zarr_group = zarr.open_group(output_path, mode="w" if overwrite else "w-")
     zarr_iq = zarr_group.create_array("iq", **create_array_kwargs)

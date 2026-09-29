@@ -9,13 +9,14 @@ License. See `NOTICE` file for details.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 from sklearn.base import BaseEstimator
 
+from confusius._utils.progress import progress_bar
 from confusius.extract import extract_with_mask, unmask
 from confusius.glm._contrasts import Contrast
 from confusius.glm._design import (
@@ -37,6 +38,74 @@ from confusius.validation.mask import validate_mask
 
 if TYPE_CHECKING:
     import numpy.typing as npt
+
+
+def _fit_run(
+    run: xr.DataArray,
+    mask: xr.DataArray,
+    design_array: npt.NDArray[np.floating],
+    smoothing_fwhm: float | dict[str, float] | None,
+    ar_order: int,
+    minimize_memory: bool,
+) -> RegressionResults:
+    """Fit the GLM of a single run.
+
+    Parameters
+    ----------
+    run : xarray.DataArray
+        VoxelData array of the run, with a `time` dimension.
+    mask : xarray.DataArray
+        Boolean VoxelData mask spanning every non-`time` dimension of `run`.
+    design_array : (n_volumes, n_regressors) numpy.ndarray
+        Design matrix of the run.
+    smoothing_fwhm : float or dict[str, float], optional
+        Gaussian smoothing FWHM applied to `run` before fitting, as in
+        [`smooth_volume`][confusius.spatial.smooth_volume]. If not provided, no
+        smoothing is applied.
+    ar_order : int
+        AR order of the noise model; `0` fits plain OLS.
+    minimize_memory : bool
+        Whether to strip the heavy per-run arrays from the results once the
+        contrast-relevant fields are computed.
+
+    Returns
+    -------
+    RegressionResults
+        Fitted regression results of the run.
+    """
+    if smoothing_fwhm is not None:
+        run = smooth_volume(run, smoothing_fwhm)
+    # `mask` spans every non-time dim of run (see `_effective_mask_` in
+    # FirstLevelModel.fit), so extract_with_mask's data.stack(space=...) stacks away
+    # everything but time. xarray.stack always appends the new stacked dim at the
+    # end, so the result is already (time, space); no transpose needed.
+    data_2d = extract_with_mask(run, mask).values
+
+    if ar_order == 0:
+        # Pure OLS.
+        model = OLSModel(design_array)
+        results = model.fit(data_2d)
+    else:
+        # Two-pass: OLS → estimate AR → refit with AR whitening.
+        ols_model = OLSModel(design_array)
+        ols_results = ols_model.fit(data_2d)
+        # OLS whitening is the identity, so `whitened_residuals` already holds the raw
+        # residuals. The `residuals` property recomputes `Y - design @ theta` and
+        # allocates a second `(n_volumes, n_voxels)` array for the same values. The
+        # cast is safe because these results are stripped only further down.
+        ols_residuals = cast("npt.NDArray[np.floating]", ols_results.whitened_residuals)
+        rho_per_voxel, _ = estimate_ar_coeffs(ols_residuals, order=ar_order)
+        ar_model = ARModel(design_array, rho_per_voxel)
+        results = ar_model.fit(data_2d)
+
+    if minimize_memory:
+        # Drop large per-run arrays (Y, whitened_Y, whitened_residuals and the
+        # model reference) once the contrast-relevant fields are computed.
+        # Diagnostic accessors (residuals/predicted/sse/mse) raise after this;
+        # contrasts keep working.
+        results._strip_heavy_fields()
+
+    return results
 
 
 class FirstLevelModel(BaseEstimator):
@@ -102,6 +171,8 @@ class FirstLevelModel(BaseEstimator):
     mask : xarray.DataArray, optional
         Boolean spatial mask selecting voxels to include in model fitting. Must match
         the spatial dimensions and coordinates of each run.
+    show_progress : bool, default: False
+        Whether to display a progress bar counting the runs fitted so far.
 
     Attributes
     ----------
@@ -145,6 +216,7 @@ class FirstLevelModel(BaseEstimator):
         uniformity_tolerance: float = 1e-2,
         smoothing_fwhm: float | dict[str, float] | None = None,
         mask: xr.DataArray | None = None,
+        show_progress: bool = False,
     ) -> None:
         self.hrf_model = hrf_model
         self.drift_model = drift_model
@@ -158,6 +230,7 @@ class FirstLevelModel(BaseEstimator):
         self.uniformity_tolerance = uniformity_tolerance
         self.smoothing_fwhm = smoothing_fwhm
         self.mask = mask
+        self.show_progress = show_progress
 
     def fit(
         self,
@@ -280,7 +353,6 @@ class FirstLevelModel(BaseEstimator):
         ar_order = self._parse_noise_model()
 
         self.design_matrices_: list[pd.DataFrame] = design_matrices_list
-        self.results_: list[RegressionResults] = []
         self._input_attrs: dict[str, object] = intersect_attrs(run_data)
 
         # compute_contrast always reconstructs its output via unmask, which needs a
@@ -296,41 +368,22 @@ class FirstLevelModel(BaseEstimator):
                 allow_extra_dims=False,
             )
 
-        for run_index in range(n_runs):
-            run = run_data[run_index]
-            if self.smoothing_fwhm is not None:
-                run = smooth_volume(run, self.smoothing_fwhm)
-            # _effective_mask_ spans every non-time dim of run (see its construction
-            # above), so extract_with_mask's data.stack(space=...) stacks away
-            # everything but time. xarray.stack always appends the new stacked dim at
-            # the end, so the result is already (time, space); no transpose needed.
-            data_2d = extract_with_mask(run, self._effective_mask_).values
-
-            dm = design_matrices_list[run_index]
-            design_array = dm.to_numpy()
-
-            if ar_order == 0:
-                # Pure OLS.
-                model = OLSModel(design_array)
-                results = model.fit(data_2d)
-            else:
-                # Two-pass: OLS → estimate AR → refit with AR whitening.
-                ols_model = OLSModel(design_array)
-                ols_results = ols_model.fit(data_2d)
-                rho_per_voxel, _ = estimate_ar_coeffs(
-                    ols_results.residuals, order=ar_order
+        self.results_: list[RegressionResults] = []
+        with progress_bar(
+            "Fitting runs...", total=n_runs, show=self.show_progress
+        ) as advance:
+            for run, dm in zip(run_data, design_matrices_list, strict=True):
+                self.results_.append(
+                    _fit_run(
+                        run,
+                        self._effective_mask_,
+                        dm.to_numpy(),
+                        self.smoothing_fwhm,
+                        ar_order,
+                        self.minimize_memory,
+                    )
                 )
-                ar_model = ARModel(design_array, rho_per_voxel)
-                results = ar_model.fit(data_2d)
-
-            if self.minimize_memory:
-                # Drop large per-run arrays (Y, whitened_Y, whitened_residuals and the
-                # model reference) once the contrast-relevant fields are computed.
-                # Diagnostic accessors (residuals/predicted/sse/ mse) raise after this;
-                # contrasts keep working.
-                results._strip_heavy_fields()
-
-            self.results_.append(results)
+                advance()
 
         return self
 

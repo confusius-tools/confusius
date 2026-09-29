@@ -322,6 +322,7 @@ def on_volumewise_registration_finished(
         metadata={
             "motion_params": motion_params,
             "reference_time": payload["reference_time"],
+            "fixed_layer_name": payload.get("fixed_layer_name"),
         },
         registration_status=registration_status,
     )
