@@ -1,6 +1,7 @@
 """Unit tests for volumewise registration functions."""
 
 from threading import Event
+from typing import Any, Self, cast
 
 import numpy as np
 import pandas as pd
@@ -58,6 +59,49 @@ class _FakeVolumewiseProgressReporter:
 
     def close(self) -> None:
         self.closed = True
+
+
+def _patch_immediate_dask_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[dict[str, Any]]:
+    """Patch volumewise registration to use an in-process fake Dask client."""
+    import confusius.registration.volumewise as volumewise_module
+
+    client_kwargs: list[dict[str, Any]] = []
+
+    class _ImmediateFuture:
+        def __init__(self, result: object) -> None:
+            self._result = result
+
+        def result(self) -> object:
+            return self._result
+
+    class _ImmediateClient:
+        def __init__(self, *args: object, **kwargs: Any) -> None:
+            del args
+            client_kwargs.append(kwargs)
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            del args
+
+        def submit(
+            self, fn: Any, *args: object, pure: bool = False
+        ) -> _ImmediateFuture:
+            assert not pure
+            return _ImmediateFuture(fn(*args))
+
+    def _raise_no_client() -> None:
+        raise ValueError
+
+    monkeypatch.setattr(volumewise_module, "get_client", _raise_no_client)
+    monkeypatch.setattr(volumewise_module, "Client", _ImmediateClient)
+    monkeypatch.setattr(
+        volumewise_module, "as_completed", lambda futures: list(futures)
+    )
+    return client_kwargs
 
 
 class TestRegisterVolumewise:
@@ -171,10 +215,12 @@ class TestRegisterVolumewise:
         assert result.shape == scan_2d.shape
 
     def test_non_h5py_dask_backed_does_not_raise(
-        self, sample_voxeldata_2dt_registration
+        self, sample_voxeldata_2dt_registration, monkeypatch
     ):
         """Dask-backed (non-h5py) DataArray with n_jobs != 1 does not raise TypeError."""
         import dask.array as da
+
+        _patch_immediate_dask_client(monkeypatch)
 
         # Build a dask-backed DataArray that is NOT backed by h5py; is_h5py_backed
         # should return False and registration should proceed normally.
@@ -186,6 +232,127 @@ class TestRegisterVolumewise:
         )
         result = register_volumewise(dask_data, n_jobs=2, transform="translation")
         assert result.shape == sample_voxeldata_2dt_registration.shape
+
+    def test_negative_n_jobs_uses_auto_dask_workers(
+        self, sample_voxeldata_2dt_registration, monkeypatch
+    ):
+        """Negative n_jobs resolves to an auto-sized local Dask client."""
+        client_kwargs = _patch_immediate_dask_client(monkeypatch)
+        result = register_volumewise(
+            sample_voxeldata_2dt_registration.isel(time=slice(0, 2)),
+            n_jobs=-1,
+            transform="translation",
+            show_progress=False,
+        )
+        assert result.sizes["time"] == 2
+        assert client_kwargs[-1]["n_workers"] >= 1
+
+    def test_negative_n_jobs_falls_back_to_cpu_count(
+        self, sample_voxeldata_2dt_registration, monkeypatch
+    ):
+        """Auto worker sizing works without Linux CPU affinity support."""
+        import confusius.registration.volumewise as volumewise_module
+
+        client_kwargs = _patch_immediate_dask_client(monkeypatch)
+        monkeypatch.delattr(volumewise_module.os, "sched_getaffinity", raising=False)
+        result = register_volumewise(
+            sample_voxeldata_2dt_registration.isel(time=slice(0, 2)),
+            n_jobs=-1,
+            transform="translation",
+            show_progress=False,
+        )
+        assert result.sizes["time"] == 2
+        assert client_kwargs[-1]["n_workers"] >= 1
+
+    def test_parallel_reuses_ambient_dask_client(
+        self, sample_voxeldata_2dt_registration
+    ):
+        """An active Dask client is reused for parallel registration."""
+        from distributed import Client
+
+        with Client(
+            n_workers=1,
+            threads_per_worker=2,
+            processes=False,
+            dashboard_address=None,
+        ):
+            result = register_volumewise(
+                sample_voxeldata_2dt_registration.isel(time=slice(0, 2)),
+                n_jobs=99,
+                transform="translation",
+                show_progress=False,
+            )
+
+        assert result.sizes["time"] == 2
+
+    def test_parallel_preset_distributed_abort_closes_reporter(
+        self, sample_voxeldata_2dt_registration
+    ):
+        """A pre-set distributed abort skips queued frames and closes reporters."""
+        from distributed import Client
+        from distributed import Event as DistributedEvent
+
+        reporter = _FakeVolumewiseProgressReporter()
+        with Client(
+            n_workers=1,
+            threads_per_worker=1,
+            processes=False,
+            dashboard_address=None,
+        ):
+            abort_event = DistributedEvent()
+            abort_event.set()
+            result = register_volumewise(
+                sample_voxeldata_2dt_registration.isel(time=slice(0, 2)),
+                n_jobs=2,
+                transform="translation",
+                abort_event=abort_event,
+                progress_reporter=reporter,
+            )
+
+        assert set(result.attrs["motion_params"]["status"]) == {"aborted"}
+        assert reporter.closed
+
+    def test_parallel_progress_reporter_receives_frame_updates(
+        self, sample_voxeldata_2dt_registration, monkeypatch
+    ):
+        """Parallel registration reports finished frames."""
+        from distributed import Client
+
+        reporter = _FakeVolumewiseProgressReporter()
+
+        def _fake_register_volume(volume, _ref_da, **kwargs):
+            diagnostics = RegistrationDiagnostics(
+                metric="correlation",
+                metric_values=np.asarray([-1.0]),
+                final_metric_value=-1.0,
+                n_iterations=1,
+                stop_condition="done",
+                status="completed",
+            )
+            return volume.copy(), np.eye(4), diagnostics
+
+        monkeypatch.setattr(
+            "confusius.registration.volumewise.register_volume",
+            _fake_register_volume,
+        )
+
+        with Client(
+            n_workers=1,
+            threads_per_worker=2,
+            processes=False,
+            dashboard_address=None,
+        ):
+            result = register_volumewise(
+                sample_voxeldata_2dt_registration.isel(time=slice(0, 2)),
+                n_jobs=2,
+                transform="translation",
+                show_progress=False,
+                progress_reporter=reporter,
+            )
+
+        assert result.sizes["time"] == 2
+        assert sorted(reporter.completed_frames) == [0, 1]
+        assert reporter.closed
 
     def test_show_progress_false_skips_joblib_progress_import(
         self, sample_voxeldata_2dt_registration, monkeypatch
@@ -217,15 +384,23 @@ class TestRegisterVolumewise:
         self, sample_voxeldata_2dt_registration
     ):
         """A pre-set abort event returns an aborted partial dataset."""
-        abort_event = Event()
-        abort_event.set()
+        from distributed import Client
+        from distributed import Event as DistributedEvent
 
-        result = register_volumewise(
-            sample_voxeldata_2dt_registration,
-            n_jobs=2,
-            transform="translation",
-            abort_event=abort_event,
-        )
+        with Client(
+            n_workers=1,
+            threads_per_worker=1,
+            processes=False,
+            dashboard_address=None,
+        ):
+            abort_event = DistributedEvent()
+            abort_event.set()
+            result = register_volumewise(
+                sample_voxeldata_2dt_registration,
+                n_jobs=2,
+                transform="translation",
+                abort_event=abort_event,
+            )
 
         assert result.shape == sample_voxeldata_2dt_registration.shape
         assert set(result.attrs["motion_params"]["status"]) == {"aborted"}
@@ -276,8 +451,6 @@ class TestRegisterVolumewise:
         self, sample_voxeldata_2dt_registration, monkeypatch
     ):
         """Already-scheduled frames hit the cheap aborted-frame fast path."""
-        import joblib
-
         abort_event = Event()
         calls = {"count": 0}
 
@@ -295,38 +468,17 @@ class TestRegisterVolumewise:
             )
             return volume.copy(), np.eye(4), diagnostics
 
-        class _FakeParallel:
-            def __init__(self, *args, **kwargs):
-                del args, kwargs
-
-            def __call__(self, tasks):
-                scheduled = list(tasks)
-
-                def _run():
-                    for task in scheduled:
-                        yield task()
-
-                return _run()
-
-        def _fake_delayed(func):
-            def _wrap(*args, **kwargs):
-                return lambda: func(*args, **kwargs)
-
-            return _wrap
-
         monkeypatch.setattr(
             "confusius.registration.volumewise.register_volume",
             _fake_register_volume,
         )
-        monkeypatch.setattr(joblib, "Parallel", _FakeParallel)
-        monkeypatch.setattr(joblib, "delayed", _fake_delayed)
 
         result = register_volumewise(
             sample_voxeldata_2dt_registration,
             n_jobs=2,
             transform="translation",
             show_progress=False,
-            abort_event=abort_event,
+            abort_event=cast(Any, abort_event),
         )
 
         statuses = list(result.attrs["motion_params"]["status"])
@@ -486,8 +638,9 @@ class TestRegisterVolumewise:
 
         assert _corr_with_fixed(result.values[1]) > _corr_with_fixed(data.values[1])
 
-    def test_h5py_backed_fixed_works_with_parallel_jobs(self, scan_2d):
-        """A lazily loaded h5py-backed `fixed` works with joblib workers."""
+    def test_h5py_backed_fixed_works_with_parallel_jobs(self, scan_2d, monkeypatch):
+        """A lazily loaded h5py-backed `fixed` works with Dask workers."""
+        _patch_immediate_dask_client(monkeypatch)
         result = register_volumewise(
             scan_2d.compute(),
             fixed=scan_2d.isel(time=0),
