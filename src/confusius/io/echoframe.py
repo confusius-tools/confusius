@@ -601,7 +601,13 @@ def convert_echoframe_dat_to_zarr(
                 for block_start in block_times_array
             ]
         )
-        iq_da = iq_da.assign_coords(time=("time", time_values))
+        iq_da = iq_da.assign_coords(
+            time=xr.DataArray(
+                time_values,
+                dims=[TIME_DIM],
+                attrs=iq_da.coords[TIME_DIM].attrs,
+            )
+        )
 
     zarr_group = zarr.open_group(output_path, mode="w" if overwrite else "w-")
     zarr_iq = zarr_group.create_array("iq", **create_array_kwargs)

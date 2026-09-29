@@ -6,23 +6,11 @@ licensed under the BSD-3-Clause License. See `NOTICE` for details.
 
 import warnings
 from collections.abc import Callable
-from contextlib import nullcontext
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
 from joblib import Parallel, delayed, effective_n_jobs
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TaskID,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
 from scipy.spatial import KDTree
 from sklearn.base import BaseEstimator, clone, is_classifier
 from sklearn.model_selection import (
@@ -34,6 +22,7 @@ from sklearn.model_selection import (
 
 from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.io import is_h5py_backed
+from confusius._utils.progress import progress_bar
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask, unmask
 from confusius.validation import ensure_mask, ensure_voxeldata
@@ -319,28 +308,13 @@ def _run_searchlight(
         for batch_indices in np.array_split(np.arange(len(neighborhoods)), n_batches)
     ]
 
-    progress: Progress | None = None
-    task_id: TaskID | None = None
-    if show_progress:
-        # The bar is driven directly rather than through `joblib_progress`, which
-        # patches `Parallel.print_progress` process-wide. The inner `cross_val_score`
-        # builds its own `Parallel`, so its folds would advance this bar too.
-        progress = Progress(
-            SpinnerColumn(),
-            TaskProgressColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TimeElapsedColumn(),
-            "<",
-            TimeRemainingColumn(),
-        )
-        task_id = progress.add_task(
-            "[cyan]Scoring searchlights...", total=len(neighborhoods)
-        )
-
     results: list[npt.NDArray[np.float64]] = []
-    with progress or nullcontext():
+    # The bar is advanced by hand rather than through `joblib_progress`, which patches
+    # `Parallel.print_progress` process-wide. The inner `cross_val_score` builds its own
+    # `Parallel`, so its folds would advance this bar too.
+    with progress_bar(
+        "Scoring searchlights...", total=len(neighborhoods), show=show_progress
+    ) as advance:
         # `return_as="generator"` keeps results in batch order, so concatenating them
         # still maps scores back onto centers. The unordered variant would scramble the
         # map.
@@ -350,8 +324,7 @@ def _run_searchlight(
         )
         for batch, result in zip(batches, stream, strict=True):
             results.append(np.asarray(result, dtype=np.float64))
-            if progress is not None and task_id is not None:
-                progress.advance(task_id, len(batch))
+            advance(len(batch))
 
     return np.concatenate(results)
 

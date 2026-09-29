@@ -48,6 +48,9 @@ Current development version for the next ConfUSIus release.
   `data.fusi.register.volumewise` accept a `fixed` VoxelData volume (for example the
   mean of a few low-motion frames) to register every frame to, as an alternative to
   `reference_time` ([#436](https://github.com/confusius-tools/confusius/pull/436)).
+- [`FirstLevelModel`][confusius.glm.FirstLevelModel] accepts `show_progress=True` to
+  display a progress bar over the runs being fitted
+  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
 - New [`get_bounding_box`][confusius.xarray.get_bounding_box], also available as
   [`data.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box],
   returning a VoxelData array's world-space bounding box enclosing the full extent of
@@ -64,6 +67,9 @@ Current development version for the next ConfUSIus release.
   `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this
   even when only metadata or a small region is needed
   ([#415](https://github.com/confusius-tools/confusius/pull/415)).
+- [`FirstLevelModel.fit`][confusius.glm.FirstLevelModel.fit] is roughly twice as fast,
+  with the larger gain on the default `noise_model="ar1"`
+  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
 - [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes] with `clip=True` no longer
   materializes the full world-coordinate grid of an oblique atlas
   ([#446](https://github.com/confusius-tools/confusius/pull/446)).
@@ -89,9 +95,16 @@ Current development version for the next ConfUSIus release.
   on its own under `auto_range=True`: a lone bound sets the symmetric range to
   `[-|bound|, |bound|]`
   ([#445](https://github.com/confusius-tools/confusius/pull/445)).
+- [`FirstLevelModel.compute_contrast`][confusius.glm.FirstLevelModel.compute_contrast]
+  no longer emits a divide-by-zero `RuntimeWarning` on recordings containing voxels with
+  no variance over time, such as those outside the recorded field of view
+  ([#442](https://github.com/confusius-tools/confusius/pull/442)).
 - [`apply_affine`][confusius.xarray.apply_affine] keeps the applied key in
   `.attrs["affines"]` as the identity when the affine is given by key
   ([#463](https://github.com/confusius-tools/confusius/pull/463)).
+- [`convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr] now
+  preserves time coordinate attributes when passing `block_times`
+  ([#473](https://github.com/confusius-tools/confusius/pull/473)).
 
 ### :frame_photo: Napari plugin
 
