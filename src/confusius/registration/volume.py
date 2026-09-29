@@ -8,6 +8,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius.registration._utils import (
+    AbortEvent,
     abort_on_sigint,
     expand_thin_dims,
     replace_affines_attr,
@@ -23,8 +24,6 @@ from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.validation import validate_matching_spatial_units
 
 if TYPE_CHECKING:
-    from threading import Event
-
     from confusius.registration.progress import RegistrationProgress
 
 
@@ -364,7 +363,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     plot_composite: bool = ...,
     max_composite_slices: int | None = ...,
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
-    abort_event: "Event | None" = ...,
+    abort_event: AbortEvent | None = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for linear transforms (translation/rigid/affine)."""
 
@@ -404,7 +403,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     plot_composite: bool = ...,
     max_composite_slices: int | None = ...,
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
-    abort_event: "Event | None" = ...,
+    abort_event: AbortEvent | None = ...,
 ) -> "tuple[xr.DataArray, xr.DataArray, RegistrationDiagnostics]":
     """Overload for bspline transform (returns DataArray transform)."""
 
@@ -443,7 +442,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     plot_composite: bool = ...,
     max_composite_slices: int | None = ...,
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
-    abort_event: "Event | None" = ...,
+    abort_event: AbortEvent | None = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for default transform (rigid, returns affine)."""
 
@@ -482,7 +481,7 @@ def register_volume(
     plot_composite: bool = True,
     max_composite_slices: int | None = 9,
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
-    abort_event: "Event | None" = None,
+    abort_event: AbortEvent | None = None,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":
     """Register a single 3D volume to a fixed reference.
 
@@ -640,10 +639,13 @@ def register_volume(
         is used. Ignored when `show_progress=False`. Custom factories are expected to
         be safe to call from a non-GUI thread; GUI side effects must be marshalled via
         thread-safe primitives such as Qt signals.
-    abort_event : threading.Event, optional
+    abort_event : threading.Event or distributed.Event, optional
         Cooperative cancellation flag. If set before or during optimisation, the
         registration stops at the next SimpleITK iteration boundary and returns
-        the current intermediate result with `diagnostics.status="aborted"`.
+        the current intermediate result with `diagnostics.status="aborted"`. A
+        `distributed.Event` is required (instead of `threading.Event`) when this
+        call runs as a task on a Dask worker -- see
+        [`register_volumewise`][confusius.registration.register_volumewise]'s Notes.
 
     Returns
     -------

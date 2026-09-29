@@ -1,12 +1,17 @@
 """Volumewise registration for fUSI data."""
 
+import logging
+import os
 from collections.abc import Sequence
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
+from functools import partial
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from distributed import Client, as_completed, get_client
+from rich.progress import Progress
 
 from confusius._utils.io import is_h5py_backed
 from confusius.registration._utils import validate_intensity_scaling
@@ -17,9 +22,72 @@ from confusius.validation import ensure_voxeldata
 from confusius.validation.mask import check_spatial_alignment
 
 if TYPE_CHECKING:
-    from threading import Event
+    from collections.abc import Callable
+
+    from distributed import Event
 
     from confusius.registration.volumewise_progress import VolumewiseProgressReporter
+
+
+def _default_worker_count() -> int:
+    """Return a portable default worker count for an auto-created local Client.
+
+    Returns
+    -------
+    int
+        `len(os.sched_getaffinity(0))` where available (respects CPU affinity/cgroup
+        limits, e.g. containers), otherwise `os.cpu_count()`. Always at least 1.
+    """
+    if hasattr(os, "sched_getaffinity"):
+        return max(1, len(os.sched_getaffinity(0)))
+    return max(1, os.cpu_count() or 1)
+
+
+@contextmanager
+def _volumewise_client(n_jobs: int):
+    """Yield a `submit` callable bound to an active `distributed.Client`.
+
+    Yields
+    ------
+    Callable
+        `submit(fn, *args)`, returning a `distributed.Future`.
+
+    Notes
+    -----
+    Reuses the ambient client (`distributed.get_client()`) if one is active,
+    otherwise creates a local one for the duration of this call, with one worker
+    process per CPU.
+    """
+
+    def _submit_impure(client: Client, fn: "Callable[..., object]", /, *args: object):
+        # pure=False: each call is a distinct piece of work (register_volumewise has
+        # no caching/memoization concept), so never let distributed deduplicate two
+        # submissions that happen to hash the same.
+        return client.submit(fn, *args, pure=False)
+
+    try:
+        client = get_client()
+        yield partial(_submit_impure, client)
+        return
+    except ValueError:
+        pass
+
+    # silence_logs: an auto-created local cluster torn down right after this call
+    # can race a scheduled worker heartbeat, logging a benign but alarming-looking
+    # CommClosedError traceback. Not relevant to the caller. dashboard_address=":0":
+    # an ephemeral port, so this doesn't collide with another dashboard (this
+    # session's own, or a concurrent call's) bound to the default :8787.
+    if n_jobs < 0:
+        n_jobs = max(1, _default_worker_count() + 1 + n_jobs)
+
+    with Client(
+        n_workers=max(1, n_jobs),
+        threads_per_worker=1,
+        processes=True,
+        silence_logs=logging.ERROR,
+        dashboard_address=":0",
+    ) as client:
+        yield partial(_submit_impure, client)
 
 
 def register_volumewise(
@@ -68,9 +136,9 @@ def register_volumewise(
         provided, the frame at `reference_time` is used. Cannot be combined with
         `reference_time`.
     n_jobs : int, default: -1
-        Number of parallel jobs. Negative values resolve to `max(1, os.cpu_count() + 1
-        + n_jobs)`, so `-1` means all CPUs, `-2` means all minus one, and so on.
-        Use `1` for serial processing.
+        Number of parallel jobs for an auto-created local Dask client. Negative
+        values resolve to `max(1, os.cpu_count() + 1 + n_jobs)`; ignored when an
+        ambient `distributed.Client` is active.
     transform : {"translation", "rigid", "affine"}, default: "rigid"
         Transform model to use during registration. `"translation"` allows
         only shifts. `"rigid"` adds rotation. `"affine"` adds scaling and
@@ -151,11 +219,14 @@ def register_volumewise(
     progress_reporter : VolumewiseProgressReporter, optional
         Thread-safe reporter notified whenever one frame completes. Useful for GUI
         progress bars or progressively filling an output layer while frames finish.
-    abort_event : threading.Event, optional
-        Cooperative cancellation flag shared across frames. If set before or during
-        execution, in-flight frame registrations stop at the next optimiser iteration
-        boundary and this function returns the partial dataset collected so far. Frames
-        that were not started are left blank (filled with the data minimum), and
+    abort_event : distributed.Event, optional
+        Cooperative cancellation flag shared across frames. Must be a `distributed.
+        Event` (not a `threading.Event`) so that a live update is visible from a
+        frame already running on a separate worker process -- see Notes. If set
+        before or during execution, frames not yet dispatched are skipped, and
+        in-flight frames stop at the next optimiser iteration boundary; this
+        function then returns the partial dataset collected so far. Frames that
+        were not started are left blank (filled with the data minimum), and
         per-frame `motion_params` rows are marked via the diagnostics status.
     keep_diagnostics : bool, default: False
         Whether to keep the full per-frame
@@ -187,13 +258,40 @@ def register_volumewise(
         is given without `fixed`, or if `fixed` has a `time` dimension, is not a
         VoxelData array, or does not share `data`'s voxel grid.
     TypeError
-        If `n_jobs != 1` and `data` is backed by an h5py dataset. See Notes.
+        If `data` is backed by an h5py dataset, which cannot be pickled to send it
+        to a Dask worker. See Notes.
 
     Notes
     -----
-    SCAN files are HDF5 files loaded lazily via h5py. h5py datasets cannot be pickled,
-    so they cannot be passed to joblib workers for parallel processing. Materialize the
-    data before calling this function:
+    Frames are registered in parallel through a Dask `distributed.Client`: if one
+    is already active (`distributed.get_client()`), its workers are used as-is;
+    otherwise a local `Client` is created for the duration of this call, using one
+    worker process per CPU. To control parallelism explicitly -- e.g. to size a
+    cluster, or to reuse one `Client` across several calls -- create and activate a
+    `distributed.Client` yourself before calling this function.
+
+    `abort_event` must be a `distributed.Event` rather than a `threading.Event`
+    because `Client.submit` always pickles the submitted call to send it across the
+    scheduler's message-passing protocol, even for an in-process/thread-based local
+    cluster -- a live `threading.Event` cannot be pickled at all (nor can it stay
+    live once pickled), whereas `distributed.Event` is itself backed by the
+    scheduler and stays live across worker processes. Constructing one
+    (`distributed.Event()`) requires an active `distributed.Client`, so create one
+    yourself before calling this function if you need `abort_event`.
+
+    Each frame is read via lazy `data.isel(time=t)` indexing, so a
+    Dask-backed `data` is only pulled into memory frame-by-frame as each worker
+    executes its task, not all at once before registration starts.
+    Gzip-compressed NIfTI input is a notable exception: gzip has no random
+    access, so every independent per-frame read against an unpersisted
+    gzip-backed array re-decompresses from the start of the file. For that
+    backing specifically, materializing once with `.compute()` (or persisting
+    with `.persist()`) before calling this function is faster in practice --
+    see confusius-tools/confusius#439 for measurements.
+
+    SCAN files are HDF5 files loaded lazily via h5py. h5py datasets cannot be
+    pickled, so a `distributed.Client` can never send one to a worker process.
+    Materialize the data before calling this function:
 
     ```python
     import confusius as cf
@@ -201,12 +299,7 @@ def register_volumewise(
     fusi = cf.load("recording.scan").compute()  # load into memory first
     fusi = cf.registration.register_volumewise(fusi)
     ```
-
-    Alternatively, use `n_jobs=1` for serial processing (slower but works with lazy
-    SCAN data).
     """
-    from joblib import Parallel, delayed
-
     if "time" not in data.dims:
         raise ValueError("Time dimension 'time' not found in data")
 
@@ -228,14 +321,6 @@ def register_volumewise(
         validate_intensity_scaling(fixed_intensity_scaling, "fixed_intensity_scaling")
         ref_intensity_scaling = fixed_intensity_scaling
 
-    if n_jobs != 1 and is_h5py_backed(data):
-        raise TypeError(
-            "Data is backed by an h5py dataset, which cannot be serialized for "
-            "parallel processing with joblib. Call .compute() to materialize the "
-            "data into memory before calling register_volumewise, or use n_jobs=1 "
-            "for serial processing."
-        )
-
     data_moved = ensure_voxeldata(
         data,
         require_time=True,
@@ -244,6 +329,8 @@ def register_volumewise(
     )
 
     n_frames = data_moved.sizes["time"]
+    if abort_event is not None and abort_event.__class__.__module__ == "threading":
+        n_jobs = 1
     if fixed is None:
         reference_time = 0 if reference_time is None else reference_time
         ref_da = data_moved.isel(time=reference_time)
@@ -264,18 +351,6 @@ def register_volumewise(
     # an h5py-backed one cannot be sent to joblib workers at all.
     ref_da = ref_da.compute()
 
-    progress_context = nullcontext()
-    if show_progress:
-        from joblib_progress import joblib_progress
-
-        progress_context = joblib_progress("Registering volumes...", total=n_frames)
-
-    parallel_kwargs: dict[str, object] = {"n_jobs": n_jobs}
-    if abort_event is not None or progress_reporter is not None:
-        # Use threads when cancellation or progress reporting is enabled so
-        # every worker sees the shared reporter / event instance.
-        parallel_kwargs["prefer"] = "threads"
-
     aborted_affine = np.eye(ref_da.ndim + 1, dtype=float)
     aborted_diagnostics = RegistrationDiagnostics(
         metric=metric,
@@ -287,22 +362,17 @@ def register_volumewise(
     )
 
     def _register_one(
-        frame_index: int,
         volume: xr.DataArray,
-    ) -> tuple[int, xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]:
+    ) -> tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]:
         # Once aborted, skip cheaply: building SimpleITK images and resampling is
-        # pure-Python/GIL-bound work that, multiplied across joblib threads, starves the
+        # pure-Python/GIL-bound work that, multiplied across many workers, starves the
         # GUI thread. Return the original frame with a zero-iteration "aborted"
-        # diagnostic instead.
+        # diagnostic instead. Only observes a live abort_event update when this task
+        # runs on a thread-based worker -- see register_volumewise's Notes.
         if abort_event is not None and abort_event.is_set():
-            return (
-                frame_index,
-                volume,
-                aborted_affine.copy(),
-                aborted_diagnostics,
-            )
+            return volume, aborted_affine.copy(), aborted_diagnostics
 
-        registered_da, frame_affine, frame_diag = register_volume(
+        return register_volume(
             volume,
             ref_da,
             transform_type=transform,
@@ -322,50 +392,108 @@ def register_volumewise(
             resample=True,
             resample_interpolation=resample_interpolation,
             fill_value=fill_value,
-            # Restrict SimpleITK to 1 thread per worker to avoid
-            # over-subscribing the CPU when joblib spawns many workers.
+            # Restrict SimpleITK to 1 thread per frame: parallelism comes from running
+            # many frames concurrently across Dask workers, not from SimpleITK itself.
             sitk_threads=1,
             show_progress=False,
             abort_event=abort_event,
         )
-        return frame_index, registered_da, frame_affine, frame_diag
 
-    arr = data_moved.values
     # Aborted/un-started frames are left blank (filled with the data minimum,
     # i.e. background) rather than copying the unregistered input, so the partial
     # result visibly shows which frames were skipped.
-    output = np.full_like(arr, arr.min())
+    output = np.full(data_moved.shape, float(ref_da.min()), dtype=data_moved.dtype)
     affines: list[npt.NDArray[np.floating]] = [
         aborted_affine.copy() for _ in range(n_frames)
     ]
     final_metric_values = [float("nan")] * n_frames
     n_iterations_per_frame = [0] * n_frames
     statuses = ["aborted"] * n_frames
-    diagnostics = [aborted_diagnostics] * n_frames
+    diagnostics: list[RegistrationDiagnostics] = [aborted_diagnostics] * n_frames
 
-    try:
-        with progress_context:
-            results = Parallel(return_as="generator_unordered", **parallel_kwargs)(
-                delayed(_register_one)(t, volume)
-                for t, volume in enumerate(data_moved)
-                if abort_event is None or not abort_event.is_set()
+    if n_jobs == 1:
+        progress_ctx: Progress | nullcontext[None] = (
+            Progress() if show_progress else nullcontext()
+        )
+        try:
+            with progress_ctx as progress:
+                task_id = None
+                if progress is not None:
+                    task_id = progress.add_task(
+                        "Registering volumes...", total=n_frames
+                    )
+                for t in range(n_frames):
+                    registered_da, frame_affine, frame_diag = _register_one(
+                        data_moved.isel(time=t)
+                    )
+                    skipped = (
+                        frame_diag.status == "aborted" and frame_diag.n_iterations == 0
+                    )
+                    if not skipped:
+                        output[t] = registered_da.values
+                    affines[t] = frame_affine
+                    final_metric_values[t] = frame_diag.final_metric_value
+                    n_iterations_per_frame[t] = frame_diag.n_iterations
+                    statuses[t] = frame_diag.status
+                    diagnostics[t] = frame_diag
+                    if progress_reporter is not None:
+                        progress_reporter.frame_completed(t, registered_da, frame_diag)
+                    if progress is not None and task_id is not None:
+                        progress.update(task_id, advance=1)
+        finally:
+            if progress_reporter is not None:
+                progress_reporter.close()
+    elif is_h5py_backed(data):
+        raise TypeError(
+            "Data is backed by an h5py dataset, which cannot be pickled to send to "
+            "a Dask distributed.Client worker. Call .compute() to materialize the "
+            "data into memory before calling register_volumewise."
+        )
+
+    if n_jobs != 1:
+        with _volumewise_client(n_jobs) as submit:
+            futures = {}
+            for t in range(n_frames):
+                if abort_event is not None and abort_event.is_set():
+                    continue
+                futures[submit(_register_one, data_moved.isel(time=t))] = t
+
+            progress_ctx: Progress | nullcontext[None] = (
+                Progress() if show_progress else nullcontext()
             )
-            for t, registered_da, frame_affine, frame_diag in results:
-                skipped = (
-                    frame_diag.status == "aborted" and frame_diag.n_iterations == 0
-                )
-                if not skipped:
-                    output[t] = registered_da.values
-                affines[t] = frame_affine
-                final_metric_values[t] = frame_diag.final_metric_value
-                n_iterations_per_frame[t] = frame_diag.n_iterations
-                statuses[t] = frame_diag.status
-                diagnostics[t] = frame_diag
+            try:
+                with progress_ctx as progress:
+                    task_id = None
+                    if progress is not None:
+                        task_id = progress.add_task(
+                            "Registering volumes...", total=n_frames
+                        )
+                        if skipped_at_start := n_frames - len(futures):
+                            progress.update(task_id, advance=skipped_at_start)
+
+                    for future in as_completed(futures):
+                        t = futures[future]
+                        registered_da, frame_affine, frame_diag = future.result()
+                        skipped = (
+                            frame_diag.status == "aborted"
+                            and frame_diag.n_iterations == 0
+                        )
+                        if not skipped:
+                            output[t] = registered_da.values
+                        affines[t] = frame_affine
+                        final_metric_values[t] = frame_diag.final_metric_value
+                        n_iterations_per_frame[t] = frame_diag.n_iterations
+                        statuses[t] = frame_diag.status
+                        diagnostics[t] = frame_diag
+                        if progress_reporter is not None:
+                            progress_reporter.frame_completed(
+                                t, registered_da, frame_diag
+                            )
+                        if progress is not None and task_id is not None:
+                            progress.update(task_id, advance=1)
+            finally:
                 if progress_reporter is not None:
-                    progress_reporter.frame_completed(t, registered_da, frame_diag)
-    finally:
-        if progress_reporter is not None:
-            progress_reporter.close()
+                    progress_reporter.close()
 
     time_coords = (
         data_moved.coords["time"].values if "time" in data_moved.coords else None

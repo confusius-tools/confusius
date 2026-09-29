@@ -7,7 +7,7 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from copy import deepcopy
 from types import FrameType
-from typing import TYPE_CHECKING, Literal, TypeGuard
+from typing import TYPE_CHECKING, Literal, Protocol, TypeGuard
 
 import numpy as np
 import xarray as xr
@@ -18,9 +18,25 @@ from confusius._utils.geometry import get_voxel_to_world_spatial_dims
 from confusius.validation import ensure_voxeldata
 
 if TYPE_CHECKING:
-    from threading import Event
-
     import SimpleITK as sitk
+
+
+class AbortEvent(Protocol):  # numpydoc ignore=GL08,PR01,RT01
+    """Cooperative-cancellation flag accepted by `register_volume`.
+
+    Structural type for whatever event-like object a caller passes as
+    `abort_event`: a plain `threading.Event` (registration running in the calling
+    process/thread) or a `distributed.Event` (registration running as a task on a
+    Dask worker, where a `threading.Event` cannot be pickled or stay live -- see
+    [`register_volumewise`][confusius.registration.register_volumewise]'s Notes).
+    Only `is_set`/`set` are used, so any object implementing those satisfies this.
+    """
+
+    def is_set(self) -> bool:  # numpydoc ignore=GL08,PR01,RT01
+        ...
+
+    def set(self) -> object:  # numpydoc ignore=GL08,PR01,RT01
+        ...
 
 
 def _raise_undefined_spatial_spacing_error(undefined_dims: list[str]) -> None:
@@ -278,19 +294,20 @@ def set_sitk_thread_count(n: int) -> Generator[None, None, None]:
 
 @contextmanager
 def abort_on_sigint(
-    abort_event: "Event | None",
-) -> Generator["Event", None, None]:
+    abort_event: AbortEvent | None,
+) -> Generator[AbortEvent, None, None]:
     """Return an abort event that is set cooperatively on the first Ctrl+C.
 
     Parameters
     ----------
-    abort_event : threading.Event or None
-        Existing cooperative-cancellation event to reuse. If not provided, a
-        new event is created for the duration of the context.
+    abort_event : AbortEvent or None
+        Existing cooperative-cancellation event to reuse (a `threading.Event` or a
+        `distributed.Event`). If not provided, a new `threading.Event` is created
+        for the duration of the context.
 
     Yields
     ------
-    threading.Event
+    AbortEvent
         Event that is set when cooperative cancellation is requested, either
         explicitly by the caller or via a Ctrl+C signal handled on the main
         thread.

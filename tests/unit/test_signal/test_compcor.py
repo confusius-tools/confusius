@@ -499,6 +499,7 @@ def test_compute_compcor_dask_path(make_sample_timeseries):
     )
 
 
+@pytest.mark.filterwarnings("ignore:Sending large graph.*:UserWarning")
 def test_compute_compcor_dask_svd_compressed_path(rng):
     """Above the size/n_components gate, the Dask path must use svd_compressed too.
 
@@ -765,6 +766,7 @@ def test_compute_top_left_singular_vectors_dask_uses_exact_path_for_small_matric
         )
 
 
+@pytest.mark.filterwarnings("ignore:Sending large graph.*:UserWarning")
 def test_compute_top_left_singular_vectors_dask_randomized_path_matches_exact_svd(rng):
     """Above the gate, must match the same ground truth as the numpy randomized path."""
     from confusius.signal.confounds import _compute_top_left_singular_vectors_dask
