@@ -3,6 +3,7 @@
 import math
 import struct
 from pathlib import Path
+from unittest.mock import patch
 
 import dask.array as dask_array
 import numpy as np
@@ -431,6 +432,17 @@ class TestLoadScanV2:
     def test_lazy(self, scan_v2: xr.DataArray) -> None:
         """v2 returns a lazy Dask-backed DataArray."""
         assert isinstance(scan_v2.data, dask_array.Array)
+
+    def test_load_does_not_copy_payload(self, tmp_path: Path) -> None:
+        """Loading must not copy the entire memory-mapped payload into RAM."""
+        path = tmp_path / "lazy.scan"
+        payload = _raw_payload()
+        _write_scan_v2(path, payload)
+        with patch.object(
+            np.memmap, "copy", side_effect=AssertionError("Eager payload copy")
+        ):
+            data = load_scan(path)
+        np.testing.assert_array_equal(data.values, _expected_confusius(payload))
 
     def test_values(self, scan_v2: xr.DataArray) -> None:
         """Loaded values match the depth/elevation-swapped payload."""

@@ -5,7 +5,7 @@ Iconeus ships two on-disk SCAN formats, both using the `.scan` extension:
 - **v1**: an HDF5 container (`acqMetaData`, `scanMetaData`, `/Data`). Loaded lazily with
   h5py and Dask.
 - **v2**: a flat binary file with a variable-length header followed by a little-endian
-  `float64` power-Doppler payload. Loaded lazily with a NumPy memmap wrapped in Dask.
+  `float64` power-Doppler payload. Loaded lazily with a file-backed proxy wrapped in Dask.
 
 `load_scan` sniffs the format and dispatches to the matching loader. The v2 loader
 follows the binary layout published by PyIconeus and keeps the payload lazy.
@@ -21,6 +21,7 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from nibabel.arrayproxy import ArrayProxy
 
 from confusius.io.utils import check_path
 from confusius.multipose.timing import build_consolidated_time_coordinate
@@ -462,7 +463,7 @@ def load_scan(
       DataArray wraps an open `h5py` handle via a Dask array; keep it in scope (or call
       `.compute()`) before the handle is garbage-collected.
     - **v2**: a flat binary file (variable-length header + little-endian `float64`
-      payload). The returned DataArray wraps a NumPy memmap via a Dask array and, when
+      payload). The returned DataArray wraps a lazy file proxy via a Dask array and, when
       a `bps_path` is given, adds `world_to_brain`.
 
     `load_scan` sniffs the format automatically and dispatches accordingly.
@@ -1013,8 +1014,8 @@ def _load_scan_v2(
     """Load a binary Iconeus SCAN v2 file as a lazy VoxelData array.
 
     The v2 format is a flat binary file: a variable-length header followed by a
-    little-endian `float64` power-Doppler payload. The payload is wrapped in a NumPy
-    memmap (never fully read here) and exposed lazily through Dask.
+    little-endian `float64` power-Doppler payload. The payload is wrapped in a
+    file-backed proxy (never fully read here) and exposed lazily through Dask.
 
     The header stores Iconeus-ordered dimensions `(size_x=lateral, size_y=elevation,
     size_z=depth, n_time, npose, dim6)`. The payload is Fortran-ordered with the same
@@ -1069,15 +1070,24 @@ def _load_scan_v2(
 
     # PyIconeus documents the binary payload as Fortran-ordered
     # `(size_x, size_y, size_z, n_time, npose, dim6)`.
-    memmap = np.memmap(
+    proxy = ArrayProxy(
         path,
-        dtype="<f8",
-        mode="r",
-        offset=total_header_bytes,
-        shape=(size_x, size_y, size_z, n_time, npose, dim6_count),
+        (
+            (size_x, size_y, size_z, n_time, npose, dim6_count),
+            "<f8",
+            total_header_bytes,
+        ),
+        mmap="r",
         order="F",
     )
-    raw_lazy = da.from_array(memmap, chunks=chunks, asarray=False)
+    # Dask copies and hashes memmaps eagerly; a proxy and random name avoid both.
+    raw_lazy = da.from_array(
+        proxy,
+        chunks=chunks,
+        asarray=False,
+        name=False,
+        meta=np.empty((), dtype=proxy.dtype),
+    )
     data_lazy = da.transpose(raw_lazy, [5, 3, 4, 1, 2, 0])
 
     scan_mode = _scan_v2_mode(meta)
