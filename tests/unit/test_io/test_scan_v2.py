@@ -17,6 +17,7 @@ from confusius.io.scan import (
     load_bps,
     load_scan,
 )
+from confusius.validation import validate_voxeldata
 
 _SIZE_X = 4
 _SIZE_Y = 1
@@ -175,6 +176,7 @@ def _write_scan_v2(
     payload_bytes_override: int | None = None,
     dim6_intents: list[int] | None = None,
     slice_offsets: np.ndarray | None = None,
+    integration_window: float = _DT,
 ) -> None:
     """Write a PyIconeus-layout synthetic binary SCAN v2 file.
 
@@ -207,6 +209,8 @@ def _write_scan_v2(
         Dim6 intent codes. If not provided, static SVD clutter filtering is used.
     slice_offsets : numpy.ndarray, optional
         Per-`k` offsets added to each measured volume time.
+    integration_window : float, default: `_DT`
+        Power Doppler integration duration in seconds.
 
     Returns
     -------
@@ -288,7 +292,7 @@ def _write_scan_v2(
     header += bytes(4)
     header += struct.pack("<dL", 0.0, 0)
     header += struct.pack("<?", False) + bytes(1)
-    header += struct.pack("<d", float(_PD_WINDOW))
+    header += struct.pack("<d", integration_window)
 
     sequence, project, subject, session, species, _, scan, _, _, user, *_ = strings
     for text in (sequence, project, "project description", subject, session, species):
@@ -440,19 +444,25 @@ class TestLoadScanV2:
         assert scan_v2.coords["time"].attrs["units"] == "s"
         assert scan_v2.coords["time"].attrs["volume_acquisition_reference"] == "end"
 
-    def test_slice_time_coord_for_stacked_slices(self, tmp_path: Path) -> None:
-        """Single-pose stacks keep per-slice absolute acquisition times."""
+    @pytest.mark.parametrize("time_origin", [0.0, 10.0])
+    def test_slice_time_coord_for_stacked_slices(
+        self, tmp_path: Path, time_origin: float
+    ) -> None:
+        """Slice integration windows fit within the consolidated volume window."""
         path = tmp_path / "scan_v2_stacked_slices.scan"
-        times = _DT * (np.arange(_N_TIME) + 1)
-        offsets = np.array([0.0, 0.05])
+        times = time_origin + 0.4 + 2.4 * np.arange(_N_TIME)
+        offsets = np.tile([0.0, 1.8, 0.6, 1.2], 4)
         _write_scan_v2(
             path,
-            _raw_payload(size_y=2),
-            size_y=2,
+            _raw_payload(size_y=16),
+            size_y=16,
+            dt=0.6,
             times=times,
             slice_offsets=offsets,
+            integration_window=0.4,
         )
         da = load_scan(path)
+        validate_voxeldata(da)
         assert da.coords["slice_time"].dims == ("time", "k")
         np.testing.assert_allclose(
             da.coords["slice_time"].values, times[:, np.newaxis] + offsets
@@ -460,6 +470,12 @@ class TestLoadScanV2:
         np.testing.assert_allclose(da.coords["time"].values, times + offsets.max())
         assert da.coords["slice_time"].attrs["units"] == "s"
         assert da.coords["slice_time"].attrs["volume_acquisition_reference"] == "end"
+        assert da.coords["slice_time"].attrs[
+            "volume_acquisition_duration"
+        ] == pytest.approx(0.4)
+        assert da.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
+            2.2
+        )
 
     def test_scalar_time_slice_time_coord(self, tmp_path: Path) -> None:
         """Single-volume SCAN v2 stacks keep 1D slice times."""
@@ -657,7 +673,7 @@ class TestLoadScanV2Acquisition:
     def test_filter_fields(self, scan_v2_acq: xr.DataArray) -> None:
         """SVD low cutoff and power-Doppler window come from fixed offsets."""
         assert scan_v2_acq.attrs["svd_low_cutoff"] == _SVD_CUTOFF
-        assert scan_v2_acq.attrs["power_doppler_integration_window"] == _PD_WINDOW
+        assert scan_v2_acq.attrs["power_doppler_integration_window"] == _DT
 
     def test_probe_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
         """probe_to_lab (folded into the primary affine) is built from the 6DOF pose.

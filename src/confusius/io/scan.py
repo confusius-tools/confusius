@@ -23,6 +23,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius.io.utils import check_path
+from confusius.multipose.timing import build_consolidated_time_coordinate
 from confusius.xarray.create import create_voxeldata
 
 SCAN_V2_MAGIC = b"scan"
@@ -1116,6 +1117,12 @@ def _load_scan_v2(
     slice_time = _build_scan_v2_slice_time_coord(meta, include_time)
     if slice_time is not None:
         data_array = data_array.assign_coords(slice_time=slice_time)
+        if include_time:
+            data_array = data_array.assign_coords(
+                time=build_consolidated_time_coordinate(
+                    data_array.time, slice_time.values, dict(slice_time.attrs)
+                )
+            )
     return data_array
 
 
@@ -1316,7 +1323,8 @@ def _build_scan_v2_slice_time_coord(
     values = meta["measured_times"].reshape(
         meta["n_time"], meta["npose"], meta["size_y"]
     )[:, 0, :]
-    attrs = _scan_time_attrs(float(meta["dt"]))
+    # Acquisition spacing includes idle time; only integration belongs in the window.
+    attrs = _scan_time_attrs(float(meta["power_doppler_integration_window"]))
     if include_time:
         return xr.DataArray(values, dims=["time", "k"], attrs=attrs)
     return xr.DataArray(values[0], dims=["k"], attrs=attrs)
