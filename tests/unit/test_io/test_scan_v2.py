@@ -673,7 +673,7 @@ class TestLoadScanV2Acquisition:
     def test_filter_fields(self, scan_v2_acq: xr.DataArray) -> None:
         """SVD low cutoff and power-Doppler window come from fixed offsets."""
         assert scan_v2_acq.attrs["svd_low_cutoff"] == _SVD_CUTOFF
-        assert scan_v2_acq.attrs["power_doppler_integration_window"] == _DT
+        assert scan_v2_acq.attrs["power_doppler_integration_duration"] == _DT
 
     def test_probe_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
         """probe_to_lab (folded into the primary affine) is built from the 6DOF pose.

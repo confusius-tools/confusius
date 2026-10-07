@@ -520,7 +520,7 @@ def load_scan(
     attributes, in native header units: `probe_model`, `probe_center_frequency` (MHz),
     `probe_pitch` (mm), `imaging_depth` (mm start/end), `transmit_frequency` (MHz),
     `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `svd_low_cutoff`, and
-    `power_doppler_integration_window`.
+    `power_doppler_integration_duration` (s).
 
     ConfUSIus world coordinates `(z, y, x)` for SCAN data are **ConfUSIus-ordered
     Iconeus lab coordinates** (mm): a fixed scanner frame shared by every pose, used
@@ -974,7 +974,7 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
             "transmit_voltage": float(transmit_voltage),
             "delay_after_trigger": float(delay_after_trigger),
             "is_multiplane": bool(is_multiplane),
-            "power_doppler_integration_window": float(integration_window),
+            "power_doppler_integration_duration": float(integration_window),
             "iconeus_sequence": sequence_name,
             "iconeus_project": project,
             "iconeus_project_description": project_description,
@@ -1235,7 +1235,7 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
         "transmit_voltage",
         "delay_after_trigger",
         "is_multiplane",
-        "power_doppler_integration_window",
+        "power_doppler_integration_duration",
         "iconeus_sequence",
         "iconeus_project",
         "iconeus_project_description",
@@ -1324,7 +1324,7 @@ def _build_scan_v2_slice_time_coord(
         meta["n_time"], meta["npose"], meta["size_y"]
     )[:, 0, :]
     # Acquisition spacing includes idle time; only integration belongs in the window.
-    attrs = _scan_time_attrs(float(meta["power_doppler_integration_window"]))
+    attrs = _scan_time_attrs(float(meta["power_doppler_integration_duration"]))
     if include_time:
         return xr.DataArray(values, dims=["time", "k"], attrs=attrs)
     return xr.DataArray(values[0], dims=["k"], attrs=attrs)
