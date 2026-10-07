@@ -174,6 +174,7 @@ def _write_scan_v2(
     corrupt_acquisition: str | None = None,
     payload_bytes_override: int | None = None,
     dim6_intents: list[int] | None = None,
+    slice_offsets: np.ndarray | None = None,
 ) -> None:
     """Write a PyIconeus-layout synthetic binary SCAN v2 file.
 
@@ -204,6 +205,8 @@ def _write_scan_v2(
         Payload byte count to write into the header.
     dim6_intents : list of int, optional
         Dim6 intent codes. If not provided, static SVD clutter filtering is used.
+    slice_offsets : numpy.ndarray, optional
+        Per-`k` offsets added to each measured volume time.
 
     Returns
     -------
@@ -244,8 +247,10 @@ def _write_scan_v2(
     header += struct.pack("<6d", _DX_M, _DY_M, _DZ_M, dt, 0.0, 0.0)
 
     measured = np.empty((n_time, npose, size_y), dtype="<f8")
+    if slice_offsets is None:
+        slice_offsets = np.zeros(size_y, dtype=np.float64)
     for t in range(n_time):
-        measured[t, :, :] = times[t]
+        measured[t, :, :] = times[t] + slice_offsets
     header += measured.ravel().tobytes()
     header += np.arange(measured.size, dtype="<u4").tobytes()
 
@@ -263,7 +268,8 @@ def _write_scan_v2(
 
     probe_name = _PROBE_MODEL if corrupt_acquisition != "name" else "bad-name"
     header += bytes(4)
-    header += struct.pack("<L", 3 if npose > 1 and n_time > 1 else 1 if npose > 1 else 0)
+    scan_mode_code = 3 if npose > 1 and n_time > 1 else 1 if n_time == 1 else 0
+    header += struct.pack("<L", scan_mode_code)
     header += bytes(4)
     header += struct.pack("<Lddd", 0, _CENTER_FREQ, _PITCH, 1.5)
     header += bytes(8)
@@ -433,6 +439,44 @@ class TestLoadScanV2:
         np.testing.assert_allclose(scan_v2.coords["time"].values, expected)
         assert scan_v2.coords["time"].attrs["units"] == "s"
         assert scan_v2.coords["time"].attrs["volume_acquisition_reference"] == "end"
+
+    def test_slice_time_coord_for_stacked_slices(self, tmp_path: Path) -> None:
+        """Single-pose stacks keep per-slice absolute acquisition times."""
+        path = tmp_path / "scan_v2_stacked_slices.scan"
+        times = _DT * (np.arange(_N_TIME) + 1)
+        offsets = np.array([0.0, 0.05])
+        _write_scan_v2(
+            path,
+            _raw_payload(size_y=2),
+            size_y=2,
+            times=times,
+            slice_offsets=offsets,
+        )
+        da = load_scan(path)
+        assert da.coords["slice_time"].dims == ("time", "k")
+        np.testing.assert_allclose(
+            da.coords["slice_time"].values, times[:, np.newaxis] + offsets
+        )
+        np.testing.assert_allclose(da.coords["time"].values, times + offsets.max())
+        assert da.coords["slice_time"].attrs["units"] == "s"
+        assert da.coords["slice_time"].attrs["volume_acquisition_reference"] == "end"
+
+    def test_scalar_time_slice_time_coord(self, tmp_path: Path) -> None:
+        """Single-volume SCAN v2 stacks keep 1D slice times."""
+        path = tmp_path / "scan_v2_scalar_slice_time.scan"
+        offsets = np.array([0.0, 0.05])
+        _write_scan_v2(
+            path,
+            _raw_payload(size_y=2, n_time=1),
+            size_y=2,
+            n_time=1,
+            acquisition=True,
+            slice_offsets=offsets,
+        )
+        da = load_scan(path)
+        assert "time" not in da.dims
+        assert da.coords["slice_time"].dims == ("k",)
+        np.testing.assert_allclose(da.coords["slice_time"].values, _DT + offsets)
 
     def test_elevation_spacing_from_header(self, scan_v2: xr.DataArray) -> None:
         """Elevation (z, singleton) spacing comes from the header spacing, in mm.

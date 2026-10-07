@@ -1113,6 +1113,9 @@ def _load_scan_v2(
     )
     if dim6_count > 1:
         data_array = data_array.assign_coords(dim6=np.arange(dim6_count))
+    slice_time = _build_scan_v2_slice_time_coord(meta, include_time)
+    if slice_time is not None:
+        data_array = data_array.assign_coords(slice_time=slice_time)
     return data_array
 
 
@@ -1287,6 +1290,36 @@ def _build_scan_v2_voxel_to_probe(meta: dict[str, Any]) -> npt.NDArray[np.float6
     voxel_to_probe[:3, :3] = np.diag([dz_mm, dy_mm, dx_mm])
     voxel_to_probe[:3, 3] = [z0, y0, x0]
     return voxel_to_probe
+
+
+def _build_scan_v2_slice_time_coord(
+    meta: dict[str, Any], include_time: bool
+) -> xr.DataArray | None:
+    """Build the `slice_time` coordinate for single-pose stacked SCAN v2 data.
+
+    Parameters
+    ----------
+    meta : dict
+        Parsed header fields from `_read_scan_v2_header`.
+    include_time : bool
+        Whether the loaded DataArray keeps a `time` dimension.
+
+    Returns
+    -------
+    xarray.DataArray or None
+        Absolute slice acquisition times with dims `(time, k)` or `(k,)`, or `None`
+        when the file is not a single-pose stack.
+    """
+    if meta["npose"] != 1 or meta["size_y"] <= 1:
+        return None
+
+    values = meta["measured_times"].reshape(
+        meta["n_time"], meta["npose"], meta["size_y"]
+    )[:, 0, :]
+    attrs = _scan_time_attrs(float(meta["dt"]))
+    if include_time:
+        return xr.DataArray(values, dims=["time", "k"], attrs=attrs)
+    return xr.DataArray(values[0], dims=["k"], attrs=attrs)
 
 
 def _build_scan_v2_time_coord(meta: dict[str, Any]) -> xr.DataArray:
