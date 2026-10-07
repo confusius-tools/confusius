@@ -767,6 +767,18 @@ class TestLoadScanV2Errors:
             load_scan(path)
         assert "plane-wave angle block" in str(excinfo.value)
 
+    def test_truncated_string_field_raises(self, tmp_path: Path) -> None:
+        """A string length that points beyond the header raises."""
+        path = tmp_path / "bad_string.scan"
+        _write_scan_v2(path, _raw_payload())
+        data = bytearray(path.read_bytes())
+        text_offset = data.index(b"default sequence")
+        struct.pack_into("<L", data, text_offset - 4, 99_999)
+        path.write_bytes(data)
+        with pytest.raises(ValueError, match="could not be parsed") as excinfo:
+            load_scan(path)
+        assert "string field is truncated" in str(excinfo.value)
+
     def test_truncated_toggle_block_raises(self, tmp_path: Path) -> None:
         """A stimulation-toggle count that points beyond the header raises."""
         path = tmp_path / "bad_toggles.scan"
