@@ -136,6 +136,25 @@ _STRINGS = [
 ]
 
 
+def _pack_scan_v2_string(text: str, length_fmt: str = "<L") -> bytes:
+    """Pack a SCAN v2 length-prefixed string.
+
+    Parameters
+    ----------
+    text : str
+        String to pack.
+    length_fmt : str, default: "<L"
+        `struct` format for the length prefix.
+
+    Returns
+    -------
+    bytes
+        Packed length prefix and ASCII bytes.
+    """
+    encoded = text.encode("ascii")
+    return struct.pack(length_fmt, len(encoded)) + encoded
+
+
 def _write_scan_v2(
     path: Path,
     payload: np.ndarray,
@@ -155,43 +174,33 @@ def _write_scan_v2(
     corrupt_acquisition: str | None = None,
     payload_bytes_override: int | None = None,
 ) -> None:
-    """Write a synthetic binary SCAN v2 file.
-
-    The header reproduces the fixed-position layout the loader relies on (magic, sizes,
-    voxel spacings, time coordinates) followed by a block of `uint32`-length-prefixed
-    ASCII strings, then the little-endian `float64` payload.
+    """Write a PyIconeus-layout synthetic binary SCAN v2 file.
 
     Parameters
     ----------
     path : pathlib.Path
-        Destination file path.
+        Destination path.
     payload : numpy.ndarray
-        Payload array; written in C order as little-endian float64.
+        Payload in `(x, y, z, time, pose, dim6)` order.
     size_x, size_y, size_z, n_time, npose, nblock_repeat : int
-        Dimension fields written into the header.
-    dt : float
-        Sampling period written into the header.
-    times : (n_time,) numpy.ndarray, optional
-        Time-coordinate values. If not provided, `dt * (arange(n_time) + 1)` is used.
-    strings : list[str], optional
-        Provenance strings appended as length-prefixed records. If not provided,
-        `_STRINGS` is used.
+        Header dimension fields.
+    dt : float, default: `_DT`
+        Time spacing in seconds.
+    times : numpy.ndarray, optional
+        Measured volume times. If not provided, a regular grid is used.
+    strings : list of str, optional
+        Provenance strings. If not provided, `_STRINGS` is used.
     depth_start : float, optional
-        Depth-axis origin in mm. If provided, an adjacent `(start, end)` depth-range
-        pair is embedded so the loader can recover the depth origin. If not provided,
-        no depth range is written and the loader falls back to a zero origin.
+        Depth origin in millimeters. If not provided, zero is used unless
+        `acquisition` is set.
     timestamp : int, optional
-        Acquisition time as a Unix timestamp. If provided, it is written as a `uint64`
-        after the string block so the loader can recover the acquisition datetime.
+        Unix timestamp for acquisition metadata.
     acquisition : bool, default: False
-        Whether to embed the full structured acquisition block (probe model, frequencies,
-        pitch, focal depth, depth range, plane-wave angles). When set, the block supplies
-        the depth range, so `depth_start` seeds it.
-    corrupt_acquisition : {"name", "depth", "pose"}, optional
-        Passed to `_acquisition_block` to inject a defect (only when `acquisition` is set).
+        Whether to write a non-identity probe pose and acquisition depth.
+    corrupt_acquisition : {"pose", "name"}, optional
+        Corruption mode used by error-path tests.
     payload_bytes_override : int, optional
-        Value to write into the payload-size header field instead of the true size.
-        Used to exercise the size-mismatch error path.
+        Payload byte count to write into the header.
 
     Returns
     -------
@@ -202,62 +211,84 @@ def _write_scan_v2(
         times = dt * (np.arange(n_time) + 1)
     if strings is None:
         strings = _STRINGS
+    if depth_start is None:
+        depth_start = _ACQ_DEPTH_START if acquisition else 0.0
+    depth_end = depth_start + (size_z - 1) * _DZ_M * 1e3
+    if timestamp is None:
+        timestamp = 1_784_005_200
 
     o = _SCAN_V2_OFFSETS
-    time_end = o["time_coords"] + 8 * n_time
-
-    if acquisition:
-        # Full structured acquisition block (includes its own depth range).
-        head_bytes: bytes = _acquisition_block(
-            n_time,
-            size_z,
-            _ACQ_DEPTH_START if depth_start is None else depth_start,
-            corrupt=corrupt_acquisition,
-        )
-    else:
-        pose = (5.0, *_POSE[1:]) if corrupt_acquisition == "pose" else (0.0,) * 6
-        head_bytes = struct.pack(f"<{n_time}I", *range(n_time))
-        head_bytes += struct.pack("<6d", *pose) + struct.pack("<Q", 1) + bytes(8)
-        if depth_start is not None:
-            depth_end = depth_start + (size_z - 1) * _DZ_M * 1e3
-            head_bytes += struct.pack("<dd", depth_start, depth_end)
-
-    string_bytes = bytearray()
-    for text in strings:
-        encoded = text.encode("ascii")
-        string_bytes += struct.pack("<I", len(encoded)) + encoded
-
-    # Optional acquisition timestamp (uint64 Unix seconds) after the string block.
-    ts_bytes = struct.pack("<Q", timestamp) if timestamp is not None else b""
-
-    tail_bytes = head_bytes + bytes(string_bytes) + ts_bytes
-    total_header_bytes = time_end + len(tail_bytes)
-    payload = np.ascontiguousarray(payload, dtype="<f8")
-    payload_bytes = (
-        payload_bytes_override if payload_bytes_override is not None else payload.nbytes
-    )
-
-    header = bytearray(total_header_bytes)
+    header = bytearray(o["dim6_count"])
     header[0 : len(SCAN_V2_MAGIC)] = SCAN_V2_MAGIC
-    struct.pack_into("<Q", header, 0x04, 1)  # version, as in real files
-    struct.pack_into("<Q", header, o["total_header_bytes"], total_header_bytes)
-    struct.pack_into("<Q", header, o["payload_bytes"], payload_bytes)
+    struct.pack_into("<Q", header, 0x04, 1)
     struct.pack_into("<Q", header, o["size_x"], size_x)
     struct.pack_into("<Q", header, o["size_y"], size_y)
     struct.pack_into("<Q", header, o["size_z"], size_z)
     struct.pack_into("<Q", header, o["n_time"], n_time)
     struct.pack_into("<Q", header, o["npose"], npose)
-    struct.pack_into("<Q", header, o["nblock_repeat"], nblock_repeat)
-    struct.pack_into("<d", header, o["dt"], dt)
-    struct.pack_into("<I", header, o["svd_clutter_cutoff"], _SVD_CUTOFF)
-    struct.pack_into("<I", header, o["power_doppler_integration_window"], _PD_WINDOW)
-    struct.pack_into("<d", header, o["x_voxel_m"], _DX_M)
-    struct.pack_into("<d", header, o["y_voxel_m"], _DY_M)
-    struct.pack_into("<d", header, o["z_voxel_m"], _DZ_M)
-    struct.pack_into(f"<{n_time}d", header, o["time_coords"], *times.tolist())
-    header[time_end:total_header_bytes] = tail_bytes
 
-    path.write_bytes(bytes(header) + payload.tobytes())
+    header += struct.pack("<Q", nblock_repeat)
+    header += struct.pack(f"<{nblock_repeat}L", *([0] * nblock_repeat))
+    for _ in range(nblock_repeat):
+        header += struct.pack("<LdLL", 0, dt, _SVD_CUTOFF, _PD_WINDOW)
+    header += struct.pack("<6d", _DX_M, _DY_M, _DZ_M, dt, 0.0, 0.0)
+
+    measured = np.empty((n_time, npose, size_y), dtype="<f8")
+    for t in range(n_time):
+        measured[t, :, :] = times[t]
+    header += measured.ravel().tobytes()
+    header += np.arange(measured.size, dtype="<u4").tobytes()
+
+    translations = np.zeros((npose, 3), dtype="<f8")
+    rotations = np.zeros((npose, 3), dtype="<f8")
+    for pose in range(npose):
+        if acquisition:
+            translations[pose] = _POSE[:3]
+            translations[pose, 1] += pose * 0.001
+            rotations[pose] = _POSE[3:]
+    if corrupt_acquisition == "pose":
+        translations[0, 0] = 5.0
+    header += translations.tobytes()
+    header += rotations.tobytes()
+
+    probe_name = _PROBE_MODEL if corrupt_acquisition != "name" else "bad-name"
+    header += bytes(4)
+    header += struct.pack("<L", 3 if npose > 1 and n_time > 1 else 0)
+    header += bytes(4)
+    header += struct.pack("<Lddd", 0, _CENTER_FREQ, _PITCH, 1.5)
+    header += bytes(8)
+    header += struct.pack("<dH", 0.0, 128)
+    header += _pack_scan_v2_string("2392", "<H")
+    header += _pack_scan_v2_string(probe_name, "<H")
+    header += struct.pack("<dd", depth_start, depth_end)
+    header += struct.pack("<ddd", _TRANSMIT_FREQ, _PRF, _ADC)
+    header += bytes(8)
+    header += struct.pack("<L", len(_ANGLES))
+    header += struct.pack(f"<{len(_ANGLES)}d", *_ANGLES)
+    header += struct.pack("<L", 0) + bytes(8)
+    header += struct.pack("<d", 12.0)
+    header += bytes(4)
+    header += struct.pack("<dL", 0.0, 0)
+    header += struct.pack("<?", False) + bytes(1)
+    header += struct.pack("<d", float(_PD_WINDOW))
+
+    sequence, project, subject, session, species, _, scan, _, _, user, *_ = strings
+    for text in (sequence, project, "project description", subject, session, species):
+        header += _pack_scan_v2_string(text)
+    header += struct.pack("<LqQ", 0, timestamp, 0)
+    header += _pack_scan_v2_string("subject description")
+    header += struct.pack("<Lf", 0, 0.0)
+    for text in ("", scan, "", "", "", user, "", ""):
+        header += _pack_scan_v2_string(text)
+    header += struct.pack("<qLL", timestamp, 0, 0)
+    header += struct.pack("<LLL", 1, 2, 3)
+
+    total_header_bytes = len(header)
+    payload = np.asarray(payload, dtype="<f8")
+    payload_bytes = payload_bytes_override or payload.nbytes
+    struct.pack_into("<Q", header, o["total_header_bytes"], total_header_bytes)
+    struct.pack_into("<Q", header, o["payload_bytes"], payload_bytes)
+    path.write_bytes(bytes(header) + payload.tobytes(order="F"))
 
 
 def _raw_payload(
@@ -268,48 +299,41 @@ def _raw_payload(
     npose: int = _NPOSE,
     nblock_repeat: int = _NBLOCK,
 ) -> np.ndarray:
-    """Return a deterministic payload array in the SCAN v2 C-order layout.
+    """Return a deterministic payload array in the SCAN v2 Fortran layout.
 
     Parameters
     ----------
     size_x, size_y, size_z, n_time, npose, nblock_repeat : int
-        Dimension sizes.
+        Payload dimensions.
 
     Returns
     -------
     numpy.ndarray
-        Array of shape `(n_time, npose, nblock_repeat, size_z, size_y, size_x)`.
+        Payload with shape `(x, y, z, time, pose, dim6)`.
     """
-    shape = (n_time, npose, nblock_repeat, size_z, size_y, size_x)
-    return np.arange(int(np.prod(shape)), dtype=np.float64).reshape(shape)
+    shape = (size_x, size_y, size_z, n_time, npose, nblock_repeat)
+    return np.arange(int(np.prod(shape)), dtype=np.float64).reshape(shape, order="F")
 
 
 def _expected_confusius(raw: np.ndarray) -> np.ndarray:
-    """Transform a raw v2 payload into the expected ConfUSIus array.
-
-    Mirrors `_load_scan_v2`: fold `nblock_repeat` into time (or squeeze it when 1), swap
-    depth/elevation, and squeeze a singleton pose axis.
+    """Transform a raw SCAN v2 payload to ConfUSIus order.
 
     Parameters
     ----------
     raw : numpy.ndarray
-        Array of shape `(n_time, npose, nblock_repeat, size_z, size_y, size_x)`.
+        Payload with shape `(x, y, z, time, pose, dim6)`.
 
     Returns
     -------
     numpy.ndarray
-        Expected array in ConfUSIus axis order.
+        Payload in VoxelData dimension order.
     """
-    n_time, npose, nblock, size_z, size_y, size_x = raw.shape
-    if nblock == 1:
-        sq = raw.squeeze(axis=2)
-    else:
-        sq = np.transpose(raw, [0, 2, 1, 3, 4, 5]).reshape(
-            n_time * nblock, npose, size_z, size_y, size_x
-        )
-    swapped = np.transpose(sq, [0, 1, 3, 2, 4])
-    if swapped.shape[1] == 1:
-        return swapped.squeeze(axis=1)
+    swapped = np.transpose(raw, [5, 3, 4, 1, 2, 0])
+    if swapped.shape[0] == 1:
+        swapped = swapped.squeeze(axis=0)
+    pose_axis = 2 if swapped.ndim == 6 else 1
+    if swapped.shape[pose_axis] == 1:
+        swapped = swapped.squeeze(axis=pose_axis)
     return swapped
 
 
@@ -360,7 +384,7 @@ def scan_v2_multipose_path(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def scan_v2_multiblock_path(tmp_path: Path) -> Path:
-    """Path to a synthetic SCAN v2 file with nblock_repeat > 1."""
+    """Path to a synthetic SCAN v2 file with dim6 count > 1."""
     path = tmp_path / "scan_v2_multiblock.scan"
     _write_scan_v2(path, _raw_payload(nblock_repeat=2), nblock_repeat=2)
     return path
@@ -450,12 +474,6 @@ class TestLoadScanV2:
         """Single-pose v2 is reported as 2Dscan."""
         assert scan_v2.attrs["iconeus_scan_mode"] == "2Dscan"
 
-    def test_unknown_fields_mapped(self, scan_v2: xr.DataArray) -> None:
-        """The three unmapped plain-string slots are exposed explicitly."""
-        assert scan_v2.attrs["iconeus_unknown1"] == "T"
-        assert scan_v2.attrs["iconeus_unknown2"] == "none"
-        assert scan_v2.attrs["iconeus_unknown3"] == "None"
-
     def test_provenance_fields_mapped(self, scan_v2: xr.DataArray) -> None:
         """Header strings map to v1-style provenance fields."""
         assert scan_v2.attrs["iconeus_project"] == "proj-01"
@@ -464,10 +482,6 @@ class TestLoadScanV2:
         assert scan_v2.attrs["iconeus_scan"] == "scan-01"
         assert scan_v2.attrs["iconeus_experimenter"] == "user-01"
         assert scan_v2.attrs["iconeus_species"] == "Rat"
-
-    def test_serial_from_hex_anchor(self, scan_v2: xr.DataArray) -> None:
-        """Serial number is recovered from the trailing hex-encoded field."""
-        assert scan_v2.attrs["device_serial_number"] == _SERIAL
 
     def test_acquisition_datetime_recovered(self, tmp_path: Path) -> None:
         """Acquisition timestamp is recovered as a full ISO 8601 UTC datetime."""
@@ -483,26 +497,24 @@ class TestLoadScanV2:
 
 
 class TestLoadScanV2Multipose:
-    """Multi-pose v2 files are currently unsupported.
+    """Tests for multi-pose SCAN v2 files."""
 
-    How v2 encodes per-pose geometry isn't known yet, and ConfUSIus requires a
-    `pose` dimension to carry a genuine per-pose voxel-to-world affine.
-    """
-
-    def test_raises(self, scan_v2_multipose_path: Path) -> None:
-        """Loading a multi-pose v2 file raises a clear, actionable error."""
-        with pytest.raises(ValueError, match="multiple poses"):
-            load_scan(scan_v2_multipose_path)
+    def test_loads_with_pose_affines(self, scan_v2_multipose_path: Path) -> None:
+        """Multi-pose v2 files carry a pose dim and one affine per pose."""
+        da = load_scan(scan_v2_multipose_path)
+        assert da.dims == ("time", "pose", "k", "j", "i")
+        assert da.shape == (_N_TIME, 2, 2, _SIZE_Z, _SIZE_X)
+        assert get_voxel_to_world_affine(da).shape == (2, 4, 4)
 
 
 class TestLoadScanV2Multiblock:
-    """Tests for nblock_repeat > 1, folded into the time dimension."""
+    """Tests for dim6 payloads."""
 
-    def test_shape_folds_block_into_time(self, scan_v2_multiblock_path: Path) -> None:
-        """nblock_repeat is merged into time: T = n_time * nblock_repeat."""
+    def test_shape_preserves_dim6(self, scan_v2_multiblock_path: Path) -> None:
+        """The SCAN v2 dim6 axis is preserved as an extra VoxelData dimension."""
         da = load_scan(scan_v2_multiblock_path)
-        assert da.dims == ("time", "k", "j", "i")
-        assert da.shape == (_N_TIME * 2, _SIZE_Y, _SIZE_Z, _SIZE_X)
+        assert da.dims == ("dim6", "time", "k", "j", "i")
+        assert da.shape == (2, _N_TIME, _SIZE_Y, _SIZE_Z, _SIZE_X)
 
     def test_values(self, scan_v2_multiblock_path: Path) -> None:
         """Folded values match the transposed/reshaped payload."""
@@ -510,11 +522,11 @@ class TestLoadScanV2Multiblock:
         expected = _expected_confusius(_raw_payload(nblock_repeat=2))
         np.testing.assert_array_equal(da.values, expected)
 
-    def test_time_coord_falls_back_to_grid(self, scan_v2_multiblock_path: Path) -> None:
-        """With more time points than stored timestamps, time is an end-referenced grid."""
+    def test_time_coord(self, scan_v2_multiblock_path: Path) -> None:
+        """Dim6 does not alter the measured volume times."""
         da = load_scan(scan_v2_multiblock_path)
         np.testing.assert_allclose(
-            da.coords["time"].values, _DT * (np.arange(_N_TIME * 2) + 1)
+            da.coords["time"].values, _DT * (np.arange(_N_TIME) + 1)
         )
         assert da.coords["time"].attrs["volume_acquisition_reference"] == "end"
         assert da.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
@@ -539,7 +551,7 @@ class TestLoadScanV2Acquisition:
             _CENTER_FREQ
         )
         assert scan_v2_acq.attrs["probe_pitch"] == pytest.approx(_PITCH)
-        assert scan_v2_acq.attrs["probe_focal_depth"] == pytest.approx(_FOCAL_DEPTH)
+        assert scan_v2_acq.attrs["probe_elevation_aperture"] == pytest.approx(1.5)
 
     def test_transmit_distinct_from_center(self, scan_v2_acq: xr.DataArray) -> None:
         """Transmit frequency is read from its own field, distinct from center freq."""
@@ -602,39 +614,9 @@ class TestLoadScanV2Acquisition:
         with pytest.raises(ValueError, match="probe-pose block"):
             load_scan(path)
 
-    def test_acquisition_absent_when_block_missing(self, scan_v2: xr.DataArray) -> None:
-        """Without a valid acquisition block, probe/sequence fields are not emitted.
-
-        The fixed-offset filter fields are still present; only the anchor-validated
-        structured fields are withheld to avoid emitting misaligned metadata.
-        """
-        assert "probe_model" not in scan_v2.attrs
-        assert "transmit_frequency" not in scan_v2.attrs
-        assert "svd_low_cutoff" in scan_v2.attrs
-
-    def test_acquisition_skipped_on_nonprintable_name(self, tmp_path: Path) -> None:
-        """A non-printable probe name makes the loader skip the structured fields."""
-        path = tmp_path / "scan_v2_badname.scan"
-        _write_scan_v2(
-            path, _raw_payload(), acquisition=True, corrupt_acquisition="name"
-        )
-        da = load_scan(path)
-        assert "probe_model" not in da.attrs
-        assert "svd_low_cutoff" in da.attrs
-
-    def test_acquisition_skipped_on_depth_anchor_mismatch(self, tmp_path: Path) -> None:
-        """A broken depth range fails the anchor check, so the block is not trusted."""
-        path = tmp_path / "scan_v2_baddepth.scan"
-        _write_scan_v2(
-            path, _raw_payload(), acquisition=True, corrupt_acquisition="depth"
-        )
-        da = load_scan(path)
-        assert "probe_model" not in da.attrs
-        assert "svd_low_cutoff" in da.attrs
-
 
 class TestLoadScanV2WithBPS:
-    """Tests for BPS composition on v2 files (experimental affine)."""
+    """Tests for BPS composition on v2 files."""
 
     @pytest.fixture
     def scan_v2_acq_path(self, tmp_path: Path) -> Path:
@@ -692,16 +674,16 @@ class TestLoadScanV2Errors:
         path = tmp_path / "truncated.scan"
         _write_scan_v2(path, _raw_payload())
         _patch_u64(path, _SCAN_V2_OFFSETS["n_time"], 10_000_000)
-        with pytest.raises(ValueError, match="experimental") as excinfo:
+        with pytest.raises(ValueError, match="could not be parsed") as excinfo:
             load_scan(path)
-        # The wrapped experimental error carries the underlying cause message.
-        assert "implausible time-point count" in str(excinfo.value)
+        # The wrapped parse error carries the underlying cause message.
+        assert "implausible timing/pose block" in str(excinfo.value)
 
     def test_nonpositive_dimension_raises(self, tmp_path: Path) -> None:
         """A zero dimension in the header raises."""
         path = tmp_path / "zero_dim.scan"
         _write_scan_v2(path, _raw_payload())
         _patch_u64(path, _SCAN_V2_OFFSETS["size_x"], 0)
-        with pytest.raises(ValueError, match="experimental") as excinfo:
+        with pytest.raises(ValueError, match="could not be parsed") as excinfo:
             load_scan(path)
         assert "non-positive" in str(excinfo.value)

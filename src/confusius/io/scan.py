@@ -7,9 +7,8 @@ Iconeus ships two on-disk SCAN formats, both using the `.scan` extension:
 - **v2**: a flat binary file with a variable-length header followed by a little-endian
   `float64` power-Doppler payload. Loaded lazily with a NumPy memmap wrapped in Dask.
 
-`load_scan` sniffs the format and dispatches to the matching loader. The v2 loader is
-**experimental**: its field offsets were reverse-engineered from a small number of
-example files and may not cover every acquisition mode. See `_load_scan_v2` for details.
+`load_scan` sniffs the format and dispatches to the matching loader. The v2 loader
+follows the binary layout published by PyIconeus and keeps the payload lazy.
 """
 
 import struct
@@ -37,23 +36,9 @@ _SCAN_V2_OFFSETS: dict[str, int] = {
     "size_z": 0x6C,
     "n_time": 0x74,
     "npose": 0x7C,
-    "nblock_repeat": 0x84,
-    "dt": 0x94,
-    "svd_clutter_cutoff": 0x9C,
-    "power_doppler_integration_window": 0xA0,
-    "x_voxel_m": 0xA4,
-    "y_voxel_m": 0xAC,
-    "z_voxel_m": 0xB4,
-    "time_coords": 0xD4,
+    "dim6_count": 0x84,
 }
-"""Byte offsets of fixed-position fields in the SCAN v2 header.
-
-All fields listed here live before the first variable-length string in the header, so
-their absolute offsets are stable across files. The dimension and size fields are
-little-endian `uint64`; `svd_clutter_cutoff` and `power_doppler_integration_window` are
-`uint32`; `dt` and the voxel sizes are `float64`; `time_coords` is the start of an array
-of `n_time` little-endian `float64` values.
-"""
+"""Byte offsets of fixed-position fields before SCAN v2 variable dim6 records."""
 
 
 def _read_u16(buffer: bytes, offset: int) -> int:
@@ -126,6 +111,62 @@ def _read_f64(buffer: bytes, offset: int) -> float:
         The decoded value.
     """
     return float(struct.unpack_from("<d", buffer, offset)[0])
+
+
+def _read_scan_v2_struct(buffer: bytes, offset: int, fmt: str) -> tuple[Any, int]:
+    """Read a little-endian SCAN v2 field and return the advanced offset.
+
+    Parameters
+    ----------
+    buffer : bytes
+        Byte buffer to read from.
+    offset : int
+        Byte offset of the value.
+    fmt : str
+        `struct` format string, including byte order.
+
+    Returns
+    -------
+    value : object
+        Decoded scalar value.
+    offset : int
+        Byte offset immediately after the decoded value.
+    """
+    size = struct.calcsize(fmt)
+    return struct.unpack_from(fmt, buffer, offset)[0], offset + size
+
+
+def _read_scan_v2_binary_string(
+    buffer: bytes, offset: int, length_fmt: str = "<L"
+) -> tuple[str, int]:
+    """Read a SCAN v2 length-prefixed UTF-8 string.
+
+    Parameters
+    ----------
+    buffer : bytes
+        Byte buffer to read from.
+    offset : int
+        Byte offset of the length prefix.
+    length_fmt : str, default: "<L"
+        `struct` format of the length prefix.
+
+    Returns
+    -------
+    text : str
+        Decoded string value.
+    offset : int
+        Byte offset immediately after the string bytes.
+
+    Raises
+    ------
+    ValueError
+        If the string length points beyond the buffer.
+    """
+    length, offset = _read_scan_v2_struct(buffer, offset, length_fmt)
+    end = offset + int(length)
+    if end > len(buffer):
+        raise ValueError("SCAN v2 string field is truncated.")
+    return buffer[offset:end].decode("utf-8", errors="replace"), end
 
 
 WORLD_TO_PROBE_PERMUTATION: npt.NDArray[np.float64] = np.array(
@@ -286,9 +327,9 @@ def _swap_depth_elevation_axes(arr):
 
 
 def _fold_block_repeat_into_time(raw_lazy, npose: int, nblock_repeat: int):
-    """Fold a `nblock_repeat` axis into `time`, shared by SCAN v1 `4Dscan` and v2.
+    """Fold a v1 `nblock_repeat` axis into `time`.
 
-    Both formats store repeated sub-blocks along axis 2 rather than as part of
+    HDF5 SCAN v1 stores repeated sub-blocks along axis 2 rather than as part of
     `time` directly; folding them in gives a single, longer `time` axis.
 
     Parameters
@@ -420,9 +461,8 @@ def load_scan(
       DataArray wraps an open `h5py` handle via a Dask array; keep it in scope (or call
       `.compute()`) before the handle is garbage-collected.
     - **v2**: a flat binary file (variable-length header + little-endian `float64`
-      payload). The returned DataArray wraps a NumPy memmap via a Dask array. Support is
-      **experimental** (see Notes), including its `probe_to_lab` affine and, when a
-      `bps_path` is given, `world_to_brain`.
+      payload). The returned DataArray wraps a NumPy memmap via a Dask array and, when
+      a `bps_path` is given, adds `world_to_brain`.
 
     `load_scan` sniffs the format automatically and dispatches accordingly.
 
@@ -452,50 +492,34 @@ def load_scan(
         - v1 `3Dscan` → `(pose, k, j, i)`.
         - v1 `4Dscan`/`4DscanCustom` → `(time, pose, k, j, i)`.
         - v2 single-pose → `(time, k, j, i)`.
-        - v2 multi-pose is currently unsupported (see Raises).
+        - v2 multi-pose → `(time, pose, k, j, i)`.
+        - v2 dim6 payloads prepend a `dim6` dimension.
 
         World coordinates `z`, `y`, `x` are in millimeters. The `time` coordinate is in
-        seconds. For v1 `4Dscan`/`4DscanCustom`, `time` is pose-dependent
+        seconds. For v1/v2 multi-pose time series, `time` is pose-dependent
         (`(time, pose)`-shaped), holding each pose's own acquisition timestamps directly.
 
     Raises
     ------
     ValueError
         If `path` does not exist or is not a file, if the file is neither an
-        HDF5-based SCAN (v1) nor a binary SCAN v2 file, if a v2 file's experimental
-        `probe_to_lab` affine cannot be built, if a v1 `acquisitionMode` is not one
-        of `"2Dscan"`, `"3Dscan"`, `"4Dscan"`, or `"4DscanCustom"`, or if a v2 file has
-        multiple poses (currently unsupported -- how v2 encodes per-pose geometry isn't
-        known yet).
+        HDF5-based SCAN (v1) nor a binary SCAN v2 file, if a v2 file's
+        `probe_to_lab` affine cannot be built, or if a v1 `acquisitionMode` is not one
+        of `"2Dscan"`, `"3Dscan"`, `"4Dscan"`, or `"4DscanCustom"`.
 
     Notes
     -----
-    **v2 (experimental).** The v2 field offsets were reverse-engineered from a small
-    number of example files. Data, temporal geometry, and voxel spacing are recovered.
-    The depth (`y`) origin is read from the header when the depth range can be located;
-    the lateral (`x`) and elevation (`z`) origins are not encoded, so those axes are
-    centered on zero (correct spacing, arbitrary origin). A `probe_to_lab` affine is
-    built from a header block interpreted as a 6DOF probe pose (translation + rotation),
-    the v2 equivalent of SCAN v1's `probeToLab`; this interpretation is experimental
-    (validated on a single near-identity pose, assumed axis order and Euler convention),
-    and loading fails if the pose block is implausible.
-    Multi-pose v2 files are rejected: the currently reverse-engineered v2 header
-    recovers only one 6DOF probe pose regardless of `npose`, since how v2 encodes
-    per-pose geometry isn't known yet, and ConfUSIus requires a `pose` dimension to
-    carry a genuine per-pose voxel-to-world affine.
-    Multi-block (`nblockRepeat > 1`) layouts are inferred by analogy with v1 and have
-    not been validated against real files. Provenance strings are mapped to v1-style
-    `iconeus_*` fields heuristically (by position, with the hex-encoded serial/hardware
-    strings as anchors); the three still-unidentified plain-string slots are exposed as
-    `iconeus_unknown1`, `iconeus_unknown2`, and `iconeus_unknown3`.
+    **v2.** The binary layout follows PyIconeus: header fields, measured times, one
+    6DOF probe pose per `pose`, acquisition/provenance metadata, then a Fortran-ordered
+    `(size_x, size_y, size_z, time, pose, dim6)` payload. The loader exposes this as
+    VoxelData order `(..., time, pose, k, j, i)` and keeps dim6 as an extra leading
+    dimension when present.
 
     Acquisition settings that correspond to fUSI-BIDS fields are also surfaced as
     attributes, in native header units: `probe_model`, `probe_center_frequency` (MHz),
-    `probe_pitch` (mm), `probe_focal_depth` (mm), `imaging_depth` (mm start/end),
-    `transmit_frequency` (MHz), `pulse_repetition_frequency` (Hz), `plane_wave_angles`
-    (deg), `svd_low_cutoff`, and `power_doppler_integration_window`. The probe/sequence
-    subset is parsed from a structured block whose layout is anchor-validated against the
-    depth origin; if that check fails, those fields are omitted rather than guessed.
+    `probe_pitch` (mm), `imaging_depth` (mm start/end), `transmit_frequency` (MHz),
+    `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `svd_low_cutoff`, and
+    `power_doppler_integration_window`.
 
     ConfUSIus world coordinates `(z, y, x)` for SCAN data are **ConfUSIus-ordered
     Iconeus lab coordinates** (mm): a fixed scanner frame shared by every pose, used
@@ -526,14 +550,13 @@ def load_scan(
         magic = f.read(len(SCAN_V2_MAGIC))
 
     if magic == SCAN_V2_MAGIC:
-        # v2 support is reverse-engineered and incomplete: re-raise any parse failure
-        # with a pointer to the issue tracker and the original error appended.
+        # Re-raise parse failures with a pointer to the issue tracker and the original
+        # error appended.
         try:
             data_array = _load_scan_v2(path, chunks)
         except Exception as error:
             raise ValueError(
-                "Loading Iconeus SCAN v2 files is experimental and this file could "
-                "not be parsed. Please open an issue at "
+                "This Iconeus SCAN v2 file could not be parsed. Please open an issue at "
                 "https://github.com/confusius-tools/confusius/issues (attaching an "
                 f"example file if possible).\n\nOriginal error: "
                 f"{type(error).__name__}: {error}"
@@ -712,12 +735,10 @@ def _load_4dscan(
 
 
 def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
-    """Parse the fixed-position numeric fields of a SCAN v2 header.
+    """Parse a SCAN v2 header using the binary layout published by PyIconeus.
 
-    Only the fields listed in `_SCAN_V2_OFFSETS` are read. These all live before the
-    first variable-length string, so their absolute offsets are stable across files.
-    Provenance strings, which follow the variable-length region, are handled separately
-    by `_read_scan_v2_strings`.
+    Portions of this function are derived from PyIconeus, which is licensed under the
+    BSD-3-Clause License. See `NOTICE` file for details.
 
     Parameters
     ----------
@@ -727,194 +748,261 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
     Returns
     -------
     dict
-        Parsed fields: `size_x`, `size_y`, `size_z`, `n_time`, `npose`,
-        `nblock_repeat`, `payload_bytes`, `total_header_bytes` (int); `dt`, `x_voxel_m`,
-        `y_voxel_m`, `z_voxel_m` (float); and `time_coords` (`(n_time,) numpy.ndarray`).
+        Parsed SCAN v2 metadata needed to expose the payload as VoxelData.
 
     Raises
     ------
     ValueError
-        If the header is too short to contain the fixed fields, or if any dimension is
-        not a positive integer.
+        If the header is truncated, reports non-positive dimensions, or contains an
+        unsupported dim6 intent.
     """
-    o = _SCAN_V2_OFFSETS
-
-    n_time = _read_u64(header, o["n_time"])
-    time_end = o["time_coords"] + 8 * n_time
-    if n_time < 1 or time_end > len(header):
-        raise ValueError(
-            "SCAN v2 header is truncated or reports an implausible time-point count "
-            f"(n_time={n_time}, header={len(header)} bytes)."
-        )
+    if len(header) < 132:
+        raise ValueError("SCAN v2 header is truncated before the dimension block.")
 
     fields: dict[str, Any] = {
-        "size_x": _read_u64(header, o["size_x"]),
-        "size_y": _read_u64(header, o["size_y"]),
-        "size_z": _read_u64(header, o["size_z"]),
-        "n_time": n_time,
-        "npose": _read_u64(header, o["npose"]),
-        "nblock_repeat": _read_u64(header, o["nblock_repeat"]),
-        "payload_bytes": _read_u64(header, o["payload_bytes"]),
-        "total_header_bytes": _read_u64(header, o["total_header_bytes"]),
-        "dt": _read_f64(header, o["dt"]),
-        "x_voxel_m": _read_f64(header, o["x_voxel_m"]),
-        "y_voxel_m": _read_f64(header, o["y_voxel_m"]),
-        "z_voxel_m": _read_f64(header, o["z_voxel_m"]),
-        "time_coords": np.frombuffer(
-            header, dtype="<f8", count=n_time, offset=o["time_coords"]
-        ).copy(),
+        "total_header_bytes": _read_u64(header, _SCAN_V2_OFFSETS["total_header_bytes"]),
+        "payload_bytes": _read_u64(header, _SCAN_V2_OFFSETS["payload_bytes"]),
+        "size_x": _read_u64(header, _SCAN_V2_OFFSETS["size_x"]),
+        "size_y": _read_u64(header, _SCAN_V2_OFFSETS["size_y"]),
+        "size_z": _read_u64(header, _SCAN_V2_OFFSETS["size_z"]),
+        "n_time": _read_u64(header, _SCAN_V2_OFFSETS["n_time"]),
+        "npose": _read_u64(header, _SCAN_V2_OFFSETS["npose"]),
     }
-
-    for key in ("size_x", "size_y", "size_z", "npose", "nblock_repeat"):
+    for key in ("size_x", "size_y", "size_z", "n_time", "npose"):
         if fields[key] < 1:
             raise ValueError(
                 f"SCAN v2 header reports a non-positive {key}={fields[key]}; the file "
                 "may be corrupt or use an unsupported layout."
             )
 
+    offset = _SCAN_V2_OFFSETS["dim6_count"]
+    dim6_count, offset = _read_scan_v2_struct(header, offset, "<Q")
+    if dim6_count < 1:
+        raise ValueError("SCAN v2 header reports a non-positive dim6 count.")
+    fields["dim6_count"] = int(dim6_count)
+
+    dim6_intents: list[int] = []
+    for _ in range(int(dim6_count)):
+        intent, offset = _read_scan_v2_struct(header, offset, "<L")
+        dim6_intents.append(int(intent))
+    fields["dim6_intents"] = dim6_intents
+
+    dim6_attrs: dict[str, Any] = {}
+    for intent in dim6_intents:
+        if intent in {1, 3}:  # EnhancedDoppler or BrainMaskedDoppler.
+            offset += 20
+        elif intent == 0:  # ClutterFiltering.
+            filter_type, offset = _read_scan_v2_struct(header, offset, "<L")
+            window, offset = _read_scan_v2_struct(header, offset, "<d")
+            cutoff_fmt = "<L" if int(filter_type) in {0, 1} else "<f"
+            low, offset = _read_scan_v2_struct(header, offset, cutoff_fmt)
+            high, offset = _read_scan_v2_struct(header, offset, cutoff_fmt)
+            dim6_attrs.update(
+                {
+                    "clutter_filter_type": int(filter_type),
+                    "clutter_filter_window_duration": float(window),
+                    "svd_low_cutoff": low,
+                    "svd_high_cutoff": high,
+                }
+            )
+        elif intent == 2:  # VelocityBandFiltering.
+            vmin, offset = _read_scan_v2_struct(header, offset, "<f")
+            vmax, offset = _read_scan_v2_struct(header, offset, "<f")
+            offset += 12
+            dim6_attrs.update(
+                {"velocity_min": float(vmin), "velocity_max": float(vmax)}
+            )
+        else:
+            raise ValueError(f"Unsupported SCAN v2 dim6 intent: {intent}.")
+    fields["dim6_attrs"] = dim6_attrs
+
+    vox = np.frombuffer(header, dtype="<f8", count=6, offset=offset).copy()
+    offset += 48
+    fields.update(
+        {
+            "x_voxel_m": float(vox[0]),
+            "y_voxel_m": float(vox[1]),
+            "z_voxel_m": float(vox[2]),
+            "dt": float(vox[3]),
+            "dr": float(vox[4]),
+            "dtheta": float(vox[5]),
+        }
+    )
+
+    time_count = fields["size_y"] * fields["n_time"] * fields["npose"]
+    time_end = offset + 12 * time_count
+    pose_end = time_end + 48 * fields["npose"]
+    if pose_end > len(header):
+        raise ValueError(
+            "SCAN v2 header is truncated or reports an implausible timing/pose block "
+            f"(time_count={time_count}, header={len(header)} bytes)."
+        )
+    fields["measured_times"] = np.frombuffer(
+        header, dtype="<f8", count=time_count, offset=offset
+    ).copy()
+    offset += 8 * time_count
+    fields["theoretical_time_indices"] = np.frombuffer(
+        header, dtype="<u4", count=time_count, offset=offset
+    ).copy()
+    offset += 4 * time_count
+    fields["probe_to_lab_translations"] = (
+        np.frombuffer(header, dtype="<f8", count=3 * fields["npose"], offset=offset)
+        .copy()
+        .reshape(fields["npose"], 3)
+    )
+    offset += 24 * fields["npose"]
+    fields["probe_to_lab_rotations"] = (
+        np.frombuffer(header, dtype="<f8", count=3 * fields["npose"], offset=offset)
+        .copy()
+        .reshape(fields["npose"], 3)
+    )
+    offset += 24 * fields["npose"]
+
+    fields.update(_read_scan_v2_tail(header, offset))
     return fields
 
 
-def _read_scan_v2_strings(header: bytes) -> list[tuple[str, bool, int]]:
-    """Extract length-prefixed strings from a SCAN v2 header, best-effort.
+def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
+    """Parse SCAN v2 acquisition and provenance fields after the pose block.
 
-    The provenance region stores strings as a `uint32` byte-length prefix followed by
-    that many ASCII bytes. This walker greedily collects every position whose prefix is
-    followed by a non-empty printable run of exactly the stated length. Some Iconeus
-    fields store the ASCII **as hex** (e.g. serial number, hardware label); those are
-    decoded once more so the readable text is returned, and flagged as hex so callers
-    can use them as structural anchors.
-
-    Because the strings are variable-length and interleaved with numeric fields, this is
-    still a heuristic recovery rather than a full schema parse: it trusts the inline
-    length prefixes, but it does not yet know the exact semantic type of every record.
-    See `_map_scan_v2_provenance` for how the result is mapped to named fields.
+    Portions of this function are derived from PyIconeus, which is licensed under the
+    BSD-3-Clause License. See `NOTICE` file for details.
 
     Parameters
     ----------
     header : bytes
         The full header bytes.
+    offset : int
+        Byte offset immediately after the pose rotation block.
 
     Returns
     -------
-    list[tuple[str, bool, int]]
-        `(text, is_hex, end)` triples in the order they appear in the header, where
-        `is_hex` marks values that were hex-decoded and `end` is the byte offset just
-        past the record (used to locate the trailing timestamp).
+    dict
+        Parsed metadata fields.
     """
-    records: list[tuple[str, bool, int]] = []
-    i = 0
-    n = len(header)
-    while i + 4 <= n:
-        length = _read_u32(header, i)
-        if 1 <= length <= 256 and i + 4 + length <= n:
-            body = header[i + 4 : i + 4 + length]
-            if all(32 <= c < 127 for c in body):
-                text = body.decode("ascii")
-                is_hex = False
-                # Some fields (serial number, hardware label) are stored as hex-encoded
-                # ASCII; decode a second time when the run is valid hex.
-                if length % 2 == 0:
-                    try:
-                        decoded = bytes.fromhex(text)
-                        if all(32 <= c < 127 for c in decoded):
-                            text = decoded.decode("ascii")
-                            is_hex = True
-                    except ValueError:
-                        pass
-                records.append((text, is_hex, i + 4 + length))
-                i += 4 + length
-                continue
-        i += 1
-    return records
+    result: dict[str, Any] = {}
+    offset += 4
+    acquisition_mode, offset = _read_scan_v2_struct(header, offset, "<L")
+    result["acquisition_mode_code"] = int(acquisition_mode)
+    offset += 4
 
+    probe_type, offset = _read_scan_v2_struct(header, offset, "<L")
+    center_frequency, offset = _read_scan_v2_struct(header, offset, "<d")
+    pitch, offset = _read_scan_v2_struct(header, offset, "<d")
+    elevation_aperture, offset = _read_scan_v2_struct(header, offset, "<d")
+    offset += 8
+    radius, offset = _read_scan_v2_struct(header, offset, "<d")
+    n_elements, offset = _read_scan_v2_struct(header, offset, "<H")
+    probe_model, offset = _read_scan_v2_binary_string(header, offset, "<H")
+    probe_name, offset = _read_scan_v2_binary_string(header, offset, "<H")
+    depth_near, offset = _read_scan_v2_struct(header, offset, "<d")
+    depth_far, offset = _read_scan_v2_struct(header, offset, "<d")
+    transmit_frequency, offset = _read_scan_v2_struct(header, offset, "<d")
+    prf, offset = _read_scan_v2_struct(header, offset, "<d")
+    sampling_frequency, offset = _read_scan_v2_struct(header, offset, "<d")
+    offset += 8
+    n_angles, offset = _read_scan_v2_struct(header, offset, "<L")
+    if n_angles > (len(header) - offset) // 8:
+        raise ValueError("SCAN v2 plane-wave angle block is truncated.")
+    plane_wave_angles = np.frombuffer(
+        header, dtype="<f8", count=int(n_angles), offset=offset
+    ).copy()
+    offset += 8 * int(n_angles)
 
-def _read_scan_v2_datetime(header: bytes, records: list[tuple[str, bool, int]]) -> str:
-    """Recover the acquisition timestamp from the SCAN v2 header, best-effort.
+    skip_count, offset = _read_scan_v2_struct(header, offset, "<L")
+    offset += int(skip_count) * 24 + 8
+    transmit_voltage, offset = _read_scan_v2_struct(header, offset, "<d")
+    offset += 4
+    delay_after_trigger, offset = _read_scan_v2_struct(header, offset, "<d")
+    skip_count, offset = _read_scan_v2_struct(header, offset, "<L")
+    offset += int(skip_count) * 8
+    is_multiplane, offset = _read_scan_v2_struct(header, offset, "<?")
+    offset += 1
+    integration_window, offset = _read_scan_v2_struct(header, offset, "<d")
 
-    The header stores the acquisition time as a `uint64` Unix timestamp (full seconds
-    precision), but its offset shifts between files and several unrelated fields fall in
-    a plausible date range, so a blind scan is unreliable. Instead this anchors on
-    structure: the acquisition timestamp is the first `uint64` in a plausible range
-    (years ~2015–2035) that follows the leading provenance strings, so the scan starts
-    at the end of the fifth plain string (species). A later, second timestamp — the file
-    save time — is deliberately skipped by starting after the acquisition one.
+    sequence_name, offset = _read_scan_v2_binary_string(header, offset)
+    project, offset = _read_scan_v2_binary_string(header, offset)
+    project_description, offset = _read_scan_v2_binary_string(header, offset)
+    subject, offset = _read_scan_v2_binary_string(header, offset)
+    session, offset = _read_scan_v2_binary_string(header, offset)
+    species, offset = _read_scan_v2_binary_string(header, offset)
+    gender, offset = _read_scan_v2_struct(header, offset, "<L")
+    transfer_ts, offset = _read_scan_v2_struct(header, offset, "<q")
+    age, offset = _read_scan_v2_struct(header, offset, "<Q")
+    subject_description, offset = _read_scan_v2_binary_string(header, offset)
+    weight_unit, offset = _read_scan_v2_struct(header, offset, "<L")
+    weight, offset = _read_scan_v2_struct(header, offset, "<f")
+    treatment, offset = _read_scan_v2_binary_string(header, offset)
+    scan, offset = _read_scan_v2_binary_string(header, offset)
+    study_type, offset = _read_scan_v2_binary_string(header, offset)
+    task_name, offset = _read_scan_v2_binary_string(header, offset)
+    task_description, offset = _read_scan_v2_binary_string(header, offset)
+    username, offset = _read_scan_v2_binary_string(header, offset)
+    for _ in range(2):
+        skip_count, offset = _read_scan_v2_struct(header, offset, "<L")
+        offset += int(skip_count)
+    acquisition_ts, offset = _read_scan_v2_struct(header, offset, "<q")
+    scan_type, offset = _read_scan_v2_struct(header, offset, "<L")
+    n_toggle, offset = _read_scan_v2_struct(header, offset, "<L")
+    if n_toggle > (len(header) - offset) // 4:
+        raise ValueError("SCAN v2 stimulation-toggle block is truncated.")
+    stimulation_toggle_times = np.frombuffer(
+        header, dtype="<f4", count=int(n_toggle), offset=offset
+    ).copy()
+    offset += 4 * int(n_toggle)
+    major, offset = _read_scan_v2_struct(header, offset, "<L")
+    minor, offset = _read_scan_v2_struct(header, offset, "<L")
+    patch, _ = _read_scan_v2_struct(header, offset, "<L")
 
-    Parameters
-    ----------
-    header : bytes
-        The full header bytes.
-    records : list[tuple[str, bool, int]]
-        `(text, is_hex, end)` triples from `_read_scan_v2_strings`.
-
-    Returns
-    -------
-    str
-        The acquisition timestamp as an ISO 8601 UTC datetime (e.g.
-        `2026-07-14T05:00:00+00:00`), or an empty string if it cannot be located.
-    """
-    plain_ends = [end for text, is_hex, end in records if not is_hex]
-    start = plain_ends[4] if len(plain_ends) >= 5 else 0
-    for offset in range(start, len(header) - 7):
-        value = _read_u64(header, offset)
-        if 1_420_000_000 <= value <= 2_050_000_000:
-            return datetime.fromtimestamp(value, UTC).isoformat()
-    return ""
-
-
-def _map_scan_v2_provenance(records: list[tuple[str, bool, int]]) -> dict[str, str]:
-    """Map decoded header strings to v1-style provenance fields, best-effort.
-
-    The provenance strings appear in a stable order:
-
-    `sequence, project, subject, session, species, <unknown1>, scan, <unknown2>,
-    <unknown3>, experimenter, serial (hex), hardware (hex)`
-
-    The two trailing hex-decoded strings (serial, hardware) are used as structural
-    anchors; the leading fields are mapped positionally. This is heuristic and matches
-    a small number of example files — a field that is empty or absent in another file
-    would shift the positional mapping.
-
-    Parameters
-    ----------
-    records : list[tuple[str, bool, int]]
-        `(text, is_hex, end)` triples from `_read_scan_v2_strings`.
-
-    Returns
-    -------
-    dict[str, str]
-        Provenance fields (`iconeus_subject`, `iconeus_session`, ...) that could be
-        recovered; missing fields are simply absent.
-    """
-    provenance: dict[str, str] = {}
-
-    hex_positions = [i for i, (_, is_hex, _) in enumerate(records) if is_hex]
-    if len(hex_positions) >= 2:
-        provenance["device_serial_number"] = records[hex_positions[-2]][0]
-        provenance["iconeus_hardware"] = records[hex_positions[-1]][0]
-        # The experimenter is the last plain string before the trailing hex pair.
-        plain_before = [
-            t for t, is_hex, _ in records[: hex_positions[-2]] if not is_hex
-        ]
-        if plain_before:
-            provenance["iconeus_experimenter"] = plain_before[-1]
-
-    plain = [text for text, is_hex, _ in records if not is_hex]
-    indexed_fields = (
-        "iconeus_sequence",
-        "iconeus_project",
-        "iconeus_subject",
-        "iconeus_session",
-        "iconeus_species",
-        "iconeus_unknown1",
-        "iconeus_scan",
-        "iconeus_unknown2",
-        "iconeus_unknown3",
+    result.update(
+        {
+            "probe_type": int(probe_type),
+            "probe_model": probe_name,
+            "probe_model_number": probe_model,
+            "probe_center_frequency": float(center_frequency),
+            "probe_pitch": float(pitch),
+            "probe_elevation_aperture": float(elevation_aperture),
+            "probe_radius_of_curvature": float(radius),
+            "probe_number_of_elements": int(n_elements),
+            "depth_start_mm": float(depth_near),
+            "imaging_depth": (float(depth_near), float(depth_far)),
+            "transmit_frequency": float(transmit_frequency),
+            "pulse_repetition_frequency": float(prf),
+            "ultrafast_sampling_frequency": float(sampling_frequency),
+            "plane_wave_angles": plane_wave_angles.tolist(),
+            "transmit_voltage": float(transmit_voltage),
+            "delay_after_trigger": float(delay_after_trigger),
+            "is_multiplane": bool(is_multiplane),
+            "power_doppler_integration_window": float(integration_window),
+            "iconeus_sequence": sequence_name,
+            "iconeus_project": project,
+            "iconeus_project_description": project_description,
+            "iconeus_subject": subject,
+            "iconeus_session": session,
+            "iconeus_species": species,
+            "iconeus_gender": int(gender),
+            "iconeus_transfer_datetime": datetime.fromtimestamp(
+                int(transfer_ts), UTC
+            ).isoformat(),
+            "iconeus_age_at_transfer": int(age),
+            "iconeus_subject_description": subject_description,
+            "iconeus_weight_unit": int(weight_unit),
+            "iconeus_weight": float(weight),
+            "iconeus_treatment": treatment,
+            "iconeus_scan": scan,
+            "iconeus_study_type": study_type,
+            "iconeus_task_name": task_name,
+            "iconeus_task_description": task_description,
+            "iconeus_experimenter": username,
+            "iconeus_datetime": datetime.fromtimestamp(
+                int(acquisition_ts), UTC
+            ).isoformat(),
+            "iconeus_scan_type": int(scan_type),
+            "stimulation_toggle_times": stimulation_toggle_times.tolist(),
+            "software_version": f"{int(major)}.{int(minor)}.{int(patch)}",
+        }
     )
-    for field, value in zip(indexed_fields, plain):
-        provenance[field] = value
-
-    return provenance
+    return result
 
 
 def _load_scan_v2(
@@ -924,23 +1012,13 @@ def _load_scan_v2(
     """Load a binary Iconeus SCAN v2 file as a lazy VoxelData array.
 
     The v2 format is a flat binary file: a variable-length header followed by a
-    little-endian `float64` power-Doppler payload. Field offsets were reverse-engineered
-    from example files; see the module docstring and `load_scan` Notes for caveats.
+    little-endian `float64` power-Doppler payload. The payload is wrapped in a NumPy
+    memmap (never fully read here) and exposed lazily through Dask.
 
-    The payload is wrapped in a NumPy memmap (never fully read here) and exposed lazily
-    through Dask, mirroring the laziness of the v1 loader.
-
-    Dimension handling follows the v1 convention. The header stores Iconeus-ordered
-    dimensions `(size_x=lateral, size_y=elevation, size_z=depth, n_time, npose,
-    nblock_repeat)`; the payload is C-ordered as
-    `(n_time, npose, nblock_repeat, size_z, size_y, size_x)`. Output dims:
-
-    - single-pose → `(time, k, j, i)`.
-    - multi-pose → `(time, pose, k, j, i)`.
-
-    where ConfUSIus `z` is elevation (`size_y`) and `y` is depth (`size_z`), so those two
-    payload axes are swapped. `nblock_repeat > 1` is folded into `time`, as in the v1
-    `4Dscan` loader.
+    The header stores Iconeus-ordered dimensions `(size_x=lateral, size_y=elevation,
+    size_z=depth, n_time, npose, dim6)`. The payload is Fortran-ordered with the same
+    axis order. Output dims are VoxelData-ordered: optional `dim6`, optional `time`,
+    optional `pose`, then `(k, j, i)`.
 
     Parameters
     ----------
@@ -976,107 +1054,66 @@ def _load_scan_v2(
     size_z = meta["size_z"]
     n_time = meta["n_time"]
     npose = meta["npose"]
-    nblock_repeat = meta["nblock_repeat"]
-
-    if npose > 1:
+    dim6_count = meta["dim6_count"]
+    n_elements = size_x * size_y * size_z * n_time * npose * dim6_count
+    payload_bytes = path.stat().st_size - total_header_bytes
+    if meta["payload_bytes"] and meta["payload_bytes"] != payload_bytes:
+        payload_bytes = meta["payload_bytes"]
+    if payload_bytes != n_elements * 8:
         raise ValueError(
-            "Loading SCAN v2 files with multiple poses is not currently supported: "
-            "how v2 encodes per-pose geometry isn't known yet, and ConfUSIus "
-            "requires a pose dimension to carry a genuine per-pose voxel-to-world "
-            "affine. Please get in touch on Discord or open an issue if you need "
-            "this."
+            f"SCAN v2 payload size ({payload_bytes} bytes) does not match the product "
+            f"of the header dimensions ({n_elements} float64 = {n_elements * 8} "
+            "bytes). The file may be corrupt or use an unsupported layout."
         )
 
-    n_elements = size_x * size_y * size_z * n_time * npose * nblock_repeat
-    if meta["payload_bytes"] != n_elements * 8:
-        raise ValueError(
-            f"SCAN v2 payload size ({meta['payload_bytes']} bytes) does not match the "
-            f"product of the header dimensions ({n_elements} float64 = "
-            f"{n_elements * 8} bytes). The file may be corrupt or use an unsupported "
-            "layout."
-        )
-
-    meta["depth_start_mm"] = _find_scan_v2_depth_start(
-        header, size_z, meta["z_voxel_m"] * 1e3
-    )
-
-    # The payload is memory-mapped (not read here); Dask keeps every downstream reshape
-    # and transpose lazy, so the array is only materialised on compute.
+    # PyIconeus documents the binary payload as Fortran-ordered
+    # `(size_x, size_y, size_z, n_time, npose, dim6)`.
     memmap = np.memmap(
         path,
         dtype="<f8",
         mode="r",
         offset=total_header_bytes,
-        shape=(n_time, npose, nblock_repeat, size_z, size_y, size_x),
+        shape=(size_x, size_y, size_z, n_time, npose, dim6_count),
+        order="F",
     )
-    raw_lazy = da.from_array(memmap, chunks=chunks)
+    raw_lazy = da.from_array(memmap, chunks=chunks, asarray=False)
+    data_lazy = da.transpose(raw_lazy, [5, 3, 4, 1, 2, 0])
 
-    n_time_total = n_time * nblock_repeat
-    sq = _fold_block_repeat_into_time(raw_lazy, npose, nblock_repeat)
-    data_lazy = _swap_depth_elevation_axes(sq)
+    scan_mode = _scan_v2_mode(meta)
+    include_time = n_time > 1 or scan_mode == "2Dscan"
+    include_pose = npose > 1
+    dims_list = ["dim6", "time", "pose", "k", "j", "i"]
+    squeeze_axes = []
+    if dim6_count == 1:
+        squeeze_axes.append(0)
+        dims_list.remove("dim6")
+    if not include_time:
+        squeeze_axes.append(1)
+        dims_list.remove("time")
+    if not include_pose:
+        squeeze_axes.append(2)
+        dims_list.remove("pose")
+    if squeeze_axes:
+        data_lazy = da.squeeze(data_lazy, axis=tuple(squeeze_axes))
 
-    # npose > 1 is rejected above.
-    data_lazy = da.squeeze(data_lazy, axis=1)
-    dims: tuple[str, ...] = ("time", "k", "j", "i")
-    pose = None
+    attrs = _scan_v2_public_attrs(meta, scan_mode)
+    attrs.update(meta["dim6_attrs"])
 
-    time_coord = _build_scan_v2_time_coord(meta, n_time_total)
     voxel_to_probe = _build_scan_v2_voxel_to_probe(meta)
-    attrs = _build_scan_v2_attrs(header, npose, n_time_total)
-    acquisition = _read_scan_v2_acquisition(header, n_time, meta["depth_start_mm"])
-    attrs.update(acquisition)
-    # Lab is the canonical VoxelData world frame for SCAN data.
-    voxel_to_world = _build_scan_v2_probe_to_lab(header, n_time) @ voxel_to_probe
+    voxel_to_world = _build_scan_v2_probe_to_lab(meta) @ voxel_to_probe
 
     data_array = create_voxeldata(
         data_lazy,
-        dims=dims,
-        time=time_coord,
-        pose=pose,
+        dims=tuple(dims_list),
+        time=_build_scan_v2_time_coord(meta) if include_time else None,
+        pose=np.arange(npose) if include_pose else None,
         voxel_to_world=voxel_to_world,
         attrs=attrs,
         name=attrs.get("iconeus_scan") or path.stem,
     )
+    if dim6_count > 1:
+        data_array = data_array.assign_coords(dim6=np.arange(dim6_count))
     return data_array
-
-
-def _find_scan_v2_depth_start(header: bytes, size_z: int, dz_mm: float) -> float:
-    """Recover the depth-axis origin (mm) from the SCAN v2 header, best-effort.
-
-    The header stores the imaging depth range as an adjacent `(start, end)` pair of
-    `float64` values in millimeters (grouped with the probe geometry). Its absolute
-    offset shifts between files because it follows variable-length fields, so instead of
-    seeking a fixed offset this scans the header for the first adjacent `float64` pair
-    `(a, b)` whose extent `b - a` matches the depth span implied by the voxel count and
-    spacing. That span is distinctive enough (meters apart from the plane-wave angles,
-    time steps, and TGC gains) to identify the pair unambiguously.
-
-    Parameters
-    ----------
-    header : bytes
-        The full header bytes.
-    size_z : int
-        Number of depth voxels.
-    dz_mm : float
-        Depth voxel spacing in millimeters.
-
-    Returns
-    -------
-    float
-        The depth-axis origin in millimeters, or `0.0` if no matching pair is found
-        (in which case the depth axis is left relative, starting at zero).
-    """
-    if size_z < 2 or dz_mm <= 0:
-        return 0.0
-
-    expected_span = (size_z - 1) * dz_mm
-    tolerance = max(0.1, dz_mm)
-    for offset in range(len(header) - 16):
-        start = _read_f64(header, offset)
-        end = _read_f64(header, offset + 8)
-        if 0.0 < start < end < 100.0 and abs((end - start) - expected_span) < tolerance:
-            return float(start)
-    return 0.0
 
 
 def _build_rotation_matrix(rx: float, ry: float, rz: float) -> npt.NDArray[np.float64]:
@@ -1104,140 +1141,123 @@ def _build_rotation_matrix(rx: float, ry: float, rz: float) -> npt.NDArray[np.fl
     return rot_z @ rot_y @ rot_x
 
 
-def _build_scan_v2_probe_to_lab(header: bytes, n_time: int) -> npt.NDArray[np.float64]:
-    """Build a `probe_to_lab` affine from the SCAN v2 6DOF probe-pose block.
-
-    The 64-byte orientation block preceding the frequency block holds eight `float64`
-    slots; the first six are interpreted as a rigid probe pose `(tx, ty, tz, rx, ry, rz)`
-    — translations in meters, rotations in radians — describing the probe in Iconeus lab
-    space (the v2 equivalent of SCAN v1's `probeToLab`). This is an **experimental**
-    interpretation validated on a single near-identity example; the axis order and Euler
-    convention are assumed.
-
-    The resulting `probeToLab` is converted to a ConfUSIus-ordered `probe_to_lab`
-    affine (millimeters) with the same permutation used by the v1 loader, so it is
-    directly comparable to v1 output.
+def _build_scan_v2_probe_to_lab(meta: dict[str, Any]) -> npt.NDArray[np.float64]:
+    """Build `probe_to_lab` affine(s) from SCAN v2 6DOF pose arrays.
 
     Parameters
     ----------
-    header : bytes
-        The full header bytes.
-    n_time : int
-        Number of stored time points, used to locate the pose block.
+    meta : dict
+        Parsed SCAN v2 header fields.
 
     Returns
     -------
-    (4, 4) numpy.ndarray
-        The `probe_to_lab` affine in millimeters.
+    numpy.ndarray
+        `(4, 4)` affine for single-pose scans, or `(pose, 4, 4)` affine stack for
+        multi-pose scans.
 
     Raises
     ------
     ValueError
-        If the pose values are implausible.
+        If a pose value is implausible.
     """
-    # The fixed header-size checks already guarantee the pose block is in range.
-    pose_offset = _SCAN_V2_OFFSETS["time_coords"] + 12 * n_time
-    tx, ty, tz, rx, ry, rz = struct.unpack_from("<6d", header, pose_offset)
-    if any(abs(t) >= 1.0 for t in (tx, ty, tz)) or any(
-        abs(a) > 2 * np.pi for a in (rx, ry, rz)
-    ):
+    translations = meta["probe_to_lab_translations"]
+    rotations = meta["probe_to_lab_rotations"]
+    if np.any(np.abs(translations) >= 1.0) or np.any(np.abs(rotations) > 2 * np.pi):
         raise ValueError("SCAN v2 probe-pose block is missing or implausible.")
 
-    probe_to_lab = np.eye(4, dtype=np.float64)
-    probe_to_lab[:3, :3] = _build_rotation_matrix(rx, ry, rz)
-    probe_to_lab[:3, 3] = (tx, ty, tz)
-    return _build_probe_to_lab(probe_to_lab)
+    probe_to_lab = np.repeat(np.eye(4)[None, :, :], meta["npose"], axis=0)
+    for pose, (translation, rotation) in enumerate(zip(translations, rotations)):
+        probe_to_lab[pose, :3, :3] = _build_rotation_matrix(*rotation)
+        probe_to_lab[pose, :3, 3] = translation
+    converted = _build_probe_to_lab(probe_to_lab)
+    return converted[0] if meta["npose"] == 1 else converted
 
 
-def _read_scan_v2_acquisition(
-    header: bytes, n_time: int, depth_start_mm: float
-) -> dict[str, Any]:
-    """Parse the acquisition-settings block of a SCAN v2 header, best-effort.
-
-    The probe- and sequence-related fields sit in a structured block whose position is
-    computable from `n_time` (the preceding time and frame-index arrays have `n_time`
-    elements each). The probe-name string is variable-length, so the fields after it are
-    located relative to its end.
-
-    Because the layout is inferred from a small number of example files, the walk is
-    **anchor-validated**: the depth range stored right after the probe name must match
-    the value found independently by `_find_scan_v2_depth_start`. If it does not, the block is
-    assumed misaligned and nothing is returned, so a mislaid offset never emits wrong
-    metadata. The two SVD/power-Doppler filter fields live at fixed offsets and are read
-    unconditionally.
-
-    Fields map to fUSI-BIDS as follows (values kept in native header units): `probe_model`
-    → `ProbeModel`; `probe_center_frequency` (MHz) → `ProbeCenterFrequency`; `probe_pitch`
-    (mm) → `ProbePitch`; `probe_focal_depth` (mm) → `ProbeFocalDepth`; `imaging_depth`
-    (mm start/end) → `Depth`; `transmit_frequency` (MHz) → `UltrasoundTransmitFrequency`;
-    `pulse_repetition_frequency` (Hz) → `UltrasoundPulseRepetitionFrequency`;
-    `plane_wave_angles` (deg) → `PlaneWaveAngles`. `svd_low_cutoff` is the low cutoff of
-    the SVD clutter filter (see `confusius.iq.clutter_filter_svd_from_indices`) and
-    `power_doppler_integration_window` relates to `PowerDopplerIntegrationDuration`.
+def _scan_v2_mode(meta: dict[str, Any]) -> str:
+    """Return a ConfUSIus scan-mode label for parsed SCAN v2 metadata.
 
     Parameters
     ----------
-    header : bytes
-        The full header bytes.
-    n_time : int
-        Number of stored time points (before folding `nblock_repeat`).
-    depth_start_mm : float
-        Depth origin found by `_find_scan_v2_depth_start`, used as the alignment anchor.
+    meta : dict
+        Parsed SCAN v2 header fields.
+
+    Returns
+    -------
+    str
+        One of `2Dscan`, `3Dscan`, `4Dscan`, or `4DscanCustom`.
+    """
+    code = meta.get("acquisition_mode_code")
+    if code == 0:
+        return "2Dscan"
+    if meta["n_time"] <= 1:
+        return "3Dscan"
+    return "4DscanCustom" if code == 3 else "4Dscan"
+
+
+def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any]:
+    """Return public DataArray attrs from parsed SCAN v2 metadata.
+
+    Parameters
+    ----------
+    meta : dict
+        Parsed SCAN v2 header fields.
+    scan_mode : str
+        ConfUSIus scan-mode label.
 
     Returns
     -------
     dict
-        Acquisition attributes that could be recovered; fields whose block could not be
-        validated are simply absent.
+        Attributes copied to the loaded DataArray.
     """
-    o = _SCAN_V2_OFFSETS
-
-    # Filter fields at fixed absolute offsets, always available.
-    result: dict[str, Any] = {
-        "svd_low_cutoff": _read_u32(header, o["svd_clutter_cutoff"]),
-        "power_doppler_integration_window": _read_u32(
-            header, o["power_doppler_integration_window"]
-        ),
-    }
-
-    # Structured block: after time_coords (n_time f64) and frame indices (n_time u32)
-    # come a 64-byte orientation block, then the frequency block, a 16-byte gap, and the
-    # probe-name string.
-    freq_off = o["time_coords"] + 12 * n_time + 64
-    name_off = freq_off + 48
-    if name_off + 2 > len(header):
-        return result
-
-    name_len = _read_u16(header, name_off)
-    name_end = name_off + 2 + name_len
-    if not (1 <= name_len <= 64) or name_end + 52 > len(header):
-        return result
-    name_bytes = header[name_off + 2 : name_end]
-    if not all(32 <= c < 127 for c in name_bytes):
-        return result
-
-    # Anchor check: the depth range starts right after the probe name and must agree
-    # with the independently located depth origin.
-    depth_start = _read_f64(header, name_end)
-    if not depth_start_mm or abs(depth_start - depth_start_mm) > 0.5:
-        return result
-
-    result["probe_model"] = name_bytes.decode("ascii")
-    result["probe_center_frequency"] = _read_f64(header, freq_off)
-    result["probe_pitch"] = _read_f64(header, freq_off + 8)
-    result["probe_focal_depth"] = _read_f64(header, freq_off + 24)
-    result["imaging_depth"] = (depth_start, _read_f64(header, name_end + 8))
-    result["transmit_frequency"] = _read_f64(header, name_end + 16)
-    result["pulse_repetition_frequency"] = _read_f64(header, name_end + 24)
-
-    n_angles = _read_u32(header, name_end + 48)
-    if 1 <= n_angles <= 512 and name_end + 52 + 8 * n_angles <= len(header):
-        angles = np.frombuffer(
-            header, dtype="<f8", count=n_angles, offset=name_end + 52
-        )
-        result["plane_wave_angles"] = angles.tolist()
-
-    return result
+    keys = (
+        "probe_model",
+        "probe_model_number",
+        "probe_center_frequency",
+        "probe_pitch",
+        "probe_elevation_aperture",
+        "probe_radius_of_curvature",
+        "probe_number_of_elements",
+        "imaging_depth",
+        "transmit_frequency",
+        "pulse_repetition_frequency",
+        "ultrafast_sampling_frequency",
+        "plane_wave_angles",
+        "transmit_voltage",
+        "delay_after_trigger",
+        "is_multiplane",
+        "power_doppler_integration_window",
+        "iconeus_sequence",
+        "iconeus_project",
+        "iconeus_project_description",
+        "iconeus_subject",
+        "iconeus_session",
+        "iconeus_species",
+        "iconeus_gender",
+        "iconeus_transfer_datetime",
+        "iconeus_age_at_transfer",
+        "iconeus_subject_description",
+        "iconeus_weight_unit",
+        "iconeus_weight",
+        "iconeus_treatment",
+        "iconeus_scan",
+        "iconeus_study_type",
+        "iconeus_task_name",
+        "iconeus_task_description",
+        "iconeus_experimenter",
+        "iconeus_datetime",
+        "iconeus_scan_type",
+        "stimulation_toggle_times",
+        "software_version",
+    )
+    attrs = {key: meta[key] for key in keys if key in meta}
+    attrs.update(
+        {
+            "affines": {},
+            "iconeus_scan_format": "v2",
+            "iconeus_scan_mode": scan_mode,
+        }
+    )
+    return attrs
 
 
 def _build_scan_v2_voxel_to_probe(meta: dict[str, Any]) -> npt.NDArray[np.float64]:
@@ -1269,68 +1289,24 @@ def _build_scan_v2_voxel_to_probe(meta: dict[str, Any]) -> npt.NDArray[np.float6
     return voxel_to_probe
 
 
-def _build_scan_v2_time_coord(meta: dict[str, Any], n_time_total: int) -> xr.DataArray:
+def _build_scan_v2_time_coord(meta: dict[str, Any]) -> xr.DataArray:
     """Build the `time` coordinate DataArray for a SCAN v2 volume.
 
     Parameters
     ----------
     meta : dict
         Parsed header fields from `_read_scan_v2_header`.
-    n_time_total : int
-        Number of time points after folding `nblock_repeat` into time.
 
     Returns
     -------
     xarray.DataArray
-        `time` coordinate.
+        `time` coordinate. Multi-pose scans use a pose-dependent `(time, pose)` array.
     """
-    time_vals = meta["time_coords"]
-    if time_vals.size != n_time_total:
-        # nblock_repeat > 1 (unobserved): the header only stores n_time timestamps, so
-        # fall back to a regular grid spaced by dt. Keep it end-referenced (first volume
-        # ends at dt) to stay consistent with volume_acquisition_reference below.
-        time_vals = meta["dt"] * (np.arange(n_time_total) + 1)
-
+    times = meta["measured_times"].reshape(
+        meta["n_time"], meta["npose"], meta["size_y"]
+    )
+    time_vals = times.max(axis=2)
     time_attrs = _scan_time_attrs(float(time_vals.min()) if time_vals.size else 0.0)
-    return xr.DataArray(time_vals, dims=["time"], attrs=time_attrs)
-
-
-def _build_scan_v2_attrs(
-    header: bytes, npose: int, n_time_total: int
-) -> dict[str, Any]:
-    """Assemble provenance attributes for a SCAN v2 volume.
-
-    Header strings are mapped to v1-style provenance fields (`iconeus_subject`,
-    `iconeus_session`, ...) on a best-effort basis (see `_map_scan_v2_provenance`).
-    The three still-unidentified plain-string slots are surfaced explicitly as
-    `iconeus_unknown1`, `iconeus_unknown2`, and `iconeus_unknown3`.
-
-    Parameters
-    ----------
-    header : bytes
-        The full header bytes.
-    npose : int
-        Number of robot positions.
-    n_time_total : int
-        Number of time points after folding `nblock_repeat` into time.
-
-    Returns
-    -------
-    dict
-        Attributes for the DataArray: `affines`, `iconeus_scan_format`,
-        `iconeus_scan_mode`, `iconeus_datetime`, and the mapped provenance fields.
-    """
-    if npose > 1:
-        scan_mode = "4Dscan" if n_time_total > 1 else "3Dscan"
-    else:
-        scan_mode = "2Dscan"
-
-    records = _read_scan_v2_strings(header)
-    attrs: dict[str, Any] = {
-        "affines": {},
-        "iconeus_scan_format": "v2",
-        "iconeus_scan_mode": scan_mode,
-        "iconeus_datetime": _read_scan_v2_datetime(header, records),
-    }
-    attrs.update(_map_scan_v2_provenance(records))
-    return attrs
+    if meta["npose"] == 1:
+        return xr.DataArray(time_vals[:, 0], dims=["time"], attrs=time_attrs)
+    return xr.DataArray(time_vals, dims=["time", "pose"], attrs=time_attrs)
