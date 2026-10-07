@@ -17,7 +17,7 @@ from rich.progress import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator
 
 
 @contextmanager
@@ -26,7 +26,7 @@ def progress_bar(
     total: int,
     *,
     show: bool,
-) -> Iterator[Callable[..., None]]:
+) -> Generator[Callable[..., None], None, None]:
     """Yield a callable advancing a progress bar over a loop.
 
     The columns match the ones

@@ -12,7 +12,7 @@ import requests
 from rich.logging import RichHandler
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator
     from pathlib import Path
 
     from rich.progress import Progress, TaskID
@@ -28,7 +28,7 @@ _PROGRESS_CALLBACK_STEP_BYTES = 1_048_576
 
 
 @contextlib.contextmanager
-def quiet_pooch_logger() -> Iterator[None]:
+def quiet_pooch_logger() -> Generator[None, None, None]:
     """Redirect `pooch`'s logger through `rich` at WARNING level.
 
     Suppresses pooch's INFO-level messages (SHA256 suggestions, download
