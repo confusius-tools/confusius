@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 @contextmanager
-def _preserve_view(viewer: napari.Viewer) -> Iterator[None]:
+def _preserve_view(viewer: napari.Viewer) -> Generator[None, None, None]:
     """Keep the viewer camera and dims state across a block that adds layers.
 
     Adding image layers makes napari recompute `camera.center` and re-apply
