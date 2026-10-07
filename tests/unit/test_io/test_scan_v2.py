@@ -173,6 +173,7 @@ def _write_scan_v2(
     acquisition: bool = False,
     corrupt_acquisition: str | None = None,
     payload_bytes_override: int | None = None,
+    dim6_intents: list[int] | None = None,
 ) -> None:
     """Write a PyIconeus-layout synthetic binary SCAN v2 file.
 
@@ -201,6 +202,8 @@ def _write_scan_v2(
         Corruption mode used by error-path tests.
     payload_bytes_override : int, optional
         Payload byte count to write into the header.
+    dim6_intents : list of int, optional
+        Dim6 intent codes. If not provided, static SVD clutter filtering is used.
 
     Returns
     -------
@@ -227,10 +230,17 @@ def _write_scan_v2(
     struct.pack_into("<Q", header, o["n_time"], n_time)
     struct.pack_into("<Q", header, o["npose"], npose)
 
-    header += struct.pack("<Q", nblock_repeat)
-    header += struct.pack(f"<{nblock_repeat}L", *([0] * nblock_repeat))
-    for _ in range(nblock_repeat):
-        header += struct.pack("<LdLL", 0, dt, _SVD_CUTOFF, _PD_WINDOW)
+    if dim6_intents is None:
+        dim6_intents = [0] * nblock_repeat
+    header += struct.pack("<Q", len(dim6_intents))
+    header += struct.pack(f"<{len(dim6_intents)}L", *dim6_intents)
+    for intent in dim6_intents:
+        if intent in {1, 3}:
+            header += bytes(20)
+        elif intent == 0:
+            header += struct.pack("<LdLL", 0, dt, _SVD_CUTOFF, _PD_WINDOW)
+        elif intent == 2:
+            header += struct.pack("<ff", -1.5, 2.5) + bytes(12)
     header += struct.pack("<6d", _DX_M, _DY_M, _DZ_M, dt, 0.0, 0.0)
 
     measured = np.empty((n_time, npose, size_y), dtype="<f8")
@@ -253,7 +263,7 @@ def _write_scan_v2(
 
     probe_name = _PROBE_MODEL if corrupt_acquisition != "name" else "bad-name"
     header += bytes(4)
-    header += struct.pack("<L", 3 if npose > 1 and n_time > 1 else 0)
+    header += struct.pack("<L", 3 if npose > 1 and n_time > 1 else 1 if npose > 1 else 0)
     header += bytes(4)
     header += struct.pack("<Lddd", 0, _CENTER_FREQ, _PITCH, 1.5)
     header += bytes(8)
@@ -263,8 +273,10 @@ def _write_scan_v2(
     header += struct.pack("<dd", depth_start, depth_end)
     header += struct.pack("<ddd", _TRANSMIT_FREQ, _PRF, _ADC)
     header += bytes(8)
-    header += struct.pack("<L", len(_ANGLES))
-    header += struct.pack(f"<{len(_ANGLES)}d", *_ANGLES)
+    n_angles = 99_999 if corrupt_acquisition == "angles" else len(_ANGLES)
+    header += struct.pack("<L", n_angles)
+    if corrupt_acquisition != "angles":
+        header += struct.pack(f"<{len(_ANGLES)}d", *_ANGLES)
     header += struct.pack("<L", 0) + bytes(8)
     header += struct.pack("<d", 12.0)
     header += bytes(4)
@@ -280,7 +292,8 @@ def _write_scan_v2(
     header += struct.pack("<Lf", 0, 0.0)
     for text in ("", scan, "", "", "", user, "", ""):
         header += _pack_scan_v2_string(text)
-    header += struct.pack("<qLL", timestamp, 0, 0)
+    n_toggle = 99_999 if corrupt_acquisition == "toggles" else 0
+    header += struct.pack("<qLL", timestamp, 0, n_toggle)
     header += struct.pack("<LLL", 1, 2, 3)
 
     total_header_bytes = len(header)
@@ -506,6 +519,20 @@ class TestLoadScanV2Multipose:
         assert da.shape == (_N_TIME, 2, 2, _SIZE_Z, _SIZE_X)
         assert get_voxel_to_world_affine(da).shape == (2, 4, 4)
 
+    def test_static_multipose_has_no_time_dim(self, tmp_path: Path) -> None:
+        """A single-time multi-pose v2 file loads as static 3Dscan data."""
+        path = tmp_path / "scan_v2_static_multipose.scan"
+        _write_scan_v2(
+            path,
+            _raw_payload(n_time=1, size_y=2, npose=2),
+            n_time=1,
+            size_y=2,
+            npose=2,
+        )
+        da = load_scan(path)
+        assert da.dims == ("pose", "k", "j", "i")
+        assert da.attrs["iconeus_scan_mode"] == "3Dscan"
+
 
 class TestLoadScanV2Multiblock:
     """Tests for dim6 payloads."""
@@ -532,6 +559,22 @@ class TestLoadScanV2Multiblock:
         assert da.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
             _DT
         )
+
+    @pytest.mark.parametrize("intent", [1, 3])
+    def test_marker_dim6_intents_load(self, tmp_path: Path, intent: int) -> None:
+        """Enhanced/brain-masked Doppler dim6 intents skip their fixed payload."""
+        path = tmp_path / "scan_v2_marker_dim6.scan"
+        _write_scan_v2(path, _raw_payload(), dim6_intents=[intent])
+        da = load_scan(path)
+        assert da.dims == ("time", "k", "j", "i")
+
+    def test_velocity_band_dim6_attrs(self, tmp_path: Path) -> None:
+        """Velocity-band dim6 metadata is exposed as attrs."""
+        path = tmp_path / "scan_v2_velocity_dim6.scan"
+        _write_scan_v2(path, _raw_payload(), dim6_intents=[2])
+        da = load_scan(path)
+        assert da.attrs["velocity_min"] == pytest.approx(-1.5)
+        assert da.attrs["velocity_max"] == pytest.approx(2.5)
 
 
 class TestLoadScanV2Acquisition:
@@ -687,3 +730,47 @@ class TestLoadScanV2Errors:
         with pytest.raises(ValueError, match="could not be parsed") as excinfo:
             load_scan(path)
         assert "non-positive" in str(excinfo.value)
+
+    def test_short_header_raises(self, tmp_path: Path) -> None:
+        """A header shorter than the dimension block raises."""
+        path = tmp_path / "short_header.scan"
+        header = bytearray(100)
+        header[: len(SCAN_V2_MAGIC)] = SCAN_V2_MAGIC
+        struct.pack_into("<Q", header, _SCAN_V2_OFFSETS["total_header_bytes"], 100)
+        path.write_bytes(header)
+        with pytest.raises(ValueError, match="could not be parsed") as excinfo:
+            load_scan(path)
+        assert "truncated before the dimension block" in str(excinfo.value)
+
+    def test_nonpositive_dim6_count_raises(self, tmp_path: Path) -> None:
+        """A zero dim6 count in the header raises."""
+        path = tmp_path / "zero_dim6.scan"
+        _write_scan_v2(path, _raw_payload())
+        _patch_u64(path, _SCAN_V2_OFFSETS["dim6_count"], 0)
+        with pytest.raises(ValueError, match="could not be parsed") as excinfo:
+            load_scan(path)
+        assert "non-positive dim6" in str(excinfo.value)
+
+    def test_unsupported_dim6_intent_raises(self, tmp_path: Path) -> None:
+        """Unsupported dim6 intents raise a descriptive parse error."""
+        path = tmp_path / "bad_dim6.scan"
+        _write_scan_v2(path, _raw_payload(), dim6_intents=[99])
+        with pytest.raises(ValueError, match="could not be parsed") as excinfo:
+            load_scan(path)
+        assert "Unsupported SCAN v2 dim6 intent" in str(excinfo.value)
+
+    def test_truncated_angle_block_raises(self, tmp_path: Path) -> None:
+        """An angle count that points beyond the header raises."""
+        path = tmp_path / "bad_angles.scan"
+        _write_scan_v2(path, _raw_payload(), corrupt_acquisition="angles")
+        with pytest.raises(ValueError, match="could not be parsed") as excinfo:
+            load_scan(path)
+        assert "plane-wave angle block" in str(excinfo.value)
+
+    def test_truncated_toggle_block_raises(self, tmp_path: Path) -> None:
+        """A stimulation-toggle count that points beyond the header raises."""
+        path = tmp_path / "bad_toggles.scan"
+        _write_scan_v2(path, _raw_payload(), corrupt_acquisition="toggles")
+        with pytest.raises(ValueError, match="could not be parsed") as excinfo:
+            load_scan(path)
+        assert "stimulation-toggle block" in str(excinfo.value)
