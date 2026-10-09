@@ -90,7 +90,7 @@ Attributes: (12/24)
     transmit_frequency:        15625000.0
     compound_sampling_frequency: 500.0
     plane_wave_angles:         [-10.0, -7.9, -5.8, -3.7, -1.6, 0.5, 2.6, 4.7, 6.8, 8.9]
-    probe_voltage:             25.0
+    transmit_voltage:          25.0
 ```
 
 Reading the output from top to bottom, a DataArray has four components:

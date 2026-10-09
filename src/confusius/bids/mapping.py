@@ -69,8 +69,6 @@ def _pascal_to_snake(name: str) -> str:
 
 
 EXPLICIT_BIDS_FIELD_MAPPINGS: Final[dict[str, str]] = {
-    "transmit_frequency": "UltrasoundTransmitFrequency",
-    "pulse_repetition_frequency": "UltrasoundPulseRepetitionFrequency",
     "volume_acquisition_duration": "FrameAcquisitionDuration",
 }
 """Explicit mappings for standard BIDS fields with non-automatic names.
@@ -92,9 +90,7 @@ CONFUSIUS_INTERNAL_FIELDS: Final[frozenset[str]] = frozenset(
         "long_name",
         "cmap",
         "bmode_integration_duration",
-        "bmode_integration_stride",
         "axial_velocity_integration_duration",
-        "axial_velocity_integration_stride",
         "axial_velocity_lag",
         "axial_velocity_spatial_kernel",
         "dim4_name",
@@ -133,7 +129,8 @@ def to_bids(attrs: Mapping[str, object]) -> dict[str, object]:
     """Convert ConfUSIus attributes to fUSI-BIDS format.
 
     Only converts known fUSI-BIDS fields. Internal ConfUSIus attributes are prefixed
-    with "ConfUSIus". Unknown fields are preserved as-is.
+    with "ConfUSIus". Values and units are unchanged; unknown fields are preserved
+    as-is.
 
     Parameters
     ----------
@@ -175,7 +172,7 @@ def from_bids(bids_attrs: Mapping[str, object]) -> dict[str, object]:
 
     Known fUSI-BIDS fields are converted to snake_case. ConfUSIus-prefixed attributes
     are converted back to internal names. Unknown fields are preserved as-is to ensure
-    round-trip safety.
+    round-trip safety. Values and units are unchanged.
 
     Parameters
     ----------

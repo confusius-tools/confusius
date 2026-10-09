@@ -12,6 +12,7 @@ from confusius.registration._utils import (
     expand_thin_dims,
     replace_affines_attr,
     set_sitk_thread_count,
+    validate_fill_value,
     validate_intensity_scaling,
     voxeldata_to_sitk_image,
 )
@@ -604,7 +605,8 @@ def register_volume(
         and the progress composite overlay (when `show_progress=True` and
         `plot_composite=True`). If not provided, defaults to the minimum value of
         `moving`, which renders out-of-FOV regions as background regardless of intensity
-        scale (important for dB data where 0 is maximum intensity).
+        scale (important for dB data where 0 is maximum intensity). Must be representable
+        in `moving`'s dtype: to fill an integer volume with NaN, cast it to float first.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
@@ -912,6 +914,8 @@ def register_volume(
         if fill_value is not None
         else (float(moving.min()) if needs_fill_value else None)
     )
+    if _fill_value is not None:
+        validate_fill_value(_fill_value, moving.dtype)
 
     with abort_on_sigint(abort_event) as effective_abort_event:
         registration.AddCommand(sitk.sitkIterationEvent, _record_iteration)

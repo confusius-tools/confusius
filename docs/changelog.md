@@ -12,6 +12,15 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- fUSI-BIDS metadata now follows draft v0.0.14: renamed frequency/voltage fields,
+  including internal attributes `probe_central_frequency` → `probe_center_frequency`
+  and `probe_voltage` → `transmit_voltage`, updated probe/virtual-source validation,
+  and removal of redundant integration-stride attributes for Power Doppler,
+  B-mode, and axial velocity. JSON processing windows use milliseconds, including
+  ConfUSIus-prefixed B-mode and axial-velocity durations; internal attributes use
+  the time coordinate's units. JSON acquisition timing remains in seconds.
+  No legacy JSON aliases or automatic legacy-unit detection are provided
+  ([#486](https://github.com/confusius-tools/confusius/pull/486)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`resample_like`][confusius.registration.resample_like]'s `interpolation`
   parameter defaults to `"auto"` instead of `"linear"`: `"nearest"` is picked for
@@ -76,6 +85,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`register_volume`][confusius.registration.register_volume] now raise a `ValueError`
+  when `fill_value` cannot be represented as an integer, but `moving` is an
+  integer-dtype ([#481](https://github.com/confusius-tools/confusius/pull/481)).
 - [`register_volume`][confusius.registration.register_volume]'s live progress plot no
   longer draws every slice in the composite overlay for volumes with many slices,
   which made the mosaic slow to render and hard to read. The composite now shows at
