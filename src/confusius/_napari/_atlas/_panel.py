@@ -75,8 +75,11 @@ REGION_TABLE_COLUMN_WIDTHS_PX = (80, 90)
 MASK_SIDES = ("both", "left", "right")
 """Hemisphere choices offered for region masks, in dropdown order."""
 
-SEARCH_FIELDS = ("all", "acronym", "name")
-"""Search field choices, matching `AtlasAccessor.search`'s `field` argument."""
+RESULTS_TABLE_MIN_HEIGHT_PX = 140
+"""Minimum height of the search-results table."""
+
+SELECTED_TABLE_MIN_HEIGHT_PX = 93
+"""Minimum height of the selected-regions table, two thirds of the results one."""
 
 
 @thread_worker
@@ -181,8 +184,13 @@ def _make_progress_bar() -> QProgressBar:
     return progress
 
 
-def _make_region_table() -> QTableWidget:
+def _make_region_table(min_height: int) -> QTableWidget:
     """Build a read-only `id` / `acronym` / `name` region table.
+
+    Parameters
+    ----------
+    min_height : int
+        Minimum table height in pixels.
 
     Returns
     -------
@@ -207,7 +215,7 @@ def _make_region_table() -> QTableWidget:
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
             table.setColumnWidth(column, width)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-    table.setMinimumHeight(140)
+    table.setMinimumHeight(min_height)
     return table
 
 
@@ -313,9 +321,13 @@ class _LoadedAtlasRow(QWidget):
     def __init__(self, name: str) -> None:
         super().__init__()
         self.name = name
-        layout = QHBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(2)
+        layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
+        outer.addLayout(layout)
 
         label = QLabel(name)
         label.setToolTip(name)
@@ -324,17 +336,22 @@ class _LoadedAtlasRow(QWidget):
         label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addWidget(label, stretch=1)
 
-        self.layers_btn = QPushButton("Layers")
-        self.layers_btn.setToolTip("Add reference, annotation and hemispheres layers")
+        self.volumes_btn = QPushButton("Volumes")
+        self.volumes_btn.setToolTip(
+            "Add the reference, annotation and hemispheres volumes as layers"
+        )
         self.tree_btn = QPushButton("Tree")
         self.tree_btn.setToolTip("Show or hide the structure tree")
         self.masks_btn = QPushButton("Masks")
         self.masks_btn.setToolTip("Build region masks")
         self.remove_btn = QPushButton("✕")
         self.remove_btn.setToolTip("Remove atlas and free its memory")
-        for btn in (self.layers_btn, self.tree_btn, self.masks_btn, self.remove_btn):
+        for btn in (self.volumes_btn, self.tree_btn, self.masks_btn, self.remove_btn):
             btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             layout.addWidget(btn)
+
+        self.progress = _make_progress_bar()
+        outer.addWidget(self.progress)
 
 
 class AtlasPanel(QWidget):
@@ -479,20 +496,12 @@ class AtlasPanel(QWidget):
         self._search_edit = QLineEdit()
         self._search_edit.setPlaceholderText("Acronym or name (regex)")
         self._search_edit.textChanged.connect(self._refresh_search)
-        self._field_combo = QComboBox()
-        self._field_combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
-        )
-        self._field_combo.addItems(SEARCH_FIELDS)
-        self._field_combo.currentTextChanged.connect(self._refresh_search)
         search_row = QHBoxLayout()
         search_row.addWidget(QLabel("Search"))
         search_row.addWidget(self._search_edit, stretch=1)
-        search_row.addWidget(QLabel("Field"))
-        search_row.addWidget(self._field_combo)
         group_layout.addLayout(search_row)
 
-        self._results_table = _make_region_table()
+        self._results_table = _make_region_table(RESULTS_TABLE_MIN_HEIGHT_PX)
         self._results_table.doubleClicked.connect(self._add_regions)
         group_layout.addWidget(self._results_table)
 
@@ -507,7 +516,7 @@ class AtlasPanel(QWidget):
         move_row.addStretch()
         group_layout.addLayout(move_row)
 
-        self._selected_table = _make_region_table()
+        self._selected_table = _make_region_table(SELECTED_TABLE_MIN_HEIGHT_PX)
         self._selected_table.doubleClicked.connect(self._remove_regions)
         group_layout.addWidget(self._selected_table)
 
@@ -515,6 +524,9 @@ class AtlasPanel(QWidget):
         self._side_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
+        # The content-independent adjust policy alone leaves the combo too narrow
+        # to show the selected side.
+        self._side_combo.setMinimumContentsLength(len(max(MASK_SIDES, key=len)) + 2)
         self._side_combo.addItems(MASK_SIDES)
         side_row = QHBoxLayout()
         side_row.addWidget(QLabel("Side"))
@@ -637,7 +649,7 @@ class AtlasPanel(QWidget):
 
     def _add_atlas_row(self, name: str) -> None:
         row = _LoadedAtlasRow(name)
-        row.layers_btn.clicked.connect(lambda: self._add_atlas_layers(name))
+        row.volumes_btn.clicked.connect(lambda: self._add_atlas_layers(name))
         row.tree_btn.clicked.connect(lambda: self._toggle_tree(name))
         row.masks_btn.clicked.connect(lambda: self._toggle_masks(name))
         row.remove_btn.clicked.connect(lambda: self._remove_atlas(name))
@@ -654,6 +666,13 @@ class AtlasPanel(QWidget):
             Loaded atlas name.
         """
         ds = self._atlases[name]
+        row = self._atlas_rows.get(name)
+        if row is not None:
+            # Layer creation must run on the GUI thread, so the bar cannot animate;
+            # painting it before the work still tells the user something is happening.
+            row.volumes_btn.setEnabled(False)
+            row.progress.show()
+            QApplication.processEvents()
         try:
             # Capture warnings from plot_napari (e.g. non-uniform spacing) and re-emit
             # them as napari notifications so they appear in the UI.
@@ -679,6 +698,10 @@ class AtlasPanel(QWidget):
                     show_warning(str(w.message))
         except Exception as exc:  # noqa: BLE001
             show_error(str(exc))
+        finally:
+            if row is not None:
+                row.progress.hide()
+                row.volumes_btn.setEnabled(True)
 
     def _remove_atlas(self, name: str) -> None:
         """Forget a loaded atlas: drop its data, row, tree dock and mask group.
@@ -799,10 +822,7 @@ class AtlasPanel(QWidget):
             except re.error:
                 df = lookup.iloc[0:0]
             else:
-                df = atlas.atlas.search(
-                    pattern,
-                    field=self._field_combo.currentText(),  # type: ignore[arg-type]
-                )
+                df = atlas.atlas.search(pattern)
         _set_table_rows(
             self._results_table,
             zip((int(i) for i in df.index), df["acronym"], df["name"]),

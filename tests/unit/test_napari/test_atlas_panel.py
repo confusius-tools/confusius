@@ -105,7 +105,7 @@ class TestAtlasLoading:
         assert combo.currentData() == "other"
         assert loaded_panel._load_atlas_btn.isEnabled()
 
-    def test_layers_button_adds_three_layers(
+    def test_volumes_button_adds_three_layers(
         self, loaded_panel, viewer, atlas_ds
     ) -> None:
         loaded_panel._add_atlas_layers("mock")
@@ -118,6 +118,10 @@ class TestAtlasLoading:
         assert_array_equal(
             viewer.layers["mock annotation"].data, atlas_ds["annotation"].values
         )
+        row = loaded_panel._atlas_rows["mock"]
+        assert row.volumes_btn.text() == "Volumes"
+        assert row.volumes_btn.isEnabled()
+        assert row.progress.isHidden()
 
     def test_error_restores_idle_state(self, panel, errors) -> None:
         panel._begin_atlas_work()
@@ -221,15 +225,19 @@ class TestRegionSearch:
         ids = [row[0] for row in _rows(masks_panel._results_table)]
         assert sorted(ids) == ["10", "20", "997"]
 
-    def test_all_field_matches_name_substring(self, masks_panel) -> None:
+    def test_pattern_matches_acronym_or_name_substring(self, masks_panel) -> None:
         masks_panel._search_edit.setText("child")
         ids = [row[0] for row in _rows(masks_panel._results_table)]
         assert sorted(ids) == ["10", "20"]
 
-    def test_acronym_field_requires_full_match(self, masks_panel) -> None:
-        masks_panel._field_combo.setCurrentText("acronym")
-        masks_panel._search_edit.setText("ch")
+    def test_anchored_regex_matches_acronym_only(self, masks_panel) -> None:
+        masks_panel._search_edit.setText("^ch$")
         assert _rows(masks_panel._results_table) == [("10", "ch", "child region")]
+
+    def test_selected_table_is_shorter_than_results(self, panel) -> None:
+        assert (
+            panel._selected_table.minimumHeight() < panel._results_table.minimumHeight()
+        )
 
     def test_invalid_regex_shows_no_rows(self, masks_panel) -> None:
         masks_panel._search_edit.setText("ch(")
@@ -242,8 +250,7 @@ class TestRegionSearch:
 
 class TestRegionSelection:
     def test_add_moves_rows_and_dedups(self, masks_panel) -> None:
-        masks_panel._field_combo.setCurrentText("acronym")
-        masks_panel._search_edit.setText("ch")
+        masks_panel._search_edit.setText("^ch$")
         results = masks_panel._results_table
         assert _rows(results) == [("10", "ch", "child region")]
 
