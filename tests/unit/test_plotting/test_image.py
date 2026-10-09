@@ -1443,6 +1443,7 @@ class TestTranspose:
         confound regression + correlation), this multiplied real cost by however
         many times incidental code paths happened to touch `.values`.
         """
+        import dask
         import dask.array as dask_array
         from dask import delayed
 
@@ -1465,8 +1466,9 @@ class TestTranspose:
             _make("mask"), dims=("region", "k", "j", "i"), voxel_to_world=affine
         ).assign_coords(region=["a", "b"])
 
-        plotter = plot_volume(data, slice_mode="region", show_colorbar=False)
-        plotter.add_contours(mask)
+        with dask.config.set(scheduler="synchronous"):
+            plotter = plot_volume(data, slice_mode="region", show_colorbar=False)
+            plotter.add_contours(mask)
 
         assert calls["data"] == 1
         assert calls["mask"] == 1

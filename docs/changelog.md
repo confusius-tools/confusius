@@ -12,6 +12,13 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`register_volumewise`][confusius.registration.register_volumewise] now parallelizes
+  with a Dask `distributed.Client` instead of joblib. Parallelism is controlled by
+  the ambient `distributed.Client` if one is active, or by an automatically created
+  local client sized by `n_jobs` otherwise. `abort_event` must now be a
+  `distributed.Event`, and h5py-backed (SCAN) input now always raises `TypeError` --
+  materialize it with `.compute()` first
+  ([#440](https://github.com/confusius-tools/confusius/pull/440)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`resample_like`][confusius.registration.resample_like]'s `interpolation`
   parameter defaults to `"auto"` instead of `"linear"`: `"nearest"` is picked for
@@ -33,6 +40,11 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- [`register_volumewise`][confusius.registration.register_volumewise] no longer
+  materializes the full recording into memory before registering it: each frame is
+  read lazily as it is dispatched, so a Dask-backed recording is pulled into memory
+  frame by frame
+  ([#440](https://github.com/confusius-tools/confusius/pull/440)).
 - Masks are no longer required to be strictly boolean dtype: any binary numeric mask
   (0 and at most one non-zero value, e.g. `{0, 1}` or `{0.0, 5.0}`) is now accepted
   and coerced to boolean, covering masks written by tools without a boolean dtype
@@ -106,6 +118,10 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- The within-scan registration panel's "Parallel jobs" control now controls a Dask
+  `distributed.Client` the panel creates and sizes for the run instead of joblib
+  workers
+  ([#440](https://github.com/confusius-tools/confusius/pull/440)).
 - The registration panel's within-scan mode can register every frame to a fixed
   layer, with its own intensity scaling, as an alternative to a reference time index
   ([#376](https://github.com/confusius-tools/confusius/issues/376)).

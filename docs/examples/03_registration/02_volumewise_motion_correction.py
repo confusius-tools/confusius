@@ -73,7 +73,7 @@ data
 # the optimizer find the correct alignment.
 
 # %%
-registered = cf.registration.register_volumewise(
+registered = cf.registration.register_volumewise_lazy(
     data,
     transform="rigid",
     moving_intensity_scaling="db",

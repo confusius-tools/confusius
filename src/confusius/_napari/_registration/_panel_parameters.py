@@ -176,6 +176,7 @@ def set_registration_parameters(
     else:
         panel._reference_time_radio.setChecked(True)
     panel._n_jobs_spin.setValue(params["n_jobs"])
+
     panel._sitk_threads_spin.setValue(params["sitk_threads"])
     panel._keep_diagnostics_check.setChecked(params["keep_diagnostics"])
     panel._advanced_toggle.setChecked(params["advanced_open"])

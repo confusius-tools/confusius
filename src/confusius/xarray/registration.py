@@ -7,6 +7,7 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from distributed import Event as DistributedEvent
 
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.progress import RegistrationProgress
@@ -233,7 +234,7 @@ class FUSIRegistrationAccessor:
         fill_value: float | None = None,
         show_progress: bool = True,
         progress_reporter: VolumewiseProgressReporter | None = None,
-        abort_event: Event | None = None,
+        abort_event: DistributedEvent | None = None,
         keep_diagnostics: bool = False,
     ) -> xr.DataArray:
         """Register all volumes to a reference time point or a reference volume.
@@ -250,8 +251,8 @@ class FUSIRegistrationAccessor:
             no `time` dimension. If not provided, the frame at `reference_time`
             is used. Cannot be combined with `reference_time`.
         n_jobs : int, default: -1
-            Number of parallel jobs. -1 uses all available CPUs.
-            Use 1 for serial processing.
+            Number of parallel jobs for an auto-created local Dask client. -1 uses
+            all available CPUs; ignored when an ambient Client is active.
         transform : {"translation", "rigid", "affine"}, default: "rigid"
             Type of transform to use for registration.
         metric : {"correlation", "mattes_mi"}, default: "correlation"
@@ -313,8 +314,11 @@ class FUSIRegistrationAccessor:
         progress_reporter : VolumewiseProgressReporter, optional
             Thread-safe reporter notified whenever one frame completes. If not
             provided, no per-frame callback is used.
-        abort_event : threading.Event, optional
-            Cooperative cancellation flag shared across frames.
+        abort_event : distributed.Event, optional
+            Cooperative cancellation flag shared across frames. Must be a
+            `distributed.Event` (not a `threading.Event`) -- see
+            [`register_volumewise`][confusius.registration.register_volumewise]'s
+            Notes.
         keep_diagnostics : bool, default: False
             Whether to keep per-frame registration diagnostics on the result.
             See
