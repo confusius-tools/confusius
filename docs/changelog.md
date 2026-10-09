@@ -27,6 +27,14 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- New **Atlas** tab: pick any BrainGlobe atlas (downloaded ones listed first) and
+  load its reference, annotation and hemispheres as three layers, browse its
+  structure hierarchy in a read-only dock, and search regions to load one Labels
+  layer per region mask, with a hemisphere selector
+  ([#487](https://github.com/confusius-tools/confusius/issues/487)).
+- The Atlas tab also loads the fUSI templates shipped in `confusius.datasets`
+  (Huang 2025, Pepe-Mariani 2026) as Image layers
+  ([#483](https://github.com/confusius-tools/confusius/issues/483)).
 - Boolean arrays open as labels layers
   ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 
