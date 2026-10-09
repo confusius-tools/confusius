@@ -743,11 +743,13 @@ class AtlasPanel(QWidget):
                 tree, name=f"Atlas structures: {name}", area="right"
             )
         elif (dock := self._tree_docks.get(name)) is not None:
-            if dock.isVisible():
-                dock.hide()
-            else:
+            # `isHidden` reads the dock's own flag; `isVisible` is also false while
+            # the main window is hidden (headless tests) and would never toggle.
+            if dock.isHidden():
                 dock.show()
                 dock.raise_()
+            else:
+                dock.hide()
 
     # ------------------------------------------------------------------
     # Region masks

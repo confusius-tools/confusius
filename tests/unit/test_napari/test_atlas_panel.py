@@ -369,10 +369,10 @@ class TestStructureTreeDock:
         # Second click hides the dock, third shows it again; same dock throughout.
         loaded_panel._toggle_tree("mock")
         assert loaded_panel._tree_docks["mock"] is dock
-        assert not dock.isVisible()
+        assert dock.isHidden()
         loaded_panel._toggle_tree("mock")
         assert loaded_panel._tree_docks["mock"] is dock
-        assert dock.isVisible()
+        assert not dock.isHidden()
 
         _load(loaded_panel, atlas_ds, "other")
         loaded_panel._toggle_tree("other")
