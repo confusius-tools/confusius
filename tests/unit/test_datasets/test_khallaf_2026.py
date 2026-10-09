@@ -9,11 +9,12 @@ import pytest
 
 from confusius.datasets import fetch_khallaf_2026
 from confusius.datasets._khallaf_2026 import _BIDS_ROOT, _CITATION
+from confusius.datasets._s3 import S3FileInfo
 from confusius.datasets._utils import plain_citation
 
 # Minimal fake index covering every bucket and reconstruction variant. Keys are
 # release-relative file paths.
-_FAKE_INDEX = {
+_FILE_SIZES = {
     # Top-level metadata — always included.
     "dataset_description.json": {"size": 100},
     "participants.tsv": {"size": 200},
@@ -52,12 +53,17 @@ _FAKE_INDEX = {
     "sourcedata/IPM/IPM_6036_4Dscan_7.source.bps": {"size": 9000},
 }
 
-for _relative, _info in _FAKE_INDEX.items():
-    _info["url"] = (
-        "https://confusius-datasets.s3.us-west-2.amazonaws.com"
-        f"/datasets/{_BIDS_ROOT}/1.0.0/{_relative}"
-    )
-    _info["sha256"] = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+_FAKE_INDEX: dict[str, S3FileInfo] = {
+    relative: {
+        "url": (
+            "https://confusius-datasets.s3.us-west-2.amazonaws.com"
+            f"/datasets/{_BIDS_ROOT}/1.0.0/{relative}"
+        ),
+        "size": info["size"],
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    }
+    for relative, info in _FILE_SIZES.items()
+}
 
 
 _SOURCEDATA_KEYS = {k for k in _FAKE_INDEX if k.startswith("sourcedata/")}

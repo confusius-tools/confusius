@@ -23,7 +23,7 @@ def release_server(tmp_path, monkeypatch):
             requests.append(self.path)
             super().do_GET()
 
-        def log_message(self, *args):
+        def log_message(self, format: str, *args: object) -> None:
             pass
 
     server = ThreadingHTTPServer(
