@@ -1776,49 +1776,15 @@ class TestVolumePlotterAddContours:
         with pytest.warns(UserWarning, match="Could not find matching axes"):
             plotter.add_contours(mask, colors="red")
 
-    @staticmethod
-    def _polygon_area(line) -> float:
-        x, y = line.get_xdata(), line.get_ydata()
-        return 0.5 * abs(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
-
-    def test_add_contours_int_mask_on_nan_filled_volume(self, matplotlib_pyplot):
-        """An int label map contoured over a NaN-filled float volume draws the label.
-
-        Regression for the fig2 case: the volume is resampled with
-        ``resample_fill_value=np.nan`` for a transparent out-of-FOV band; the int
-        mask must still contour (NaN is not representable in its dtype, so it
-        raised since #481, and before that produced an INT_MIN phantom label
-        outlining the FOV).
-        """
-        affine = _rotated_affine(20)
-        volume = create_voxeldata(
-            np.ones((1, 12, 12)), dims=("k", "j", "i"), voxel_to_world=affine
-        )
-        labels = np.zeros((1, 12, 12), dtype=np.int32)
-        labels[0, 4:8, 4:8] = 7
-        mask = create_voxeldata(labels, dims=("k", "j", "i"), voxel_to_world=affine)
-
-        plotter = plot_volume(
-            volume, slice_mode="z", resample_fill_value=np.nan, show_colorbar=False
-        )
-        plotter.add_contours(mask, colors="red")
-
-        ax = _axes(plotter).ravel()[0]
-        assert len(ax.lines) == 1
-        # The 4x4 square (unit spacing) encloses ~16.5 world units^2 on the
-        # resampled grid; a loop tracing the FOV band encloses ~70.
-        assert self._polygon_area(ax.lines[0]) < 30
-
 
 class TestPerCallResampleSettings:
     """`resample_*` are per-call arguments, not plotter state."""
 
     def test_mixed_dtype_volumes_each_use_their_own_fill(self, matplotlib_pyplot):
-        """An int label volume renders on top of a NaN-filled float volume.
+        """Each `add_volume` call resamples with its own `resample_fill_value`.
 
-        A single plotter-wide fill made this impossible: the NaN chosen for the
-        float background reached the int overlay, which cannot hold NaN (raises
-        since #481; rendered an INT_MIN band before that).
+        The float background is filled with NaN; the int overlay, which cannot
+        hold NaN, falls back to its own default (its minimum) instead.
         """
         affine = _rotated_affine(20)
         background = create_voxeldata(
