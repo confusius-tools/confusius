@@ -247,7 +247,7 @@ def validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
             f"fill_value={fill_value!r} cannot be represented in the moving image's "
             f"integer dtype {dtype}. Pass an integer within [{info.min}, {info.max}], "
             "or cast the moving image to a float dtype first (e.g. "
-            "`moving.astype(np.float32)`) to fill with NaN."
+            "`moving.astype(np.float32)`)."
         )
 
 
