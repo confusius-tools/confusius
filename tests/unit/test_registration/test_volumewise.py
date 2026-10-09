@@ -354,6 +354,48 @@ class TestRegisterVolumewise:
         assert sorted(reporter.completed_frames) == [0, 1]
         assert reporter.closed
 
+    def test_lazy_mode_returns_dask_dataarray_with_motion_coords_without_eager_work(
+        self, sample_voxeldata_2dt_registration, monkeypatch
+    ):
+        """Lazy volumewise registration stores per-frame motion coords in one graph."""
+        import dask.array as da
+
+        import confusius.registration.volumewise as volumewise_module
+
+        calls = 0
+
+        def _fake_register_volume(volume, _ref_da, **kwargs):
+            nonlocal calls
+            calls += 1
+            diagnostics = RegistrationDiagnostics(
+                metric="correlation",
+                metric_values=np.asarray([-1.0]),
+                final_metric_value=-1.0,
+                n_iterations=1,
+                stop_condition="done",
+                status="completed",
+            )
+            return volume.copy(), np.eye(4), diagnostics
+
+        monkeypatch.setattr(volumewise_module, "register_volume", _fake_register_volume)
+
+        result = volumewise_module.register_volumewise(
+            sample_voxeldata_2dt_registration.isel(time=slice(0, 2)),
+            transform="translation",
+            lazy=True,
+        )
+
+        assert isinstance(result.data, da.Array)
+        assert calls == 0
+        assert {"affine_00", "rot_x", "trans_x", "final_metric_value", "status_code"} <= set(result.coords)
+
+        computed = result.compute()
+
+        assert calls == 2
+        assert computed.sizes["time"] == 2
+        assert computed["affine_00"].values.tolist() == [1.0, 1.0]
+        assert computed["status_code"].values.tolist() == [0, 0]
+
     def test_show_progress_false_skips_joblib_progress_import(
         self, sample_voxeldata_2dt_registration, monkeypatch
     ):

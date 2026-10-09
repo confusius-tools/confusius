@@ -16,7 +16,10 @@ from rich.progress import Progress
 from confusius._utils.io import is_h5py_backed
 from confusius.registration._utils import validate_intensity_scaling
 from confusius.registration.diagnostics import RegistrationDiagnostics
-from confusius.registration.motion import create_motion_dataframe
+from confusius.registration.motion import (
+    create_motion_dataframe,
+    extract_motion_parameters,
+)
 from confusius.registration.volume import register_volume
 from confusius.validation import ensure_voxeldata
 from confusius.validation.mask import check_spatial_alignment
@@ -90,12 +93,83 @@ def _volumewise_client(n_jobs: int):
         yield partial(_submit_impure, client)
 
 
+def _register_one_lazy(
+    volume: xr.DataArray,
+    ref_da: xr.DataArray,
+    *,
+    transform: str,
+    metric: str,
+    ref_intensity_scaling: str | float,
+    moving_intensity_scaling: str | float,
+    number_of_histogram_bins: int,
+    learning_rate: float | str,
+    number_of_iterations: int,
+    convergence_minimum_value: float,
+    convergence_window_size: int,
+    initialization: str | None,
+    optimizer_weights: list[float] | None,
+    use_multi_resolution: bool,
+    shrink_factors: Sequence[int],
+    smoothing_sigmas: Sequence[int],
+    resample_interpolation: str,
+    fill_value: float | None,
+):
+    return register_volume(
+        volume,
+        ref_da,
+        transform_type=transform,  # ty: ignore[arg-type]
+        metric=metric,  # ty: ignore[arg-type]
+        fixed_intensity_scaling=ref_intensity_scaling,  # ty: ignore[arg-type]
+        moving_intensity_scaling=moving_intensity_scaling,  # ty: ignore[arg-type]
+        number_of_histogram_bins=number_of_histogram_bins,
+        learning_rate=learning_rate,  # ty: ignore[arg-type]
+        number_of_iterations=number_of_iterations,
+        convergence_minimum_value=convergence_minimum_value,
+        convergence_window_size=convergence_window_size,
+        initialization=initialization,  # ty: ignore[arg-type]
+        optimizer_weights=optimizer_weights,
+        use_multi_resolution=use_multi_resolution,
+        shrink_factors=shrink_factors,
+        smoothing_sigmas=smoothing_sigmas,
+        resample=True,
+        resample_interpolation=resample_interpolation,  # ty: ignore[arg-type]
+        fill_value=fill_value,
+        sitk_threads=1,
+        show_progress=False,
+    )
+
+
+def _registration_frame(result):
+    return np.asarray(result[0].data)
+
+
+def _registration_affine_element(result, row: int, col: int) -> np.ndarray:
+    return np.asarray([result[1][row, col]], dtype=float)
+
+
+def _registration_motion_param(result, index: int) -> np.ndarray:
+    return np.asarray([extract_motion_parameters([result[1]])[0, index]], dtype=float)
+
+
+def _registration_final_metric(result) -> np.ndarray:
+    return np.asarray([result[2].final_metric_value], dtype=float)
+
+
+def _registration_n_iterations(result) -> np.ndarray:
+    return np.asarray([result[2].n_iterations], dtype=int)
+
+
+def _registration_status_code(result) -> np.ndarray:
+    return np.asarray([{"completed": 0, "aborted": 1}.get(result[2].status, 2)], dtype=int)
+
+
 def register_volumewise(
     data: xr.DataArray,
     *,
     reference_time: int | None = None,
     fixed: xr.DataArray | None = None,
     n_jobs: int = -1,
+    lazy: bool = False,
     transform: Literal["translation", "rigid", "affine"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float | None = None,
@@ -300,6 +374,29 @@ def register_volumewise(
     fusi = cf.registration.register_volumewise(fusi)
     ```
     """
+    if lazy:
+        return _register_volumewise_lazy(
+            data,
+            reference_time=reference_time,
+            fixed=fixed,
+            transform=transform,
+            metric=metric,
+            fixed_intensity_scaling=fixed_intensity_scaling,
+            moving_intensity_scaling=moving_intensity_scaling,
+            number_of_histogram_bins=number_of_histogram_bins,
+            learning_rate=learning_rate,
+            number_of_iterations=number_of_iterations,
+            convergence_minimum_value=convergence_minimum_value,
+            convergence_window_size=convergence_window_size,
+            initialization=initialization,
+            optimizer_weights=optimizer_weights,
+            use_multi_resolution=use_multi_resolution,
+            shrink_factors=shrink_factors,
+            smoothing_sigmas=smoothing_sigmas,
+            resample_interpolation=resample_interpolation,
+            fill_value=fill_value,
+        )
+
     if "time" not in data.dims:
         raise ValueError("Time dimension 'time' not found in data")
 
@@ -451,12 +548,26 @@ def register_volumewise(
         )
 
     if n_jobs != 1:
+        max_in_flight = max(1, _default_worker_count() if n_jobs < 0 else n_jobs)
+        next_frame = 0
+
         with _volumewise_client(n_jobs) as submit:
             futures = {}
-            for t in range(n_frames):
-                if abort_event is not None and abort_event.is_set():
-                    continue
-                futures[submit(_register_one, data_moved.isel(time=t))] = t
+
+            def submit_next():
+                nonlocal next_frame
+                while next_frame < n_frames:
+                    t = next_frame
+                    next_frame += 1
+                    if abort_event is not None and abort_event.is_set():
+                        continue
+                    future = submit(_register_one, data_moved.isel(time=t))
+                    futures[future] = t
+                    return future
+                return None
+
+            while len(futures) < max_in_flight and submit_next() is not None:
+                pass
 
             progress_ctx: Progress | nullcontext[None] = (
                 Progress() if show_progress else nullcontext()
@@ -468,11 +579,12 @@ def register_volumewise(
                         task_id = progress.add_task(
                             "Registering volumes...", total=n_frames
                         )
-                        if skipped_at_start := n_frames - len(futures):
+                        if skipped_at_start := next_frame - len(futures):
                             progress.update(task_id, advance=skipped_at_start)
 
-                    for future in as_completed(futures):
-                        t = futures[future]
+                    completed = as_completed(futures)
+                    for future in completed:
+                        t = futures.pop(future)
                         registered_da, frame_affine, frame_diag = future.result()
                         skipped = (
                             frame_diag.status == "aborted"
@@ -491,6 +603,15 @@ def register_volumewise(
                             )
                         if progress is not None and task_id is not None:
                             progress.update(task_id, advance=1)
+
+                        while len(futures) < max_in_flight:
+                            next_future = submit_next()
+                            if next_future is None:
+                                break
+                            if hasattr(completed, "add"):
+                                completed.add(next_future)
+                            else:
+                                completed.append(next_future)
             finally:
                 if progress_reporter is not None:
                     progress_reporter.close()
@@ -523,3 +644,203 @@ def register_volumewise(
         result.attrs["registration_diagnostics"] = list(diagnostics)
 
     return result.transpose(*data.dims)
+
+
+def _register_volumewise_lazy(
+    data: xr.DataArray,
+    *,
+    reference_time: int | None = None,
+    fixed: xr.DataArray | None = None,
+    transform: Literal["translation", "rigid", "affine"] = "rigid",
+    metric: Literal["correlation", "mattes_mi"] = "correlation",
+    fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float | None = None,
+    moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
+    number_of_histogram_bins: int = 50,
+    learning_rate: float | Literal["auto"] = 0.01,
+    number_of_iterations: int = 100,
+    convergence_minimum_value: float = 1e-6,
+    convergence_window_size: int = 10,
+    initialization: Literal["center_geometry", "center_moments"]
+    | None = "center_geometry",
+    optimizer_weights: list[float] | None = None,
+    use_multi_resolution: bool = False,
+    shrink_factors: Sequence[int] = (6, 2, 1),
+    smoothing_sigmas: Sequence[int] = (6, 2, 1),
+    resample_interpolation: Literal["linear", "bspline"] = "linear",
+    fill_value: float | None = None,
+) -> xr.DataArray:
+    """Return a lazy Dask-backed volumewise registration result.
+
+    The returned DataArray keeps registered frames lazy and stores compact per-frame
+    registration outputs as time coordinates (`affine_00`...`affine_33`, motion
+    parameters, final metric, iterations, status_code). Saving it with `cf.save(...zarr...)`
+    computes frames and coordinates in one Dask graph, so registration is not run twice.
+    """
+    import dask.array as da
+    from dask import delayed
+
+    if "time" not in data.dims:
+        raise ValueError("Time dimension 'time' not found in data")
+
+    if reference_time is not None and fixed is not None:
+        raise ValueError("Pass either 'reference_time' or 'fixed', not both.")
+
+    validate_intensity_scaling(moving_intensity_scaling, "moving_intensity_scaling")
+    if fixed_intensity_scaling is None:
+        ref_intensity_scaling = moving_intensity_scaling
+    else:
+        if fixed is None:
+            raise ValueError(
+                "'fixed_intensity_scaling' only applies to a 'fixed' volume."
+            )
+        validate_intensity_scaling(fixed_intensity_scaling, "fixed_intensity_scaling")
+        ref_intensity_scaling = fixed_intensity_scaling
+
+    data_moved = ensure_voxeldata(
+        data,
+        require_time=True,
+        allow_pose=False,
+        allow_extra_dims=False,
+    )
+
+    if is_h5py_backed(data):
+        raise TypeError(
+            "Data is backed by an h5py dataset, which cannot be pickled by Dask. "
+            "Call .compute() before calling register_volumewise_lazy."
+        )
+
+    if fixed is None:
+        reference_time = 0 if reference_time is None else reference_time
+        ref_da = data_moved.isel(time=reference_time)
+    else:
+        if "time" in fixed.dims:
+            raise ValueError(
+                "'fixed' must be a spatial-only VoxelData array without a time "
+                f"dimension; got dims {fixed.dims}."
+            )
+        ref_da = ensure_voxeldata(
+            fixed, require_time=False, allow_pose=False, allow_extra_dims=False
+        )
+        check_spatial_alignment(ref_da, data_moved, "'fixed'")
+    ref_da = ref_da.compute()
+
+    delayed_results = [
+        delayed(_register_one_lazy, pure=False)(
+            data_moved.isel(time=t),
+            ref_da,
+            transform=transform,
+            metric=metric,
+            ref_intensity_scaling=ref_intensity_scaling,
+            moving_intensity_scaling=moving_intensity_scaling,
+            number_of_histogram_bins=number_of_histogram_bins,
+            learning_rate=learning_rate,
+            number_of_iterations=number_of_iterations,
+            convergence_minimum_value=convergence_minimum_value,
+            convergence_window_size=convergence_window_size,
+            initialization=initialization,
+            optimizer_weights=optimizer_weights,
+            use_multi_resolution=use_multi_resolution,
+            shrink_factors=shrink_factors,
+            smoothing_sigmas=smoothing_sigmas,
+            resample_interpolation=resample_interpolation,
+            fill_value=fill_value,
+        )
+        for t in range(data_moved.sizes["time"])
+    ]
+
+    frame_shape = data_moved.shape[1:]
+    registered = da.stack(
+        [
+            da.from_delayed(
+                delayed(_registration_frame)(result),
+                shape=frame_shape,
+                dtype=data_moved.dtype,
+            )
+            for result in delayed_results
+        ],
+        axis=0,
+    )
+
+    out = xr.DataArray(
+        registered,
+        coords=data_moved.coords,
+        dims=data_moved.dims,
+        name=data.name,
+        attrs={
+            **data.attrs,
+            "reference_time": reference_time,
+            "status_code_labels": {"completed": 0, "aborted": 1, "failed": 2},
+        },
+    )
+
+    affine_size = ref_da.ndim + 1
+    for row in range(affine_size):
+        for col in range(affine_size):
+            out = out.assign_coords(
+                {
+                    f"affine_{row}{col}": (
+                        "time",
+                        da.concatenate(
+                            [
+                                da.from_delayed(
+                                    delayed(_registration_affine_element)(
+                                        result, row, col
+                                    ),
+                                    shape=(1,),
+                                    dtype=float,
+                                )
+                                for result in delayed_results
+                            ]
+                        ),
+                    )
+                }
+            )
+
+    for name, index in {
+        "rot_x": 2,
+        "rot_y": 1,
+        "rot_z": 0,
+        "trans_x": 5,
+        "trans_y": 4,
+        "trans_z": 3,
+    }.items():
+        out = out.assign_coords(
+            {
+                name: (
+                    "time",
+                    da.concatenate(
+                        [
+                            da.from_delayed(
+                                delayed(_registration_motion_param)(result, index),
+                                shape=(1,),
+                                dtype=float,
+                            )
+                            for result in delayed_results
+                        ]
+                    ),
+                )
+            }
+        )
+
+    for name, getter, dtype in [
+        ("final_metric_value", _registration_final_metric, float),
+        ("n_iterations", _registration_n_iterations, int),
+        ("status_code", _registration_status_code, int),
+    ]:
+        out = out.assign_coords(
+            {
+                name: (
+                    "time",
+                    da.concatenate(
+                        [
+                            da.from_delayed(
+                                delayed(getter)(result), shape=(1,), dtype=dtype
+                            )
+                            for result in delayed_results
+                        ]
+                    ),
+                )
+            }
+        )
+
+    return out.transpose(*data.dims)
