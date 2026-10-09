@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import warnings
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 import xarray as xr
 from napari.qt.threading import thread_worker
@@ -22,6 +22,7 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -42,11 +43,34 @@ if TYPE_CHECKING:
     from qtpy.QtGui import QShowEvent
     from qtpy.QtWidgets import QDockWidget
 
-TEMPLATES: dict[str, Callable[..., xr.DataArray]] = {
-    "Huang 2025 mouse vascular": fetch_template_huang_2025,
-    "Pepe-Mariani 2026 mouse vascular": fetch_template_pepe_mariani_2026,
+
+class TemplateSpec(TypedDict):
+    """One entry of the fUSI template dropdown."""
+
+    fetch: Callable[..., xr.DataArray]
+    """`confusius.datasets.fetch_template_*` function returning the template."""
+
+    reference_atlas: str
+    """Human-readable name of the atlas space the template is aligned to."""
+
+
+TEMPLATES: dict[str, TemplateSpec] = {
+    "Huang 2025 mouse vascular": {
+        "fetch": fetch_template_huang_2025,
+        "reference_atlas": "Allen Mouse Brain Atlas (CCFv3)",
+    },
+    "Pepe-Mariani 2026 mouse vascular": {
+        "fetch": fetch_template_pepe_mariani_2026,
+        "reference_atlas": "Allen Mouse Brain Atlas (CCFv3)",
+    },
 }
-"""fUSI templates offered in the template dropdown, display label to fetcher."""
+"""fUSI templates offered in the template dropdown, keyed by display label."""
+
+REGION_TABLE_ROW_HEIGHT_PX = 24
+"""Fixed row height shared by the results and selected region tables."""
+
+REGION_TABLE_COLUMN_WIDTHS_PX = (80, 90)
+"""Fixed widths of the `id` and `acronym` columns; `name` takes the rest."""
 
 MASK_SIDES = ("both", "left", "right")
 """Hemisphere choices offered for region masks, in dropdown order."""
@@ -170,13 +194,18 @@ def _make_region_table() -> QTableWidget:
     table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
     table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    # Fixed row height and column widths so the results and selected tables line up
+    # whatever their content.
     vertical_header = table.verticalHeader()
     if vertical_header is not None:
         vertical_header.setVisible(False)
+        vertical_header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        vertical_header.setDefaultSectionSize(REGION_TABLE_ROW_HEIGHT_PX)
     header = table.horizontalHeader()
     if header is not None:
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        for column, width in enumerate(REGION_TABLE_COLUMN_WIDTHS_PX):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
+            table.setColumnWidth(column, width)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
     table.setMinimumHeight(140)
     return table
@@ -271,18 +300,58 @@ def _selected_row_indices(table: QTableWidget) -> list[int]:
     return sorted({index.row() for index in selection.selectedRows()})
 
 
+class _LoadedAtlasRow(QWidget):
+    """One row of the "Loaded atlases" list: atlas name plus four action buttons.
+
+    Parameters
+    ----------
+    name : str
+        BrainGlobe atlas name shown in the row (also its tooltip, since the label
+        may be clipped in a narrow sidebar).
+    """
+
+    def __init__(self, name: str) -> None:
+        super().__init__()
+        self.name = name
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        label = QLabel(name)
+        label.setToolTip(name)
+        # Ignore the text's width so the row never forces the sidebar wider; the
+        # label clips instead (tooltip carries the full name).
+        label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        layout.addWidget(label, stretch=1)
+
+        self.layers_btn = QPushButton("Layers")
+        self.layers_btn.setToolTip("Add reference, annotation and hemispheres layers")
+        self.tree_btn = QPushButton("Tree")
+        self.tree_btn.setToolTip("Open structure tree")
+        self.masks_btn = QPushButton("Masks")
+        self.masks_btn.setToolTip("Build region masks")
+        self.remove_btn = QPushButton("✕")
+        self.remove_btn.setToolTip("Remove atlas and free its memory")
+        for btn in (self.layers_btn, self.tree_btn, self.masks_btn, self.remove_btn):
+            btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            layout.addWidget(btn)
+
+
 class AtlasPanel(QWidget):
-    """Panel for loading BrainGlobe atlases, region masks and fUSI templates.
+    """Panel for loading fUSI templates, BrainGlobe atlases and region masks.
 
     Three groups:
 
-    - **BrainGlobe atlas**: pick an atlas (downloaded ones listed first), load its
-      `reference`, `annotation` and `hemispheres` as three layers, then open the
-      structure tree in a right dock or reveal the region-mask group.
-    - **Region masks**: search the loaded atlas's structures, build a list of regions,
-      pick a hemisphere, and load one Labels layer per region mask.
     - **fUSI template**: pick one of the templates shipped in
-      [`confusius.datasets`][confusius.datasets] and load it as an Image layer.
+      [`confusius.datasets`][confusius.datasets], see which atlas space it is aligned
+      to, and load it as an Image layer.
+    - **BrainGlobe atlas**: pick an atlas (downloaded ones listed first) and load it
+      into memory. Each loaded atlas gets a row with buttons to add its `reference`,
+      `annotation` and `hemispheres` layers, open its structure tree in a right dock,
+      reveal the region-mask group for it, or remove it to free memory. An atlas can
+      be loaded only once.
+    - **Region masks**: search one loaded atlas's structures, build a list of
+      regions, pick a hemisphere, and load one Labels layer per region mask.
 
     Every download runs in a background thread behind the same thin indeterminate
     progress bar the Data I/O panel uses. The atlas list is fetched the first time the
@@ -297,11 +366,13 @@ class AtlasPanel(QWidget):
     def __init__(self, viewer: napari.Viewer) -> None:
         super().__init__()
         self.viewer = viewer
-        self._atlas: xr.Dataset | None = None
+        self._atlases: dict[str, xr.Dataset] = {}
+        self._atlas_rows: dict[str, _LoadedAtlasRow] = {}
+        self._trees: dict[str, StructureTreeWidget] = {}
+        self._tree_docks: dict[str, QDockWidget] = {}
         self._atlas_name: str | None = None
+        self._masks_atlas_name: str | None = None
         self._template_label: str | None = None
-        self._tree: StructureTreeWidget | None = None
-        self._tree_dock: QDockWidget | None = None
         self._atlases_listed = False
         self._setup_ui()
         install_no_scroll_wheel_filter(self)
@@ -314,10 +385,39 @@ class AtlasPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
+        layout.addWidget(self._make_template_group())
         layout.addWidget(self._make_atlas_group())
         layout.addWidget(self._make_masks_group())
-        layout.addWidget(self._make_template_group())
         layout.addStretch()
+
+    def _make_template_group(self) -> QGroupBox:
+        group = QGroupBox("fUSI template")
+        self._template_group = group
+        group_layout = QVBoxLayout(group)
+        group_layout.setSpacing(6)
+
+        self._template_combo = QComboBox()
+        self._template_combo.addItems(list(TEMPLATES))
+        self._template_combo.currentTextChanged.connect(self._update_template_reference)
+        combo_row = QHBoxLayout()
+        combo_row.addWidget(QLabel("Template"))
+        combo_row.addWidget(self._template_combo, stretch=1)
+        group_layout.addLayout(combo_row)
+
+        self._template_reference = QLabel()
+        self._template_reference.setObjectName("confusius_subtitle")
+        self._template_reference.setWordWrap(True)
+        group_layout.addWidget(self._template_reference)
+        self._update_template_reference(self._template_combo.currentText())
+
+        self._template_progress = _make_progress_bar()
+        group_layout.addWidget(self._template_progress)
+
+        self._load_template_btn = QPushButton("Load template")
+        self._load_template_btn.setObjectName("primary_btn")
+        self._load_template_btn.clicked.connect(self._load_template)
+        group_layout.addWidget(self._load_template_btn)
+        return group
 
     def _make_atlas_group(self) -> QGroupBox:
         group = QGroupBox("BrainGlobe atlas")
@@ -329,6 +429,7 @@ class AtlasPanel(QWidget):
         self._atlas_combo.setMaxVisibleItems(20)
         self._atlas_combo.addItem("Fetching atlas list…")
         self._atlas_combo.setEnabled(False)
+        self._atlas_combo.currentIndexChanged.connect(self._update_load_atlas_button)
         combo_row = QHBoxLayout()
         combo_row.addWidget(QLabel("Atlas"))
         combo_row.addWidget(self._atlas_combo, stretch=1)
@@ -349,17 +450,13 @@ class AtlasPanel(QWidget):
         self._load_atlas_btn.clicked.connect(self._load_atlas)
         group_layout.addWidget(self._load_atlas_btn)
 
-        self._tree_btn = QPushButton("Structure tree")
-        self._tree_btn.setEnabled(False)
-        self._tree_btn.clicked.connect(self._show_tree)
-        self._mask_btn = QPushButton("Get mask")
-        self._mask_btn.setCheckable(True)
-        self._mask_btn.setEnabled(False)
-        self._mask_btn.toggled.connect(self._on_mask_toggled)
-        btn_row = QHBoxLayout()
-        btn_row.addWidget(self._tree_btn)
-        btn_row.addWidget(self._mask_btn)
-        group_layout.addLayout(btn_row)
+        self._loaded_label = QLabel("Loaded atlases")
+        self._loaded_label.hide()
+        group_layout.addWidget(self._loaded_label)
+        self._rows_layout = QVBoxLayout()
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._rows_layout.setSpacing(4)
+        group_layout.addLayout(self._rows_layout)
         return group
 
     def _make_masks_group(self) -> QGroupBox:
@@ -419,28 +516,6 @@ class AtlasPanel(QWidget):
         group_layout.addWidget(self._load_masks_btn)
         return group
 
-    def _make_template_group(self) -> QGroupBox:
-        group = QGroupBox("fUSI template")
-        self._template_group = group
-        group_layout = QVBoxLayout(group)
-        group_layout.setSpacing(6)
-
-        self._template_combo = QComboBox()
-        self._template_combo.addItems(list(TEMPLATES))
-        combo_row = QHBoxLayout()
-        combo_row.addWidget(QLabel("Template"))
-        combo_row.addWidget(self._template_combo, stretch=1)
-        group_layout.addLayout(combo_row)
-
-        self._template_progress = _make_progress_bar()
-        group_layout.addWidget(self._template_progress)
-
-        self._load_template_btn = QPushButton("Load template")
-        self._load_template_btn.setObjectName("primary_btn")
-        self._load_template_btn.clicked.connect(self._load_template)
-        group_layout.addWidget(self._load_template_btn)
-        return group
-
     # ------------------------------------------------------------------
     # Atlas list
     # ------------------------------------------------------------------
@@ -476,9 +551,8 @@ class AtlasPanel(QWidget):
                 combo.insertSeparator(combo.count())
             for name in others:
                 combo.addItem(name, name)
-        has_atlases = combo.count() > 0
-        combo.setEnabled(has_atlases)
-        self._load_atlas_btn.setEnabled(has_atlases)
+        combo.setEnabled(combo.count() > 0)
+        self._update_load_atlas_button()
 
     def _on_atlases_error(self, exc: Exception) -> None:
         self._atlas_combo.clear()
@@ -488,6 +562,11 @@ class AtlasPanel(QWidget):
         self._atlas_status.setText(message)
         self._atlas_status.show()
 
+    def _update_load_atlas_button(self) -> None:
+        """Enable Load atlas only for a selectable atlas that is not loaded yet."""
+        name = self._atlas_combo.currentData()
+        self._load_atlas_btn.setEnabled(bool(name) and name not in self._atlases)
+
     # ------------------------------------------------------------------
     # Atlas loading
     # ------------------------------------------------------------------
@@ -496,19 +575,14 @@ class AtlasPanel(QWidget):
         self._atlas_combo.setEnabled(False)
         self._load_atlas_btn.setEnabled(False)
         self._load_atlas_btn.setText("Loading…")
-        self._tree_btn.setEnabled(False)
-        self._mask_btn.setEnabled(False)
         self._atlas_status.hide()
         self._atlas_progress.show()
         QApplication.processEvents()
 
     def _end_atlas_work(self) -> None:
-        has_atlas = self._atlas is not None
         self._atlas_combo.setEnabled(self._atlas_combo.count() > 0)
-        self._load_atlas_btn.setEnabled(self._atlas_combo.count() > 0)
         self._load_atlas_btn.setText("Load atlas")
-        self._tree_btn.setEnabled(has_atlas)
-        self._mask_btn.setEnabled(has_atlas)
+        self._update_load_atlas_button()
         self._atlas_progress.hide()
 
     def _load_atlas(self) -> None:
@@ -516,15 +590,54 @@ class AtlasPanel(QWidget):
         if not name:
             show_error("Select an atlas.")
             return
-        self._atlas_name = str(name)
+        name = str(name)
+        if name in self._atlases:
+            show_error(f"{name} is already loaded.")
+            return
+        self._atlas_name = name
         self._begin_atlas_work()
-        worker = _fetch_atlas(self._atlas_name)
+        worker = _fetch_atlas(name)
         worker.returned.connect(self._on_atlas_returned)
         worker.errored.connect(self._on_atlas_error)
         worker.start()
 
     def _on_atlas_returned(self, ds: xr.Dataset) -> None:
+        """Register a loaded atlas under its row; layers are added on demand."""
         name = self._atlas_name or str(ds.attrs.get("name", "atlas"))
+        self._atlases[name] = ds
+        if name not in self._atlas_rows:
+            self._add_atlas_row(name)
+        if name in self._trees:
+            self._trees[name].set_atlas(ds)
+        if self._masks_atlas_name == name:
+            self._selected_table.setRowCount(0)
+            self._load_masks_btn.setEnabled(False)
+            self._refresh_search()
+        self._end_atlas_work()
+
+    def _on_atlas_error(self, exc: Exception) -> None:
+        self._end_atlas_work()
+        show_error(str(exc))
+
+    def _add_atlas_row(self, name: str) -> None:
+        row = _LoadedAtlasRow(name)
+        row.layers_btn.clicked.connect(lambda: self._add_atlas_layers(name))
+        row.tree_btn.clicked.connect(lambda: self._show_tree(name))
+        row.masks_btn.clicked.connect(lambda: self._toggle_masks(name))
+        row.remove_btn.clicked.connect(lambda: self._remove_atlas(name))
+        self._atlas_rows[name] = row
+        self._rows_layout.addWidget(row)
+        self._loaded_label.show()
+
+    def _add_atlas_layers(self, name: str) -> None:
+        """Add the reference, annotation and hemispheres layers of a loaded atlas.
+
+        Parameters
+        ----------
+        name : str
+            Loaded atlas name.
+        """
+        ds = self._atlases[name]
         try:
             # Capture warnings from plot_napari (e.g. non-uniform spacing) and re-emit
             # them as napari notifications so they appear in the UI.
@@ -550,63 +663,108 @@ class AtlasPanel(QWidget):
                     show_warning(str(w.message))
         except Exception as exc:  # noqa: BLE001
             show_error(str(exc))
-            self._end_atlas_work()
-            return
 
-        self._atlas = ds
-        self._selected_table.setRowCount(0)
-        self._load_masks_btn.setEnabled(False)
-        self._refresh_search()
-        if self._tree is not None:
-            self._tree.set_atlas(ds)
-        self._end_atlas_work()
+    def _remove_atlas(self, name: str) -> None:
+        """Forget a loaded atlas: drop its data, row, tree dock and mask group.
 
-    def _on_atlas_error(self, exc: Exception) -> None:
-        self._end_atlas_work()
-        show_error(str(exc))
+        Parameters
+        ----------
+        name : str
+            Loaded atlas name.
+        """
+        self._atlases.pop(name, None)
+        row = self._atlas_rows.pop(name, None)
+        if row is not None:
+            self._rows_layout.removeWidget(row)
+            row.deleteLater()
+        self._loaded_label.setVisible(bool(self._atlas_rows))
+
+        tree = self._trees.pop(name, None)
+        dock = self._tree_docks.pop(name, None)
+        if dock is not None and tree is not None and tree.parent() is not None:
+            self.viewer.window.remove_dock_widget(dock)
+        if tree is not None:
+            tree.deleteLater()
+
+        if self._masks_atlas_name == name:
+            self._masks_atlas_name = None
+            self._masks_group.hide()
+        self._update_load_atlas_button()
 
     # ------------------------------------------------------------------
     # Structure tree
     # ------------------------------------------------------------------
 
-    def _show_tree(self) -> None:
-        """Open the structure tree in a right dock, creating it on first use.
+    def _show_tree(self, name: str) -> None:
+        """Open the structure tree of a loaded atlas in a right dock.
 
         The widget outlives its dock: closing the dock orphans the tree (its parent
         becomes `None`), in which case it is docked again with its content intact.
+
+        Parameters
+        ----------
+        name : str
+            Loaded atlas name.
         """
-        if self._atlas is None:
+        ds = self._atlases.get(name)
+        if ds is None:
             return
-        if self._tree is not None:
+        tree = self._trees.get(name)
+        if tree is not None:
             try:
-                self._tree.isVisible()  # Raises RuntimeError if Qt deleted it.
+                tree.isVisible()  # Raises RuntimeError if Qt deleted it.
             except RuntimeError:
-                self._tree = None
-                self._tree_dock = None
-        if self._tree is None:
-            self._tree = StructureTreeWidget()
-            self._tree.set_atlas(self._atlas)
-        if self._tree.parent() is None:
-            self._tree_dock = self.viewer.window.add_dock_widget(
-                self._tree, name="Atlas structures", area="right"
+                tree = None
+                self._tree_docks.pop(name, None)
+        if tree is None:
+            tree = StructureTreeWidget()
+            tree.set_atlas(ds)
+            self._trees[name] = tree
+        if tree.parent() is None:
+            self._tree_docks[name] = self.viewer.window.add_dock_widget(
+                tree, name=f"Atlas structures: {name}", area="right"
             )
-        elif self._tree_dock is not None:
-            self._tree_dock.show()
-            self._tree_dock.raise_()
+        elif (dock := self._tree_docks.get(name)) is not None:
+            dock.show()
+            dock.raise_()
 
     # ------------------------------------------------------------------
     # Region masks
     # ------------------------------------------------------------------
 
-    def _on_mask_toggled(self, checked: bool) -> None:
-        self._masks_group.setVisible(checked)
+    def _toggle_masks(self, name: str) -> None:
+        """Show the region-mask group for `name`, or hide it if already showing it.
+
+        Parameters
+        ----------
+        name : str
+            Loaded atlas name.
+        """
+        if self._masks_atlas_name == name and self._masks_group.isVisibleTo(self):
+            self._masks_group.hide()
+            return
+        if self._masks_atlas_name != name:
+            self._masks_atlas_name = name
+            self._masks_group.setTitle(f"Region masks: {name}")
+            self._selected_table.setRowCount(0)
+            self._load_masks_btn.setEnabled(False)
+            self._refresh_search()
+        self._masks_group.show()
+
+    @property
+    def _masks_atlas(self) -> xr.Dataset | None:
+        """Atlas the region-mask group currently operates on, if any."""
+        if self._masks_atlas_name is None:
+            return None
+        return self._atlases.get(self._masks_atlas_name)
 
     def _refresh_search(self) -> None:
         """Filter the results table through `AtlasAccessor.search`."""
-        if self._atlas is None:
+        atlas = self._masks_atlas
+        if atlas is None:
             self._results_table.setRowCount(0)
             return
-        lookup = self._atlas.atlas.lookup
+        lookup = atlas.atlas.lookup
         pattern = self._search_edit.text().strip()
         if not pattern:
             df = lookup
@@ -618,7 +776,7 @@ class AtlasPanel(QWidget):
             except re.error:
                 df = lookup.iloc[0:0]
             else:
-                df = self._atlas.atlas.search(
+                df = atlas.atlas.search(
                     pattern,
                     field=self._field_combo.currentText(),  # type: ignore[arg-type]
                 )
@@ -667,12 +825,13 @@ class AtlasPanel(QWidget):
         self._masks_progress.hide()
 
     def _load_masks(self) -> None:
+        atlas = self._masks_atlas
         region_ids = self._selected_region_ids()
-        if self._atlas is None or not region_ids:
+        if atlas is None or not region_ids:
             show_error("Add at least one region.")
             return
         self._begin_masks_work()
-        worker = _compute_masks(self._atlas, region_ids, self._side_combo.currentText())
+        worker = _compute_masks(atlas, region_ids, self._side_combo.currentText())
         worker.returned.connect(self._on_masks_returned)
         worker.errored.connect(self._on_masks_error)
         worker.start()
@@ -698,6 +857,12 @@ class AtlasPanel(QWidget):
     # Templates
     # ------------------------------------------------------------------
 
+    def _update_template_reference(self, label: str) -> None:
+        spec = TEMPLATES.get(label)
+        self._template_reference.setText(
+            f"Reference atlas: {spec['reference_atlas']}" if spec else ""
+        )
+
     def _begin_template_work(self) -> None:
         self._template_combo.setEnabled(False)
         self._load_template_btn.setEnabled(False)
@@ -715,7 +880,7 @@ class AtlasPanel(QWidget):
         label = self._template_combo.currentText()
         self._template_label = label
         self._begin_template_work()
-        worker = _fetch_template(TEMPLATES[label])
+        worker = _fetch_template(TEMPLATES[label]["fetch"])
         worker.returned.connect(self._on_template_returned)
         worker.errored.connect(self._on_template_error)
         worker.start()

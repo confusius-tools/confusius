@@ -25,11 +25,30 @@ def panel(viewer):
 
 
 @pytest.fixture
+def errors(monkeypatch) -> list[str]:
+    """Collect `show_error` messages emitted by the panel."""
+    messages: list[str] = []
+    monkeypatch.setattr("confusius._napari._atlas._panel.show_error", messages.append)
+    return messages
+
+
+def _load(panel, ds, name: str) -> None:
+    panel._atlas_name = name
+    panel._on_atlas_returned(ds)
+
+
+@pytest.fixture
 def loaded_panel(panel, atlas_ds):
     """Panel with `atlas_ds` loaded under the name `mock`."""
-    panel._atlas_name = "mock"
-    panel._on_atlas_returned(atlas_ds)
+    _load(panel, atlas_ds, "mock")
     return panel
+
+
+@pytest.fixture
+def masks_panel(loaded_panel):
+    """Loaded panel with the region-mask group opened for `mock`."""
+    loaded_panel._toggle_masks("mock")
+    return loaded_panel
 
 
 def _select_rows(table, rows: list[int]) -> None:
@@ -55,9 +74,41 @@ def _rows(table) -> list[tuple[str, str, str]]:
 
 
 class TestAtlasLoading:
-    def test_adds_reference_annotation_and_hemispheres_layers(
+    def test_registers_row_without_adding_layers(
         self, loaded_panel, viewer, atlas_ds
     ) -> None:
+        assert list(loaded_panel._atlases) == ["mock"]
+        assert list(loaded_panel._atlas_rows) == ["mock"]
+        assert loaded_panel._atlas_rows["mock"].name == "mock"
+        assert len(viewer.layers) == 0
+        assert loaded_panel._atlas_progress.isHidden()
+
+    def test_two_atlases_give_two_rows(self, loaded_panel, atlas_ds) -> None:
+        _load(loaded_panel, atlas_ds, "other")
+        assert list(loaded_panel._atlas_rows) == ["mock", "other"]
+        assert loaded_panel._rows_layout.count() == 2
+
+    def test_duplicate_load_is_refused(self, loaded_panel, errors) -> None:
+        loaded_panel._atlas_combo.clear()
+        loaded_panel._atlas_combo.addItem("mock (downloaded)", "mock")
+        loaded_panel._load_atlas()
+        assert errors == ["mock is already loaded."]
+        assert not loaded_panel._load_atlas_btn.isEnabled()
+
+    def test_load_button_follows_combo_selection(self, loaded_panel) -> None:
+        loaded_panel._on_atlases_listed((["mock"], ["mock", "other"]))
+        combo = loaded_panel._atlas_combo
+        combo.setCurrentIndex(0)
+        assert not loaded_panel._load_atlas_btn.isEnabled()
+        combo.setCurrentIndex(combo.count() - 1)
+        assert combo.currentData() == "other"
+        assert loaded_panel._load_atlas_btn.isEnabled()
+
+    def test_layers_button_adds_three_layers(
+        self, loaded_panel, viewer, atlas_ds
+    ) -> None:
+        loaded_panel._add_atlas_layers("mock")
+
         names = [layer.name for layer in viewer.layers]
         assert names == ["mock reference", "mock annotation", "mock hemispheres"]
         assert isinstance(viewer.layers["mock reference"], Image)
@@ -67,27 +118,42 @@ class TestAtlasLoading:
             viewer.layers["mock annotation"].data, atlas_ds["annotation"].values
         )
 
-    def test_enables_tree_and_mask_buttons(self, panel, loaded_panel) -> None:
-        assert loaded_panel._tree_btn.isEnabled()
-        assert loaded_panel._mask_btn.isEnabled()
-        assert loaded_panel._atlas_progress.isHidden()
-
-    def test_buttons_disabled_before_load(self, panel) -> None:
-        assert not panel._tree_btn.isEnabled()
-        assert not panel._mask_btn.isEnabled()
-
-    def test_error_restores_idle_state(self, panel, monkeypatch) -> None:
-        messages: list[str] = []
-        monkeypatch.setattr(
-            "confusius._napari._atlas._panel.show_error", messages.append
-        )
+    def test_error_restores_idle_state(self, panel, errors) -> None:
         panel._begin_atlas_work()
         panel._on_atlas_error(RuntimeError("boom"))
 
-        assert messages == ["boom"]
+        assert errors == ["boom"]
         assert panel._atlas_progress.isHidden()
         assert panel._load_atlas_btn.text() == "Load atlas"
-        assert not panel._tree_btn.isEnabled()
+
+
+class TestAtlasRemoval:
+    def test_remove_drops_row_data_and_tree_dock(self, loaded_panel, viewer) -> None:
+        loaded_panel._show_tree("mock")
+        dock = loaded_panel._tree_docks["mock"]
+        assert "Atlas structures: mock" in viewer.window.dock_widgets
+
+        loaded_panel._remove_atlas("mock")
+
+        assert loaded_panel._atlases == {}
+        assert loaded_panel._atlas_rows == {}
+        assert loaded_panel._trees == {}
+        assert loaded_panel._tree_docks == {}
+        assert dock.widget() is None
+        assert "Atlas structures: mock" not in viewer.window.dock_widgets
+        assert not loaded_panel._loaded_label.isVisibleTo(loaded_panel)
+
+    def test_remove_hides_masks_group_showing_it(self, masks_panel) -> None:
+        masks_panel._remove_atlas("mock")
+        assert masks_panel._masks_atlas_name is None
+        assert not masks_panel._masks_group.isVisibleTo(masks_panel)
+
+    def test_remove_other_atlas_keeps_masks_group(self, masks_panel, atlas_ds) -> None:
+        _load(masks_panel, atlas_ds, "other")
+        masks_panel._remove_atlas("other")
+        assert masks_panel._masks_atlas_name == "mock"
+        assert masks_panel._masks_group.isVisibleTo(masks_panel)
+        assert list(masks_panel._atlas_rows) == ["mock"]
 
 
 class TestAtlasList:
@@ -119,24 +185,54 @@ class TestAtlasList:
         assert not panel._load_atlas_btn.isEnabled()
 
 
+class TestMasksGroup:
+    def test_masks_button_shows_group_titled_after_atlas(self, masks_panel) -> None:
+        assert masks_panel._masks_group.isVisibleTo(masks_panel)
+        assert masks_panel._masks_group.title() == "Region masks: mock"
+        assert masks_panel._masks_atlas_name == "mock"
+
+    def test_masks_button_toggles_group_for_same_atlas(self, masks_panel) -> None:
+        masks_panel._toggle_masks("mock")
+        assert not masks_panel._masks_group.isVisibleTo(masks_panel)
+        masks_panel._toggle_masks("mock")
+        assert masks_panel._masks_group.isVisibleTo(masks_panel)
+
+    def test_switching_atlas_retitles_and_clears_selection(
+        self, masks_panel, atlas_ds
+    ) -> None:
+        _select_rows(masks_panel._results_table, [0])
+        masks_panel._add_regions()
+        assert masks_panel._selected_table.rowCount() == 1
+
+        _load(masks_panel, atlas_ds, "other")
+        masks_panel._toggle_masks("other")
+
+        assert masks_panel._masks_group.title() == "Region masks: other"
+        assert masks_panel._selected_table.rowCount() == 0
+        assert masks_panel._results_table.rowCount() == 3
+
+    def test_group_hidden_before_masks_button(self, loaded_panel) -> None:
+        assert not loaded_panel._masks_group.isVisibleTo(loaded_panel)
+
+
 class TestRegionSearch:
-    def test_empty_pattern_lists_every_structure(self, loaded_panel) -> None:
-        ids = [row[0] for row in _rows(loaded_panel._results_table)]
+    def test_empty_pattern_lists_every_structure(self, masks_panel) -> None:
+        ids = [row[0] for row in _rows(masks_panel._results_table)]
         assert sorted(ids) == ["10", "20", "997"]
 
-    def test_all_field_matches_name_substring(self, loaded_panel) -> None:
-        loaded_panel._search_edit.setText("child")
-        ids = [row[0] for row in _rows(loaded_panel._results_table)]
+    def test_all_field_matches_name_substring(self, masks_panel) -> None:
+        masks_panel._search_edit.setText("child")
+        ids = [row[0] for row in _rows(masks_panel._results_table)]
         assert sorted(ids) == ["10", "20"]
 
-    def test_acronym_field_requires_full_match(self, loaded_panel) -> None:
-        loaded_panel._field_combo.setCurrentText("acronym")
-        loaded_panel._search_edit.setText("ch")
-        assert _rows(loaded_panel._results_table) == [("10", "ch", "child region")]
+    def test_acronym_field_requires_full_match(self, masks_panel) -> None:
+        masks_panel._field_combo.setCurrentText("acronym")
+        masks_panel._search_edit.setText("ch")
+        assert _rows(masks_panel._results_table) == [("10", "ch", "child region")]
 
-    def test_invalid_regex_shows_no_rows(self, loaded_panel) -> None:
-        loaded_panel._search_edit.setText("ch(")
-        assert loaded_panel._results_table.rowCount() == 0
+    def test_invalid_regex_shows_no_rows(self, masks_panel) -> None:
+        masks_panel._search_edit.setText("ch(")
+        assert masks_panel._results_table.rowCount() == 0
 
     def test_no_atlas_leaves_table_empty(self, panel) -> None:
         panel._search_edit.setText("ch")
@@ -144,47 +240,56 @@ class TestRegionSearch:
 
 
 class TestRegionSelection:
-    def test_add_moves_rows_and_dedups(self, loaded_panel) -> None:
-        loaded_panel._field_combo.setCurrentText("acronym")
-        loaded_panel._search_edit.setText("ch")
-        results = loaded_panel._results_table
+    def test_add_moves_rows_and_dedups(self, masks_panel) -> None:
+        masks_panel._field_combo.setCurrentText("acronym")
+        masks_panel._search_edit.setText("ch")
+        results = masks_panel._results_table
         assert _rows(results) == [("10", "ch", "child region")]
 
         _select_rows(results, [0])
-        loaded_panel._add_regions()
-        loaded_panel._add_regions()
+        masks_panel._add_regions()
+        masks_panel._add_regions()
 
-        assert _rows(loaded_panel._selected_table) == [("10", "ch", "child region")]
-        assert loaded_panel._load_masks_btn.isEnabled()
+        assert _rows(masks_panel._selected_table) == [("10", "ch", "child region")]
+        assert masks_panel._load_masks_btn.isEnabled()
 
-    def test_remove_drops_rows(self, loaded_panel) -> None:
-        results = loaded_panel._results_table
+    def test_remove_drops_rows(self, masks_panel) -> None:
+        results = masks_panel._results_table
         _select_rows(results, list(range(results.rowCount())))
-        loaded_panel._add_regions()
-        assert loaded_panel._selected_table.rowCount() == 3
+        masks_panel._add_regions()
+        assert masks_panel._selected_table.rowCount() == 3
 
-        _select_rows(loaded_panel._selected_table, [0, 2])
-        loaded_panel._remove_regions()
+        _select_rows(masks_panel._selected_table, [0, 2])
+        masks_panel._remove_regions()
 
-        assert loaded_panel._selected_table.rowCount() == 1
-        assert loaded_panel._load_masks_btn.isEnabled()
+        assert masks_panel._selected_table.rowCount() == 1
+        assert masks_panel._load_masks_btn.isEnabled()
 
-        _select_rows(loaded_panel._selected_table, [0])
-        loaded_panel._remove_regions()
-        assert not loaded_panel._load_masks_btn.isEnabled()
+        _select_rows(masks_panel._selected_table, [0])
+        masks_panel._remove_regions()
+        assert not masks_panel._load_masks_btn.isEnabled()
 
-    def test_reloading_atlas_clears_selection(self, loaded_panel, atlas_ds) -> None:
-        _select_rows(loaded_panel._results_table, [0])
-        loaded_panel._add_regions()
-        loaded_panel._on_atlas_returned(atlas_ds)
-        assert loaded_panel._selected_table.rowCount() == 0
+    def test_reloading_atlas_clears_selection(self, masks_panel, atlas_ds) -> None:
+        _select_rows(masks_panel._results_table, [0])
+        masks_panel._add_regions()
+        _load(masks_panel, atlas_ds, "mock")
+        assert masks_panel._selected_table.rowCount() == 0
+        assert list(masks_panel._atlas_rows) == ["mock"]
+
+    def test_tables_share_geometry(self, masks_panel) -> None:
+        results, selected = masks_panel._results_table, masks_panel._selected_table
+        _select_rows(results, [0])
+        masks_panel._add_regions()
+        for column in range(3):
+            assert results.columnWidth(column) == selected.columnWidth(column)
+        assert results.rowHeight(0) == selected.rowHeight(0)
 
 
 class TestMaskLoading:
-    def test_left_side_mask_layer(self, loaded_panel, viewer, atlas_ds) -> None:
-        loaded_panel._side_combo.setCurrentText("left")
+    def test_left_side_mask_layer(self, masks_panel, viewer, atlas_ds) -> None:
+        masks_panel._side_combo.setCurrentText("left")
         masks = atlas_ds.atlas.get_masks([10], sides="left")
-        loaded_panel._on_masks_returned(masks)
+        masks_panel._on_masks_returned(masks)
 
         layer = viewer.layers["ch_L"]
         assert isinstance(layer, Labels)
@@ -194,31 +299,40 @@ class TestMaskLoading:
         assert_array_equal(layer.data, expected)
         assert layer.scale.tolist() == pytest.approx([0.05, 0.05, 0.05])
 
-    def test_one_layer_per_region(self, loaded_panel, viewer, atlas_ds) -> None:
+    def test_one_layer_per_region(self, masks_panel, viewer, atlas_ds) -> None:
         n_before = len(viewer.layers)
         masks = atlas_ds.atlas.get_masks([10, 20], sides="both")
-        loaded_panel._on_masks_returned(masks)
+        masks_panel._on_masks_returned(masks)
 
         new_layers = list(viewer.layers)[n_before:]
         assert [layer.name for layer in new_layers] == ["ch", "gc"]
         assert_array_equal(np.unique(viewer.layers["gc"].data), [0, 20])
-        assert loaded_panel._masks_progress.isHidden()
+        assert masks_panel._masks_progress.isHidden()
 
     def test_load_masks_without_selection_reports_error(
-        self, loaded_panel, monkeypatch
+        self, masks_panel, errors
     ) -> None:
-        messages: list[str] = []
-        monkeypatch.setattr(
-            "confusius._napari._atlas._panel.show_error", messages.append
-        )
-        loaded_panel._load_masks()
-        assert messages == ["Add at least one region."]
+        masks_panel._load_masks()
+        assert errors == ["Add at least one region."]
 
 
 class TestTemplateLoading:
     def test_dropdown_lists_every_template(self, panel) -> None:
         combo = panel._template_combo
         assert [combo.itemText(i) for i in range(combo.count())] == list(TEMPLATES)
+
+    def test_reference_atlas_label_follows_combo(self, panel) -> None:
+        combo = panel._template_combo
+        for index in range(combo.count()):
+            combo.setCurrentIndex(index)
+            expected = TEMPLATES[combo.currentText()]["reference_atlas"]
+            assert panel._template_reference.text() == f"Reference atlas: {expected}"
+
+    def test_template_group_comes_first(self, panel) -> None:
+        layout = panel.layout()
+        assert layout.itemAt(0).widget() is panel._template_group
+        assert layout.itemAt(1).widget() is panel._atlas_group
+        assert layout.itemAt(2).widget() is panel._masks_group
 
     def test_adds_image_layer_named_after_label(
         self, panel, viewer, sample_voxeldata_3d
@@ -233,30 +347,32 @@ class TestTemplateLoading:
         assert panel._template_progress.isHidden()
         assert panel._load_template_btn.isEnabled()
 
-    def test_error_restores_idle_state(self, panel, monkeypatch) -> None:
-        messages: list[str] = []
-        monkeypatch.setattr(
-            "confusius._napari._atlas._panel.show_error", messages.append
-        )
+    def test_error_restores_idle_state(self, panel, errors) -> None:
         panel._begin_template_work()
         panel._on_template_error(RuntimeError("offline"))
 
-        assert messages == ["offline"]
+        assert errors == ["offline"]
         assert panel._template_combo.isEnabled()
         assert panel._load_template_btn.text() == "Load template"
 
 
 class TestStructureTreeDock:
-    def test_opens_right_dock_once(self, loaded_panel, viewer) -> None:
-        loaded_panel._show_tree()
-        dock = loaded_panel._tree_dock
-        assert dock is not None
-        assert dock.windowTitle().startswith("Atlas structures")
-        assert loaded_panel._tree.topLevelItem(0).text(0) == "root"
+    def test_opens_right_dock_once_per_atlas(
+        self, loaded_panel, viewer, atlas_ds
+    ) -> None:
+        loaded_panel._show_tree("mock")
+        dock = loaded_panel._tree_docks["mock"]
+        assert dock.windowTitle().startswith("Atlas structures: mock")
+        assert loaded_panel._trees["mock"].topLevelItem(0).text(0) == "root"
 
-        loaded_panel._show_tree()
-        assert loaded_panel._tree_dock is dock
+        loaded_panel._show_tree("mock")
+        assert loaded_panel._tree_docks["mock"] is dock
 
-    def test_ignored_without_atlas(self, panel) -> None:
-        panel._show_tree()
-        assert panel._tree is None
+        _load(loaded_panel, atlas_ds, "other")
+        loaded_panel._show_tree("other")
+        assert set(loaded_panel._tree_docks) == {"mock", "other"}
+        assert loaded_panel._tree_docks["other"] is not dock
+
+    def test_ignored_for_unknown_atlas(self, panel) -> None:
+        panel._show_tree("nope")
+        assert panel._trees == {}

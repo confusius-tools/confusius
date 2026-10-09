@@ -56,3 +56,14 @@ def test_swatch_matches_rgb_triplet(tree) -> None:
 def test_set_atlas_replaces_previous_tree(tree, atlas_ds) -> None:
     tree.set_atlas(atlas_ds)
     assert tree.topLevelItemCount() == 1
+
+
+def test_only_acronym_column_stretches(tree) -> None:
+    from qtpy.QtWidgets import QHeaderView
+
+    header = tree.header()
+    assert not header.stretchLastSection()
+    assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.Stretch
+    assert header.sectionResizeMode(1) == QHeaderView.ResizeMode.ResizeToContents
+    assert header.sectionResizeMode(2) == QHeaderView.ResizeMode.ResizeToContents
+    assert tree.indentation() == 12

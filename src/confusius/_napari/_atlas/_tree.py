@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from qtpy.QtGui import QColor, QIcon, QPixmap
-from qtpy.QtWidgets import QAbstractItemView, QTreeWidget, QTreeWidgetItem, QWidget
+from qtpy.QtWidgets import (
+    QAbstractItemView,
+    QHeaderView,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QWidget,
+)
 
 if TYPE_CHECKING:
     import treelib
@@ -14,6 +20,9 @@ if TYPE_CHECKING:
 
 SWATCH_SIZE_PX = 12
 """Side length of the colour swatch drawn next to each structure acronym."""
+
+TREE_INDENTATION_PX = 12
+"""Horizontal offset between a structure and its children (Qt defaults to 20)."""
 
 
 class StructureTreeWidget(QTreeWidget):
@@ -36,6 +45,15 @@ class StructureTreeWidget(QTreeWidget):
         self.setHeaderLabels(["acronym", "name", "id"])
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setMinimumWidth(320)
+        self.setIndentation(TREE_INDENTATION_PX)
+        header = self.header()
+        if header is not None:
+            # Widening the dock only grows the acronym column; name and id keep
+            # their content width on the right.
+            header.setStretchLastSection(False)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
 
     def set_atlas(self, ds: xr.Dataset) -> None:
         """Rebuild the tree from an atlas Dataset.
@@ -54,7 +72,6 @@ class StructureTreeWidget(QTreeWidget):
         self.addTopLevelItem(root_item)
         self._add_children(root_item, tree, structures, tree.root)
         self.expandToDepth(1)
-        self.resizeColumnToContents(0)
 
     def _add_children(
         self,
