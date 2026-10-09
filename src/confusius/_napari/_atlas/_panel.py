@@ -30,7 +30,10 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._napari._atlas._tree import StructureTreeWidget
-from confusius._napari._qt import install_no_scroll_wheel_filter
+from confusius._napari._qt import (
+    install_no_scroll_wheel_filter,
+    make_segmented_buttons,
+)
 from confusius.datasets import (
     fetch_brainglobe_atlas,
     fetch_template_huang_2025,
@@ -402,9 +405,28 @@ class AtlasPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
-        layout.addWidget(self._make_template_group())
-        layout.addWidget(self._make_atlas_group())
-        layout.addWidget(self._make_masks_group())
+        page_row, (self._atlases_page_btn, self._templates_page_btn) = (
+            make_segmented_buttons(["Atlases", "fUSI templates"], self)
+        )
+        layout.addLayout(page_row)
+
+        self._atlases_page = QWidget()
+        atlases_layout = QVBoxLayout(self._atlases_page)
+        atlases_layout.setContentsMargins(0, 0, 0, 0)
+        atlases_layout.setSpacing(8)
+        atlases_layout.addWidget(self._make_atlas_group())
+        atlases_layout.addWidget(self._make_masks_group())
+        layout.addWidget(self._atlases_page)
+
+        self._templates_page = QWidget()
+        templates_layout = QVBoxLayout(self._templates_page)
+        templates_layout.setContentsMargins(0, 0, 0, 0)
+        templates_layout.addWidget(self._make_template_group())
+        self._templates_page.hide()
+        layout.addWidget(self._templates_page)
+
+        self._atlases_page_btn.toggled.connect(self._atlases_page.setVisible)
+        self._templates_page_btn.toggled.connect(self._templates_page.setVisible)
         layout.addStretch()
 
     def _make_template_group(self) -> QGroupBox:
