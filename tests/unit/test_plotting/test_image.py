@@ -1810,6 +1810,41 @@ class TestVolumePlotterAddContours:
         assert self._polygon_area(ax.lines[0]) < 30
 
 
+
+class TestPerCallResampleSettings:
+    """`resample_*` are per-call arguments, not plotter state."""
+
+    def test_mixed_dtype_volumes_each_use_their_own_fill(self, matplotlib_pyplot):
+        """An int label volume renders on top of a NaN-filled float volume.
+
+        A single plotter-wide fill made this impossible: the NaN chosen for the
+        float background reached the int overlay, which cannot hold NaN (raises
+        since #481; rendered an INT_MIN band before that).
+        """
+        affine = _rotated_affine(20)
+        background = create_voxeldata(
+            np.ones((1, 12, 12)), dims=("k", "j", "i"), voxel_to_world=affine
+        )
+        labels = create_voxeldata(
+            np.full((1, 12, 12), 3, dtype=np.int32),
+            dims=("k", "j", "i"),
+            voxel_to_world=affine,
+        )
+        plotter = plot_volume(
+            background, slice_mode="z", resample_fill_value=np.nan, show_colorbar=False
+        )
+        plotter.add_volume(labels, show_colorbar=False)
+
+        ax = _axes(plotter).ravel()[0]
+        assert len(ax.collections) == 2
+        background_values = np.ma.filled(
+            ax.collections[0].get_array().astype(float), np.nan
+        )
+        label_values = ax.collections[1].get_array()
+        assert np.isnan(background_values).sum() > 0  # Float band is transparent.
+        npt.assert_array_equal(np.unique(label_values), [3])  # Int band got min=3.
+
+
 class TestRoiHover:
     """Tests for the ROI hover feature wired into add_volume / add_contours."""
 

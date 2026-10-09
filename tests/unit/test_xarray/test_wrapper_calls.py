@@ -628,7 +628,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
             "nrows": 1,
             "ncols": 1,
             "dpi": 120,
-            "resample_interpolation": "linear",
+            "resample_interpolation": "auto",
             "resample_fill_value": None,
         },
     )
