@@ -327,7 +327,7 @@ class _LoadedAtlasRow(QWidget):
         self.layers_btn = QPushButton("Layers")
         self.layers_btn.setToolTip("Add reference, annotation and hemispheres layers")
         self.tree_btn = QPushButton("Tree")
-        self.tree_btn.setToolTip("Open structure tree")
+        self.tree_btn.setToolTip("Show or hide the structure tree")
         self.masks_btn = QPushButton("Masks")
         self.masks_btn.setToolTip("Build region masks")
         self.remove_btn = QPushButton("✕")
@@ -397,6 +397,13 @@ class AtlasPanel(QWidget):
         group_layout.setSpacing(6)
 
         self._template_combo = QComboBox()
+        # Every combo in this panel keeps a content-independent minimum width:
+        # a combo's default minimum hint spans its widest item text, and the atlas
+        # combo holds ~200 BrainGlobe names, which would force the sidebar to
+        # overflow horizontally (issue #183 pattern).
+        self._template_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self._template_combo.addItems(list(TEMPLATES))
         self._template_combo.currentTextChanged.connect(self._update_template_reference)
         combo_row = QHBoxLayout()
@@ -426,6 +433,9 @@ class AtlasPanel(QWidget):
         group_layout.setSpacing(6)
 
         self._atlas_combo = QComboBox()
+        self._atlas_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self._atlas_combo.setMaxVisibleItems(20)
         self._atlas_combo.addItem("Fetching atlas list…")
         self._atlas_combo.setEnabled(False)
@@ -470,6 +480,9 @@ class AtlasPanel(QWidget):
         self._search_edit.setPlaceholderText("Acronym or name (regex)")
         self._search_edit.textChanged.connect(self._refresh_search)
         self._field_combo = QComboBox()
+        self._field_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self._field_combo.addItems(SEARCH_FIELDS)
         self._field_combo.currentTextChanged.connect(self._refresh_search)
         search_row = QHBoxLayout()
@@ -499,6 +512,9 @@ class AtlasPanel(QWidget):
         group_layout.addWidget(self._selected_table)
 
         self._side_combo = QComboBox()
+        self._side_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self._side_combo.addItems(MASK_SIDES)
         side_row = QHBoxLayout()
         side_row.addWidget(QLabel("Side"))
@@ -622,7 +638,7 @@ class AtlasPanel(QWidget):
     def _add_atlas_row(self, name: str) -> None:
         row = _LoadedAtlasRow(name)
         row.layers_btn.clicked.connect(lambda: self._add_atlas_layers(name))
-        row.tree_btn.clicked.connect(lambda: self._show_tree(name))
+        row.tree_btn.clicked.connect(lambda: self._toggle_tree(name))
         row.masks_btn.clicked.connect(lambda: self._toggle_masks(name))
         row.remove_btn.clicked.connect(lambda: self._remove_atlas(name))
         self._atlas_rows[name] = row
@@ -695,11 +711,13 @@ class AtlasPanel(QWidget):
     # Structure tree
     # ------------------------------------------------------------------
 
-    def _show_tree(self, name: str) -> None:
-        """Open the structure tree of a loaded atlas in a right dock.
+    def _toggle_tree(self, name: str) -> None:
+        """Open the structure tree of a loaded atlas in a right dock, or hide it.
 
-        The widget outlives its dock: closing the dock orphans the tree (its parent
-        becomes `None`), in which case it is docked again with its content intact.
+        A second click while the dock is visible hides it, mirroring the Masks
+        button. The widget outlives its dock: closing the dock orphans the tree (its
+        parent becomes `None`), in which case it is docked again with its content
+        intact.
 
         Parameters
         ----------
@@ -725,8 +743,11 @@ class AtlasPanel(QWidget):
                 tree, name=f"Atlas structures: {name}", area="right"
             )
         elif (dock := self._tree_docks.get(name)) is not None:
-            dock.show()
-            dock.raise_()
+            if dock.isVisible():
+                dock.hide()
+            else:
+                dock.show()
+                dock.raise_()
 
     # ------------------------------------------------------------------
     # Region masks

@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from napari.layers import Image, Labels
 from numpy.testing import assert_array_equal
+from qtpy.QtWidgets import QApplication
 
 from confusius._napari._atlas._panel import TEMPLATES, AtlasPanel
 
@@ -129,7 +130,7 @@ class TestAtlasLoading:
 
 class TestAtlasRemoval:
     def test_remove_drops_row_data_and_tree_dock(self, loaded_panel, viewer) -> None:
-        loaded_panel._show_tree("mock")
+        loaded_panel._toggle_tree("mock")
         dock = loaded_panel._tree_docks["mock"]
         assert "Atlas structures: mock" in viewer.window.dock_widgets
 
@@ -360,19 +361,48 @@ class TestStructureTreeDock:
     def test_opens_right_dock_once_per_atlas(
         self, loaded_panel, viewer, atlas_ds
     ) -> None:
-        loaded_panel._show_tree("mock")
+        loaded_panel._toggle_tree("mock")
         dock = loaded_panel._tree_docks["mock"]
         assert dock.windowTitle().startswith("Atlas structures: mock")
         assert loaded_panel._trees["mock"].topLevelItem(0).text(0) == "root"
 
-        loaded_panel._show_tree("mock")
+        # Second click hides the dock, third shows it again; same dock throughout.
+        loaded_panel._toggle_tree("mock")
         assert loaded_panel._tree_docks["mock"] is dock
+        assert not dock.isVisible()
+        loaded_panel._toggle_tree("mock")
+        assert loaded_panel._tree_docks["mock"] is dock
+        assert dock.isVisible()
 
         _load(loaded_panel, atlas_ds, "other")
-        loaded_panel._show_tree("other")
+        loaded_panel._toggle_tree("other")
         assert set(loaded_panel._tree_docks) == {"mock", "other"}
         assert loaded_panel._tree_docks["other"] is not dock
 
     def test_ignored_for_unknown_atlas(self, panel) -> None:
-        panel._show_tree("nope")
+        panel._toggle_tree("nope")
         assert panel._trees == {}
+
+
+class TestPanelWidth:
+    """Regression tests for the issue #183 horizontal-overflow pattern."""
+
+    SIDEBAR_MIN_WIDTH = 430
+
+    def test_long_atlas_names_do_not_widen_panel(self, panel) -> None:
+        panel.show()
+        QApplication.processEvents()
+        initial = panel.minimumSizeHint().width()
+        long_names = [f"demba_allen_seg_dev_mouse_p{i}_25um" for i in range(10, 60)]
+        panel._on_atlases_listed((["allen_mouse_bluebrain_barrels_10um"], long_names))
+        QApplication.processEvents()
+        assert panel.minimumSizeHint().width() <= initial
+        assert initial <= self.SIDEBAR_MIN_WIDTH
+
+    def test_loaded_row_and_masks_group_fit_sidebar(self, panel, atlas_ds) -> None:
+        panel.show()
+        panel._atlas_name = "allen_mouse_bluebrain_barrels_10um"
+        panel._on_atlas_returned(atlas_ds)
+        panel._toggle_masks("allen_mouse_bluebrain_barrels_10um")
+        QApplication.processEvents()
+        assert panel.minimumSizeHint().width() <= self.SIDEBAR_MIN_WIDTH
