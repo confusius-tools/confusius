@@ -20,6 +20,8 @@ Run from the project root::
 Outputs (all saved to docs/images/gui/):
 
 - `plugin-data-io.png` — Data I/O panel with a scan loaded.
+- `plugin-atlas.png` — Atlas panel with the Allen 100 µm atlas loaded and its
+  region-mask search open.
 - `plugin-signals.png` — Signals panel in hover mode.
 - `plugin-signals-points.png` — Signals panel in points mode.
 - `plugin-signals-labels.png` — Signals panel in labels mode.
@@ -487,6 +489,37 @@ try:
     _ok("Saved plugin-data-io.png")
 except Exception as exc:
     _warn(f"plugin-data-io.png failed: {exc}")
+
+# ---------------------------------------------------------------------------
+# 1b. Atlas panel — Allen 100 µm atlas loaded, region masks open
+# ---------------------------------------------------------------------------
+
+try:
+    from confusius.datasets import fetch_brainglobe_atlas
+
+    _ATLAS_NAME = "allen_mouse_100um"
+    atlas_ds = fetch_brainglobe_atlas(_ATLAS_NAME, check_latest=False).compute()
+
+    viewer1b = napari.Viewer(show=False)
+    widget1b = ConfUSIusWidget(viewer1b)
+    viewer1b.window.add_dock_widget(widget1b, name="ConfUSIus", area="right")
+    atlas_panel = _open_accordion_panel(widget1b, "Atlas")
+    # Skip the BrainGlobe listing worker: the screenshot only needs this one atlas.
+    atlas_panel._atlases_listed = True
+    atlas_panel._atlas_combo.clear()
+    atlas_panel._atlas_combo.addItem(f"{_ATLAS_NAME} (downloaded)", _ATLAS_NAME)
+    atlas_panel._atlas_name = _ATLAS_NAME
+    atlas_panel._on_atlas_returned(atlas_ds)
+    atlas_panel._add_atlas_layers(_ATLAS_NAME)
+    atlas_panel._toggle_masks(_ATLAS_NAME)
+    atlas_panel._search_edit.setText("visual")
+    _qt_sleep(200)
+
+    _napari_screenshot(viewer1b, str(HERE / "plugin-atlas.png"))
+    viewer1b.close()
+    _ok("Saved plugin-atlas.png")
+except Exception as exc:
+    _warn(f"plugin-atlas.png failed: {exc}")
 
 # ---------------------------------------------------------------------------
 # 2. Signals panel — hover mode, voxel time series at spatial centre

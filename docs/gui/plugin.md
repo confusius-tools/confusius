@@ -4,11 +4,13 @@ icon: lucide/app-window
 
 # Using the Plugin
 
-The ConfUSIus sidebar contains six collapsible panels. Each panel operates
+The ConfUSIus sidebar contains seven collapsible panels. Each panel operates
 independently and can be expanded or collapsed by clicking its header. For an in-app
 introduction, click **Take a Tour** in the sidebar header.
 
 - [**Data I/O**](#data-io-panel) — load and save fUSI files (NIfTI, Zarr, SCAN).
+- [**Atlas**](#atlas-panel) — load BrainGlobe atlases and fUSI templates, browse
+  the structure tree, and build region masks.
 - [**Video**](#video-panel) — load videos side-by-side, temporally synced with the fUSI acquisition.
 - [**Signals**](#signals-panel) — plot voxel, point, or label-region signals in a bottom dock.
 - [**Events**](#events-panel) — annotate periods of time (BIDS events) and shade them on
@@ -65,6 +67,71 @@ Three save modes are applied automatically depending on what is available:
 | **Direct** | The layer was loaded via ConfUSIus (DataArray in metadata). Saved verbatim, all coordinates and attributes preserved. |
 | **Template** | A template layer is selected. Coordinates are borrowed from the template DataArray. |
 | **Reconstruct** | No template and no DataArray in metadata (e.g. a freshly drawn labels layer). Coordinates are reconstructed from the napari layer state (`scale`, `translate`, `axis_labels`). |
+
+## Atlas Panel
+
+The Atlas Panel brings brain atlases and fUSI templates into the viewer without
+writing any Python. It has two pages, switched with the buttons at its top:
+**Atlases** and **fUSI templates**.
+
+![ConfUSIus Atlas panel](../images/gui/plugin-atlas.png)
+
+### Atlases
+
+The **Atlas** dropdown lists every atlas known to
+[BrainGlobe](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html),
+with the ones already in your BrainGlobe cache first and marked `(downloaded)`. The
+list is fetched the first time you open the panel; without a network connection it
+falls back to BrainGlobe's cached list, or to the downloaded atlases alone.
+
+1. Pick an atlas and click **Load atlas**. The first load of an atlas downloads it
+   into the BrainGlobe cache (shared with other BrainGlobe tools) while the progress
+   bar animates; later loads read from the cache. The atlas is held in memory and
+   appears as a row under **Loaded atlases**. An atlas can be loaded once; the button
+   is disabled while the selected atlas is already in the list.
+2. Each row has four buttons:
+    - **Volumes** adds three layers, `<atlas> reference` (Image), `<atlas> annotation`
+      (Labels, coloured with the atlas palette) and `<atlas> hemispheres` (Labels).
+    - **Tree** opens the structure hierarchy in a right dock named
+      `Atlas structures: <atlas>`, with one row per region showing its acronym, name,
+      id and colour. Click again to hide it. The tree is for browsing only.
+    - **Masks** opens the **Region masks** group below for that atlas. Click again to
+      hide it.
+    - **✕** removes the atlas from the list, closes its tree, and frees its memory.
+      Layers already added stay in the viewer.
+
+The three volumes share one voxel grid in millimetres, so they line up with any fUSI
+layer loaded through the Data I/O Panel once the recording is registered to the atlas
+space.
+
+!!! warning "Memory"
+    Loading an atlas reads its full reference and annotation volumes into memory.
+    High-resolution atlases such as `allen_mouse_10um` need several gigabytes; prefer
+    the 25 µm or 50 µm versions for interactive use.
+
+### Region masks
+
+The **Region masks** group is titled with the atlas it searches.
+
+1. Type in **Search** to filter the structures. The pattern is a case-insensitive
+   regular expression matched against both the acronym and the name, exactly like
+   [`search`][confusius.atlas.AtlasAccessor.search]. Use anchors for an exact
+   acronym, e.g. `^VISp$`. An empty field lists every structure.
+2. Select one or more rows and click **▼ Add**, or double-click a row, to move it to
+   the lower table. **▲ Remove** or a double-click takes it back. A region can only be
+   added once.
+3. Choose a **Side**: `both`, `left` or `right`. It applies to every selected region.
+4. Click **Load masks**. One Labels layer is added per region, named by its acronym
+   with an `_L` or `_R` suffix for single-hemisphere masks, holding the region id in
+   every voxel of the region and its descendants, as
+   [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] does.
+
+### fUSI templates
+
+The **Template** dropdown lists the templates shipped in
+[`confusius.datasets`][confusius.datasets]; the line beneath it names the reference
+atlas each template is aligned to. Click **Load template** to download it on first use
+(it is cached afterwards) and add it as an Image layer named after the template.
 
 ## Video Panel
 
