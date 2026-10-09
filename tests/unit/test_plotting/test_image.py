@@ -1810,7 +1810,6 @@ class TestVolumePlotterAddContours:
         assert self._polygon_area(ax.lines[0]) < 30
 
 
-
 class TestPerCallResampleSettings:
     """`resample_*` are per-call arguments, not plotter state."""
 

@@ -942,8 +942,9 @@ class VolumePlotter:
         slices : list of xarray.DataArray
             Per-panel 2D (or 2D-plus-time) slices already `isel`'d along `slice_mode`.
         interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
-            Interpolation method for the resample. `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
-            (see [`resample_volume`][confusius.registration.resample_volume]).
+            Interpolation method for the resample. `"auto"` picks `"nearest"` for
+            integer dtype and `"linear"` otherwise (see
+            [`resample_volume`][confusius.registration.resample_volume]).
         fill_value : float, optional
             Value assigned to voxels outside the source panel's field of view for
             the resample. If not provided, `resample_volume` uses the panel's own
@@ -1006,8 +1007,9 @@ class VolumePlotter:
             `_prepare_slice_inputs`. Used as the nearest-neighbour tolerance for
             a spatial `slice_mode`; ignored otherwise.
         interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
-            Interpolation method for the resample. `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
-            (see [`resample_volume`][confusius.registration.resample_volume]).
+            Interpolation method for the resample. `"auto"` picks `"nearest"` for
+            integer dtype and `"linear"` otherwise (see
+            [`resample_volume`][confusius.registration.resample_volume]).
         fill_value : float, optional
             Value assigned to voxels outside the source panel's field of view. If not
             provided, `resample_volume` uses the panel's own minimum.
@@ -1272,8 +1274,9 @@ class VolumePlotter:
         data : xarray.DataArray
             VoxelData array to prepare for slicing/display.
         interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
-            Interpolation method used for any resample this triggers. `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
-            (see [`resample_volume`][confusius.registration.resample_volume]).
+            Interpolation method used for any resample this triggers. `"auto"` picks
+            `"nearest"` for integer dtype and `"linear"` otherwise (see
+            [`resample_volume`][confusius.registration.resample_volume]).
         fill_value : float, optional
             Value assigned to voxels outside `data`'s field of view for any resample
             this triggers. If not provided, `resample_volume` uses `data`'s own
@@ -2215,16 +2218,17 @@ class VolumePlotter:
             figure.
         resample_interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
             Interpolation method used when resampling oblique (non-axis-aligned)
-            voxel-to-world `data1` and `data2` onto an axis-aligned world grid for display.
-            `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
-            (see [`resample_volume`][confusius.registration.resample_volume]). Distinct from `resample` /
-            `resample_kwargs`, which align `data2` onto `data1`'s grid before
-            display.
+            voxel-to-world `data1` and `data2` onto an axis-aligned world grid for
+            display. `"auto"` picks `"nearest"` for integer dtype and `"linear"`
+            otherwise (see
+            [`resample_volume`][confusius.registration.resample_volume]). Distinct
+            from `resample` / `resample_kwargs`, which align `data2` onto `data1`'s
+            grid before display.
         resample_fill_value : float, optional
-            Value assigned to voxels outside `data1` and `data2`'s field of view after resampling
-            oblique data. If not provided, defaults to `data1` and `data2`'s own minimum value.
-            Must be representable in `data1` and `data2`'s dtype: to fill an integer volume with
-            NaN, cast it to float first.
+            Value assigned to voxels outside `data1`'s and `data2`'s field of view
+            after resampling oblique data. If not provided, defaults to each array's
+            own minimum value. Must be representable in each array's dtype: to fill
+            an integer volume with NaN, cast it to float first.
 
         Returns
         -------
@@ -2472,8 +2476,8 @@ class VolumePlotter:
               output holds the `mask` coordinate values (e.g., region label).
 
             Drawn on the same display geometry as the plotter's own data -- world
-            space, resampled onto the axis-aligned grid as needed (see
-            [`VolumePlotter`][confusius.plotting.VolumePlotter]).
+            space, resampled onto the axis-aligned grid as needed with
+            `resample_interpolation` / `resample_fill_value` below.
         colors : dict[int | str, str] or str, optional
             Color specification for contour lines.
 
