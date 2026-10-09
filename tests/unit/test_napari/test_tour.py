@@ -41,6 +41,8 @@ def test_atlas_steps_reveal_hidden_ui_and_restore_it(widget) -> None:
     QApplication.processEvents()
     demo_row = steps["Loaded Atlases"].target()
     assert demo_row is not None
+    # The tour skips a step whose target is not visible right after pre_action.
+    assert demo_row.isVisibleTo(atlas_panel)
     assert list(atlas_panel._atlas_rows) == [demo_row.name]
     assert demo_row.name not in atlas_panel._atlases
 
