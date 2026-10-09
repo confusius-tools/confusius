@@ -1332,19 +1332,9 @@ def process_iq_to_power_doppler(
         inner_window_width=doppler_window_width,
         inner_window_stride=doppler_window_stride,
     )
-    doppler_windows_per_clutter_window = (
-        clutter_window_width - doppler_window_width
-    ) // doppler_window_stride + 1
-    doppler_window_duration, doppler_window_stride_duration = (
-        _compute_inner_window_metadata(
-            iq,
-            output_timings=output_times_values,
-            output_durations=doppler_window_durations,
-            output_window_stride=doppler_window_stride,
-            inner_windows_per_outer_window=doppler_windows_per_clutter_window,
-            duration_description="Power Doppler integration duration",
-            stride_description="Power Doppler integration stride",
-        )
+    doppler_window_duration = _summarize_window_duration(
+        doppler_window_durations,
+        description="Power Doppler integration duration",
     )
     clutter_window_duration, clutter_window_stride_duration = (
         _compute_clutter_filter_window_metadata(
@@ -1373,7 +1363,6 @@ def process_iq_to_power_doppler(
         "clutter_filter_window_duration": clutter_window_duration,
         "clutter_filter_window_stride": clutter_window_stride_duration,
         "power_doppler_integration_duration": doppler_window_duration,
-        "power_doppler_integration_stride": doppler_window_stride_duration,
     }
     return _attach_iq_output_geometry(
         result,

@@ -636,7 +636,8 @@ class TestProcessIqToPowerDoppler:
         assert result.coords["time"].attrs[
             "volume_acquisition_duration"
         ] == pytest.approx(0.2)
-        assert result.attrs["power_doppler_integration_stride"] == pytest.approx(0.1)
+        assert "power_doppler_integration_stride" not in result.attrs
+        assert result.time.values[1] - result.time.values[0] == pytest.approx(0.1)
         assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
 
     def test_chunked_overlapping_windows_match_reference_implementation(

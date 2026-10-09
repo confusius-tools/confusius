@@ -142,7 +142,7 @@ def to_bids(attrs: Mapping[str, object]) -> dict[str, object]:
 
     Only converts known fUSI-BIDS fields. Internal ConfUSIus attributes are prefixed
     with "ConfUSIus". Processing-window seconds are exported as milliseconds.
-    Power Doppler stride is omitted; unknown fields are preserved as-is.
+    Unknown fields are preserved as-is.
 
     Parameters
     ----------
@@ -163,9 +163,6 @@ def to_bids(attrs: Mapping[str, object]) -> dict[str, object]:
     bids_attrs: dict[str, object] = {}
 
     for key, value in attrs.items():
-        # Stride is represented by RepetitionTime or VolumeTiming in fUSI-BIDS.
-        if key == "power_doppler_integration_stride":
-            continue
         if key in CONFUSIUS_INTERNAL_FIELDS:
             bids_attrs[_CONFUSIUS_INTERNAL_TO_BIDS[key]] = value
         elif key in EXPLICIT_BIDS_FIELD_MAPPINGS:

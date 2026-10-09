@@ -120,7 +120,6 @@ class TestCaseConversion:
     def test_integration_stride_metadata_mapping(self):
         """Power Doppler stride is redundant; other internal strides round-trip."""
         attrs = {
-            "power_doppler_integration_stride": 0.2,
             "axial_velocity_integration_stride": 0.25,
             "bmode_integration_stride": 0.3,
         }
@@ -131,7 +130,6 @@ class TestCaseConversion:
         assert "power_doppler_integration_stride" not in bids_attrs
         assert bids_attrs["ConfUSIusAxialVelocityIntegrationStride"] == 0.25
         assert bids_attrs["ConfUSIusBmodeIntegrationStride"] == 0.3
-        attrs.pop("power_doppler_integration_stride")
         assert bids.from_bids(bids_attrs) == attrs
 
     def test_from_bids_restores_internal_attributes(self):

@@ -573,7 +573,6 @@ Attributes:
     clutter_filter_window_duration:       0.4
     clutter_filter_window_stride:         0.3999999999999999
     power_doppler_integration_duration:   0.19999999999999996
-    power_doppler_integration_stride:     0.19999999999999998
 ```
 
 To actually compute the power Doppler values and load them into memory, you must call

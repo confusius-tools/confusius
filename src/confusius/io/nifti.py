@@ -92,7 +92,6 @@ _TIME_ATTRS_TO_SECONDS: frozenset[str] = frozenset(
         "clutter_filter_window_duration",
         "clutter_filter_window_stride",
         "power_doppler_integration_duration",
-        "power_doppler_integration_stride",
         "axial_velocity_integration_duration",
         "axial_velocity_integration_stride",
         "bmode_integration_duration",
