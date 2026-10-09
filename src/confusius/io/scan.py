@@ -5,7 +5,7 @@ Iconeus ships two on-disk SCAN formats, both using the `.scan` extension:
 - **v1**: an HDF5 container (`acqMetaData`, `scanMetaData`, `/Data`). Loaded lazily with
   h5py and Dask.
 - **v2**: a flat binary file with a variable-length header followed by a little-endian
-  `float64` power-Doppler payload. Loaded lazily with a file-backed proxy wrapped in Dask.
+  `float64` power-Doppler payload. Each Dask chunk reopens a read-only memory map.
 
 `load_scan` sniffs the format and dispatches to the matching loader. The v2 loader
 follows the binary layout published by PyIconeus and keeps the payload lazy.
@@ -21,8 +21,8 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
-from nibabel.arrayproxy import ArrayProxy
 
+from confusius.io._utils import map_binary_array
 from confusius.io.utils import check_path
 from confusius.multipose.timing import build_consolidated_time_coordinate
 from confusius.xarray.create import create_voxeldata
@@ -463,8 +463,8 @@ def load_scan(
       DataArray wraps an open `h5py` handle via a Dask array; keep it in scope (or call
       `.compute()`) before the handle is garbage-collected.
     - **v2**: a flat binary file (variable-length header + little-endian `float64`
-      payload). The returned DataArray wraps a lazy file proxy via a Dask array and, when
-      a `bps_path` is given, adds `world_to_brain`.
+      payload). Each Dask chunk opens its own read-only memory map and, when a
+      `bps_path` is given, the returned DataArray includes `world_to_brain`.
 
     `load_scan` sniffs the format automatically and dispatches accordingly.
 
@@ -476,7 +476,7 @@ def load_scan(
         Path to the corresponding BPS file (`.bps`). If provided, a `world_to_brain`
         affine is added to `da.attrs["affines"]`.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
-        Dask chunk specification passed to `dask.array.from_array`. Accepted forms:
+        Dask chunk specification. Accepted forms:
 
         - A blocksize like `1000`.
         - A blockshape like `(1000, 1000)`.
@@ -515,7 +515,8 @@ def load_scan(
     6DOF probe pose per `pose`, acquisition/provenance metadata, then a Fortran-ordered
     `(size_x, size_y, size_z, time, pose, dim6)` payload. The loader exposes this as
     VoxelData order `(..., time, pose, k, j, i)` and keeps dim6 as an extra leading
-    dimension when present.
+    dimension when present. Mapped chunks are read-only; in-place chunk-processing
+    functions must copy them first.
 
     Acquisition settings that correspond to fUSI-BIDS fields are also surfaced as
     attributes, in native header units: `probe_model`, `probe_center_frequency` (MHz),
@@ -1014,8 +1015,8 @@ def _load_scan_v2(
     """Load a binary Iconeus SCAN v2 file as a lazy VoxelData array.
 
     The v2 format is a flat binary file: a variable-length header followed by a
-    little-endian `float64` power-Doppler payload. The payload is wrapped in a
-    file-backed proxy (never fully read here) and exposed lazily through Dask.
+    little-endian `float64` power-Doppler payload. Each Dask chunk reopens the
+    payload as a read-only memory map on the executing worker, without copying it.
 
     The header stores Iconeus-ordered dimensions `(size_x=lateral, size_y=elevation,
     size_z=depth, n_time, npose, dim6)`. The payload is Fortran-ordered with the same
@@ -1027,7 +1028,7 @@ def _load_scan_v2(
     path : pathlib.Path
         Path to the v2 SCAN file, already validated to start with `SCAN_V2_MAGIC`.
     chunks : int or tuple[int, ...] or str or None
-        Dask chunk specification passed to `dask.array.from_array`.
+        Dask chunk specification in physical payload axis order.
 
     Returns
     -------
@@ -1070,23 +1071,13 @@ def _load_scan_v2(
 
     # PyIconeus documents the binary payload as Fortran-ordered
     # `(size_x, size_y, size_z, n_time, npose, dim6)`.
-    proxy = ArrayProxy(
+    raw_lazy = map_binary_array(
         path,
-        (
-            (size_x, size_y, size_z, n_time, npose, dim6_count),
-            "<f8",
-            total_header_bytes,
-        ),
-        mmap="r",
+        (size_x, size_y, size_z, n_time, npose, dim6_count),
+        "<f8",
+        total_header_bytes,
+        chunks,
         order="F",
-    )
-    # Dask copies and hashes memmaps eagerly; a proxy and random name avoid both.
-    raw_lazy = da.from_array(
-        proxy,
-        chunks=chunks,
-        asarray=False,
-        name=False,
-        meta=np.empty((), dtype=proxy.dtype),
     )
     data_lazy = da.transpose(raw_lazy, [5, 3, 4, 1, 2, 0])
 

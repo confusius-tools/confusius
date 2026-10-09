@@ -56,6 +56,10 @@ Current development version for the next ConfUSIus release.
 
 ### :zap: Performance
 
+- SCAN v2 and EchoFrame DAT loaders reopen read-only memory maps per Dask chunk
+  on the executing worker, avoiding EchoFrame block copies and keeping payloads
+  lazy without caching whole-file mappings
+  ([#478](https://github.com/confusius-tools/confusius/pull/478)).
 - `fetch_brainglobe_atlas`'s `reference`/`annotation` are now backed by lazy
   `dask.array.Array` data instead of being eagerly materialized to
   `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this

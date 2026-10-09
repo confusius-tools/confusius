@@ -439,10 +439,39 @@ class TestLoadScanV2:
         payload = _raw_payload()
         _write_scan_v2(path, payload)
         with patch.object(
-            np.memmap, "copy", side_effect=AssertionError("Eager payload copy")
+            np, "memmap", side_effect=AssertionError("Mapped during graph construction")
         ):
             data = load_scan(path)
         np.testing.assert_array_equal(data.values, _expected_confusius(payload))
+
+    @pytest.mark.parametrize("chunks", ["auto", None, 2, (3, 1, 2, 2, 1, 1)])
+    def test_chunked_fortran_payload(self, tmp_path: Path, chunks) -> None:
+        """Chunk boundaries preserve every axis, including pose and dim6."""
+        path = tmp_path / "chunked.scan"
+        raw = _raw_payload(size_y=2, npose=2, nblock_repeat=2)
+        _write_scan_v2(path, raw, size_y=2, npose=2, nblock_repeat=2)
+        data = load_scan(path, chunks=chunks)
+        np.testing.assert_array_equal(data.values, _expected_confusius(raw))
+
+    def test_distributed_read(self, scan_v2_path: Path) -> None:
+        """Process workers reopen the file and preserve partial spatial chunks."""
+        from distributed import Client, LocalCluster
+
+        data = load_scan(scan_v2_path, chunks=2)
+        with (
+            LocalCluster(
+                n_workers=2,
+                threads_per_worker=1,
+                processes=True,
+                dashboard_address=None,
+                scheduler_kwargs={"dashboard_address": ":0"},
+            ) as cluster,
+            Client(cluster) as client,
+        ):
+            result = client.compute(data).result()
+        np.testing.assert_array_equal(
+            result.values, _expected_confusius(_raw_payload())
+        )
 
     def test_values(self, scan_v2: xr.DataArray) -> None:
         """Loaded values match the depth/elevation-swapped payload."""

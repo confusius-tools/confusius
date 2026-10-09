@@ -1,6 +1,7 @@
 """Unit tests for confusius.io.echoframe module."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 import dask.array as da
 import h5py
@@ -304,6 +305,43 @@ class TestLoadEchoFrameDat:
 
         assert isinstance(data.data, da.Array)
         assert data.data.chunks[0] == (3, 3)  # One chunk per acquisition block.
+
+    @pytest.mark.parametrize("padding_bytes", [0, 13])
+    @pytest.mark.parametrize("scheduler", ["threads", "distributed"])
+    def test_reopened_chunks_are_lazy_and_preserve_values(
+        self, tmp_path, echoframe_meta_file, padding_bytes, scheduler
+    ):
+        """Worker-side reopening preserves every voxel, including unaligned padding."""
+        path = tmp_path / "reopen.dat"
+        _create_echoframe_dat_file(path, padding_bytes=padding_bytes)
+        raw = np.arange(2 * 3 * 4 * 6, dtype=np.float32).reshape(2, 3, 4, 1, 6)
+        raw = (raw + 1j * (raw + 1)).astype(np.complex64)
+        with path.open("r+b") as stream:
+            stream.seek(40)
+            for block in raw:
+                block.tofile(stream)
+                stream.write(b"\xa5" * padding_bytes)
+        with patch.object(np, "memmap", side_effect=AssertionError("Eager mapping")):
+            data = load_echoframe_dat(path, echoframe_meta_file)
+        assert data.data.chunks[0] == (3, 3)
+        if scheduler == "distributed":
+            from distributed import Client, LocalCluster
+
+            with (
+                LocalCluster(
+                    n_workers=2,
+                    threads_per_worker=1,
+                    processes=True,
+                    dashboard_address=None,
+                    scheduler_kwargs={"dashboard_address": ":0"},
+                ) as cluster,
+                Client(cluster) as client,
+            ):
+                result = client.compute(data.isel(time=slice(1, 5))).result()
+        else:
+            result = data.isel(time=slice(1, 5)).compute(scheduler="threads")
+        expected = raw.transpose(0, 1, 4, 3, 2).reshape(6, 1, 6, 4)
+        np.testing.assert_array_equal(result.values, expected[1:5])
 
     def test_coords_and_attrs(self, echoframe_dat_no_padding):
         """`load_echoframe_dat` attaches ConfUSIus coordinates and acquisition attrs."""
