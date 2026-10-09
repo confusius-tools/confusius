@@ -437,3 +437,21 @@ class TestPages:
         panel._templates_page_btn.click()
         QApplication.processEvents()
         assert panel.minimumSizeHint().width() <= max(on_atlases, 430)
+
+
+class TestProgressBarsKeepLayout:
+    """Showing a progress bar must not change the panel height (sidebar scrollbar)."""
+
+    def test_volumes_and_masks_bars_reserve_their_space(
+        self, loaded_panel, atlas_ds
+    ) -> None:
+        loaded_panel._toggle_masks("mock")
+        QApplication.processEvents()
+        idle_height = loaded_panel.sizeHint().height()
+
+        loaded_panel._atlas_rows["mock"].progress.show()
+        loaded_panel._begin_masks_work()
+        loaded_panel._begin_atlas_work()
+        QApplication.processEvents()
+
+        assert loaded_panel.sizeHint().height() == idle_height

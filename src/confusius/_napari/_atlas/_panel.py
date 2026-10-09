@@ -183,6 +183,12 @@ def _make_progress_bar() -> QProgressBar:
     progress = QProgressBar()
     progress.setRange(0, 0)
     progress.setMaximumHeight(4)
+    # Keep the bar's slot in the layout while hidden: otherwise showing it grows
+    # the panel by a few pixels and pops a sidebar scrollbar for the duration of
+    # the work.
+    policy = progress.sizePolicy()
+    policy.setRetainSizeWhenHidden(True)
+    progress.setSizePolicy(policy)
     progress.hide()
     return progress
 
