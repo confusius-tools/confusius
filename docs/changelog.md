@@ -15,8 +15,8 @@ Current development version for the next ConfUSIus release.
 - fUSI-BIDS metadata now follows draft v0.0.14: renamed frequency/voltage fields,
   including internal attributes `probe_central_frequency` → `probe_center_frequency`
   and `probe_voltage` → `transmit_voltage`, updated probe/virtual-source validation,
-  and removal of the redundant `power_doppler_integration_stride` attribute.
-  JSON processing windows use milliseconds; internal
+  and removal of redundant integration-stride attributes for Power Doppler,
+  B-mode, and axial velocity. JSON processing windows use milliseconds; internal
   attributes and acquisition timing remain in seconds. No legacy JSON aliases or
   automatic legacy-unit detection are provided
   ([#486](https://github.com/confusius-tools/confusius/pull/486)).

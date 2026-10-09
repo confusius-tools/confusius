@@ -1988,8 +1988,6 @@ class TestSaveNifti:
                 "clutter_filters": "Index-based SVD [50, +inf[",
                 "clutter_filter_window_duration": 0.6,
                 "clutter_filter_window_stride": 0.6,
-                "axial_velocity_integration_stride": 0.25,
-                "bmode_integration_stride": 0.3,
                 "axial_velocity_lag": 2,
                 "axial_velocity_spatial_kernel": 3,
             }
@@ -2009,8 +2007,8 @@ class TestSaveNifti:
         assert "PowerDopplerIntegrationStride" not in sidecar
         assert "power_doppler_integration_stride" not in sidecar
         assert sidecar["FrameAcquisitionDuration"] == pytest.approx(0.3)
-        assert sidecar["ConfUSIusAxialVelocityIntegrationStride"] == pytest.approx(0.25)
-        assert sidecar["ConfUSIusBmodeIntegrationStride"] == pytest.approx(0.3)
+        assert "ConfUSIusAxialVelocityIntegrationStride" not in sidecar
+        assert "ConfUSIusBmodeIntegrationStride" not in sidecar
         assert sidecar["ConfUSIusAxialVelocityLag"] == 2
         assert sidecar["ConfUSIusAxialVelocitySpatialKernel"] == 3
         assert sidecar["ConfUSIusLongName"] == "Power Doppler intensity"
@@ -3675,9 +3673,7 @@ class TestRoundtrip:
                 "clutter_filter_window_stride": 200.0,
                 "power_doppler_integration_duration": 80.0,
                 "axial_velocity_integration_duration": 160.0,
-                "axial_velocity_integration_stride": 50.0,
                 "bmode_integration_duration": 100.0,
-                "bmode_integration_stride": 60.0,
             }
         )
 
@@ -3696,7 +3692,7 @@ class TestRoundtrip:
         assert sidecar["ConfUSIusAxialVelocityIntegrationDuration"] == pytest.approx(
             0.16
         )
-        assert sidecar["ConfUSIusAxialVelocityIntegrationStride"] == pytest.approx(0.05)
+        assert "ConfUSIusAxialVelocityIntegrationStride" not in sidecar
         assert sidecar["ConfUSIusBmodeIntegrationDuration"] == pytest.approx(0.1)
-        assert sidecar["ConfUSIusBmodeIntegrationStride"] == pytest.approx(0.06)
+        assert "ConfUSIusBmodeIntegrationStride" not in sidecar
 

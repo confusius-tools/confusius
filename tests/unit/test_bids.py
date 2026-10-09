@@ -117,19 +117,19 @@ class TestCaseConversion:
         with pytest.raises(TypeError, match="must be numeric"):
             bids.from_bids({"ClutterFilterWindowDuration": "invalid"})
 
-    def test_integration_stride_metadata_mapping(self):
-        """Power Doppler stride is redundant; other internal strides round-trip."""
+    def test_integration_duration_metadata_mapping(self):
+        """Internal integration durations round-trip through prefixed BIDS keys."""
         attrs = {
-            "axial_velocity_integration_stride": 0.25,
-            "bmode_integration_stride": 0.3,
+            "axial_velocity_integration_duration": 0.25,
+            "bmode_integration_duration": 0.3,
         }
 
         bids_attrs = bids.to_bids(attrs)
 
         assert "PowerDopplerIntegrationStride" not in bids_attrs
         assert "power_doppler_integration_stride" not in bids_attrs
-        assert bids_attrs["ConfUSIusAxialVelocityIntegrationStride"] == 0.25
-        assert bids_attrs["ConfUSIusBmodeIntegrationStride"] == 0.3
+        assert bids_attrs["ConfUSIusAxialVelocityIntegrationDuration"] == 0.25
+        assert bids_attrs["ConfUSIusBmodeIntegrationDuration"] == 0.3
         assert bids.from_bids(bids_attrs) == attrs
 
     def test_from_bids_restores_internal_attributes(self):

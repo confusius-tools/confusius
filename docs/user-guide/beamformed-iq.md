@@ -686,7 +686,6 @@ Attributes:
     axial_velocity_lag:                   1
     axial_velocity_spatial_kernel:        3
     axial_velocity_integration_duration:  0.19999999999999996
-    axial_velocity_integration_stride:    0.19999999999999998
 ```
 
 !!! info "Processing parameters"
