@@ -213,6 +213,42 @@ def validate_intensity_scaling(
         )
 
 
+def validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
+    """Check that `fill_value` can be stored losslessly in `dtype`.
+
+    SimpleITK resamples into the moving image's pixel type, so a fill value that an
+    integer dtype cannot hold (NaN, inf, a fractional value, or one outside the dtype's
+    range) would otherwise be silently cast to garbage such as `INT_MIN`.
+
+    Parameters
+    ----------
+    fill_value : float
+        Value assigned to voxels outside the moving image's field of view.
+    dtype : numpy.dtype
+        Dtype of the moving image.
+
+    Raises
+    ------
+    ValueError
+        If `dtype` is an integer dtype and `fill_value` is not a finite integer within
+        its range.
+    """
+    if not np.issubdtype(dtype, np.integer):
+        return
+    info = np.iinfo(dtype)
+    if (
+        not np.isfinite(fill_value)
+        or float(fill_value) != int(fill_value)
+        or not info.min <= fill_value <= info.max
+    ):
+        raise ValueError(
+            f"fill_value={fill_value!r} cannot be represented in the moving image's "
+            f"integer dtype {dtype}. Pass an integer within [{info.min}, {info.max}], "
+            "or cast the moving image to a float dtype first (e.g. "
+            "`moving.astype(np.float32)`) to fill with NaN."
+        )
+
+
 def _is_python_signal_handler(handler: object) -> TypeGuard[SignalHandler]:
     """Return whether `handler` is a callable Python SIGINT handler."""
     return callable(handler)

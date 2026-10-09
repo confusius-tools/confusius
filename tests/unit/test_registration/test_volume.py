@@ -219,7 +219,9 @@ class TestRegisterVolumeValidation:
                 metric_sampling_percentage=1.5,
             )
 
-    def test_invalid_metric_sampling_seed_raises(self, sample_voxeldata_2d_registration):
+    def test_invalid_metric_sampling_seed_raises(
+        self, sample_voxeldata_2d_registration
+    ):
         """A negative metric sampling seed raises ValueError."""
         with pytest.raises(ValueError, match="metric_sampling_seed"):
             register_volume(
@@ -1071,6 +1073,42 @@ class TestResampleVolume:
             sample_voxeldata_3dt_registration.coords["time"].values,
         )
 
+    @pytest.mark.parametrize("fill_value", [np.nan, np.inf, 0.5, 2**40])
+    def test_int_dtype_with_unrepresentable_fill_value_raises(self, fill_value):
+        """A fill_value that cannot be stored in an integer moving dtype raises."""
+        labels = create_voxeldata(
+            np.zeros((1, 6, 6), dtype=np.int32),
+            dims=VOXEL_DIMS,
+            voxel_to_world=np.eye(4),
+        )
+        with pytest.raises(ValueError, match="fill_value"):
+            resample_volume(
+                labels,
+                np.eye(4),
+                fill_value=fill_value,
+                **_resample_volume_grid_kwargs(labels),
+            )
+
+    def test_int_dtype_with_integer_fill_value_fills_out_of_fov(self):
+        """An integer fill_value on integer labels lands exactly in out-of-FOV voxels."""
+        labels = create_voxeldata(
+            np.full((1, 6, 6), 7, dtype=np.int32),
+            dims=VOXEL_DIMS,
+            voxel_to_world=np.eye(4),
+        )
+        # Shift the output grid so its first row falls outside the moving FOV.
+        shift = np.eye(4)
+        shift[1, 3] = -2.0
+        result = resample_volume(
+            labels,
+            shift,
+            fill_value=-1,
+            **_resample_volume_grid_kwargs(labels),
+        )
+        assert result.dtype == np.int32
+        assert_array_equal(result.values[0, 0], -1)
+        assert_array_equal(result.values[0, -1], 7)
+
     def test_wrong_ndim_raises(self):
         """1D input raises ValueError."""
         da = xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
@@ -1191,9 +1229,7 @@ class TestResampleVolume:
         )
         assert_allclose(result_auto.values, result_linear.values)
 
-    def test_bspline_interpolation_resamples(
-        self, sample_voxeldata_2d_registration
-    ):
+    def test_bspline_interpolation_resamples(self, sample_voxeldata_2d_registration):
         """`interpolation="bspline"` runs through the SimpleITK B-spline interpolator."""
         result = resample_volume(
             sample_voxeldata_2d_registration,
@@ -2009,7 +2045,9 @@ class TestResampleLike:
     ):
         """The default `interpolation="auto"` is forwarded, matching explicit "nearest"."""
         moving = sample_voxeldata_2d_registration.astype(np.int32)
-        result_default = resample_like(moving, sample_voxeldata_2d_registration, np.eye(4))
+        result_default = resample_like(
+            moving, sample_voxeldata_2d_registration, np.eye(4)
+        )
         result_nearest = resample_like(
             moving,
             sample_voxeldata_2d_registration,
@@ -2366,6 +2404,23 @@ class TestRegisterVolumeFillValue:
         )
         # Out-of-FOV voxels (corners) should be exactly fill_value.
         assert float(result.values[0, 0, 0]) == pytest.approx(sentinel, abs=1e-5)
+
+    def test_int_dtype_with_nan_fill_value_raises(self):
+        """register_volume rejects a NaN fill_value for an integer moving dtype."""
+        fixed = create_voxeldata(
+            np.ones((1, 16, 16), dtype=np.float32),
+            dims=VOXEL_DIMS,
+            voxel_to_world=np.eye(4),
+        )
+        moving = create_voxeldata(
+            np.ones((1, 16, 16), dtype=np.int32),
+            dims=VOXEL_DIMS,
+            voxel_to_world=np.eye(4),
+        )
+        with pytest.raises(ValueError, match="fill_value"):
+            register_volume(
+                moving, fixed, transform_type="translation", fill_value=np.nan
+            )
 
     def test_default_fill_value_is_moving_min(self):
         """When fill_value is None, out-of-FOV voxels are filled with moving.min()."""

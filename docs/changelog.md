@@ -70,6 +70,14 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`resample_volume`][confusius.registration.resample_volume],
+  [`resample_like`][confusius.registration.resample_like] and
+  [`register_volume`][confusius.registration.register_volume] now raise a `ValueError`
+  when `fill_value` cannot be stored in an integer-dtype `moving` (NaN, inf, a
+  fractional value, or one outside the dtype's range), instead of silently filling
+  out-of-FOV voxels with `INT_MIN` or a truncated value. Cast the volume to float first
+  to fill with NaN
+  ([#481](https://github.com/confusius-tools/confusius/pull/481)).
 - [`register_volume`][confusius.registration.register_volume]'s live progress plot no
   longer draws every slice in the composite overlay for volumes with many slices,
   which made the mosaic slow to render and hard to read. The composite now shows at
