@@ -12,8 +12,9 @@
 # We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
 # in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022],
 # and the [Pepe, Mariani 2026 fUSI
-# template][confusius.datasets.fetch_template_pepe_mariani_2026], whose world
-# coordinates are already in Allen Common Coordinate Framework (CCF) space. For the full registration workflow, see [Register a recording to an Allen fUSI
+# template][confusius.datasets.fetch_template_pepe_mariani_2026], which carries the
+# affine transform required to bring it into Allen Common Coordinate Framework (CCF)
+# space. For the full registration workflow, see [Register a recording to an Allen fUSI
 # template](../registration/register_to_allen_fusi_template.md).
 
 # %% [markdown]
@@ -98,7 +99,8 @@ registered, affine, diagnostics = cf.registration.register_volume(
     show_progress=False,
 )
 
-subject_to_atlas = np.linalg.inv(affine)
+world_to_sform = template.attrs["affines"]["world_to_sform"]
+subject_to_atlas = world_to_sform @ np.linalg.inv(affine)
 
 atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)
 atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)

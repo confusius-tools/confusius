@@ -23,7 +23,7 @@ import confusius as cf
             cf.datasets.fetch_template_pepe_mariani_2026,
             "pepe-mariani-2026-template",
             "pepe-mariani-2026-fusi-template.nii.gz",
-            "sform",
+            "qform",
         ),
     ],
 )
@@ -40,13 +40,10 @@ def test_fetch_template(
     source = tmp_path / filename
     values = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
     image = nib.Nifti1Image(values, np.diag([0.1, 0.2, 0.3, 1.0]))
-    image.set_qform(
-        np.diag([0.4, 0.5, 0.6, 1.0]),
-        code=0 if name == "pepe-mariani-2026-template" else 1,
-    )
+    image.set_qform(np.diag([0.4, 0.5, 0.6, 1.0]), code=1)
     sform = np.diag([0.1, 0.2, 0.3, 1.0])
     sform[0, 1] = 0.02
-    image.set_sform(sform, code=1)
+    image.set_sform(sform, code=5 if name == "pepe-mariani-2026-template" else 1)
     image.header.set_xyzt_units("mm", "sec")
     nib.save(image, source)
     sidecar = filename.removesuffix(".nii.gz") + ".json"
@@ -65,6 +62,12 @@ def test_fetch_template(
     assert_allclose(
         actual.fusi.affine.voxel_to_world, expected.fusi.affine.voxel_to_world
     )
+    assert_allclose(
+        actual.affines["world_to_sform"], expected.affines["world_to_sform"]
+    )
+    if name == "pepe-mariani-2026-template":
+        assert actual.attrs["qform_code"] == 1
+        assert actual.attrs["sform_code"] == 5
     assert actual.attrs["citation"]
     assert "[italic]" not in actual.attrs["citation"]
     assert "If you use this template" in capsys.readouterr().out

@@ -59,8 +59,8 @@ def fetch_template_pepe_mariani_2026(
     Returns
     -------
     xarray.DataArray
-        Native-resolution template whose voxel-to-world transform places it directly
-        in Allen Mouse Brain atlas space, including the registration's shear.
+        Native-resolution template in scanner space, with `world_to_sform` mapping
+        its world coordinates into Allen Mouse Brain atlas space.
 
     References
     ----------
@@ -84,8 +84,8 @@ def fetch_template_pepe_mariani_2026(
     update_cached_index(cache_dir, index)
     dest = dataset_dir / _FILENAME
 
-    # The published registration includes shear, so it is encoded only in sform.
-    da = load(dest, coordinate_affine="sform")
+    # Keep scanner geometry for registration; the Allen transform remains in sform.
+    da = load(dest, coordinate_affine="qform")
     da.attrs["citation"] = plain_citation(_CITATION)
 
     if print_citation:

@@ -436,17 +436,20 @@ applies to template fetchers.
 
     Use
     [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026]
-    to download and load the template directly. Its native voxel grid is retained,
-    while its `sform` places it directly in Allen atlas world coordinates. This
-    registration includes shear and is not encoded in a `qform`. Resample the atlas
-    onto the template grid without an additional world-space transform:
+    to download and load the template directly. Its native voxel grid and scanner-space
+    `qform` are retained for registration. The `sform` encodes the full Allen atlas
+    alignment, including shear. Use `world_to_sform` to resample the atlas onto the
+    template's native grid:
 
     ```python
     from confusius.datasets import fetch_brainglobe_atlas, fetch_template_pepe_mariani_2026
 
     template = fetch_template_pepe_mariani_2026()
     atlas = fetch_brainglobe_atlas("allen_mouse_100um")
-    resampled_atlas = atlas.atlas.resample_like(template)
+    resampled_atlas = atlas.atlas.resample_like(
+        template,
+        template.attrs["affines"]["world_to_sform"],
+    )
     ```
 
 ## Available Brain Atlases

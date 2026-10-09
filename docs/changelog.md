@@ -20,9 +20,7 @@ Current development version for the next ConfUSIus release.
   the new layouts. Only remove downloaded collection caches under your `data_dir`,
   `CONFUSIUS_DATA`, or platform cache directory—not personal recordings, analysis
   outputs, or BrainGlobe caches. Angiography datatype directories and filters now
-  use `susi` instead of `angio`, and the Huang template filename uses `2025`.
-  The Pepe Mariani template now loads directly in Allen atlas world coordinates
-  via its shear-preserving `sform`, rather than the former scanner-space `qform`
+  use `susi` instead of `angio`, and the Huang template filename uses `2025`
   ([#490](https://github.com/confusius-tools/confusius/pull/490)).
 - fUSI-BIDS metadata now follows draft v0.0.14: renamed frequency/voltage fields,
   including internal attributes `probe_central_frequency` → `probe_center_frequency`

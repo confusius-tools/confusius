@@ -237,9 +237,9 @@ average_fusi = xr.concat([fusi.mean("time") for fusi in fusi_list], dim="extra")
 # [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] gives us the
 # Allen atlas as an `xarray.Dataset`, holding the `reference`, `annotation` and
 # `hemispheres` volumes on a common grid plus an `.atlas` accessor for structure
-# queries. The template's world coordinates are already in atlas space, so the
-# estimated registration transform maps atlas coordinates directly to the recording's
-# world space, with no further composition needed.
+# queries. The template carries its scanner-to-Allen transform in `world_to_sform`.
+# Composing its inverse with the estimated registration transform maps atlas
+# coordinates back to the recording's world space.
 #
 # The registration itself gives us the transform between template and average fUSI
 # image. We initialize the registration from a coarse manual alignment
@@ -264,7 +264,7 @@ napari_transform = np.array(
     ]
 )
 
-_, atlas_to_fusi_transform, _ = cf.registration.register_volume(
+_, template_to_fusi_transform, _ = cf.registration.register_volume(
     average_fusi,
     template_pepe_mariani,
     transform_type="affine",
@@ -273,14 +273,19 @@ _, atlas_to_fusi_transform, _ = cf.registration.register_volume(
 )
 
 # %% [markdown]
-# The estimated transform maps atlas coordinates back onto the recording's world
-# space. With that affine in hand,
+# The estimated transform maps template scanner coordinates back onto the recording's
+# world space. Compose it with the inverse scanner-to-Allen transform to obtain the
+# atlas-to-recording mapping. With that affine in hand,
 # [`resample_like`][confusius.registration.resample_like] reslices each volume onto the
 # atlas grid. We resample the averaged image (for display) and every individual run (the
 # GLM input).
 
 # %%
 atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um")
+atlas_to_fusi_transform = template_to_fusi_transform @ np.linalg.inv(
+    template_pepe_mariani.affines["world_to_sform"]
+)
+
 resampled_average_in_atlas = cf.registration.resample_like(
     average_fusi, atlas.annotation, atlas_to_fusi_transform
 )

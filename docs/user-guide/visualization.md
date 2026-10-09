@@ -618,7 +618,7 @@ against a reference, or a registered output against its target.
     )
     ```
 
-By default `angio_2` is resampled onto `susi`'s grid (`resample=True`), so the two
+By default `angio_2` is resampled onto `angio`'s grid (`resample=True`), so the two
 volumes do not need to share the same coordinates. Additionally, the function returns a
 [`VolumePlotter`][confusius.plotting.VolumePlotter] so you can use
 [`add_contours`][confusius.plotting.VolumePlotter.add_contours] to layer atlas outlines
