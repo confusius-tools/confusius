@@ -292,6 +292,23 @@ class FUSIBIDSMetadata(BaseModel):
     @field_validator("VolumeTiming")
     @classmethod
     def validate_volume_timing(cls, values: Any) -> Any:
+        """Validate that volume onset times are finite and strictly increasing.
+
+        Parameters
+        ----------
+        values : Any
+            Volume onset times in seconds, or None.
+
+        Returns
+        -------
+        Any
+            Validated onset times, unchanged.
+
+        Raises
+        ------
+        ValueError
+            If onset times are empty, negative, non-finite, or not increasing.
+        """
         if values is not None and (
             len(values) == 0
             or any(v < 0 or not np.isfinite(v) for v in values)
