@@ -64,6 +64,12 @@ def test_only_acronym_column_stretches(tree) -> None:
     header = tree.header()
     assert not header.stretchLastSection()
     assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.Stretch
-    assert header.sectionResizeMode(1) == QHeaderView.ResizeMode.ResizeToContents
-    assert header.sectionResizeMode(2) == QHeaderView.ResizeMode.ResizeToContents
+    assert header.sectionResizeMode(1) == QHeaderView.ResizeMode.Interactive
+    assert header.sectionResizeMode(2) == QHeaderView.ResizeMode.Interactive
     assert tree.indentation() == 12
+
+
+def test_name_column_starts_at_half_its_content_width(tree) -> None:
+    half_width = tree.columnWidth(1)
+    tree.resizeColumnToContents(1)
+    assert half_width == tree.columnWidth(1) // 2

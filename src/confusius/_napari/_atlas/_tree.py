@@ -48,12 +48,12 @@ class StructureTreeWidget(QTreeWidget):
         self.setIndentation(TREE_INDENTATION_PX)
         header = self.header()
         if header is not None:
-            # Widening the dock only grows the acronym column; name and id keep
-            # their content width on the right.
+            # Widening the dock only grows the acronym column; name and id sit on
+            # the right at the widths set in `set_atlas`, and the user can drag them.
             header.setStretchLastSection(False)
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
 
     def set_atlas(self, ds: xr.Dataset) -> None:
         """Rebuild the tree from an atlas Dataset.
@@ -72,6 +72,11 @@ class StructureTreeWidget(QTreeWidget):
         self.addTopLevelItem(root_item)
         self._add_children(root_item, tree, structures, tree.root)
         self.expandToDepth(1)
+        # Full structure names are long; start the name column at half its content
+        # width so the acronym column keeps room, and let the id column fit its ids.
+        self.resizeColumnToContents(1)
+        self.setColumnWidth(1, self.columnWidth(1) // 2)
+        self.resizeColumnToContents(2)
 
     def _add_children(
         self,
