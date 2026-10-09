@@ -336,12 +336,6 @@ class TestTemplateLoading:
             expected = TEMPLATES[combo.currentText()]["reference_atlas"]
             assert panel._template_reference.text() == f"Reference atlas: {expected}"
 
-    def test_template_group_comes_first(self, panel) -> None:
-        layout = panel.layout()
-        assert layout.itemAt(0).widget() is panel._template_group
-        assert layout.itemAt(1).widget() is panel._atlas_group
-        assert layout.itemAt(2).widget() is panel._masks_group
-
     def test_adds_image_layer_named_after_label(
         self, panel, viewer, sample_voxeldata_3d
     ) -> None:
@@ -417,3 +411,29 @@ class TestPanelWidth:
         panel._toggle_masks("allen_mouse_bluebrain_barrels_10um")
         QApplication.processEvents()
         assert panel.minimumSizeHint().width() <= self.SIDEBAR_MIN_WIDTH
+
+
+class TestPages:
+    def test_starts_on_atlases_page(self, panel) -> None:
+        assert panel._atlases_page_btn.isChecked()
+        assert panel._atlases_page.isVisibleTo(panel)
+        assert not panel._templates_page.isVisibleTo(panel)
+
+    def test_templates_button_switches_page(self, panel) -> None:
+        panel._templates_page_btn.click()
+        assert panel._templates_page.isVisibleTo(panel)
+        assert not panel._atlases_page.isVisibleTo(panel)
+        assert not panel._atlases_page_btn.isChecked()
+
+        panel._atlases_page_btn.click()
+        assert panel._atlases_page.isVisibleTo(panel)
+        assert not panel._templates_page.isVisibleTo(panel)
+
+    def test_switching_pages_does_not_widen_panel(self, panel) -> None:
+        panel._atlases_listed = True
+        panel.show()
+        QApplication.processEvents()
+        on_atlases = panel.minimumSizeHint().width()
+        panel._templates_page_btn.click()
+        QApplication.processEvents()
+        assert panel.minimumSizeHint().width() <= max(on_atlases, 430)
