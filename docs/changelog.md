@@ -16,9 +16,10 @@ Current development version for the next ConfUSIus release.
   including internal attributes `probe_central_frequency` → `probe_center_frequency`
   and `probe_voltage` → `transmit_voltage`, updated probe/virtual-source validation,
   and removal of redundant integration-stride attributes for Power Doppler,
-  B-mode, and axial velocity. JSON processing windows use milliseconds; internal
-  attributes and acquisition timing remain in seconds. No legacy JSON aliases or
-  automatic legacy-unit detection are provided
+  B-mode, and axial velocity. JSON processing windows use milliseconds, including
+  ConfUSIus-prefixed B-mode and axial-velocity durations; internal attributes use
+  the time coordinate's units. JSON acquisition timing remains in seconds.
+  No legacy JSON aliases or automatic legacy-unit detection are provided
   ([#486](https://github.com/confusius-tools/confusius/pull/486)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`resample_like`][confusius.registration.resample_like]'s `interpolation`

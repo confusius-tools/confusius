@@ -109,13 +109,9 @@ class TestCaseConversion:
 
         bids_attrs = bids.to_bids(attrs)
 
-        assert bids_attrs["ClutterFilterWindowDuration"] == 600
-        assert bids_attrs["ClutterFilterWindowStride"] == 300
+        assert bids_attrs["ClutterFilterWindowDuration"] == 0.6
+        assert bids_attrs["ClutterFilterWindowStride"] == 0.3
         assert bids.from_bids(bids_attrs) == attrs
-        with pytest.raises(TypeError, match="must be numeric"):
-            bids.to_bids({"clutter_filter_window_duration": "invalid"})
-        with pytest.raises(TypeError, match="must be numeric"):
-            bids.from_bids({"ClutterFilterWindowDuration": "invalid"})
 
     def test_integration_duration_metadata_mapping(self):
         """Internal integration durations round-trip through prefixed BIDS keys."""
@@ -193,6 +189,7 @@ class TestValidation:
         ("metadata", "message"),
         [
             ({"RepetitionTime": -1.0}, "greater than 0"),
+            ({"ClutterFilterWindowDuration": "invalid"}, "valid number"),
             ({"VolumeTiming": [-1, 0]}, "non-negative"),
             ({"VolumeTiming": [0, 0]}, "strictly increasing"),
             ({"VolumeTiming": []}, "strictly increasing"),

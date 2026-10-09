@@ -9,7 +9,6 @@ single source of truth for field definitions.
 
 import re
 from collections.abc import Mapping
-from numbers import Real
 from typing import Final
 
 from confusius.bids.validation import FUSI_BIDS_FIELDS
@@ -126,21 +125,12 @@ _BIDS_TO_CONFUSIUS_INTERNAL: Final[dict[str, str]] = {
 """Reverse mappings from prefixed BIDS keys to ConfUSIus-only internal fields."""
 
 
-_MILLISECOND_FIELDS = frozenset(
-    {
-        "ClutterFilterWindowDuration",
-        "ClutterFilterWindowStride",
-        "PowerDopplerIntegrationDuration",
-    }
-)
-
-
 def to_bids(attrs: Mapping[str, object]) -> dict[str, object]:
     """Convert ConfUSIus attributes to fUSI-BIDS format.
 
     Only converts known fUSI-BIDS fields. Internal ConfUSIus attributes are prefixed
-    with "ConfUSIus". Processing-window seconds are exported as milliseconds.
-    Unknown fields are preserved as-is.
+    with "ConfUSIus". Values and units are unchanged; unknown fields are preserved
+    as-is.
 
     Parameters
     ----------
@@ -174,12 +164,6 @@ def to_bids(attrs: Mapping[str, object]) -> dict[str, object]:
             else:
                 bids_attrs[key] = value
 
-    for key in _MILLISECOND_FIELDS:
-        value = bids_attrs.get(key)
-        if value is not None:
-            if not isinstance(value, Real):
-                raise TypeError(f"{key} must be numeric.")
-            bids_attrs[key] = float(value) * 1000
     return bids_attrs
 
 
@@ -188,7 +172,7 @@ def from_bids(bids_attrs: Mapping[str, object]) -> dict[str, object]:
 
     Known fUSI-BIDS fields are converted to snake_case. ConfUSIus-prefixed attributes
     are converted back to internal names. Unknown fields are preserved as-is to ensure
-    round-trip safety. Processing-window milliseconds are converted to seconds.
+    round-trip safety. Values and units are unchanged.
 
     Parameters
     ----------
@@ -209,10 +193,6 @@ def from_bids(bids_attrs: Mapping[str, object]) -> dict[str, object]:
     attrs: dict[str, object] = {}
 
     for key, value in bids_attrs.items():
-        if key in _MILLISECOND_FIELDS and value is not None:
-            if not isinstance(value, Real):
-                raise TypeError(f"{key} must be numeric.")
-            value = float(value) / 1000
         if key in _BIDS_TO_CONFUSIUS_INTERNAL:
             attrs[_BIDS_TO_CONFUSIUS_INTERNAL[key]] = value
         elif key in _REVERSE_EXPLICIT_BIDS_FIELD_MAPPINGS:

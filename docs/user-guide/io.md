@@ -420,6 +420,12 @@ fUSI-BIDS naming conventions and converted back to the usual ConfUSIus attribute
 on the loaded DataArray. Timing metadata in the sidecar takes precedence over the 
 NIfTI header when both are available.
 
+Acquisition timing (BIDS seconds) and processing-window durations/strides (BIDS
+milliseconds) are converted to the loaded time coordinate's units. The custom
+`ConfUSIusBmodeIntegrationDuration` and `ConfUSIusAxialVelocityIntegrationDuration`
+JSON fields also use milliseconds. Without a time coordinate or declared time units,
+processing metadata defaults to seconds internally.
+
 ```pycon
 >>> import confusius as cf
 >>>
@@ -631,6 +637,11 @@ attributes, and timing metadata such as `RepetitionTime`, `DelayAfterTrigger`, o
 coordinate so the sidecar stays consistent with the data being saved. Multi-pose data
 cannot be written directly to a single NIfTI file; save it to Zarr, consolidate poses
 first, or save one pose per file instead.
+
+Time and slice-time coordinates and their acquisition-duration attributes are saved in
+seconds. Processing-window durations and strides are saved in milliseconds, including
+ConfUSIus-prefixed B-mode and axial-velocity durations. Internally these processing
+attributes use the time coordinate's units, as do IQ-processing outputs.
 
 If `data_array.attrs["affines"]` contains named world-to-reference affines, you can
 choose which ones are written into the NIfTI header:
