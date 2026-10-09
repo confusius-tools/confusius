@@ -1169,8 +1169,8 @@ def _read_scan_v2_acquisition(
     Fields map to fUSI-BIDS as follows (values kept in native header units): `probe_model`
     → `ProbeModel`; `probe_center_frequency` (MHz) → `ProbeCenterFrequency`; `probe_pitch`
     (mm) → `ProbePitch`; `probe_focal_depth` (mm) → `ProbeFocalDepth`; `imaging_depth`
-    (mm start/end) → `Depth`; `transmit_frequency` (MHz) → `UltrasoundTransmitFrequency`;
-    `pulse_repetition_frequency` (Hz) → `UltrasoundPulseRepetitionFrequency`;
+    (mm start/end) → `Depth`; `transmit_frequency` (MHz) → `TransmitFrequency`;
+    `pulse_repetition_frequency` (Hz) → `PulseRepetitionFrequency`;
     `plane_wave_angles` (deg) → `PlaneWaveAngles`. `svd_low_cutoff` is the low cutoff of
     the SVD clutter filter (see `confusius.iq.clutter_filter_svd_from_indices`) and
     `power_doppler_integration_window` relates to `PowerDopplerIntegrationDuration`.

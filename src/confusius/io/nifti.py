@@ -87,19 +87,20 @@ _CONFUSIUS_TO_NIFTI_TIME_UNITS: dict[str, str] = {
 }
 """Mapping from ConfUSIus time unit strings to NIfTI conventions."""
 
-_TIME_ATTRS_TO_SECONDS: frozenset[str] = frozenset(
+_PROCESSING_TIME_FIELDS: frozenset[str] = frozenset(
     {
         "clutter_filter_window_duration",
         "clutter_filter_window_stride",
         "power_doppler_integration_duration",
-        "power_doppler_integration_stride",
         "axial_velocity_integration_duration",
-        "axial_velocity_integration_stride",
         "bmode_integration_duration",
-        "bmode_integration_stride",
     }
 )
-"""Time-valued processing attrs that are expressed in time-coordinate units."""
+"""Processing attrs in time-coordinate units internally and milliseconds in JSON.
+
+B-mode and axial-velocity durations use the same convention under ConfUSIus-prefixed
+JSON keys; these are not yet standard fUSI-BIDS fields.
+"""
 
 _RESOLVABLE_NIFTI_AXES: frozenset[int] = frozenset({4, 5, 6})
 """NIfTI axis indices (0-based) whose dim name can be overridden by the sidecar.
@@ -1257,6 +1258,11 @@ def load_nifti(
     unlike `"auto"`, there is no fallback to the other form or to `pixdim` when the
     requested affine is not valid -- `load_nifti` raises `ValueError` instead.
 
+    Processing-window durations and strides in JSON (including ConfUSIus-prefixed
+    B-mode and axial-velocity durations) are converted from milliseconds to the loaded
+    time coordinate's units. Without a time coordinate or declared time units, seconds
+    are assumed.
+
     The raw integer form codes are stored as `da.attrs["qform_code"]` and
     `da.attrs["sform_code"]` (only when > 0) so that a save/load roundtrip can
     reproduce the original NIfTI header codes.
@@ -1387,6 +1393,13 @@ def load_nifti(
         data_array = data_array.assign_coords(time=scalar_time_coord)
     if slice_time_coord is not None:
         data_array = data_array.assign_coords(slice_time=slice_time_coord)
+    time_unit = (
+        data_array.time.attrs.get("units") if "time" in data_array.coords else None
+    )
+    for key in _PROCESSING_TIME_FIELDS:
+        value = data_array.attrs.get(key)
+        if isinstance(value, int | float | np.integer | np.floating):
+            data_array.attrs[key] = float(convert_time_units(value, "ms", time_unit))
     return data_array
 
 
@@ -2262,12 +2275,13 @@ def _build_nifti_sidecar_metadata(
         for k, v in data_array.attrs.items()
         if k not in ("sform_code", "qform_code", "affines", "voxel_to_world")
     }
-    if "time" in data_array.coords:
-        from_unit = data_array.coords["time"].attrs.get("units")
-        for key in _TIME_ATTRS_TO_SECONDS:
-            value = sidecar_attrs.get(key)
-            if isinstance(value, int | float | np.integer | np.floating):
-                sidecar_attrs[key] = float(convert_time_units(value, from_unit, "s"))
+    from_unit = (
+        data_array.time.attrs.get("units") if "time" in data_array.coords else None
+    )
+    for key in _PROCESSING_TIME_FIELDS:
+        value = sidecar_attrs.get(key)
+        if isinstance(value, int | float | np.integer | np.floating):
+            sidecar_attrs[key] = float(convert_time_units(value, from_unit, "ms"))
 
     extra_affines = {
         k: np.asarray(v).tolist()
@@ -2451,8 +2465,9 @@ def save_nifti(
     Time coordinates are automatically converted to seconds for BIDS compliance. If the
     time coordinate has a "units" attribute, values are converted from "ms" or "us" to
     "s". If no units are specified, seconds are assumed. Known time-valued processing
-    metadata stored in `data_array.attrs` is converted to seconds using the same unit
-    convention.
+    metadata stored in `data_array.attrs` uses the time coordinate's units internally
+    and is converted to milliseconds in JSON, including ConfUSIus-prefixed B-mode and
+    axial-velocity integration durations. Missing time units default to seconds.
 
     A warning is issued if spatial dimensions `(x, y, z)` have inconsistent units, as
     NIfTI only supports a single spatial unit in the `xyzt_units` header field.

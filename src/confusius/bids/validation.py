@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping
+from itertools import pairwise
 from typing import Any, Literal
 
 import numpy as np
@@ -15,6 +16,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PositiveFloat,
     ValidationError,
     field_validator,
     model_validator,
@@ -27,7 +29,7 @@ class FUSIBIDSMetadata(BaseModel):
     """FUSI-BIDS metadata model for sidecar JSON validation.
 
     This model represents the fUSI-BIDS sidecar metadata as defined in the fUSI-BIDS
-    extension proposal (BEP) v0.0.12.
+    extension proposal (BEP) v0.0.14.
 
     Notes
     -----
@@ -58,7 +60,7 @@ class FUSIBIDSMetadata(BaseModel):
         default=None,
         description="Manufacturer's model name of the ultrasound system.",
     )
-    DeviceSerialNumber: list[str] | str | None = Field(
+    DeviceSerialNumber: str | None = Field(
         default=None,
         description="Serial number of the acquisition device.",
     )
@@ -82,11 +84,11 @@ class FUSIBIDSMetadata(BaseModel):
         default=None,
         description="Model name of the ultrasound probe.",
     )
-    ProbeSerialNumber: list[str] | str | None = Field(
+    ProbeSerialNumber: str | None = Field(
         default=None,
         description="Serial number of the ultrasound probe.",
     )
-    ProbeCentralFrequency: float | None = Field(
+    ProbeCenterFrequency: float | None = Field(
         default=None,
         gt=0,
         description="Central frequency of the probe in hertz.",
@@ -103,19 +105,16 @@ class FUSIBIDSMetadata(BaseModel):
         default=None,
         description="Radius of curvature for curved probes in millimeters.",
     )
-    ProbeFocalWidth: float | None = Field(
+    ProbeFocalWidth: PositiveFloat | list[PositiveFloat] | None = Field(
         default=None,
-        gt=0,
         description="Focal width of the probe in millimeters.",
     )
-    ProbeFocalDepth: float | None = Field(
+    ProbeFocalDepth: PositiveFloat | list[PositiveFloat] | None = Field(
         default=None,
-        gt=0,
         description="Focal depth of the probe in millimeters.",
     )
-    ProbeAperture: float | None = Field(
+    ProbeAperture: PositiveFloat | list[PositiveFloat] | None = Field(
         default=None,
-        gt=0,
         description="Aperture size of the probe in millimeters.",
     )
 
@@ -124,12 +123,12 @@ class FUSIBIDSMetadata(BaseModel):
         default=None,
         description="Minimal and maximal imaging depth of the field of view in millimeters, given as (minimal_depth, maximal_depth).",
     )
-    UltrasoundTransmitFrequency: float | None = Field(
+    TransmitFrequency: float | None = Field(
         default=None,
         gt=0,
         description="Transmit frequency in hertz.",
     )
-    UltrasoundPulseRepetitionFrequency: float | None = Field(
+    PulseRepetitionFrequency: float | None = Field(
         default=None,
         gt=0,
         description="Pulse repetition frequency in hertz.",
@@ -138,17 +137,16 @@ class FUSIBIDSMetadata(BaseModel):
         default=None,
         description="Plane wave transmission angles in degrees. For 1D probes, a list of angles. For 2D matrix probes, a list of [azimuth, elevation] pairs.",
     )
-    VirtualSources: int | None = Field(
+    VirtualSources: list[tuple[float, float, float]] | None = Field(
         default=None,
-        gt=0,
-        description="Number of virtual sources for synthetic aperture.",
+        description="Virtual source positions (x, y, z) in millimeters relative to the probe center.",
     )
     CompoundSamplingFrequency: float | None = Field(
         default=None,
         gt=0,
         description="Compound sampling frequency in hertz.",
     )
-    ProbeVoltage: float | None = Field(
+    TransmitVoltage: float | None = Field(
         default=None,
         ge=0,
         description="Transmit voltage of the probe in volts.",
@@ -181,12 +179,12 @@ class FUSIBIDSMetadata(BaseModel):
     ClutterFilterWindowDuration: float | None = Field(
         default=None,
         gt=0,
-        description="Duration of the clutter filter window in seconds.",
+        description="Duration of the clutter filter window in milliseconds.",
     )
     ClutterFilterWindowStride: float | None = Field(
         default=None,
         gt=0,
-        description="Stride of the clutter filter window in seconds.",
+        description="Stride of the clutter filter window in milliseconds.",
     )
     ClutterFilters: str | list[str] | None = Field(
         default=None,
@@ -197,12 +195,7 @@ class FUSIBIDSMetadata(BaseModel):
     PowerDopplerIntegrationDuration: float | None = Field(
         default=None,
         gt=0,
-        description="Duration of Power Doppler integration in seconds.",
-    )
-    PowerDopplerIntegrationStride: float | None = Field(
-        default=None,
-        gt=0,
-        description="Stride of Power Doppler integration in seconds.",
+        description="Duration of Power Doppler integration in milliseconds.",
     )
 
     # Timing parameters.
@@ -236,7 +229,7 @@ class FUSIBIDSMetadata(BaseModel):
     DelayAfterTrigger: float | None = Field(
         default=None,
         ge=0,
-        description="Delay after trigger in seconds (required for pose entity).",
+        description="Delay after trigger in seconds (required for chunk entity with RepetitionTime).",
     )
 
     # Task information.
@@ -275,6 +268,7 @@ class FUSIBIDSMetadata(BaseModel):
         "VolumeTiming",
         "SliceTiming",
         "PlaneWaveAngles",
+        "VirtualSources",
         mode="before",
     )
     @classmethod
@@ -294,6 +288,36 @@ class FUSIBIDSMetadata(BaseModel):
         if isinstance(v, np.ndarray):
             return v.tolist()
         return v
+
+    @field_validator("VolumeTiming")
+    @classmethod
+    def validate_volume_timing(cls, values: Any) -> Any:
+        """Validate that volume onset times are finite and strictly increasing.
+
+        Parameters
+        ----------
+        values : Any
+            Volume onset times in seconds, or None.
+
+        Returns
+        -------
+        Any
+            Validated onset times, unchanged.
+
+        Raises
+        ------
+        ValueError
+            If onset times are empty, negative, non-finite, or not increasing.
+        """
+        if values is not None and (
+            len(values) == 0
+            or any(v < 0 or not np.isfinite(v) for v in values)
+            or any(b <= a for a, b in pairwise(values))
+        ):
+            raise ValueError(
+                "VolumeTiming must be non-negative, finite and strictly increasing."
+            )
+        return values
 
     @model_validator(mode="after")
     def validate_timing(self) -> FUSIBIDSMetadata:
@@ -329,6 +353,14 @@ class FUSIBIDSMetadata(BaseModel):
                 "for timing information.",
                 stacklevel=find_stack_level(),
             )
+
+        if self.PlaneWaveAngles is not None and self.VirtualSources is not None:
+            raise ValueError(
+                "PlaneWaveAngles and VirtualSources are mutually exclusive."
+            )
+
+        if self.VolumeTiming is not None and self.DelayTime is not None:
+            raise ValueError("VolumeTiming and DelayTime are mutually exclusive.")
 
         if self.RepetitionTime is not None and self.VolumeTiming is not None:
             raise ValueError(
