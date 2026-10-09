@@ -42,6 +42,10 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- [`load_scan`][confusius.io.load_scan] now supports SCAN v2 `4Dscan` recordings
+  acquired with the Iconeus IcoPrime-4D MultiArray probe, preserving multi-pose
+  geometry and acquisition timing
+  ([#478](https://github.com/confusius-tools/confusius/pull/478)).
 - Masks are no longer required to be strictly boolean dtype: any binary numeric mask
   (0 and at most one non-zero value, e.g. `{0, 1}` or `{0.0, 5.0}`) is now accepted
   and coerced to boolean, covering masks written by tools without a boolean dtype
