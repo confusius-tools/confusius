@@ -233,8 +233,10 @@ def validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
         If `dtype` is an integer dtype and `fill_value` is not a finite integer within
         its range.
     """
+    # Garbage casting only occurs for integer dtypes
     if not np.issubdtype(dtype, np.integer):
         return
+
     info = np.iinfo(dtype)
     if (
         not np.isfinite(fill_value)
