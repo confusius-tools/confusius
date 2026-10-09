@@ -44,7 +44,7 @@ class TestCaseConversion:
         original = {
             "repetition_time": 1.5,
             "task_name": "rest",
-            "probe_central_frequency": 15.0,
+            "probe_center_frequency": 15.0,
         }
 
         bids_format = bids.to_bids(original)

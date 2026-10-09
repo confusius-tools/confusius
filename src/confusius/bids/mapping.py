@@ -70,8 +70,6 @@ def _pascal_to_snake(name: str) -> str:
 
 
 EXPLICIT_BIDS_FIELD_MAPPINGS: Final[dict[str, str]] = {
-    "probe_central_frequency": "ProbeCenterFrequency",
-    "probe_voltage": "TransmitVoltage",
     "volume_acquisition_duration": "FrameAcquisitionDuration",
 }
 """Explicit mappings for standard BIDS fields with non-automatic names.

@@ -3582,7 +3582,7 @@ class TestRoundtrip:
             {
                 "task_name": "rest",
                 "manufacturer": "Verasonics",
-                "probe_central_frequency": 15.0,
+                "probe_center_frequency": 15.0,
             }
         )
 
@@ -3594,7 +3594,7 @@ class TestRoundtrip:
         np.testing.assert_allclose(np.asarray(loaded), original.values)
         assert loaded.attrs["task_name"] == "rest"
         assert loaded.attrs["manufacturer"] == "Verasonics"
-        assert loaded.attrs["probe_central_frequency"] == 15.0
+        assert loaded.attrs["probe_center_frequency"] == 15.0
 
     def test_roundtrip_preserves_units(self, tmp_path, sample_voxeldata_3d):
         """Spatial units survive a save/load roundtrip."""
