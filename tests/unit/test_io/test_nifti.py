@@ -2005,9 +2005,10 @@ class TestSaveNifti:
             sidecar = json.load(f)
 
         assert sidecar["ClutterFilters"] == "Index-based SVD [50, +inf["
-        assert sidecar["ClutterFilterWindowDuration"] == pytest.approx(0.6)
-        assert sidecar["ClutterFilterWindowStride"] == pytest.approx(0.6)
-        assert sidecar["PowerDopplerIntegrationStride"] == pytest.approx(0.2)
+        assert sidecar["ClutterFilterWindowDuration"] == pytest.approx(600)
+        assert sidecar["ClutterFilterWindowStride"] == pytest.approx(600)
+        assert "PowerDopplerIntegrationStride" not in sidecar
+        assert "power_doppler_integration_stride" not in sidecar
         assert sidecar["FrameAcquisitionDuration"] == pytest.approx(0.3)
         assert sidecar["ConfUSIusAxialVelocityIntegrationStride"] == pytest.approx(0.25)
         assert sidecar["ConfUSIusBmodeIntegrationStride"] == pytest.approx(0.3)
@@ -3689,10 +3690,11 @@ class TestRoundtrip:
         with open(sidecar_path) as f:
             sidecar = json.load(f)
 
-        assert sidecar["ClutterFilterWindowDuration"] == pytest.approx(0.3)
-        assert sidecar["ClutterFilterWindowStride"] == pytest.approx(0.2)
-        assert sidecar["PowerDopplerIntegrationDuration"] == pytest.approx(0.08)
-        assert sidecar["PowerDopplerIntegrationStride"] == pytest.approx(0.04)
+        assert sidecar["ClutterFilterWindowDuration"] == pytest.approx(300)
+        assert sidecar["ClutterFilterWindowStride"] == pytest.approx(200)
+        assert sidecar["PowerDopplerIntegrationDuration"] == pytest.approx(80)
+        assert "PowerDopplerIntegrationStride" not in sidecar
+        assert "power_doppler_integration_stride" not in sidecar
         assert sidecar["ConfUSIusAxialVelocityIntegrationDuration"] == pytest.approx(
             0.16
         )

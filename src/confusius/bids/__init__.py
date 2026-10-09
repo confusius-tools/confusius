@@ -12,7 +12,7 @@ Examples
 >>> attrs = {"repetition_time": 1.5, "task_name": "rest", "transmit_frequency": 15e6}
 >>> bids_attrs = bids.to_bids(attrs)
 >>> bids_attrs
-{"RepetitionTime": 1.5, "TaskName": "rest", "UltrasoundTransmitFrequency": 15000000.0}
+{"RepetitionTime": 1.5, "TaskName": "rest", "TransmitFrequency": 15000000.0}
 >>>
 >>> # Convert BIDS metadata back to ConfUSIus format
 >>> attrs_back = bids.from_bids(bids_attrs)

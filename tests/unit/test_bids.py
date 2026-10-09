@@ -91,8 +91,8 @@ class TestCaseConversion:
 
         bids_attrs = bids.to_bids(attrs)
 
-        assert bids_attrs["UltrasoundTransmitFrequency"] == 15e6
-        assert bids_attrs["UltrasoundPulseRepetitionFrequency"] == 2_500.0
+        assert bids_attrs["TransmitFrequency"] == 15e6
+        assert bids_attrs["PulseRepetitionFrequency"] == 2_500.0
 
         roundtripped = bids.from_bids(bids_attrs)
 
@@ -107,12 +107,12 @@ class TestCaseConversion:
 
         bids_attrs = bids.to_bids(attrs)
 
-        assert bids_attrs["ClutterFilterWindowDuration"] == 0.6
-        assert bids_attrs["ClutterFilterWindowStride"] == 0.3
+        assert bids_attrs["ClutterFilterWindowDuration"] == 600
+        assert bids_attrs["ClutterFilterWindowStride"] == 300
         assert bids.from_bids(bids_attrs) == attrs
 
     def test_integration_stride_metadata_mapping(self):
-        """Integration stride metadata maps to expected BIDS and ConfUSIus keys."""
+        """Power Doppler stride is redundant; other internal strides round-trip."""
         attrs = {
             "power_doppler_integration_stride": 0.2,
             "axial_velocity_integration_stride": 0.25,
@@ -121,9 +121,11 @@ class TestCaseConversion:
 
         bids_attrs = bids.to_bids(attrs)
 
-        assert bids_attrs["PowerDopplerIntegrationStride"] == 0.2
+        assert "PowerDopplerIntegrationStride" not in bids_attrs
+        assert "power_doppler_integration_stride" not in bids_attrs
         assert bids_attrs["ConfUSIusAxialVelocityIntegrationStride"] == 0.25
         assert bids_attrs["ConfUSIusBmodeIntegrationStride"] == 0.3
+        attrs.pop("power_doppler_integration_stride")
         assert bids.from_bids(bids_attrs) == attrs
 
     def test_from_bids_restores_internal_attributes(self):

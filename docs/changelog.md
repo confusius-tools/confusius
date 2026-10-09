@@ -12,6 +12,12 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- fUSI-BIDS metadata now follows draft v0.0.14: renamed frequency/voltage fields,
+  updated probe/virtual-source validation, and removal of the redundant Power
+  Doppler integration stride. JSON processing windows use milliseconds; internal
+  attributes and acquisition timing remain in seconds. No legacy JSON aliases or
+  automatic legacy-unit detection are provided.
+
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`resample_like`][confusius.registration.resample_like]'s `interpolation`
   parameter defaults to `"auto"` instead of `"linear"`: `"nearest"` is picked for
