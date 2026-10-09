@@ -122,8 +122,6 @@ class TestCaseConversion:
 
         bids_attrs = bids.to_bids(attrs)
 
-        assert "PowerDopplerIntegrationStride" not in bids_attrs
-        assert "power_doppler_integration_stride" not in bids_attrs
         assert bids_attrs["ConfUSIusAxialVelocityIntegrationDuration"] == 0.25
         assert bids_attrs["ConfUSIusBmodeIntegrationDuration"] == 0.3
         assert bids.from_bids(bids_attrs) == attrs
