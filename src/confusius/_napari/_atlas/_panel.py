@@ -683,6 +683,9 @@ class AtlasPanel(QWidget):
         row.remove_btn.clicked.connect(lambda: self._remove_atlas(name))
         self._atlas_rows[name] = row
         self._rows_layout.addWidget(row)
+        # A widget added to a live layout is only shown on the next layout pass;
+        # show it now so a caller (the guided tour) can target it immediately.
+        row.show()
         self._loaded_label.show()
 
     def _add_atlas_layers(self, name: str) -> None:
