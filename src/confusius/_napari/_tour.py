@@ -736,6 +736,32 @@ def build_default_tour(
 
         return _action
 
+    # Name of the placeholder row the tour adds under "Loaded atlases" so the
+    # row buttons can be shown without downloading anything.
+    demo_atlas_name = "allen_mouse_25um"
+    tour_added_demo_row = False
+
+    def _show_demo_atlas_row() -> None:
+        nonlocal tour_added_demo_row
+        _select_atlas_page("_atlases_page_btn")()
+        panel = _atlas_panel()
+        if panel is None or demo_atlas_name in panel._atlas_rows:
+            return
+        panel._add_atlas_row(demo_atlas_name)
+        tour_added_demo_row = True
+
+    def _demo_atlas_row() -> QWidget | None:
+        panel = _atlas_panel()
+        if panel is None:
+            return None
+        return panel._atlas_rows.get(demo_atlas_name)
+
+    def _loaded_atlases_rect() -> QRect | None:
+        panel = _atlas_panel()
+        if panel is None:
+            return None
+        return _united_rect(panel._loaded_label, _demo_atlas_row())
+
     def _show_region_masks() -> None:
         # The Region masks group only appears once an atlas is loaded and its
         # Masks button pressed; reveal it (empty) for the tour and restore it after.
@@ -776,6 +802,8 @@ def build_default_tour(
         if initial_atlas_state is not None:
             panel = _atlas_panel()
             if panel is not None:
+                if tour_added_demo_row:
+                    panel._remove_atlas(demo_atlas_name)
                 page_btn = (
                     panel._atlases_page_btn
                     if initial_atlas_state["atlases_page"]
@@ -876,20 +904,35 @@ def build_default_tour(
             pre_action=_select_atlas_page("_atlases_page_btn"),
         ),
         TourStep(
-            target=_panel_attr("Atlas", AtlasPanel, "_atlas_group"),
+            target=_panel_attr("Atlas", AtlasPanel, "_atlas_combo"),
             title="BrainGlobe Atlases",
             body=(
                 "Pick any BrainGlobe atlas (already downloaded ones come first) and "
-                "click <b>Load atlas</b>; the first load downloads it into the "
-                "BrainGlobe cache. Each loaded atlas gets a row under <b>Loaded "
-                "atlases</b> with four buttons: <b>Volumes</b> adds the reference, "
-                "annotation and hemispheres layers, <b>Tree</b> opens the structure "
-                "hierarchy in a dock, <b>Masks</b> opens the region-mask tools, and "
-                "<b>✕</b> removes the atlas and frees its memory."
+                "click <b>Load atlas</b>. The first load downloads the atlas into "
+                "the BrainGlobe cache, shared with other BrainGlobe tools; later "
+                "loads read it from there."
             ),
             anchor="left",
+            spotlight_rect=_panel_attr_rect(
+                "Atlas", AtlasPanel, "_atlas_combo", "_load_atlas_btn"
+            ),
             tooltip_target=_dock_widget,
             pre_action=_select_atlas_page("_atlases_page_btn"),
+        ),
+        TourStep(
+            target=_demo_atlas_row,
+            title="Loaded Atlases",
+            body=(
+                "Each loaded atlas gets a row like this one (a placeholder for the "
+                "tour). <b>Volumes</b> adds the reference, annotation and "
+                "hemispheres layers, <b>Tree</b> opens the structure hierarchy in a "
+                "dock, <b>Masks</b> opens the region-mask tools below, and <b>✕</b> "
+                "removes the atlas and frees its memory."
+            ),
+            anchor="left",
+            spotlight_rect=_loaded_atlases_rect,
+            tooltip_target=_dock_widget,
+            pre_action=_show_demo_atlas_row,
         ),
         TourStep(
             target=_panel_attr("Atlas", AtlasPanel, "_masks_group"),
