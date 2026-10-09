@@ -1273,6 +1273,7 @@ class VolumePlotter:
         data: xr.DataArray,
         *,
         interpolation: Literal["linear", "nearest", "bspline"] | None = None,
+        fill_value: float | None = None,
     ) -> tuple[xr.DataArray, float | None]:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords.
 
@@ -1292,6 +1293,9 @@ class VolumePlotter:
         interpolation : {"linear", "nearest", "bspline"}, optional
             Interpolation method used for any resample this triggers. If not provided,
             defaults to `self._resample_interpolation`.
+        fill_value : float, optional
+            Value assigned to voxels outside `data`'s field of view for any resample
+            this triggers. If not provided, defaults to `self._resample_fill_value`.
 
         Returns
         -------
@@ -1332,6 +1336,9 @@ class VolumePlotter:
         resolved_interpolation = (
             self._resample_interpolation if interpolation is None else interpolation
         )
+        resolved_fill_value = (
+            self._resample_fill_value if fill_value is None else fill_value
+        )
 
         slice_spacing: float | None = None
         if self.slice_mode in WORLD_DIMS:
@@ -1340,7 +1347,7 @@ class VolumePlotter:
                 self.slice_mode,
                 slice_axis_grid=self._slice_axis_grid,
                 interpolation=resolved_interpolation,
-                fill_value=self._resample_fill_value,
+                fill_value=resolved_fill_value,
             )
 
             # Capture the slice axis's spec so a later volume/mask on this same plotter
@@ -1366,7 +1373,7 @@ class VolumePlotter:
                 data,
                 slice_mode=self.slice_mode,
                 interpolation=resolved_interpolation,
-                fill_value=self._resample_fill_value,
+                fill_value=resolved_fill_value,
             )
 
         # For `pose`, materializing here (before per-pose `.isel`) would be wrong:
@@ -2379,6 +2386,8 @@ class VolumePlotter:
         slice_coords: list[Hashable] | None = None,
         fontsize: float | None = None,
         roi_labels: dict[int, str] | None = None,
+        resample_interpolation: Literal["linear", "nearest", "bspline"] = "nearest",
+        resample_fill_value: float = 0,
         **kwargs,
     ) -> "VolumePlotter":
         """Add mask contours to existing axes.
@@ -2432,6 +2441,18 @@ class VolumePlotter:
             voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar. The
             cursor samples the underlying label map directly, so hovering inside
             a closed contour is sufficient — there is no need to be on the line.
+        resample_interpolation : {"linear", "nearest", "bspline"}, default: "nearest"
+            Interpolation method used when resampling an oblique (non-axis-aligned)
+            `mask` onto the axis-aligned world grid for display. Defaults to
+            `"nearest"` because label data is a set of distinct regions:
+            `"linear"` / `"bspline"` would fabricate boundary values matching no
+            real label, and `"auto"` would pick `"linear"` for a float-typed mask.
+        resample_fill_value : float, default: 0
+            Value assigned to voxels outside `mask`'s field of view after resampling
+            oblique data. Defaults to `0`, the background value in both accepted
+            mask formats, so the out-of-FOV band never becomes a label of its own.
+            Must be representable in `mask`'s dtype (see
+            [`resample_volume`][confusius.registration.resample_volume]).
         **kwargs
             Additional keyword arguments passed to
             [`matplotlib.axes.Axes.plot`][matplotlib.axes.Axes.plot].
@@ -2501,6 +2522,8 @@ class VolumePlotter:
                     slice_coords=slice_coords,
                     fontsize=fontsize,
                     roi_labels=resolved_roi_labels or None,
+                    resample_interpolation=resample_interpolation,
+                    resample_fill_value=resample_fill_value,
                     **kwargs,
                 )
             return self
@@ -2508,11 +2531,16 @@ class VolumePlotter:
         # `_prepare_slice_inputs` handles a mask exactly like `add_volume`'s data --
         # it can carry the same extra facet dim as `self.slice_mode` (e.g.
         # "region"), and must land on the same native-vs-world dims as the data it
-        # overlays. `interpolation="nearest"` regardless of
-        # `self._resample_interpolation`: mask/label data is a set of distinct
-        # integer regions, and blending them together (linear/bspline) would
-        # fabricate boundary values that match no real label.
-        mask, slice_spacing = self._prepare_slice_inputs(mask, interpolation="nearest")
+        # overlays. The resample settings are the call's own, never the plotter's:
+        # masks default to `"nearest"` (blending distinct labels fabricates boundary
+        # values) and `fill_value=0` (background in both mask formats; any other
+        # value would become a label outlining the field of view, and NaN is
+        # rejected for integer masks).
+        mask, slice_spacing = self._prepare_slice_inputs(
+            mask,
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
+        )
 
         unique_labels = sorted(
             [label for label in np.unique(mask.values) if label != 0]
@@ -2547,10 +2575,13 @@ class VolumePlotter:
         if slice_coords is None:
             slice_coords = _default_slice_coords(mask, self.slice_mode)
 
-        # Always "nearest" for the per-panel world resample too: mask/label data is a
-        # set of distinct integer regions, never meaningfully blended.
+        # Same per-call settings for the per-panel world resample.
         slices, actual_coords, dim_row, dim_col = self._extract_display_slices(
-            mask, slice_coords, slice_spacing=slice_spacing, interpolation="nearest"
+            mask,
+            slice_coords,
+            slice_spacing=slice_spacing,
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
         )
         n_slices = len(slices)
 
@@ -2740,6 +2771,8 @@ def plot_contours(
     figure: "Figure | None" = None,
     axes: "npt.NDArray[Any] | Axes | None" = None,
     roi_labels: dict[int, str] | None = None,
+    resample_interpolation: Literal["linear", "nearest", "bspline"] = "nearest",
+    resample_fill_value: float = 0,
     **kwargs,
 ) -> VolumePlotter:
     """Plot mask contours as a grid of 2D slice panels.
@@ -2808,6 +2841,18 @@ def plot_contours(
         Mapping from integer label to display name. When provided (or when
         `mask.attrs["roi_labels"]` is populated), hovering the cursor over a
         voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar.
+    resample_interpolation : {"linear", "nearest", "bspline"}, default: "nearest"
+        Interpolation method used when resampling an oblique (non-axis-aligned)
+        `mask` onto the axis-aligned world grid for display. Defaults to
+        `"nearest"` because label data is a set of distinct regions:
+        `"linear"` / `"bspline"` would fabricate boundary values matching no
+        real label, and `"auto"` would pick `"linear"` for a float-typed mask.
+    resample_fill_value : float, default: 0
+        Value assigned to voxels outside `mask`'s field of view after resampling
+        oblique data. Defaults to `0`, the background value in both accepted
+        mask formats, so the out-of-FOV band never becomes a label of its own.
+        Must be representable in `mask`'s dtype (see
+        [`resample_volume`][confusius.registration.resample_volume]).
     **kwargs
         Additional keyword arguments passed to
         [`matplotlib.axes.Axes.plot`][matplotlib.axes.Axes.plot].
@@ -2871,6 +2916,8 @@ def plot_contours(
         slice_coords=slice_coords,
         fontsize=fontsize,
         roi_labels=roi_labels,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
         **kwargs,
     )
 

@@ -38,6 +38,17 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
     return coord.isel(others).values
 
 
+def _rotated_affine(theta_deg: float) -> np.ndarray:
+    """Unit-spacing voxel-to-world affine rotated about world z by `theta_deg`."""
+    theta = np.deg2rad(theta_deg)
+    affine = np.eye(4)
+    affine[1:3, 1:3] = [
+        [np.cos(theta), -np.sin(theta)],
+        [np.sin(theta), np.cos(theta)],
+    ]
+    return affine
+
+
 def _axes(plotter):
     assert plotter.axes is not None
     return plotter.axes
@@ -1764,6 +1775,39 @@ class TestVolumePlotterAddContours:
         mask = self._make_mask(sample_voxeldata_3d, [0, 1])
         with pytest.warns(UserWarning, match="Could not find matching axes"):
             plotter.add_contours(mask, colors="red")
+
+    @staticmethod
+    def _polygon_area(line) -> float:
+        x, y = line.get_xdata(), line.get_ydata()
+        return 0.5 * abs(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
+
+    def test_add_contours_int_mask_on_nan_filled_volume(self, matplotlib_pyplot):
+        """An int label map contoured over a NaN-filled float volume draws the label.
+
+        Regression for the fig2 case: the volume is resampled with
+        ``resample_fill_value=np.nan`` for a transparent out-of-FOV band; the int
+        mask must still contour (NaN is not representable in its dtype, so it
+        raised since #481, and before that produced an INT_MIN phantom label
+        outlining the FOV).
+        """
+        affine = _rotated_affine(20)
+        volume = create_voxeldata(
+            np.ones((1, 12, 12)), dims=("k", "j", "i"), voxel_to_world=affine
+        )
+        labels = np.zeros((1, 12, 12), dtype=np.int32)
+        labels[0, 4:8, 4:8] = 7
+        mask = create_voxeldata(labels, dims=("k", "j", "i"), voxel_to_world=affine)
+
+        plotter = plot_volume(
+            volume, slice_mode="z", resample_fill_value=np.nan, show_colorbar=False
+        )
+        plotter.add_contours(mask, colors="red")
+
+        ax = _axes(plotter).ravel()[0]
+        assert len(ax.lines) == 1
+        # The 4x4 square (unit spacing) encloses ~16.5 world units^2 on the
+        # resampled grid; a loop tracing the FOV band encloses ~70.
+        assert self._polygon_area(ax.lines[0]) < 30
 
 
 class TestRoiHover:
