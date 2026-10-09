@@ -245,6 +245,25 @@ class TestLoadEchoFrameDat:
         # With cropping ROI [2, 5, 2, 4]: z=4, x=3; 1 block * 3 volumes = 3 in time.
         assert data.shape == (3, 1, 4, 3)
 
+    def test_empty_acquisition_file_raises(self, tmp_path, echoframe_meta_file):
+        """An EchoFrame file with no acquisition blocks fails before computation."""
+        path = tmp_path / "empty.dat"
+        _create_echoframe_dat_file(path, n_blocks=0)
+        with pytest.raises(ValueError, match="dimensions must be positive"):
+            load_echoframe_dat(path, echoframe_meta_file)
+
+    @pytest.mark.parametrize("padding_bytes", [0, 13])
+    def test_truncated_payload_raises(
+        self, tmp_path, echoframe_meta_file, padding_bytes
+    ):
+        """Missing payload or trailing padding bytes fail before computation."""
+        path = tmp_path / "truncated.dat"
+        _create_echoframe_dat_file(path, padding_bytes=padding_bytes)
+        with path.open("r+b") as stream:
+            stream.truncate(path.stat().st_size - 1)
+        with pytest.raises(ValueError, match="shorter than the expected payload"):
+            load_echoframe_dat(path, echoframe_meta_file)
+
     def test_missing_dat_file(self, tmp_path, echoframe_meta_file):
         """`load_echoframe_dat` raises `ValueError` for missing DAT file."""
         non_existent = tmp_path / "nonexistent.dat"

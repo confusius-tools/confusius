@@ -813,6 +813,13 @@ class TestLoadScanV2Errors:
         with pytest.raises(ValueError, match="does not match the product"):
             load_scan(path)
 
+    def test_truncated_payload_raises(self, scan_v2_path: Path) -> None:
+        """A valid header cannot hide a missing payload byte."""
+        with scan_v2_path.open("r+b") as stream:
+            stream.truncate(scan_v2_path.stat().st_size - 1)
+        with pytest.raises(ValueError, match="shorter than the expected payload"):
+            load_scan(scan_v2_path)
+
     def test_truncated_header_raises(self, tmp_path: Path) -> None:
         """An implausibly large n_time (header too short for it) raises."""
         path = tmp_path / "truncated.scan"
