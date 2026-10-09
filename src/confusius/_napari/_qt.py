@@ -7,10 +7,72 @@ from qtpy.QtWidgets import (
     QAbstractScrollArea,
     QAbstractSpinBox,
     QApplication,
+    QButtonGroup,
     QComboBox,
+    QHBoxLayout,
     QMainWindow,
+    QPushButton,
+    QSizePolicy,
     QWidget,
 )
+
+from confusius._utils.colors import RED
+
+SEGMENT_BUTTON_STYLE = f"""
+QPushButton {{
+    border-radius: 0;
+}}
+QPushButton:checked {{
+    background: {RED};
+    color: white;
+    font-weight: bold;
+}}
+"""
+"""QSS shared by every button of a segmented control; the end buttons add rounded
+outer corners on top of it."""
+
+
+def make_segmented_buttons(
+    labels: list[str], parent: QWidget
+) -> tuple[QHBoxLayout, list[QPushButton]]:
+    """Build a row of mutually exclusive checkable buttons, the first one checked.
+
+    This is the page switcher used at the top of the Registration and Atlas panels.
+
+    Parameters
+    ----------
+    labels : list[str]
+        Button captions, left to right. At least two.
+    parent : qtpy.QtWidgets.QWidget
+        Owner of the exclusive `QButtonGroup` that keeps one button checked.
+
+    Returns
+    -------
+    row : qtpy.QtWidgets.QHBoxLayout
+        Layout holding the buttons with no spacing, ready to add to a panel.
+    buttons : list[qtpy.QtWidgets.QPushButton]
+        The buttons, in `labels` order; connect to their `toggled` signals.
+    """
+    group = QButtonGroup(parent)
+    row = QHBoxLayout()
+    row.setSpacing(0)
+    buttons: list[QPushButton] = []
+    last = len(labels) - 1
+    for i, label in enumerate(labels):
+        button = QPushButton(label)
+        button.setCheckable(True)
+        button.setChecked(i == 0)
+        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        style = SEGMENT_BUTTON_STYLE
+        if i == 0:
+            style += "QPushButton { border-top-left-radius: 3px; border-bottom-left-radius: 3px; }"
+        if i == last:
+            style += "QPushButton { border-top-right-radius: 3px; border-bottom-right-radius: 3px; }"
+        button.setStyleSheet(style)
+        group.addButton(button)
+        row.addWidget(button)
+        buttons.append(button)
+    return row, buttons
 
 
 class _NoScrollWheelFilter(QObject):

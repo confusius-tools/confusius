@@ -115,6 +115,16 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- New **Atlas** tab: load any BrainGlobe atlas (downloaded ones listed first) into
+  memory, several at a time, and for each one add its reference, annotation and
+  hemispheres layers, browse its structure hierarchy in a read-only dock, search its
+  regions to load one Labels layer per region mask with a hemisphere selector, or
+  remove it to free memory
+  ([#487](https://github.com/confusius-tools/confusius/issues/487)).
+- The Atlas tab also loads the fUSI templates shipped in `confusius.datasets`
+  (Huang 2025, Pepe-Mariani 2026) as Image layers and names the atlas space each
+  template is aligned to
+  ([#483](https://github.com/confusius-tools/confusius/issues/483)).
 - The registration panel's within-scan mode can register every frame to a fixed
   layer, with its own intensity scaling, as an alternative to a reference time index
   ([#376](https://github.com/confusius-tools/confusius/issues/376)).
