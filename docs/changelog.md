@@ -23,7 +23,7 @@ Current development version for the next ConfUSIus release.
   use `susi` instead of `angio`, and the Huang template filename uses `2025`.
   The Pepe Mariani template now loads directly in Allen atlas world coordinates
   via its shear-preserving `sform`, rather than the former scanner-space `qform`
-  ([#489](https://github.com/confusius-tools/confusius/issues/489)).
+  ([#490](https://github.com/confusius-tools/confusius/pull/490)).
 - fUSI-BIDS metadata now follows draft v0.0.14: renamed frequency/voltage fields,
   including internal attributes `probe_central_frequency` → `probe_center_frequency`
   and `probe_voltage` → `transmit_voltage`, updated probe/virtual-source validation,
