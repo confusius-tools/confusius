@@ -2,12 +2,11 @@
 
 Two datasets are fetched automatically via `confusius.datasets`:
 
-- **Nunez-Elizalde et al. (2022)** fUSI-BIDS dataset on OSF
-  (https://osf.io/43skw/) — used for the Data I/O, Signals, and QC
-  screenshots. First run downloads ~30 MB.
-- **Cybis Pereira et al. (2026)** fUSI-BIDS dataset on OSF
-  (https://osf.io/2v6f7/) — used for the Video panel GIF. First run
-  downloads ~200 MB (raw fUSI + DLC video).
+- **Nunez-Elizalde et al. (2022)** fUSI-BIDS dataset from the AWS Open Data–sponsored
+  S3 collection — used for the Data I/O, Signals, and QC screenshots. First run
+  downloads ~30 MB.
+- **Cybis Pereira et al. (2026)** fUSI-BIDS dataset from the same collection — used
+  for the Video panel GIF. First run downloads ~200 MB (raw fUSI + DLC video).
 
 Subsequent runs use the local cache.
 
@@ -85,7 +84,7 @@ _DERIVATIVE_STRUCTURE_TREE_REL_PATH = (
 _ANGIO_REL_PATH = (
     Path(f"sub-{_SUBJECT}")
     / f"ses-{_SESSION}"
-    / "angio"
+    / "susi"
     / f"sub-{_SUBJECT}_ses-{_SESSION}_pwd.nii.gz"
 )
 
@@ -829,12 +828,12 @@ try:
 
     fixed_path = (
         bids_root
-        / f"sub-{_REGISTRATION_SUBJECT}/ses-{_REGISTRATION_FIXED_SESSION}/angio"
+        / f"sub-{_REGISTRATION_SUBJECT}/ses-{_REGISTRATION_FIXED_SESSION}/susi"
         / f"sub-{_REGISTRATION_SUBJECT}_ses-{_REGISTRATION_FIXED_SESSION}_pwd.nii.gz"
     )
     moving_path = (
         bids_root
-        / f"sub-{_REGISTRATION_SUBJECT}/ses-{_REGISTRATION_MOVING_SESSION}/angio"
+        / f"sub-{_REGISTRATION_SUBJECT}/ses-{_REGISTRATION_MOVING_SESSION}/susi"
         / f"sub-{_REGISTRATION_SUBJECT}_ses-{_REGISTRATION_MOVING_SESSION}_pwd.nii.gz"
     )
 

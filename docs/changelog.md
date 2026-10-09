@@ -12,6 +12,18 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Dataset and template fetchers now download immutable, SHA-256-verified releases
+  from S3, with hosting sponsored by AWS Open Data, instead of OSF or the Edmond
+  archive. Releases are cached under `<recipe>/<version>/`; `refresh=True` selects
+  the latest published release without overwriting earlier versions. Delete old
+  OSF dataset/template cache directories and fetch again to reclaim space and use
+  the new layouts. Only remove downloaded collection caches under your `data_dir`,
+  `CONFUSIUS_DATA`, or platform cache directory—not personal recordings, analysis
+  outputs, or BrainGlobe caches. Angiography datatype directories and filters now
+  use `susi` instead of `angio`, and the Huang template filename uses `2025`.
+  The Pepe Mariani template now loads directly in Allen atlas world coordinates
+  via its shear-preserving `sform`, rather than the former scanner-space `qform`
+  ([#489](https://github.com/confusius-tools/confusius/issues/489)).
 - fUSI-BIDS metadata now follows draft v0.0.14: renamed frequency/voltage fields,
   including internal attributes `probe_central_frequency` → `probe_center_frequency`
   and `probe_voltage` → `transmit_voltage`, updated probe/virtual-source validation,

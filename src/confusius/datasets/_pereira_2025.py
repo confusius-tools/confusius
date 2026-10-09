@@ -4,16 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ._osf import (
-    OsfFileInfo,
-    download_osf_files,
+from confusius.datasets._s3 import (
+    S3FileInfo,
+    download_s3_files,
     get_index,
-    read_cached_index,
+    get_release_dir,
     update_cached_index,
 )
-from ._utils import get_datasets_dir, print_citation_message
+from confusius.datasets._utils import get_datasets_dir, print_citation_message
 
-_OSF_PROJECT_ID = "pqa65"
 _BIDS_ROOT = "pereira-2025-bids"
 _TOTAL_SIZE_BYTES = 29_963_983_096
 _CITATION = (
@@ -28,16 +27,16 @@ _CITATION = (
 
 
 def _filter_files(
-    index: dict[str, OsfFileInfo],
+    index: dict[str, S3FileInfo],
     subjects: list[str] | None,
     sessions: list[str] | None,
     tasks: list[str] | None,
-) -> dict[str, OsfFileInfo]:
+) -> dict[str, S3FileInfo]:
     """Filter the index to files matching the requested entities.
 
     Parameters
     ----------
-    index : dict[str, OsfFileInfo]
+    index : dict[str, S3FileInfo]
         Full dataset index as returned by `get_index`.
     subjects : list[str] or None
         Subject IDs to include (without "sub-" prefix). If `None`, all subjects are
@@ -51,10 +50,10 @@ def _filter_files(
 
     Returns
     -------
-    dict[str, OsfFileInfo]
+    dict[str, S3FileInfo]
         Subset of the index matching the filters.
     """
-    filtered: dict[str, OsfFileInfo] = {}
+    filtered: dict[str, S3FileInfo] = {}
     for path, file_info in index.items():
         parts = Path(path).parts
 
@@ -113,8 +112,8 @@ def fetch_pereira_2025(
         If not provided, all tasks are downloaded. Files with no task entity are always
         included.
     refresh : bool, default: False
-        Whether to re-fetch the dataset index from OSF and reconcile local files against
-        it.
+        Whether to resolve the latest published S3 release. Otherwise the cached
+        release is reused offline. Releases are cached in separate version directories.
     print_citation : bool, default: True
         Whether to print the citation for the dataset.
 
@@ -131,13 +130,14 @@ def fetch_pereira_2025(
         functional neuroimaging. *eBioMedicine*, 116, 105777.
         [https://doi.org/10.1016/j.ebiom.2025.105777](https://doi.org/10.1016/j.ebiom.2025.105777)
     [^2]:
-        fUSI-BIDS dataset on OSF: [https://osf.io/pqa65/](https://osf.io/pqa65/)
+        Collection hosted on S3 through AWS Open Data sponsorship:
+        [confusius-datasets](https://github.com/confusius-tools/confusius-datasets).
     [^3]:
         Dataset license (CC BY 4.0):
         [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/)
     """
-    bids_dir = get_datasets_dir(data_dir) / _BIDS_ROOT
-    bids_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = get_datasets_dir(data_dir) / _BIDS_ROOT
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     if isinstance(subjects, str):
         subjects = [subjects]
@@ -146,13 +146,12 @@ def fetch_pereira_2025(
     if isinstance(tasks, str):
         tasks = [tasks]
 
-    previous_index = read_cached_index(bids_dir) if refresh else None
-    index = get_index(bids_dir, _OSF_PROJECT_ID, _BIDS_ROOT, refresh=refresh)
+    index = get_index(cache_dir, "datasets", _BIDS_ROOT, refresh=refresh)
+    bids_dir = get_release_dir(cache_dir, index)
     files = _filter_files(index, subjects, sessions, tasks)
 
-    download_osf_files(bids_dir, files, previous_index, refresh=refresh)
-    if refresh:
-        update_cached_index(bids_dir, index, previous_index or {}, files)
+    download_s3_files(bids_dir, files)
+    update_cached_index(cache_dir, index)
 
     if print_citation:
         print_citation_message(_CITATION, "dataset")

@@ -12,65 +12,73 @@ from confusius.datasets._pepe_mariani_2026_bids import _BIDS_ROOT, _CITATION
 from confusius.datasets._utils import plain_citation
 
 _FAKE_INDEX = {
-    "dataset_description.json": {"osf_path": "/file001", "size": 100, "md5": None},
-    "participants.tsv": {"osf_path": "/file002", "size": 200, "md5": None},
-    "sub-m01/sub-m01_sessions.tsv": {"osf_path": "/file003", "size": 50, "md5": None},
+    "dataset_description.json": {"url": "/file001", "size": 100, "sha256": "0" * 64},
+    "participants.tsv": {"url": "/file002", "size": 200, "sha256": "0" * 64},
+    "sub-m01/sub-m01_sessions.tsv": {"url": "/file003", "size": 50, "sha256": "0" * 64},
     "sub-m01/ses-rest/fusi/sub-m01_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz": {
-        "osf_path": "/file004",
+        "url": "/file004",
         "size": 1000,
-        "md5": None,
+        "sha256": "0" * 64,
     },
-    "sub-m01/ses-rest/angio/sub-m01_ses-rest_acq-coronal_pwd.nii.gz": {
-        "osf_path": "/file005",
+    "sub-m01/ses-rest/susi/sub-m01_ses-rest_acq-coronal_pwd.nii.gz": {
+        "url": "/file005",
         "size": 1000,
-        "md5": None,
+        "sha256": "0" * 64,
     },
     "sub-m02/ses-rest/fusi/sub-m02_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz": {
-        "osf_path": "/file006",
+        "url": "/file006",
         "size": 1000,
-        "md5": None,
+        "sha256": "0" * 64,
     },
     "sub-m01/ses-other/fusi/sub-m01_ses-other_task-rest_acq-coronal_chunk-01_pwd.nii.gz": {
-        "osf_path": "/file006a",
+        "url": "/file006a",
         "size": 1000,
-        "md5": None,
+        "sha256": "0" * 64,
     },
     "sub-m01/ses-rest/fusi/sub-m01_ses-rest_task-rest_acq-sagittal_chunk-01_pwd.nii.gz": {
-        "osf_path": "/file006b",
+        "url": "/file006b",
         "size": 1000,
-        "md5": None,
+        "sha256": "0" * 64,
     },
     "derivatives/registered/sub-m01/ses-rest/fusi/sub-m01_ses-rest_task-rest_acq-coronal_pwd.nii.gz": {
-        "osf_path": "/file007",
+        "url": "/file007",
         "size": 1000,
-        "md5": None,
+        "sha256": "0" * 64,
     },
     "derivatives/registered/sub-m02/ses-rest/fusi/sub-m02_ses-rest_task-rest_acq-coronal_pwd.nii.gz": {
-        "osf_path": "/file007a",
+        "url": "/file007a",
         "size": 1000,
-        "md5": None,
+        "sha256": "0" * 64,
     },
     "derivatives/registered/sub-m01/ses-other/fusi/sub-m01_ses-other_task-rest_acq-coronal_pwd.nii.gz": {
-        "osf_path": "/file007b",
+        "url": "/file007b",
         "size": 1000,
-        "md5": None,
+        "sha256": "0" * 64,
     },
-    "derivatives/registered/sub-m01/ses-rest/angio/sub-m01_ses-rest_acq-coronal_pwd.nii.gz": {
-        "osf_path": "/file007c",
+    "derivatives/registered/sub-m01/ses-rest/susi/sub-m01_ses-rest_acq-coronal_pwd.nii.gz": {
+        "url": "/file007c",
         "size": 1000,
-        "md5": None,
+        "sha256": "0" * 64,
     },
     "derivatives/preprocessed/sub-m01/ses-rest/fusi/sub-m01_ses-rest_task-rest_acq-coronal_pwd.nii.gz": {
-        "osf_path": "/file008",
+        "url": "/file008",
         "size": 1000,
-        "md5": None,
+        "sha256": "0" * 64,
     },
     "derivatives/Params/sub-m01/sub-m01_params.tsv": {
-        "osf_path": "/file009",
+        "url": "/file009",
         "size": 100,
-        "md5": None,
+        "sha256": "0" * 64,
     },
 }
+
+
+for _relative, _info in _FAKE_INDEX.items():
+    _info["url"] = (
+        "https://confusius-datasets.s3.us-west-2.amazonaws.com"
+        f"/datasets/{_BIDS_ROOT}/1.0.0/{_relative}"
+    )
+    _info["sha256"] = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 
 def _make_retrieve(bids_dir: Path):
@@ -100,7 +108,7 @@ def mock_retrieve(tmp_path):
     """Patch pooch.retrieve to create stub files instead of downloading."""
     with patch(
         "confusius.datasets._pooch.pooch.retrieve",
-        side_effect=_make_retrieve(tmp_path / _BIDS_ROOT),
+        side_effect=_make_retrieve(tmp_path / _BIDS_ROOT / "1.0.0"),
     ) as mock:
         yield mock
 
@@ -115,7 +123,7 @@ def _downloaded_paths(mock_retrieve, bids_dir: Path) -> set[str]:
 
 def test_fetch_returns_bids_root(tmp_path, mock_get_index, mock_retrieve):
     result = fetch_pepe_mariani_2026(data_dir=tmp_path, print_citation=False)
-    assert result == tmp_path / _BIDS_ROOT
+    assert result == tmp_path / _BIDS_ROOT / "1.0.0"
 
 
 def test_fetch_citation_message(tmp_path, mock_get_index, mock_retrieve, capsys):
@@ -144,31 +152,26 @@ def test_fetch_filters_derivatives(tmp_path, mock_get_index, mock_retrieve):
         print_citation=False,
     )
 
-    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT / "1.0.0")
     assert (
         "derivatives/registered/sub-m01/ses-rest/fusi/"
-        "sub-m01_ses-rest_task-rest_acq-coronal_pwd.nii.gz"
-        in downloaded
+        "sub-m01_ses-rest_task-rest_acq-coronal_pwd.nii.gz" in downloaded
     )
     assert (
         "sub-m01/ses-rest/fusi/"
-        "sub-m01_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz"
-        not in downloaded
+        "sub-m01_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz" not in downloaded
     )
     assert (
-        "derivatives/registered/sub-m01/ses-rest/angio/"
-        "sub-m01_ses-rest_acq-coronal_pwd.nii.gz"
-        not in downloaded
+        "derivatives/registered/sub-m01/ses-rest/susi/"
+        "sub-m01_ses-rest_acq-coronal_pwd.nii.gz" not in downloaded
     )
     assert (
         "derivatives/registered/sub-m02/ses-rest/fusi/"
-        "sub-m02_ses-rest_task-rest_acq-coronal_pwd.nii.gz"
-        not in downloaded
+        "sub-m02_ses-rest_task-rest_acq-coronal_pwd.nii.gz" not in downloaded
     )
     assert (
         "derivatives/registered/sub-m01/ses-other/fusi/"
-        "sub-m01_ses-other_task-rest_acq-coronal_pwd.nii.gz"
-        not in downloaded
+        "sub-m01_ses-other_task-rest_acq-coronal_pwd.nii.gz" not in downloaded
     )
     assert "dataset_description.json" in downloaded
 
@@ -184,24 +187,26 @@ def test_fetch_filters_rawdata(tmp_path, mock_get_index, mock_retrieve):
         print_citation=False,
     )
 
-    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT)
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT / "1.0.0")
     assert (
         "sub-m01/ses-rest/fusi/"
-        "sub-m01_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz"
-        in downloaded
+        "sub-m01_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz" in downloaded
     )
     assert (
-        "sub-m01/ses-rest/angio/sub-m01_ses-rest_acq-coronal_pwd.nii.gz"
+        "sub-m01/ses-rest/susi/sub-m01_ses-rest_acq-coronal_pwd.nii.gz"
         not in downloaded
     )
     assert (
-        "sub-m01/ses-other/fusi/sub-m01_ses-other_task-rest_acq-coronal_chunk-01_pwd.nii.gz" not in downloaded
+        "sub-m01/ses-other/fusi/sub-m01_ses-other_task-rest_acq-coronal_chunk-01_pwd.nii.gz"
+        not in downloaded
     )
     assert (
-        "sub-m01/ses-rest/fusi/sub-m01_ses-rest_task-rest_acq-sagittal_chunk-01_pwd.nii.gz" not in downloaded
+        "sub-m01/ses-rest/fusi/sub-m01_ses-rest_task-rest_acq-sagittal_chunk-01_pwd.nii.gz"
+        not in downloaded
     )
     assert (
-        "sub-m02/ses-rest/fusi/sub-m02_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz" not in downloaded
+        "sub-m02/ses-rest/fusi/sub-m02_ses-rest_task-rest_acq-coronal_chunk-01_pwd.nii.gz"
+        not in downloaded
     )
 
 

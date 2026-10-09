@@ -73,7 +73,7 @@ def retrieve_with_retries(
 ) -> None:
     """Download a file with `pooch`, retrying on transient network errors.
 
-    OSF occasionally closes long-running connections mid-stream, surfacing
+    Servers can close long-running connections mid-stream, surfacing
     as [`requests.exceptions.RequestException`][requests.exceptions.RequestException]
     subclasses (e.g. `ReadTimeout`, `ConnectionError`,
     `ChunkedEncodingError`). Retry up to `_MAX_DOWNLOAD_RETRIES` times
@@ -97,7 +97,7 @@ def retrieve_with_retries(
         that was advanced by the failed attempt.
     known_hash : str, optional
         Expected hash of the downloaded file in `pooch`'s
-        `"<algorithm>:<hexdigest>"` form (e.g. `"md5:abc123"`). Forwarded to
+        `"<algorithm>:<hexdigest>"` form (e.g. `"sha256:<digest>"`). Forwarded to
         `pooch.retrieve`, which verifies the download and raises on mismatch.
         If not provided, the download is not integrity-checked.
     """

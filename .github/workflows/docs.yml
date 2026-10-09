@@ -46,45 +46,41 @@ jobs:
             libxcb-xfixes0 \
             libxcb-xinerama0
 
+      - name: Get dataset release catalog
+        run: >-
+          curl --fail --show-error --silent --retry 3
+          https://confusius-datasets.s3.us-west-2.amazonaws.com/last_versions.conf
+          --output .dataset-versions.conf
+
       - name: Cache Nunez-Elizalde dataset
         uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/nunez-elizalde-2022-bids
-          key: ${{ runner.os }}-nunez-elizalde-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
-          restore-keys: |
-            ${{ runner.os }}-nunez-elizalde-bids-
+          key: ${{ runner.os }}-s3-nunez-elizalde-bids-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
 
       - name: Cache Cybis Pereira dataset
         uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/cybis-pereira-2026-bids
-          key: ${{ runner.os }}-cybis-pereira-2026-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
-          restore-keys: |
-            ${{ runner.os }}-cybis-pereira-2026-bids-
+          key: ${{ runner.os }}-s3-cybis-pereira-2026-bids-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
 
       - name: Cache Khallaf dataset
         uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/khallaf-2026-bids
-          key: ${{ runner.os }}-khallaf-2026-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
-          restore-keys: |
-            ${{ runner.os }}-khallaf-2026-bids-
+          key: ${{ runner.os }}-s3-khallaf-2026-bids-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
 
       - name: Cache Pepe Mariani template
         uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/pepe-mariani-2026-template
-          key: ${{ runner.os }}-pepe-mariani-2026-template-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
-          restore-keys: |
-            ${{ runner.os }}-pepe-mariani-2026-template-
+          key: ${{ runner.os }}-s3-pepe-mariani-2026-template-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
 
       - name: Cache Pepe Mariani dataset
         uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/pepe-mariani-2026-bids
-          key: ${{ runner.os }}-pepe-mariani-2026-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
-          restore-keys: |
-            ${{ runner.os }}-pepe-mariani-2026-bids-
+          key: ${{ runner.os }}-s3-pepe-mariani-2026-bids-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
 
       - name: Cache BrainGlobe atlases
         uses: actions/cache@v6
@@ -134,7 +130,7 @@ jobs:
             docs/images/visualization/*.gif
             docs/images/home/*.png
             docs/images/home/*.gif
-          key: ${{ runner.os }}-docs-images-${{ hashFiles('uv.lock', 'docs/images/**/generate.py', 'tools/prefetch_doc_datasets.py', 'src/**/*.py') }}
+          key: ${{ runner.os }}-docs-images-${{ hashFiles('.dataset-versions.conf', 'uv.lock', 'docs/images/**/generate.py', 'tools/prefetch_doc_datasets.py', 'src/**/*.py') }}
           restore-keys: |
             ${{ runner.os }}-docs-images-
 
@@ -158,9 +154,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .gallery-cache
-          key: ${{ runner.os }}-gallery-${{ hashFiles('uv.lock', 'docs/examples/**/*.py', 'tools/gallery/**/*.py', 'tools/build_gallery.py') }}
-          restore-keys: |
-            ${{ runner.os }}-gallery-
+          key: ${{ runner.os }}-gallery-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'uv.lock', 'docs/examples/**/*.py', 'tools/gallery/**/*.py', 'tools/build_gallery.py') }}
 
       - name: Build example gallery
         env:

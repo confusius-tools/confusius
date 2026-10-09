@@ -13,7 +13,7 @@ the light and dark passes to produce identical output, and download progress
 on a cold cache would otherwise show up in one but not the other.
 
 Add an entry here whenever a new image generator or example pulls data. The
-args must match the call site exactly so the OSF index resolves to the same
+args must match the call site exactly so the S3 release manifest resolves to the same
 files.
 """
 
@@ -136,7 +136,7 @@ def _prefetch_cybis_pereira() -> None:
         datasets="rawdata",
         subjects="rat75",
         sessions=["20220523", "20220524"],
-        datatypes="angio",
+        datatypes="susi",
         acqs="slice32",
     )
 

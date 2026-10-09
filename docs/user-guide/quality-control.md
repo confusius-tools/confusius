@@ -268,5 +268,5 @@ For full parameter documentation, see the [QC API reference](../api/qc.md).
 [^nunez2022]:
     Nunez-Elizalde, A. O., et al. "A Neurophysiological fUSI-BIDS dataset from awake,
     behaving mice." figshare dataset, 2022. DOI.org (Datacite),
-    <https://doi.org/10.6084/m9.figshare.19316228>; mirrored on OSF at
-    <https://osf.io/43skw/>.
+    <https://doi.org/10.6084/m9.figshare.19316228>; the fUSI-BIDS re-export is hosted
+    in the [AWS Open Data–sponsored S3 collection](https://github.com/confusius-tools/confusius-datasets).

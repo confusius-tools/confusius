@@ -7,7 +7,7 @@
 # which is appropriate when the imaged anatomy is the same but the probe placement
 # differs slightly between the two recordings.
 #
-# We pick two `angio` acquisitions from the [Cybis Pereira 2026
+# We pick two `susi` acquisitions from the [Cybis Pereira 2026
 # dataset](https://doi.org/10.1016/j.celrep.2025.116791) using
 # [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026]: subject
 # `rat75`, slice `slice32`, recorded on consecutive days (sessions `20220523` and
@@ -43,7 +43,7 @@ bids_root = cf.datasets.fetch_cybis_pereira_2026(
     datasets="rawdata",
     subjects="rat75",
     sessions=sessions,
-    datatypes="angio",
+    datatypes="susi",
     acqs=acq,
 )
 
@@ -55,7 +55,7 @@ def _load_angio_for_registration(session: str) -> xr.DataArray:
         Path(bids_root)
         / "sub-rat75"
         / f"ses-{session}"
-        / "angio"
+        / "susi"
         / f"sub-rat75_ses-{session}_acq-{acq}_rec-minframe2d_pwd.nii.gz"
     )
     angio = cf.load(path).fusi.scale.db().compute()

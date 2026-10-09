@@ -124,7 +124,7 @@ def list_datasets(data_dir: str | Path | None = None) -> None:
 
     for fetcher_name, size_bytes, root_dirname in _REGISTRY:
         path = datasets_dir / root_dirname
-        is_cached = path.exists() and any(path.iterdir())
+        is_cached = (path / "s3_index.json").is_file()
         table.add_row(
             fetcher_name,
             _format_bytes(size_bytes),

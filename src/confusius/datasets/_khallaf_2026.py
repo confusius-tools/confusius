@@ -6,32 +6,20 @@ import re
 from collections.abc import Iterable
 from pathlib import Path
 
-import requests
-
-from ._dataverse import (
-    ZipMemberInfo,
-    access_url,
-    download_zip_members,
-    get_zip_index,
-    read_cached_zip_index,
-    update_cached_zip_index,
+from confusius.datasets._s3 import (
+    S3FileInfo,
+    download_s3_files,
+    get_index,
+    get_release_dir,
+    update_cached_index,
 )
-from ._utils import get_datasets_dir, print_citation_message
-
-_DOI = "doi:10.17617/3.7QCU1F"
-"""Persistent identifier of the Edmond dataset hosting the fUSI archive."""
-
-_DATAFILE_ID = 343674
-"""Dataverse datafile id of the `fUSI data.zip` archive within the dataset."""
-
-_ZIP_ROOT = "naked_mole_rat_fusi_dataset/"
-"""Common in-zip path prefix shared by every archive member."""
+from confusius.datasets._utils import get_datasets_dir, print_citation_message
 
 _BIDS_ROOT = "khallaf-2026-bids"
 """Local cache directory name for the extracted dataset."""
 
-_TOTAL_SIZE_BYTES = 19_485_480_391
-"""Size of the full `fUSI data.zip` archive in bytes."""
+_TOTAL_SIZE_BYTES = 24_015_473_467
+"""Size of the full published release in bytes."""
 
 _CITATION = (
     "Khallaf, M. A., Hart, D. W., Luo, W., Murad, F., Cybis Pereira, F., "
@@ -54,7 +42,7 @@ _VALID_RECONSTRUCTIONS = frozenset({"raw", "resampled", "both"})
 
 
 def _bucket(parts: tuple[str, ...]) -> str:
-    """Classify an archive member into a top-level dataset bucket.
+    """Classify a release file into a top-level dataset bucket.
 
     Parameters
     ----------
@@ -172,14 +160,14 @@ def _matches_reconstruction(parts: tuple[str, ...], reconstruction: str) -> bool
 
 
 def _filter_members(
-    index: dict[str, ZipMemberInfo],
+    index: dict[str, S3FileInfo],
     datasets: list[str] | None,
     subjects: list[str] | None,
     sessions: list[str] | None,
     runs: list[str] | None,
     reconstruction: str,
     sourcedata: bool,
-) -> dict[str, ZipMemberInfo]:
+) -> dict[str, S3FileInfo]:
     """Filter the member index to the requested datasets and entities.
 
     Top-level metadata files (`dataset_description.json`, `participants.*`,
@@ -191,9 +179,8 @@ def _filter_members(
 
     Parameters
     ----------
-    index : dict[str, ZipMemberInfo]
-        Full member index as returned by
-        [`get_zip_index`][confusius.datasets._dataverse.get_zip_index].
+    index : dict[str, S3FileInfo]
+        Full release inventory as returned by `get_index`.
     datasets : list[str] or None
         Dataset buckets to include (`"rawdata"`, `"glm"`, `"bootstrapping"`).
         If `None`, all non-sourcedata buckets are included.
@@ -214,10 +201,10 @@ def _filter_members(
 
     Returns
     -------
-    dict[str, ZipMemberInfo]
+    dict[str, S3FileInfo]
         Subset of the index matching the filters.
     """
-    filtered: dict[str, ZipMemberInfo] = {}
+    filtered: dict[str, S3FileInfo] = {}
 
     for rel, info in index.items():
         parts = Path(rel).parts
@@ -288,12 +275,10 @@ def fetch_khallaf_2026(
 
     Downloads functional ultrasound imaging data from naked mole-rats exposed to
     olfactory stimulation, organised following BIDS and the proposed fUSI extension
-    BEP-040. The data is hosted on Edmond (the Max Planck Society's Dataverse
-    repository) as a single ~19.5 GB zip archive; requested members are streamed
-    out of it individually by HTTP range request rather than downloading the
-    whole archive.
+    BEP-040. The collection is hosted on S3 through AWS Open Data sponsorship;
+    selected files are downloaded individually and verified against SHA-256 hashes.
 
-    Files are extracted on first call and cached locally. Subsequent calls with
+    Files are downloaded on first call and cached locally. Subsequent calls with
     the same `data_dir` return immediately for already-cached files.
 
     Parameters
@@ -331,12 +316,8 @@ def fetch_khallaf_2026(
         `sourcedata/`. When `True`, the entire `sourcedata/` directory
         (~7.8 GB) is downloaded with no subject/session filtering applied.
     refresh : bool, default: False
-        Whether to re-read the archive index from Edmond and reconcile local
-        files against it: missing files are downloaded, and cached files whose
-        CRC-32 changed upstream (comparing the cached index against the
-        re-read one) are re-downloaded. If `False` and all requested files are
-        already cached, the function returns immediately without any network
-        access.
+        Whether to resolve the latest published S3 release. Otherwise the cached
+        release is reused offline. Releases are cached in separate version directories.
     print_citation : bool, default: True
         Whether to print the citation for the dataset.
 
@@ -370,8 +351,8 @@ def fetch_khallaf_2026(
         Dataset license (CC0 1.0):
         [https://creativecommons.org/publicdomain/zero/1.0/](https://creativecommons.org/publicdomain/zero/1.0/)
     """
-    bids_dir = get_datasets_dir(data_dir) / _BIDS_ROOT
-    bids_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = get_datasets_dir(data_dir) / _BIDS_ROOT
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     # Normalize each filter to a list of strings. Coercion matters because the
     # subject and run IDs are numeric strings ("5622", "1"): without it a
@@ -396,30 +377,13 @@ def fetch_khallaf_2026(
             f"Valid options: {sorted(_VALID_RECONSTRUCTIONS)}"
         )
 
-    url = access_url(_DATAFILE_ID)
-    # Capture the crcs the cached members were downloaded with before the
-    # refresh re-reads the central directory, so changed members can be detected.
-    previous_index = read_cached_zip_index(bids_dir) if refresh else None
-    # One session pools keep-alive connections across the central-directory read
-    # and every per-member range request.
-    with requests.Session() as session:
-        index = get_zip_index(
-            bids_dir, url, _ZIP_ROOT, refresh=refresh, session=session
-        )
-        members = _filter_members(
-            index, datasets, subjects, sessions, runs, reconstruction, sourcedata
-        )
-        download_zip_members(
-            bids_dir,
-            url,
-            members,
-            _ZIP_ROOT,
-            previous_index,
-            refresh=refresh,
-            session=session,
-        )
-        if refresh:
-            update_cached_zip_index(bids_dir, index, previous_index or {}, members)
+    index = get_index(cache_dir, "datasets", _BIDS_ROOT, refresh=refresh)
+    bids_dir = get_release_dir(cache_dir, index)
+    files = _filter_members(
+        index, datasets, subjects, sessions, runs, reconstruction, sourcedata
+    )
+    download_s3_files(bids_dir, files)
+    update_cached_index(cache_dir, index)
 
     if print_citation:
         print_citation_message(_CITATION, "dataset")

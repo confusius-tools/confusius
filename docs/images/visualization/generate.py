@@ -1,7 +1,8 @@
 """Generate documentation images for the Visualization user guide.
 
 Data is fetched automatically from the Nunez-Elizalde et al. (2022) fUSI-BIDS
-dataset on OSF (https://osf.io/43skw/) via `confusius.datasets`. The first run
+dataset from the AWS Open Data–sponsored S3 collection via `confusius.datasets`.
+The first run
 downloads ~30 MB; subsequent runs use the local cache.
 
 Atlas overlays (`napari-labels.png`) are generated from the Allen CCF labels in the
@@ -299,7 +300,7 @@ _FUSI_PATH = (
 )
 _ANGIO_PATH = (
     bids_root
-    / f"sub-{_SUBJECT}/ses-{_SESSION}/angio"
+    / f"sub-{_SUBJECT}/ses-{_SESSION}/susi"
     / f"sub-{_SUBJECT}_ses-{_SESSION}_pwd.nii.gz"
 )
 
@@ -645,7 +646,7 @@ _section("Composite plot")
 console.print(f"Loading angiography from session {_SESSION_2}")
 _ANGIO_PATH_2 = (
     bids_root
-    / f"sub-{_SUBJECT}/ses-{_SESSION_2}/angio"
+    / f"sub-{_SUBJECT}/ses-{_SESSION_2}/susi"
     / f"sub-{_SUBJECT}_ses-{_SESSION_2}_pwd.nii.gz"
 )
 vol_3d_2 = cf.load(_ANGIO_PATH_2).compute()

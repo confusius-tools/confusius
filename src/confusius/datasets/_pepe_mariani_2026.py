@@ -4,19 +4,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pooch
-import requests
 import xarray as xr
 
+from confusius.datasets._s3 import (
+    download_s3_files,
+    get_index,
+    get_release_dir,
+    update_cached_index,
+)
+from confusius.datasets._utils import (
+    get_datasets_dir,
+    plain_citation,
+    print_citation_message,
+)
 from confusius.io.loadsave import load
 
-from ._pooch import quiet_pooch_logger, retrieve_with_retries
-from ._utils import get_datasets_dir, plain_citation, print_citation_message
-
-_OSF_PROJECT_ID = "43tu9"
 _TEMPLATE_ROOT = "pepe-mariani-2026-template"
 _FILENAME = "pepe-mariani-2026-fusi-template.nii.gz"
-_TOTAL_SIZE_BYTES = 5_507_550
+_TOTAL_SIZE_BYTES = 5_507_569
 _CITATION = (
     "Pepe, C., Mariani, J.-C., Urosevic, M., Gini, S., Stuefer, A., Ricci, F., "
     "Galbusera, A., Iurilli, G., & Gozzi, A. (2026). "
@@ -27,36 +32,6 @@ _CITATION = (
 )
 
 
-def resolve_template_url(project_id: str = _OSF_PROJECT_ID) -> str:
-    """Return the direct OSF download URL for the exported template.
-
-    Parameters
-    ----------
-    project_id : str, default: "43tu9"
-        OSF project identifier.
-
-    Returns
-    -------
-    str
-        Direct download URL for `pepe-mariani-2026-fusi-template.nii.gz`.
-
-    Raises
-    ------
-    RuntimeError
-        If the template file is not present in the OSF project storage root.
-    """
-    response = requests.get(
-        f"https://api.osf.io/v2/nodes/{project_id}/files/osfstorage/"
-    )
-    response.raise_for_status()
-
-    for item in response.json()["data"]:
-        if item["attributes"]["name"] == _FILENAME:
-            return item["links"]["download"]
-
-    raise RuntimeError(f"Could not find {_FILENAME!r} in OSF project {project_id}.")
-
-
 def fetch_template_pepe_mariani_2026(
     data_dir: str | Path | None = None,
     refresh: bool = False,
@@ -64,7 +39,8 @@ def fetch_template_pepe_mariani_2026(
 ) -> xr.DataArray:
     """Fetch the Pepe, Mariani et al. (2026) mouse fUSI template.
 
-    Downloads the template from OSF on first call, caches it locally, and returns the
+    Downloads the template from the AWS Open Data–sponsored S3 collection, caches
+    it locally, and returns the
     loaded NIfTI as a VoxelData array.
 
     Parameters
@@ -75,15 +51,16 @@ def fetch_template_pepe_mariani_2026(
         macOS, `%LOCALAPPDATA%\\confusius\\Cache` on Windows), overridable via the
         `CONFUSIUS_DATA` environment variable.
     refresh : bool, default: False
-        Whether to redownload the template even if it is already cached.
+        Whether to resolve the latest published release. Otherwise the cached release
+        is reused offline. Releases are cached in separate version directories.
     print_citation : bool, default: True
         Whether to print the citation for the template.
 
     Returns
     -------
     xarray.DataArray
-        Template with `world_to_sform` affine transform required for resampling to
-        the Allen Mouse Brain atlas space.
+        Native-resolution template whose voxel-to-world transform places it directly
+        in Allen Mouse Brain atlas space, including the registration's shear.
 
     References
     ----------
@@ -93,29 +70,22 @@ def fetch_template_pepe_mariani_2026(
         [https://doi.org/10.64898/2026.02.05.704055](https://doi.org/10.64898/2026.02.05.704055)
 
     [^2]:
-        Template hosted on OSF: [https://osf.io/43tu9/](https://osf.io/43tu9/)
+        Template collection: [confusius-datasets](https://github.com/confusius-tools/confusius-datasets).
 
     [^3]:
         Template license (CC BY 4.0):
         [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/)
     """
-    dataset_dir = get_datasets_dir(data_dir) / _TEMPLATE_ROOT
-    dataset_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = get_datasets_dir(data_dir) / _TEMPLATE_ROOT
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    index = get_index(cache_dir, "templates", _TEMPLATE_ROOT, refresh=refresh)
+    dataset_dir = get_release_dir(cache_dir, index)
+    download_s3_files(dataset_dir, index)
+    update_cached_index(cache_dir, index)
     dest = dataset_dir / _FILENAME
 
-    if refresh and dest.exists():
-        dest.unlink()
-
-    if not dest.exists():
-        url = resolve_template_url()
-        with quiet_pooch_logger():
-            retrieve_with_retries(url, dest, logger=pooch.get_logger())
-
-    # `qform` gives scanner-space coordinates (corresponding to a head-fixed setup),
-    # which simplifies manual registration initialization. The Allen CCF transform is
-    # then available separately via `attrs["affines"]["world_to_sform"]` for
-    # resampling.
-    da = load(dest, coordinate_affine="qform")
+    # The published registration includes shear, so it is encoded only in sform.
+    da = load(dest, coordinate_affine="sform")
     da.attrs["citation"] = plain_citation(_CITATION)
 
     if print_citation:
