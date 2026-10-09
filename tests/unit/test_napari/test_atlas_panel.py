@@ -390,6 +390,8 @@ class TestPanelWidth:
     SIDEBAR_MIN_WIDTH = 430
 
     def test_long_atlas_names_do_not_widen_panel(self, panel) -> None:
+        # Showing the panel otherwise starts the BrainGlobe listing worker.
+        panel._atlases_listed = True
         panel.show()
         QApplication.processEvents()
         initial = panel.minimumSizeHint().width()
@@ -400,6 +402,8 @@ class TestPanelWidth:
         assert initial <= self.SIDEBAR_MIN_WIDTH
 
     def test_loaded_row_and_masks_group_fit_sidebar(self, panel, atlas_ds) -> None:
+        # Showing the panel otherwise starts the BrainGlobe listing worker.
+        panel._atlases_listed = True
         panel.show()
         panel._atlas_name = "allen_mouse_bluebrain_barrels_10um"
         panel._on_atlas_returned(atlas_ds)
