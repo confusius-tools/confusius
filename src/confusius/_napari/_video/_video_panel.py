@@ -288,6 +288,7 @@ class VideoPanel(QWidget):
         # Keep the reference layer combo in sync with the layer list.
         self._viewer.layers.events.inserted.connect(self._refresh_layer_combo)
         self._viewer.layers.events.removed.connect(self._on_layer_removed)
+        self._viewer.layers.events.renamed.connect(self._refresh_layer_combo)
 
     # ------------------------------------------------------------------
     # UI
@@ -424,16 +425,18 @@ class VideoPanel(QWidget):
 
     def _refresh_layer_combo(self, event=None) -> None:
         """Repopulate the reference layer combo from current viewer layers."""
-        current = self._ref_combo.currentText()
+        current = self._ref_combo.currentData()
+        self._ref_combo.blockSignals(True)
         self._ref_combo.clear()
         video_layers = {e.layer for e in self._videos if e.layer is not None}
         for layer in self._viewer.layers:
             if layer in video_layers:
                 continue
-            self._ref_combo.addItem(layer.name)
-        idx = self._ref_combo.findText(current)
+            self._ref_combo.addItem(layer.name, layer)
+        idx = self._ref_combo.findData(current)
         if idx >= 0:
             self._ref_combo.setCurrentIndex(idx)
+        self._ref_combo.blockSignals(False)
         self._on_ref_changed()
 
     def _on_ref_changed(self) -> None:
@@ -461,7 +464,7 @@ class VideoPanel(QWidget):
                 "Selected layer has no coordinate metadata. Keeping previous reference."
             )
             if self._ref_layer is not None:
-                idx = self._ref_combo.findText(self._ref_layer.name)
+                idx = self._ref_combo.findData(self._ref_layer)
                 if idx >= 0:
                     self._ref_combo.blockSignals(True)
                     try:
@@ -498,13 +501,7 @@ class VideoPanel(QWidget):
 
     def _get_ref_layer(self):
         """Return the layer currently selected in the combo, or None."""
-        name = self._ref_combo.currentText()
-        if not name:
-            return None
-        try:
-            return self._viewer.layers[name]
-        except KeyError:
-            return None
+        return self._ref_combo.currentData()
 
     # ------------------------------------------------------------------
     # Browse / Load
