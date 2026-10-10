@@ -27,7 +27,7 @@
 #     Running this notebook fetches the five recordings for subject `5622`, session
 #     `IPM` (about 200 MB each, ~1 GB in total) into the ConfUSIus dataset cache.
 #
-# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
 #     for available studies, formats, licenses, and reproducible subset downloads.
 #
 #
