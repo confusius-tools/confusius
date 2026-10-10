@@ -145,6 +145,15 @@ def _install_immediate_thread_worker(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestRefreshLayers:
+    def test_initialization_defaults_to_center_geometry(self, registration_panel):
+        """A fresh panel uses the registration API's default initialization."""
+        assert (
+            registration_panel._initialization_combo.currentText() == "center_geometry"
+        )
+        assert (
+            registration_panel._initialization_combo.currentData() == "center_geometry"
+        )
+
     def test_combo_populated_on_layer_add(self, viewer, registration_panel):
         assert registration_panel._moving_combo.count() == 0
         viewer.add_image(np.zeros((4, 6, 8)), name="vol")

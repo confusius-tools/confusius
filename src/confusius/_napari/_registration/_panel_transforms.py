@@ -315,6 +315,7 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
     """
     source_data = panel._transform_source_combo.currentData()
     initialization_data = panel._initialization_combo.currentData()
+    has_initialization_selection = panel._initialization_combo.currentIndex() >= 0
     target_layer = panel._transform_target_combo.currentData()
 
     transform_options: list[tuple[str, TransformSourceData]] = []
@@ -401,10 +402,12 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
                 panel._transform_source_combo.setCurrentIndex(i)
                 break
 
-    for i in range(panel._initialization_combo.count()):
-        if panel._initialization_combo.itemData(i) == initialization_data:
-            panel._initialization_combo.setCurrentIndex(i)
-            break
+    # An empty combo and an explicit "none" selection both have None as data.
+    if has_initialization_selection:
+        for i in range(panel._initialization_combo.count()):
+            if panel._initialization_combo.itemData(i) == initialization_data:
+                panel._initialization_combo.setCurrentIndex(i)
+                break
 
     target_index = panel._transform_target_combo.findData(target_layer)
     if target_index >= 0:
@@ -438,7 +441,7 @@ def get_selected_transform_payload(
     source_kind, layer = source_data
     if source_kind == "loaded":
         return panel._loaded_transform_payload
-    if layer is None or layer not in panel.viewer.layers:
+    if layer not in panel.viewer.layers:
         return None
     if source_kind == "layer":
         return get_transform_payload_from_metadata(
@@ -499,7 +502,7 @@ def get_selected_initial_transform_payload(
         ):
             return panel._loaded_transform_payload
         return None
-    if source_kind != "layer" or layer is None or layer not in panel.viewer.layers:
+    if source_kind != "layer" or layer not in panel.viewer.layers:
         return None
     return _get_affine_payload_from_layer(layer)
 
@@ -525,7 +528,7 @@ def get_selected_manual_initialization_layer(
         return None
 
     source_kind, layer = source_data
-    if source_kind != "manual" or layer is None or layer not in panel.viewer.layers:
+    if source_kind != "manual" or layer not in panel.viewer.layers:
         return None
     return layer
 
