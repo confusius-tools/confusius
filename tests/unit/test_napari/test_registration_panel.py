@@ -679,7 +679,7 @@ class TestRunRegistration:
         for i in range(registration_panel._initialization_combo.count()):
             if registration_panel._initialization_combo.itemData(i) == (
                 "layer",
-                "Previous registered",
+                viewer.layers["Previous registered"],
             ):
                 registration_panel._initialization_combo.setCurrentIndex(i)
                 break
@@ -768,7 +768,7 @@ class TestRunRegistration:
         for i in range(registration_panel._initialization_combo.count()):
             if registration_panel._initialization_combo.itemData(i) == (
                 "manual",
-                "moving",
+                moving_layer,
             ):
                 registration_panel._initialization_combo.setCurrentIndex(i)
                 break
