@@ -141,14 +141,15 @@ def _matches_entities(
         return False
 
     if datatype == "fusi" and parts:
+        # Session-level derivatives need not declare a task or acquisition.
         if tasks is not None:
             match = re.search(r"task-([^_]+)", parts[-1])
-            if match is None or match.group(1) not in tasks:
+            if match is not None and match.group(1) not in tasks:
                 return False
 
         if acqs is not None:
             match = re.search(r"acq-([^_]+)", parts[-1])
-            if match is None or match.group(1) not in acqs:
+            if match is not None and match.group(1) not in acqs:
                 return False
 
     return True

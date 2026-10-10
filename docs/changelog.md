@@ -89,6 +89,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Nunez-Elizalde dataset task and acquisition filters now retain session-level
+  derivatives without those entities, including registered atlas labels needed
+  by the GUI documentation images
+  ([#490](https://github.com/confusius-tools/confusius/pull/490)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`register_volume`][confusius.registration.register_volume] now raise a `ValueError`
   when `fill_value` cannot be represented as an integer, but `moving` is an

@@ -283,6 +283,51 @@ def test_fetch_filters_derivatives_by_subject_and_session(
     )
 
 
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"tasks": "spontaneous"},
+        {"acqs": "slice03"},
+        {"tasks": "spontaneous", "acqs": "slice03"},
+    ],
+)
+def test_fetch_entity_filters_keep_unlabelled_derivatives(
+    tmp_path, mock_get_index, mock_retrieve, filters
+):
+    fetch_nunez_elizalde_2022(
+        data_dir=tmp_path,
+        subjects="CR020",
+        sessions="20191122",
+        **filters,
+    )
+    downloaded = _downloaded_paths(mock_retrieve, tmp_path / _BIDS_ROOT / "1.0.0")
+    assert (
+        "derivatives/allenccf_align/sub-CR020/ses-20191122/fusi/"
+        "sub-CR020_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz"
+        in downloaded
+    )
+    assert (
+        "derivatives/allenccf_align/sub-CR020/ses-20191121/fusi/"
+        "sub-CR020_ses-20191121_space-fusi_desc-allenccf_dseg.nii.gz"
+        not in downloaded
+    )
+    assert (
+        "derivatives/allenccf_align/sub-OTHER/ses-20191122/fusi/"
+        "sub-OTHER_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz"
+        not in downloaded
+    )
+    assert (
+        "sub-CR020/ses-20191122/fusi/"
+        "sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz"
+        in downloaded
+    )
+    assert (
+        "sub-CR020/ses-20191122/fusi/"
+        "sub-CR020_ses-20191122_task-kalatsky_acq-slice01_pwd.nii.gz"
+        not in downloaded
+    )
+
+
 def test_fetch_acq_filter_excludes_non_matching_fusi_includes_susi(
     tmp_path, mock_get_index, mock_retrieve
 ):

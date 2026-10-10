@@ -298,7 +298,8 @@ if not atlas_path.exists():
     raise RuntimeError(
         "Missing required derivative atlas file: "
         f"{_DERIVATIVE_ATLAS_REL_PATH}. "
-        "Recreate and publish dataset_index.json with this file included."
+        "Check that the published release manifest includes this file and that "
+        "the fetcher downloads it."
     )
 
 structure_tree_csv = bids_root / _DERIVATIVE_STRUCTURE_TREE_REL_PATH
@@ -306,7 +307,8 @@ if not structure_tree_csv.exists():
     raise RuntimeError(
         "Missing required derivative structure tree CSV: "
         f"{_DERIVATIVE_STRUCTURE_TREE_REL_PATH}. "
-        "Recreate and publish dataset_index.json with this file included."
+        "Check that the published release manifest includes this file and that "
+        "the fetcher downloads it."
     )
 
 atlas_mask = cf.load(atlas_path).compute().round().astype(np.int32)
