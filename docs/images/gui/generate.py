@@ -267,6 +267,7 @@ bids_root = fetch_nunez_elizalde_2022(
     sessions=[_SESSION, _REGISTRATION_FIXED_SESSION, _REGISTRATION_MOVING_SESSION],
     tasks=[_TASK],
     acqs=[_ACQ_SLICE],
+    print_citation=False,
 )
 
 _FUSI_PATH = (
@@ -361,6 +362,7 @@ video_bids_root = fetch_cybis_pereira_2026(
     subjects=[_VIDEO_SUBJECT, _VOLUMEWISE_SUBJECT],
     sessions=[_VIDEO_SESSION, _VOLUMEWISE_SESSION],
     acqs=[_VIDEO_ACQ_SLICE, _VOLUMEWISE_ACQ_SLICE],
+    print_citation=False,
 )
 
 _VIDEO_FUSI_PATH = (

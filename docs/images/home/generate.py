@@ -29,7 +29,11 @@ _DB_LIMITS = (-20.0, 0.0)
 
 print("Fetching dataset …")
 bids_root = fetch_nunez_elizalde_2022(
-    subjects=_SUBJECT, sessions=_SESSION, tasks=_TASK, acqs=_ACQ
+    subjects=_SUBJECT,
+    sessions=_SESSION,
+    tasks=_TASK,
+    acqs=_ACQ,
+    print_citation=False,
 )
 
 print("Loading power Doppler …")
