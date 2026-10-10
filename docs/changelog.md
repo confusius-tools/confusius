@@ -161,6 +161,8 @@ Released 2026-09-16.
 
 ### :books: Documentation
 
+- Fixed Rich table alignment in gallery examples while preserving wrapped citations
+  ([#490](https://github.com/confusius-tools/confusius/pull/490)).
 - Added a Dataset Collection tour covering public S3 releases, fUSI-BIDS metadata,
   verified subset downloads, a structural image preview, and links to worked
   analyses, with footnote links from the other examples
