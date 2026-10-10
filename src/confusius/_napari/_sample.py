@@ -40,6 +40,9 @@ _AWAKE_MOUSE_ACQ = "slice04"
 _RAT_REGISTRATION_SUBJECT = "rat75"
 """Subject id for the rat registration sample pair."""
 
+_RAT_REGISTRATION_DATATYPE = "susi"
+"""Datatype for the rat registration sample pair."""
+
 _RAT_REGISTRATION_SESSIONS = ("20220523", "20220524")
 """Session ids for the rat registration sample pair."""
 
@@ -157,7 +160,7 @@ def _resolve_rat_registration_pair(
         datasets="rawdata",
         subjects=_RAT_REGISTRATION_SUBJECT,
         sessions=list(_RAT_REGISTRATION_SESSIONS),
-        datatypes="angio",
+        datatypes=_RAT_REGISTRATION_DATATYPE,
         acqs=_RAT_REGISTRATION_ACQ,
     )
     specs: list[SampleFileSpec] = []
@@ -166,7 +169,7 @@ def _resolve_rat_registration_pair(
             bids_root
             / f"sub-{_RAT_REGISTRATION_SUBJECT}"
             / f"ses-{session}"
-            / "angio"
+            / _RAT_REGISTRATION_DATATYPE
             / (
                 f"sub-{_RAT_REGISTRATION_SUBJECT}_ses-{session}"
                 f"_acq-{_RAT_REGISTRATION_ACQ}_rec-minframe2d_pwd.nii.gz"

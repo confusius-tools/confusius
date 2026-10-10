@@ -298,7 +298,7 @@ def test_resolve_awake_mouse_recording(monkeypatch, tmp_path):
 
 
 def test_resolve_rat_registration_pair(monkeypatch, tmp_path):
-    """The rat registration sample fetches the expected angiography subset."""
+    """The rat registration sample fetches the expected SUSI subset."""
     captured: dict[str, object] = {}
 
     def fake_fetch_cybis_pereira_2026(**kwargs):
@@ -317,7 +317,7 @@ def test_resolve_rat_registration_pair(monkeypatch, tmp_path):
             tmp_path
             / f"sub-{_RAT_REGISTRATION_SUBJECT}"
             / f"ses-{session}"
-            / "angio"
+            / "susi"
             / (
                 f"sub-{_RAT_REGISTRATION_SUBJECT}_ses-{session}"
                 f"_acq-{_RAT_REGISTRATION_ACQ}_rec-minframe2d_pwd.nii.gz"
@@ -329,6 +329,6 @@ def test_resolve_rat_registration_pair(monkeypatch, tmp_path):
         "datasets": "rawdata",
         "subjects": _RAT_REGISTRATION_SUBJECT,
         "sessions": list(_RAT_REGISTRATION_SESSIONS),
-        "datatypes": "angio",
+        "datatypes": "susi",
         "acqs": _RAT_REGISTRATION_ACQ,
     }
