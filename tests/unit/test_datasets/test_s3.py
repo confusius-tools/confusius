@@ -170,6 +170,38 @@ def test_unsafe_cached_inventory_rejected(tmp_path, publish_release):
     assert (root / "README.md").read_bytes() == b"safe"
 
 
+@pytest.mark.parametrize(
+    "url,error",
+    [
+        (None, "Cached inventory must define a URL"),
+        ("https://example.com/README.md", "invalid release URL"),
+        ("{base}/2.0.0/README.md", "mixes release versions"),
+    ],
+)
+def test_invalid_cached_release_urls_rejected(
+    tmp_path, release_server, publish_release, url, error
+):
+    cache = tmp_path / "cache"
+    publish_release(
+        "datasets",
+        _NAME,
+        "1.0.0",
+        {"README.md": b"safe", "dataset_description.json": b"{}"},
+    )
+    datasets.fetch_pereira_2025(data_dir=cache, print_citation=False)
+    index_path = cache / _NAME / "s3_index.json"
+    index = json.loads(index_path.read_text())
+    base = index["README.md"]["url"].rsplit("/", 2)[0]
+    index["README.md"]["url"] = url.format(base=base) if url is not None else None
+    index_path.write_text(json.dumps(index))
+    _, calls = release_server
+    calls.clear()
+    with pytest.raises(ValueError, match=error):
+        datasets.fetch_pereira_2025(data_dir=cache, print_citation=False)
+    assert calls == []
+    assert json.loads(index_path.read_text()) == index
+
+
 def test_missing_manifest_is_not_an_empty_release(tmp_path, publish_release):
     remote = publish_release("datasets", _NAME, "1.0.0", {"README.md": b"safe"})
     (remote / "manifest.json").unlink()
