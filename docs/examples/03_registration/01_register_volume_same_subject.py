@@ -8,10 +8,13 @@
 # differs slightly between the two recordings.
 #
 # We pick two `susi` acquisitions from the [Cybis Pereira 2026
-# dataset](https://doi.org/10.1016/j.celrep.2025.116791) using
+# dataset](https://doi.org/10.1016/j.celrep.2025.116791)[^collection] using
 # [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026]: subject
 # `rat75`, slice `slice32`, recorded on consecutive days (sessions `20220523` and
 # `20220524`).
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Fetch and load both recordings

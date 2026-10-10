@@ -130,8 +130,7 @@ def fetch_pereira_2025(
         functional neuroimaging. *eBioMedicine*, 116, 105777.
         [https://doi.org/10.1016/j.ebiom.2025.105777](https://doi.org/10.1016/j.ebiom.2025.105777)
     [^2]:
-        Collection hosted on S3 through AWS Open Data sponsorship:
-        [confusius-datasets](https://github.com/confusius-tools/confusius-datasets).
+        [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).
     [^3]:
         Dataset license (CC BY 4.0):
         [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/)

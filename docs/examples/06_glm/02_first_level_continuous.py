@@ -2,7 +2,7 @@
 # # Lagged first-level GLM analysis of fUSI data with a continuous regressor
 #
 # This example reproduces the lagged-GLM analysis reported by [Cybis Pereira *et al.*
-# 2026](https://doi.org/10.1016/j.celrep.2025.116791), which uses functional ultrasound
+# 2026](https://doi.org/10.1016/j.celrep.2025.116791)[^collection], which uses functional ultrasound
 # imaging of a freely moving rat exploring an open field with its body position tracked
 # from video.
 # Unlike the block-design task in the [First-level GLM analysis of fUSI
@@ -22,6 +22,9 @@
 # 4. **Fit** a [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel] at a range of
 #    temporal lags between speed and signal.
 # 5. **Threshold** the resulting maps and visualize the response at each lag.
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 #
 # ## Fetch the recording
 #

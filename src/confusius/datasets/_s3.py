@@ -1,4 +1,4 @@
-"""Anonymous downloads from the AWS Open Data–sponsored dataset collection."""
+"""Anonymous downloads from the ConfUSIus dataset collection."""
 
 from __future__ import annotations
 

@@ -3,8 +3,11 @@
 #
 # This example demonstrates how to use ConfUSIus to load and handle fUSI data as
 # [DataArray][xarray.DataArray] instances. We will use a small subset of the
-# Nunez-Elizalde 2022 dataset and use a few basic Xarray operations to inspect, subset,
-# and summarize the data.
+# Nunez-Elizalde 2022 dataset[^collection] and use a few basic Xarray operations to
+# inspect, subset, and summarize the data.
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Fetch one recording from the Nunez-Elizalde 2022 dataset

@@ -2,7 +2,7 @@
 # # Create a VoxelData array from a MAT file
 #
 # This example downloads a power Doppler MAT file from the public dataset accompanying
-# [Rabut *et al.* (2024)](https://doi.org/10.1126/scitranslmed.adj3143)[^1] and wraps it
+# [Rabut *et al.* (2024)](https://doi.org/10.1126/scitranslmed.adj3143)[^1][^collection] and wraps it
 # in a VoxelData array with
 # [`create_voxeldata`][confusius.xarray.create_voxeldata].
 #
@@ -10,6 +10,10 @@
 # point of this example is to show the shortest path from a lab-specific MAT file array
 # plus metadata to a VoxelData array. This example then
 # reproduces figure 4D from Rabut *et al.* (2024) using a simple general linear model.
+#
+# [^collection]: This example downloads an external archive, not a collection release.
+#     See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md) for
+#     the fUSI-BIDS studies and templates hosted by ConfUSIus.
 
 # %%
 from functools import partial

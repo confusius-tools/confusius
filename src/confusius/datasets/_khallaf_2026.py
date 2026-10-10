@@ -275,7 +275,7 @@ def fetch_khallaf_2026(
 
     Downloads functional ultrasound imaging data from naked mole-rats exposed to
     olfactory stimulation, organised following BIDS and the proposed fUSI extension
-    BEP-040. The collection is hosted on S3 through AWS Open Data sponsorship;
+    BEP-040. Data is distributed through the ConfUSIus dataset collection;
     selected files are downloaded individually and verified against SHA-256 hashes.
 
     Files are downloaded on first call and cached locally. Subsequent calls with

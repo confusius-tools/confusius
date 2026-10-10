@@ -226,8 +226,7 @@ def fetch_pepe_mariani_2026(
         connectome revealed by functional ultrasound imaging (Fusi).
         [https://doi.org/10.64898/2026.02.05.704055](https://doi.org/10.64898/2026.02.05.704055)
     [^2]:
-        Collection hosted on S3 through AWS Open Data sponsorship:
-        [confusius-datasets](https://github.com/confusius-tools/confusius-datasets).
+        [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).
     [^3]:
         Dataset license (CC BY 4.0):
         [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/)

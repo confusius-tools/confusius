@@ -1,7 +1,7 @@
 """Generate Quick Start images for the ConfUSIus home page.
 
 Data is fetched automatically from the Nunez-Elizalde et al. (2022) dataset
-from the AWS Open Data–sponsored S3 collection. The first run downloads ~30 MB;
+from the ConfUSIus dataset collection. The first run downloads ~30 MB;
 subsequent runs use the local cache.
 
 Usage

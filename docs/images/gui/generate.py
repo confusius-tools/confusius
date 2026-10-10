@@ -2,8 +2,8 @@
 
 Two datasets are fetched automatically via `confusius.datasets`:
 
-- **Nunez-Elizalde et al. (2022)** fUSI-BIDS dataset from the AWS Open Data–sponsored
-  S3 collection — used for the Data I/O, Signals, and QC screenshots. First run
+- **Nunez-Elizalde et al. (2022)** fUSI-BIDS dataset from the ConfUSIus dataset
+  collection — used for the Data I/O, Signals, and QC screenshots. First run
   downloads ~30 MB.
 - **Cybis Pereira et al. (2026)** fUSI-BIDS dataset from the same collection — used
   for the Video panel GIF. First run downloads ~200 MB (raw fUSI + DLC video).

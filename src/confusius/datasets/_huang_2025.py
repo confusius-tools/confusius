@@ -39,9 +39,8 @@ def fetch_template_huang_2025(
 ) -> xr.DataArray:
     """Fetch the Huang et al. (2025) mouse vascular fUSI template.
 
-    Downloads the template from the AWS Open Data–sponsored S3 collection, caches
-    it locally, and returns the
-    loaded NIfTI as a VoxelData array.
+    Downloads the template from the ConfUSIus dataset collection, caches it locally,
+    and returns the loaded NIfTI as a VoxelData array.
 
     Parameters
     ----------
@@ -70,7 +69,7 @@ def fetch_template_huang_2025(
         [https://doi.org/10.1101/2025.09.16.676515](https://doi.org/10.1101/2025.09.16.676515)
 
     [^2]:
-        Template collection: [confusius-datasets](https://github.com/confusius-tools/confusius-datasets).
+        [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).
 
     [^3]:
         Template license (CC BY-NC-SA 4.0):

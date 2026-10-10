@@ -752,4 +752,4 @@ and the [Xarray Integration API reference](../api/xarray.md).
     Nunez-Elizalde, A. O., et al. "A Neurophysiological fUSI-BIDS dataset from awake,
     behaving mice." figshare dataset, 2022. DOI.org (Datacite),
     <https://doi.org/10.6084/m9.figshare.19316228>; the fUSI-BIDS re-export is hosted
-    in the [AWS Open Data–sponsored S3 collection](https://github.com/confusius-tools/confusius-datasets).
+    in the [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).

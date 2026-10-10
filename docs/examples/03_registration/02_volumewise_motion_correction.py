@@ -5,13 +5,16 @@
 # with [`register_volumewise`][confusius.registration.register_volumewise]. For this
 # example, we use a short subset of an open-field 2D+t recording from the [Cybis Pereira
 # 2026
-# dataset](https://doi.org/10.1016/j.celrep.2025.116791). After volumewise registration,
+# dataset](https://doi.org/10.1016/j.celrep.2025.116791)[^collection]. After volumewise registration,
 # we inspect three things that are useful in practice:
 #
 # - the motion diagnostics returned by
 #   [`create_motion_dataframe`][confusius.registration.create_motion_dataframe];
 # - a representative voxel trace before and after registration;
 # - a compact raster view showing how volumewise registration stabilized the recording.
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Fetch and load a short motion-corrupted window

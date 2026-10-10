@@ -9,11 +9,14 @@
 # voxels rather than by any one alone.
 #
 # We follow the experimental setting and dataset of [Cybis Pereira et al.
-# 2026](https://doi.org/10.1016/j.celrep.2025.116791), decoding locomotion speed from a
+# 2026](https://doi.org/10.1016/j.celrep.2025.116791)[^collection], decoding locomotion speed from a
 # single sagittal plane, and compare the searchlight map against a GLM fit on the same
 # data. Both analyses receive the same preprocessing steps, so the only thing that
 # differs between them is univariate versus multivariate, which is the comparison we
 # actually want to make.
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Load the recording and the tracking data

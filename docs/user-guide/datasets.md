@@ -16,7 +16,7 @@ root directory, or a more specific object (e.g., a DataArray for templates or an
     you can download a small subset first and decide later whether you want the full
     dataset. Cached files with matching SHA-256 hashes are reused.
 
-The dataset and template collection is hosted on Amazon S3, with hosting sponsored
+The ConfUSIus dataset collection is hosted on Amazon S3, with hosting sponsored
 by **AWS Open Data**. Downloads are anonymous HTTPS requests: no AWS account,
 credentials, or CLI is required. The [collection repository](https://github.com/confusius-tools/confusius-datasets)
 documents provenance, conversion recipes, and per-dataset licenses. Hosting does not

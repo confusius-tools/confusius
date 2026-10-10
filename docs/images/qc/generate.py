@@ -1,7 +1,7 @@
 """Generate documentation images for the Quality Control user guide.
 
 Data is fetched automatically from the Nunez-Elizalde et al. (2022) fUSI-BIDS
-dataset from the AWS Open Data–sponsored S3 collection via `confusius.datasets`.
+dataset from the ConfUSIus dataset collection via `confusius.datasets`.
 The first run
 downloads ~30 MB; subsequent runs use the local cache.
 

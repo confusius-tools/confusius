@@ -268,8 +268,7 @@ def fetch_cybis_pereira_2026(
         [https://doi.org/10.1016/j.celrep.2025.116791](https://doi.org/10.1016/j.celrep.2025.116791)
 
     [^2]:
-        Collection hosted on S3 through AWS Open Data sponsorship:
-        [confusius-datasets](https://github.com/confusius-tools/confusius-datasets).
+        [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).
 
     [^3]:
         Dataset license (CC BY 4.0):

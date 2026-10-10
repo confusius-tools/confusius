@@ -8,12 +8,15 @@
 # [`plot_matrix`][confusius.plotting.plot_matrix].
 #
 # We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
-# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022],
+# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022][^collection],
 # and the [Pepe, Mariani 2026 fUSI template][confusius.datasets.fetch_template_pepe_mariani_2026],
 # which carries the affine transform required to bring it into Allen Common Coordinate
 # Framework (CCF) space. For the full registration workflow, including the diagnostic
 # plots and saving the resampled atlas for reuse, see [Register a recording to an Allen
 # fUSI template](../registration/register_to_allen_fusi_template.md).
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Fetch the recording and the template

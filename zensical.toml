@@ -95,6 +95,9 @@ nav = [
         { "Decoding" = [
             { "Searchlight decoding of a continuous variable" = "examples/_built/decoding/searchlight_speed.md" },
         ]},
+        { "Datasets" = [
+            { "The ConfUSIus Dataset Collection" = "examples/_built/datasets/dataset_collection.md" },
+        ]},
     ]},
     { "Changelog" = "changelog.md" },
     { "Community" = "contributing.md" },

@@ -161,6 +161,10 @@ Released 2026-09-16.
 
 ### :books: Documentation
 
+- Added a Dataset Collection tour covering public S3 releases, fUSI-BIDS metadata,
+  verified subset downloads, a structural image preview, and links to worked
+  analyses, with footnote links from the other examples
+  ([#490](https://github.com/confusius-tools/confusius/pull/490)).
 - Clarified when to use `.compute()` or `.persist()` before repeated partial reads from
   gzip-compressed NIfTI files
   ([#441](https://github.com/confusius-tools/confusius/pull/441)).

@@ -249,8 +249,7 @@ def fetch_nunez_elizalde_2022(
         [https://doi.org/10.1016/j.neuron.2022.02.012](https://doi.org/10.1016/j.neuron.2022.02.012)
 
     [^2]:
-        Collection hosted on S3 through AWS Open Data sponsorship:
-        [confusius-datasets](https://github.com/confusius-tools/confusius-datasets).
+        [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).
 
     [^3]:
         Dataset license (CC BY 4.0):

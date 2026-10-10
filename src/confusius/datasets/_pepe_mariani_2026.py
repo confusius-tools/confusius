@@ -39,9 +39,8 @@ def fetch_template_pepe_mariani_2026(
 ) -> xr.DataArray:
     """Fetch the Pepe, Mariani et al. (2026) mouse fUSI template.
 
-    Downloads the template from the AWS Open Data–sponsored S3 collection, caches
-    it locally, and returns the
-    loaded NIfTI as a VoxelData array.
+    Downloads the template from the ConfUSIus dataset collection, caches it locally,
+    and returns the loaded NIfTI as a VoxelData array.
 
     Parameters
     ----------
@@ -70,7 +69,7 @@ def fetch_template_pepe_mariani_2026(
         [https://doi.org/10.64898/2026.02.05.704055](https://doi.org/10.64898/2026.02.05.704055)
 
     [^2]:
-        Template collection: [confusius-datasets](https://github.com/confusius-tools/confusius-datasets).
+        [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).
 
     [^3]:
         Template license (CC BY 4.0):
