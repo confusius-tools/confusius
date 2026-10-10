@@ -115,6 +115,9 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- Renaming a layer now immediately updates selectors in Registration, Signals,
+  Quality Control, Video, and Data → Save without changing the selected layer
+  ([#493](https://github.com/confusius-tools/confusius/pull/493)).
 - The registration panel's within-scan mode can register every frame to a fixed
   layer, with its own intensity scaling, as an alternative to a reference time index
   ([#376](https://github.com/confusius-tools/confusius/issues/376)).
