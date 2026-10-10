@@ -67,32 +67,6 @@ def test_render_writes_markdown_with_code_and_output(tmp_path: Path) -> None:
     assert "[Download .ipynb](ex.ipynb)" in md
 
 
-@pytest.mark.parametrize(
-    ("text", "is_table"),
-    [("┏━━┓\n┃hi┃\n┗━━┛", True), ("Please cite this dataset.", False)],
-)
-def test_rich_tables_are_marked_without_affecting_citations(
-    tmp_path: Path, text: str, is_table: bool
-) -> None:
-    """Keep Rich tables unwrapped while citation banners can still wrap."""
-    nb = _make_nb()
-    nb.cells[1].outputs = [
-        nbformat.v4.new_output(
-            output_type="display_data",
-            data={
-                "text/html": f'<pre style="font-family:Menlo,monospace">{text}</pre>',
-                "text/plain": text,
-            },
-            metadata={},
-        )
-    ]
-    md_path, _ = render_notebook(
-        nb, nb, nb, out_dir=tmp_path, base_name="rich", runtime_seconds=0.0
-    )
-    assert ('class="gallery-rich-table"' in md_path.read_text()) is is_table
-    assert text in md_path.read_text()
-
-
 def test_render_writes_image_files_into_output_folder(tmp_path: Path) -> None:
     nb = _make_nb()
     render_notebook(

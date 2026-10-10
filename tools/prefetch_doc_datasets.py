@@ -141,7 +141,7 @@ def _prefetch_cybis_pereira() -> None:
     )
 
     # docs/examples/02_registration/01_register_volume_same_subject.py,
-    # docs/examples/01_io/04_dataset_collection.py.
+    # docs/examples/08_datasets/01_dataset_collection.py.
     fetch_cybis_pereira_2026(
         print_citation=False,
         datasets="rawdata",

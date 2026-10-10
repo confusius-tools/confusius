@@ -37,7 +37,7 @@
 # example](pca_single_recording.md). See the [Datasets](../../../user-guide/datasets.md)
 # user guide for more details on how to download this dataset using ConfUSIus.
 #
-# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
 #     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %%

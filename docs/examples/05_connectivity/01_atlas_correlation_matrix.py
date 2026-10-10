@@ -15,7 +15,7 @@
 # plots and saving the resampled atlas for reuse, see [Register a recording to an Allen
 # fUSI template](../registration/register_to_allen_fusi_template.md).
 #
-# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
 #     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]

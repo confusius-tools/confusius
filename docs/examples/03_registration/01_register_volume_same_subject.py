@@ -13,7 +13,7 @@
 # `rat75`, slice `slice32`, recorded on consecutive days (sessions `20220523` and
 # `20220524`).
 #
-# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
 #     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]

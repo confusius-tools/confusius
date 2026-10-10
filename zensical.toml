@@ -73,7 +73,6 @@ nav = [
             { "ConfUSIus and Xarray 101" = "examples/_built/io/confusius_xarray_101.md" },
             { "Create a VoxelData array from a MAT file" = "examples/_built/io/create_voxeldata_from_mat.md" },
             { "Load multi-pose recordings" = "examples/_built/io/load_multipose_recordings.md" },
-            { "The ConfUSIus Dataset Collection" = "examples/_built/io/dataset_collection.md" },
         ]},
         { "Registration" = [
             { "Registration of two sessions from the same subject" = "examples/_built/registration/register_volume_same_subject.md" },
@@ -95,6 +94,9 @@ nav = [
         ]},
         { "Decoding" = [
             { "Searchlight decoding of a continuous variable" = "examples/_built/decoding/searchlight_speed.md" },
+        ]},
+        { "Datasets" = [
+            { "The ConfUSIus Dataset Collection" = "examples/_built/datasets/dataset_collection.md" },
         ]},
     ]},
     { "Changelog" = "changelog.md" },
