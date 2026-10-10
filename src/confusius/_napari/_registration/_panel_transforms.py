@@ -441,7 +441,7 @@ def get_selected_transform_payload(
     source_kind, layer = source_data
     if source_kind == "loaded":
         return panel._loaded_transform_payload
-    if layer not in panel.viewer.layers:
+    if layer is None or layer not in panel.viewer.layers:
         return None
     if source_kind == "layer":
         return get_transform_payload_from_metadata(
@@ -502,7 +502,7 @@ def get_selected_initial_transform_payload(
         ):
             return panel._loaded_transform_payload
         return None
-    if source_kind != "layer" or layer not in panel.viewer.layers:
+    if source_kind != "layer" or layer is None or layer not in panel.viewer.layers:
         return None
     return _get_affine_payload_from_layer(layer)
 
