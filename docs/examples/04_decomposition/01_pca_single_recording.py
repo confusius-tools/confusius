@@ -26,9 +26,12 @@
 # ## Load a fUSI recording
 #
 # To demonstrate the use of PCA on fUSI data, we use a spontaneous activity recording
-# from the [Nunez-Elizalde 2022 dataset](https://doi.org/10.1016/j.neuron.2022.02.012).
+# from the [Nunez-Elizalde 2022 dataset](https://doi.org/10.1016/j.neuron.2022.02.012)[^collection].
 # See the [Datasets](../../../user-guide/datasets.md) user guide for more details on how
 # to download this dataset using ConfUSIus.
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %%
 from pathlib import Path

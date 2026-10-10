@@ -12,6 +12,16 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Dataset and template fetchers now download immutable, SHA-256-verified releases
+  from S3, with hosting sponsored by AWS Open Data, instead of OSF or the Edmond
+  archive. Releases are cached under `<recipe>/<version>/`; `refresh=True` selects
+  the latest published release without overwriting earlier versions. Delete old
+  OSF dataset/template cache directories and fetch again to reclaim space and use
+  the new layouts. Only remove downloaded collection caches under your `data_dir`,
+  `CONFUSIUS_DATA`, or platform cache directory—not personal recordings, analysis
+  outputs, or BrainGlobe caches. Angiography datatype directories and filters now
+  use `susi` instead of `angio`, and the Huang template filename uses `2025`
+  ([#490](https://github.com/confusius-tools/confusius/pull/490)).
 - fUSI-BIDS metadata now follows draft v0.0.14: renamed frequency/voltage fields,
   including internal attributes `probe_central_frequency` → `probe_center_frequency`
   and `probe_voltage` → `transmit_voltage`, updated probe/virtual-source validation,
@@ -34,8 +44,8 @@ Current development version for the next ConfUSIus release.
   allowed together with `fixed`; it defaults to `moving_intensity_scaling`). Both are
   now also exposed on `data.fusi.register.volumewise`
   ([#437](https://github.com/confusius-tools/confusius/pull/437)).
-- [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] /
-  [`get_atlas_mesh`][confusius.atlas.get_atlas_mesh] take `regions`/`sides` instead of
+- [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes] /
+  [`get_atlas_meshes`][confusius.atlas.get_atlas_meshes] take `regions`/`sides` instead of
   `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
   requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
   ([#448](https://github.com/confusius-tools/confusius/pull/448)).
@@ -79,6 +89,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Nunez-Elizalde dataset task and acquisition filters now retain session-level
+  derivatives without those entities, including registered atlas labels needed
+  by the GUI documentation images
+  ([#490](https://github.com/confusius-tools/confusius/pull/490)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`register_volume`][confusius.registration.register_volume] now raise a `ValueError`
   when `fill_value` cannot be represented as an integer, but `moving` is an
@@ -147,6 +161,12 @@ Released 2026-09-16.
 
 ### :books: Documentation
 
+- Fixed Rich table alignment in gallery examples while preserving wrapped citations
+  ([#490](https://github.com/confusius-tools/confusius/pull/490)).
+- Added a Dataset Collection tour covering public S3 releases, fUSI-BIDS metadata,
+  verified subset downloads, a structural image preview, and links to worked
+  analyses, with footnote links from the other examples
+  ([#490](https://github.com/confusius-tools/confusius/pull/490)).
 - Clarified when to use `.compute()` or `.persist()` before repeated partial reads from
   gzip-compressed NIfTI files
   ([#441](https://github.com/confusius-tools/confusius/pull/441)).
@@ -185,21 +205,19 @@ Released 2026-08-31.
   `(...extra, time, pose, k, j, i)`.** World coordinates `z`/`y`/`x` are no longer
   stored dimensions: they're derived lazily, per voxel, from a single
   voxel-to-world affine owned by a custom xarray index
-  ([`VoxelToWorldIndex`][confusius._utils.geometry.VoxelToWorldIndex]) attached
-  to native voxel dims `k`/`j`/`i`. This lets ConfUSIus represent oblique,
-  rotated, or sheared acquisitions and registration outputs exactly, without
-  resampling onto an axis-aligned grid. Every loader (`load_scan`, `load_nifti`, AUTC,
-  EchoFrame), registration function, plotting path, napari layer, and I/O round trip
-  (Zarr, NIfTI) was migrated to this model;
+  (`VoxelToWorldIndex`) attached to native voxel dims `k`/`j`/`i`. This lets ConfUSIus
+  represent oblique, rotated, or sheared acquisitions and registration outputs exactly,
+  without resampling onto an axis-aligned grid. Every loader (`load_scan`, `load_nifti`,
+  AUTC, EchoFrame), registration function, plotting path, napari layer, and I/O round
+  trip (Zarr, NIfTI) was migrated to this model;
   `confusius.validation.validate_voxeldata`/`ensure_voxeldata` enforce it
   unconditionally.
 - World-space `units` moved off the `z`/`y`/`x` coordinates' `.attrs` onto
-  [`VoxelToWorldIndex`][confusius._utils.geometry.VoxelToWorldIndex] as a single shared
-  property, exposed via
+  `VoxelToWorldIndex` as a single shared property, exposed via
   [`data.fusi.affine.units`][confusius.xarray.FUSIAffineAccessor.units] and set with
   [`data.fusi.affine.set_units`][confusius.xarray.FUSIAffineAccessor.set_units]. Setting
-  `data.coords["z"].attrs["units"]` directly no longer has any effect: world
-  coordinates are always regenerated fresh from the index.
+  `data.coords["z"].attrs["units"]` directly no longer has any effect: world coordinates
+  are always regenerated fresh from the index.
 - Multi-pose data now carries pose-dependent voxel-to-world geometry. Sequentially
   acquired multi-pose data correspondingly carries a pose-dependent, `(time,
   pose)`-shaped `time` coordinate holding each pose's own real acquisition timestamps

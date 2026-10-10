@@ -1,7 +1,8 @@
 """Generate Quick Start images for the ConfUSIus home page.
 
 Data is fetched automatically from the Nunez-Elizalde et al. (2022) dataset
-on OSF. The first run downloads ~30 MB; subsequent runs use the local cache.
+from the ConfUSIus dataset collection. The first run downloads ~30 MB;
+subsequent runs use the local cache.
 
 Usage
 -----
@@ -28,7 +29,11 @@ _DB_LIMITS = (-20.0, 0.0)
 
 print("Fetching dataset …")
 bids_root = fetch_nunez_elizalde_2022(
-    subjects=_SUBJECT, sessions=_SESSION, tasks=_TASK, acqs=_ACQ
+    subjects=_SUBJECT,
+    sessions=_SESSION,
+    tasks=_TASK,
+    acqs=_ACQ,
+    print_citation=False,
 )
 
 print("Loading power Doppler …")

@@ -13,7 +13,7 @@
   font-weight: 400;
   font-style: normal;
   font-display: swap;
-  unicode-range: U+2500-257F, U+2580-259F, U+25A0-25FF;
+  unicode-range: U+2500-257F, U+2580-259F, U+25A0-25FF, U+2713, U+2717;
 }
 @font-face {
   font-family: "JetBrains Mono";
@@ -21,7 +21,7 @@
   font-weight: 700;
   font-style: normal;
   font-display: swap;
-  unicode-range: U+2500-257F, U+2580-259F, U+25A0-25FF;
+  unicode-range: U+2500-257F, U+2580-259F, U+25A0-25FF, U+2713, U+2717;
 }
 
 /* Light mode: red accent on soft gray background from logo palette. */
@@ -527,9 +527,18 @@
    scrolling horizontally, are left untouched. `overflow-wrap:anywhere` breaks a
    long unbreakable token (e.g. a DOI URL) that has no natural wrap point. */
 .gallery-rich-output [style*="Menlo"] {
+  font-family: var(--md-code-font-family) !important;
+  letter-spacing: normal;
   white-space: pre-wrap !important;
   overflow-x: hidden !important;
   overflow-wrap: anywhere;
+}
+
+/* Rich table borders and cells must share glyph widths and scroll, not wrap. */
+.gallery-rich-output pre.gallery-rich-table {
+  white-space: pre !important;
+  overflow-x: auto !important;
+  overflow-wrap: normal;
 }
 
 /* Plain-text example output (warnings, reprs, tracebacks) is wrapped in a
