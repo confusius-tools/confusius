@@ -23,7 +23,7 @@
 #    temporal lags between speed and signal.
 # 5. **Threshold** the resulting maps and visualize the response at each lag.
 #
-# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
 #     for available studies, formats, licenses, and reproducible subset downloads.
 #
 # ## Fetch the recording

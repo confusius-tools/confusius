@@ -15,7 +15,7 @@
 # — data must be assembled manually rather than loaded as one file, unlike Iconeus
 # SCAN's `3Dscan`/`4Dscan` modes.
 #
-# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
+# [^collection]: See [The ConfUSIus Dataset Collection](dataset_collection.md)
 #     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]

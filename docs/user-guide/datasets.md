@@ -390,13 +390,22 @@ for nii in sorted((bids_root / "sub-CR020").rglob("*_pwd.nii.gz")):
 See the [I/O guide](io.md) for loading NIfTI, Zarr, and Iconeus SCAN files into
 VoxelData arrays.
 
+### Downloading Files
+
+Collection fetchers use anonymous Boto3 S3 transfers beneath Pooch's SHA-256
+verification and temporary-file handling. A shared ten-worker transfer pool reuses
+HTTP connections and downloads files concurrently. Files of at least 8 MiB use
+parallel byte-range downloads. Neither AWS credentials nor the AWS CLI are needed.
+
 ### Selecting a New Release
 
 Collection fetchers resolve the published version from `last_versions.conf` and
 read that release's `manifest.json`, which records each file's size and SHA-256 hash.
 A local `s3_index.json` remembers the selected release. Subsequent calls reuse that
-release without querying the catalog; matching cached files work offline, while
-missing or modified files are downloaded and verified.
+release without querying the catalog. Existing files are trusted without rereading
+or hashing their contents, so cached fetches work offline and avoid scanning the
+whole collection. Missing files are downloaded and SHA-256 verified. To repair a
+corrupted or manually modified file, delete it and fetch again.
 
 Pass `refresh=True` to select the latest published release:
 
@@ -406,7 +415,9 @@ bids_root = fetch_nunez_elizalde_2022(subjects=["CR020"], refresh=True)
 ```
 
 Versions are immutable and use separate cache directories. Refreshing an unchanged
-release does not download matching files again. The same release-selection behavior
+release does not reread or download files whose recorded SHA-256 matches the remote
+manifest. If an upstream hash changes or the cached hash is unknown, the file is
+revalidated and downloaded when necessary. The same release-selection behavior
 applies to template fetchers.
 
 ## Available Templates

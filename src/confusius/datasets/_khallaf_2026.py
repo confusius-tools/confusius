@@ -382,7 +382,7 @@ def fetch_khallaf_2026(
     files = _filter_members(
         index, datasets, subjects, sessions, runs, reconstruction, sourcedata
     )
-    download_s3_files(bids_dir, files)
+    download_s3_files(bids_dir, files, refresh=refresh)
     update_cached_index(cache_dir, index)
 
     if print_citation:

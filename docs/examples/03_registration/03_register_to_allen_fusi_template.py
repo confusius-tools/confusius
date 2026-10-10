@@ -13,7 +13,7 @@
 # which carries the affine transform required to bring it into Allen Common Coordinate
 # Framework (CCF) space.
 #
-# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
 #     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]

@@ -13,7 +13,7 @@
 # - a representative voxel trace before and after registration;
 # - a compact raster view showing how volumewise registration stabilized the recording.
 #
-# [^collection]: See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md)
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
 #     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]

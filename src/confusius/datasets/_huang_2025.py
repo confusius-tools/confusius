@@ -79,7 +79,7 @@ def fetch_template_huang_2025(
     cache_dir.mkdir(parents=True, exist_ok=True)
     index = get_index(cache_dir, "templates", _TEMPLATE_ROOT, refresh=refresh)
     dataset_dir = get_release_dir(cache_dir, index)
-    download_s3_files(dataset_dir, index)
+    download_s3_files(dataset_dir, index, refresh=refresh)
     update_cached_index(cache_dir, index)
 
     da = load(dataset_dir / _FILENAME)

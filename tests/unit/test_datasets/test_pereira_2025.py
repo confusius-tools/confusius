@@ -49,7 +49,7 @@ for _relative, _info in _FAKE_INDEX.items():
 def _make_retrieve(bids_dir: Path):
     """Return a pooch.retrieve side-effect that creates stub files on disk."""
 
-    def _retrieve(url, known_hash, fname, path, progressbar):
+    def _retrieve(url, known_hash, fname, path, progressbar, downloader):
         dest = Path(path) / fname
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.touch()

@@ -23,6 +23,7 @@ classifiers = [
     "Framework :: napari",
 ]
 dependencies = [
+    "boto3>=1.40",
     "brainglobe-atlasapi>=3.0.1",
     "dask[complete]>=2025.9.0",
     "flox>=0.11.1",

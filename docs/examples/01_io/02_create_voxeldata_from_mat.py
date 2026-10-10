@@ -12,7 +12,7 @@
 # reproduces figure 4D from Rabut *et al.* (2024) using a simple general linear model.
 #
 # [^collection]: This example downloads an external archive, not a collection release.
-#     See [The ConfUSIus Dataset Collection](../datasets/dataset_collection.md) for
+#     See [The ConfUSIus Dataset Collection](dataset_collection.md) for
 #     the fUSI-BIDS studies and templates hosted by ConfUSIus.
 
 # %%

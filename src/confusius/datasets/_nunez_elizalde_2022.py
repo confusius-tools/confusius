@@ -299,7 +299,9 @@ def fetch_nunez_elizalde_2022(
         datatypes,
     )
 
-    download_s3_files(bids_dir, files, progress_callback=progress_callback)
+    download_s3_files(
+        bids_dir, files, progress_callback=progress_callback, refresh=refresh
+    )
     update_cached_index(cache_dir, index)
 
     if print_citation:

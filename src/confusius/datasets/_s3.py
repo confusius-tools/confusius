@@ -5,27 +5,38 @@ from __future__ import annotations
 import configparser
 import json
 import re
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from contextlib import closing
+from functools import partial
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from tempfile import NamedTemporaryFile
-from typing import TYPE_CHECKING, TypedDict
-from urllib.parse import quote, urlsplit
+from threading import Lock
+from typing import TYPE_CHECKING, TypedDict, cast
+from urllib.parse import quote, unquote, urlsplit
 
+import boto3
 import pooch
 import requests
+from boto3.s3.transfer import S3Transfer, TransferConfig
+from botocore import UNSIGNED
+from botocore.config import Config
 from rich.progress import Progress
 
-from confusius.datasets._pooch import (
-    _CallbackProgressAdapter,
-    _RichProgressAdapter,
-    quiet_pooch_logger,
-    retrieve_with_retries,
-)
+from confusius.datasets._pooch import quiet_pooch_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from pooch.typing import Downloader
+
 BASE_URL = "https://confusius-datasets.s3.us-west-2.amazonaws.com"
 """Public HTTPS endpoint; downloads do not require AWS credentials."""
+
+_BUCKET = "confusius-datasets"
+"""S3 bucket containing the public release collection."""
+
+_MAX_CONCURRENT_REQUESTS = 10
+"""Shared transfer-request worker limit and maximum concurrent file jobs."""
 
 _INDEX_FILENAME = "s3_index.json"
 """Local inventory recording the selected immutable release."""
@@ -226,8 +237,9 @@ def download_s3_files(
     bids_dir: Path,
     files: dict[str, S3FileInfo],
     progress_callback: Callable[[int, int, str], None] | None = None,
+    refresh: bool = False,
 ) -> None:
-    """Download selected files, verifying SHA-256 even for existing cache files.
+    """Download missing or upstream-changed files, verifying their SHA-256.
 
     Parameters
     ----------
@@ -237,44 +249,191 @@ def download_s3_files(
         Selected release entries.
     progress_callback : Callable[[int, int, str], None], optional
         Callback receiving completed bytes, total bytes, and a description.
+    refresh : bool, default: False
+        Whether to compare the remote SHA-256 with the recorded cached hash.
+        Existing files are trusted without re-reading their contents when the
+        hashes match. Invalid cached metadata is treated as an unknown hash.
+
+    Raises
+    ------
+    ValueError
+        If a downloaded SHA-256 does not match the manifest.
+    botocore.exceptions.BotoCoreError
+        If a transfer fails.
+    botocore.exceptions.ClientError
+        If S3 rejects a request.
+    boto3.exceptions.RetriesExceededError
+        If streaming failures exhaust the download retry budget.
     """
-    # Verify cached bytes too, so interrupted or modified files are repaired.
+    previous_index: dict[str, S3FileInfo] = {}
+    if refresh:
+        try:
+            previous_index = read_cached_index(bids_dir.parent)
+        except ValueError:
+            # Explicit refresh can repair malformed cached metadata.
+            pass
     pending = {
         relative: info
         for relative, info in files.items()
         if not (bids_dir / relative).is_file()
-        or pooch.file_hash(bids_dir / relative, alg="sha256") != info["sha256"]
+        or (
+            refresh and previous_index.get(relative, {}).get("sha256") != info["sha256"]
+        )
     }
     if not pending:
         return
     total = sum(info["size"] for info in pending.values())
-    completed = 0
+    downloaded = dict.fromkeys(pending, 0)
+    lock = Lock()
+
+    def advance(relative: str, byte_count: int) -> None:
+        """Record transfer bytes, including negative retry adjustments.
+
+        Parameters
+        ----------
+        relative : str
+            File path within the release.
+        byte_count : int
+            Bytes transferred, or a negative value when a range is retried.
+        """
+        with lock:
+            downloaded[relative] = min(
+                pending[relative]["size"],
+                max(0, downloaded[relative] + byte_count),
+            )
+
+    if progress_callback is not None:
+        progress_callback(0, total, "Preparing download...")
+    # Boto3 expects a service endpoint, not the bucket-prefixed HTTPS endpoint.
+    endpoint = BASE_URL.replace(f"//{_BUCKET}.", "//", 1)
+    client = boto3.session.Session().client(
+        "s3",
+        region_name="us-west-2",
+        endpoint_url=endpoint,
+        config=Config(
+            signature_version=UNSIGNED,
+            s3={"addressing_style": "path"},
+            max_pool_connections=_MAX_CONCURRENT_REQUESTS,
+            connect_timeout=10,
+            read_timeout=60,
+            retries={"mode": "standard", "total_max_attempts": 3},
+        ),
+    )
     with (
         quiet_pooch_logger(),
         Progress(disable=progress_callback is not None) as progress,
+        closing(client),
+        S3Transfer(
+            client,
+            TransferConfig(
+                max_concurrency=_MAX_CONCURRENT_REQUESTS,
+                multipart_threshold=8 * 1024**2,
+                multipart_chunksize=8 * 1024**2,
+                num_download_attempts=3,
+                # Keep the shared request-worker limit predictable across machines.
+                preferred_transfer_client="classic",
+            ),
+        ) as transfer,
+        ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_REQUESTS) as executor,
     ):
         task = progress.add_task("Downloading dataset...", total=total)
-        for relative, info in pending.items():
-            dest = bids_dir / relative
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            description = f"Downloading {dest.name}"
-            progress.update(task, description=description)
-            adapter: _CallbackProgressAdapter | _RichProgressAdapter
-            if progress_callback is not None:
-                progress_callback(completed, total, description)
-                adapter = _CallbackProgressAdapter(
-                    progress_callback, total, completed, description
-                )
-            else:
-                adapter = _RichProgressAdapter(progress, task)
-            retrieve_with_retries(
-                url=info["url"],
-                dest=dest,
-                logger=pooch.get_logger(),
-                progressbar=adapter,
-                on_retry=adapter.rewind,
-                known_hash=f"sha256:{info['sha256']}",
-            )
-            completed += info["size"]
+        futures = {
+            executor.submit(
+                _retrieve_s3_file,
+                bids_dir / relative,
+                info,
+                transfer,
+                partial(advance, relative),
+            ): relative
+            for relative, info in pending.items()
+        }
+        try:
+            while futures:
+                done, _ = wait(futures, timeout=0.1, return_when=FIRST_COMPLETED)
+                for future in done:
+                    future.result()
+                    relative = futures.pop(future)
+                    with lock:
+                        downloaded[relative] = pending[relative]["size"]
+                with lock:
+                    completed = sum(downloaded.values())
+                progress.update(task, completed=completed)
+                if progress_callback is not None:
+                    progress_callback(completed, total, "Downloading dataset...")
+        finally:
+            # Queued jobs must not keep downloading after another file fails.
+            for future in futures:
+                future.cancel()
         if progress_callback is not None:
             progress_callback(total, total, "Download complete.")
+
+
+def _retrieve_s3_file(
+    dest: Path,
+    info: S3FileInfo,
+    transfer: S3Transfer,
+    advance: Callable[[int], None],
+) -> None:
+    """Verify and stage one file using the shared AWS transfer manager.
+
+    Parameters
+    ----------
+    dest : pathlib.Path
+        Final local file path.
+    info : S3FileInfo
+        Remote URL, size, and SHA-256 digest.
+    transfer : boto3.s3.transfer.S3Transfer
+        Batch-scoped managed S3 transfer engine.
+    advance : Callable[[int], None]
+        Thread-safe byte-progress recorder for this file.
+
+    Raises
+    ------
+    ValueError
+        If the downloaded SHA-256 does not match the manifest.
+    botocore.exceptions.BotoCoreError
+        If the S3 transfer fails.
+    botocore.exceptions.ClientError
+        If S3 rejects the request.
+    boto3.exceptions.RetriesExceededError
+        If streaming failures exhaust the download retry budget.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    def download(url: str, output_file: str, pooch: pooch.Pooch | None) -> None:
+        """Download into Pooch's temporary path without accepting cached bytes.
+
+        Parameters
+        ----------
+        url : str
+            Anonymous object URL from the release manifest.
+        output_file : str
+            Temporary download destination supplied by Pooch.
+        pooch : pooch.Pooch, optional
+            Calling Pooch instance; unused by this downloader.
+
+        Raises
+        ------
+        botocore.exceptions.BotoCoreError
+            If the S3 transfer fails.
+        botocore.exceptions.ClientError
+            If S3 rejects the request.
+        boto3.exceptions.RetriesExceededError
+            If streaming failures exhaust the download retry budget.
+        """
+        transfer.download_file(
+            _BUCKET,
+            unquote(urlsplit(url).path.lstrip("/")),
+            output_file,
+            callback=advance,
+        )
+
+    pooch.retrieve(
+        url=info["url"],
+        fname=dest.name,
+        path=dest.parent,
+        known_hash=f"sha256:{info['sha256']}",
+        progressbar=False,
+        # Pooch's protocol names differ from its documented downloader signature.
+        downloader=cast("Downloader", download),
+    )

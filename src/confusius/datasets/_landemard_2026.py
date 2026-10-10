@@ -235,7 +235,7 @@ def fetch_landemard_2026(
     bids_dir = get_release_dir(cache_dir, index)
     files = _filter_files(index, datasets, subjects, acqs, datatypes)
 
-    download_s3_files(bids_dir, files)
+    download_s3_files(bids_dir, files, refresh=refresh)
     update_cached_index(cache_dir, index)
 
     if print_citation:

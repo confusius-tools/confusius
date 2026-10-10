@@ -6,14 +6,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import requests
 
 from confusius.datasets import fetch_nunez_elizalde_2022, get_datasets_dir
 from confusius.datasets._nunez_elizalde_2022 import (
     _BIDS_ROOT,
     _CITATION,
 )
-from confusius.datasets._pooch import _MAX_DOWNLOAD_RETRIES
 from confusius.datasets._utils import plain_citation
 
 # Minimal fake index representing the different file categories in the dataset.
@@ -93,7 +91,7 @@ for _relative, _info in _FAKE_INDEX.items():
 def _make_retrieve(bids_dir: Path):
     """Return a pooch.retrieve side-effect that creates stub files on disk."""
 
-    def _retrieve(url, known_hash, fname, path, progressbar):
+    def _retrieve(url, known_hash, fname, path, progressbar, downloader):
         dest = Path(path) / fname
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.touch()
@@ -464,80 +462,6 @@ def test_fetch_rejects_unknown_dataset(tmp_path):
 def test_fetch_rejects_unknown_datatype(tmp_path):
     with pytest.raises(ValueError, match="Unknown datatype"):
         fetch_nunez_elizalde_2022(data_dir=tmp_path, datatypes=["not-a-datatype"])
-
-
-# ---------------------------------------------------------------------------
-# fetch_nunez_elizalde_2022 — retry behaviour
-# ---------------------------------------------------------------------------
-
-
-def test_fetch_retries_on_transient_failure(tmp_path, mock_get_index):
-    """Transient network errors are retried and eventually succeed."""
-    bids_dir = tmp_path / _BIDS_ROOT / "1.0.0"
-
-    target_rel = (
-        "sub-CR020/ses-20191122/fusi/"
-        "sub-CR020_ses-20191122_task-kalatsky_acq-slice01_pwd.nii.gz"
-    )
-    for rel in _FAKE_INDEX:
-        if rel == target_rel:
-            continue
-        dest = bids_dir / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.touch()
-
-    call_count = {"n": 0}
-
-    def flaky_retrieve(url, known_hash, fname, path, progressbar):
-        call_count["n"] += 1
-        if call_count["n"] < _MAX_DOWNLOAD_RETRIES:
-            raise requests.exceptions.ReadTimeout("simulated timeout")
-        dest = Path(path) / fname
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.touch()
-        return str(dest)
-
-    with (
-        patch(
-            "confusius.datasets._pooch.pooch.retrieve",
-            side_effect=flaky_retrieve,
-        ),
-        patch("confusius.datasets._pooch.time.sleep"),
-    ):
-        fetch_nunez_elizalde_2022(data_dir=tmp_path)
-
-    assert call_count["n"] == _MAX_DOWNLOAD_RETRIES
-
-
-def test_fetch_raises_after_max_retries(tmp_path, mock_get_index):
-    """Persistent network errors propagate after the retry budget is exhausted."""
-    bids_dir = tmp_path / _BIDS_ROOT / "1.0.0"
-
-    target_rel = (
-        "sub-CR020/ses-20191122/fusi/"
-        "sub-CR020_ses-20191122_task-kalatsky_acq-slice01_pwd.nii.gz"
-    )
-    for rel in _FAKE_INDEX:
-        if rel == target_rel:
-            continue
-        dest = bids_dir / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.touch()
-
-    def always_fails(url, known_hash, fname, path, progressbar):
-        raise requests.exceptions.ReadTimeout("persistent timeout")
-
-    with (
-        patch(
-            "confusius.datasets._pooch.pooch.retrieve",
-            side_effect=always_fails,
-        ) as mock_retrieve,
-        patch("confusius.datasets._pooch.time.sleep"),
-        pytest.raises(requests.exceptions.ReadTimeout),
-    ):
-        fetch_nunez_elizalde_2022(data_dir=tmp_path)
-
-    assert mock_retrieve.call_count == _MAX_DOWNLOAD_RETRIES
 
 
 # ---------------------------------------------------------------------------

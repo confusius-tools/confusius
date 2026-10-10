@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 import requests
+from botocore.exceptions import ClientError
 
 from confusius import datasets
 
@@ -74,14 +76,43 @@ def test_refresh_same_release_does_not_redownload(
     assert calls == ["/last_versions.conf", f"/datasets/{_NAME}/1.0.0/manifest.json"]
 
 
-def test_modified_cache_is_repaired(tmp_path, publish_release):
+def test_cached_files_are_trusted_until_deleted(
+    tmp_path, release_server, publish_release, monkeypatch
+):
     publish_release("datasets", _NAME, "1.0.0", {"README.md": b"verified"})
     root = datasets.fetch_pereira_2025(
         data_dir=tmp_path / "cache", print_citation=False
     )
-    (root / "README.md").write_bytes(b"corrupted")
+    (root / "README.md").write_bytes(b"modified")
+    _, calls = release_server
+    calls.clear()
+    with monkeypatch.context() as context:
+        context.setattr(
+            "pooch.file_hash",
+            lambda *args, **kwargs: pytest.fail("Cached file was rehashed"),
+        )
+        for refresh in (False, True):
+            assert datasets.fetch_pereira_2025(
+                data_dir=tmp_path / "cache",
+                refresh=refresh,
+                print_citation=False,
+            ) == root
+        assert (root / "README.md").read_bytes() == b"modified"
+    assert calls == ["/last_versions.conf", f"/datasets/{_NAME}/1.0.0/manifest.json"]
+    (root / "README.md").unlink()
     datasets.fetch_pereira_2025(data_dir=tmp_path / "cache", print_citation=False)
     assert (root / "README.md").read_bytes() == b"verified"
+
+
+def test_refresh_redownloads_changed_upstream_hash(tmp_path, publish_release):
+    cache = tmp_path / "cache"
+    publish_release("datasets", _NAME, "1.0.0", {"README.md": b"first"})
+    root = datasets.fetch_pereira_2025(data_dir=cache, print_citation=False)
+    publish_release("datasets", _NAME, "1.0.0", {"README.md": b"second"})
+    datasets.fetch_pereira_2025(data_dir=cache, print_citation=False)
+    assert (root / "README.md").read_bytes() == b"first"
+    datasets.fetch_pereira_2025(data_dir=cache, refresh=True, print_citation=False)
+    assert (root / "README.md").read_bytes() == b"second"
 
 
 def test_wrong_download_hash_fails_without_recording_release(tmp_path, publish_release):
@@ -235,3 +266,96 @@ def test_progress_callback_reports_bytes(tmp_path, publish_release):
     assert (root / "README.md").read_bytes() == content
     assert reports[0][:2] == (0, len(content))
     assert reports[-1] == (len(content), len(content), "Download complete.")
+
+
+def test_transfers_reuse_unsigned_http_connection(
+    tmp_path, publish_release, s3_requests
+):
+    publish_release("datasets", _NAME, "1.0.0", {"README.md": b"verified"})
+    datasets.fetch_pereira_2025(data_dir=tmp_path, print_citation=False)
+    assert [record[0] for record in s3_requests] == ["HEAD", "GET"]
+    assert all(record[3] is None for record in s3_requests)
+    assert len({record[4] for record in s3_requests}) == 1
+
+
+def test_batch_downloads_run_concurrently(tmp_path, publish_release, s3_barrier):
+    files = {f"file-{i}.bin": bytes([i]) * 1024 for i in range(12)}
+    publish_release("datasets", _NAME, "1.0.0", files)
+    # Serial GETs cannot pass the barrier before the next request starts.
+    s3_barrier.append(threading.Barrier(2))
+    root = datasets.fetch_pereira_2025(data_dir=tmp_path, print_citation=False)
+    for relative, content in files.items():
+        assert (root / relative).read_bytes() == content
+
+
+def test_multipart_download_verifies_assembled_bytes(
+    tmp_path, publish_release, s3_requests
+):
+    content = bytes(range(256)) * (9 * 1024**2 // 256)
+    publish_release("datasets", _NAME, "1.0.0", {"large.bin": content})
+    root = datasets.fetch_pereira_2025(data_dir=tmp_path, print_citation=False)
+    assert (root / "large.bin").read_bytes() == content
+    assert {record[2] for record in s3_requests if record[0] == "GET"} == {
+        "bytes=0-8388607",
+        "bytes=8388608-",
+    }
+
+
+@pytest.mark.parametrize("failures", [[503], ["disconnect"]])
+def test_sdk_retries_and_reports_progress_on_calling_thread(
+    tmp_path, publish_release, s3_failures, s3_requests, failures
+):
+    name = "nunez-elizalde-2022-bids"
+    content = b"a" * (2 * 1024**2)
+    publish_release("datasets", name, "1.0.0", {"README.md": content})
+    s3_failures[f"/datasets/{name}/1.0.0/README.md"] = failures.copy()
+    reports = []
+    root = datasets.fetch_nunez_elizalde_2022(
+        data_dir=tmp_path,
+        print_citation=False,
+        progress_callback=lambda *args: reports.append((threading.get_ident(), *args)),
+    )
+    assert (root / "README.md").read_bytes() == content
+    assert sum(record[0] == "GET" for record in s3_requests) == 2
+    assert all(record[0] == threading.get_ident() for record in reports)
+    assert all(0 <= record[1] <= len(content) for record in reports)
+    assert reports[-1][1:] == (len(content), len(content), "Download complete.")
+
+
+def test_sdk_retry_exhaustion_does_not_leave_partial_cache(
+    tmp_path, publish_release, s3_failures, s3_requests
+):
+    publish_release("datasets", _NAME, "1.0.0", {"README.md": b"verified"})
+    s3_failures[f"/datasets/{_NAME}/1.0.0/README.md"] = [503, 503, 503]
+    with pytest.raises(ClientError):
+        datasets.fetch_pereira_2025(data_dir=tmp_path, print_citation=False)
+    assert sum(record[0] == "GET" for record in s3_requests) == 3
+    assert not (tmp_path / _NAME / "s3_index.json").exists()
+    assert list((tmp_path / _NAME / "1.0.0").iterdir()) == []
+
+
+def test_downloads_empty_files_and_escaped_keys(tmp_path, publish_release):
+    files = {"empty.bin": b"", "notes %25.md": b"escaped key"}
+    publish_release("datasets", _NAME, "1.0.0", files)
+    root = datasets.fetch_pereira_2025(data_dir=tmp_path, print_citation=False)
+    for relative, content in files.items():
+        assert (root / relative).read_bytes() == content
+
+
+def test_callback_failure_stops_without_accepting_inventory(tmp_path, publish_release):
+    publish_release(
+        "datasets", "nunez-elizalde-2022-bids", "1.0.0", {"README.md": b"verified"}
+    )
+    reports = []
+
+    def report(*args):
+        """Reject the second progress notification during the active transfer."""
+        reports.append(args)
+        if len(reports) > 1:
+            raise RuntimeError("callback failed")
+
+    with pytest.raises(RuntimeError, match="callback failed"):
+        datasets.fetch_nunez_elizalde_2022(
+            data_dir=tmp_path, print_citation=False, progress_callback=report
+        )
+    assert not (tmp_path / "nunez-elizalde-2022-bids" / "s3_index.json").exists()

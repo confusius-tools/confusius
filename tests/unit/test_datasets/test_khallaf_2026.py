@@ -89,7 +89,7 @@ def opened_members(tmp_path):
     """Record files downloaded by Pooch and create matching empty cache files."""
     opened = []
 
-    def retrieve(url, known_hash, fname, path, progressbar):
+    def retrieve(url, known_hash, fname, path, progressbar, downloader):
         dest = Path(path) / fname
         opened.append(dest.relative_to(tmp_path / _BIDS_ROOT / "1.0.0").as_posix())
         dest.parent.mkdir(parents=True, exist_ok=True)
