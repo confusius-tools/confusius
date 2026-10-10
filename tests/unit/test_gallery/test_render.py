@@ -89,8 +89,9 @@ def test_rich_tables_are_marked_without_affecting_citations(
     md_path, _ = render_notebook(
         nb, nb, nb, out_dir=tmp_path, base_name="rich", runtime_seconds=0.0
     )
-    assert ('class="gallery-rich-table"' in md_path.read_text()) is is_table
-    assert text in md_path.read_text()
+    markdown = md_path.read_text(encoding="utf-8")
+    assert ('class="gallery-rich-table"' in markdown) is is_table
+    assert text in markdown
 
 
 def test_render_writes_image_files_into_output_folder(tmp_path: Path) -> None:
