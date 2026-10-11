@@ -323,6 +323,11 @@ def download_s3_files(
         quiet_pooch_logger(),
         Progress(disable=progress_callback is not None) as progress,
         closing(client),
+        # Exit S3Transfer first: on error its `__exit__` cancels running downloads,
+        # which unblocks the workers the executor then joins. If the executor
+        # is innermost, an error or even Ctrl-C cannot break out of the context without
+        # waiting for every running download to finish.
+        ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_REQUESTS) as executor,
         S3Transfer(
             client,
             TransferConfig(
@@ -334,7 +339,6 @@ def download_s3_files(
                 preferred_transfer_client="classic",
             ),
         ) as transfer,
-        ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_REQUESTS) as executor,
     ):
         task = progress.add_task("Downloading dataset...", total=total)
         futures = {
