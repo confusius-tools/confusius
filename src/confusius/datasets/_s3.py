@@ -14,12 +14,8 @@ from threading import Lock
 from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import quote, unquote, urlsplit
 
-import boto3
 import pooch
 import requests
-from boto3.s3.transfer import S3Transfer, TransferConfig
-from botocore import UNSIGNED
-from botocore.config import Config
 from rich.progress import Progress
 
 from confusius.datasets._pooch import quiet_pooch_logger
@@ -27,6 +23,7 @@ from confusius.datasets._pooch import quiet_pooch_logger
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from boto3.s3.transfer import S3Transfer
     from pooch.typing import Downloader
 
 BASE_URL = "https://confusius-datasets.s3.us-west-2.amazonaws.com"
@@ -301,6 +298,12 @@ def download_s3_files(
                 pending[relative]["size"],
                 max(0, downloaded[relative] + byte_count),
             )
+
+    # Imported lazily: boto3 is only needed when files are actually transferred,
+    import boto3
+    from boto3.s3.transfer import S3Transfer, TransferConfig
+    from botocore import UNSIGNED
+    from botocore.config import Config
 
     if progress_callback is not None:
         progress_callback(0, total, "Preparing download...")
