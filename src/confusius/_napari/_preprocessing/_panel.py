@@ -13,7 +13,8 @@ import xarray as xr
 from napari.layers import Layer
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
-from qtpy.QtCore import Qt
+from qtpy.QtCore import QRectF, Qt
+from qtpy.QtGui import QColor, QPainter, QPainterPath, QPaintEvent
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -38,6 +39,7 @@ from superqt import QDoubleRangeSlider
 
 from confusius._dims import TIME_DIM
 from confusius._napari._signals._store import LiveSignal, SignalStore
+from confusius._napari._theme import get_napari_colors, rgba_css
 from confusius._napari._utils import (
     CATEGORICAL_COLORS,
     extract_label_mean_trace,
@@ -486,6 +488,72 @@ def _align_series(
     return xr.DataArray(values, dims=TIME_DIM, coords=coords)
 
 
+class _MaskStrip(QWidget):
+    """One-row heatmap of a keep/censor sample mask.
+
+    Each sample is a vertical sliver along the strip (left = first sample); kept
+    samples are drawn in a muted foreground tint and censored ones in the theme
+    accent, so censored stretches stand out at a glance.
+
+    Parameters
+    ----------
+    viewer : napari.Viewer
+        Viewer whose theme supplies the colors.
+    """
+
+    def __init__(self, viewer: napari.Viewer) -> None:
+        super().__init__()
+        self._viewer = viewer
+        self._mask: np.ndarray | None = None
+        self.setFixedHeight(10)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def set_mask(self, mask: np.ndarray | None) -> None:
+        """Replace the displayed mask and repaint.
+
+        Parameters
+        ----------
+        mask : (n_samples,) numpy.ndarray, optional
+            Boolean keep (`True`) / censor (`False`) mask. If not provided, the
+            strip is drawn empty.
+        """
+        self._mask = None if mask is None else np.asarray(mask, dtype=bool)
+        self.update()
+
+    def paintEvent(self, _event: QPaintEvent | None) -> None:  # ty: ignore[invalid-method-override]
+        colors = get_napari_colors(self._viewer.theme)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(self.rect())
+        clip = QPainterPath()
+        clip.addRoundedRect(rect, 3.0, 3.0)
+        painter.setClipPath(clip)
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        keep = QColor(colors["fg"])
+        keep.setAlphaF(0.18 if self._mask is None else 0.35)
+        painter.fillRect(rect, keep)
+        if self._mask is None or self._mask.size == 0:
+            painter.end()
+            return
+
+        # Draw censored samples as runs so a long recording is a few rects, not
+        # thousands, and each run is at least 1px wide so it never vanishes.
+        censored = ~self._mask
+        edges = np.flatnonzero(np.diff(censored.astype(np.int8)))
+        starts = np.concatenate(([0], edges + 1))
+        stops = np.concatenate((edges + 1, [censored.size]))
+        px_per_sample = rect.width() / censored.size
+        accent = QColor(colors["accent"])
+        for start, stop in zip(starts, stops, strict=True):
+            if not censored[start]:
+                continue
+            x0 = start * px_per_sample
+            width = max((stop - start) * px_per_sample, 1.0)
+            painter.fillRect(QRectF(x0, 0.0, width, rect.height()), accent)
+        painter.end()
+
+
 def _capped_spin(spin: _SpinBoxT, width: int = _SPIN_WIDTH) -> _SpinBoxT:
     """Cap a spin box's width so it cannot force the sidebar wider than the dock."""
     spin.setMaximumWidth(width)
@@ -564,6 +632,7 @@ class PreprocessingPanel(QWidget):
         self._working_button_text = ""
         self._prefilled_source: Layer | None = None
         self._filter_nyquist: float | None = None
+        self._mask_preview_raw: _RawSignal | None = None
         self._setup_ui()
 
         viewer.layers.events.inserted.connect(self._refresh_layer_combos)
@@ -618,6 +687,9 @@ class PreprocessingPanel(QWidget):
         )
         self._source_combo.currentIndexChanged.connect(self._prefill_resample_defaults)
         self._source_combo.currentIndexChanged.connect(self._update_filter_range)
+        self._source_combo.currentIndexChanged.connect(
+            self._refresh_mask_preview_source
+        )
         group_layout.addWidget(self._source_combo)
         return group
 
@@ -1077,6 +1149,27 @@ class PreprocessingPanel(QWidget):
             _form_label("Interpolation", tooltip=interp_tooltip),
             self._interpolate_method_combo,
         )
+        self._mask_threshold_spin.valueChanged.connect(self._refresh_mask_preview)
+        self._mask_mode_combo.currentTextChanged.connect(self._refresh_mask_preview)
+
+        preview_tooltip = (
+            "Preview of the keep/censor mask along the recording, one sliver per "
+            "sample: censored samples are highlighted."
+        )
+        self._mask_strip = _MaskStrip(self._viewer)
+        self._mask_strip.setToolTip(preview_tooltip)
+        self._mask_summary = QLabel()
+        self._mask_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self._mask_summary.setStyleSheet(
+            f"color: {rgba_css(get_napari_colors(self._viewer.theme)['fg'], 0.7)};"
+        )
+        preview = QWidget()
+        preview_layout = QVBoxLayout(preview)
+        preview_layout.setContentsMargins(0, 4, 0, 0)
+        preview_layout.setSpacing(2)
+        preview_layout.addWidget(self._mask_strip)
+        preview_layout.addWidget(self._mask_summary)
+        form.addRow(preview)
         group_layout.addWidget(self._scrub_options)
         self._scrub_options.hide()
 
@@ -1335,6 +1428,41 @@ class PreprocessingPanel(QWidget):
         self._scrub_options.setVisible(
             self._mask_combo.currentText() not in ("", _NO_SIGNAL)
         )
+        self._refresh_mask_preview_source()
+
+    def _refresh_mask_preview_source(self) -> None:
+        """Re-resolve the selected sample-mask signal and redraw the preview.
+
+        Resolution (which may re-extract a live point/label trace) only happens
+        here, on mask/source changes; threshold and mode changes just re-threshold
+        the cached raw series in `_refresh_mask_preview`.
+        """
+        self._mask_preview_raw = None
+        source_layer = self._source_combo.currentData()
+        name = self._mask_combo.currentText()
+        if source_layer is not None and name not in ("", _NO_SIGNAL):
+            try:
+                self._mask_preview_raw = self._resolve_raw_signal(name, source_layer)
+            except ValueError:
+                pass
+        self._refresh_mask_preview()
+
+    def _refresh_mask_preview(self) -> None:
+        """Redraw the mask strip from the cached raw series and current controls."""
+        raw = self._mask_preview_raw
+        if raw is None:
+            self._mask_strip.set_mask(None)
+            self._mask_summary.setText("")
+            return
+        spec = self._make_mask_spec(*raw)
+        series = xr.DataArray(np.asarray(spec.y, dtype=float), dims=TIME_DIM)
+        mask = _threshold_mask(series, spec).values
+        self._mask_strip.set_mask(mask)
+        n_censored = int((~mask).sum())
+        self._mask_summary.setText(
+            f"{n_censored} of {mask.size} samples censored "
+            f"({100 * n_censored / max(mask.size, 1):.1f} %)"
+        )
 
     def _on_mask_mode_changed(self, mode: str) -> None:
         self._mask_threshold_spin.setEnabled(mode != _MASK_ALREADY_BINARY)
@@ -1536,7 +1664,23 @@ class PreprocessingPanel(QWidget):
         raw = self._resolve_raw_signal(self._mask_combo.currentText(), source_layer)
         if raw is None:
             return None
-        x, y = raw
+        return self._make_mask_spec(*raw)
+
+    def _make_mask_spec(self, x: np.ndarray | None, y: np.ndarray) -> _MaskSpec:
+        """Combine a raw series with the mask-mode/threshold controls.
+
+        Parameters
+        ----------
+        x : numpy.ndarray or None
+            Time values for `y`, if any.
+        y : numpy.ndarray
+            Raw series values.
+
+        Returns
+        -------
+        _MaskSpec
+            Raw series plus thresholding info.
+        """
         mode = self._mask_mode_combo.currentText()
         if mode == _MASK_ALREADY_BINARY:
             return _MaskSpec(x, y, threshold=None, keep_above=True)
