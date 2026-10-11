@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from confusius.datasets._s3 import (
     S3FileInfo,
@@ -13,6 +14,9 @@ from confusius.datasets._s3 import (
     update_cached_index,
 )
 from confusius.datasets._utils import get_datasets_dir, print_citation_message
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _BIDS_ROOT = "cybis-pereira-2026-bids"
 _TOTAL_SIZE_BYTES = 12_883_924_421
@@ -198,6 +202,7 @@ def fetch_cybis_pereira_2026(
     acqs: str | list[str] | None = None,
     datatypes: str | list[str] | None = None,
     refresh: bool = False,
+    progress_callback: Callable[[int, int, str], None] | None = None,
     print_citation: bool = True,
 ) -> Path:
     """Fetch the Cybis Pereira 2026 fUSI-BIDS dataset.
@@ -246,6 +251,9 @@ def fetch_cybis_pereira_2026(
     refresh : bool, default: False
         Whether to resolve the latest published S3 release. Otherwise the cached
         release is reused offline. Releases are cached in separate version directories.
+    progress_callback : Callable[[int, int, str], None], optional
+        Callback receiving cumulative downloaded bytes, total bytes to download,
+        and a user-facing description. Intended for GUI progress bars.
     print_citation : bool, default: True
         Whether to print the citation for the dataset.
 
@@ -309,7 +317,9 @@ def fetch_cybis_pereira_2026(
     bids_dir = get_release_dir(cache_dir, index)
     files = _filter_files(index, datasets, subjects, sessions, acqs, datatypes)
 
-    download_s3_files(bids_dir, files, refresh=refresh)
+    download_s3_files(
+        bids_dir, files, progress_callback=progress_callback, refresh=refresh
+    )
     update_cached_index(cache_dir, index)
 
     if print_citation:

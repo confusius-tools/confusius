@@ -252,13 +252,18 @@ def test_failed_refresh_keeps_selected_cached_release(tmp_path, publish_release)
     assert (old / "README.md").read_bytes() == b"first"
 
 
-def test_progress_callback_reports_bytes(tmp_path, publish_release):
+@pytest.mark.parametrize(
+    ("fetch", "name"),
+    [
+        (datasets.fetch_nunez_elizalde_2022, "nunez-elizalde-2022-bids"),
+        (datasets.fetch_cybis_pereira_2026, "cybis-pereira-2026-bids"),
+    ],
+)
+def test_progress_callback_reports_bytes(tmp_path, publish_release, fetch, name):
     content = b"verified"
-    publish_release(
-        "datasets", "nunez-elizalde-2022-bids", "1.0.0", {"README.md": content}
-    )
+    publish_release("datasets", name, "1.0.0", {"README.md": content})
     reports = []
-    root = datasets.fetch_nunez_elizalde_2022(
+    root = fetch(
         data_dir=tmp_path / "cache",
         progress_callback=lambda *args: reports.append(args),
         print_citation=False,

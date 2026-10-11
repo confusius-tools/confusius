@@ -331,4 +331,5 @@ def test_resolve_rat_registration_pair(monkeypatch, tmp_path):
         "sessions": list(_RAT_REGISTRATION_SESSIONS),
         "datatypes": "susi",
         "acqs": _RAT_REGISTRATION_ACQ,
+        "progress_callback": None,
     }
