@@ -24,7 +24,7 @@ Current development version for the next ConfUSIus release.
   `plot_contours` and the `fusi.plot.*` wrappers expose the same parameters;
   `resample_interpolation` now defaults to `"auto"` (`"nearest"` for integer
   dtype, `"linear"` otherwise) instead of `"linear"`
-  ([#TBD-PR](https://github.com/confusius-tools/confusius/pull/TBD-PR)).
+  ([#497](https://github.com/confusius-tools/confusius/pull/497)).
 - fUSI-BIDS metadata now follows draft v0.0.14: renamed frequency/voltage fields,
   including internal attributes `probe_central_frequency` → `probe_center_frequency`
   and `probe_voltage` → `transmit_voltage`, updated probe/virtual-source validation,
@@ -99,7 +99,7 @@ Current development version for the next ConfUSIus release.
   over a volume plotted with `resample_fill_value=np.nan` no longer raises (or,
   before [#481](https://github.com/confusius-tools/confusius/pull/481), outlined
   the field of view as a phantom label)
-  ([#TBD-PR](https://github.com/confusius-tools/confusius/pull/TBD-PR)).
+  ([#497](https://github.com/confusius-tools/confusius/pull/497)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`register_volume`][confusius.registration.register_volume] now raise a `ValueError`
   when `fill_value` cannot be represented as an integer, but `moving` is an
