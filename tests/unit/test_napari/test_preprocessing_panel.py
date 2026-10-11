@@ -17,6 +17,8 @@ import xarray as xr
 from qtpy.QtTest import QSignalSpy
 
 from confusius._napari._preprocessing._panel import (
+    _MASK_KEEP_ABOVE,
+    _MASK_KEEP_BELOW,
     _align_series,
     _MaskSpec,
     _threshold_mask,
@@ -253,6 +255,35 @@ class TestRedesignedControls:
         signals_store.remove_signals([signal.id])
         assert not panel._scrub_options.isVisibleTo(panel)
         assert panel._confounds_placeholder.isVisibleTo(panel)
+
+    def test_mask_preview_follows_mode_and_threshold(
+        self, viewer, panel, signals_store, sample_voxeldata_3dt
+    ):
+        plot_napari(sample_voxeldata_3dt, viewer=viewer)
+        n_time = sample_voxeldata_3dt.sizes["time"]
+        fd = np.zeros(n_time)
+        fd[2:4] = 1.0
+        signal = signals_store.pin_signal(
+            origin="fd",
+            name="fd",
+            x=np.asarray(sample_voxeldata_3dt.time.values),
+            y=fd,
+            color="#000000",
+            source_label="test",
+        )
+        panel._source_combo.setCurrentIndex(0)
+        panel._mask_combo.setCurrentText(signal.name)
+        panel._mask_mode_combo.setCurrentText(_MASK_KEEP_BELOW)
+        panel._mask_threshold_spin.setValue(0.5)
+        np.testing.assert_array_equal(panel._mask_strip._mask, fd < 0.5)
+        assert panel._mask_summary.text().startswith(f"2 of {n_time} samples censored")
+
+        panel._mask_mode_combo.setCurrentText(_MASK_KEEP_ABOVE)
+        np.testing.assert_array_equal(panel._mask_strip._mask, fd > 0.5)
+
+        panel._mask_combo.setCurrentText("None")
+        assert panel._mask_strip._mask is None
+        assert panel._mask_summary.text() == ""
 
     @pytest.mark.parametrize("single_slice", [False, True])
     def test_create_compcor_mask_matches_source_geometry(
