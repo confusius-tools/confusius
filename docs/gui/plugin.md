@@ -127,32 +127,44 @@ the first time you click **Show Signal Plot**.
 
 ### Choosing a data source
 
-Pick one of three source modes in the **Source** group:
+Mouse, Points and Labels sources can coexist in the **Source** group. Their
+checkboxes enable extraction without deleting registered sources. Use **Add** to
+register another Points or Labels layer; use **Manage Signals** to enable, disable or
+remove individual sources.
 
 **Mouse**
-: Hold ++shift++ and move the mouse over the canvas. The plot updates live with the
-  single-voxel signal at the cursor position.
+: Hold ++shift++ over the canvas, including at a stationary cursor. The shared cursor
+  supplies a trace for each configured reference recording. A radius of **0 mm**
+  selects one voxel; a positive radius averages a physical sphere. Signals and FC
+  consume the same raw trace and radius.
 
 ![ConfUSIus Signals panel — hover mode](../images/gui/plugin-signals.png)
 
 **Points**
 : Select a Points layer from the dropdown (or click **+** to create one). Each point
-  is plotted as a separate line colored by its face color. Add or remove points in
-  napari and the plot updates automatically.
+  is plotted as a separate line. Move, add or remove points in napari and the traces
+  update automatically. Deleting a point invalidates that point's FC seed rather
+  than selecting the point that takes its place in the list.
 
 ![ConfUSIus Signals panel — points mode](../images/gui/plugin-signals-points.png)
 
 **Labels**
 : Select a Labels layer from the dropdown (or click **+** to create one). The mean
-  signal is extracted for each distinct non-zero label and plotted as a separate line,
-  colored by the label's color in the napari colormap. This is useful for quickly
-  comparing region-averaged signals after painting ROIs with napari's brush tool.
+  signal is extracted for each distinct non-zero label. Painting updates the traces
+  after a short debounce. Erasing a label makes its trace unavailable; repainting the
+  same label restores its identity and settings. Labels must share the recording's
+  voxel grid, including its transform.
 
 ![ConfUSIus Signals panel — labels mode](../images/gui/plugin-signals-labels.png)
 
-In Points and Labels modes, the **Reference** dropdown selects which image layer to
-extract signals from. It defaults to **All image layers**, which plots each layer as a
-separate line (distinguished by line style).
+The **Reference** dropdown applies to all live source types. **All image layers**
+creates separate traces for each eligible reference. Selecting one recording disables
+other references without deleting their identities or settings.
+
+Each recording has a configurable base signal colour, with tonal variants for its
+points and labels. Recording and source names in the legend identify each trace.
+Renaming layers does not change identities or colours. Signal colours are independent
+of image colormaps and Points/Labels appearance.
 
 ### Axis parameters
 
@@ -178,12 +190,18 @@ separate line (distinguished by line style).
 ### Managing signals
 
 Click **Manage Signals** to open a floating dialog where you can customize both live
-signals (from the current source mode) and imported signals:
+signals, optional pinned snapshots, and imported signals:
 
 - **Rename**: Double-click a signal's name to edit it.
-- **Recolor**: Click the color swatch to pick a new color. Changes are synced back to
-  the napari layer (point face color or label colormap).
-- **Show / Hide**: Toggle individual signal visibility with the checkbox.
+- **Base signal colour**: Select a recording and configure its default signal colour.
+- **Recolor**: Override an individual trace's colour without changing any layer colormap.
+- **Show / Hide**: Toggle plot visibility without changing extraction or FC seed selection.
+- **Enable / Disable source**: Suspend extraction while retaining its settings.
+- **Remove source**: Unregister a Points/Labels layer without deleting it or its snapshots.
+
+Use **Pin** in the plot toolbar to snapshot plotted raw values. Pinning is optional:
+live traces can seed FC directly. Mouse snapshots distinguish recording, voxel position
+and radius. Stored snapshots survive edits and removal of their live source.
 
 ### Importing and exporting signals
 
@@ -199,6 +217,30 @@ signals (from the current source mode) and imported signals:
 **Export**
 : Click the **Export** button in the plot toolbar to export all currently plotted
   signals—both live and imported—to a CSV or TSV file.
+
+## Functional Connectivity Panel
+
+Select both a **Target recording** and an explicit **Seed trace**, then click
+**Compute map**. Every live seed choice identifies its source item and reference
+recording. Hidden traces remain selectable; unavailable or disabled sources cannot
+supply a map. No seed is chosen implicitly.
+
+The mouse radius is configured in Signals, not separately in FC. After computation,
+Shift-hover, point movement, label painting, radius changes and time-window changes
+update the selected map automatically. Changing the seed or target requires another
+explicit **Compute map** action. Missing or disabled sources pause updates and mark
+the map stale; they never cause a substitute seed to be selected.
+
+When the target differs from the seed reference, FC correlates the **reference
+recording's trace** against the target voxels. It does not re-extract the ROI from the
+target. Seed values are aligned to actual target time coordinates within the selected
+window, with no extrapolation. Live seed and target time units must match. Imported
+signals must express time in the target's units. FC currently requires time-bearing
+3D recordings without pose or extra dimensions.
+
+Preprocessing live ROI confounds retain their separate meaning: each selected ROI is
+extracted from the preprocessing input recording, as indicated by **from input** in
+the selection list. Confound and sample-mask selections survive signal renames.
 
 ## Events Panel
 

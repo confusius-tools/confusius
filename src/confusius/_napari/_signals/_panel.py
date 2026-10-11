@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, cast
 import napari
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
-    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDockWidget,
@@ -17,7 +16,6 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QRadioButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -65,14 +63,11 @@ class SignalPanel(QWidget):
         self._signals_store = (
             signal_store if signal_store is not None else SignalStore(self)
         )
+        self._live_sources = self._signals_store.live_sources(viewer)
         self._cached_xaxis_dim_index: int | None = None
         self._setup_ui()
-        # Construct (but don't dock) the plotter immediately: live-signal
-        # extraction/registration happens as part of its rendering, so e.g.
-        # painting a Labels layer must register/update live signals in the shared
-        # store even if "Show Signal Plot" was never clicked.
-        self._ensure_plotter_instance()
-        self._sync_source_to_plotter()
+        self._live_sources.sources_changed.connect(self._sync_source_controls)
+        self._sync_references()
         viewer.events.theme.connect(self._on_theme_changed)
 
     def _setup_ui(self) -> None:
@@ -81,8 +76,7 @@ class SignalPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        # Source group. A grid keeps the three combos left-aligned in one
-        # column regardless of the leading radio/label text widths.
+        # Align source selectors independently of checkbox label widths.
         source_group = QGroupBox("Source")
         self._source_group = source_group
         source_layout = QGridLayout(source_group)
@@ -90,19 +84,25 @@ class SignalPanel(QWidget):
         source_layout.setVerticalSpacing(4)
         source_layout.setColumnStretch(1, 1)
 
-        self._source_btn_group = QButtonGroup(self)
-
         # Mouse row.
-        self._radio_mouse = QRadioButton("Mouse (Shift + hover)")
-        self._radio_mouse.setChecked(True)
-        self._source_btn_group.addButton(self._radio_mouse, 0)
-        source_layout.addWidget(self._radio_mouse, 0, 0, 1, 3)
+        self._mouse_check = QCheckBox("Mouse (Shift + hover)")
+        self._mouse_check.setChecked(True)
+        source_layout.addWidget(self._mouse_check, 0, 0, 1, 2)
+        self._radius_spin = QDoubleSpinBox()
+        self._radius_spin.setRange(0.0, 1000.0)
+        self._radius_spin.setDecimals(2)
+        self._radius_spin.setSingleStep(0.1)
+        self._radius_spin.setSuffix(" mm")
+        self._radius_spin.setAccessibleName("Shared mouse radius")
+        self._radius_spin.setToolTip(
+            "Shared mouse sphere radius. Zero selects one voxel; FC uses the same trace."
+        )
+        self._radius_spin.valueChanged.connect(self._live_sources.set_radius)
+        source_layout.addWidget(self._radius_spin, 0, 2, 1, 2)
 
-        # Points row. Text is part of the radio button (same pattern as the Mouse row)
-        # so the indicator and label are always flush with no gap.
-        self._radio_points = QRadioButton("Points")
-        self._source_btn_group.addButton(self._radio_points, 1)
-        source_layout.addWidget(self._radio_points, 1, 0)
+        # Each ROI layer can be registered without replacing other sources.
+        self._points_check = QCheckBox("Points")
+        source_layout.addWidget(self._points_check, 1, 0)
         self._points_combo = QComboBox()
         self._points_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -116,12 +116,20 @@ class SignalPanel(QWidget):
             "Points will be visible at all time steps."
         )
         self._new_points_btn.clicked.connect(self._create_points_layer)
-        source_layout.addWidget(self._new_points_btn, 1, 2)
+        source_layout.addWidget(self._new_points_btn, 1, 3)
+        self._add_points_btn = QPushButton("Add")
+        self._add_points_btn.setAccessibleName("Add Points source")
+        self._add_points_btn.setToolTip(
+            "Register the selected Points layer without replacing other sources."
+        )
+        self._add_points_btn.clicked.connect(
+            lambda: self._add_roi_source(self._points_combo.currentData())
+        )
+        source_layout.addWidget(self._add_points_btn, 1, 2)
 
         # Labels row.
-        self._radio_labels = QRadioButton("Labels")
-        self._source_btn_group.addButton(self._radio_labels, 2)
-        source_layout.addWidget(self._radio_labels, 2, 0)
+        self._labels_check = QCheckBox("Labels")
+        source_layout.addWidget(self._labels_check, 2, 0)
         self._labels_combo = QComboBox()
         self._labels_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -135,23 +143,39 @@ class SignalPanel(QWidget):
             "Labels will be visible at all time steps."
         )
         self._new_labels_btn.clicked.connect(self._create_labels_layer)
-        source_layout.addWidget(self._new_labels_btn, 2, 2)
+        source_layout.addWidget(self._new_labels_btn, 2, 3)
+        self._add_labels_btn = QPushButton("Add")
+        self._add_labels_btn.setAccessibleName("Add Labels source")
+        self._add_labels_btn.setToolTip(
+            "Register the selected Labels layer without replacing other sources."
+        )
+        self._add_labels_btn.clicked.connect(
+            lambda: self._add_roi_source(self._labels_combo.currentData())
+        )
+        source_layout.addWidget(self._add_labels_btn, 2, 2)
 
-        # Reference image (enabled in points/labels mode). Spans the "+"
-        # column so its right edge stays flush with the buttons above.
+        # The same reference filter applies to mouse, point and label traces.
         self._ref_label = QLabel("Reference")
-        self._ref_label.setEnabled(False)
+        self._ref_label.setEnabled(True)
         source_layout.addWidget(self._ref_label, 3, 0)
         self._ref_combo = QComboBox()
         self._ref_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
-        self._ref_combo.setEnabled(False)
-        source_layout.addWidget(self._ref_combo, 3, 1, 1, 2)
+        self._ref_combo.setEnabled(True)
+        source_layout.addWidget(self._ref_combo, 3, 1, 1, 3)
 
         layout.addWidget(source_group)
 
-        self._source_btn_group.idToggled.connect(self._on_source_mode_changed)
+        self._mouse_check.toggled.connect(
+            lambda checked: self._on_source_enabled_changed(0, checked)
+        )
+        self._points_check.toggled.connect(
+            lambda checked: self._on_source_enabled_changed(1, checked)
+        )
+        self._labels_check.toggled.connect(
+            lambda checked: self._on_source_enabled_changed(2, checked)
+        )
         self._points_combo.currentTextChanged.connect(self._on_source_selection_changed)
         self._labels_combo.currentTextChanged.connect(self._on_source_selection_changed)
         self._ref_combo.currentTextChanged.connect(self._on_source_selection_changed)
@@ -284,11 +308,12 @@ class SignalPanel(QWidget):
         self._apply_settings()
 
     def _ensure_plotter_instance(self) -> SignalPlotter:
-        """Return the SignalPlotter, constructing it (undocked) on first call.
+        """Return the plot renderer, constructing it on first use.
 
-        Separate from `_ensure_plotter` so live-signal extraction/registration
-        (which happens as part of rendering) works even before the plot dock has
-        ever been shown.
+        Returns
+        -------
+        SignalPlotter
+            Renderer consuming the shared controller.
         """
         if self._plotter is None:
             self._plotter = SignalPlotter(
@@ -360,7 +385,7 @@ class SignalPanel(QWidget):
         # Always sync panel settings to the plotter (covers the case where settings like
         # the x-axis cursor were configured before the plotter was first created).
         self._apply_settings()
-        self._sync_source_to_plotter()
+        self._sync_references()
         if self._cursor_check.isChecked():
             plotter.set_xaxis_cursor(self._current_xaxis_world())
 
@@ -380,7 +405,9 @@ class SignalPanel(QWidget):
     def _show_signals_manager(self) -> None:
         """Show the floating signals manager window."""
         if self._signals_manager is None:
-            self._signals_manager = SignalsManagerDialog(self._signals_store, self)
+            self._signals_manager = SignalsManagerDialog(
+                self._signals_store, self, self._live_sources
+            )
             self._signals_manager.apply_theme(self._viewer.theme)
 
         self._signals_manager.show()
@@ -510,26 +537,15 @@ class SignalPanel(QWidget):
 
             self._ref_combo.addItem("All image layers")
 
-            displayed_dims = set(self._viewer.dims.displayed)
+            references = self._live_sources.references()
             for layer in self._viewer.layers:
                 t = layer._type_string
                 if t == "points":
                     self._points_combo.addItem(layer.name, layer)
                 elif t == "labels":
                     self._labels_combo.addItem(layer.name, layer)
-                elif t == "image" and not getattr(layer, "rgb", False):
-                    # Include layers with at least one non-displayed signal
-                    # dimension so spatial maps (tSNR, CV, ...) are excluded.
-                    da = layer.metadata.get("xarray")
-                    if da is not None:
-                        has_signal_dim = any(
-                            i not in displayed_dims and da.shape[i] > 1
-                            for i in range(da.ndim)
-                        )
-                    else:
-                        has_signal_dim = layer.data.ndim >= 4
-                    if has_signal_dim:
-                        self._ref_combo.addItem(layer.name, layer)
+                elif layer in references:
+                    self._ref_combo.addItem(layer.name, layer)
 
             for combo, prev in (
                 (self._points_combo, cur_points),
@@ -548,44 +564,64 @@ class SignalPanel(QWidget):
         # `inserted` event, this ensures napari has finished setting up the new layer
         # (including computing contrast limits via its async slice worker) before we
         # trigger a canvas redraw in the plotter.
-        QTimer.singleShot(0, self._sync_source_to_plotter)
+        QTimer.singleShot(0, self._sync_references)
 
-    def _on_source_mode_changed(self, btn_id: int, checked: bool) -> None:
-        """Handle radio button toggling between source modes."""
-        if not checked:
-            return
-        is_mouse = btn_id == 0
-        self._points_combo.setEnabled(btn_id == 1)
-        self._labels_combo.setEnabled(btn_id == 2)
-        self._ref_combo.setEnabled(not is_mouse)
-        self._ref_label.setEnabled(not is_mouse)
-        self._sync_source_to_plotter()
+    def _on_source_enabled_changed(self, btn_id: int, checked: bool) -> None:
+        """Enable independent source kinds without deleting registrations.
+
+        Parameters
+        ----------
+        btn_id : int
+            Mouse, Points or Labels control index.
+        checked : bool
+            Whether to enable this source kind.
+        """
+        kind = ("mouse", "point", "label")[btn_id]
+        for source in self._live_sources.sources():
+            if source.kind == kind:
+                self._live_sources.set_enabled(source.id, checked)
+        self._radius_spin.setEnabled(self._mouse_check.isChecked())
+        self._sync_references()
 
     def _on_source_selection_changed(self) -> None:
-        """Handle combo box selection changes."""
-        self._sync_source_to_plotter()
+        """Update the reference filter without adding or deleting ROI sources."""
+        self._sync_references()
 
-    def _sync_source_to_plotter(self) -> None:
-        """Push the current source mode and layer selections to the plotter."""
-        plotter = self._plotter
-        if plotter is None:
-            return
+    def _add_roi_source(self, layer) -> None:
+        """Register the chosen ROI layer without replacing other sources.
 
-        btn_id = self._source_btn_group.checkedId()
-        if btn_id == 1:
-            mode = "points"
-        elif btn_id == 2:
-            mode = "labels"
-        else:
-            mode = "mouse"
+        Parameters
+        ----------
+        layer : napari.layers.Layer, optional
+            Selected Points or Labels layer.
+        """
+        if layer is not None:
+            source_id = self._live_sources.add_source(layer)
+            self._live_sources.set_enabled(source_id, True)
 
+    def _sync_source_controls(self) -> None:
+        """Reflect source enablement changed through the manager."""
+        sources = self._live_sources.sources()
+        for kind, check, combo in (
+            ("mouse", self._mouse_check, None),
+            ("point", self._points_check, self._points_combo),
+            ("label", self._labels_check, self._labels_combo),
+        ):
+            enabled = any(s.kind == kind and s.enabled for s in sources)
+            check.blockSignals(True)
+            check.setChecked(enabled)
+            check.setEnabled(any(s.kind == kind for s in sources))
+            check.blockSignals(False)
+            if combo is not None:
+                combo.setEnabled(True)
+        self._radius_spin.setEnabled(self._mouse_check.isChecked())
+
+    def _sync_references(self) -> None:
+        """Update shared reference configuration independently of plot visibility."""
         ref_layer = self._ref_combo.currentData()
-        plotter.set_ref_layers([ref_layer] if ref_layer is not None else None)
-        plotter.set_points_layer(self._points_combo.currentData())
-        plotter.set_labels_layer(self._labels_combo.currentData())
-
-        # Mode last, triggers a replot with the already-updated layers.
-        plotter.set_source_mode(mode)
+        self._live_sources.set_references(
+            [ref_layer] if ref_layer is not None else None
+        )
 
     def _on_active_layer_changed(self, event) -> None:
         """Handle active layer change to update x-axis dropdown options."""
@@ -695,7 +731,11 @@ class SignalPanel(QWidget):
     def _on_xaxis_changed(self) -> None:
         """Handle x-axis dimension selection change."""
         self._cached_xaxis_dim_index = None
+        dim = self._xaxis_combo.currentText()
+        if dim:
+            self._live_sources.set_display_axis(dim)
         self._apply_settings()
+        self._refresh_source_combos()
 
     def _spatial_info(self) -> tuple[tuple[int, ...], dict[str, Any]] | None:
         """Return the spatial shape and layer geometry of the first signal layer.

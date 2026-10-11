@@ -270,9 +270,10 @@ class ConfUSIusWidget(QWidget):
         # Shared store of BIDS temporal events, used by the event panel, the signal
         # plotter (background shading) and the time overlay (active-event readout).
         self._event_store = EventStore(self)
-        # Shared store of stored/live signals, used by the Signals panel (source of
-        # truth) and the QC panel (adds computed DVARS traces to the signal plot).
+        # Signals, FC and preprocessing share source identity and extraction.
         self._signal_store = SignalStore(self)
+        self._live_sources = self._signal_store.live_sources(self.viewer)
+        self.destroyed.connect(self._live_sources.close)
         self._apply_theme()
         self._setup_ui()
         self.viewer.events.theme.connect(self._on_theme_changed)

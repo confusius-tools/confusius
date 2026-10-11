@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import Qt
@@ -10,10 +11,13 @@ from qtpy.QtGui import QColor, QFont
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QColorDialog,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -28,6 +32,9 @@ from confusius._napari._export import (
 )
 from confusius._napari._signals._store import LiveSignal, SignalStore
 from confusius._napari._theme import get_napari_colors
+
+if TYPE_CHECKING:
+    from confusius._napari._signals._live import LiveSources
 
 _SOURCE_LABELS = {
     "mouse": "Mouse",
@@ -75,17 +82,28 @@ class SignalsManagerDialog(QDialog):
         Shared stored-signals store.
     parent : QWidget | None, optional
         Optional parent widget.
+    live_sources : LiveSources, optional
+        Shared live controller for source enablement, removal and recording colours.
     """
 
-    def __init__(self, store: SignalStore, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        store: SignalStore,
+        parent: QWidget | None = None,
+        live_sources: LiveSources | None = None,
+    ) -> None:
         super().__init__(parent)
         self._store = store
+        self._live_sources = live_sources
         self._updating_table = False
         self.setWindowTitle("Signal Manager")
         self.setModal(False)
         self.resize(720, 360)
         self._setup_ui()
         self._store.changed.connect(self._refresh_table)
+        if live_sources is not None:
+            live_sources.sources_changed.connect(self._refresh_sources)
+            self._refresh_sources()
         self._refresh_table()
 
     def _setup_ui(self) -> None:
@@ -93,6 +111,22 @@ class SignalsManagerDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
+
+        if self._live_sources is not None:
+            self._sources_list = QListWidget()
+            self._sources_list.setMaximumHeight(110)
+            self._sources_list.itemChanged.connect(self._on_source_enabled)
+            layout.addWidget(self._sources_list)
+            source_row = QHBoxLayout()
+            remove_source = QPushButton("Remove source")
+            remove_source.clicked.connect(self._remove_source)
+            source_row.addWidget(remove_source)
+            self._recording_combo = QComboBox()
+            source_row.addWidget(self._recording_combo)
+            base_color = QPushButton("Base signal colour")
+            base_color.clicked.connect(self._choose_base_color)
+            source_row.addWidget(base_color)
+            layout.addLayout(source_row)
 
         button_row = QHBoxLayout()
         self._import_btn = QPushButton("Import")
@@ -146,6 +180,71 @@ class SignalsManagerDialog(QDialog):
         self._table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self._table)
 
+    def _refresh_sources(self) -> None:
+        """Refresh independent source controls and recording colour choices."""
+        controller = self._live_sources
+        if controller is None:
+            return
+        self._sources_list.blockSignals(True)
+        self._sources_list.clear()
+        for source in controller.sources():
+            name = (
+                source.layer.name
+                if source.layer is not None
+                else "Mouse (Shift + hover)"
+            )
+            item = QListWidgetItem(name)
+            item.setData(Qt.ItemDataRole.UserRole, source.id)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked if source.enabled else Qt.CheckState.Unchecked
+            )
+            self._sources_list.addItem(item)
+        self._sources_list.blockSignals(False)
+        current = self._recording_combo.currentData()
+        self._recording_combo.clear()
+        for layer in controller.references():
+            self._recording_combo.addItem(layer.name, layer)
+        index = self._recording_combo.findData(current)
+        if index >= 0:
+            self._recording_combo.setCurrentIndex(index)
+
+    def _on_source_enabled(self, item: QListWidgetItem) -> None:
+        """Apply source enablement without deleting its traces.
+
+        Parameters
+        ----------
+        item : qtpy.QtWidgets.QListWidgetItem
+            Changed source row.
+        """
+        if self._live_sources is not None:
+            self._live_sources.set_enabled(
+                item.data(Qt.ItemDataRole.UserRole),
+                item.checkState() == Qt.CheckState.Checked,
+            )
+
+    def _remove_source(self) -> None:
+        """Remove the selected ROI source, retaining stored snapshots."""
+        item = self._sources_list.currentItem()
+        if item is not None and self._live_sources is not None:
+            try:
+                self._live_sources.remove_source(item.data(Qt.ItemDataRole.UserRole))
+            except ValueError as exc:
+                show_error(str(exc))
+
+    def _choose_base_color(self) -> None:
+        """Configure a recording's signal colour without changing its colormap."""
+        layer = self._recording_combo.currentData()
+        if layer is None or self._live_sources is None:
+            return
+        color = QColorDialog.getColor(
+            QColor(self._live_sources.base_color(layer)),
+            self,
+            "Recording Signal Colour",
+        )
+        if color.isValid():
+            self._live_sources.set_base_color(layer, color.name())
+
     # -- Table refresh --------------------------------------------------------
 
     def _refresh_table(self) -> None:
@@ -197,7 +296,12 @@ class SignalsManagerDialog(QDialog):
         )
         self._table.setCellWidget(row, 2, color_btn)
 
-        source_label = _SOURCE_LABELS.get(signal.source_type, signal.source_type)
+        source_label = signal.default_name or _SOURCE_LABELS.get(
+            signal.source_type, signal.source_type
+        )
+        name_item.setToolTip(signal.display_name)
+        if not signal.enabled or not signal.available:
+            source_label += " (unavailable)"
         source_item = QTableWidgetItem(source_label)
         source_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
         source_item.setData(Qt.ItemDataRole.UserRole, signal.id)
@@ -251,7 +355,7 @@ class SignalsManagerDialog(QDialog):
 
     def _is_live_id(self, signal_id: str) -> bool:
         """Return whether a signal ID belongs to a live signal."""
-        return signal_id.startswith(("mouse-", "point-", "label-"))
+        return self._store.get_live_signal(signal_id) is not None
 
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
         """Apply visibility or name edits back to the store."""
