@@ -38,6 +38,17 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
     return coord.isel(others).values
 
 
+def _rotated_affine(theta_deg: float) -> np.ndarray:
+    """Unit-spacing voxel-to-world affine rotated about world z by `theta_deg`."""
+    theta = np.deg2rad(theta_deg)
+    affine = np.eye(4)
+    affine[1:3, 1:3] = [
+        [np.cos(theta), -np.sin(theta)],
+        [np.sin(theta), np.cos(theta)],
+    ]
+    return affine
+
+
 def _axes(plotter):
     assert plotter.axes is not None
     return plotter.axes
@@ -1764,6 +1775,39 @@ class TestVolumePlotterAddContours:
         mask = self._make_mask(sample_voxeldata_3d, [0, 1])
         with pytest.warns(UserWarning, match="Could not find matching axes"):
             plotter.add_contours(mask, colors="red")
+
+
+class TestPerCallResampleSettings:
+    """`resample_*` are per-call arguments, not plotter state."""
+
+    def test_mixed_dtype_volumes_each_use_their_own_fill(self, matplotlib_pyplot):
+        """Each `add_volume` call resamples with its own `resample_fill_value`.
+
+        The float background is filled with NaN; the int overlay, which cannot
+        hold NaN, falls back to its own default (its minimum) instead.
+        """
+        affine = _rotated_affine(20)
+        background = create_voxeldata(
+            np.ones((1, 12, 12)), dims=("k", "j", "i"), voxel_to_world=affine
+        )
+        labels = create_voxeldata(
+            np.full((1, 12, 12), 3, dtype=np.int32),
+            dims=("k", "j", "i"),
+            voxel_to_world=affine,
+        )
+        plotter = plot_volume(
+            background, slice_mode="z", resample_fill_value=np.nan, show_colorbar=False
+        )
+        plotter.add_volume(labels, show_colorbar=False)
+
+        ax = _axes(plotter).ravel()[0]
+        assert len(ax.collections) == 2
+        background_values = np.ma.filled(
+            ax.collections[0].get_array().astype(float), np.nan
+        )
+        label_values = ax.collections[1].get_array()
+        assert np.isnan(background_values).sum() > 0  # Float band is transparent.
+        npt.assert_array_equal(np.unique(label_values), [3])  # Int band got min=3.
 
 
 class TestRoiHover:

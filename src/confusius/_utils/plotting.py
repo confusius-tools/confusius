@@ -241,7 +241,7 @@ def resample_to_axis_aligned_world_grid(
     data: xr.DataArray,
     *,
     reference: xr.DataArray | None = None,
-    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
     fill_value: float | None = None,
 ) -> xr.DataArray:
     """Resample voxel-to-world data onto an axis-aligned world grid for display.
@@ -255,9 +255,12 @@ def resample_to_axis_aligned_world_grid(
         Axis-aligned world-grid DataArray to reuse as the resampling target.
         If not provided, a new plotting grid is synthesized from `data`'s world
         bounds and per-axis world spacing.
-    interpolation : {"linear", "nearest", "bspline"}, default: "linear"
-        Interpolation method used during resampling. Use `"nearest"` for label/mask
-        data, where blending distinct integer labels together is never meaningful.
+    interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
+        Interpolation method used during resampling. `"auto"` picks `"nearest"` for
+        integer dtype and `"linear"` otherwise (see
+        [`resample_volume`][confusius.registration.resample_volume]). Use
+        `"nearest"` for label/mask data, where blending distinct integer labels
+        together is never meaningful.
     fill_value : float, optional
         Value assigned to voxels outside `data`'s field of view after resampling.
         If not provided, defaults to `float(data.min())` (see

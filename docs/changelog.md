@@ -12,6 +12,19 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`VolumePlotter`][confusius.plotting.VolumePlotter] no longer accepts
+  `resample_interpolation` / `resample_fill_value` in its constructor. They are
+  per-call keyword arguments of
+  [`add_volume`][confusius.plotting.VolumePlotter.add_volume],
+  [`add_stat_map`][confusius.plotting.VolumePlotter.add_stat_map],
+  [`add_composite`][confusius.plotting.VolumePlotter.add_composite] and
+  [`add_contours`][confusius.plotting.VolumePlotter.add_contours], so a plotter
+  mixing float volumes and integer label maps gives each the fill value and
+  interpolation its dtype needs. `plot_volume`, `plot_stat_map`, `plot_composite`,
+  `plot_contours` and the `fusi.plot.*` wrappers expose the same parameters;
+  `resample_interpolation` now defaults to `"auto"` (`"nearest"` for integer
+  dtype, `"linear"` otherwise) instead of `"linear"`
+  ([#497](https://github.com/confusius-tools/confusius/pull/497)).
 - fUSI-BIDS metadata now follows draft v0.0.14: renamed frequency/voltage fields,
   including internal attributes `probe_central_frequency` → `probe_center_frequency`
   and `probe_voltage` → `transmit_voltage`, updated probe/virtual-source validation,
@@ -79,6 +92,14 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`add_contours`][confusius.plotting.VolumePlotter.add_contours] and
+  [`plot_contours`][confusius.plotting.plot_contours] take their own
+  `resample_interpolation` (default `"nearest"`) and `resample_fill_value`
+  (default `0`) instead of inheriting the plotter's, so an integer label map drawn
+  over a volume plotted with `resample_fill_value=np.nan` no longer raises (or,
+  before [#481](https://github.com/confusius-tools/confusius/pull/481), outlined
+  the field of view as a phantom label)
+  ([#497](https://github.com/confusius-tools/confusius/pull/497)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`register_volume`][confusius.registration.register_volume] now raise a `ValueError`
   when `fill_value` cannot be represented as an integer, but `moving` is an

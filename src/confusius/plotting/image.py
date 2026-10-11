@@ -297,7 +297,7 @@ def _resample_to_shared_slice_axis_grid(
     slice_world_dim: str,
     *,
     slice_axis_grid: SliceAxisGrid | None = None,
-    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
     fill_value: float | None = None,
 ) -> tuple[xr.DataArray, SliceAxisGrid | None]:
     """Resample `data` so all 3 spatial axes are world-axis-aligned, for display.
@@ -318,10 +318,12 @@ def _resample_to_shared_slice_axis_grid(
         Shared spacing/origin/count for `slice_world_dim`, established by an
         earlier call on the same plotter. If not provided, derived from `data`'s
         own extent and returned for the caller to reuse on subsequent volumes.
-    interpolation : {"linear", "nearest", "bspline"}, default: "linear"
-        Interpolation method used during resampling. Use `"nearest"` for
-        label/mask data, where blending distinct integer labels together is
-        never meaningful.
+    interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
+        Interpolation method used during resampling. `"auto"` picks `"nearest"`
+        for integer dtype and `"linear"` otherwise (see
+        [`resample_volume`][confusius.registration.resample_volume]). Use
+        `"nearest"` for label/mask data, where blending distinct integer labels
+        together is never meaningful.
     fill_value : float, optional
         Value assigned to voxels outside `data`'s field of view after
         resampling. If not provided, defaults to `float(data.min())` (see
@@ -374,7 +376,7 @@ def _resample_to_planar_world_grid(
     data: xr.DataArray,
     *,
     slice_mode: str,
-    interpolation: Literal["linear", "nearest", "bspline"],
+    interpolation: Literal["auto", "linear", "nearest", "bspline"],
     fill_value: float | None,
 ) -> xr.DataArray:
     """Resample `data` onto an axis-aligned world grid, requiring a flat 2D result.
@@ -400,8 +402,10 @@ def _resample_to_planar_world_grid(
         VoxelData array, oblique or axis-aligned.
     slice_mode : str
         The caller's `slice_mode`, named in the collapse-check error message.
-    interpolation : {"linear", "nearest", "bspline"}
-        Interpolation method used during resampling.
+    interpolation : {"auto", "linear", "nearest", "bspline"}
+        Interpolation method used during resampling. `"auto"` picks `"nearest"`
+        for integer dtype and `"linear"` otherwise (see
+        [`resample_volume`][confusius.registration.resample_volume]).
     fill_value : float, optional
         Value assigned to voxels outside `data`'s field of view after
         resampling. If not provided, defaults to `float(data.min())` (see
@@ -846,22 +850,6 @@ class VolumePlotter:
         upward.
     xincrease : bool, default: True
         Whether the x-axis increases to the right.
-    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
-        Interpolation method used whenever oblique voxel-to-world data is
-        resampled onto the axis-aligned world grid for display -- for the whole
-        array upfront when `slice_mode` is spatial (`"z"`/`"y"`/`"x"`) or any
-        other non-`pose` dim (e.g. `"region"`); per-panel, after slicing, when
-        `slice_mode="pose"` (the only dimension that can vary the underlying
-        voxel-to-world geometry). Applies to
-        [`add_volume`][confusius.plotting.VolumePlotter.add_volume]; mask data passed
-        to [`add_contours`][confusius.plotting.VolumePlotter.add_contours] always
-        resamples with `"nearest"` regardless of this setting, since blending
-        distinct integer labels together is never meaningful.
-    resample_fill_value : float, optional
-        Value assigned to voxels outside the source data's field of view after
-        resampling oblique data. If not provided, defaults to the source data's own
-        minimum value (see
-        [`resample_volume`][confusius.registration.resample_volume]).
     transpose : bool, default: False
         Whether to swap the row/column display dims of each slice panel.
 
@@ -892,8 +880,6 @@ class VolumePlotter:
         fg_color: str | None = None,
         yincrease: bool = False,
         xincrease: bool = True,
-        resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
-        resample_fill_value: float | None = None,
         transpose: bool = False,
     ):
         self.slice_mode = slice_mode
@@ -920,8 +906,6 @@ class VolumePlotter:
         self._axis_xlims: dict[int, tuple[float, float]] = {}
         self._axis_ylims: dict[int, tuple[float, float]] = {}
 
-        self._resample_interpolation = resample_interpolation
-        self._resample_fill_value = resample_fill_value
         self._hover_manager = _HoverManager()
         self._slice_axis_grid: SliceAxisGrid | None = None
 
@@ -929,7 +913,7 @@ class VolumePlotter:
         self,
         slices: list[xr.DataArray],
         *,
-        interpolation: Literal["linear", "nearest", "bspline"] | None = None,
+        interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
         fill_value: float | None = None,
     ) -> list[xr.DataArray]:
         """Regularize each `pose`-faceted panel for world-space display.
@@ -957,12 +941,14 @@ class VolumePlotter:
         ----------
         slices : list of xarray.DataArray
             Per-panel 2D (or 2D-plus-time) slices already `isel`'d along `slice_mode`.
-        interpolation : {"linear", "nearest", "bspline"}, optional
-            Interpolation method for the resample. If not provided, defaults to
-            `self._resample_interpolation`.
+        interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
+            Interpolation method for the resample. `"auto"` picks `"nearest"` for
+            integer dtype and `"linear"` otherwise (see
+            [`resample_volume`][confusius.registration.resample_volume]).
         fill_value : float, optional
             Value assigned to voxels outside the source panel's field of view for
-            the resample. If not provided, defaults to `self._resample_fill_value`.
+            the resample. If not provided, `resample_volume` uses the panel's own
+            minimum.
 
         Returns
         -------
@@ -978,17 +964,13 @@ class VolumePlotter:
         """
         if self.slice_mode != POSE_DIM:
             return slices
-        interp = (
-            self._resample_interpolation if interpolation is None else interpolation
-        )
-        fill = self._resample_fill_value if fill_value is None else fill_value
         resampled = []
         for slice_da in slices:
             grid = _resample_to_planar_world_grid(
                 slice_da,
                 slice_mode=self.slice_mode,
-                interpolation=interp,
-                fill_value=fill,
+                interpolation=interpolation,
+                fill_value=fill_value,
             )
             grid = materialize_axis_aligned_world_grid_for_display(grid)
             world_dims = [d for d in grid.dims if str(d) in WORLD_DIMS]
@@ -1008,7 +990,7 @@ class VolumePlotter:
         slice_coords: Sequence[Hashable],
         *,
         slice_spacing: float | None = None,
-        interpolation: Literal["linear", "nearest", "bspline"] | None = None,
+        interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
         fill_value: float | None = None,
     ) -> tuple[list[xr.DataArray], list[Hashable], str, str]:
         """Extract per-panel slices, resample to world space if requested, and resolve
@@ -1024,12 +1006,13 @@ class VolumePlotter:
             `data`'s own world spacing along `slice_mode`, from
             `_prepare_slice_inputs`. Used as the nearest-neighbour tolerance for
             a spatial `slice_mode`; ignored otherwise.
-        interpolation : {"linear", "nearest", "bspline"}, optional
-            Interpolation method for the resample. If not provided, defaults to
-            `self._resample_interpolation`.
+        interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
+            Interpolation method for the resample. `"auto"` picks `"nearest"` for
+            integer dtype and `"linear"` otherwise (see
+            [`resample_volume`][confusius.registration.resample_volume]).
         fill_value : float, optional
             Value assigned to voxels outside the source panel's field of view. If not
-            provided, defaults to `self._resample_fill_value`.
+            provided, `resample_volume` uses the panel's own minimum.
 
         Returns
         -------
@@ -1272,12 +1255,13 @@ class VolumePlotter:
         self,
         data: xr.DataArray,
         *,
-        interpolation: Literal["linear", "nearest", "bspline"] | None = None,
+        interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
+        fill_value: float | None = None,
     ) -> tuple[xr.DataArray, float | None]:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords.
 
-        Shared by `add_volume`/`add_composite`/`add_contours`. `interpolation` lets a
-        mask force `"nearest"` regardless of `self._resample_interpolation`.
+        Shared by `add_volume`/`add_composite`/`add_contours`; `interpolation` and
+        `fill_value` are the caller's own per-call settings.
 
         Resamples/materializes the whole array up front for every `slice_mode`
         except `pose`; only `pose` can vary the voxel-to-world affine per panel
@@ -1289,9 +1273,14 @@ class VolumePlotter:
         ----------
         data : xarray.DataArray
             VoxelData array to prepare for slicing/display.
-        interpolation : {"linear", "nearest", "bspline"}, optional
-            Interpolation method used for any resample this triggers. If not provided,
-            defaults to `self._resample_interpolation`.
+        interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
+            Interpolation method used for any resample this triggers. `"auto"` picks
+            `"nearest"` for integer dtype and `"linear"` otherwise (see
+            [`resample_volume`][confusius.registration.resample_volume]).
+        fill_value : float, optional
+            Value assigned to voxels outside `data`'s field of view for any resample
+            this triggers. If not provided, `resample_volume` uses `data`'s own
+            minimum.
 
         Returns
         -------
@@ -1329,18 +1318,14 @@ class VolumePlotter:
                 data = data.squeeze(dim=POSE_DIM)
             require_scalar_pose_affine(data, f"slice_mode={self.slice_mode!r}")
 
-        resolved_interpolation = (
-            self._resample_interpolation if interpolation is None else interpolation
-        )
-
         slice_spacing: float | None = None
         if self.slice_mode in WORLD_DIMS:
             data, slice_axis_grid = _resample_to_shared_slice_axis_grid(
                 data,
                 self.slice_mode,
                 slice_axis_grid=self._slice_axis_grid,
-                interpolation=resolved_interpolation,
-                fill_value=self._resample_fill_value,
+                interpolation=interpolation,
+                fill_value=fill_value,
             )
 
             # Capture the slice axis's spec so a later volume/mask on this same plotter
@@ -1365,8 +1350,8 @@ class VolumePlotter:
             data = _resample_to_planar_world_grid(
                 data,
                 slice_mode=self.slice_mode,
-                interpolation=resolved_interpolation,
-                fill_value=self._resample_fill_value,
+                interpolation=interpolation,
+                fill_value=fill_value,
             )
 
         # For `pose`, materializing here (before per-pose `.isel`) would be wrong:
@@ -1570,12 +1555,16 @@ class VolumePlotter:
         slice_coords: Sequence[Hashable],
         dim_row: Hashable,
         dim_col: Hashable,
+        interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
+        fill_value: float | None = None,
     ) -> "tuple[float | None, list[np.ndarray] | None]":
         """Validate and slice a per-voxel `alpha`, or pass a scalar through.
 
         `data` is assumed already processed by `_prepare_slice_inputs`. Returns
         `(alpha, alpha_slices)`: exactly one is non-`None` -- `alpha_slices` for a
         per-voxel DataArray input, the (possibly `None`) scalar `alpha` otherwise.
+        `interpolation` and `fill_value` are `add_volume`'s own per-call resample
+        settings, applied to `alpha` exactly as to `data`.
         """
         if alpha is not None and not isinstance(alpha, (int, float, xr.DataArray)):
             raise TypeError(
@@ -1593,7 +1582,9 @@ class VolumePlotter:
         # unused: `validate_matching_coordinates` below guarantees its coordinates
         # are bit-identical to `data`'s, so extracting it at `data`'s own actual
         # (already-snapped) coordinates always exact-matches, no tolerance needed.
-        alpha, _ = self._prepare_slice_inputs(alpha)
+        alpha, _ = self._prepare_slice_inputs(
+            alpha, interpolation=interpolation, fill_value=fill_value
+        )
         if set(alpha.dims) != set(data.dims):
             raise ValueError(
                 f"`alpha` dims {sorted(str(d) for d in alpha.dims)} do not match "
@@ -1607,7 +1598,9 @@ class VolumePlotter:
                 )
         validate_matching_coordinates(data, alpha, left_name="data", right_name="alpha")
         alpha_da_slices, _ = _extract_slices(alpha, self.slice_mode, slice_coords)
-        alpha_da_slices = self._resample_pose_slices_to_world_grid(alpha_da_slices)
+        alpha_da_slices = self._resample_pose_slices_to_world_grid(
+            alpha_da_slices, interpolation=interpolation, fill_value=fill_value
+        )
         alpha_da_slices = [s.transpose(dim_row, dim_col) for s in alpha_da_slices]
         return None, [s.values for s in alpha_da_slices]
 
@@ -1636,6 +1629,10 @@ class VolumePlotter:
         nrows: int | None = None,
         ncols: int | None = None,
         dpi: int | None = None,
+        resample_interpolation: Literal[
+            "auto", "linear", "nearest", "bspline"
+        ] = "auto",
+        resample_fill_value: float | None = None,
     ) -> "VolumePlotter":
         """Plot or overlay a volume on the axes.
 
@@ -1714,6 +1711,16 @@ class VolumePlotter:
             If not provided, computed automatically.
         dpi : int, optional
             Figure resolution in dots per inch. Ignored when using an existing figure.
+        resample_interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
+            Interpolation method used when resampling oblique (non-axis-aligned)
+            voxel-to-world `data` onto an axis-aligned world grid for display.
+            `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
+            (see [`resample_volume`][confusius.registration.resample_volume]).
+        resample_fill_value : float, optional
+            Value assigned to voxels outside `data`'s field of view after resampling
+            oblique data. If not provided, defaults to `data`'s own minimum value.
+            Must be representable in `data`'s dtype: to fill an integer volume with
+            NaN, cast it to float first.
 
         Returns
         -------
@@ -1734,14 +1741,22 @@ class VolumePlotter:
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
 
-        data, slice_spacing = self._prepare_slice_inputs(data)
+        data, slice_spacing = self._prepare_slice_inputs(
+            data,
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
+        )
 
         if slice_coords is None:
             slice_coords = _default_slice_coords(data, self.slice_mode)
 
         unthresholded_slices, actual_coords, dim_row, dim_col = (
             self._extract_display_slices(
-                data, slice_coords, slice_spacing=slice_spacing
+                data,
+                slice_coords,
+                slice_spacing=slice_spacing,
+                interpolation=resample_interpolation,
+                fill_value=resample_fill_value,
             )
         )
         n_slices = len(unthresholded_slices)
@@ -1751,7 +1766,13 @@ class VolumePlotter:
             return self
 
         alpha, alpha_slices = self._prepare_alpha_slices(
-            alpha, data, slice_coords=slice_coords, dim_row=dim_row, dim_col=dim_col
+            alpha,
+            data,
+            slice_coords=slice_coords,
+            dim_row=dim_row,
+            dim_col=dim_col,
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
         )
 
         norm = _resolve_norm(
@@ -1895,6 +1916,10 @@ class VolumePlotter:
         nrows: int | None = None,
         ncols: int | None = None,
         dpi: int | None = None,
+        resample_interpolation: Literal[
+            "auto", "linear", "nearest", "bspline"
+        ] = "auto",
+        resample_fill_value: float | None = None,
     ) -> "VolumePlotter":
         """Overlay a statistical map on the axes.
 
@@ -2013,6 +2038,16 @@ class VolumePlotter:
         dpi : int, optional
             Figure resolution in dots per inch. Ignored when using an existing
             figure.
+        resample_interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
+            Interpolation method used when resampling oblique (non-axis-aligned)
+            voxel-to-world `stat_map` onto an axis-aligned world grid for display.
+            `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
+            (see [`resample_volume`][confusius.registration.resample_volume]).
+        resample_fill_value : float, optional
+            Value assigned to voxels outside `stat_map`'s field of view after resampling
+            oblique data. If not provided, defaults to `stat_map`'s own minimum value.
+            Must be representable in `stat_map`'s dtype: to fill an integer volume with
+            NaN, cast it to float first.
 
         Returns
         -------
@@ -2064,6 +2099,8 @@ class VolumePlotter:
             nrows=nrows,
             ncols=ncols,
             dpi=dpi,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
         )
 
     def add_composite(
@@ -2087,6 +2124,10 @@ class VolumePlotter:
         nrows: int | None = None,
         ncols: int | None = None,
         dpi: int | None = None,
+        resample_interpolation: Literal[
+            "auto", "linear", "nearest", "bspline"
+        ] = "auto",
+        resample_fill_value: float | None = None,
     ) -> "VolumePlotter":
         """Plot a red/cyan composite of two volumes on the axes.
 
@@ -2175,6 +2216,19 @@ class VolumePlotter:
         dpi : int, optional
             Figure resolution in dots per inch. Ignored when using an existing
             figure.
+        resample_interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
+            Interpolation method used when resampling oblique (non-axis-aligned)
+            voxel-to-world `data1` and `data2` onto an axis-aligned world grid for
+            display. `"auto"` picks `"nearest"` for integer dtype and `"linear"`
+            otherwise (see
+            [`resample_volume`][confusius.registration.resample_volume]). Distinct
+            from `resample` / `resample_kwargs`, which align `data2` onto `data1`'s
+            grid before display.
+        resample_fill_value : float, optional
+            Value assigned to voxels outside `data1`'s and `data2`'s field of view
+            after resampling oblique data. If not provided, defaults to each array's
+            own minimum value. Must be representable in each array's dtype: to fill
+            an integer volume with NaN, cast it to float first.
 
         Returns
         -------
@@ -2219,8 +2273,16 @@ class VolumePlotter:
         # grid above (resample=True) or validated coordinate-identical to it below
         # (resample=False), so data1's spacing is authoritative for both -- data2's
         # own returned spacing is unused.
-        data1, slice_spacing = self._prepare_slice_inputs(data1)
-        data2, _ = self._prepare_slice_inputs(data2)
+        data1, slice_spacing = self._prepare_slice_inputs(
+            data1,
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
+        )
+        data2, _ = self._prepare_slice_inputs(
+            data2,
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
+        )
 
         if not resample:
             if data1.dims != data2.dims:
@@ -2256,8 +2318,16 @@ class VolumePlotter:
         input_slices2, _ = _extract_slices(
             data2, self.slice_mode, slice_coords, slice_spacing=slice_spacing
         )
-        input_slices1 = self._resample_pose_slices_to_world_grid(input_slices1)
-        input_slices2 = self._resample_pose_slices_to_world_grid(input_slices2)
+        input_slices1 = self._resample_pose_slices_to_world_grid(
+            input_slices1,
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
+        )
+        input_slices2 = self._resample_pose_slices_to_world_grid(
+            input_slices2,
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
+        )
 
         if normalize_strategy == "per_volume":
             data1 = data1.copy(data=scale_min_max(data1.values.astype(float)))
@@ -2283,12 +2353,18 @@ class VolumePlotter:
             data2 = data2.copy(data=arr2)
 
         slices1, actual_coords, dim_row, dim_col = self._extract_display_slices(
-            data1, slice_coords, slice_spacing=slice_spacing
+            data1,
+            slice_coords,
+            slice_spacing=slice_spacing,
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
         )
         slices2 = self._resample_pose_slices_to_world_grid(
             _extract_slices(
                 data2, self.slice_mode, slice_coords, slice_spacing=slice_spacing
-            )[0]
+            )[0],
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
         )
         slices2 = [s.transpose(dim_row, dim_col) for s in slices2]
         input_slices1 = [s.transpose(dim_row, dim_col) for s in input_slices1]
@@ -2379,6 +2455,8 @@ class VolumePlotter:
         slice_coords: list[Hashable] | None = None,
         fontsize: float | None = None,
         roi_labels: dict[int, str] | None = None,
+        resample_interpolation: Literal["linear", "nearest", "bspline"] = "nearest",
+        resample_fill_value: float = 0,
         **kwargs,
     ) -> "VolumePlotter":
         """Add mask contours to existing axes.
@@ -2398,8 +2476,8 @@ class VolumePlotter:
               output holds the `mask` coordinate values (e.g., region label).
 
             Drawn on the same display geometry as the plotter's own data -- world
-            space, resampled onto the axis-aligned grid as needed (see
-            [`VolumePlotter`][confusius.plotting.VolumePlotter]).
+            space, resampled onto the axis-aligned grid as needed with
+            `resample_interpolation` / `resample_fill_value` below.
         colors : dict[int | str, str] or str, optional
             Color specification for contour lines.
 
@@ -2432,6 +2510,18 @@ class VolumePlotter:
             voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar. The
             cursor samples the underlying label map directly, so hovering inside
             a closed contour is sufficient — there is no need to be on the line.
+        resample_interpolation : {"linear", "nearest", "bspline"}, default: "nearest"
+            Interpolation method used when resampling an oblique (non-axis-aligned)
+            `mask` onto the axis-aligned world grid for display. Defaults to
+            `"nearest"` because label data is a set of distinct regions:
+            `"linear"` / `"bspline"` would fabricate boundary values matching no
+            real label, and `"auto"` would pick `"linear"` for a float-typed mask.
+        resample_fill_value : float, default: 0
+            Value assigned to voxels outside `mask`'s field of view after resampling
+            oblique data. Defaults to `0`, the background value in both accepted
+            mask formats, so the out-of-FOV band never becomes a label of its own.
+            Must be representable in `mask`'s dtype (see
+            [`resample_volume`][confusius.registration.resample_volume]).
         **kwargs
             Additional keyword arguments passed to
             [`matplotlib.axes.Axes.plot`][matplotlib.axes.Axes.plot].
@@ -2501,6 +2591,8 @@ class VolumePlotter:
                     slice_coords=slice_coords,
                     fontsize=fontsize,
                     roi_labels=resolved_roi_labels or None,
+                    resample_interpolation=resample_interpolation,
+                    resample_fill_value=resample_fill_value,
                     **kwargs,
                 )
             return self
@@ -2508,11 +2600,16 @@ class VolumePlotter:
         # `_prepare_slice_inputs` handles a mask exactly like `add_volume`'s data --
         # it can carry the same extra facet dim as `self.slice_mode` (e.g.
         # "region"), and must land on the same native-vs-world dims as the data it
-        # overlays. `interpolation="nearest"` regardless of
-        # `self._resample_interpolation`: mask/label data is a set of distinct
-        # integer regions, and blending them together (linear/bspline) would
-        # fabricate boundary values that match no real label.
-        mask, slice_spacing = self._prepare_slice_inputs(mask, interpolation="nearest")
+        # overlays. The resample settings are the call's own, never the plotter's:
+        # masks default to `"nearest"` (blending distinct labels fabricates boundary
+        # values) and `fill_value=0` (background in both mask formats; any other
+        # value would become a label outlining the field of view, and NaN is
+        # rejected for integer masks).
+        mask, slice_spacing = self._prepare_slice_inputs(
+            mask,
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
+        )
 
         unique_labels = sorted(
             [label for label in np.unique(mask.values) if label != 0]
@@ -2547,10 +2644,13 @@ class VolumePlotter:
         if slice_coords is None:
             slice_coords = _default_slice_coords(mask, self.slice_mode)
 
-        # Always "nearest" for the per-panel world resample too: mask/label data is a
-        # set of distinct integer regions, never meaningfully blended.
+        # Same per-call settings for the per-panel world resample.
         slices, actual_coords, dim_row, dim_col = self._extract_display_slices(
-            mask, slice_coords, slice_spacing=slice_spacing, interpolation="nearest"
+            mask,
+            slice_coords,
+            slice_spacing=slice_spacing,
+            interpolation=resample_interpolation,
+            fill_value=resample_fill_value,
         )
         n_slices = len(slices)
 
@@ -2740,6 +2840,8 @@ def plot_contours(
     figure: "Figure | None" = None,
     axes: "npt.NDArray[Any] | Axes | None" = None,
     roi_labels: dict[int, str] | None = None,
+    resample_interpolation: Literal["linear", "nearest", "bspline"] = "nearest",
+    resample_fill_value: float = 0,
     **kwargs,
 ) -> VolumePlotter:
     """Plot mask contours as a grid of 2D slice panels.
@@ -2808,6 +2910,18 @@ def plot_contours(
         Mapping from integer label to display name. When provided (or when
         `mask.attrs["roi_labels"]` is populated), hovering the cursor over a
         voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar.
+    resample_interpolation : {"linear", "nearest", "bspline"}, default: "nearest"
+        Interpolation method used when resampling an oblique (non-axis-aligned)
+        `mask` onto the axis-aligned world grid for display. Defaults to
+        `"nearest"` because label data is a set of distinct regions:
+        `"linear"` / `"bspline"` would fabricate boundary values matching no
+        real label, and `"auto"` would pick `"linear"` for a float-typed mask.
+    resample_fill_value : float, default: 0
+        Value assigned to voxels outside `mask`'s field of view after resampling
+        oblique data. Defaults to `0`, the background value in both accepted
+        mask formats, so the out-of-FOV band never becomes a label of its own.
+        Must be representable in `mask`'s dtype (see
+        [`resample_volume`][confusius.registration.resample_volume]).
     **kwargs
         Additional keyword arguments passed to
         [`matplotlib.axes.Axes.plot`][matplotlib.axes.Axes.plot].
@@ -2871,6 +2985,8 @@ def plot_contours(
         slice_coords=slice_coords,
         fontsize=fontsize,
         roi_labels=roi_labels,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
         **kwargs,
     )
 
@@ -2906,7 +3022,7 @@ def plot_volume(
     nrows: int | None = None,
     ncols: int | None = None,
     dpi: int | None = None,
-    resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    resample_interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
     resample_fill_value: float | None = None,
 ) -> VolumePlotter:
     """Plot 2D slices of a volume using matplotlib.
@@ -3020,12 +3136,16 @@ def plot_volume(
         Mapping from integer label to display name. When provided (or when
         `data.attrs["roi_labels"]` is populated), hovering the cursor over a
         voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar.
-    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+    resample_interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
         Interpolation method used when resampling oblique (non-axis-aligned)
         voxel-to-world `data` onto an axis-aligned world grid for display.
+        `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
+        (see [`resample_volume`][confusius.registration.resample_volume]).
     resample_fill_value : float, optional
         Value assigned to voxels outside `data`'s field of view after resampling
         oblique data. If not provided, defaults to `data`'s own minimum value.
+        Must be representable in `data`'s dtype: to fill an integer volume with
+        NaN, cast it to float first.
 
     Returns
     -------
@@ -3090,8 +3210,6 @@ def plot_volume(
         fg_color=fg_color,
         yincrease=yincrease,
         xincrease=xincrease,
-        resample_interpolation=resample_interpolation,
-        resample_fill_value=resample_fill_value,
         transpose=transpose,
     )
 
@@ -3118,6 +3236,8 @@ def plot_volume(
         ncols=ncols,
         dpi=dpi,
         roi_labels=roi_labels,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
     )
 
 
@@ -3148,7 +3268,7 @@ def plot_composite(
     nrows: int | None = None,
     ncols: int | None = None,
     dpi: int | None = None,
-    resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    resample_interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
     resample_fill_value: float | None = None,
 ) -> VolumePlotter:
     """Plot a red/cyan composite of two volumes as a grid of 2D slice panels.
@@ -3252,15 +3372,18 @@ def plot_composite(
         Number of columns in the subplot grid. If not provided, computed automatically.
     dpi : int, optional
         Figure resolution in dots per inch. Ignored when `figure` is provided.
-    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+    resample_interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
         Interpolation method used when resampling oblique (non-axis-aligned)
         voxel-to-world `data1`/`data2` onto an axis-aligned world grid for display.
-        Distinct from `resample_kwargs`, which controls resampling `data2` onto
-        `data1`'s grid for compositing.
+        `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
+        (see [`resample_volume`][confusius.registration.resample_volume]).
+        Distinct from `resample` / `resample_kwargs`, which align `data2` onto
+        `data1`'s grid before display.
     resample_fill_value : float, optional
         Value assigned to voxels outside `data1`/`data2`'s field of view after
         display resampling. If not provided, defaults to each array's own minimum
-        value.
+        value. Must be representable in each array's dtype: to fill an integer
+        volume with NaN, cast it to float first.
 
     Returns
     -------
@@ -3311,8 +3434,6 @@ def plot_composite(
         fg_color=fg_color,
         yincrease=yincrease,
         xincrease=xincrease,
-        resample_interpolation=resample_interpolation,
-        resample_fill_value=resample_fill_value,
         transpose=transpose,
     )
 
@@ -3335,6 +3456,8 @@ def plot_composite(
         nrows=nrows,
         ncols=ncols,
         dpi=dpi,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
     )
 
 
@@ -3371,7 +3494,7 @@ def plot_stat_map(
     nrows: int | None = None,
     ncols: int | None = None,
     dpi: int | None = None,
-    resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    resample_interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
     resample_fill_value: float | None = None,
 ) -> VolumePlotter:
     """Plot a statistical map, optionally over a background volume.
@@ -3523,14 +3646,17 @@ def plot_stat_map(
         Number of columns in the subplot grid. If not provided, computed automatically.
     dpi : int, optional
         Figure resolution in dots per inch. Ignored when `figure` is provided.
-    resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+    resample_interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
         Interpolation method used when resampling oblique (non-axis-aligned)
         voxel-to-world `stat_map`/`bg_volume` onto an axis-aligned world grid for
-        display. Applied to both, since they share one `VolumePlotter`.
+        display. `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
+        (see [`resample_volume`][confusius.registration.resample_volume]).
+        Applied to both `bg_volume` and `stat_map`.
     resample_fill_value : float, optional
         Value assigned to voxels outside `stat_map`/`bg_volume`'s field of view
         after display resampling. If not provided, defaults to each array's own
-        minimum value.
+        minimum value. Must be representable in each array's dtype: to fill an
+        integer volume with NaN, cast it to float first.
 
     Returns
     -------
@@ -3616,8 +3742,6 @@ def plot_stat_map(
             fg_color=fg_color,
             yincrease=yincrease,
             xincrease=xincrease,
-            resample_interpolation=resample_interpolation,
-            resample_fill_value=resample_fill_value,
             transpose=transpose,
         )
 
@@ -3644,6 +3768,8 @@ def plot_stat_map(
         nrows=nrows,
         ncols=ncols,
         dpi=dpi,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
     )
 
 

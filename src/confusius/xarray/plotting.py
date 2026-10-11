@@ -399,7 +399,9 @@ class FUSIPlotAccessor:
         figure: "Figure | None" = None,
         axes: "npt.NDArray[Any] | None" = None,
         dpi: int | None = None,
-        resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+        resample_interpolation: Literal[
+            "auto", "linear", "nearest", "bspline"
+        ] = "auto",
         resample_fill_value: float | None = None,
     ) -> "VolumePlotter":
         """Plot 2D slices of a volume as a matplotlib subplot grid.
@@ -503,13 +505,16 @@ class FUSIPlotAccessor:
         dpi : int, optional
             Figure resolution in dots per inch. Ignored when `figure` is
             provided.
-        resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        resample_interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
             Interpolation method used when resampling oblique (non-axis-aligned)
             voxel-to-world data onto an axis-aligned world grid for display.
+            `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
+            (see [`resample_volume`][confusius.registration.resample_volume]).
         resample_fill_value : float, optional
             Value assigned to voxels outside this DataArray's field of view after
             resampling oblique data. If not provided, defaults to its own minimum
-            value.
+            value. Must be representable in its dtype: to fill an integer volume
+            with NaN, cast it to float first.
 
         Returns
         -------
@@ -706,7 +711,9 @@ class FUSIPlotAccessor:
         nrows: int | None = None,
         ncols: int | None = None,
         dpi: int | None = None,
-        resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+        resample_interpolation: Literal[
+            "auto", "linear", "nearest", "bspline"
+        ] = "auto",
         resample_fill_value: float | None = None,
     ) -> "VolumePlotter":
         """Plot a red/cyan composite of this volume against `other`.
@@ -804,15 +811,18 @@ class FUSIPlotAccessor:
         dpi : int, optional
             Figure resolution in dots per inch. Ignored when `figure` is
             provided.
-        resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        resample_interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
             Interpolation method used when resampling oblique (non-axis-aligned)
             voxel-to-world data onto an axis-aligned world grid for display.
-            Distinct from `resample_kwargs`, which controls resampling `other`
-            onto this DataArray's grid for compositing.
+            `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
+            (see [`resample_volume`][confusius.registration.resample_volume]).
+            Distinct from `resample` / `resample_kwargs`, which align `other` onto
+            this DataArray's grid before display.
         resample_fill_value : float, optional
             Value assigned to voxels outside this DataArray's/`other`'s field of
             view after display resampling. If not provided, defaults to each
-            array's own minimum value.
+            array's own minimum value. Must be representable in each array's
+            dtype: to fill an integer volume with NaN, cast it to float first.
 
         Returns
         -------
@@ -895,7 +905,9 @@ class FUSIPlotAccessor:
         nrows: int | None = None,
         ncols: int | None = None,
         dpi: int | None = None,
-        resample_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+        resample_interpolation: Literal[
+            "auto", "linear", "nearest", "bspline"
+        ] = "auto",
         resample_fill_value: float | None = None,
     ) -> "VolumePlotter":
         """Plot this statistical map, optionally over `bg_volume`.
@@ -1048,14 +1060,17 @@ class FUSIPlotAccessor:
             automatically.
         dpi : int, optional
             Figure resolution in dots per inch. Ignored when `figure` is provided.
-        resample_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        resample_interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
             Interpolation method used when resampling oblique (non-axis-aligned)
             voxel-to-world data/`bg_volume` onto an axis-aligned world grid for
-            display. Applied to both, since they share one `VolumePlotter`.
+            display. `"auto"` picks `"nearest"` for integer dtype and `"linear"` otherwise
+            (see [`resample_volume`][confusius.registration.resample_volume]).
+            Applied to both `bg_volume` and this DataArray.
         resample_fill_value : float, optional
             Value assigned to voxels outside this DataArray's/`bg_volume`'s field
             of view after display resampling. If not provided, defaults to each
-            array's own minimum value.
+            array's own minimum value. Must be representable in each array's
+            dtype: to fill an integer volume with NaN, cast it to float first.
 
         Returns
         -------
