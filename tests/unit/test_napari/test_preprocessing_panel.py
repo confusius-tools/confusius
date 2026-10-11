@@ -23,7 +23,7 @@ from confusius._napari._preprocessing._panel import (
 )
 from confusius._napari._signals._store import LiveSignal, StoredSignal
 from confusius.plotting import plot_napari
-from confusius.signal import clean
+from confusius.signal import clean, standardize
 from confusius.spatial import smooth_volume
 from confusius.timing import resample_to_uniform_time
 
@@ -147,6 +147,157 @@ def test_rename_preserves_no_compcor_mask(viewer, panel):
     assert combo.currentText() == text
     assert combo.currentData() is None
     assert combo.findText(mask.name) >= 0
+
+
+class TestRedesignedControls:
+    def test_layer_changes_preserve_custom_resampling_step(
+        self, viewer, panel, sample_voxeldata_3dt
+    ):
+        source = viewer.add_image(
+            sample_voxeldata_3dt.values,
+            name="source",
+            metadata={"xarray": sample_voxeldata_3dt},
+        )
+        panel._resample_mode_combo.setCurrentText("Uniform grid")
+        panel._resample_step_spin.setValue(0.2)
+        source.name = "renamed"
+        other = viewer.add_labels(np.zeros((2, 3, 4), dtype=np.uint8))
+        viewer.layers.remove(other)
+        assert panel._resample_step_spin.value() == pytest.approx(0.2)
+        second = sample_voxeldata_3dt.assign_coords(
+            time=sample_voxeldata_3dt.time.values * 2
+        )
+        viewer.add_image(second.values, name="second", metadata={"xarray": second})
+        panel._source_combo.setCurrentText("second")
+        assert panel._resample_step_spin.value() == pytest.approx(1.0)
+
+    def test_filter_range_tracks_effective_time_grid(
+        self, viewer, panel, sample_voxeldata_3dt
+    ):
+        viewer.add_image(
+            sample_voxeldata_3dt.values,
+            name="source",
+            metadata={"xarray": sample_voxeldata_3dt},
+        )
+        panel._high_cutoff_check.setChecked(True)
+        assert panel._filter_slider.maximum() == pytest.approx(1.0)
+        assert 0 < panel._high_cutoff_spin.value() < 1.0
+        panel._resample_mode_combo.setCurrentText("Uniform grid")
+        panel._resample_step_spin.setValue(0.25)
+        assert panel._filter_slider.maximum() == pytest.approx(2.0)
+        reference = sample_voxeldata_3dt.assign_coords(
+            time=sample_voxeldata_3dt.time.values * 2
+        )
+        viewer.add_image(
+            reference.values, name="reference", metadata={"xarray": reference}
+        )
+        panel._resample_reference_combo.setCurrentText("reference")
+        panel._resample_mode_combo.setCurrentText("Match reference layer")
+        assert panel._filter_slider.maximum() == pytest.approx(0.5)
+        assert panel._high_cutoff_spin.value() < 0.5
+
+    @pytest.mark.parametrize(
+        "low_enabled, high_enabled", [(True, True), (True, False), (False, True)]
+    )
+    def test_filter_slider_and_spinboxes_stay_synchronized(
+        self, viewer, panel, sample_voxeldata_3dt, low_enabled, high_enabled
+    ):
+        viewer.add_image(
+            sample_voxeldata_3dt.values, metadata={"xarray": sample_voxeldata_3dt}
+        )
+        panel._low_cutoff_check.setChecked(low_enabled)
+        panel._high_cutoff_check.setChecked(high_enabled)
+        panel._filter_slider.setValue((0.1, 0.4))
+        kwargs = panel._build_clean_kwargs()
+        assert kwargs["low_cutoff"] == (pytest.approx(0.1) if low_enabled else None)
+        assert kwargs["high_cutoff"] == (pytest.approx(0.4) if high_enabled else None)
+        if low_enabled:
+            panel._low_cutoff_spin.setValue(0.2)
+            assert panel._filter_slider.value()[0] == pytest.approx(0.2)
+        else:
+            assert panel._filter_slider.value()[0] == 0.0
+        if not high_enabled:
+            assert panel._filter_slider.value()[1] == panel._filter_slider.maximum()
+        panel._low_cutoff_check.setChecked(False)
+        panel._high_cutoff_check.setChecked(False)
+        assert not panel._filter_slider.isEnabled()
+
+    def test_filter_bounds_cannot_cross(self, viewer, panel, sample_voxeldata_3dt):
+        viewer.add_image(
+            sample_voxeldata_3dt.values, metadata={"xarray": sample_voxeldata_3dt}
+        )
+        panel._low_cutoff_check.setChecked(True)
+        panel._high_cutoff_check.setChecked(True)
+        panel._high_cutoff_spin.setValue(0.1)
+        panel._low_cutoff_spin.setValue(0.5)
+        assert (
+            0 < panel._low_cutoff_spin.value() < panel._high_cutoff_spin.value() < 1.0
+        )
+
+    def test_empty_confounds_and_optional_scrub_controls(self, panel, signals_store):
+        assert panel._confounds_placeholder.isVisibleTo(panel)
+        assert not panel._confounds_list.isVisibleTo(panel)
+        assert not panel._scrub_options.isVisibleTo(panel)
+        signal = signals_store.pin_signal(
+            origin="mask",
+            name="keep",
+            x=np.arange(10, dtype=float),
+            y=np.ones(10),
+            color="#000000",
+            source_label="test",
+        )
+        assert panel._confounds_list.isVisibleTo(panel)
+        assert not panel._confounds_placeholder.isVisibleTo(panel)
+        panel._mask_combo.setCurrentText(signal.name)
+        assert panel._scrub_options.isVisibleTo(panel)
+        signals_store.remove_signals([signal.id])
+        assert not panel._scrub_options.isVisibleTo(panel)
+        assert panel._confounds_placeholder.isVisibleTo(panel)
+
+    @pytest.mark.parametrize("single_slice", [False, True])
+    def test_create_compcor_mask_matches_source_geometry(
+        self, viewer, panel, sample_voxeldata_3dt, single_slice
+    ):
+        assert not panel._new_compcor_mask_btn.isEnabled()
+        source = sample_voxeldata_3dt
+        if single_slice:
+            source = source.isel(k=slice(0, 1))
+        _, image = plot_napari(
+            source, viewer=viewer, show_colorbar=False, show_scale_bar=False
+        )
+        assert panel._new_compcor_mask_btn.isEnabled()
+        panel._new_compcor_mask_btn.click()
+        mask = panel._compcor_mask_combo.currentData()
+        assert mask is viewer.layers[-1]
+        assert mask.name == f"{image.name} — noise mask"
+        assert mask._type_string == "labels"
+        np.testing.assert_array_equal(
+            mask.data, np.zeros(source.shape[1:], dtype=np.int32)
+        )
+        np.testing.assert_allclose(mask.scale, image.scale[1:])
+        np.testing.assert_allclose(mask.translate, image.translate[1:])
+        assert mask.metadata["xarray"].dims == ("k", "j", "i")
+        np.testing.assert_allclose(
+            mask.metadata["xarray"].fusi.affine.voxel_to_world,
+            source.fusi.affine.voxel_to_world,
+        )
+        viewer.layers.remove(image)
+        assert not panel._new_compcor_mask_btn.isEnabled()
+
+    def test_compcor_is_collapsed_and_busy_layout_is_stable(self, panel):
+        assert not panel._compcor_group.isVisibleTo(panel)
+        panel._compcor_toggle.setChecked(True)
+        assert "snapshots" in panel._compcor_btn.toolTip()
+        assert panel._compcor_group.isVisibleTo(panel)
+        size = panel.minimumSizeHint()
+        panel._begin_work(panel._compcor_btn)
+        assert panel.minimumSizeHint() == size
+        panel._end_work()
+        panel._compcor_toggle.setChecked(False)
+        size = panel.minimumSizeHint()
+        panel._begin_work(panel._apply_btn)
+        assert panel.minimumSizeHint() == size
+        panel._end_work()
 
 
 class TestReferenceCombo:
@@ -798,8 +949,9 @@ class TestApplyEndToEnd:
         peak = float(np.nanmax(np.abs(expected.values)))
         assert new_layer.contrast_limits == pytest.approx([-peak, peak], rel=1e-5)
 
+    @pytest.mark.parametrize("method", ["zscore", "psc"])
     def test_full_pipeline_order_matches_chained_direct_calls(
-        self, qtbot, viewer, panel, sample_voxeldata_3dt
+        self, qtbot, viewer, panel, sample_voxeldata_3dt, method
     ):
         plot_napari(
             sample_voxeldata_3dt,
@@ -818,6 +970,9 @@ class TestApplyEndToEnd:
 
         panel._detrend_check.setChecked(True)
         panel._detrend_order_spin.setValue(1)
+        panel._standardize_combo.setCurrentText(
+            "Z-score" if method == "zscore" else "Percent signal change"
+        )
 
         panel._apply()
         qtbot.waitUntil(lambda: len(viewer.layers) == 2, timeout=5000)
@@ -826,9 +981,8 @@ class TestApplyEndToEnd:
         resampled = resample_to_uniform_time(
             sample_voxeldata_3dt, start=None, stop=None, step=0.25, method="linear"
         )
-        smoothed = smooth_volume(resampled, fwhm=0.4, ensure_finite=False)
-        expected = clean(
-            smoothed,
+        denoised = clean(
+            resampled,
             detrend_order=1,
             standardize_method=None,
             low_cutoff=None,
@@ -846,9 +1000,39 @@ class TestApplyEndToEnd:
             sample_mask=None,
             interpolate_method="linear",
         )
+        if method == "psc":
+            denoised = denoised + resampled.mean("time")
+        expected = standardize(
+            smooth_volume(denoised, fwhm=0.4, ensure_finite=False), method=method
+        )
         np.testing.assert_allclose(
             new_layer.data, expected.values, rtol=1e-5, atol=1e-8
         )
+        if method == "zscore":
+            wrong_order = smooth_volume(
+                standardize(denoised, method=method), fwhm=0.4, ensure_finite=False
+            )
+            assert not np.allclose(expected.values, wrong_order.values)
+
+    def test_non_finite_repair_precedes_spatial_smoothing(
+        self, qtbot, viewer, panel, sample_voxeldata_3dt
+    ):
+        source = sample_voxeldata_3dt.copy(deep=True)
+        source.values[3, 1, 2, 3] = np.nan
+        plot_napari(source, viewer=viewer, show_colorbar=False, show_scale_bar=False)
+        panel._ensure_finite_check.setChecked(True)
+        panel._smooth_enable_check.setChecked(True)
+        panel._smooth_fwhm_spin.setValue(0.4)
+        panel._apply()
+        qtbot.waitUntil(lambda: len(viewer.layers) == 2, timeout=5000)
+        expected = smooth_volume(
+            clean(source, detrend_order=None, ensure_finite=True), fwhm=0.4
+        )
+        wrong_order = clean(
+            smooth_volume(source, fwhm=0.4), detrend_order=None, ensure_finite=True
+        )
+        np.testing.assert_allclose(viewer.layers[-1].data, expected.values)
+        assert not np.allclose(expected.values, wrong_order.values)
 
     def test_imported_confound_matches_direct_clean_call(
         self, qtbot, viewer, panel, signals_store, sample_voxeldata_3dt
@@ -1093,9 +1277,24 @@ class TestComputeCompcor:
     """
 
     def test_matches_direct_compute_compcor_confounds_call(
-        self, qtbot, viewer, panel, signals_store, sample_voxeldata_3dt
+        self, qtbot, viewer, panel, signals_store, sample_voxeldata_3dt, monkeypatch
     ):
         from confusius.signal import compute_compcor_confounds
+
+        notifications = []
+        monkeypatch.setattr(
+            "confusius._napari._preprocessing._panel.show_info", notifications.append
+        )
+        for name in ("motion", "unselected"):
+            signals_store.pin_signal(
+                origin=name,
+                name=name,
+                x=sample_voxeldata_3dt.time.values,
+                y=np.arange(10, dtype=float),
+                color="#000000",
+                source_label="test",
+            )
+        _check_confound(panel, "motion")
 
         plot_napari(
             sample_voxeldata_3dt,
@@ -1111,19 +1310,32 @@ class TestComputeCompcor:
         panel._source_combo.setCurrentText("power_doppler")
         panel._compcor_mask_combo.setCurrentText("wm")
         panel._compcor_components_spin.setValue(2)
+        panel._smooth_enable_check.setChecked(True)
+        panel._smooth_fwhm_spin.setValue(0.4)
+        panel._resample_mode_combo.setCurrentText("Uniform grid")
+        panel._resample_step_spin.setValue(0.25)
+        panel._compcor_variance_check.setChecked(True)
+        panel._compcor_variance_spin.setValue(50.0)
 
         panel._compute_compcor()
-        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 2, timeout=20000)
+        qtbot.waitUntil(lambda: len(signals_store.stored_signals()) == 4, timeout=20000)
 
         noise_mask = xr.zeros_like(
             sample_voxeldata_3dt.isel(time=0, drop=True), dtype=bool
         )
         noise_mask.values[:2] = True
         expected = compute_compcor_confounds(
-            sample_voxeldata_3dt, noise_mask=noise_mask, n_components=2
+            resample_to_uniform_time(sample_voxeldata_3dt, step=0.25),
+            noise_mask=noise_mask,
+            variance_threshold=0.5,
+            n_components=2,
         )
 
-        stored = {s.name: s for s in signals_store.stored_signals()}
+        stored = {
+            s.name: s
+            for s in signals_store.stored_signals()
+            if s.name.startswith("CompCor")
+        }
         assert set(stored) == {
             "CompCor 0 (power_doppler)",
             "CompCor 1 (power_doppler)",
@@ -1133,6 +1345,11 @@ class TestComputeCompcor:
             expected.isel(component=0).values,
             rtol=1e-5,
         )
+        assert set(panel._selected_confound_names()) == {"motion", *stored}
+        assert panel._confound_count_label.text() == "3 confounds selected"
+        assert notifications == [
+            "Computed 2 CompCor components from power_doppler; selected as confounds."
+        ]
 
     def test_recomputing_with_fewer_components_drops_stale_signals(
         self, qtbot, viewer, panel, signals_store, sample_voxeldata_3dt
