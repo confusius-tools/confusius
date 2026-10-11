@@ -159,6 +159,12 @@ Released 2026-10-13.
 
 ### :frame_photo: Napari plugin
 
+- Signals and FC now share live mouse, point and label sources without requiring
+  pinning. Sources can be enabled independently, mouse traces support a shared
+  physical radius, and FC seeds explicitly identify their reference recording.
+  Signal colours are configurable per recording and survive renames, while active
+  maps refresh after ROI edits and align seeds by actual time coordinates
+  ([#496](https://github.com/confusius-tools/confusius/pull/496)).
 - Renaming a layer now immediately updates selectors in Registration, Signals,
   Quality Control, Video, and Data → Save without changing the selected layer
   ([#493](https://github.com/confusius-tools/confusius/pull/493)).
