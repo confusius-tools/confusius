@@ -20,6 +20,7 @@ from ._pepe_mariani_2026_bids import _BIDS_ROOT as _pepe_mariani_2026_bids_root
 from ._pepe_mariani_2026_bids import _TOTAL_SIZE_BYTES as _pepe_mariani_2026_bids_size
 from ._pereira_2025 import _BIDS_ROOT as _pereira_2025_bids_root
 from ._pereira_2025 import _TOTAL_SIZE_BYTES as _pereira_2025_size
+from ._s3 import _INDEX_FILENAME
 from ._utils import get_datasets_dir
 
 _SIZE_UNITS = ("B", "KB", "MB", "GB", "TB")
@@ -124,7 +125,7 @@ def list_datasets(data_dir: str | Path | None = None) -> None:
 
     for fetcher_name, size_bytes, root_dirname in _REGISTRY:
         path = datasets_dir / root_dirname
-        is_cached = (path / "s3_index.json").is_file()
+        is_cached = (path / _INDEX_FILENAME).is_file()
         table.add_row(
             fetcher_name,
             _format_bytes(size_bytes),
