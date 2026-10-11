@@ -12,7 +12,7 @@ import numpy as np
 import xarray as xr
 from napari.layers import Layer
 from napari.qt.threading import thread_worker
-from napari.utils.notifications import show_error
+from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -28,11 +28,13 @@ from qtpy.QtWidgets import (
     QListWidgetItem,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
+from superqt import QDoubleRangeSlider
 
 from confusius._dims import TIME_DIM
 from confusius._napari._signals._store import LiveSignal, SignalStore
@@ -43,14 +45,14 @@ from confusius._napari._utils import (
 )
 from confusius._utils.coordinates import get_representative_step
 from confusius.plotting.napari import plot_napari
-from confusius.signal import clean, compute_compcor_confounds
+from confusius.signal import clean, compute_compcor_confounds, standardize
 from confusius.spatial import smooth_volume
 from confusius.timing import resample_time, resample_to_uniform_time
 
 _SPIN_WIDTH = 70
 """Maximum width, in pixels, for compact numeric spin boxes (small integers)."""
 
-_SPIN_WIDTH_WIDE = 92
+_SPIN_WIDTH_WIDE = 120
 """Maximum width, in pixels, for spin boxes showing decimals (cutoffs, tolerance,
 pad length) — wide enough to read the value while typing without forcing the
 sidebar wider than the napari dock.
@@ -161,11 +163,10 @@ def _run_pipeline(
     confounds_raw: list[_RawSignal],
     mask_raw: _MaskSpec | None,
 ) -> xr.DataArray:
-    """Run temporal resampling, spatial smoothing, and signal cleaning.
+    """Resample, denoise, spatially smooth, then standardize signals.
 
-    Runs in a background thread, in that order, so temporal filtering (which
-    requires uniformly-sampled time) always sees a regular grid when resampling is
-    requested.
+    Runs in a background thread. Resampling precedes temporal filtering so the
+    latter sees a regular grid when resampling is requested.
 
     Parameters
     ----------
@@ -195,7 +196,9 @@ def _run_pipeline(
     xarray.DataArray
         Fully processed signals.
     """
-    signals = _resample_and_smooth(signals, resample_spec, smooth_kwargs)
+    signals = _resample(signals, resample_spec)
+    standardize_method = clean_kwargs.pop("standardize_method", None)
+    original_mean = signals.mean(dim=TIME_DIM) if standardize_method == "psc" else None
 
     if confounds_raw:
         aligned_confounds = [_align_series(x, y, signals) for x, y in confounds_raw]
@@ -204,7 +207,17 @@ def _run_pipeline(
         aligned = _align_series(mask_raw.x, mask_raw.y, signals)
         clean_kwargs["sample_mask"] = _threshold_mask(aligned, mask_raw)
 
-    return clean(signals, **clean_kwargs)
+    signals = clean(signals, standardize_method=None, **clean_kwargs)
+    # Preserve clean()'s PSC baseline restoration before smoothing that baseline.
+    if original_mean is not None and (
+        np.abs(signals.mean(dim=TIME_DIM)).mean() / np.abs(original_mean).mean() < 1e-1
+    ):
+        signals = signals + original_mean
+    if smooth_kwargs is not None:
+        signals = smooth_volume(signals, **smooth_kwargs)
+    if standardize_method is not None:
+        signals = standardize(signals, method=standardize_method)
+    return signals
 
 
 def _threshold_mask(aligned: xr.DataArray, mask_raw: _MaskSpec) -> xr.DataArray:
@@ -232,16 +245,23 @@ def _threshold_mask(aligned: xr.DataArray, mask_raw: _MaskSpec) -> xr.DataArray:
     return aligned.copy(data=boolean)
 
 
-def _resample_and_smooth(
+def _resample(
     signals: xr.DataArray,
     resample_spec: tuple[str, dict] | None,
-    smooth_kwargs: dict | None,
 ) -> xr.DataArray:
-    """Apply the panel's temporal resampling and spatial smoothing steps.
+    """Apply temporal resampling before denoising or CompCor extraction.
 
-    Shared by `_run_pipeline` and `_run_compcor` so CompCor components are
-    always extracted from the same resampled/smoothed stage the main signals
-    are cleaned from.
+    Parameters
+    ----------
+    signals : xarray.DataArray
+        Source VoxelData array.
+    resample_spec : tuple[str, dict], optional
+        Resampling mode and arguments. If not provided, keep the original grid.
+
+    Returns
+    -------
+    xarray.DataArray
+        Signals on the requested time grid.
     """
     if resample_spec is not None:
         mode, kwargs = resample_spec
@@ -250,9 +270,6 @@ def _resample_and_smooth(
         else:
             method = cast(_ResampleMethod, kwargs["method"])
             signals = resample_time(signals, kwargs["new_time"], method=method)
-
-    if smooth_kwargs is not None:
-        signals = smooth_volume(signals, **smooth_kwargs)
 
     return signals
 
@@ -322,21 +339,18 @@ def _compcor_subprocess(
 def _run_compcor(
     signals: xr.DataArray,
     resample_spec: tuple[str, dict] | None,
-    smooth_kwargs: dict | None,
     noise_mask: xr.DataArray | None,
     variance_threshold: float | None,
     n_components: int,
 ) -> Generator[str, None, xr.DataArray]:
-    """Resample/smooth, then extract CompCor noise components.
+    """Resample, then extract CompCor noise components before spatial smoothing.
 
     Parameters
     ----------
     signals : xarray.DataArray
         Source signals to process.
     resample_spec : tuple[str, dict] or None
-        Forwarded to `_resample_and_smooth`.
-    smooth_kwargs : dict, optional
-        Forwarded to `_resample_and_smooth`.
+        Forwarded to `_resample`.
     noise_mask : xarray.DataArray, optional
         Forwarded to `confusius.signal.compute_compcor_confounds`.
     variance_threshold : float, optional
@@ -358,8 +372,8 @@ def _run_compcor(
     xarray.DataArray
         `(time, component)` CompCor components.
     """
-    yield "Resampling/smoothing…"
-    signals = _resample_and_smooth(signals, resample_spec, smooth_kwargs)
+    yield "Resampling…"
+    signals = _resample(signals, resample_spec)
 
     yield "Extracting components…"
     # "spawn", not the platform-default "fork" on Linux: this runs on a QThread,
@@ -524,11 +538,9 @@ def _wrap_form(form: QFormLayout) -> QFormLayout:
 class PreprocessingPanel(QWidget):
     """Right-side panel for resampling, smoothing, and cleaning fUSI signals.
 
-    A single "Apply" runs, in order: temporal resampling
-    (`confusius.timing.resample_time` / `confusius.timing.resample_to_uniform_time`,
-    unless "No resampling" is selected), spatial smoothing
-    (`confusius.spatial.smooth_volume`, when enabled), and signal cleaning
-    (`confusius.signal.clean`, always). The pipeline runs in a background thread and
+    A single "Apply" runs temporal resampling, signal denoising (detrending,
+    filtering, censoring, and confound regression), spatial smoothing, then
+    standardization. The pipeline runs in a background thread and
     adds its result to the viewer as a new image layer named
     `"{source layer} — cleaned"`.
 
@@ -550,6 +562,8 @@ class PreprocessingPanel(QWidget):
         # triggered the current background job so _end_work can restore its text.
         self._working_button: QPushButton | None = None
         self._working_button_text = ""
+        self._prefilled_source: Layer | None = None
+        self._filter_nyquist: float | None = None
         self._setup_ui()
 
         viewer.layers.events.inserted.connect(self._refresh_layer_combos)
@@ -568,12 +582,12 @@ class PreprocessingPanel(QWidget):
 
         layout.addWidget(self._make_source_group())
         layout.addWidget(self._make_resample_group())
-        layout.addWidget(self._make_smooth_group())
         layout.addWidget(self._make_detrend_group())
         layout.addWidget(self._make_filter_group())
-        layout.addWidget(self._make_standardize_group())
         layout.addWidget(self._make_confounds_group())
         layout.addWidget(self._make_scrub_group())
+        layout.addWidget(self._make_smooth_group())
+        layout.addWidget(self._make_standardize_group())
 
         self._apply_btn = QPushButton("Apply")
         self._apply_btn.setObjectName("primary_btn")
@@ -583,6 +597,9 @@ class PreprocessingPanel(QWidget):
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)
         self._progress.setMaximumHeight(4)
+        policy = self._progress.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self._progress.setSizePolicy(policy)
         self._progress.hide()
         layout.addWidget(self._progress)
 
@@ -599,7 +616,8 @@ class PreprocessingPanel(QWidget):
         self._source_combo.setToolTip(
             "Image layer to process. Only layers with a 'time' dimension are listed."
         )
-        self._source_combo.currentTextChanged.connect(self._prefill_resample_defaults)
+        self._source_combo.currentIndexChanged.connect(self._prefill_resample_defaults)
+        self._source_combo.currentIndexChanged.connect(self._update_filter_range)
         group_layout.addWidget(self._source_combo)
         return group
 
@@ -628,6 +646,7 @@ class PreprocessingPanel(QWidget):
         self._resample_step_spin.setRange(1e-6, 1e6)
         self._resample_step_spin.setDecimals(4)
         self._resample_step_spin.setValue(0.5)
+        self._resample_step_spin.valueChanged.connect(self._update_filter_range)
         self._resample_step_spin.setToolTip(
             "Uniform time step, in seconds. Prefilled with the source layer's "
             "median temporal spacing."
@@ -645,6 +664,9 @@ class PreprocessingPanel(QWidget):
         self._resample_reference_combo = _narrow_combo(QComboBox(), _COMBO_CHARS_WIDE)
         self._resample_reference_combo.setToolTip(
             "Layer whose time coordinate is used as the new time grid."
+        )
+        self._resample_reference_combo.currentIndexChanged.connect(
+            self._update_filter_range
         )
         reference_form.addRow(_form_label("Reference"), self._resample_reference_combo)
         group_layout.addWidget(self._reference_widget)
@@ -671,7 +693,8 @@ class PreprocessingPanel(QWidget):
         fwhm_row = QHBoxLayout()
         self._smooth_enable_check = QCheckBox("FWHM")
         self._smooth_enable_check.setToolTip(
-            "Whether to apply isotropic Gaussian spatial smoothing before cleaning."
+            "Apply isotropic Gaussian spatial smoothing after denoising, "
+            "before standardization."
         )
         self._smooth_fwhm_spin = _capped_spin(QDoubleSpinBox(), _SPIN_WIDTH_WIDE)
         self._smooth_fwhm_spin.setRange(0.0, 100.0)
@@ -688,7 +711,7 @@ class PreprocessingPanel(QWidget):
         fwhm_row.addStretch()
         group_layout.addLayout(fwhm_row)
 
-        self._smooth_ensure_finite_check = QCheckBox("Interpolate Inf/Nan")
+        self._smooth_ensure_finite_check = QCheckBox("Zero-fill non-finite values")
         self._smooth_ensure_finite_check.setToolTip(
             "Replace non-finite values with zero before filtering, so they don't "
             "spread to neighbouring voxels through the Gaussian kernel."
@@ -757,6 +780,28 @@ class PreprocessingPanel(QWidget):
         self._high_cutoff_check.toggled.connect(self._high_cutoff_spin.setEnabled)
         cutoff_form.addRow(self._high_cutoff_check, self._high_cutoff_spin)
         group_layout.addLayout(cutoff_form)
+
+        self._filter_slider = QDoubleRangeSlider(Qt.Orientation.Horizontal)
+        self._filter_slider.setRange(0.0, 1.0)
+        self._filter_slider.setMinimumWidth(0)
+        self._filter_slider.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+        )
+        self._filter_slider.setEnabled(False)
+        self._filter_slider.setToolTip(
+            "Retained frequency band. Enable either cutoff above; use the spinboxes "
+            "for exact values. Disabled bounds extend to the sampling limits."
+        )
+        self._filter_slider.valuesChanged.connect(self._on_filter_range_changed)
+        group_layout.addWidget(self._filter_slider)
+        self._filter_limit_label = QLabel("Select a source to show the sampling limit.")
+        self._filter_limit_label.setObjectName("confusius_subtitle")
+        self._filter_limit_label.setWordWrap(True)
+        group_layout.addWidget(self._filter_limit_label)
+        for check in (self._low_cutoff_check, self._high_cutoff_check):
+            check.toggled.connect(self._sync_filter_controls)
+        for spin in (self._low_cutoff_spin, self._high_cutoff_spin):
+            spin.valueChanged.connect(self._sync_filter_controls)
 
         # Foldable advanced section, matching the registration panel's pattern
         # (PR #216): a checkable QToolButton with an arrow indicator toggles a
@@ -871,9 +916,31 @@ class PreprocessingPanel(QWidget):
         # Tall enough for a handful of items without eating the whole sidebar;
         # the list itself scrolls once there are more.
         self._confounds_list.setMaximumHeight(110)
+        self._confounds_list.itemSelectionChanged.connect(self._update_confound_count)
         group_layout.addWidget(self._confounds_list)
+        self._confounds_placeholder = QLabel(
+            "Import or pin signals in the Signals tab, or compute CompCor below."
+        )
+        self._confounds_placeholder.setObjectName("confusius_subtitle")
+        self._confounds_placeholder.setWordWrap(True)
+        group_layout.addWidget(self._confounds_placeholder)
+        self._confound_count_label = QLabel("0 confounds selected")
+        self._confound_count_label.setObjectName("confusius_subtitle")
+        group_layout.addWidget(self._confound_count_label)
 
-        group_layout.addWidget(self._make_compcor_subgroup())
+        self._compcor_toggle = QToolButton()
+        self._compcor_toggle.setText("Compute CompCor components")
+        self._compcor_toggle.setCheckable(True)
+        self._compcor_toggle.setAutoRaise(True)
+        self._compcor_toggle.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self._compcor_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self._compcor_toggle.toggled.connect(self._on_compcor_toggled)
+        group_layout.addWidget(self._compcor_toggle)
+        self._compcor_group = self._make_compcor_subgroup()
+        self._compcor_group.hide()
+        group_layout.addWidget(self._compcor_group)
         return group
 
     def _make_compcor_subgroup(self) -> QGroupBox:
@@ -884,7 +951,6 @@ class PreprocessingPanel(QWidget):
         )
         layout = QVBoxLayout(group)
         layout.setSpacing(4)
-
         form = _wrap_form(QFormLayout())
         form.setSpacing(4)
 
@@ -893,19 +959,32 @@ class PreprocessingPanel(QWidget):
             "Labels layer marking the noise region (e.g. white matter or CSF)."
         )
         self._compcor_mask_combo.setToolTip(mask_tooltip)
-        form.addRow(
-            _form_label("Noise mask", tooltip=mask_tooltip), self._compcor_mask_combo
+        mask_row = QHBoxLayout()
+        mask_row.setSpacing(4)
+        mask_row.addWidget(self._compcor_mask_combo, stretch=1)
+        self._new_compcor_mask_btn = QPushButton("+")
+        self._new_compcor_mask_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self._new_compcor_mask_btn.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
         )
+        self._new_compcor_mask_btn.setToolTip(
+            "Create an empty Labels layer aligned to the selected source, "
+            "without a time axis. Paint nonzero labels to mark noise voxels."
+        )
+        self._new_compcor_mask_btn.clicked.connect(self._create_compcor_mask)
+        mask_row.addWidget(self._new_compcor_mask_btn)
+        form.addRow(_form_label("Noise mask", tooltip=mask_tooltip), mask_row)
 
-        self._compcor_variance_check = QCheckBox("Variance threshold")
+        self._compcor_variance_check = QCheckBox("Top-variance voxels")
         self._compcor_variance_spin = _capped_spin(QDoubleSpinBox(), _SPIN_WIDTH_WIDE)
-        self._compcor_variance_spin.setRange(0.001, 0.999)
-        self._compcor_variance_spin.setDecimals(3)
-        self._compcor_variance_spin.setSingleStep(0.01)
-        self._compcor_variance_spin.setValue(0.02)
+        self._compcor_variance_spin.setRange(0.1, 99.9)
+        self._compcor_variance_spin.setDecimals(1)
+        self._compcor_variance_spin.setSingleStep(1.0)
+        self._compcor_variance_spin.setSuffix(" %")
+        self._compcor_variance_spin.setValue(2.0)
         self._compcor_variance_spin.setEnabled(False)
         variance_tooltip = (
-            "Select the top fraction of highest-variance voxels — within the "
+            "Percentage of highest-variance voxels to select — within the "
             "noise mask if one is set, otherwise across the whole volume "
             "(tCompCor)."
         )
@@ -922,10 +1001,13 @@ class PreprocessingPanel(QWidget):
         form.addRow(_form_label("Components"), self._compcor_components_spin)
         layout.addLayout(form)
 
-        self._compcor_btn = QPushButton("Compute CompCor confounds")
+        self._compcor_btn = QPushButton("Compute components")
         self._compcor_btn.setToolTip(
-            "Resample/smooth the source layer (as currently configured above) and "
-            "extract noise components, stored as selectable confound signals."
+            "Resample the source layer (as currently configured above) and "
+            "extract noise components before denoising and spatial smoothing. "
+            "Components are stored snapshots: recompute after changing the source "
+            "or resampling settings. Computed components are selected as confounds; "
+            "deselect any you do not want in the list above."
         )
         self._compcor_btn.clicked.connect(self._compute_compcor)
         layout.addWidget(self._compcor_btn)
@@ -936,6 +1018,9 @@ class PreprocessingPanel(QWidget):
         self._compcor_progress = QProgressBar()
         self._compcor_progress.setRange(0, 0)
         self._compcor_progress.setMaximumHeight(4)
+        policy = self._compcor_progress.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self._compcor_progress.setSizePolicy(policy)
         self._compcor_progress.hide()
         layout.addWidget(self._compcor_progress)
 
@@ -956,6 +1041,12 @@ class PreprocessingPanel(QWidget):
         )
         self._mask_combo.setToolTip(mask_tooltip)
         form.addRow(_form_label("Sample mask", tooltip=mask_tooltip), self._mask_combo)
+        group_layout.addLayout(form)
+        self._mask_combo.currentIndexChanged.connect(self._on_sample_mask_changed)
+        self._scrub_options = QWidget()
+        form = _wrap_form(QFormLayout(self._scrub_options))
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(4)
 
         self._mask_mode_combo = _narrow_combo(QComboBox(), _COMBO_CHARS_WIDE)
         self._mask_mode_combo.addItems(
@@ -994,9 +1085,10 @@ class PreprocessingPanel(QWidget):
             _form_label("Interpolation", tooltip=interp_tooltip),
             self._interpolate_method_combo,
         )
-        group_layout.addLayout(form)
+        group_layout.addWidget(self._scrub_options)
+        self._scrub_options.hide()
 
-        self._ensure_finite_check = QCheckBox("Interpolate Inf/Nan")
+        self._ensure_finite_check = QCheckBox("Interpolate non-finite samples")
         self._ensure_finite_check.setToolTip(
             "Repair non-finite values in the signals (and confounds) by "
             "interpolating along time before cleaning."
@@ -1055,7 +1147,11 @@ class PreprocessingPanel(QWidget):
         finally:
             self._compcor_mask_combo.blockSignals(False)
 
+        self._new_compcor_mask_btn.setEnabled(
+            self._source_combo.currentData() is not None
+        )
         self._prefill_resample_defaults()
+        self._update_filter_range()
 
     def _refresh_signal_combos(self) -> None:
         """Repopulate the confounds list and sample-mask combo from stored/live signals."""
@@ -1066,6 +1162,9 @@ class PreprocessingPanel(QWidget):
             if live.source_type != "mouse"
         ]
 
+        self._confounds_list.setVisible(bool(names))
+        self._confound_count_label.setVisible(bool(names))
+        self._confounds_placeholder.setVisible(not names)
         selected = set(self._selected_confound_names())
         self._confounds_list.clear()
         for name in names:
@@ -1083,21 +1182,20 @@ class PreprocessingPanel(QWidget):
             self._mask_combo.setCurrentIndex(max(index, 0))
         finally:
             self._mask_combo.blockSignals(False)
+        self._on_sample_mask_changed()
 
     def _selected_confound_names(self) -> list[str]:
         """Return the names of every currently selected confound signal."""
         return [item.text() for item in self._confounds_list.selectedItems()]
 
-    def _prefill_resample_defaults(self, _text: str = "") -> None:
-        """Prefill the uniform-grid step from the source layer's median spacing."""
-        layer_name = self._source_combo.currentText()
-        if not layer_name:
+    def _prefill_resample_defaults(self, _index: int = -1) -> None:
+        """Prefill the temporal step only when the selected source changes."""
+        layer = self._source_combo.currentData()
+        if layer is self._prefilled_source:
             return
-        try:
-            layer = self._viewer.layers[layer_name]
-        except KeyError:
+        self._prefilled_source = layer
+        if layer is None:
             return
-
         da = layer.metadata.get("xarray")
         if da is None or TIME_DIM not in da.coords:
             return
@@ -1114,11 +1212,133 @@ class PreprocessingPanel(QWidget):
         self._uniform_widget.setVisible(mode == _UNIFORM_GRID)
         self._reference_widget.setVisible(mode == _MATCH_REFERENCE)
         self._resample_method_widget.setVisible(mode != _NO_RESAMPLING)
+        self._update_filter_range()
+
+    def _update_filter_range(self) -> None:
+        """Limit cutoff controls to frequencies supported by the effective time grid."""
+        mode = self._resample_mode_combo.currentText()
+        step = None
+        if mode == _UNIFORM_GRID:
+            step = self._resample_step_spin.value()
+        else:
+            combo = (
+                self._resample_reference_combo
+                if mode == _MATCH_REFERENCE
+                else self._source_combo
+            )
+            layer = combo.currentData()
+            da = layer.metadata.get("xarray") if layer is not None else None
+            if da is not None and TIME_DIM in da.coords:
+                times = np.asarray(da.coords[TIME_DIM].values)
+                if times.ndim == 1 and len(times) > 1:
+                    step, _ = get_representative_step(times)
+        self._filter_nyquist = None
+        if step is None or not np.isfinite(step) or step <= 0:
+            self._filter_limit_label.setText(
+                "Sampling limit unavailable; select a regular time grid."
+            )
+            self._filter_slider.setEnabled(False)
+            return
+        nyquist = 0.5 / step
+        # Spinboxes round to four decimals; leave both bounds strictly below Nyquist.
+        maximum = np.floor(np.nextafter(nyquist, 0.0) * 1e4) / 1e4
+        if maximum < 0.0002:
+            self._filter_limit_label.setText(
+                "Sampling limit is below the cutoff controls' precision."
+            )
+            self._filter_slider.setEnabled(False)
+            return
+        self._filter_nyquist = nyquist
+        self._filter_limit_label.setText(f"Sampling limit (Nyquist): {nyquist:g} Hz")
+        for spin in (self._low_cutoff_spin, self._high_cutoff_spin):
+            spin.blockSignals(True)
+            spin.setRange(0.0001, maximum)
+            spin.blockSignals(False)
+        self._filter_slider.setRange(0.0, nyquist)
+        self._filter_slider.setSingleStep(0.0001)
+        self._sync_filter_controls()
+
+    def _sync_filter_controls(self) -> None:
+        """Synchronize the passband slider with enabled cutoff spinboxes."""
+        low_enabled = self._low_cutoff_check.isChecked()
+        high_enabled = self._high_cutoff_check.isChecked()
+        if (
+            low_enabled
+            and high_enabled
+            and self._low_cutoff_spin.value() >= self._high_cutoff_spin.value()
+        ):
+            self._low_cutoff_spin.blockSignals(True)
+            self._low_cutoff_spin.setValue(
+                max(0.0001, self._high_cutoff_spin.value() - 0.0001)
+            )
+            self._low_cutoff_spin.blockSignals(False)
+            if self._high_cutoff_spin.value() <= self._low_cutoff_spin.value():
+                self._high_cutoff_spin.blockSignals(True)
+                self._high_cutoff_spin.setValue(self._low_cutoff_spin.value() + 0.0001)
+                self._high_cutoff_spin.blockSignals(False)
+        self._filter_slider.blockSignals(True)
+        self._filter_slider.setValue(
+            (
+                self._low_cutoff_spin.value() if low_enabled else 0.0,
+                self._high_cutoff_spin.value()
+                if high_enabled
+                else self._filter_slider.maximum(),
+            )
+        )
+        self._filter_slider.blockSignals(False)
+        self._filter_slider.setEnabled(
+            (low_enabled or high_enabled) and self._filter_nyquist is not None
+        )
+
+    def _on_filter_range_changed(self, values: tuple[float, float]) -> None:
+        """Update enabled cutoff values after the passband handles move.
+
+        Parameters
+        ----------
+        values : tuple[float, float]
+            Lower and upper slider handle values, in hertz.
+        """
+        for spin, check, value in zip(
+            (self._low_cutoff_spin, self._high_cutoff_spin),
+            (self._low_cutoff_check, self._high_cutoff_check),
+            values,
+            strict=True,
+        ):
+            if check.isChecked():
+                spin.blockSignals(True)
+                spin.setValue(value)
+                spin.blockSignals(False)
+        self._sync_filter_controls()
+
+    def _update_confound_count(self) -> None:
+        """Display how many nuisance signals will be regressed out."""
+        self._confound_count_label.setText(
+            f"{len(self._selected_confound_names())} confounds selected"
+        )
+
+    def _on_compcor_toggled(self, checked: bool) -> None:
+        """Expand or collapse the CompCor generator.
+
+        Parameters
+        ----------
+        checked : bool
+            Whether to show the generator controls.
+        """
+        self._compcor_group.setVisible(checked)
+        self._compcor_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+        )
 
     def _on_advanced_toggled(self, checked: bool) -> None:
         self._advanced_widget.setVisible(checked)
         self._advanced_toggle.setArrowType(
             Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+        )
+
+    def _on_sample_mask_changed(self) -> None:
+        """Show censoring settings only when a sample-mask signal is selected."""
+        self._scrub_options.setVisible(
+            self._mask_combo.currentText() not in ("", _NO_SIGNAL)
         )
 
     def _on_mask_mode_changed(self, mode: str) -> None:
@@ -1432,8 +1652,31 @@ class PreprocessingPanel(QWidget):
             "ensure_finite": self._smooth_ensure_finite_check.isChecked(),
         }
 
+    def _create_compcor_mask(self) -> None:
+        """Create and select an empty spatial Labels layer aligned to the source."""
+        source = self._get_source(self._source_combo)
+        if source is None:
+            return
+        layer_name, da = source
+        mask = xr.zeros_like(da.isel({TIME_DIM: 0}, drop=True), dtype=np.int32)
+        try:
+            _, layer = plot_napari(
+                mask,
+                viewer=self._viewer,
+                layer_type="labels",
+                name=f"{layer_name} — noise mask",
+                show_colorbar=False,
+                show_scale_bar=False,
+            )
+        except (ValueError, TypeError) as exc:
+            show_error(str(exc))
+            return
+        self._compcor_mask_combo.setCurrentIndex(
+            self._compcor_mask_combo.findData(layer)
+        )
+
     def _compute_compcor(self) -> None:
-        """Resample/smooth the source layer and extract CompCor noise components.
+        """Resample the source layer and extract unsmoothed CompCor components.
 
         Each resulting component is pinned into the shared `SignalStore` as its
         own stored signal, immediately selectable in the Confound combo above —
@@ -1471,17 +1714,16 @@ class PreprocessingPanel(QWidget):
         except ValueError as exc:
             show_error(str(exc))
             return
-        smooth_kwargs = self._build_smooth_kwargs()
         variance_threshold = (
-            self._compcor_variance_spin.value() if use_variance else None
+            self._compcor_variance_spin.value() / 100.0 if use_variance else None
         )
         n_components = self._compcor_components_spin.value()
 
+        self._compcor_toggle.setChecked(True)
         self._begin_work(self._compcor_btn)
         worker = _run_compcor(
             da,
             resample_spec,
-            smooth_kwargs,
             noise_mask,
             variance_threshold,
             n_components,
@@ -1494,7 +1736,7 @@ class PreprocessingPanel(QWidget):
         worker.start()
 
     def _on_compcor_returned(self, result: xr.DataArray, layer_name: str) -> None:
-        """Pin each CompCor component into the shared store as a stored signal.
+        """Store CompCor components and select them for confound regression.
 
         Recomputing with fewer components than a previous run drops the
         now-unproduced trailing components from the store instead of leaving them
@@ -1517,8 +1759,9 @@ class PreprocessingPanel(QWidget):
                 if TIME_DIM in result.coords
                 else np.arange(result.sizes[TIME_DIM], dtype=float)
             )
+            component_names: set[str] = set()
             for i in range(n_components):
-                self._signal_store.pin_signal(
+                signal = self._signal_store.pin_signal(
                     origin=f"{origin_prefix}{i}",
                     name=f"CompCor {i} ({layer_name})",
                     x=time_values,
@@ -1526,6 +1769,15 @@ class PreprocessingPanel(QWidget):
                     color=CATEGORICAL_COLORS[i % len(CATEGORICAL_COLORS)],
                     source_label=f"CompCor from {layer_name}",
                 )
+                component_names.add(signal.name)
+            for i in range(self._confounds_list.count()):
+                item = self._confounds_list.item(i)
+                if item is not None and item.text() in component_names:
+                    item.setSelected(True)
+            show_info(
+                f"Computed {n_components} CompCor components from {layer_name}; "
+                "selected as confounds."
+            )
         except Exception as exc:  # noqa: BLE001
             show_error(str(exc))
         finally:
