@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import xarray as xr
+from qtpy.QtTest import QSignalSpy
 
 from confusius._napari._preprocessing._panel import (
     _align_series,
@@ -96,6 +97,56 @@ class TestSourceCombo:
         )
         panel._refresh_layer_combos()
         assert panel._source_combo.count() == 0
+
+
+@pytest.mark.parametrize(
+    "combo_name",
+    ["_source_combo", "_resample_reference_combo", "_compcor_mask_combo"],
+)
+def test_rename_preserves_selected_layer(
+    viewer, panel, sample_voxeldata_3dt, combo_name
+):
+    """Renames refresh selectors without changing layer identity or emitting signals."""
+    if combo_name == "_compcor_mask_combo":
+        add_layer = viewer.add_labels
+        data = np.zeros((2, 3, 4), dtype=np.uint8)
+    else:
+        add_layer = viewer.add_image
+        data = sample_voxeldata_3dt.values
+    first, selected = (
+        add_layer(data, name=name, metadata={"xarray": sample_voxeldata_3dt})
+        for name in ("first", "selected")
+    )
+    combo = getattr(panel, combo_name)
+    combo.setCurrentText(selected.name)
+    spy = QSignalSpy(combo.currentIndexChanged)
+
+    selected.name = "renamed selected"
+    assert combo.currentText() == selected.name
+    assert combo.currentData() is selected
+    first.name = "renamed first"
+    assert combo.findText(first.name) >= 0
+    assert combo.currentData() is selected
+    selected.name = first.name
+    assert selected.name != first.name
+    assert combo.currentText() == selected.name
+    assert combo.currentData() is selected
+    assert len(spy) == 0
+
+    viewer.layers.remove(selected)
+    assert combo.findText(selected.name) == -1
+    assert combo.currentData() is not selected
+
+
+def test_rename_preserves_no_compcor_mask(viewer, panel):
+    """An optional mask stays unselected when a labels layer is renamed."""
+    mask = viewer.add_labels(np.zeros((2, 3, 4), dtype=np.uint8), name="mask")
+    combo = panel._compcor_mask_combo
+    text = combo.currentText()
+    mask.name = "renamed mask"
+    assert combo.currentText() == text
+    assert combo.currentData() is None
+    assert combo.findText(mask.name) >= 0
 
 
 class TestReferenceCombo:

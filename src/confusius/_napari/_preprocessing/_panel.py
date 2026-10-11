@@ -554,6 +554,7 @@ class PreprocessingPanel(QWidget):
 
         viewer.layers.events.inserted.connect(self._refresh_layer_combos)
         viewer.layers.events.removed.connect(self._refresh_layer_combos)
+        viewer.layers.events.renamed.connect(self._refresh_layer_combos)
         signal_store.changed.connect(self._refresh_signal_combos)
 
     # ------------------------------------------------------------------
@@ -1007,48 +1008,49 @@ class PreprocessingPanel(QWidget):
     # Layer / signal list helpers
     # ------------------------------------------------------------------
 
-    def _eligible_source_layers(self) -> list[str]:
-        """Return names of image layers with a multi-element `time` dimension."""
-        names = []
+    def _eligible_source_layers(self) -> list[Layer]:
+        """Return image layers with a multi-element `time` dimension."""
+        layers = []
         for layer in self._viewer.layers:
             if layer._type_string != "image":
                 continue
             da = layer.metadata.get("xarray")
             if da is not None and TIME_DIM in da.dims and da.sizes[TIME_DIM] > 1:
-                names.append(layer.name)
-        return names
+                layers.append(layer)
+        return layers
 
-    def _eligible_mask_layers(self) -> list[str]:
-        """Return names of Labels layers in the viewer."""
+    def _eligible_mask_layers(self) -> list[Layer]:
+        """Return Labels layers in the viewer."""
         return [
-            layer.name
-            for layer in self._viewer.layers
-            if layer._type_string == "labels"
+            layer for layer in self._viewer.layers if layer._type_string == "labels"
         ]
 
     def _refresh_layer_combos(self, _event=None) -> None:
         """Repopulate the source, resample-reference, and CompCor mask combos."""
-        names = self._eligible_source_layers()
+        layers = self._eligible_source_layers()
         for combo in (self._source_combo, self._resample_reference_combo):
-            current = combo.currentText()
+            # Preserve layer identity when a rename changes its displayed name.
+            current = combo.currentData()
             combo.blockSignals(True)
             try:
                 combo.clear()
-                combo.addItems(names)
-                index = combo.findText(current)
+                for layer in layers:
+                    combo.addItem(layer.name, layer)
+                index = combo.findData(current)
                 if index >= 0:
                     combo.setCurrentIndex(index)
             finally:
                 combo.blockSignals(False)
 
-        mask_names = self._eligible_mask_layers()
-        current_mask = self._compcor_mask_combo.currentText()
+        mask_layers = self._eligible_mask_layers()
+        current_mask = self._compcor_mask_combo.currentData()
         self._compcor_mask_combo.blockSignals(True)
         try:
             self._compcor_mask_combo.clear()
             self._compcor_mask_combo.addItem(_NO_SIGNAL)
-            self._compcor_mask_combo.addItems(mask_names)
-            index = self._compcor_mask_combo.findText(current_mask)
+            for layer in mask_layers:
+                self._compcor_mask_combo.addItem(layer.name, layer)
+            index = self._compcor_mask_combo.findData(current_mask)
             self._compcor_mask_combo.setCurrentIndex(max(index, 0))
         finally:
             self._compcor_mask_combo.blockSignals(False)
