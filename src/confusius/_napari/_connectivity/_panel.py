@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import xarray as xr
+from napari.layers import Image
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
@@ -28,7 +29,7 @@ from confusius.plotting.napari import plot_napari
 
 if TYPE_CHECKING:
     import napari
-    from napari.layers import Image
+    from qtpy.QtGui import QCloseEvent
 
 _MOUSE_SOURCE = "Mouse (Shift + hover)"
 
@@ -48,14 +49,22 @@ class _PreparedLayer:
 
 
 class FunctionalConnectivityPanel(QWidget):
-    """Right-side panel for interactive seed-based connectivity maps."""
+    """Right-side panel for interactive seed-based connectivity maps.
+
+    Parameters
+    ----------
+    viewer : napari.Viewer
+        Viewer containing the recording and output connectivity maps.
+    signal_store : SignalStore
+        Shared store providing pinned and imported seed signals.
+    """
 
     def __init__(self, viewer: napari.Viewer, signal_store: SignalStore) -> None:
         super().__init__()
         self._viewer = viewer
         self._signal_store = signal_store
         self._prepared: _PreparedLayer | None = None
-        self._map_layer = None
+        self._map_layer: Image | None = None
         self._last_voxel: tuple[int, ...] | None = None
         self._mouse_active = False
         self._mouse_seed_created = False
@@ -141,7 +150,11 @@ class FunctionalConnectivityPanel(QWidget):
         self._data_combo.clear()
         for layer in self._viewer.layers:
             data = getattr(layer, "metadata", {}).get("xarray")
-            if isinstance(data, xr.DataArray) and TIME_DIM in data.dims:
+            if (
+                isinstance(layer, Image)
+                and isinstance(data, xr.DataArray)
+                and TIME_DIM in data.dims
+            ):
                 self._data_combo.addItem(layer.name)
         index = self._data_combo.findText(current)
         if index >= 0:
@@ -184,9 +197,7 @@ class FunctionalConnectivityPanel(QWidget):
         self._mouse_active = mouse and self._mouse_seed_created
         self._radius_spin.setEnabled(mouse)
         self._compute_btn.setVisible(not mouse or not self._mouse_seed_created)
-        self._compute_btn.setText(
-            "Create mouse map" if mouse else "Compute map"
-        )
+        self._compute_btn.setText("Create mouse map" if mouse else "Compute map")
         self._status.setText(
             "Hold Shift over the data layer."
             if mouse and self._mouse_seed_created
@@ -214,7 +225,9 @@ class FunctionalConnectivityPanel(QWidget):
             self._time_slider.setValue((start, end))
             self._time_slider.blockSignals(False)
         try:
-            prepared = self._prepare_layer() if self._prepared is None else self._prepared
+            prepared = (
+                self._prepare_layer() if self._prepared is None else self._prepared
+            )
             self._update_time_labels(prepared.data, start, end)
             self._apply_time_window(prepared)
             self._recompute_current_map(prepared)
@@ -264,7 +277,11 @@ class FunctionalConnectivityPanel(QWidget):
             raise ValueError("Select a data layer with a time dimension.")
         layer = self._viewer.layers[name]
         data = layer.metadata.get("xarray")
-        if not isinstance(data, xr.DataArray) or TIME_DIM not in data.dims:
+        if (
+            not isinstance(layer, Image)
+            or not isinstance(data, xr.DataArray)
+            or TIME_DIM not in data.dims
+        ):
             raise ValueError(
                 "Selected layer must come from a VoxelData array with time."
             )
@@ -313,10 +330,9 @@ class FunctionalConnectivityPanel(QWidget):
 
         spacings = [abs(float(prepared.data.fusi.spacing[dim])) for dim in VOXEL_DIMS]
         grids = np.ogrid[tuple(slice(0, n) for n in prepared.spatial_shape)]
-        dist2 = sum(
-            ((grid - index) * spacing) ** 2
-            for grid, index, spacing in zip(grids, spatial_indices, spacings)
-        )
+        dist2 = np.zeros(prepared.spatial_shape, dtype=float)
+        for grid, index, spacing in zip(grids, spatial_indices, spacings):
+            dist2 += ((grid - index) * spacing) ** 2
         mask = dist2 <= radius * radius
         return prepared.centered[:, mask.ravel()].mean(axis=1)
 
@@ -356,14 +372,16 @@ class FunctionalConnectivityPanel(QWidget):
             self._show_map(self._corr_map(seed, prepared), f"Seed map: {signal.name}")
         elif self._last_voxel is not None:
             self._show_map(
-                self._corr_map(self._mean_seed_trace(prepared, self._last_voxel), prepared),
+                self._corr_map(
+                    self._mean_seed_trace(prepared, self._last_voxel), prepared
+                ),
                 "Mouse seed map",
             )
 
     def _show_map(self, data: xr.DataArray, name: str) -> None:
         """Add or update the seed-map layer."""
         if self._map_layer is None or self._map_layer.name not in self._viewer.layers:
-            _viewer, self._map_layer = plot_napari(
+            _viewer, layer = plot_napari(
                 data,
                 viewer=self._viewer,
                 name=name,
@@ -374,9 +392,11 @@ class FunctionalConnectivityPanel(QWidget):
                 show_colorbar=False,
                 show_scale_bar=False,
             )
+            self._map_layer = cast("Image", layer)
         else:
             self._map_layer.name = name
-            self._map_layer.data = np.asarray(data.data)
+            # Napari accepts NumPy arrays, but its data protocol has incompatible stubs.
+            self._map_layer.data = np.asarray(data.data)  # ty: ignore[invalid-assignment]
             self._map_layer.metadata["xarray"] = data
 
     def _on_mouse_move(self, viewer, event) -> None:
@@ -409,8 +429,14 @@ class FunctionalConnectivityPanel(QWidget):
         except Exception as exc:  # noqa: BLE001
             self._status.setText(str(exc))
 
-    def closeEvent(self, event) -> None:
-        """Disconnect callbacks owned by this panel."""
+    def closeEvent(self, a0: QCloseEvent | None) -> None:
+        """Disconnect callbacks owned by this panel.
+
+        Parameters
+        ----------
+        a0 : qtpy.QtGui.QCloseEvent or None
+            Close event supplied by Qt.
+        """
         if self._on_mouse_move in self._viewer.mouse_move_callbacks:
             self._viewer.mouse_move_callbacks.remove(self._on_mouse_move)
-        super().closeEvent(event)
+        super().closeEvent(a0)

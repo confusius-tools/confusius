@@ -23,6 +23,19 @@ def _make_panel(make_napari_viewer, sample_voxeldata_3dt):
     return viewer, store, panel
 
 
+def test_data_selector_excludes_labels_layers(make_napari_viewer, sample_voxeldata_3dt):
+    """Only image layers can be used as connectivity recordings."""
+    viewer, _store, panel = _make_panel(make_napari_viewer, sample_voxeldata_3dt)
+    viewer.add_labels(
+        np.zeros(sample_voxeldata_3dt.shape, dtype=np.int32),
+        name="labels",
+        metadata={"xarray": sample_voxeldata_3dt},
+    )
+    assert [
+        panel._data_combo.itemText(i) for i in range(panel._data_combo.count())
+    ] == ["data"]
+
+
 def test_functional_connectivity_panel_computes_seed_map(
     make_napari_viewer, sample_voxeldata_3dt
 ):
@@ -99,9 +112,10 @@ def test_mouse_seed_radius_averages_voxels(make_napari_viewer, sample_voxeldata_
     values = np.moveaxis(sample_voxeldata_3dt.values, 0, 0)
     grids = np.ogrid[: values.shape[1], : values.shape[2], : values.shape[3]]
     spacings = [sample_voxeldata_3dt.fusi.spacing[dim] for dim in ("k", "j", "i")]
-    mask = sum(
-        ((grid - 1) * spacing) ** 2 for grid, spacing in zip(grids, spacings)
-    ) <= 0.11**2
+    mask = (
+        sum(((grid - 1) * spacing) ** 2 for grid, spacing in zip(grids, spacings))
+        <= 0.11**2
+    )
     flat = values.reshape(values.shape[0], -1)
     centered = flat - flat.mean(axis=0)
     expected = centered[:, mask.ravel()].mean(axis=1)
