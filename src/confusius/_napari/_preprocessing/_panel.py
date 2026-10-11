@@ -788,16 +788,8 @@ class PreprocessingPanel(QWidget):
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
         )
         self._filter_slider.setEnabled(False)
-        self._filter_slider.setToolTip(
-            "Retained frequency band. Enable either cutoff above; use the spinboxes "
-            "for exact values. Disabled bounds extend to the sampling limits."
-        )
         self._filter_slider.valuesChanged.connect(self._on_filter_range_changed)
         group_layout.addWidget(self._filter_slider)
-        self._filter_limit_label = QLabel("Select a source to show the sampling limit.")
-        self._filter_limit_label.setObjectName("confusius_subtitle")
-        self._filter_limit_label.setWordWrap(True)
-        group_layout.addWidget(self._filter_limit_label)
         for check in (self._low_cutoff_check, self._high_cutoff_check):
             check.toggled.connect(self._sync_filter_controls)
         for spin in (self._low_cutoff_spin, self._high_cutoff_spin):
@@ -1234,7 +1226,7 @@ class PreprocessingPanel(QWidget):
                     step, _ = get_representative_step(times)
         self._filter_nyquist = None
         if step is None or not np.isfinite(step) or step <= 0:
-            self._filter_limit_label.setText(
+            self._filter_slider.setToolTip(
                 "Sampling limit unavailable; select a regular time grid."
             )
             self._filter_slider.setEnabled(False)
@@ -1243,13 +1235,16 @@ class PreprocessingPanel(QWidget):
         # Spinboxes round to four decimals; leave both bounds strictly below Nyquist.
         maximum = np.floor(np.nextafter(nyquist, 0.0) * 1e4) / 1e4
         if maximum < 0.0002:
-            self._filter_limit_label.setText(
+            self._filter_slider.setToolTip(
                 "Sampling limit is below the cutoff controls' precision."
             )
             self._filter_slider.setEnabled(False)
             return
         self._filter_nyquist = nyquist
-        self._filter_limit_label.setText(f"Sampling limit (Nyquist): {nyquist:g} Hz")
+        self._filter_slider.setToolTip(
+            "Retained frequency band. Enable either cutoff above; use the spinboxes "
+            "for exact values. Disabled bounds extend to the sampling limits."
+        )
         for spin in (self._low_cutoff_spin, self._high_cutoff_spin):
             spin.blockSignals(True)
             spin.setRange(0.0001, maximum)
