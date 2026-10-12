@@ -514,7 +514,7 @@ def load_scan(
 
     Acquisition settings that correspond to fUSI-BIDS fields are also surfaced as
     attributes, in native header units: `probe_model`, `probe_center_frequency` (MHz),
-    `probe_pitch` (mm), `probe_elevation_aperture` (mm), `probe_focal_depth` (mm),
+    `probe_pitch` (mm), `probe_aperture` (mm), `probe_focal_depth` (mm),
     `imaging_depth` (mm start/end), `transmit_frequency` (MHz),
     `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `svd_low_cutoff`, and
     `power_doppler_integration_duration` (s).
@@ -974,7 +974,7 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
             "probe_model_number": probe_model,
             "probe_center_frequency": float(center_frequency),
             "probe_pitch": float(pitch),
-            "probe_elevation_aperture": float(elevation_aperture),
+            "probe_aperture": float(elevation_aperture),
             "probe_focal_depth": float(focal_depth),
             "probe_radius_of_curvature": float(radius),
             "probe_number_of_elements": int(n_elements),
@@ -1238,7 +1238,7 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
         "probe_model_number",
         "probe_center_frequency",
         "probe_pitch",
-        "probe_elevation_aperture",
+        "probe_aperture",
         "probe_focal_depth",
         "probe_radius_of_curvature",
         "probe_number_of_elements",

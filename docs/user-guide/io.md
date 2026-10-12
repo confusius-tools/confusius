@@ -286,14 +286,13 @@ world coordinates are derived from voxel indices and affines.
 
 #### SCAN v2 (binary format)
 
-!!! warning "Experimental"
-    SCAN v2 metadata were reverse-engineered from a few example files kindly provided by
-    Iconeus users. The data, timing, voxel spacing, depth origin, `world_to_lab` affine,
-    provenance (`iconeus_*` attrs), acquisition datetime, and BIDS-corresponding
-    acquisition settings (`probe_model`, `probe_center_frequency`, `transmit_frequency`,
-    `pulse_repetition_frequency`, `plane_wave_angles`, `svd_low_cutoff`, …) are
-    recovered into `da.attrs`. Lateral/elevation coordinates are centered on zero. This
-    and multi-pose layouts are unvalidated and may change.
+SCAN v2 files preserve the recording's data, acquisition timing, and VoxelData
+geometry. Metadata recovered into `da.attrs` include the `world_to_lab` affine,
+provenance (`iconeus_*` attrs), acquisition datetime, and BIDS-corresponding
+acquisition settings (`probe_model`, `probe_center_frequency`, `probe_aperture`,
+`transmit_frequency`, `pulse_repetition_frequency`, `plane_wave_angles`,
+`svd_low_cutoff`, …). For multi-pose recordings, see the
+[multi-pose user guide](multipose.md#scan-v2-binary).
 
 ```pycon
 >>> import confusius as cf

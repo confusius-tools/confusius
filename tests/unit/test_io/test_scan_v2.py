@@ -11,6 +11,7 @@ import pytest
 import xarray as xr
 
 from confusius._utils.geometry import get_voxel_to_world_affine
+from confusius.bids import to_bids
 from confusius.io.scan import (
     _SCAN_V2_OFFSETS,
     SCAN_V2_MAGIC,
@@ -643,7 +644,9 @@ class TestLoadScanV2Acquisition:
             _CENTER_FREQ
         )
         assert scan_v2_acq.attrs["probe_pitch"] == pytest.approx(_PITCH)
-        assert scan_v2_acq.attrs["probe_elevation_aperture"] == pytest.approx(
+        assert scan_v2_acq.attrs["probe_aperture"] == pytest.approx(_ELEVATION_APERTURE)
+        assert "probe_elevation_aperture" not in scan_v2_acq.attrs
+        assert to_bids(scan_v2_acq.attrs)["ProbeAperture"] == pytest.approx(
             _ELEVATION_APERTURE
         )
         assert scan_v2_acq.attrs["probe_focal_depth"] == pytest.approx(_FOCAL_DEPTH)
