@@ -40,6 +40,9 @@ _AWAKE_MOUSE_ACQ = "slice04"
 _RAT_REGISTRATION_SUBJECT = "rat75"
 """Subject id for the rat registration sample pair."""
 
+_RAT_REGISTRATION_DATATYPE = "susi"
+"""Datatype for the rat registration sample pair."""
+
 _RAT_REGISTRATION_SESSIONS = ("20220523", "20220524")
 """Session ids for the rat registration sample pair."""
 
@@ -143,22 +146,21 @@ def _resolve_rat_registration_pair(
     ----------
     progress_callback : collections.abc.Callable[[int, int, str], None], optional
         Callback receiving cumulative downloaded bytes, total bytes to download,
-        and a user-facing description. This sample uses a fetcher without progress
-        callbacks, so the argument is accepted for API consistency and otherwise
-        ignored.
+        and a user-facing description. If not provided, download progress is not
+        reported.
 
     Returns
     -------
     list[confusius._napari._sample.SampleFileSpec]
         Two-file sample definition for the rat angiography registration pair.
     """
-    del progress_callback
     bids_root = fetch_cybis_pereira_2026(
         datasets="rawdata",
         subjects=_RAT_REGISTRATION_SUBJECT,
         sessions=list(_RAT_REGISTRATION_SESSIONS),
-        datatypes="angio",
+        datatypes=_RAT_REGISTRATION_DATATYPE,
         acqs=_RAT_REGISTRATION_ACQ,
+        progress_callback=progress_callback,
     )
     specs: list[SampleFileSpec] = []
     for session in _RAT_REGISTRATION_SESSIONS:
@@ -166,7 +168,7 @@ def _resolve_rat_registration_pair(
             bids_root
             / f"sub-{_RAT_REGISTRATION_SUBJECT}"
             / f"ses-{session}"
-            / "angio"
+            / _RAT_REGISTRATION_DATATYPE
             / (
                 f"sub-{_RAT_REGISTRATION_SUBJECT}_ses-{session}"
                 f"_acq-{_RAT_REGISTRATION_ACQ}_rec-minframe2d_pwd.nii.gz"

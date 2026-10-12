@@ -29,6 +29,7 @@ nav = [
         { "Visualization" = "user-guide/visualization.md" },
         { "Quality Control" = "user-guide/quality-control.md" },
         { "Atlases" = "user-guide/atlas.md" },
+        { "Datasets" = "user-guide/datasets.md" },
         { "Registration" = "user-guide/registration.md" },
         { "Temporal Resampling" = "user-guide/timing.md" },
         { "Spatial Processing" = "user-guide/spatial.md" },
@@ -38,7 +39,6 @@ nav = [
         { "Functional Connectivity" = "user-guide/connectivity.md" },
         { "General Linear Model" = "user-guide/glm.md" },
         { "Statistical Inference" = "user-guide/stats.md" },
-        { "Datasets" = "user-guide/datasets.md" },
     ]},
     { "Graphical Interface" = [
         { "Overview" = "gui/overview.md" },
@@ -55,6 +55,7 @@ nav = [
         { "Quality Control" = "api/qc.md" },
         { "Registration" = "api/registration.md" },
         { "Atlases" = "api/atlas.md" },
+        { "Datasets" = "api/datasets.md" },
         { "Temporal Resampling" = "api/timing.md" },
         { "Spatial Processing" = "api/spatial.md" },
         { "Signal Extraction" = "api/extract.md" },
@@ -65,7 +66,6 @@ nav = [
         { "General Linear Model" = "api/glm.md" },
         { "Statistical Inference" = "api/stats.md" },
         { "Xarray Integration" = "api/xarray.md" },
-        { "Datasets" = "api/datasets.md" },
     ]},
     { "Examples" = [
         { "Overview" = "examples/index.md" },
@@ -73,6 +73,7 @@ nav = [
             { "ConfUSIus and Xarray 101" = "examples/_built/io/confusius_xarray_101.md" },
             { "Create a VoxelData array from a MAT file" = "examples/_built/io/create_voxeldata_from_mat.md" },
             { "Load multi-pose recordings" = "examples/_built/io/load_multipose_recordings.md" },
+            { "The ConfUSIus Dataset Collection" = "examples/_built/io/dataset_collection.md" },
         ]},
         { "Registration" = [
             { "Registration of two sessions from the same subject" = "examples/_built/registration/register_volume_same_subject.md" },
@@ -187,11 +188,13 @@ inventories = [
     "https://treelib.readthedocs.io/en/latest/objects.inv",
     "https://docs.pydantic.dev/latest/objects.inv",
     "https://scikit-learn.org/stable/objects.inv",
+    "https://docs.h5py.org/en/stable/objects.inv",
 ]
 paths = ["src"]
 
 [project.plugins.mkdocstrings.handlers.python.options]
 preload_modules = ["sklearn", "pydantic"]
+extensions = ["tools/griffe_external_xarray.py:ExternalXarray"]
 docstring_style = "numpy"
 docstring_section_style = "list"
 members_order = "alphabetical"

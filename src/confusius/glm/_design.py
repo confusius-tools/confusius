@@ -649,7 +649,7 @@ def make_first_level_design_matrix(
         Events table with `onset`, `duration`, and `trial_type` columns.
     hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"} or callable, optional
         Hemodynamic response function model. A callable matching the
-        [HRFModel][confusius.glm._hrf_models.HRFModel] protocol (i.e., a function taking
+        `HRFModel` protocol (i.e., a function taking
         `dt` and `oversampling` and returning a 1D array) is invoked to produce a custom
         HRF kernel. If not provided, no convolution is performed and the design matrix
         will contain boxcar regressors sampled at the acquisition times.
@@ -678,8 +678,7 @@ def make_first_level_design_matrix(
         Minimum onset time in seconds for event regressors.
     uniformity_tolerance : float, default: 1e-2
         Maximum allowed per-interval relative deviation from the median consecutive
-        interval in `volume_times` (see
-        [`get_representative_step`][confusius._utils.coordinates.get_representative_step]).
+        interval in `volume_times`.
         Raise a `ValueError` if any interval exceeds this threshold. Increase this
         value to tolerate slight timestamp jitter (e.g. from acquisition clocks).
 

@@ -107,6 +107,7 @@ class QCPanel(QWidget):
         self._setup_ui()
         viewer.layers.events.inserted.connect(self._refresh_layers)
         viewer.layers.events.removed.connect(self._refresh_layers)
+        viewer.layers.events.renamed.connect(self._refresh_layers)
         viewer.events.theme.connect(self._on_theme_changed)
         viewer.dims.events.current_step.connect(self._on_time_step_changed)
 
@@ -183,13 +184,15 @@ class QCPanel(QWidget):
 
     def _refresh_layers(self) -> None:
         """Repopulate the layer combo box from the current viewer layers."""
-        current = self._layer_combo.currentText()
+        current = self._layer_combo.currentData()
+        self._layer_combo.blockSignals(True)
         self._layer_combo.clear()
         for layer in self.viewer.layers:
-            self._layer_combo.addItem(layer.name)
-        index = self._layer_combo.findText(current)
+            self._layer_combo.addItem(layer.name, layer)
+        index = self._layer_combo.findData(current)
         if index >= 0:
             self._layer_combo.setCurrentIndex(index)
+        self._layer_combo.blockSignals(False)
 
     # ------------------------------------------------------------------
     # Status / busy helpers
@@ -467,12 +470,12 @@ class QCPanel(QWidget):
         show_error(str(exc))
 
     def _compute(self) -> None:
-        layer_name = self._layer_combo.currentText()
-        if not layer_name:
+        layer = self._layer_combo.currentData()
+        if layer is None:
             show_error("No layer selected.")
             return
 
-        layer = self.viewer.layers[layer_name]
+        layer_name = layer.name
         da = layer.metadata.get("xarray")
         if da is None:
             show_error(

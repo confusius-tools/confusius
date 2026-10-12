@@ -7,13 +7,16 @@
 # geometry.
 #
 # The [Pepe, Mariani et al. (2026)
-# dataset][confusius.datasets.fetch_pepe_mariani_2026] contains transcranial mouse
+# dataset][confusius.datasets.fetch_pepe_mariani_2026][^collection] contains transcranial mouse
 # resting-state recordings acquired with a linear probe stepped across several
 # positions. In the fUSI-BIDS export, each probe position is one file, distinguished by
 # the `chunk-` entity (`chunk-0`, `chunk-1`, ...); this is exactly the "Other Systems"
 # case described in the [Multi-Pose Imaging guide](../../../user-guide/multipose.md#other-systems)
 # — data must be assembled manually rather than loaded as one file, unlike Iconeus
 # SCAN's `3Dscan`/`4Dscan` modes.
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Fetch one recording's chunks

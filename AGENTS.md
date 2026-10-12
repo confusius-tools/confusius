@@ -174,6 +174,9 @@ src/confusius/
     (`xarray.DataArray`); no `xarray.` prefix/backticks in prose (`DataArray`).
   - Array shapes: `(X, Y, Z) numpy.ndarray` / `(X, Y, Z) xarray.DataArray`.
   - Cross-references: `[name][confusius.module.path.name]` — never Sphinx `.. [1]`.
+    Only for objects rendered in the API docs. Private objects (`_name`, or anything
+    under a `_module`/`_utils` package) are filtered out of the docs, so a `[][]` link
+    to them fails the strict docs build; reference them as plain `` `name` `` instead.
   - Module-level constants get a triple-quoted docstring immediately after them.
 - **Comments**:
   1. Comments should not duplicate code.

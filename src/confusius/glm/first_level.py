@@ -122,7 +122,7 @@ class FirstLevelModel(BaseEstimator):
     ----------
     hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"}, callable, or None, optional
         Hemodynamic response function model. A callable matching the
-        [HRFModel][confusius.glm._hrf_models.HRFModel] protocol (a function taking `dt`
+        `HRFModel` protocol (a function taking `dt`
         and `oversampling` and returning a 1D array) is invoked to produce a custom HRF
         kernel. If not provided, skips HRF convolution and uses the raw block
         regressors, matching
@@ -148,8 +148,7 @@ class FirstLevelModel(BaseEstimator):
         Minimum onset time in seconds for event regressors.
     uniformity_tolerance : float, default: 1e-2
         Maximum allowed per-interval relative deviation from the median consecutive
-        interval in the run `time` coordinate (see
-        [`get_representative_step`][confusius._utils.get_representative_step]).
+        interval in the run `time` coordinate.
         Increase this value to tolerate slight timestamp jitter.
     smoothing_fwhm : float or dict[str, float], optional
         Full width at half maximum of the Gaussian smoothing kernel, in the world

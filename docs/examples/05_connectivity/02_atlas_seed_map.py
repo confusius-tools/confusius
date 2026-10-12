@@ -10,12 +10,15 @@
 # resampled Allen reference volume as background.
 #
 # We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
-# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022],
+# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022][^collection],
 # and the [Pepe, Mariani 2026 fUSI
 # template][confusius.datasets.fetch_template_pepe_mariani_2026], which carries the
 # affine transform required to bring it into Allen Common Coordinate Framework (CCF)
 # space. For the full registration workflow, see [Register a recording to an Allen fUSI
 # template](../registration/register_to_allen_fusi_template.md).
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Fetch the recording and register to the Allen atlas
@@ -66,7 +69,7 @@ moving = data.mean(dim="time").fusi.scale.db().compute()
 # - Use [`register_volume`][confusius.registration.register_volume] to refine the
 #   alignment.
 # - Resample the Allen atlas into the recording's native space with
-#   [`resample_like`][confusius.atlas.Atlas.resample_like].
+#   [`resample_like`][confusius.atlas.AtlasAccessor.resample_like].
 #
 # For the full walkthrough, see [Register a recording to an Allen fUSI
 # template](../registration/register_to_allen_fusi_template.md).

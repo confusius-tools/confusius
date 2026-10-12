@@ -26,7 +26,6 @@ from confusius._napari._io._writers import _convert_layer_to_voxeldata
 
 if TYPE_CHECKING:
     import napari
-    from napari.layers import Layer
 
 _SUPPORTED_EXTENSIONS = (".nii.gz", ".nii", ".zarr")
 
@@ -150,11 +149,12 @@ class SavePanel(QWidget):
         self.viewer.layers.events.inserted.connect(self._refresh_layer_combos)
         self.viewer.layers.events.removed.connect(self._refresh_layer_combos)
         self.viewer.layers.events.changed.connect(self._refresh_layer_combos)
+        self.viewer.layers.events.renamed.connect(self._refresh_layer_combos)
 
     def _refresh_layer_combos(self, event: object = None) -> None:
         """Repopulate both dropdowns from the current viewer layer list."""
-        current_layer = self._layer_combo.currentText()
-        current_template = self._template_combo.currentText()
+        current_layer = self._layer_combo.currentData()
+        current_template = self._template_combo.currentData()
 
         self._layer_combo.blockSignals(True)
         self._template_combo.blockSignals(True)
@@ -163,15 +163,15 @@ class SavePanel(QWidget):
 
         # List layers in reverse so the most-recently added appears first.
         for layer in reversed(self.viewer.layers):
-            self._layer_combo.addItem(layer.name)
+            self._layer_combo.addItem(layer.name, layer)
             if layer.metadata.get("xarray") is not None:
-                self._template_combo.addItem(layer.name)
+                self._template_combo.addItem(layer.name, layer)
 
-        text_index = self._layer_combo.findText(current_layer)
+        text_index = self._layer_combo.findData(current_layer)
         if text_index >= 0:
             self._layer_combo.setCurrentIndex(text_index)
 
-        text_index = self._template_combo.findText(current_template)
+        text_index = self._template_combo.findData(current_template)
         # -1 means "no selection" (placeholder shown), which is the correct default.
         self._template_combo.setCurrentIndex(text_index)
 
@@ -197,30 +197,18 @@ class SavePanel(QWidget):
     # DataArray construction
     # ------------------------------------------------------------------
 
-    def _find_layer(self, name: str) -> Layer | None:
-        matches = [layer for layer in self.viewer.layers if layer.name == name]
-        return matches[0] if matches else None
-
     def _build_da(self) -> xr.DataArray | None:
         """Assemble the DataArray to be saved from the selected layers."""
-        layer_name = self._layer_combo.currentText()
-        if not layer_name:
+        layer = self._layer_combo.currentData()
+        if layer is None:
             show_error("No layer selected.")
             return None
 
-        layer = self._find_layer(layer_name)
-        if layer is None:
-            show_error(f"Layer {layer_name!r} not found.")
-            return None
+        layer_name = layer.name
+        template_layer = self._template_combo.currentData()
 
-        template_name = self._template_combo.currentText()
-        use_template = bool(template_name)
-
-        if use_template:
-            template_layer = self._find_layer(template_name)
-            if template_layer is None:
-                show_error(f"Template layer {template_name!r} not found.")
-                return None
+        if template_layer is not None:
+            template_name = template_layer.name
             template_da: xr.DataArray = template_layer.metadata["xarray"]
             layer_shape = layer.data.shape
             ndim = len(layer_shape)

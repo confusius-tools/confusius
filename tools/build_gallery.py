@@ -40,19 +40,20 @@ def _deps_fingerprint() -> str:
     Binder branch/ref is intentionally excluded so expensive gallery execution can be
     reused across branches.
     """
+    # Source text must not depend on the platform's locale (e.g. Windows cp1252).
     parts: list[str] = []
     lockfile = REPO_ROOT / "uv.lock"
     if lockfile.is_file():
-        parts.append(lockfile.read_text())
+        parts.append(lockfile.read_text(encoding="utf-8"))
 
     gallery_root = REPO_ROOT / "tools" / "gallery"
     if gallery_root.is_dir():
         for path in sorted(gallery_root.glob("*.py")):
             parts.append(f"\n# {path.relative_to(REPO_ROOT)}\n")
-            parts.append(path.read_text())
+            parts.append(path.read_text(encoding="utf-8"))
 
     parts.append("\n# tools/build_gallery.py\n")
-    parts.append(Path(__file__).read_text())
+    parts.append(Path(__file__).read_text(encoding="utf-8"))
     return "".join(parts)
 
 

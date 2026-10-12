@@ -20,18 +20,11 @@ def stack_poses(
 ) -> xr.DataArray:
     """Stack independently loaded single-pose VoxelData arrays into one pose-dependent array.
 
-    `xr.concat` cannot combine `N` single-grid `VoxelToWorldIndex` objects into one
-    joint pose-dependent index by itself: xarray's own pre-concat alignment step only
-    excludes a coordinate from its equality check when that coordinate's *existing*
-    index already spans the concat dimension, which a single-grid array's `z`/`y`/`x`
-    index does not (it only spans `k`/`j`/`i`). This function closes that gap by first
-    promoting each input to a genuinely pose-dependent index of length 1 (see
-    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]) via
-    [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
-    -- once every input's `z`/`y`/`x` index already spans `pose`, alignment correctly
-    excludes it and dispatches to `VoxelToWorldIndex.concat`, which merges the pose
-    labels and affine stacks in order exactly as
-    [`xr.concat(..., dim="pose")`][xarray.concat] expects.
+    Unlike a direct [`xr.concat(..., dim="pose")`][xarray.concat] call on
+    single-pose inputs, this function preserves each input's voxel-to-world affine
+    in a pose-dependent `VoxelToWorldIndex`. The output's world coordinates
+    (`z`/`y`/`x`) therefore reflect each probe position, with pose labels and
+    affines kept in input order.
 
     Parameters
     ----------

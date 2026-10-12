@@ -38,18 +38,16 @@ def refresh_layers(panel: RegistrationPanel) -> None:
     panel : RegistrationPanel
         Registration panel whose layer selectors should be refreshed.
     """
-    moving_name = panel._moving_combo.currentText()
-    fixed_name = panel._fixed_combo.currentText()
-    fixed_mask_name = panel._fixed_mask_combo.currentText()
-    moving_mask_name = panel._moving_mask_combo.currentText()
+    moving_layer = panel._moving_combo.currentData()
+    fixed_layer = panel._fixed_combo.currentData()
+    fixed_mask_layer = panel._fixed_mask_combo.currentData()
+    moving_mask_layer = panel._moving_mask_combo.currentData()
 
-    layer_names = [
-        layer.name
-        for layer in panel.viewer.layers
-        if _is_registration_source_layer(layer)
+    source_layers = [
+        layer for layer in panel.viewer.layers if _is_registration_source_layer(layer)
     ]
-    labels_layer_names = [
-        layer.name for layer in panel.viewer.layers if layer._type_string == "labels"
+    labels_layers = [
+        layer for layer in panel.viewer.layers if layer._type_string == "labels"
     ]
 
     panel._moving_combo.blockSignals(True)
@@ -60,22 +58,20 @@ def refresh_layers(panel: RegistrationPanel) -> None:
     panel._fixed_combo.clear()
     panel._fixed_mask_combo.clear()
     panel._moving_mask_combo.clear()
-    panel._moving_combo.addItems(layer_names)
-    panel._fixed_combo.addItems(layer_names)
+    for layer in source_layers:
+        panel._moving_combo.addItem(layer.name, layer)
+        panel._fixed_combo.addItem(layer.name, layer)
     panel._fixed_mask_combo.addItem("")
     panel._moving_mask_combo.addItem("")
-    panel._fixed_mask_combo.addItems(labels_layer_names)
-    panel._moving_mask_combo.addItems(labels_layer_names)
-    panel._moving_combo.blockSignals(False)
-    panel._fixed_combo.blockSignals(False)
-    panel._fixed_mask_combo.blockSignals(False)
-    panel._moving_mask_combo.blockSignals(False)
+    for layer in labels_layers:
+        panel._fixed_mask_combo.addItem(layer.name, layer)
+        panel._moving_mask_combo.addItem(layer.name, layer)
 
-    moving_index = panel._moving_combo.findText(moving_name)
+    moving_index = panel._moving_combo.findData(moving_layer)
     if moving_index >= 0:
         panel._moving_combo.setCurrentIndex(moving_index)
 
-    fixed_index = panel._fixed_combo.findText(fixed_name)
+    fixed_index = panel._fixed_combo.findData(fixed_layer)
     if fixed_index >= 0:
         panel._fixed_combo.setCurrentIndex(fixed_index)
     elif (
@@ -84,13 +80,18 @@ def refresh_layers(panel: RegistrationPanel) -> None:
     ):
         panel._fixed_combo.setCurrentIndex(1)
 
-    fixed_mask_index = panel._fixed_mask_combo.findText(fixed_mask_name)
+    fixed_mask_index = panel._fixed_mask_combo.findData(fixed_mask_layer)
     if fixed_mask_index >= 0:
         panel._fixed_mask_combo.setCurrentIndex(fixed_mask_index)
 
-    moving_mask_index = panel._moving_mask_combo.findText(moving_mask_name)
+    moving_mask_index = panel._moving_mask_combo.findData(moving_mask_layer)
     if moving_mask_index >= 0:
         panel._moving_mask_combo.setCurrentIndex(moving_mask_index)
+
+    panel._moving_combo.blockSignals(False)
+    panel._fixed_combo.blockSignals(False)
+    panel._fixed_mask_combo.blockSignals(False)
+    panel._moving_mask_combo.blockSignals(False)
 
     update_reference_time_bounds(panel)
     panel._sync_manual_transform_event_connections()
@@ -128,17 +129,15 @@ def selected_layer(panel: RegistrationPanel, combo: QComboBox) -> Layer | None:
     panel : RegistrationPanel
         Registration panel whose viewer should be searched.
     combo : QComboBox
-        Combo box containing layer names.
+        Combo box containing layer objects with their names as display text.
 
     Returns
     -------
     napari.layers.Layer or None
         Selected layer, or `None` when no valid selection exists.
     """
-    name = combo.currentText()
-    if not name:
-        return None
-    return get_layer_by_name(panel, name)
+    layer = combo.currentData()
+    return layer if layer is not None and layer in panel.viewer.layers else None
 
 
 def current_scale_mode(panel: RegistrationPanel, *, fixed: bool = False) -> ScaleMode:

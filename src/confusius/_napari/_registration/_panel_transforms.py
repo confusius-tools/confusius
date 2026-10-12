@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from napari.layers import Layer
 from napari.layers.utils.layer_utils import calc_data_range
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
@@ -41,8 +42,6 @@ from confusius.registration import (
 )
 
 if TYPE_CHECKING:
-    from napari.layers import Layer
-
     from confusius._napari._registration._panel import (
         ApplyTransformPayload,
         RegistrationPanel,
@@ -187,21 +186,21 @@ def get_transform_source_data(value: object) -> TransformSourceData | None:
 
     Returns
     -------
-    tuple[str, str] or None
-        Validated `(kind, name)` pair, or `None` when the payload does not match the
+    tuple[str, napari.layers.Layer or None] or None
+        Validated `(kind, layer)` pair, or `None` when the payload does not match the
         expected transform-source schema.
     """
     if not isinstance(value, tuple) or len(value) != 2:
         return None
-    source_kind, source_name = value
-    if not isinstance(source_name, str):
+    source_kind, layer = value
+    if source_kind == "loaded" and layer is None:
+        return ("loaded", None)
+    if not isinstance(layer, Layer):
         return None
-    if source_kind == "loaded":
-        return ("loaded", source_name)
     if source_kind == "layer":
-        return ("layer", source_name)
+        return ("layer", layer)
     if source_kind == "manual":
-        return ("manual", source_name)
+        return ("manual", layer)
     return None
 
 
@@ -316,9 +315,10 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
     """
     source_data = panel._transform_source_combo.currentData()
     initialization_data = panel._initialization_combo.currentData()
-    target_name = panel._transform_target_combo.currentText()
+    has_initialization_selection = panel._initialization_combo.currentIndex() >= 0
+    target_layer = panel._transform_target_combo.currentData()
 
-    transform_options: list[tuple[str, tuple[str, str]]] = []
+    transform_options: list[tuple[str, TransformSourceData]] = []
     if panel._loaded_transform_payload is not None:
         transform_options.append(
             (
@@ -326,7 +326,7 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
                     panel._loaded_transform_payload,
                     suffix="loaded",
                 ),
-                ("loaded", ""),
+                ("loaded", None),
             )
         )
     for layer in panel.viewer.layers:
@@ -338,12 +338,12 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
         transform_options.append(
             (
                 get_transform_source_label(payload, suffix=layer.name),
-                ("layer", layer.name),
+                ("layer", layer),
             )
         )
 
-    manual_transform_options: list[tuple[str, tuple[str, str]]] = []
-    manual_initialization_options: list[tuple[str, tuple[str, str]]] = []
+    manual_transform_options: list[tuple[str, TransformSourceData]] = []
+    manual_initialization_options: list[tuple[str, TransformSourceData]] = []
     for layer in panel.viewer.layers:
         try:
             data = _get_source_dataarray(layer)
@@ -358,7 +358,10 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
             continue
         if np.allclose(manual_affine, np.eye(len(spatial_dims) + 1)):
             continue
-        manual_option = (f"{layer.name} (manual)", ("manual", layer.name))
+        manual_option: tuple[str, TransformSourceData] = (
+            f"{layer.name} (manual)",
+            ("manual", layer),
+        )
         manual_transform_options.append(manual_option)
         manual_initialization_options.append(manual_option)
 
@@ -368,7 +371,6 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
         panel._transform_source_combo.addItem(label, data)
     for label, data in manual_transform_options:
         panel._transform_source_combo.addItem(label, data)
-    panel._transform_source_combo.blockSignals(False)
 
     panel._initialization_combo.blockSignals(True)
     panel._initialization_combo.clear()
@@ -376,27 +378,23 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
     panel._initialization_combo.addItem("center_moments", "center_moments")
     panel._initialization_combo.addItem("none", None)
     for label, data in transform_options:
-        source_kind, source_name = data
+        source_kind, layer = data
         if source_kind == "loaded":
             if panel._loaded_transform_payload is None:
                 continue
             if panel._loaded_transform_payload["kind"] != "affine":
                 continue
         elif source_kind == "layer":
-            layer = panel._get_layer_by_name(source_name)
             if layer is None or _get_affine_payload_from_layer(layer) is None:
                 continue
         panel._initialization_combo.addItem(label, data)
     for label, data in manual_initialization_options:
         panel._initialization_combo.addItem(label, data)
-    panel._initialization_combo.blockSignals(False)
 
     panel._transform_target_combo.blockSignals(True)
     panel._transform_target_combo.clear()
-    panel._transform_target_combo.addItems(
-        [layer.name for layer in panel.viewer.layers]
-    )
-    panel._transform_target_combo.blockSignals(False)
+    for layer in panel.viewer.layers:
+        panel._transform_target_combo.addItem(layer.name, layer)
 
     if source_data is not None:
         for i in range(panel._transform_source_combo.count()):
@@ -404,16 +402,20 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
                 panel._transform_source_combo.setCurrentIndex(i)
                 break
 
-    if initialization_data is not None:
+    # An empty combo and an explicit "none" selection both have None as data.
+    if has_initialization_selection:
         for i in range(panel._initialization_combo.count()):
             if panel._initialization_combo.itemData(i) == initialization_data:
                 panel._initialization_combo.setCurrentIndex(i)
                 break
 
-    target_index = panel._transform_target_combo.findText(target_name)
+    target_index = panel._transform_target_combo.findData(target_layer)
     if target_index >= 0:
         panel._transform_target_combo.setCurrentIndex(target_index)
 
+    panel._transform_source_combo.blockSignals(False)
+    panel._initialization_combo.blockSignals(False)
+    panel._transform_target_combo.blockSignals(False)
     update_apply_transform_button_tooltips(panel)
 
 
@@ -436,13 +438,10 @@ def get_selected_transform_payload(
     if source_data is None:
         return None
 
-    source_kind, source_name = source_data
+    source_kind, layer = source_data
     if source_kind == "loaded":
         return panel._loaded_transform_payload
-    if not source_name:
-        return None
-    layer = panel._get_layer_by_name(source_name)
-    if layer is None:
+    if layer is None or layer not in panel.viewer.layers:
         return None
     if source_kind == "layer":
         return get_transform_payload_from_metadata(
@@ -495,7 +494,7 @@ def get_selected_initial_transform_payload(
     if source_data is None:
         return None
 
-    source_kind, source_name = source_data
+    source_kind, layer = source_data
     if source_kind == "loaded":
         if (
             panel._loaded_transform_payload is not None
@@ -503,10 +502,7 @@ def get_selected_initial_transform_payload(
         ):
             return panel._loaded_transform_payload
         return None
-    if source_kind != "layer" or not source_name:
-        return None
-    layer = panel._get_layer_by_name(source_name)
-    if layer is None:
+    if source_kind != "layer" or layer is None or layer not in panel.viewer.layers:
         return None
     return _get_affine_payload_from_layer(layer)
 
@@ -531,10 +527,10 @@ def get_selected_manual_initialization_layer(
     if source_data is None:
         return None
 
-    source_kind, source_name = source_data
-    if source_kind != "manual" or not source_name:
+    source_kind, layer = source_data
+    if source_kind != "manual" or layer not in panel.viewer.layers:
         return None
-    return panel._get_layer_by_name(source_name)
+    return layer
 
 
 def get_selected_initial_transform(
