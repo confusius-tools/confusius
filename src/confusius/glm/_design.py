@@ -678,8 +678,7 @@ def make_first_level_design_matrix(
         Minimum onset time in seconds for event regressors.
     uniformity_tolerance : float, default: 1e-2
         Maximum allowed per-interval relative deviation from the median consecutive
-        interval in `volume_times` (see
-        `get_representative_step`).
+        interval in `volume_times`.
         Raise a `ValueError` if any interval exceeds this threshold. Increase this
         value to tolerate slight timestamp jitter (e.g. from acquisition clocks).
 
