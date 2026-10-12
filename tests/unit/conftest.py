@@ -172,7 +172,7 @@ def _write_scan_metadata(
         ("Session_tag", "ses-01"),
         ("Scan_tag", "scan-01"),
         ("Project_tag", "proj-01"),
-        ("Date", "2025-01-01"),
+        ("Date", "2025-01-01 12:34:56"),
         ("Neuroscan_version", "1.0"),
         ("Machine_SN", "SN-0001"),
         ("User_name", "user"),

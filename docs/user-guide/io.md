@@ -247,13 +247,14 @@ Attributes:
     iconeus_session:       Session01
     iconeus_scan:          sub-01_task-awake_pwd
     iconeus_project:       Project01
-    iconeus_date:          2021-10-22 14:14:12
+    iconeus_datetime:      2021-10-22T14:14:12+00:00
 ```
 
 Provenance metadata from the file is stored in `da.attrs`, including
 `iconeus_scan_mode`, `iconeus_subject`, `iconeus_session`, `iconeus_scan`,
-`iconeus_project`, `iconeus_date`, `software_version`, and
-`device_serial_number`.
+`iconeus_project`, `iconeus_datetime`, `software_version`, and
+`device_serial_number`. `iconeus_datetime` uses ISO 8601 format for both SCAN v1 and
+SCAN v2. SCAN v1 stores the date without a time zone, so ConfUSIus treats it as UTC.
 
 Note that for recordings consisting of multiple probe poses (e.g., `3Dscan`, `4Dscan`),
 the `time` coordinate is **pose-dependent**, giving the acquisition time of each volume

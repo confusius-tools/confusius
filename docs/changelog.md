@@ -49,6 +49,10 @@ Current development version for the next ConfUSIus release.
   `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
   requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
   ([#448](https://github.com/confusius-tools/confusius/pull/448)).
+- [`load_scan`][confusius.io.load_scan] stores the SCAN v1 acquisition date as
+  `iconeus_datetime` in ISO 8601 format (e.g. `2021-10-22T14:14:12+00:00`),
+  matching SCAN v2, instead of `iconeus_date`
+  ([#478](https://github.com/confusius-tools/confusius/pull/478)).
 
 ### :sparkles: Enhancements
 

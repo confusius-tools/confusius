@@ -202,6 +202,33 @@ def _read_scan_scalar(h5: h5py.File, path: str) -> float:
     return float(h5[path][()].flat[0])
 
 
+def _parse_scan_v1_datetime(text: str) -> str:
+    """Convert a SCAN v1 `Date` string to the ISO 8601 format used by SCAN v2.
+
+    SCAN v1 stores the acquisition date as `"YYYY-MM-DD HH:MM:SS"` with no time zone.
+    Like PyIconeus, ConfUSIus treats it as UTC, so that v1 and v2 files share the same
+    `iconeus_datetime` format.
+
+    Parameters
+    ----------
+    text : str
+        Raw `Date` string, e.g. `"2021-10-22 14:14:12"`.
+
+    Returns
+    -------
+    str
+        ISO 8601 date and time, e.g. `"2021-10-22T14:14:12+00:00"`. The raw text is
+        returned unchanged if it cannot be parsed.
+    """
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return text
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.isoformat()
+
+
 def _build_probe_to_lab(
     probe_to_lab: npt.NDArray[np.float64],
 ) -> npt.NDArray[np.float64]:
@@ -509,7 +536,10 @@ def load_scan(
     Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
     (`device_serial_number`, `software_version`) and Iconeus-specific fields
     (`iconeus_scan_mode`, `iconeus_subject`, `iconeus_session`, `iconeus_scan`,
-    `iconeus_project`, `iconeus_date`, `iconeus_hardware`).
+    `iconeus_project`, `iconeus_datetime`). `iconeus_datetime` is the acquisition
+    date and time in ISO 8601 format, e.g. `"2021-10-22T14:14:12+00:00"`. SCAN v1
+    stores it without a time zone, so ConfUSIus treats it as UTC. SCAN v2 files
+    also provide `iconeus_hardware`.
     """
     path = check_path(path, type="file")
 
@@ -603,7 +633,9 @@ def _load_scan_v1(
             "iconeus_session": _read_scan_str(h5, "/scanMetaData/Session_tag"),
             "iconeus_scan": _read_scan_str(h5, "/scanMetaData/Scan_tag"),
             "iconeus_project": _read_scan_str(h5, "/scanMetaData/Project_tag"),
-            "iconeus_date": _read_scan_str(h5, "/scanMetaData/Date"),
+            "iconeus_datetime": _parse_scan_v1_datetime(
+                _read_scan_str(h5, "/scanMetaData/Date")
+            ),
         }
 
         raw_lazy = da.from_array(h5["/Data"], chunks=chunks, asarray=False)
