@@ -849,6 +849,14 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
     -------
     dict
         Parsed metadata fields.
+
+    Raises
+    ------
+    ValueError
+        If the plane-wave angle block, the stimulation-toggle block, or a string field
+        extends past the end of the header.
+    struct.error
+        If a fixed-size field extends past the end of the header.
     """
     result: dict[str, Any] = {}
     offset += 4
