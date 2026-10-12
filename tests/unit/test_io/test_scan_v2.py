@@ -148,7 +148,7 @@ def _write_scan_v2(
         Unix timestamp for acquisition metadata.
     acquisition : bool, default: False
         Whether to write a non-identity probe pose and acquisition depth.
-    corrupt_acquisition : {"pose", "name"}, optional
+    corrupt_acquisition : {"pose", "angles", "toggles"}, optional
         Corruption mode used by error-path tests.
     payload_bytes_override : int, optional
         Payload byte count to write into the header.
@@ -217,7 +217,6 @@ def _write_scan_v2(
     header += translations.tobytes()
     header += rotations.tobytes()
 
-    probe_name = _PROBE_MODEL if corrupt_acquisition != "name" else "bad-name"
     header += bytes(4)
     scan_mode_code = 3 if npose > 1 and n_time > 1 else 1 if n_time == 1 else 0
     header += struct.pack("<L", scan_mode_code)
@@ -227,7 +226,7 @@ def _write_scan_v2(
     )
     header += struct.pack("<dH", 0.0, 128)
     header += _pack_scan_v2_string("2392", "<H")
-    header += _pack_scan_v2_string(probe_name, "<H")
+    header += _pack_scan_v2_string(_PROBE_MODEL, "<H")
     header += struct.pack("<dd", depth_start, depth_end)
     header += struct.pack("<ddd", _TRANSMIT_FREQ, _PRF, _ADC)
     header += bytes(8)
