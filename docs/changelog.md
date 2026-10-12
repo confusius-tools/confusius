@@ -113,6 +113,14 @@ Current development version for the next ConfUSIus release.
   preserves time coordinate attributes when passing `block_times`
   ([#473](https://github.com/confusius-tools/confusius/pull/473)).
 
+### :books: Documentation
+
+- Docs now build with Zensical 0.0.69 (up from 0.0.55), which validates cross-reference
+  links in strict mode; the broken autoref links that surfaced are fixed, and docstring
+  types such as `xarray.DataArray` link to the xarray docs instead of resolving to the
+  `confusius.xarray` subpackage
+  ([#500](https://github.com/confusius-tools/confusius/pull/500)).
+
 ### :frame_photo: Napari plugin
 
 - Renaming a layer now immediately updates selectors in Registration, Signals,
