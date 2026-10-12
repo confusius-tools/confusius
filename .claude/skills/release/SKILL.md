@@ -98,6 +98,10 @@ Replace the confusius development version with the final version. Example
 0.6.0
 ```
 
+### `zensical.toml`
+In `[project.plugins.llmstxt]`, replace `ConfUSIus version OLD` with
+`ConfUSIus version VERSION` inside `markdown_description`.
+
 ### Step 3 — Sync and verify
 
 Run:
@@ -279,6 +283,10 @@ Replace the confusius release version with the new development version. Example
 >>> print(cf.__version__)
 0.7.0.dev0
 ```
+
+### `zensical.toml`
+In `[project.plugins.llmstxt]`, replace `ConfUSIus version OLD` with
+`ConfUSIus version VERSION` inside `markdown_description`.
 
 ### `CITATION.cff`
 - **Do not modify.** Citation metadata must keep pointing at the last tagged release so
