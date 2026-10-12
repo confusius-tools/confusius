@@ -45,15 +45,17 @@ def test_plot_shares_mouse_trace_and_radius(plot_setup):
 
 
 def test_mouse_point_and_label_traces_render_together(plot_setup):
-    viewer, recording, _, controller, plotter = plot_setup
+    viewer, recording, _, _controller, plotter = plot_setup
     kwargs = {"scale": recording.scale[-3:], "translate": recording.translate[-3:]}
-    points = viewer.add_points([[2, 2, 2]], **kwargs)
+    viewer.add_points([[2, 2, 2]], **kwargs)
     labels = np.zeros(recording.data.shape[1:], dtype=np.int32)
     labels[0, 0, :2] = 4
-    roi = viewer.add_labels(labels, **kwargs)
-    controller.add_source(points)
-    controller.add_source(roi)
-    values = {line.get_label(): line.get_ydata() for line in plotter._axes.lines}
+    viewer.add_labels(labels, **kwargs)
+    values = {
+        line.get_label(): line.get_ydata()
+        for line in plotter._axes.lines
+        if not line.get_label().startswith("_")
+    }
     assert len(values) == 3
     for name, y in values.items():
         expected = (
@@ -66,33 +68,22 @@ def test_mouse_point_and_label_traces_render_together(plot_setup):
         assert_allclose(y, expected)
 
 
-def test_pin_is_raw_snapshot_and_survives_source_disable(plot_setup):
-    _, recording, store, controller, plotter = plot_setup
-    plotter.set_zscore(True)
-    plotter._pin_button.click()
-    pinned = store.stored_signals()[0]
-    assert_allclose(pinned.y, recording.data[:, 1, 1, 1])
-    controller.set_enabled("mouse", False)
-    assert len(plotter._axes.lines) == 1
-    assert_allclose(
-        plotter._axes.lines[0].get_ydata(),
-        (pinned.y - pinned.y.mean()) / pinned.y.std(),
+def test_mouse_name_color_and_default_display(plot_setup):
+    from confusius._utils.colors import RED
+
+    viewer, recording, store, _, plotter = plot_setup
+    signal = store.live_signals()[0]
+    world = recording.data_to_world((0, 1, 1, 1))
+    assert signal.display_name == (
+        f"data | z={world[-3]:.2f}, y={world[-2]:.2f}, x={world[-1]:.2f} mm (radius 0 mm)"
     )
-    assert not plotter._pin_button.isEnabled()
-    assert plotter._export_button.isEnabled()
-
-
-def test_pin_distinguishes_recording_position_and_radius(plot_setup):
-    viewer, recording, store, controller, plotter = plot_setup
-    plotter._pin_button.click()
-    plotter._pin_button.click()
-    assert len(store.stored_signals()) == 1
-    controller.set_radius(0.11)
-    plotter._pin_button.click()
+    assert signal.color == RED
+    assert plotter._vline is not None
+    assert any(line.get_visible() for line in plotter._axes.get_xgridlines())
+    assert not any(action.text() == "Pin" for action in plotter._toolbar.actions())
     viewer.cursor.position = recording.data_to_world((0, 2, 2, 2))
     viewer.keymap[coerce_keybinding("Shift")](viewer)
-    plotter._pin_button.click()
-    assert len({s.pin_origin for s in store.stored_signals()}) == 3
+    assert store.live_signals()[0].display_name != signal.display_name
 
 
 def test_stored_visibility_color_and_rename_are_preserved(plot_setup):
@@ -124,11 +115,11 @@ def test_mouse_updates_preserve_user_zoom_and_manual_ylim(plot_setup):
 
 
 def test_plot_close_does_not_remove_shared_sources_or_shift(plot_setup):
-    viewer, _, store, controller, plotter = plot_setup
+    viewer, recording, store, controller, plotter = plot_setup
     seed = store.live_signals()[0]
     plotter.close()
     assert viewer.keymap.get(coerce_keybinding("Shift")) is not None
-    assert_allclose(controller.get_trace(seed.id)[1], plotter._live_plot_signals[0].y)
+    assert_allclose(controller.get_trace(seed.id)[1], recording.data[:, 1, 1, 1])
 
 
 def test_zscore_constant_and_missing_values_are_display_only(plot_setup):
@@ -177,9 +168,93 @@ def test_non_time_volume_axis_remains_supported(
         np.asarray(plotter._axes.lines[0].get_ydata(), dtype=float),
         np.asarray(recording.data, dtype=float)[:, 1, 1],
     )
-    plotter._pin_button.click()
-    assert store.stored_signals()[0].coordinate_dim == "k"
     store.live_sources(viewer).close()
+
+
+@pytest.mark.parametrize(
+    ("intervals", "expected"),
+    [
+        (None, [-50, 0, 50, np.nan]),
+        ([(10, 10)], [0, 100, 200, np.nan]),
+        ([(10, 11), (11, 12)], [-50, 0, 50, np.nan]),
+        ([(20, 30)], [np.nan] * 4),
+        ([(13, 13)], [np.nan] * 4),
+    ],
+)
+def test_psc_baselines_display_export_and_preserve_raw(plot_setup, intervals, expected):
+    _, _, store, controller, plotter = plot_setup
+    controller.set_enabled("mouse", False)
+    raw = np.array([2.0, 4.0, 6.0, np.nan])
+    store.pin_signal("psc", "psc", np.arange(10, 14), raw, "#123456", "test")
+    plotter.set_standardization("psc", intervals)
+    assert_allclose(plotter._axes.lines[0].get_ydata(), expected)
+    assert_allclose(plotter._export_signals[0].y_values, expected)
+    assert_allclose(store.stored_signals()[0].y, raw)
+    assert plotter._axes.get_ylabel() == "Signal change (%)"
+    if not np.isfinite(expected).any():
+        assert "PSC undefined" in plotter._baseline_warning.get_text()
+    else:
+        assert plotter._baseline_warning is None
+    assert plotter._baseline_spans
+
+
+@pytest.mark.parametrize("raw", [[0.0, 0.0], [-2.0, -4.0], [np.nan, np.inf]])
+def test_psc_zero_negative_and_nonfinite_baselines(plot_setup, raw):
+    _, _, store, controller, plotter = plot_setup
+    controller.set_enabled("mouse", False)
+    store.pin_signal("psc", "psc", np.arange(2), np.array(raw), "#123456", "test")
+    plotter.set_standardization("psc")
+    expected = [100 / 3, -100 / 3] if raw[0] == -2 else [np.nan, np.nan]
+    assert_allclose(plotter._axes.lines[0].get_ydata(), expected)
+
+
+@pytest.mark.parametrize("intervals", [[(2, 1)], [(np.nan, 2)], [(0, np.inf)]])
+def test_invalid_psc_intervals_are_rejected(plot_setup, intervals):
+    plotter = plot_setup[-1]
+    with pytest.raises(ValueError, match="finite ordered"):
+        plotter.set_standardization("psc", intervals)
+
+
+@pytest.mark.parametrize("outside", [False, True])
+def test_event_baselines_use_half_open_union_or_its_complement(plot_setup, outside):
+    _, _, store, controller, plotter = plot_setup
+    controller.set_enabled("mouse", False)
+    raw = np.arange(2.0, 14.0, 2.0)
+    store.pin_signal("events", "events", np.arange(6), raw, "#123456", "test")
+    plotter.set_standardization(
+        "psc", [(1.0, 3.0), (2.0, 4.0)], baseline_source="events", outside=outside
+    )
+    mean = raw[[0, 4, 5]].mean() if outside else raw[1:4].mean()
+    expected = (raw - mean) / mean * 100
+    assert_allclose(plotter._axes.lines[0].get_ydata(), expected)
+    assert_allclose(plotter._export_signals[0].y_values, expected)
+    spans = plotter._baseline_spans
+    bounds = [(span.get_x(), span.get_x() + span.get_width()) for span in spans]
+    assert bounds == ([(0.0, 1.0), (4.0, 5.0)] if outside else [(1.0, 4.0)])
+    assert_allclose(store.stored_signals()[0].y, raw)
+
+
+@pytest.mark.parametrize("outside", [False, True])
+def test_empty_event_selection_is_explicitly_undefined(plot_setup, outside):
+    _, _, _, _, plotter = plot_setup
+    plotter.set_standardization("psc", [], baseline_source="events", outside=outside)
+    assert not np.isfinite(plotter._axes.lines[0].get_ydata()).any()
+    assert "selected periods" in plotter._baseline_warning.get_text()
+    assert not plotter._baseline_spans
+
+
+def test_event_baseline_rejects_non_seconds_time_coordinates(plot_setup):
+    _, recording, _, _, plotter = plot_setup
+    recording.metadata["xarray"].time.attrs["units"] = "ms"
+    plotter.set_standardization("psc", [(10.0, 12.0)], baseline_source="events")
+    assert not np.isfinite(plotter._axes.lines[0].get_ydata()).any()
+    assert "seconds time axis" in plotter._baseline_warning.get_text()
+
+
+def test_disabling_grid_does_not_warn_or_enable_it(plot_setup):
+    plotter = plot_setup[-1]
+    plotter.set_show_grid(False)
+    assert not any(line.get_visible() for line in plotter._axes.get_xgridlines())
 
 
 def test_reopened_plot_resumes_shared_live_updates(plot_setup):

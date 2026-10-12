@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import colorsys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
-from matplotlib.colors import to_hex, to_rgb
+from matplotlib.colors import to_hex, to_rgba
 from napari.layers import Image, Labels, Layer, Points
+from napari.utils.colormaps import DirectLabelColormap
 from napari.utils.key_bindings import coerce_keybinding
 from qtpy.QtCore import QObject, QTimer, Signal
 
@@ -20,6 +20,7 @@ from confusius._napari._utils import (
     extract_label_mean_trace,
     extract_voxel_trace,
 )
+from confusius._utils.colors import RED
 from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius.validation import validate_voxeldata
 
@@ -77,7 +78,6 @@ class LiveSources(QObject):
         self._revisions: dict[str, int] = {}
         self._references: list[Image] | None = None
         self._colors: dict[str, str] = {}
-        self._tones: dict[tuple[str, int], int] = {}
         self._label_ids: dict[str, set[int]] = {}
         self._cache: dict[tuple, tuple[np.ndarray, np.ndarray]] = {}
         self._position: np.ndarray | None = None
@@ -298,9 +298,13 @@ class LiveSources(QObject):
         """
         lid = self.layer_id(layer)
         if lid not in self._colors:
-            self._colors[lid] = CATEGORICAL_COLORS[
-                len(self._colors) % len(CATEGORICAL_COLORS)
-            ]
+            self._colors[lid] = (
+                RED
+                if not self._colors
+                else CATEGORICAL_COLORS[
+                    (len(self._colors) - 1) % len(CATEGORICAL_COLORS)
+                ]
+            )
         return self._colors[lid]
 
     def set_base_color(self, layer: Image, color: str) -> None:
@@ -316,6 +320,45 @@ class LiveSources(QObject):
         self._colors[self.layer_id(layer)] = to_hex(color)
         self._reconcile()
         self.sources_changed.emit()
+
+    def set_source_color(self, signal_id: str, color: str) -> None:
+        """Update an ROI colour at its backing layer, shared by all recordings.
+
+        Parameters
+        ----------
+        signal_id : str
+            Live point or label trace identifier.
+        color : str
+            Matplotlib-compatible colour.
+
+        Raises
+        ------
+        ValueError
+            If the signal has no available point or label source.
+        """
+        live = self.store.get_live_signal(signal_id)
+        if live is None or live.backing_layer is None:
+            raise ValueError("Selected signal has no ROI layer.")
+        source = self._sources[live.source_key]
+        layer = live.backing_layer
+        items = self._item_ids(source)
+        if isinstance(layer, Points):
+            colors = layer.face_color.copy()
+            colors[list(items).index(live.source_id)] = to_rgba(color)
+            layer.face_color = colors
+        elif isinstance(layer, Labels):
+            colormap = layer.colormap.model_copy(update={"use_selection": False})
+            if isinstance(colormap, DirectLabelColormap):
+                mapping = dict(colormap.color_dict)
+            else:
+                mapping = {item: colormap.map(item) for item in items}
+                mapping[None] = colormap.map(1)
+                mapping[colormap.background_value] = np.zeros(4)
+            mapping[live.source_id] = np.asarray(to_rgba(color))
+            layer.colormap = DirectLabelColormap(
+                color_dict=mapping, background_value=colormap.background_value
+            )
+        self._reconcile()
 
     def _item_ids(self, source: LiveSource) -> Sequence[int | None]:
         """Find stable ROI item identifiers.
@@ -372,6 +415,16 @@ class LiveSources(QObject):
             signals = []
             for source in self._sources.values():
                 items = self._item_ids(source)
+                item_colors = {}
+                if isinstance(source.layer, Points):
+                    item_colors = dict(zip(items, map(to_hex, source.layer.face_color)))
+                elif isinstance(source.layer, Labels) and items:
+                    colormap = source.layer.colormap.model_copy(
+                        update={"use_selection": False}
+                    )
+                    item_colors = dict(
+                        zip(items, map(to_hex, colormap.map(np.asarray(items))))
+                    )
                 current_labels = (
                     set(np.unique(np.asarray(source.layer.data)))
                     if isinstance(source.layer, Labels)
@@ -382,23 +435,30 @@ class LiveSources(QObject):
                     for item in items:
                         sid = f"{source.kind}-{source.id}-{item}-{self.layer_id(layer)}"
                         if source.kind == "mouse":
-                            description = f"Mouse (radius {self._radius:g} mm)"
+                            location = "Mouse"
+                            if self._position is not None:
+                                indices = tuple(
+                                    round(v)
+                                    for v in layer.world_to_data(self._position)
+                                )
+                                world = layer.data_to_world(indices)
+                                location = (
+                                    ", ".join(
+                                        f"{axis}={value:.2f}"
+                                        for axis, value in zip(
+                                            ("z", "y", "x"), world[-3:]
+                                        )
+                                    )
+                                    + " mm"
+                                )
+                            description = f"{location} (radius {self._radius:g} mm)"
                             color = base
                         else:
                             assert source.layer is not None and item is not None
                             description = (
                                 f"{source.layer.name} | {source.kind.title()} {item}"
                             )
-                            hue, lightness, saturation = colorsys.rgb_to_hls(
-                                *to_rgb(base)
-                            )
-                            tone = self._tones.setdefault(
-                                (source.id, item), len(self._tones)
-                            )
-                            lightness = 0.3 + (tone % 5) * 0.1
-                            color = to_hex(
-                                colorsys.hls_to_rgb(hue, lightness, saturation)
-                            )
+                            color = item_colors[item]
                         name = f"{layer.name} | {description}"
                         signals.append(
                             LiveSignal(
@@ -659,11 +719,28 @@ class LiveSources(QObject):
                     emitter.disconnect(self._on_data_event)
                 else:
                     emitter.connect(self._on_data_event)
+        for name in ("face_color", "face_colormap", "colormap"):
+            emitter = getattr(layer.events, name, None)
+            if emitter is not None:
+                if disconnect:
+                    emitter.disconnect(self._on_color_changed)
+                else:
+                    emitter.connect(self._on_color_changed)
         if isinstance(layer, Labels):
             if disconnect:
                 layer.events.paint.disconnect(self._on_paint)
             else:
                 layer.events.paint.connect(self._on_paint)
+
+    def _on_color_changed(self, event=None) -> None:
+        """Refresh presentation without invalidating cached raw traces.
+
+        Parameters
+        ----------
+        event : object, optional
+            Layer colour event.
+        """
+        self._reconcile()
 
     def _layers_changed(self, event=None) -> None:
         """Reconcile additions/removals and release removed layer subscriptions.
@@ -684,6 +761,11 @@ class LiveSources(QObject):
             ):
                 self._subscribe(layer)
                 self._subscribed.append(layer)
+                if isinstance(layer, (Points, Labels)):
+                    sid = self.layer_id(layer)
+                    self._sources[sid] = LiveSource(
+                        sid, "point" if isinstance(layer, Points) else "label", layer
+                    )
         self._sources = {
             sid: s
             for sid, s in self._sources.items()
@@ -856,6 +938,7 @@ class LiveSources(QObject):
             for key, value in self._cache.items()
             if not key[0].startswith("mouse-")
         }
+        self._reconcile()
         self.traces_changed.emit("mouse")
 
     def close(self) -> None:

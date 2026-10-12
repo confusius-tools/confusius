@@ -564,17 +564,24 @@ class FunctionalConnectivityPanel(QWidget):
             result = self._corr_map(seed, prepared)
             title = f"Seed map: {name} → {prepared.layer.name}"
             if self._map_layer is None or self._map_layer not in self._viewer.layers:
-                _, layer = plot_napari(
-                    result,
-                    viewer=self._viewer,
-                    name=title,
-                    colormap="twilight",
-                    contrast_limits=(-1, 1),
-                    blending="translucent",
-                    opacity=0.7,
-                    show_colorbar=False,
-                    show_scale_bar=False,
-                )
+                selection = self._viewer.layers.selection
+                selected, active = set(selection), selection.active
+                # Derived maps must not change the recording's active plot axis.
+                with selection.events.blocker():
+                    _, layer = plot_napari(
+                        result,
+                        viewer=self._viewer,
+                        name=title,
+                        colormap="twilight",
+                        contrast_limits=(-1, 1),
+                        blending="translucent",
+                        opacity=0.7,
+                        show_colorbar=False,
+                        show_scale_bar=False,
+                    )
+                    selection.clear()
+                    selection.update(selected)
+                    selection.active = active
                 self._map_layer = cast("Image", layer)
             else:
                 self._map_layer.name = title

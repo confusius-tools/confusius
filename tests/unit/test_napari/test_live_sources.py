@@ -102,6 +102,67 @@ def test_reference_changes_do_not_reassign_or_delete_trace(live_setup):
     assert_allclose(controller.get_trace(first.id)[1], recording.data[:, 1, 1, 1])
 
 
+@pytest.mark.parametrize("kind", ["point", "label"])
+def test_roi_colors_follow_layer_and_manager_edits_for_all_recordings(live_setup, kind):
+    from matplotlib.colors import to_hex
+    from napari.utils.colormaps import DirectLabelColormap
+
+    viewer, recording, store, controller = live_setup
+    points, labels = add_rois(viewer, recording)
+    _, second = plot_napari(
+        recording.metadata["xarray"],
+        viewer=viewer,
+        show_colorbar=False,
+        show_scale_bar=False,
+    )
+    source = points if kind == "point" else labels
+    seeds = [s for s in store.live_signals() if s.backing_layer is source]
+    seed = next(s for s in seeds if s.reference_layer is recording)
+    point_index = 0
+    if kind == "point":
+        points.face_color = ["red", "blue"]
+        assert store.get_live_signal(seed.id).color == "#ff0000"
+        other_before = to_hex(points.face_color[1])
+    else:
+        labels.colormap = DirectLabelColormap(
+            color_dict={None: "gray", 0: "transparent", 3: "green"}
+        )
+        assert store.get_live_signal(seed.id).color == "#008000"
+    raw_before = controller.get_trace(seed.id)[1].copy()
+    store.set_live_signal_color(seed.id, "#123456")
+    for live in store.live_signals():
+        if live.backing_layer is source and live.source_id == seed.source_id:
+            assert live.color == "#123456"
+    if kind == "point":
+        assert to_hex(points.face_color[point_index]) == "#123456"
+        assert to_hex(points.face_color[1]) == other_before
+        points.face_color = ["yellow", "blue"]
+    else:
+        assert to_hex(labels.get_color(3)) == "#123456"
+        labels.colormap = DirectLabelColormap(
+            color_dict={None: "gray", 0: "transparent", 3: "yellow"}
+        )
+    assert store.get_live_signal(seed.id).color == "#ffff00"
+    assert_allclose(controller.get_trace(seed.id)[1], raw_before)
+    assert any(
+        s.reference_layer is second and s.color == "#ffff00"
+        for s in store.live_signals()
+        if s.backing_layer is source
+    )
+
+
+def test_hidden_labels_keep_their_color_in_traces(live_setup):
+    from matplotlib.colors import to_hex
+
+    viewer, recording, store, _ = live_setup
+    _, labels = add_rois(viewer, recording)
+    expected = to_hex(labels.get_color(3))
+    labels.selected_label = 1
+    labels.show_selected_label = True
+    seed = trace(store, "label", recording, 3)
+    assert seed.color == expected
+
+
 def test_rename_preserves_identity_color_and_custom_name(live_setup):
     viewer, recording, store, controller = live_setup
     _, labels = add_rois(viewer, recording)
@@ -262,13 +323,11 @@ def test_panel_controls_do_not_drop_other_sources_or_resurrect_removed_ones(
     from confusius._napari._signals._panel import SignalPanel
 
     viewer, recording, store, controller = live_setup
-    points, labels = add_rois(viewer, recording)
+    points, _labels = add_rois(viewer, recording)
     panel = SignalPanel(viewer, signal_store=store)
     qtbot.addWidget(panel)
-    panel._points_combo.setCurrentIndex(panel._points_combo.findData(points))
-    panel._add_points_btn.click()
-    panel._labels_combo.setCurrentIndex(panel._labels_combo.findData(labels))
-    panel._add_labels_btn.click()
+    assert panel._points_check.isChecked()
+    assert panel._labels_check.isChecked()
     original = {s.id for s in store.live_signals()}
     panel._points_check.setChecked(False)
     assert {s.id for s in store.live_signals()} == original
