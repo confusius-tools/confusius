@@ -390,13 +390,6 @@ for nii in sorted((bids_root / "sub-CR020").rglob("*_pwd.nii.gz")):
 See the [I/O guide](io.md) for loading NIfTI, Zarr, and Iconeus SCAN files into
 VoxelData arrays.
 
-### Downloading Files
-
-Collection fetchers use anonymous Boto3 S3 transfers beneath Pooch's SHA-256
-verification and temporary-file handling. A shared ten-worker transfer pool reuses
-HTTP connections and downloads files concurrently. Files of at least 8 MiB use
-parallel byte-range downloads. Neither AWS credentials nor the AWS CLI are needed.
-
 ### Selecting a New Release
 
 Collection fetchers resolve the published version from `last_versions.conf` and
