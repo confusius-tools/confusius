@@ -5,7 +5,6 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
-import dask
 import dask.array as da
 import h5py as h5
 import numpy as np
@@ -22,7 +21,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_units,
 )
 from confusius._utils.stack import find_stack_level
-from confusius.io._utils import make_attrs_zarr_safe
+from confusius.io._utils import make_attrs_zarr_safe, map_binary_array
 from confusius.io.utils import check_path
 from confusius.xarray.create import create_voxeldata
 
@@ -169,71 +168,6 @@ def load_echoframe_metadata(meta_path: str | Path) -> EchoFrameMetadata:
     )
 
 
-def _load_echoframe_block(
-    dat_path: str | Path,
-    block_idx: int,
-    header_size: int,
-    n_volumes_per_block: int,
-    x: int,
-    z: int,
-    dat_dtype: npt.DTypeLike,
-    padding_bytes: int,
-) -> np.ndarray:
-    """Load a single EchoFrame acquisition block from a DAT file.
-
-    Opens a fresh, block-scoped `numpy.memmap` and copies the block out of it. Used as
-    the per-chunk loader for the lazy Dask array returned by `load_echoframe_dat`; each
-    block gets its own memory map so no single memmap spanning the whole file needs to
-    be built or transferred across task boundaries.
-
-    Parameters
-    ----------
-    dat_path : str or pathlib.Path
-        Path to the EchoFrame DAT file containing beamformed IQ data.
-    block_idx : int
-        Index of the acquisition block to load.
-    header_size : int
-        Size in bytes of the DAT file header, preceding the first block.
-    n_volumes_per_block : int
-        Number of volumes per acquisition block.
-    x : int
-        Lateral dimension size.
-    z : int
-        Axial (depth) dimension size.
-    dat_dtype : dtype_like
-        Data type of the beamformed IQ data in the DAT file.
-    padding_bytes : int
-        Number of padding bytes following each block's data. `0` if blocks are
-        contiguous.
-
-    Returns
-    -------
-    (volumes, x, 1, z) numpy.ndarray
-        Beamformed IQ data for the requested block.
-    """
-    block_shape = (n_volumes_per_block, x, 1, z)
-    if padding_bytes > 0:
-        # Block has trailing padding - use a structured dtype to skip it.
-        block_dtype = np.dtype(
-            [
-                ("data", dat_dtype, block_shape),
-                ("padding", np.uint8, (padding_bytes,)),
-            ]
-        )
-        offset = header_size + block_idx * block_dtype.itemsize
-        memmap = np.memmap(
-            dat_path, dtype=block_dtype, mode="r", offset=offset, shape=(1,)
-        )
-        return np.array(memmap["data"][0])  # type: ignore
-    else:
-        itemsize = np.dtype(dat_dtype).itemsize
-        offset = header_size + block_idx * int(np.prod(block_shape)) * itemsize
-        memmap = np.memmap(
-            dat_path, dtype=dat_dtype, mode="r", offset=offset, shape=block_shape
-        )
-        return np.array(memmap)
-
-
 def _load_echoframe_dat_blocks(
     dat_path: str | Path,
     x: int,
@@ -274,26 +208,16 @@ def _load_echoframe_dat_blocks(
     header = np.fromfile(dat_path, dtype=header_dtype, count=n_header_items)
     _, header_size, n_blocks, _data_size, padding_bytes = (int(item) for item in header)
 
-    load = dask.delayed(_load_echoframe_block)
     block_shape = (n_volumes_per_block, x, 1, z)
-    blocks = [
-        da.from_delayed(
-            load(
-                dat_path,
-                block_idx,
-                header_size,
-                n_volumes_per_block,
-                x,
-                z,
-                dat_dtype,
-                padding_bytes,
-            ),
-            shape=block_shape,
-            dtype=dat_dtype,
+    if padding_bytes:
+        record_dtype = np.dtype(
+            [("data", dat_dtype, block_shape), ("padding", np.uint8, (padding_bytes,))]
         )
-        for block_idx in range(n_blocks)
-    ]
-    return da.stack(blocks, axis=0)
+        return map_binary_array(dat_path, (n_blocks,), record_dtype, header_size, 1)[
+            "data"
+        ]
+    shape = (n_blocks, *block_shape)
+    return map_binary_array(dat_path, shape, dat_dtype, header_size, (1, *block_shape))
 
 
 def load_echoframe_dat(
@@ -311,7 +235,8 @@ def load_echoframe_dat(
     `beamforming_sound_velocity`) are attached from the EchoFrame sequence parameter
     file. The `time` coordinate is computed from frame indices and the compound
     sampling frequency; callers with acquisition timestamps for each block should
-    override it (e.g. via `data.assign_coords(time=...)`).
+    override it (e.g. via `data.assign_coords(time=...)`). Each chunk reopens a
+    read-only memory map on its worker; in-place processing requires a copy.
 
     Parameters
     ----------

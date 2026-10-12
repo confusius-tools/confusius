@@ -115,7 +115,7 @@ class FUSIBIDSMetadata(BaseModel):
     )
     ProbeAperture: PositiveFloat | list[PositiveFloat] | None = Field(
         default=None,
-        description="Aperture size of the probe in millimeters.",
+        description="Aperture of the lens or curved transducer array in millimeters. Recommended for focused lenses and curved transducer arrays.",
     )
 
     # Sequence specifics

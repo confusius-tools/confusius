@@ -49,9 +49,21 @@ Current development version for the next ConfUSIus release.
   `region`/`side` and return a `{acronym: (vertices, faces)}` dict with one entry per
   requested region, under `_L`/`_R`-suffixed keys for single-hemisphere requests
   ([#448](https://github.com/confusius-tools/confusius/pull/448)).
+- [`load_scan`][confusius.io.load_scan] stores SCAN v2 probe aperture as
+  `probe_aperture` instead of `probe_elevation_aperture`, so BIDS sidecars export
+  it as `ProbeAperture`
+  ([#478](https://github.com/confusius-tools/confusius/pull/478)).
+- [`load_scan`][confusius.io.load_scan] stores the SCAN v1 acquisition date as
+  `iconeus_datetime` in ISO 8601 format (e.g. `2021-10-22T14:14:12+00:00`),
+  matching SCAN v2, instead of `iconeus_date`
+  ([#478](https://github.com/confusius-tools/confusius/pull/478)).
 
 ### :sparkles: Enhancements
 
+- [`load_scan`][confusius.io.load_scan] now supports SCAN v2 `4Dscan` recordings
+  acquired with the Iconeus IcoPrime-4D MultiArray probe, preserving multi-pose
+  geometry and acquisition timing
+  ([#478](https://github.com/confusius-tools/confusius/pull/478)).
 - Masks are no longer required to be strictly boolean dtype: any binary numeric mask
   (0 and at most one non-zero value, e.g. `{0, 1}` or `{0.0, 5.0}`) is now accepted
   and coerced to boolean, covering masks written by tools without a boolean dtype
@@ -75,6 +87,12 @@ Current development version for the next ConfUSIus release.
 
 ### :zap: Performance
 
+- EchoFrame DAT loading is faster and uses less resident memory by reopening
+  read-only memory maps per Dask chunk instead of copying each acquisition block,
+  addressing slow DAT-based IQ processing
+  ([#479](https://github.com/confusius-tools/confusius/issues/479)). SCAN v2 uses the
+  same worker-side reader, keeping payloads lazy without caching whole-file mappings
+  ([#478](https://github.com/confusius-tools/confusius/pull/478)).
 - `fetch_brainglobe_atlas`'s `reference`/`annotation` are now backed by lazy
   `dask.array.Array` data instead of being eagerly materialized to
   `numpy.ndarray` at fetch time, since `BrainGlobeAtlas`'s v3 API forces this

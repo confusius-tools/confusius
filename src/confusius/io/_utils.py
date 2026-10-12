@@ -1,10 +1,15 @@
 """Shared helpers for ConfUSIus I/O modules."""
 
 import json
+import math
 import warnings
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
+from uuid import uuid4
 
+import dask.array as da
 import numpy as np
+import numpy.typing as npt
 
 from confusius._utils.stack import find_stack_level
 
@@ -102,3 +107,105 @@ def restore_affines_in_attrs(attrs: dict[str, Any]) -> None:
     if not isinstance(affines, dict):
         return
     attrs["affines"] = {key: np.asarray(value) for key, value in affines.items()}
+
+
+def _read_binary_block(
+    *,
+    path: str,
+    shape: tuple[int, ...],
+    file_dtype: np.dtype,
+    offset: int,
+    order: Literal["C", "F"],
+    block_info: dict[Any, Any],
+) -> npt.NDArray:
+    """Reopen a read-only mapping and return the requested chunk without copying.
+
+    Parameters
+    ----------
+    path : str
+        Absolute binary file path accessible from the executing worker.
+    shape : tuple of int
+        Full physical payload shape.
+    file_dtype : numpy.dtype
+        Payload element type, possibly a structured acquisition record.
+    offset : int
+        Payload offset in bytes.
+    order : {"C", "F"}
+        Physical payload ordering.
+    block_info : dict
+        Dask output chunk locations.
+
+    Returns
+    -------
+    numpy.ndarray
+        Read-only view retaining its mapping until the chunk is released.
+    """
+    slices = tuple(
+        slice(start, stop) for start, stop in block_info[None]["array-location"]
+    )
+    mapping = np.memmap(
+        path, mode="r", dtype=file_dtype, offset=offset, shape=shape, order=order
+    )
+    return np.asarray(mapping[slices])
+
+
+def map_binary_array(
+    path: str | Path,
+    shape: tuple[int, ...],
+    dtype: npt.DTypeLike,
+    offset: int,
+    chunks: int | tuple[int, ...] | str | None,
+    order: Literal["C", "F"] = "C",
+) -> da.Array:
+    """Build a lazy array that reopens the binary payload inside each chunk task.
+
+    No mapping or payload is stored in the graph or cached between tasks. Mapped
+    chunks are read-only; callers needing in-place processing must copy them.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Binary file path, resolved before distributing the graph.
+    shape : tuple of int
+        Full physical payload shape.
+    dtype : dtype_like
+        Payload element type, including structured types for padded records.
+    offset : int
+        Payload offset in bytes.
+    chunks : int or tuple of int or str or None
+        Dask chunk specification in physical payload axis order.
+    order : {"C", "F"}, default: "C"
+        Physical payload ordering.
+
+    Returns
+    -------
+    dask.array.Array
+        Lazy array whose chunks are worker-local mapped views.
+
+    Raises
+    ------
+    ValueError
+        If the dimensions or offset are invalid or the payload is truncated.
+    """
+    path = Path(path).resolve()
+    dtype = np.dtype(dtype)
+    if offset < 0 or any(size < 1 for size in shape):
+        raise ValueError(
+            "Binary payload dimensions must be positive and offset nonnegative."
+        )
+    if path.stat().st_size < offset + math.prod(shape) * dtype.itemsize:
+        raise ValueError("Binary file is shorter than the expected payload.")
+    return da.map_blocks(
+        _read_binary_block,
+        path=str(path),
+        shape=shape,
+        dtype=dtype,
+        file_dtype=dtype,
+        offset=offset,
+        order=order,
+        chunks=da.core.normalize_chunks(
+            shape if chunks is None else chunks, shape=shape, dtype=dtype
+        ),
+        meta=np.empty((0,) * len(shape), dtype=dtype),
+        name=f"read-binary-{uuid4().hex}",
+    )

@@ -247,13 +247,14 @@ Attributes:
     iconeus_session:       Session01
     iconeus_scan:          sub-01_task-awake_pwd
     iconeus_project:       Project01
-    iconeus_date:          2021-10-22 14:14:12
+    iconeus_datetime:      2021-10-22T14:14:12+00:00
 ```
 
 Provenance metadata from the file is stored in `da.attrs`, including
 `iconeus_scan_mode`, `iconeus_subject`, `iconeus_session`, `iconeus_scan`,
-`iconeus_project`, `iconeus_date`, `software_version`, and
-`device_serial_number`.
+`iconeus_project`, `iconeus_datetime`, `software_version`, and
+`device_serial_number`. `iconeus_datetime` uses ISO 8601 format for both SCAN v1 and
+SCAN v2. SCAN v1 stores the date without a time zone, so ConfUSIus treats it as UTC.
 
 Note that for recordings consisting of multiple probe poses (e.g., `3Dscan`, `4Dscan`),
 the `time` coordinate is **pose-dependent**, giving the acquisition time of each volume
@@ -285,14 +286,13 @@ world coordinates are derived from voxel indices and affines.
 
 #### SCAN v2 (binary format)
 
-!!! warning "Experimental"
-    SCAN v2 metadata were reverse-engineered from a few example files kindly provided by
-    Iconeus users. The data, timing, voxel spacing, depth origin, `world_to_lab` affine,
-    provenance (`iconeus_*` attrs), acquisition datetime, and BIDS-corresponding
-    acquisition settings (`probe_model`, `probe_center_frequency`, `transmit_frequency`,
-    `pulse_repetition_frequency`, `plane_wave_angles`, `svd_low_cutoff`, …) are
-    recovered into `da.attrs`. Lateral/elevation coordinates are centered on zero. This
-    and multi-pose layouts are unvalidated and may change.
+SCAN v2 files preserve the recording's data, acquisition timing, and VoxelData
+geometry. Metadata recovered into `da.attrs` include the `world_to_lab` affine,
+provenance (`iconeus_*` attrs), acquisition datetime, and BIDS-corresponding
+acquisition settings (`probe_model`, `probe_center_frequency`, `probe_aperture`,
+`transmit_frequency`, `pulse_repetition_frequency`, `plane_wave_angles`,
+`svd_low_cutoff`, …). For multi-pose recordings, see the
+[multi-pose user guide](multipose.md#scan-v2-binary).
 
 ```pycon
 >>> import confusius as cf
