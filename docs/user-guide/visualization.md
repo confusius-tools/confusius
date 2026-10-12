@@ -84,10 +84,10 @@ concise syntax; both call the same underlying functions.
     )
     mean_vol = pwd.mean("time").compute()
     angio = cf.load(
-        bids_root / "sub-CR022/ses-20201011/angio" / "sub-CR022_ses-20201011_pwd.nii.gz"
+        bids_root / "sub-CR022/ses-20201011/susi" / "sub-CR022_ses-20201011_pwd.nii.gz"
     ).compute()
     angio_2 = cf.load(
-        bids_root / "sub-CR022/ses-20201007/angio" / "sub-CR022_ses-20201007_pwd.nii.gz"
+        bids_root / "sub-CR022/ses-20201007/susi" / "sub-CR022_ses-20201007_pwd.nii.gz"
     ).compute()
     atlas_labels = cf.load(
         bids_root
@@ -751,5 +751,5 @@ and the [Xarray Integration API reference](../api/xarray.md).
 [^nunez2022]:
     Nunez-Elizalde, A. O., et al. "A Neurophysiological fUSI-BIDS dataset from awake,
     behaving mice." figshare dataset, 2022. DOI.org (Datacite),
-    <https://doi.org/10.6084/m9.figshare.19316228>; mirrored on OSF at
-    <https://osf.io/43skw/>.
+    <https://doi.org/10.6084/m9.figshare.19316228>; the fUSI-BIDS re-export is hosted
+    in the [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).

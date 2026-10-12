@@ -44,10 +44,10 @@ def test_list_datasets_prints_table(tmp_path, capsys):
 
 
 def test_list_datasets_marks_cached_datasets(tmp_path, capsys):
-    """Datasets with a non-empty cache dir are marked as cached, others are not."""
+    """Datasets with a recorded release inventory are marked as cached."""
     cached_name, _, cached_root = _REGISTRY[0]
     (tmp_path / cached_root).mkdir()
-    (tmp_path / cached_root / "dataset_description.json").write_text("{}")
+    (tmp_path / cached_root / "s3_index.json").write_text("{}")
 
     list_datasets(data_dir=tmp_path)
     captured = capsys.readouterr().out
