@@ -1143,8 +1143,8 @@ def _load_scan_v2(
 def _build_rotation_matrix(rx: float, ry: float, rz: float) -> npt.NDArray[np.float64]:
     """Build a 3x3 rotation matrix from intrinsic Z-Y-X Euler angles (radians).
 
-    The Euler convention (order Z-Y-X) is assumed, not confirmed: the only non-trivial
-    example so far has a single non-zero angle (`rz`), for which the order is irrelevant.
+    The composition `Rz @ Ry @ Rx` matches the `rotation_xyz` convention used by
+    PyIconeus for SCAN v2 probe poses.
 
     Parameters
     ----------
