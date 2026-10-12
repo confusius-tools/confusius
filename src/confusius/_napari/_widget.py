@@ -561,11 +561,11 @@ class ConfUSIusWidget(QWidget):
         tab_entries = [
             ("Data I/O", "file-input"),
             ("Video", "video"),
+            ("Events", "calendar-clock"),
             ("Signals", "chart-line"),
             ("Registration", "images"),
             ("Preprocessing", "brush-cleaning"),
             ("Functional Connectivity", "network"),
-            ("Events", "calendar-clock"),
             ("Quality Control", "clipboard-check"),
         ]
         signal_panel = SignalPanel(
@@ -576,11 +576,11 @@ class ConfUSIusWidget(QWidget):
         panels = [
             data_panel,
             video_panel,
+            EventPanel(self.viewer, self._event_store),
             signal_panel,
             RegistrationPanel(self.viewer),
             PreprocessingPanel(self.viewer, signal_store=self._signal_store),
             FunctionalConnectivityPanel(self.viewer, signal_store=self._signal_store),
-            EventPanel(self.viewer, self._event_store),
             QCPanel(
                 self.viewer,
                 signal_store=self._signal_store,

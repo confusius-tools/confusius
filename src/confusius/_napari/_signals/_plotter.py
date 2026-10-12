@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal
 
 import napari
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from matplotlib.patches import Patch
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import QSize, QTimer, Signal
 from qtpy.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
@@ -30,36 +31,10 @@ from confusius._napari._theme import (
 )
 
 if TYPE_CHECKING:
+    from matplotlib.artist import Artist
     from qtpy.QtGui import QShowEvent
 
     from confusius._napari._events._store import EventStore
-
-
-class LivePlotSignal(NamedTuple):
-    """Raw live snapshot available for optional pinning.
-
-    Attributes
-    ----------
-    origin : str
-        Stable snapshot origin, including recording and mouse configuration.
-    name : str
-        Display name.
-    x : numpy.ndarray
-        Axis coordinates.
-    y : numpy.ndarray
-        Raw values, independent of display standardisation.
-    color : str
-        Signal colour.
-    coordinate_dim : str
-        Axis represented by the snapshot; defaults to time.
-    """
-
-    origin: str
-    name: str
-    x: np.ndarray
-    y: np.ndarray
-    color: str
-    coordinate_dim: str = TIME_DIM
 
 
 class SignalPlotter(QWidget):
@@ -78,6 +53,9 @@ class SignalPlotter(QWidget):
     frame_clicked = Signal(float)
     """Emitted with the clicked x-axis coordinate."""
 
+    axis_range_changed = Signal(object)
+    """Emitted when the finite numeric trace extent changes."""
+
     def __init__(
         self,
         viewer: napari.Viewer,
@@ -91,19 +69,24 @@ class SignalPlotter(QWidget):
         self._event_store = event_store
         self._closed = False
         self._event_spans = []
+        self._baseline_spans = []
+        self._baseline_warning = None
+        self._axis_range: tuple[float, float] | None = None
         self._xaxis_dim: str | None = None
         self._autoscale = True
         self._ylim_min: float | None = None
         self._ylim_max: float | None = None
         self._show_grid = True
-        self._zscore = False
-        self._show_cursor = False
+        self._standardization = "raw"
+        self._baseline_intervals: list[tuple[float, float]] = []
+        self._baseline_source: Literal["manual", "events"] = "manual"
+        self._baseline_outside = False
+        self._show_cursor = True
         self._cursor_world = 0.0
         self._vline = None
         self._bg = None
         self._export_signals: list[ExportSignal] = []
-        self._live_plot_signals: list[LivePlotSignal] = []
-        self._signature: tuple = ()
+        self._signature: tuple | None = None
         self._lines = []
         self._auto_xlim: tuple[float, float] | None = None
         self._axis_reference = None
@@ -147,14 +130,6 @@ class SignalPlotter(QWidget):
             self._toolbar, "signalExportButton", self._save_current_plot
         )
         self._toolbar.addWidget(self._export_button)
-        self._pin_button = create_export_button(
-            self._toolbar,
-            "signalPinButton",
-            self._pin_current_signals,
-            text="Pin",
-            tooltip="Snapshot the currently plotted live traces.",
-        )
-        self._toolbar.addWidget(self._pin_button)
         layout.addWidget(self._toolbar)
         layout.addWidget(self._canvas)
         self._axes = self._figure.add_subplot(111)
@@ -168,8 +143,7 @@ class SignalPlotter(QWidget):
         self._axes.set_facecolor(colors["bg"])
         style_plot_toolbar(self._toolbar, colors)
         style_export_button(self._export_button, colors)
-        style_export_button(self._pin_button, colors)
-        self._signature = ()
+        self._signature = None
 
     def on_theme_changed(self) -> None:
         """Refresh plot styling for the current viewer theme."""
@@ -229,8 +203,140 @@ class SignalPlotter(QWidget):
         enabled : bool
             Whether to standardise plotted values.
         """
-        self._zscore = enabled
+        self.set_standardization("zscore" if enabled else "raw")
+
+    def get_axis_range(self) -> tuple[float, float] | None:
+        """Return finite numeric trace bounds, independent of zoom.
+
+        Returns
+        -------
+        tuple[float, float] or None
+            Numeric extent. No numeric trace coordinates yields no bounds.
+        """
+        return self._axis_range
+
+    def set_standardization(
+        self,
+        method: Literal["raw", "zscore", "psc"],
+        baseline_intervals: list[tuple[float, float]] | None = None,
+        *,
+        baseline_source: Literal["manual", "events"] = "manual",
+        outside: bool = False,
+    ) -> None:
+        """Set display/export standardization without changing raw traces.
+
+        Parameters
+        ----------
+        method : {"raw", "zscore", "psc"}
+            Display transformation.
+        baseline_intervals : list[tuple[float, float]], optional
+            Inclusive PSC baseline intervals in numeric x-axis units. If not
+            provided, use all finite samples in manual mode. Overlapping
+            intervals count once. Event intervals are half-open and in seconds.
+        baseline_source : {"manual", "events"}, default: "manual"
+            Manual intervals or an explicitly selected event union. Events require
+            a numeric time axis in seconds; an empty selection is undefined.
+        outside : bool, default: False
+            Whether to use the complement of the event union within each trace.
+            Ignored for manual intervals.
+
+        Raises
+        ------
+        ValueError
+            If the method or interval bounds are invalid.
+        """
+        if method not in {"raw", "zscore", "psc"}:
+            raise ValueError("Unknown standardization method.")
+        if baseline_source not in {"manual", "events"}:
+            raise ValueError("Unknown baseline source.")
+        intervals = list(baseline_intervals or [])
+        if any(
+            not np.isfinite([start, end]).all() or start > end
+            for start, end in intervals
+        ):
+            raise ValueError("Baseline intervals must have finite ordered bounds.")
+        if baseline_source == "events":
+            intervals = [(start, end) for start, end in intervals if start < end]
+        self._standardization = method
+        self._baseline_intervals = intervals
+        self._baseline_source = baseline_source
+        self._baseline_outside = outside
         self._refresh_plot()
+
+    def _standardize(self, x: np.ndarray, y: np.ndarray, signal_id: str) -> np.ndarray:
+        """Transform one trace for display and export.
+
+        Parameters
+        ----------
+        x : numpy.ndarray
+            Axis coordinates.
+        y : numpy.ndarray
+            Raw samples.
+        signal_id : str
+            Signal identity used to validate event-based time coordinates.
+
+        Returns
+        -------
+        numpy.ndarray
+            Display values. Undefined PSC baselines produce missing values.
+        """
+        if self._standardization == "raw":
+            return y
+        if self._standardization == "zscore":
+            return self._apply_zscore(y)
+        values = np.asarray(y, dtype=float)
+        baseline = np.isfinite(values)
+        events = self._baseline_source == "events"
+        if events and (
+            not self._baseline_intervals or not self._has_seconds_axis(signal_id)
+        ):
+            return np.full_like(values, np.nan)
+        if self._baseline_intervals:
+            coordinates = np.asarray(x)
+            if not np.issubdtype(coordinates.dtype, np.number):
+                return np.full_like(values, np.nan)
+            selected = np.zeros(len(values), dtype=bool)
+            for start, end in self._baseline_intervals:
+                # Events follow the Events tab's half-open interval semantics.
+                upper = coordinates < end if events else coordinates <= end
+                selected |= (coordinates >= start) & upper
+            baseline &= ~selected if events and self._baseline_outside else selected
+            baseline &= np.isfinite(coordinates)
+        if not baseline.any():
+            return np.full_like(values, np.nan)
+        mean = values[baseline].mean()
+        if abs(mean) < np.finfo(np.float64).eps:
+            return np.full_like(values, np.nan)
+        result = (values - mean) / abs(mean) * 100
+        result[~np.isfinite(values)] = np.nan
+        return result
+
+    def _has_seconds_axis(self, signal_id: str) -> bool:
+        """Check event-baseline compatibility without assuming non-time units.
+
+        Parameters
+        ----------
+        signal_id : str
+            Live or stored signal identity.
+
+        Returns
+        -------
+        bool
+            Whether the signal represents time in seconds. Imported time columns
+            without unit metadata are treated as seconds, like BIDS events.
+        """
+        if self._xaxis_dim not in (None, TIME_DIM):
+            return False
+        live = self._signals_store.get_live_signal(signal_id)
+        if live is not None and live.reference_layer is not None:
+            data = live.reference_layer.metadata["xarray"]
+            if TIME_DIM not in data.dims:
+                return False
+            return data[TIME_DIM].attrs.get("units", "s") in {"s", "second", "seconds"}
+        stored = next(
+            (s for s in self._signals_store.stored_signals() if s.id == signal_id), None
+        )
+        return stored is not None and stored.coordinate_dim == TIME_DIM
 
     def set_show_cursor(self, enabled: bool) -> None:
         """Set x-axis cursor visibility.
@@ -241,7 +347,7 @@ class SignalPlotter(QWidget):
             Whether to show the cursor.
         """
         self._show_cursor = enabled
-        self._signature = ()
+        self._signature = None
         self._refresh_plot()
 
     def set_xaxis_dim(self, dim: str | None) -> None:
@@ -250,13 +356,15 @@ class SignalPlotter(QWidget):
         Parameters
         ----------
         dim : str, optional
-            Axis name. If not provided, use time.
+            Axis name. If not provided, use time. An empty name suspends
+            plotting when the active image has no plottable slider axis.
         """
         if dim != self._xaxis_dim:
             self._xaxis_dim = dim
-            self._live_sources.set_display_axis(dim or TIME_DIM)
+            if dim != "":
+                self._live_sources.set_display_axis(dim or TIME_DIM)
             self._auto_xlim = None
-            self._signature = ()
+            self._signature = None
             self._refresh_plot()
 
     def set_xaxis_cursor(self, world_value: float) -> None:
@@ -299,12 +407,13 @@ class SignalPlotter(QWidget):
         """Update existing lines in place when only live values change."""
         colors = get_napari_colors(self._viewer.theme)
         plotted = []
-        snapshots = []
         axis = self._xaxis_dim or TIME_DIM
-        xlabel = axis.title()
+        xlabel = axis.title() if self._xaxis_dim != "" else "No plottable axis"
         self._axis_reference = None
         self._axis_coordinates = None
-        for live in self._signals_store.visible_live_signals():
+        for live in (
+            self._signals_store.visible_live_signals() if self._xaxis_dim != "" else []
+        ):
             try:
                 x, y = self._live_sources.get_trace(live.id, axis)
             except ValueError:
@@ -319,26 +428,22 @@ class SignalPlotter(QWidget):
                 if unit:
                     xlabel += f" ({unit})"
             plotted.append((live.id, live.display_name, live.color, x, y))
-            snapshots.append(
-                LivePlotSignal(
-                    self._live_sources.pin_origin(live.id, axis),
-                    live.display_name,
-                    x,
-                    y,
-                    live.color,
-                    axis,
-                )
-            )
-        for stored in self._signals_store.visible_stored_signals():
+        for stored in (
+            self._signals_store.visible_stored_signals()
+            if self._xaxis_dim != ""
+            else []
+        ):
             plotted.append((stored.id, stored.name, stored.color, stored.x, stored.y))
-        self._set_live_plot_signals(snapshots)
         self._set_export_signals(
             [
-                ExportSignal(name, x, self._apply_zscore(y) if self._zscore else y)
-                for _, name, _, x, y in plotted
+                ExportSignal(name, x, self._standardize(x, y, sid))
+                for sid, name, _, x, y in plotted
             ]
         )
-        signature = tuple((sid, name, color) for sid, name, color, _, _ in plotted)
+        signature = (
+            self._standardization,
+            tuple((sid, name, color) for sid, name, color, _, _ in plotted),
+        )
         old_xlim = self._axes.get_xlim()
         user_xlim = self._auto_xlim is not None and not np.allclose(
             old_xlim, self._auto_xlim
@@ -347,17 +452,29 @@ class SignalPlotter(QWidget):
         if rebuild:
             self._axes.clear()
             self._event_spans = []
+            self._baseline_spans = []
+            self._baseline_warning = None
             self._vline = None
             self._lines = []
-            for _, name, color, x, y in plotted:
-                values = self._apply_zscore(y) if self._zscore else y
+            for sid, name, color, x, y in plotted:
+                values = self._standardize(x, y, sid)
                 self._lines.extend(
                     self._axes.plot(x, values, color=color, label=name, linewidth=1.5)
                 )
             self._signature = signature
             if plotted:
+                handles: list[Artist] = list(self._lines)
+                if self._standardization == "psc":
+                    handles.append(
+                        Patch(
+                            facecolor=colors["accent"], alpha=0.15, label="PSC baseline"
+                        )
+                    )
                 legend = self._axes.legend(
-                    fontsize=8, facecolor=colors["bg"], edgecolor=colors["fg"]
+                    handles=handles,
+                    fontsize=8,
+                    facecolor=colors["bg"],
+                    edgecolor=colors["fg"],
                 )
                 for text in legend.get_texts():
                     text.set_color(colors["fg"])
@@ -365,7 +482,9 @@ class SignalPlotter(QWidget):
                 self._axes.text(
                     0.5,
                     0.5,
-                    "Enable a source and hold Shift over a recording,\nor add a Points/Labels source.",
+                    "Select an image with a slider axis."
+                    if self._xaxis_dim == ""
+                    else "Hold Shift over a recording,\nor create a Points/Labels layer.",
                     transform=self._axes.transAxes,
                     ha="center",
                     va="center",
@@ -373,66 +492,149 @@ class SignalPlotter(QWidget):
                 )
             self._draw_event_spans()
         else:
-            for line, (_, _, _, x, y) in zip(self._lines, plotted):
-                line.set_data(x, self._apply_zscore(y) if self._zscore else y)
+            for line, (sid, _, _, x, y) in zip(self._lines, plotted):
+                line.set_data(x, self._standardize(x, y, sid))
         self._axes.set_facecolor(colors["bg"])
         self._axes.tick_params(colors=colors["fg"])
         for spine in self._axes.spines.values():
             spine.set_color(colors["fg"])
         self._axes.set_xlabel(xlabel, color=colors["fg"])
         self._axes.set_ylabel(
-            "Z-score" if self._zscore else "Intensity", color=colors["fg"]
+            {"raw": "Intensity", "zscore": "Z-score", "psc": "Signal change (%)"}[
+                self._standardization
+            ],
+            color=colors["fg"],
         )
-        self._axes.grid(self._show_grid, alpha=0.2)
+        # Supplying line properties with False silently enables matplotlib's grid.
+        if self._show_grid:
+            self._axes.grid(True, alpha=0.2)
+        else:
+            self._axes.grid(False)
+        numeric = [
+            np.asarray(x)[np.isfinite(x)]
+            for _, _, _, x, _ in plotted
+            if np.issubdtype(np.asarray(x).dtype, np.number)
+        ]
+        numeric = [x for x in numeric if len(x)]
+        extent = (
+            (float(min(x.min() for x in numeric)), float(max(x.max() for x in numeric)))
+            if numeric
+            else None
+        )
         if plotted:
             self._axes.relim()
             self._axes.autoscale_view(scalex=False, scaley=self._autoscale)
             if not self._autoscale:
                 self._axes.set_ylim(self._ylim_min, self._ylim_max)
-            numeric = [
-                np.asarray(x)
-                for _, _, _, x, _ in plotted
-                if np.issubdtype(np.asarray(x).dtype, np.number) and len(x)
-            ]
-            if numeric:
-                extent = (
-                    float(min(np.nanmin(x) for x in numeric)),
-                    float(max(np.nanmax(x) for x in numeric)),
-                )
-                if extent[0] != extent[1]:
-                    self._axes.set_xlim(old_xlim if user_xlim else extent)
-                    self._auto_xlim = extent
+            if extent is not None and extent[0] != extent[1]:
+                self._axes.set_xlim(old_xlim if user_xlim else extent)
+                self._auto_xlim = extent
         else:
             self._auto_xlim = None
         if self._show_cursor and plotted and self._vline is None:
             self._vline = self._axes.axvline(
                 self._cursor_plot_value(), color=colors["fg"], alpha=0.6, animated=True
             )
+        self._draw_baseline_spans(extent)
         self._bg = None
         self._canvas.draw_idle()
+        if extent != self._axis_range:
+            self._axis_range = extent
+            self.axis_range_changed.emit(extent)
 
-    def _set_live_plot_signals(self, signals: list[LivePlotSignal]) -> None:
-        """Set optional pinning snapshots.
+    def _draw_baseline_spans(self, extent: tuple[float, float] | None) -> None:
+        """Shade PSC baseline intervals and explain undefined percent changes.
 
         Parameters
         ----------
-        signals : list[LivePlotSignal]
-            Currently plotted raw traces.
+        extent : tuple[float, float], optional
+            Full numeric axis range, used when no custom baseline is selected.
         """
-        self._live_plot_signals = signals
-        self._pin_button.setEnabled(bool(signals))
-
-    def _pin_current_signals(self) -> None:
-        """Snapshot plotted raw traces, independent of display standardisation."""
-        for signal in list(self._live_plot_signals):
-            self._signals_store.pin_signal(
-                signal.origin,
-                f"{signal.name} (pinned)",
-                signal.x,
-                signal.y,
-                signal.color,
-                f"Pinned from {signal.name}",
-                coordinate_dim=signal.coordinate_dim,
+        for span in self._baseline_spans:
+            span.remove()
+        self._baseline_spans = []
+        if self._baseline_warning is not None:
+            self._baseline_warning.remove()
+            self._baseline_warning = None
+        if self._standardization != "psc":
+            return
+        colors = get_napari_colors(self._viewer.theme)
+        intervals = self._baseline_intervals
+        if self._baseline_source == "manual" and not intervals:
+            intervals = [extent] if extent is not None else []
+        event_axis_valid = (
+            self._xaxis_dim in (None, TIME_DIM)
+            and extent is not None
+            and (
+                self._axis_reference is None
+                or self._axis_reference.metadata["xarray"][TIME_DIM].attrs.get(
+                    "units", "s"
+                )
+                in {"s", "second", "seconds"}
+            )
+        )
+        if self._baseline_source == "events":
+            if not event_axis_valid:
+                intervals = []
+            elif extent is not None:
+                intervals = [
+                    (max(start, extent[0]), min(end, extent[1]))
+                    for start, end in intervals
+                    if start < extent[1] and end > extent[0]
+                ]
+        # Merge overlapping intervals so their shading does not become darker.
+        merged: list[tuple[float, float]] = []
+        for start, end in sorted(intervals):
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+            else:
+                merged.append((start, end))
+        if (
+            self._baseline_source == "events"
+            and self._baseline_outside
+            and self._baseline_intervals
+            and extent is not None
+            and event_axis_valid
+        ):
+            complement = []
+            cursor = extent[0]
+            for start, end in merged:
+                if cursor < start:
+                    complement.append((cursor, start))
+                cursor = max(cursor, end)
+            if cursor < extent[1]:
+                complement.append((cursor, extent[1]))
+            merged = complement
+        for start, end in merged:
+            self._baseline_spans.append(
+                self._axes.axvspan(
+                    start,
+                    end,
+                    color=colors["accent"],
+                    alpha=0.15,
+                    label="PSC baseline" if not self._baseline_spans else "_baseline",
+                )
+            )
+        undefined = [
+            str(line.get_label())
+            for line in self._lines
+            if not np.isfinite(line.get_ydata()).any()
+        ]
+        if undefined:
+            self._baseline_warning = self._axes.text(
+                0.01,
+                0.01,
+                "PSC undefined: baseline has no finite samples or a zero mean.\n"
+                + (
+                    "Event baselines require selected periods and a seconds time axis.\n"
+                    if self._baseline_source == "events"
+                    else ""
+                )
+                + "\n".join(undefined),
+                transform=self._axes.transAxes,
+                va="bottom",
+                fontsize=8,
+                color=colors["fg"],
             )
 
     def _set_export_signals(self, signals: list[ExportSignal]) -> None:

@@ -95,6 +95,32 @@ def test_equal_sample_counts_do_not_bypass_time_alignment(setup_fc):
     assert "extrapolation" in panel._status.text()
 
 
+def test_mouse_map_creation_preserves_focus_and_signal_axis(setup_fc, qtbot):
+    """Creating a derived map never steals focus or relabels a time trace."""
+    from confusius._napari._signals._panel import SignalPanel
+
+    viewer, recording, store, _, panel = setup_fc
+    signals = SignalPanel(viewer, signal_store=store)
+    qtbot.addWidget(signals)
+    signals.show_plot()
+    assert signals._plotter is not None
+    viewer.cursor.position = recording.data_to_world((0, 1, 1, 1))
+    viewer.keymap[coerce_keybinding("Shift")](viewer)
+    selected = set(viewer.layers.selection)
+    seed = store.live_signals()[0]
+    choose_seed(panel, seed.id)
+    assert panel._map_layer is not None
+    assert viewer.layers.selection.active is recording
+    assert set(viewer.layers.selection) == selected
+    qtbot.wait(30)
+    assert signals._xaxis_combo.currentText() == "time"
+    assert_allclose(
+        np.asarray(signals._plotter._axes.lines[0].get_ydata(), dtype=float),
+        np.asarray(recording.data)[:, 1, 1, 1],
+    )
+    signals._plotter.close()
+
+
 def test_visibility_never_changes_selected_live_seed(setup_fc, qtbot):
     viewer, recording, store, controller, panel = setup_fc
     viewer.cursor.position = recording.data_to_world((0, 1, 1, 1))

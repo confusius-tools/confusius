@@ -517,8 +517,10 @@ class SignalStore(QObject):
                 merged[sid] = replace(
                     new,
                     name=(old.name if old.name != old.default_name else new.name),
-                    color=old.color if old.color_overridden else new.color,
-                    color_overridden=old.color_overridden,
+                    color=old.color
+                    if old.color_overridden and new.backing_layer is None
+                    else new.color,
+                    color_overridden=old.color_overridden and new.backing_layer is None,
                     visible=old.visible,
                 )
             else:
@@ -568,7 +570,7 @@ class SignalStore(QObject):
         self._replace_live(signal_id, plot_data=True, visible=visible)
 
     def set_live_signal_color(self, signal_id: str, color: str) -> None:
-        """Update the plot color for one live signal.
+        """Update a live colour, synchronizing backed ROIs with their layer.
 
         Parameters
         ----------
@@ -579,7 +581,15 @@ class SignalStore(QObject):
         """
         if not color:
             raise ValueError("Live signal color cannot be empty.")
-        self._replace_live(signal_id, color=color, color_overridden=True)
+        live = self.get_live_signal(signal_id)
+        if (
+            live is not None
+            and live.backing_layer is not None
+            and self._live_sources is not None
+        ):
+            self._live_sources.set_source_color(signal_id, color)
+        else:
+            self._replace_live(signal_id, color=color, color_overridden=True)
 
     # -- Private helpers ------------------------------------------------------
 

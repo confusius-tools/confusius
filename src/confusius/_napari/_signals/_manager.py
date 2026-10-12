@@ -11,11 +11,11 @@ from qtpy.QtGui import QColor, QFont
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QColorDialog,
-    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -83,7 +83,7 @@ class SignalsManagerDialog(QDialog):
     parent : QWidget | None, optional
         Optional parent widget.
     live_sources : LiveSources, optional
-        Shared live controller for source enablement, removal and recording colours.
+        Shared live controller for per-ROI layer enablement.
     """
 
     def __init__(
@@ -113,20 +113,15 @@ class SignalsManagerDialog(QDialog):
         layout.setSpacing(8)
 
         if self._live_sources is not None:
+            self._sources_label = QLabel("ROI layers")
+            layout.addWidget(self._sources_label)
             self._sources_list = QListWidget()
+            self._sources_list.setToolTip(
+                "Enable individual ROI layers. The Signals tab toggles all layers of a type."
+            )
             self._sources_list.setMaximumHeight(110)
             self._sources_list.itemChanged.connect(self._on_source_enabled)
             layout.addWidget(self._sources_list)
-            source_row = QHBoxLayout()
-            remove_source = QPushButton("Remove source")
-            remove_source.clicked.connect(self._remove_source)
-            source_row.addWidget(remove_source)
-            self._recording_combo = QComboBox()
-            source_row.addWidget(self._recording_combo)
-            base_color = QPushButton("Base signal colour")
-            base_color.clicked.connect(self._choose_base_color)
-            source_row.addWidget(base_color)
-            layout.addLayout(source_row)
 
         button_row = QHBoxLayout()
         self._import_btn = QPushButton("Import")
@@ -181,19 +176,16 @@ class SignalsManagerDialog(QDialog):
         layout.addWidget(self._table)
 
     def _refresh_sources(self) -> None:
-        """Refresh independent source controls and recording colour choices."""
+        """Refresh per-ROI layer enablement controls."""
         controller = self._live_sources
         if controller is None:
             return
         self._sources_list.blockSignals(True)
         self._sources_list.clear()
         for source in controller.sources():
-            name = (
-                source.layer.name
-                if source.layer is not None
-                else "Mouse (Shift + hover)"
-            )
-            item = QListWidgetItem(name)
+            if source.layer is None:
+                continue
+            item = QListWidgetItem(source.layer.name)
             item.setData(Qt.ItemDataRole.UserRole, source.id)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(
@@ -201,13 +193,9 @@ class SignalsManagerDialog(QDialog):
             )
             self._sources_list.addItem(item)
         self._sources_list.blockSignals(False)
-        current = self._recording_combo.currentData()
-        self._recording_combo.clear()
-        for layer in controller.references():
-            self._recording_combo.addItem(layer.name, layer)
-        index = self._recording_combo.findData(current)
-        if index >= 0:
-            self._recording_combo.setCurrentIndex(index)
+        has_rois = self._sources_list.count() > 0
+        self._sources_list.setVisible(has_rois)
+        self._sources_label.setVisible(has_rois)
 
     def _on_source_enabled(self, item: QListWidgetItem) -> None:
         """Apply source enablement without deleting its traces.
@@ -222,28 +210,6 @@ class SignalsManagerDialog(QDialog):
                 item.data(Qt.ItemDataRole.UserRole),
                 item.checkState() == Qt.CheckState.Checked,
             )
-
-    def _remove_source(self) -> None:
-        """Remove the selected ROI source, retaining stored snapshots."""
-        item = self._sources_list.currentItem()
-        if item is not None and self._live_sources is not None:
-            try:
-                self._live_sources.remove_source(item.data(Qt.ItemDataRole.UserRole))
-            except ValueError as exc:
-                show_error(str(exc))
-
-    def _choose_base_color(self) -> None:
-        """Configure a recording's signal colour without changing its colormap."""
-        layer = self._recording_combo.currentData()
-        if layer is None or self._live_sources is None:
-            return
-        color = QColorDialog.getColor(
-            QColor(self._live_sources.base_color(layer)),
-            self,
-            "Recording Signal Colour",
-        )
-        if color.isValid():
-            self._live_sources.set_base_color(layer, color.name())
 
     # -- Table refresh --------------------------------------------------------
 

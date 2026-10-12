@@ -29,8 +29,6 @@ from confusius.registration import RegistrationDiagnostics
         (RegistrationPanel, "_moving_mask_combo", "labels"),
         (RegistrationPanel, "_fixed_mask_combo", "labels"),
         (RegistrationPanel, "_transform_target_combo", "image"),
-        (SignalPanel, "_points_combo", "points"),
-        (SignalPanel, "_labels_combo", "labels"),
         (SignalPanel, "_ref_combo", "image"),
         (QCPanel, "_layer_combo", "image"),
         (VideoPanel, "_ref_combo", "image"),
