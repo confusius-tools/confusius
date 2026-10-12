@@ -43,42 +43,6 @@ _SCAN_V2_OFFSETS: dict[str, int] = {
 """Byte offsets of fixed-position fields before SCAN v2 variable dim6 records."""
 
 
-def _read_u16(buffer: bytes, offset: int) -> int:
-    """Read a little-endian `uint16` from `buffer` at `offset`.
-
-    Parameters
-    ----------
-    buffer : bytes
-        Byte buffer to read from.
-    offset : int
-        Byte offset of the value.
-
-    Returns
-    -------
-    int
-        The decoded value.
-    """
-    return int.from_bytes(buffer[offset : offset + 2], "little")
-
-
-def _read_u32(buffer: bytes, offset: int) -> int:
-    """Read a little-endian `uint32` from `buffer` at `offset`.
-
-    Parameters
-    ----------
-    buffer : bytes
-        Byte buffer to read from.
-    offset : int
-        Byte offset of the value.
-
-    Returns
-    -------
-    int
-        The decoded value.
-    """
-    return int.from_bytes(buffer[offset : offset + 4], "little")
-
-
 def _read_u64(buffer: bytes, offset: int) -> int:
     """Read a little-endian `uint64` from `buffer` at `offset`.
 
@@ -95,24 +59,6 @@ def _read_u64(buffer: bytes, offset: int) -> int:
         The decoded value.
     """
     return int.from_bytes(buffer[offset : offset + 8], "little")
-
-
-def _read_f64(buffer: bytes, offset: int) -> float:
-    """Read a little-endian `float64` from `buffer` at `offset`.
-
-    Parameters
-    ----------
-    buffer : bytes
-        Byte buffer to read from.
-    offset : int
-        Byte offset of the value.
-
-    Returns
-    -------
-    float
-        The decoded value.
-    """
-    return float(struct.unpack_from("<d", buffer, offset)[0])
 
 
 def _read_scan_v2_struct(buffer: bytes, offset: int, fmt: str) -> tuple[Any, int]:

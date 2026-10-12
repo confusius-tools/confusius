@@ -65,60 +65,6 @@ _ACQ_DEPTH_START = 1.0
 _POSE = (0.0007, 0.0026, 0.0, 0.0, 0.0, math.pi / 2)
 
 
-def _acquisition_block(
-    n_time: int, size_z: int, depth_start: float, corrupt: str | None = None
-) -> bytes:
-    """Build the structured acquisition block the loader parses from `n_time`.
-
-    Layout (immediately after the time-coordinate array): frame indices, a 64-byte
-    orientation block, the frequency block (center freq, pitch, scan depth, focal depth),
-    a 16-byte gap, the probe-name string, the depth range, the transmit/PRF/ADC block,
-    then the plane-wave angle count and values.
-
-    Parameters
-    ----------
-    n_time : int
-        Number of time points (matches the frame-index count).
-    size_z : int
-        Number of depth voxels, used to space the depth range.
-    depth_start : float
-        Depth origin in mm; the depth range is `(depth_start, depth_start + span)`.
-    corrupt : {"name", "depth", "pose"}, optional
-        Inject a defect to exercise the loader's degradation guards: `"name"` writes a
-        non-printable probe name, `"depth"` breaks the depth-range span so the loader's
-        span-search fails and the anchor check cannot confirm alignment, `"pose"` writes
-        an implausible probe pose so no affine is built.
-
-    Returns
-    -------
-    bytes
-        The packed acquisition block.
-    """
-    depth_end = depth_start + (size_z - 1) * _DZ_M * 1e3
-    if corrupt == "depth":
-        depth_end = depth_start + 99.0  # break the span so span-search finds no pair
-    name = _PROBE_MODEL.encode("ascii")
-    if corrupt == "name":
-        name = bytes(range(1, len(name) + 1))  # valid length, non-printable
-    # Orientation block: 6DOF pose (6 f64) + a flag slot + padding = 64 bytes.
-    pose = (
-        (5.0, *_POSE[1:]) if corrupt == "pose" else _POSE
-    )  # 5 m translation: implausible
-    orientation = struct.pack("<6d", *pose) + struct.pack("<Q", 1) + bytes(8)
-    return (
-        struct.pack(f"<{n_time}I", *range(n_time))  # frame indices
-        + orientation
-        + struct.pack("<dddd", _CENTER_FREQ, _PITCH, _ELEVATION_APERTURE, _FOCAL_DEPTH)
-        + bytes(16)  # unknown probe block
-        + struct.pack("<H", len(name))
-        + name
-        + struct.pack("<dd", depth_start, depth_end)
-        + struct.pack("<dddd", _TRANSMIT_FREQ, _PRF, _ADC, 1.0)
-        + struct.pack("<I", len(_ANGLES))
-        + struct.pack(f"<{len(_ANGLES)}d", *_ANGLES)
-    )
-
-
 # Provenance layout matching the observed on-disk order: sequence, project, subject,
 # session, species, <type>, scan, <unknown>, <unknown>, experimenter, then the two
 # hex-encoded trailing fields (serial, hardware).
