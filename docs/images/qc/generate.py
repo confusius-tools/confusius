@@ -1,7 +1,8 @@
 """Generate documentation images for the Quality Control user guide.
 
 Data is fetched automatically from the Nunez-Elizalde et al. (2022) fUSI-BIDS
-dataset on OSF (https://osf.io/43skw/) via `confusius.datasets`.  The first run
+dataset from the ConfUSIus dataset collection via `confusius.datasets`.
+The first run
 downloads ~30 MB; subsequent runs use the local cache.
 
 Usage
@@ -65,6 +66,7 @@ bids_root = fetch_nunez_elizalde_2022(
     sessions=[_SESSION],
     tasks=[_TASK],
     acqs=[_ACQ_SLICE],
+    print_citation=False,
 )
 
 _FUSI_PATH = (
