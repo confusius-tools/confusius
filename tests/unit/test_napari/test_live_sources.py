@@ -103,7 +103,7 @@ def test_reference_changes_do_not_reassign_or_delete_trace(live_setup):
 
 
 @pytest.mark.parametrize("kind", ["point", "label"])
-def test_roi_colors_follow_layer_and_manager_edits_for_all_recordings(live_setup, kind):
+def test_roi_color_sync_and_per_recording_style_overrides(live_setup, kind):
     from matplotlib.colors import to_hex
     from napari.utils.colormaps import DirectLabelColormap
 
@@ -118,7 +118,6 @@ def test_roi_colors_follow_layer_and_manager_edits_for_all_recordings(live_setup
     source = points if kind == "point" else labels
     seeds = [s for s in store.live_signals() if s.backing_layer is source]
     seed = next(s for s in seeds if s.reference_layer is recording)
-    point_index = 0
     if kind == "point":
         points.face_color = ["red", "blue"]
         assert store.get_live_signal(seed.id).color == "#ff0000"
@@ -130,19 +129,32 @@ def test_roi_colors_follow_layer_and_manager_edits_for_all_recordings(live_setup
         assert store.get_live_signal(seed.id).color == "#008000"
     raw_before = controller.get_trace(seed.id)[1].copy()
     store.set_live_signal_color(seed.id, "#123456")
-    for live in store.live_signals():
-        if live.backing_layer is source and live.source_id == seed.source_id:
-            assert live.color == "#123456"
+    assert store.get_live_signal(seed.id).color == "#123456"
+    assert store.get_live_signal(seed.id).color_overridden
+    other = next(
+        s
+        for s in seeds
+        if s.reference_layer is second and s.source_id == seed.source_id
+    )
+    assert store.get_live_signal(other.id).color != "#123456"
+    assert store.get_live_signal(seed.id).line_style == "-"
+    assert store.get_live_signal(other.id).line_style == "--"
+    store.set_signal_line_style(seed.id, ":")
     if kind == "point":
-        assert to_hex(points.face_color[point_index]) == "#123456"
+        assert to_hex(points.face_color[0]) == "#ff0000"
         assert to_hex(points.face_color[1]) == other_before
         points.face_color = ["yellow", "blue"]
     else:
-        assert to_hex(labels.get_color(3)) == "#123456"
+        assert to_hex(labels.get_color(3)) == "#008000"
         labels.colormap = DirectLabelColormap(
             color_dict={None: "gray", 0: "transparent", 3: "yellow"}
         )
+    assert store.get_live_signal(seed.id).color == "#123456"
+    assert store.get_live_signal(other.id).color == "#ffff00"
+    assert store.get_live_signal(seed.id).line_style == ":"
+    store.set_live_signal_color_sync(seed.id, True)
     assert store.get_live_signal(seed.id).color == "#ffff00"
+    assert not store.get_live_signal(seed.id).color_overridden
     assert_allclose(controller.get_trace(seed.id)[1], raw_before)
     assert any(
         s.reference_layer is second and s.color == "#ffff00"
@@ -292,13 +304,57 @@ def test_mouse_outside_recording_does_not_return_previous_trace(live_setup, qtbo
         controller.get_trace(seed.id)
 
 
-def test_labels_require_matching_geometry_not_just_shape(live_setup):
+def test_labels_follow_world_space_across_recording_transforms(live_setup):
     viewer, recording, store, controller = live_setup
     _, labels = add_rois(viewer, recording)
-    controller.add_source(labels)
-    labels.translate = np.asarray(labels.translate) + 1
+    _, second = plot_napari(
+        recording.metadata["xarray"],
+        viewer=viewer,
+        show_colorbar=False,
+        show_scale_bar=False,
+    )
+    affine = np.eye(second.ndim + 1)
+    affine[-2, -1] = second.scale[-1]
+    second.affine = affine
+    first_seed = trace(store, "label", recording, 3)
+    second_seed = trace(store, "label", second, 3)
+    assert_allclose(
+        controller.get_trace(first_seed.id)[1], recording.data[:, 0, 0, :2].mean(axis=1)
+    )
+    assert_allclose(
+        controller.get_trace(second_seed.id)[1], np.asarray(second.data)[:, 0, 0, 0]
+    )
+    recording.affine = affine
+    assert_allclose(controller.get_trace(first_seed.id)[1], recording.data[:, 0, 0, 0])
+    recording.affine = np.eye(recording.ndim + 1)
+    assert_allclose(
+        controller.get_trace(first_seed.id)[1], recording.data[:, 0, 0, :2].mean(axis=1)
+    )
+    assert_array_equal(labels.data[0, 0, :2], [3, 3])
+
+
+def test_labels_resample_into_recording_with_different_voxel_spacing(live_setup):
+    viewer, recording, store, controller = live_setup
+    _, labels = add_rois(viewer, recording)
+    labels.data[:] = 0
+    labels.data[0, 0, 2:4] = 3
+    labels.events.data()
+    strided = recording.metadata["xarray"].isel(i=slice(None, None, 2))
+    _, second = plot_napari(
+        strided, viewer=viewer, show_colorbar=False, show_scale_bar=False
+    )
+    seed = trace(store, "label", second, 3)
+    assert_allclose(
+        controller.get_trace(seed.id)[1], np.asarray(strided.data)[:, 0, 0, 1]
+    )
+
+
+def test_transformed_labels_outside_recording_are_unavailable(live_setup):
+    viewer, recording, store, controller = live_setup
+    _, labels = add_rois(viewer, recording)
+    labels.translate = np.asarray(labels.translate) + 100
     seed = trace(store, "label", recording, 3)
-    with pytest.raises(ValueError, match="same voxel grid"):
+    with pytest.raises(ValueError, match="No valid data"):
         controller.get_trace(seed.id)
 
 
@@ -335,7 +391,6 @@ def test_panel_controls_do_not_drop_other_sources_or_resurrect_removed_ones(
     panel._points_check.setChecked(True)
     point_source = next(s for s in controller.sources() if s.layer is points)
     controller.remove_source(point_source.id)
-    panel._ref_combo.setCurrentIndex(panel._ref_combo.findData(recording))
     assert not any(s.source_type == "point" for s in store.live_signals())
     assert any(s.source_type == "label" for s in store.live_signals())
     assert panel._plotter is None

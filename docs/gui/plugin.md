@@ -154,21 +154,31 @@ panel opens. Use **Manage Signals** to disable individual sources or hide traces
 : All detected Labels layers are used (click **+** to create one). The mean
   signal is extracted for each distinct non-zero label. Painting updates the traces
   after a short debounce. Erasing a label makes its trace unavailable; repainting the
-  same label restores its identity and settings. Labels must share the recording's
-  voxel grid, including its transform.
+  same label restores its identity and settings. Labels are mapped into each
+  recording's current world-space grid with nearest-neighbor resampling. New ROI
+  layers copy the active image's current transform, including manual transformations.
+  Moving an image leaves the ROI fixed in world space and changes the sampled voxels;
+  traces with no overlapping labelled voxels show an extraction warning.
 
 ![ConfUSIus Signals panel — labels mode](../images/gui/plugin-signals-labels.png)
 
-The **Reference** dropdown applies to all live source types. **All image layers**
-creates separate traces for each eligible reference. Selecting one recording disables
-other references without deleting their identities or settings.
+All eligible image layers supply separate traces automatically. Use the signal
+manager's **Visible** column to hide individual traces without changing extraction
+or FC seed availability.
 
 Mouse traces default to ConfUSIus red for the first recording and distinct colours
 for additional recordings; change them using the signal manager's **Color** column. Point traces use each point's face colour, and label traces use the
 Labels layer's colormap. Editing those colours in napari updates the plot and signal
-manager. Recoloring a point or label in the manager updates its backing layer and all
-recordings' traces for that ROI. Image colormaps do not affect signal colours.
-Recording and source names identify each trace; renames preserve their identities.
+manager while **Sync color** is checked. Choosing a custom trace colour in the
+manager automatically turns synchronization off for that trace, without changing
+the ROI or other recordings' traces. Rechecking synchronization restores the current
+ROI colour. Image colormaps do not affect signal colours.
+
+Line styles distinguish recordings: solid, dashed, dash-dot and dotted are assigned
+consistently across their traces, cycling after four recordings. The manager's
+**Line style** column can override each trace's style independently of colour.
+Renaming a trace replaces its legend name; the **Source** column retains its full
+recording/ROI identity.
 
 ### Axis parameters
 
@@ -216,9 +226,12 @@ Click **Manage Signals** to open a floating dialog where you can customize both 
 signals, QC/preprocessing snapshots, and imported signals:
 
 - **Rename**: Double-click a signal's name to edit it.
-- **Recolor**: Change a stored or mouse trace's colour; for Points/Labels, update the ROI's colour in its backing layer as well.
+- **Color**: Choose a custom colour for any trace. For ROI traces, this automatically unchecks **Sync color** and leaves the backing layer unchanged.
+- **Sync color**: Follow the current point/label colour. Available only for ROI traces.
+- **Line style**: Choose solid, dashed, dash-dot or dotted for a live or stored trace.
 - **Show / Hide**: Toggle plot visibility without changing extraction or FC seed selection.
 - **ROI layers**: Enable or disable individual Points/Labels layers while retaining their settings. This differs from the Signals tab, whose checkboxes toggle all layers of a type. Mouse enablement is controlled only in the Signals tab.
+- **Remove Selected**: Remove selected stored signals, never live traces. Select all rows to remove every stored signal; there is no separate clear-all action.
 
 Live traces can seed FC directly; the plot toolbar does not need a Pin action.
 Points and Labels provide persistent, editable spatial sources. Stored signals from

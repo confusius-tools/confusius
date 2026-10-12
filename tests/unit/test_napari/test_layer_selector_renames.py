@@ -16,7 +16,6 @@ from confusius._napari._registration._panel_transforms import (
 from confusius._napari._registration._transform_payloads import (
     make_affine_transform_payload,
 )
-from confusius._napari._signals._panel import SignalPanel
 from confusius._napari._video._video_panel import VideoPanel
 from confusius.registration import RegistrationDiagnostics
 
@@ -29,7 +28,6 @@ from confusius.registration import RegistrationDiagnostics
         (RegistrationPanel, "_moving_mask_combo", "labels"),
         (RegistrationPanel, "_fixed_mask_combo", "labels"),
         (RegistrationPanel, "_transform_target_combo", "image"),
-        (SignalPanel, "_ref_combo", "image"),
         (QCPanel, "_layer_combo", "image"),
         (VideoPanel, "_ref_combo", "image"),
         (SavePanel, "_layer_combo", "image"),
@@ -88,7 +86,6 @@ def test_rename_preserves_selected_layer(
         (RegistrationPanel, "_moving_mask_combo", ""),
         (RegistrationPanel, "_fixed_mask_combo", ""),
         (RegistrationPanel, "_initialization_combo", "none"),
-        (SignalPanel, "_ref_combo", "All image layers"),
         (SavePanel, "_template_combo", None),
     ],
 )

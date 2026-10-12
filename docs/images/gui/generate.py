@@ -1224,7 +1224,6 @@ try:
     signals_panel9 = widget9._accordion_panels["Signals"]
     plotter9 = signals_panel9._ensure_plotter()
     _qt_sleep(350)
-    signals_panel9._ref_combo.setCurrentIndex(signals_panel9._ref_combo.findData(fusi9))
     plotter9.set_xaxis_cursor(rearing_onset)
     plotter9.set_show_cursor(True)
 

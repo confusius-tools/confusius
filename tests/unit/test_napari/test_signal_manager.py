@@ -65,6 +65,64 @@ def test_manager_roi_controls_and_mouse_color_column(
     controller.close()
 
 
+def test_manager_roi_color_sync_style_and_rename_controls(
+    make_napari_viewer, sample_voxeldata_3dt, signals_store, qtbot, monkeypatch
+):
+    from qtpy.QtWidgets import QComboBox, QPushButton
+
+    from confusius.plotting.napari import plot_napari
+
+    viewer = make_napari_viewer()
+    plot_napari(
+        sample_voxeldata_3dt, viewer=viewer, show_colorbar=False, show_scale_bar=False
+    )
+    points = viewer.add_points([[1, 1, 1]], face_color="red")
+    controller = signals_store.live_sources(viewer)
+    seed = next(s for s in signals_store.live_signals() if s.source_type == "point")
+    dialog = SignalsManagerDialog(signals_store, live_sources=controller)
+    qtbot.addWidget(dialog)
+    row = next(
+        i
+        for i in range(dialog._table.rowCount())
+        if (item := dialog._table.item(i, 0)) is not None
+        and item.data(Qt.ItemDataRole.UserRole) == seed.id
+    )
+    sync = dialog._table.item(row, 4)
+    assert sync is not None and sync.checkState() == Qt.CheckState.Checked
+    monkeypatch.setattr(
+        "confusius._napari._signals._manager.QColorDialog.getColor",
+        lambda *args, **kwargs: QColor("#123456"),
+    )
+    color_button = dialog._table.cellWidget(row, 2)
+    assert isinstance(color_button, QPushButton)
+    color_button.click()
+    assert signals_store.get_live_signal(seed.id).color == "#123456"
+    sync = dialog._table.item(row, 4)
+    assert sync is not None and sync.checkState() == Qt.CheckState.Unchecked
+    points.face_color = "yellow"
+    assert signals_store.get_live_signal(seed.id).color == "#123456"
+    style = dialog._table.cellWidget(row, 5)
+    assert isinstance(style, QComboBox)
+    style.setCurrentText("Dotted")
+    assert signals_store.get_live_signal(seed.id).line_style == ":"
+    sync = dialog._table.item(row, 4)
+    assert sync is not None
+    sync.setCheckState(Qt.CheckState.Checked)
+    assert signals_store.get_live_signal(seed.id).color == "#ffff00"
+    assert signals_store.get_live_signal(seed.id).line_style == ":"
+    name = dialog._table.item(row, 1)
+    assert name is not None
+    name.setText("My ROI")
+    assert signals_store.get_live_signal(seed.id).display_name == "My ROI"
+    source = dialog._table.item(row, 3)
+    assert source is not None and source.text() == seed.default_name
+    assert not any(
+        button.text() == "Clear All Stored"
+        for button in dialog.findChildren(QPushButton)
+    )
+    controller.close()
+
+
 def test_manager_refreshes_rows_from_store(qtbot, signals_store, signals_csv):
     signals_store.import_file(signals_csv)
     dialog = SignalsManagerDialog(signals_store)
@@ -122,15 +180,18 @@ def test_manager_updates_on_store_change(qtbot, signals_store, signals_csv):
     assert dialog._table.rowCount() == 2
 
 
-def test_manager_clear_all_button(qtbot, signals_store, signals_csv):
-    """Test the Clear All button removes all signals."""
+def test_manager_can_remove_all_stored_signals_by_selection(
+    qtbot, signals_store, signals_csv
+):
+    """Select-all plus Remove Selected replaces the separate clear action."""
     signals_store.import_file(signals_csv)
     dialog = SignalsManagerDialog(signals_store)
     qtbot.addWidget(dialog)
 
     assert dialog._table.rowCount() == 2
 
-    dialog._clear_btn.click()
+    dialog._table.selectAll()
+    dialog._remove_btn.click()
 
     assert signals_store.stored_signals() == []
     assert dialog._table.rowCount() == 0

@@ -103,6 +103,45 @@ def test_stored_visibility_color_and_rename_are_preserved(plot_setup):
     assert not plotter._export_button.isEnabled()
 
 
+def test_custom_live_name_replaces_generated_legend_name(plot_setup):
+    _, recording, store, controller, plotter = plot_setup
+    seed = store.live_signals()[0]
+    store.rename_live_signal(seed.id, "Motor cortex")
+    assert plotter._axes.lines[0].get_label() == "Motor cortex"
+    recording.name = "renamed recording"
+    controller.set_radius(0.11)
+    assert plotter._axes.lines[0].get_label() == "Motor cortex"
+    assert "renamed recording" in store.get_live_signal(seed.id).default_name
+
+
+def test_same_roi_traces_use_distinct_recording_styles_and_custom_override(plot_setup):
+    viewer, recording, store, controller, plotter = plot_setup
+    controller.set_enabled("mouse", False)
+    viewer.add_points(
+        [[1, 1, 1]],
+        scale=recording.scale[-3:],
+        translate=recording.translate[-3:],
+        face_color="red",
+    )
+    _, second = plot_napari(
+        recording.metadata["xarray"],
+        viewer=viewer,
+        show_colorbar=False,
+        show_scale_bar=False,
+    )
+    seeds = [s for s in store.live_signals() if s.source_type == "point"]
+    assert {line.get_color() for line in plotter._lines} == {"#ff0000"}
+    assert {line.get_linestyle() for line in plotter._lines} == {"-", "--"}
+    seed = next(s for s in seeds if s.reference_layer is second)
+    store.set_signal_line_style(seed.id, ":")
+    assert {line.get_linestyle() for line in plotter._lines} == {"-", ":"}
+    store.set_live_signal_color(seed.id, "#123456")
+    assert {line.get_color() for line in plotter._lines} == {"#ff0000", "#123456"}
+    store.set_live_signal_color_sync(seed.id, True)
+    assert {line.get_color() for line in plotter._lines} == {"#ff0000"}
+    assert {line.get_linestyle() for line in plotter._lines} == {"-", ":"}
+
+
 def test_mouse_updates_preserve_user_zoom_and_manual_ylim(plot_setup):
     viewer, recording, _, _, plotter = plot_setup
     plotter._axes.set_xlim(10.5, 11.5)

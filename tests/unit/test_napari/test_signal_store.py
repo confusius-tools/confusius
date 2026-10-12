@@ -19,6 +19,18 @@ def test_import_csv_creates_one_signal_per_value_column(signals_store, signals_c
     npt.assert_array_equal(imported[1].y, np.array([4, 5, 6]))
 
 
+def test_stored_signal_style_and_validation(signals_store, signals_csv):
+    signal = signals_store.import_file(signals_csv)[0]
+    signals_store.set_signal_line_style(signal.id, "--")
+    assert signals_store.stored_signals()[0].line_style == "--"
+    with pytest.raises(ValueError, match="Unknown line style"):
+        signals_store.set_signal_line_style(signal.id, "invalid")
+    with pytest.raises(ValueError, match="Unknown"):
+        signals_store.set_signal_line_style("missing", "-")
+    with pytest.raises(ValueError, match="point or label"):
+        signals_store.set_live_signal_color_sync(signal.id, True)
+
+
 def test_import_tsv_preserves_duplicate_time_values(signals_store, signals_tsv):
     imported = signals_store.import_file(signals_tsv)
 

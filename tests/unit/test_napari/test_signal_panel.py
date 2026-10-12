@@ -324,6 +324,36 @@ class TestCreateLayers:
         return layer
 
     @pytest.mark.parametrize("kind", ["point", "label"])
+    def test_new_roi_copies_active_image_manual_transform(
+        self, viewer, panel, image_layer, kind, sample_voxeldata_3dt
+    ):
+        from numpy.testing import assert_allclose
+
+        from confusius.plotting.napari import plot_napari
+
+        _, active = plot_napari(
+            sample_voxeldata_3dt,
+            viewer=viewer,
+            show_colorbar=False,
+            show_scale_bar=False,
+        )
+        affine = np.eye(active.ndim + 1)
+        affine[-2, -1] = 0.4
+        affine[-3, -2] = 0.2
+        active.affine = affine
+        button = panel._new_points_btn if kind == "point" else panel._new_labels_btn
+        button.click()
+        roi = viewer.layers.selection.active
+        for position in ((0.0, 0.0, 0.0), (1.0, 2.0, 3.0)):
+            assert_allclose(
+                roi.data_to_world(position), active.data_to_world((0.0, *position))[-3:]
+            )
+        assert not np.allclose(
+            roi.data_to_world((0.0, 0.0, 0.0)),
+            image_layer.data_to_world((0.0, 0.0, 0.0, 0.0))[-3:],
+        )
+
+    @pytest.mark.parametrize("kind", ["point", "label"])
     def test_drawing_in_new_roi_restores_reference_axis(
         self, viewer, panel, image_layer, kind, qtbot
     ):
@@ -341,7 +371,6 @@ class TestCreateLayers:
             roi.data[1, 1, 1] = 1
             roi.events.paint()
             qtbot.wait(180)
-        assert panel._ref_combo.currentData() is None
         assert panel._xaxis_combo.currentText() == "time"
         signals = [
             s for s in panel._signals_store.live_signals() if s.backing_layer is roi

@@ -60,6 +60,8 @@ class StoredSignal:
         creating a duplicate.
     coordinate_dim : str
         Coordinate axis represented by `x`. Only time snapshots can seed FC.
+    line_style : str
+        Matplotlib line style.
     """
 
     id: str
@@ -73,6 +75,7 @@ class StoredSignal:
     original_column_name: str | None
     pin_origin: str | None = None
     coordinate_dim: str = "time"
+    line_style: str = "-"
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +116,13 @@ class LiveSignal:
     default_name : str
         Generated name, used to preserve explicit user renames.
     color_overridden : bool
-        Whether the user explicitly overrode the recording-derived colour.
+        Whether to use a custom trace colour instead of its source colour.
+    default_color : str
+        Current source colour, restored when colour synchronization is enabled.
+    line_style : str
+        Matplotlib line style, cycled by recording by default.
+    style_overridden : bool
+        Whether to retain a user-selected line style.
     """
 
     id: str
@@ -130,18 +139,19 @@ class LiveSignal:
     available: bool = True
     default_name: str = ""
     color_overridden: bool = False
+    default_color: str = ""
+    line_style: str = "-"
+    style_overridden: bool = False
 
     @property
     def display_name(self) -> str:
-        """Return a qualified name even when the user supplies a custom alias.
+        """Return the generated or user-supplied legend name.
 
         Returns
         -------
         str
-            Reference/source identity followed by any custom alias.
+            Display name; source identity remains available in the manager.
         """
-        if self.default_name and self.name != self.default_name:
-            return f"{self.default_name} — {self.name}"
         return self.name
 
 
@@ -517,10 +527,12 @@ class SignalStore(QObject):
                 merged[sid] = replace(
                     new,
                     name=(old.name if old.name != old.default_name else new.name),
-                    color=old.color
-                    if old.color_overridden and new.backing_layer is None
-                    else new.color,
-                    color_overridden=old.color_overridden and new.backing_layer is None,
+                    color=old.color if old.color_overridden else new.color,
+                    color_overridden=old.color_overridden,
+                    line_style=old.line_style
+                    if old.style_overridden
+                    else new.line_style,
+                    style_overridden=old.style_overridden,
                     visible=old.visible,
                 )
             else:
@@ -570,7 +582,7 @@ class SignalStore(QObject):
         self._replace_live(signal_id, plot_data=True, visible=visible)
 
     def set_live_signal_color(self, signal_id: str, color: str) -> None:
-        """Update a live colour, synchronizing backed ROIs with their layer.
+        """Set a custom trace colour and disable ROI colour synchronization.
 
         Parameters
         ----------
@@ -581,15 +593,53 @@ class SignalStore(QObject):
         """
         if not color:
             raise ValueError("Live signal color cannot be empty.")
+        self._replace_live(signal_id, color=color, color_overridden=True)
+
+    def set_live_signal_color_sync(self, signal_id: str, synced: bool) -> None:
+        """Toggle synchronization with the point or label colour.
+
+        Parameters
+        ----------
+        signal_id : str
+            Live ROI trace identifier.
+        synced : bool
+            Whether to follow the backing ROI's current colour.
+
+        Raises
+        ------
+        ValueError
+            If the signal is missing or has no backing ROI.
+        """
         live = self.get_live_signal(signal_id)
-        if (
-            live is not None
-            and live.backing_layer is not None
-            and self._live_sources is not None
-        ):
-            self._live_sources.set_source_color(signal_id, color)
+        if live is None or live.backing_layer is None:
+            raise ValueError("Colour synchronization requires a point or label trace.")
+        self._replace_live(
+            signal_id,
+            color_overridden=not synced,
+            color=(live.default_color or live.color) if synced else live.color,
+        )
+
+    def set_signal_line_style(self, signal_id: str, style: str) -> None:
+        """Set a live or stored trace's line style.
+
+        Parameters
+        ----------
+        signal_id : str
+            Trace identifier.
+        style : {"-", "--", "-.", ":"}
+            Solid, dashed, dash-dot or dotted style.
+
+        Raises
+        ------
+        ValueError
+            If the style or signal identifier is invalid.
+        """
+        if style not in {"-", "--", "-.", ":"}:
+            raise ValueError("Unknown line style.")
+        if self.get_live_signal(signal_id) is not None:
+            self._replace_live(signal_id, line_style=style, style_overridden=True)
         else:
-            self._replace_live(signal_id, color=color, color_overridden=True)
+            self._replace_signal(signal_id, line_style=style)
 
     # -- Private helpers ------------------------------------------------------
 

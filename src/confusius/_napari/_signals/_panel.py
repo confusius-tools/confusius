@@ -29,6 +29,7 @@ from confusius._napari._qt import find_main_window
 from confusius._napari._signals._manager import SignalsManagerDialog
 from confusius._napari._signals._plotter import SignalPlotter
 from confusius._napari._signals._store import SignalStore
+from confusius._napari._utils import get_layer_affine
 
 if TYPE_CHECKING:
     from confusius._napari._events._store import EventStore
@@ -73,7 +74,6 @@ class SignalPanel(QWidget):
         if event_store is not None:
             event_store.changed.connect(self._refresh_baseline_events)
         self._refresh_baseline_events()
-        self._sync_references()
         self._sync_source_controls()
         self._apply_settings()
         viewer.events.theme.connect(self._on_theme_changed)
@@ -110,7 +110,7 @@ class SignalPanel(QWidget):
         source_layout.addWidget(self._radius_spin, 0, 2, 1, 2)
 
         # All ROI layers are detected by the shared controller.
-        self._points_check = QCheckBox("All Points layers")
+        self._points_check = QCheckBox("Points layers")
         source_layout.addWidget(self._points_check, 1, 0, 1, 3)
         self._new_points_btn = QPushButton("+")
         self._new_points_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
@@ -122,7 +122,7 @@ class SignalPanel(QWidget):
         source_layout.addWidget(self._new_points_btn, 1, 3)
 
         # Labels row.
-        self._labels_check = QCheckBox("All Labels layers")
+        self._labels_check = QCheckBox("Labels layers")
         source_layout.addWidget(self._labels_check, 2, 0, 1, 3)
         self._new_labels_btn = QPushButton("+")
         self._new_labels_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
@@ -132,17 +132,6 @@ class SignalPanel(QWidget):
         )
         self._new_labels_btn.clicked.connect(self._create_labels_layer)
         source_layout.addWidget(self._new_labels_btn, 2, 3)
-
-        # The same reference filter applies to mouse, point and label traces.
-        self._ref_label = QLabel("Reference")
-        self._ref_label.setEnabled(True)
-        source_layout.addWidget(self._ref_label, 3, 0)
-        self._ref_combo = QComboBox()
-        self._ref_combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
-        )
-        self._ref_combo.setEnabled(True)
-        source_layout.addWidget(self._ref_combo, 3, 1, 1, 3)
 
         layout.addWidget(source_group)
 
@@ -155,15 +144,11 @@ class SignalPanel(QWidget):
         self._labels_check.toggled.connect(
             lambda checked: self._on_source_enabled_changed(2, checked)
         )
-        self._ref_combo.currentTextChanged.connect(self._on_source_selection_changed)
-
         self._viewer.layers.events.inserted.connect(self._on_layer_inserted)
-        self._viewer.layers.events.removed.connect(self._refresh_source_combos)
-        self._viewer.layers.events.renamed.connect(self._refresh_source_combos)
+        self._viewer.layers.events.removed.connect(self._on_layer_inserted)
         self._viewer.layers.selection.events.active.connect(
             self._on_active_layer_changed
         )
-        self._refresh_source_combos()
 
         # Axis parameters group.
         axis_group = QGroupBox("Axis Parameters")
@@ -393,7 +378,6 @@ class SignalPanel(QWidget):
         # the x-axis cursor were configured before the plotter was first created).
         self._refresh_xaxis_combo()
         self._apply_settings()
-        self._sync_references()
         plotter.set_xaxis_cursor(self._current_xaxis_world())
 
         return plotter
@@ -667,36 +651,6 @@ class SignalPanel(QWidget):
     # Source management
     # ------------------------------------------------------------------
 
-    def _refresh_source_combos(self, _event=None) -> None:
-        """Repopulate all source combo boxes from the current viewer layers."""
-        self._cached_xaxis_dim_index = None
-        # Preserve current selections.
-        cur_ref = self._ref_combo.currentData()
-
-        self._ref_combo.blockSignals(True)
-        try:
-            self._ref_combo.clear()
-
-            self._ref_combo.addItem("All image layers")
-
-            references = self._live_sources.references()
-            for layer in self._viewer.layers:
-                if layer in references:
-                    self._ref_combo.addItem(layer.name, layer)
-
-            for combo, prev in ((self._ref_combo, cur_ref),):
-                text_index = combo.findData(prev)
-                if text_index >= 0:
-                    combo.setCurrentIndex(text_index)
-        finally:
-            self._ref_combo.blockSignals(False)
-
-        # Defer the plotter sync to the next event-loop iteration. When called from an
-        # `inserted` event, this ensures napari has finished setting up the new layer
-        # (including computing contrast limits via its async slice worker) before we
-        # trigger a canvas redraw in the plotter.
-        QTimer.singleShot(0, self._sync_references)
-
     def _on_source_enabled_changed(self, btn_id: int, checked: bool) -> None:
         """Enable independent source kinds without deleting registrations.
 
@@ -712,11 +666,6 @@ class SignalPanel(QWidget):
             if source.kind == kind:
                 self._live_sources.set_enabled(source.id, checked)
         self._radius_spin.setEnabled(self._mouse_check.isChecked())
-        self._sync_references()
-
-    def _on_source_selection_changed(self) -> None:
-        """Update the reference filter without adding or deleting ROI sources."""
-        self._sync_references()
 
     def _sync_source_controls(self) -> None:
         """Reflect source enablement changed through the manager."""
@@ -733,27 +682,19 @@ class SignalPanel(QWidget):
             check.blockSignals(False)
         self._radius_spin.setEnabled(self._mouse_check.isChecked())
 
-    def _sync_references(self) -> None:
-        """Update shared reference configuration independently of plot visibility."""
-        ref_layer = self._ref_combo.currentData()
-        self._live_sources.set_references(
-            [ref_layer] if ref_layer is not None else None
-        )
-
     def _on_active_layer_changed(self, event) -> None:
         """Update image axes without disrupting ROI editing."""
         # A transient empty selection can suspend plotting before ROI focus arrives.
         self._refresh_xaxis_combo()
 
     def _on_layer_inserted(self, event) -> None:
-        """Handle layer insertion to refresh source combos and x-axis options.
+        """Handle layer changes to refresh x-axis options.
 
         Also refreshes the x-axis combo when an image layer with xarray metadata
         is inserted, since the metadata may be attached after the layer is added
         to the viewer (e.g., via plot_napari).
         """
         self._cached_xaxis_dim_index = None
-        self._refresh_source_combos()
 
         # Defer the x-axis combo refresh to the next event-loop iteration so that
         # any metadata attached after the layer is inserted (e.g., by plot_napari)
@@ -778,9 +719,7 @@ class SignalPanel(QWidget):
         metadata if available, restricted to the **non-displayed** (slider)
         axes with more than one element. Displayed axes are shown on screen and
         have no slider, so they are not valid x-axis choices; singleton axes
-        cannot form a meaningful x-axis. This mirrors the criterion used by
-        [_refresh_source_combos][confusius._napari._signals._panel.SignalPanel._refresh_source_combos]
-        to identify signal-bearing layers.
+        cannot form a meaningful x-axis.
 
         When the active layer lacks xarray metadata (e.g., a video layer),
         falls back to the first image layer in the viewer that does have
@@ -794,8 +733,7 @@ class SignalPanel(QWidget):
             references = self._live_sources.references()
             if not references:
                 return []
-            reference = self._ref_combo.currentData()
-            layer = reference if reference in references else references[0]
+            layer = references[0]
         if layer.ndim <= self._viewer.dims.ndisplay:
             return []
 
@@ -866,10 +804,11 @@ class SignalPanel(QWidget):
         if dim:
             self._live_sources.set_display_axis(dim)
         self._apply_settings()
-        self._refresh_source_combos()
 
     def _spatial_info(self) -> tuple[tuple[int, ...], dict[str, Any]] | None:
-        """Return the spatial shape and layer geometry of the first signal layer.
+        """Return the active image's spatial shape and current world geometry.
+
+        If the active layer is not a suitable image, use the first suitable image.
 
         Spatial axes are those named `z`, `y`, or `x` in the xarray metadata.
         This always covers the full spatial volume regardless of which dims are
@@ -880,15 +819,22 @@ class SignalPanel(QWidget):
         shape : tuple[int, ...]
             Spatial shape of the reference layer.
         geometry : dict[str, Any]
-            `scale`, `translate`, `axis_labels`, and `units` restricted to the
-            spatial axes, ready to pass to a napari `add_*` method. All values come
+            `scale`, `translate`, `affine`, `axis_labels`, and `units` restricted to
+            the spatial axes, ready to pass to a napari `add_*` method. All values come
             from the *same* layer so they are guaranteed to be consistent, and
             copying `units`/`axis_labels` keeps napari's world units consistent
             across layers (otherwise it warns and stops rendering units).
 
         Returns `None` when no suitable layer is found.
         """
-        for layer in self._viewer.layers:
+        import numpy as np
+
+        active = self._viewer.layers.selection.active
+        layers = list(self._viewer.layers)
+        if active in layers:
+            layers.remove(active)
+            layers.insert(0, active)
+        for layer in layers:
             if layer._type_string != "image":
                 continue
             da = layer.metadata.get("xarray")
@@ -913,6 +859,12 @@ class SignalPanel(QWidget):
                 "axis_labels": tuple(layer.axis_labels[i] for i in spatial_indices),
                 "units": tuple(layer.units[i] for i in spatial_indices),
             }
+            base = np.eye(len(spatial_indices) + 1)
+            base[:-1, :-1] = np.diag(geometry["scale"])
+            base[:-1, -1] = geometry["translate"]
+            geometry["affine"] = get_layer_affine(
+                layer, spatial_indices
+            ) @ np.linalg.inv(base)
             return shape, geometry
         return None
 
@@ -945,8 +897,8 @@ class SignalPanel(QWidget):
     def _create_labels_layer(self) -> None:
         """Add a new 3D Labels layer (no time axis) to the viewer.
 
-        Shape and geometry are derived from the first image layer with xarray
-        metadata so the labels are pixel-aligned with the image and the paint brush
+        Shape and current geometry are derived from the active image, or the first
+        suitable image, so labels are pixel-aligned and the paint brush
         maps to the correct voxel positions.
         """
         import numpy as np

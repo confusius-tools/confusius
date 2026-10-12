@@ -205,7 +205,10 @@ class FunctionalConnectivityPanel(QWidget):
             suffix = (
                 " (unavailable)" if not signal.enabled or not signal.available else ""
             )
-            self._seed_combo.addItem(signal.display_name + suffix, signal.id)
+            name = signal.default_name or signal.name
+            if signal.name != name:
+                name = f"{signal.name} — {name}"
+            self._seed_combo.addItem(name + suffix, signal.id)
         for signal in self._signal_store.stored_signals():
             if signal.coordinate_dim == TIME_DIM:
                 self._seed_combo.addItem(
