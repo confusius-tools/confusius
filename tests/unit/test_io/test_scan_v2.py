@@ -54,7 +54,7 @@ _PROBE_MODEL = "IcoPrime"
 _CENTER_FREQ = 15.625
 _TRANSMIT_FREQ = 9.0
 _PITCH = 0.11
-_SCAN_DEPTH_CM = 1.5
+_ELEVATION_APERTURE = 1.5
 _FOCAL_DEPTH = 8.0
 _PRF = 5500.0
 _ADC = 62.5
@@ -108,7 +108,7 @@ def _acquisition_block(
     return (
         struct.pack(f"<{n_time}I", *range(n_time))  # frame indices
         + orientation
-        + struct.pack("<dddd", _CENTER_FREQ, _PITCH, _SCAN_DEPTH_CM, _FOCAL_DEPTH)
+        + struct.pack("<dddd", _CENTER_FREQ, _PITCH, _ELEVATION_APERTURE, _FOCAL_DEPTH)
         + bytes(16)  # unknown probe block
         + struct.pack("<H", len(name))
         + name
@@ -276,8 +276,9 @@ def _write_scan_v2(
     scan_mode_code = 3 if npose > 1 and n_time > 1 else 1 if n_time == 1 else 0
     header += struct.pack("<L", scan_mode_code)
     header += bytes(4)
-    header += struct.pack("<Lddd", 0, _CENTER_FREQ, _PITCH, 1.5)
-    header += bytes(8)
+    header += struct.pack(
+        "<Ldddd", 0, _CENTER_FREQ, _PITCH, _ELEVATION_APERTURE, _FOCAL_DEPTH
+    )
     header += struct.pack("<dH", 0.0, 128)
     header += _pack_scan_v2_string("2392", "<H")
     header += _pack_scan_v2_string(probe_name, "<H")
@@ -295,13 +296,15 @@ def _write_scan_v2(
     header += struct.pack("<?", False) + bytes(1)
     header += struct.pack("<d", integration_window)
 
-    sequence, project, subject, session, species, _, scan, _, _, user, *_ = strings
+    sequence, project, subject, session, species, _, scan, _, _, user, *hex_ids = (
+        strings
+    )
     for text in (sequence, project, "project description", subject, session, species):
         header += _pack_scan_v2_string(text)
     header += struct.pack("<LqQ", 0, timestamp, 0)
     header += _pack_scan_v2_string("subject description")
     header += struct.pack("<Lf", 0, 0.0)
-    for text in ("", scan, "", "", "", user, "", ""):
+    for text in ("", scan, "", "", "", user, *hex_ids):
         header += _pack_scan_v2_string(text)
     n_toggle = 99_999 if corrupt_acquisition == "toggles" else 0
     header += struct.pack("<qLL", timestamp, 0, n_toggle)
@@ -689,13 +692,34 @@ class TestLoadScanV2Acquisition:
         return load_scan(path)
 
     def test_probe_fields(self, scan_v2_acq: xr.DataArray) -> None:
-        """Probe model, center frequency, pitch, and focal depth are recovered."""
+        """Probe model, frequency, pitch, elevation aperture, and focal depth are read."""
         assert scan_v2_acq.attrs["probe_model"] == _PROBE_MODEL
         assert scan_v2_acq.attrs["probe_center_frequency"] == pytest.approx(
             _CENTER_FREQ
         )
         assert scan_v2_acq.attrs["probe_pitch"] == pytest.approx(_PITCH)
-        assert scan_v2_acq.attrs["probe_elevation_aperture"] == pytest.approx(1.5)
+        assert scan_v2_acq.attrs["probe_elevation_aperture"] == pytest.approx(
+            _ELEVATION_APERTURE
+        )
+        assert scan_v2_acq.attrs["probe_focal_depth"] == pytest.approx(_FOCAL_DEPTH)
+
+    def test_device_identifiers(self, scan_v2_acq: xr.DataArray) -> None:
+        """Hex-encoded serial number and hardware label are decoded."""
+        assert scan_v2_acq.attrs["device_serial_number"] == _SERIAL
+        assert scan_v2_acq.attrs["iconeus_hardware"] == _HARDWARE
+
+    def test_non_hex_device_identifiers_kept_raw(self, tmp_path: Path) -> None:
+        """Identifier strings that are not hex-encoded are returned unchanged."""
+        path = tmp_path / "scan_v2_raw_ids.scan"
+        _write_scan_v2(
+            path,
+            _raw_payload(),
+            acquisition=True,
+            strings=[*_STRINGS[:-2], "SN-RAW", "HW-RAW"],
+        )
+        da = load_scan(path)
+        assert da.attrs["device_serial_number"] == "SN-RAW"
+        assert da.attrs["iconeus_hardware"] == "HW-RAW"
 
     def test_transmit_distinct_from_center(self, scan_v2_acq: xr.DataArray) -> None:
         """Transmit frequency is read from its own field, distinct from center freq."""

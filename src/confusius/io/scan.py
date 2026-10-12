@@ -171,6 +171,27 @@ def _read_scan_v2_binary_string(
     return buffer[offset:end].decode("utf-8", errors="replace"), end
 
 
+def _decode_scan_v2_hex_string(text: str) -> str:
+    """Decode a SCAN v2 string stored as hex-encoded ASCII.
+
+    Parameters
+    ----------
+    text : str
+        Raw string field, e.g. `"37503737593834"`.
+
+    Returns
+    -------
+    str
+        Decoded text, e.g. `"7P77Y84"`. The raw text is returned unchanged if it is
+        not valid hex-encoded ASCII, since the encoding of these fields is not
+        documented.
+    """
+    try:
+        return bytes.fromhex(text).decode("ascii")
+    except ValueError:
+        return text
+
+
 WORLD_TO_PROBE_PERMUTATION: npt.NDArray[np.float64] = np.array(
     [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
 )
@@ -520,7 +541,8 @@ def load_scan(
 
     Acquisition settings that correspond to fUSI-BIDS fields are also surfaced as
     attributes, in native header units: `probe_model`, `probe_center_frequency` (MHz),
-    `probe_pitch` (mm), `imaging_depth` (mm start/end), `transmit_frequency` (MHz),
+    `probe_pitch` (mm), `probe_elevation_aperture` (mm), `probe_focal_depth` (mm),
+    `imaging_depth` (mm start/end), `transmit_frequency` (MHz),
     `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `svd_low_cutoff`, and
     `power_doppler_integration_duration` (s).
 
@@ -541,7 +563,7 @@ def load_scan(
     Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
     (`device_serial_number`, `software_version`) and Iconeus-specific fields
     (`iconeus_scan_mode`, `iconeus_subject`, `iconeus_session`, `iconeus_scan`,
-    `iconeus_project`, `iconeus_date`).
+    `iconeus_project`, `iconeus_date`, `iconeus_hardware`).
     """
     path = check_path(path, type="file")
 
@@ -892,7 +914,9 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
     center_frequency, offset = _read_scan_v2_struct(header, offset, "<d")
     pitch, offset = _read_scan_v2_struct(header, offset, "<d")
     elevation_aperture, offset = _read_scan_v2_struct(header, offset, "<d")
-    offset += 8
+    # PyIconeus skips this field. On IcoPrime 4D samples it holds the 8 mm elevation
+    # focus, which the previous ConfUSIus loader exposed as `probe_focal_depth`.
+    focal_depth, offset = _read_scan_v2_struct(header, offset, "<d")
     radius, offset = _read_scan_v2_struct(header, offset, "<d")
     n_elements, offset = _read_scan_v2_struct(header, offset, "<H")
     probe_model, offset = _read_scan_v2_binary_string(header, offset, "<H")
@@ -940,9 +964,10 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
     task_name, offset = _read_scan_v2_binary_string(header, offset)
     task_description, offset = _read_scan_v2_binary_string(header, offset)
     username, offset = _read_scan_v2_binary_string(header, offset)
-    for _ in range(2):
-        skip_count, offset = _read_scan_v2_struct(header, offset, "<L")
-        offset += int(skip_count)
+    # PyIconeus skips these two strings. They hold the device serial number and the
+    # hardware label, stored as hex-encoded ASCII.
+    serial, offset = _read_scan_v2_binary_string(header, offset)
+    hardware, offset = _read_scan_v2_binary_string(header, offset)
     acquisition_ts, offset = _read_scan_v2_struct(header, offset, "<q")
     scan_type, offset = _read_scan_v2_struct(header, offset, "<L")
     n_toggle, offset = _read_scan_v2_struct(header, offset, "<L")
@@ -964,6 +989,7 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
             "probe_center_frequency": float(center_frequency),
             "probe_pitch": float(pitch),
             "probe_elevation_aperture": float(elevation_aperture),
+            "probe_focal_depth": float(focal_depth),
             "probe_radius_of_curvature": float(radius),
             "probe_number_of_elements": int(n_elements),
             "depth_start_mm": float(depth_near),
@@ -996,6 +1022,8 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
             "iconeus_task_name": task_name,
             "iconeus_task_description": task_description,
             "iconeus_experimenter": username,
+            "device_serial_number": _decode_scan_v2_hex_string(serial),
+            "iconeus_hardware": _decode_scan_v2_hex_string(hardware),
             "iconeus_datetime": datetime.fromtimestamp(
                 int(acquisition_ts), UTC
             ).isoformat(),
@@ -1225,6 +1253,7 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
         "probe_center_frequency",
         "probe_pitch",
         "probe_elevation_aperture",
+        "probe_focal_depth",
         "probe_radius_of_curvature",
         "probe_number_of_elements",
         "imaging_depth",
@@ -1254,6 +1283,8 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
         "iconeus_task_name",
         "iconeus_task_description",
         "iconeus_experimenter",
+        "device_serial_number",
+        "iconeus_hardware",
         "iconeus_datetime",
         "iconeus_scan_type",
         "stimulation_toggle_times",
