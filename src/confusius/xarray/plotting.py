@@ -172,7 +172,7 @@ class FUSIPlotAccessor:
         Displays the data as an image layer and adds an empty Labels layer on
         top. The user paints integer labels directly on the image using
         napari's brush tool. After painting, pass the returned Labels layer to
-        [`labels_from_layer`][confusius.plotting.FUSIPlotAccessor.labels_from_layer]
+        [`labels_from_layer`][confusius.xarray.plotting.FUSIPlotAccessor.labels_from_layer]
         to obtain an integer label map in the same spatial coordinates as the
         data.
 
@@ -195,7 +195,7 @@ class FUSIPlotAccessor:
         labels_layer : napari.layers.Labels
             The empty Labels layer initialised to zeros. After painting labels
             in the viewer, pass it to
-            [`labels_from_layer`][confusius.plotting.FUSIPlotAccessor.labels_from_layer]
+            [`labels_from_layer`][confusius.xarray.plotting.FUSIPlotAccessor.labels_from_layer]
             to convert the paintings to an integer label map.
 
         Examples
@@ -230,7 +230,7 @@ class FUSIPlotAccessor:
         ----------
         labels_layer : napari.layers.Labels
             A Labels layer populated by the user (e.g. via
-            [`draw_napari_labels`][confusius.plotting.FUSIPlotAccessor.draw_napari_labels]).
+            [`draw_napari_labels`][confusius.xarray.plotting.FUSIPlotAccessor.draw_napari_labels]).
             Integer values identify distinct regions; zero is the background.
 
         Returns

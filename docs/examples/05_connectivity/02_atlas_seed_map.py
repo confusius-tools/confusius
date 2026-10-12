@@ -69,7 +69,7 @@ moving = data.mean(dim="time").fusi.scale.db().compute()
 # - Use [`register_volume`][confusius.registration.register_volume] to refine the
 #   alignment.
 # - Resample the Allen atlas into the recording's native space with
-#   [`resample_like`][confusius.atlas.Atlas.resample_like].
+#   [`resample_like`][confusius.atlas.AtlasAccessor.resample_like].
 #
 # For the full walkthrough, see [Register a recording to an Allen fUSI
 # template](../registration/register_to_allen_fusi_template.md).

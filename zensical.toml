@@ -188,11 +188,13 @@ inventories = [
     "https://treelib.readthedocs.io/en/latest/objects.inv",
     "https://docs.pydantic.dev/latest/objects.inv",
     "https://scikit-learn.org/stable/objects.inv",
+    "https://docs.h5py.org/en/stable/objects.inv",
 ]
 paths = ["src"]
 
 [project.plugins.mkdocstrings.handlers.python.options]
 preload_modules = ["sklearn", "pydantic"]
+extensions = ["tools/griffe_external_xarray.py:ExternalXarray"]
 docstring_style = "numpy"
 docstring_section_style = "list"
 members_order = "alphabetical"

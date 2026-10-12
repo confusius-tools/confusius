@@ -505,7 +505,7 @@ class AtlasAccessor:
 
     # ── Tree helpers  ─────────────────────────────────────────────────────────────────
 
-    def ancestors(self, region: int | str) -> list["treelib.Node"]:
+    def ancestors(self, region: int | str) -> list["treelib.node.Node"]:
         """Return the ancestor nodes of `region`, from root down (exclusive).
 
         Parameters
@@ -515,7 +515,7 @@ class AtlasAccessor:
 
         Returns
         -------
-        list[treelib.Node]
+        list[treelib.node.Node]
             Ancestor nodes ordered from root toward `region`, not including `region`
             itself.
         """
@@ -531,7 +531,7 @@ class AtlasAccessor:
         ----------
         **kwargs
             Additional keyword arguments forwarded to
-            [`treelib.Tree.show`][treelib.Tree.show].
+            [`treelib.Tree.show`][treelib.tree.Tree.show].
 
         Returns
         -------

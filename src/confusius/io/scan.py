@@ -9,7 +9,7 @@ Iconeus ships two on-disk SCAN formats, both using the `.scan` extension:
 
 `load_scan` sniffs the format and dispatches to the matching loader. The v2 loader is
 **experimental**: its field offsets were reverse-engineered from a small number of
-example files and may not cover every acquisition mode. See `_load_scan_v2` for details.
+example files and may not cover every acquisition mode.
 """
 
 import struct
@@ -501,9 +501,8 @@ def load_scan(
     Iconeus lab coordinates** (mm): a fixed scanner frame shared by every pose, used
     as the canonical world frame because it is the one frame that is physically
     meaningful across poses. For multi-pose files, `da`'s voxel-to-world geometry is
-    itself pose-dependent (a `(npose, 4, 4)` affine stack, one per
-    `da.coords["pose"]` label — see
-    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]); world
+    itself pose-dependent (a `(npose, 4, 4)` affine stack, one affine per
+    `da.coords["pose"]` label); world
     selection therefore requires reducing `pose` to a scalar first, e.g.
     `da.isel(pose=0).sel(z=..., y=..., x=...)` or `da.isel(pose=0)`.
 
