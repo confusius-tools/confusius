@@ -503,7 +503,7 @@ def load_scan(
     meaningful across poses. For multi-pose files, `da`'s voxel-to-world geometry is
     itself pose-dependent (a `(npose, 4, 4)` affine stack, one per
     `da.coords["pose"]` label — see
-    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]); world
+    `VoxelToWorldIndex`); world
     selection therefore requires reducing `pose` to a scalar first, e.g.
     `da.isel(pose=0).sel(z=..., y=..., x=...)` or `da.isel(pose=0)`.
 

@@ -528,7 +528,7 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
     `VoxelToWorldIndex`,
     its geometry is rebuilt from the untouched affine, including its `units`
     (`VoxelToWorldIndex` always carries one, defaulting to `"mm"` since
-    [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
+    `attach_voxel_to_world_index`
     itself defaults it). Missing time acquisition metadata also defaults where
     possible. This function does not otherwise validate the VoxelData model; use
     [ensure_voxeldata][confusius.validation.ensure_voxeldata] to canonicalize and

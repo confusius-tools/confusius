@@ -153,7 +153,7 @@ def consolidate_poses(
     Per-`(pose, sweep_dim)` world positions are read directly from `da`'s own world
     coordinates, which requires `da`'s primary voxel-to-world geometry to itself be
     pose-dependent (a `(npose, 4, 4)` affine stack — see
-    [VoxelToWorldIndex.is_pose_dependent][confusius._utils.geometry.VoxelToWorldIndex.is_pose_dependent]).
+    `VoxelToWorldIndex.is_pose_dependent`).
     This is the case for SCAN data, where lab space (a fixed scanner frame shared by
     every pose) is the canonical world frame — see
     [`load_scan`][confusius.io.load_scan] — and for

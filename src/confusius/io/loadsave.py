@@ -47,7 +47,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     If `attrs["rgb_lookup"]` is present but `attrs["cmap"]`/`attrs["norm"]` are missing
     (as happens after a save/load round-trip, since matplotlib colormap/norm objects are
     not JSON-serializable and are dropped on save), `cmap`/`norm` are rebuilt via
-    [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm] so
+    `build_atlas_cmap_and_norm` so
     atlas-derived masks and annotations keep their canonical colors after reload.
 
     A Zarr-saved VoxelData array stores `attrs["voxel_to_world"]`

@@ -26,12 +26,10 @@ def stack_poses(
     index already spans the concat dimension, which a single-grid array's `z`/`y`/`x`
     index does not (it only spans `k`/`j`/`i`). This function closes that gap by first
     promoting each input to a genuinely pose-dependent index of length 1 (see
-    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]) via
-    [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
-    -- once every input's `z`/`y`/`x` index already spans `pose`, alignment correctly
-    excludes it and dispatches to `VoxelToWorldIndex.concat`, which merges the pose
-    labels and affine stacks in order exactly as
-    [`xr.concat(..., dim="pose")`][xarray.concat] expects.
+    `VoxelToWorldIndex`) via `attach_voxel_to_world_index` -- once every input's
+    `z`/`y`/`x` index already spans `pose`, alignment correctly excludes it and
+    dispatches to `VoxelToWorldIndex.concat`, which merges the pose labels and affine
+    stacks in order exactly as [`xr.concat(..., dim="pose")`][xarray.concat] expects.
 
     Parameters
     ----------

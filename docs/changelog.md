@@ -188,7 +188,7 @@ Released 2026-08-31.
   `(...extra, time, pose, k, j, i)`.** World coordinates `z`/`y`/`x` are no longer
   stored dimensions: they're derived lazily, per voxel, from a single
   voxel-to-world affine owned by a custom xarray index
-  ([`VoxelToWorldIndex`][confusius._utils.geometry.VoxelToWorldIndex]) attached
+  (`VoxelToWorldIndex`) attached
   to native voxel dims `k`/`j`/`i`. This lets ConfUSIus represent oblique,
   rotated, or sheared acquisitions and registration outputs exactly, without
   resampling onto an axis-aligned grid. Every loader (`load_scan`, `load_nifti`, AUTC,
@@ -197,7 +197,7 @@ Released 2026-08-31.
   `confusius.validation.validate_voxeldata`/`ensure_voxeldata` enforce it
   unconditionally.
 - World-space `units` moved off the `z`/`y`/`x` coordinates' `.attrs` onto
-  [`VoxelToWorldIndex`][confusius._utils.geometry.VoxelToWorldIndex] as a single shared
+  `VoxelToWorldIndex` as a single shared
   property, exposed via
   [`data.fusi.affine.units`][confusius.xarray.FUSIAffineAccessor.units] and set with
   [`data.fusi.affine.set_units`][confusius.xarray.FUSIAffineAccessor.set_units]. Setting
