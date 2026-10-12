@@ -7,9 +7,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
-from matplotlib.colors import to_hex, to_rgba
+from matplotlib.colors import to_hex
 from napari.layers import Image, Labels, Layer, Points
-from napari.utils.colormaps import DirectLabelColormap
 from napari.utils.key_bindings import coerce_keybinding
 from qtpy.QtCore import QObject, QTimer, Signal
 
@@ -78,6 +77,7 @@ class LiveSources(QObject):
         self._revisions: dict[str, int] = {}
         self._references: list[Image] | None = None
         self._colors: dict[str, str] = {}
+        self._styles: dict[str, str] = {}
         self._label_ids: dict[str, set[int]] = {}
         self._cache: dict[tuple, tuple[np.ndarray, np.ndarray]] = {}
         self._position: np.ndarray | None = None
@@ -321,45 +321,6 @@ class LiveSources(QObject):
         self._reconcile()
         self.sources_changed.emit()
 
-    def set_source_color(self, signal_id: str, color: str) -> None:
-        """Update an ROI colour at its backing layer, shared by all recordings.
-
-        Parameters
-        ----------
-        signal_id : str
-            Live point or label trace identifier.
-        color : str
-            Matplotlib-compatible colour.
-
-        Raises
-        ------
-        ValueError
-            If the signal has no available point or label source.
-        """
-        live = self.store.get_live_signal(signal_id)
-        if live is None or live.backing_layer is None:
-            raise ValueError("Selected signal has no ROI layer.")
-        source = self._sources[live.source_key]
-        layer = live.backing_layer
-        items = self._item_ids(source)
-        if isinstance(layer, Points):
-            colors = layer.face_color.copy()
-            colors[list(items).index(live.source_id)] = to_rgba(color)
-            layer.face_color = colors
-        elif isinstance(layer, Labels):
-            colormap = layer.colormap.model_copy(update={"use_selection": False})
-            if isinstance(colormap, DirectLabelColormap):
-                mapping = dict(colormap.color_dict)
-            else:
-                mapping = {item: colormap.map(item) for item in items}
-                mapping[None] = colormap.map(1)
-                mapping[colormap.background_value] = np.zeros(4)
-            mapping[live.source_id] = np.asarray(to_rgba(color))
-            layer.colormap = DirectLabelColormap(
-                color_dict=mapping, background_value=colormap.background_value
-            )
-        self._reconcile()
-
     def _item_ids(self, source: LiveSource) -> Sequence[int | None]:
         """Find stable ROI item identifiers.
 
@@ -432,6 +393,10 @@ class LiveSources(QObject):
                 )
                 for layer in recordings:
                     base = self.base_color(layer)
+                    style = self._styles.setdefault(
+                        self.layer_id(layer),
+                        ("-", "--", "-.", ":")[len(self._styles) % 4],
+                    )
                     for item in items:
                         sid = f"{source.kind}-{source.id}-{item}-{self.layer_id(layer)}"
                         if source.kind == "mouse":
@@ -466,6 +431,8 @@ class LiveSources(QObject):
                                 name=name,
                                 default_name=name,
                                 color=color,
+                                default_color=color,
+                                line_style=style,
                                 visible=True,
                                 source_type=source.kind,
                                 source_id=item,
@@ -556,39 +523,13 @@ class LiveSources(QObject):
             y = extract_voxel_trace(layer, position, axis_index)
         elif isinstance(live.backing_layer, Labels):
             labels = live.backing_layer
-            spatial_axes = [i for i in range(layer.ndim) if i != axis_index]
-            # Equal shapes alone do not establish a shared voxel grid.
-            if labels.ndim == layer.ndim:
-                label_axes = spatial_axes
-            else:
-                label_axes = list(range(labels.ndim))
-            if len(label_axes) != len(spatial_axes):
-                raise ValueError("Labels and recording must share the same voxel grid.")
-            origin = np.asarray(labels.data_to_world(np.zeros(labels.ndim)))[label_axes]
-            image_origin = np.asarray(layer.data_to_world(np.zeros(layer.ndim)))[
-                spatial_axes
-            ]
-            labels_basis = np.stack(
-                [
-                    np.asarray(labels.data_to_world(np.eye(labels.ndim)[i]))[label_axes]
-                    - origin
-                    for i in label_axes
-                ]
-            )
-            image_basis = np.stack(
-                [
-                    np.asarray(layer.data_to_world(np.eye(layer.ndim)[i]))[spatial_axes]
-                    - image_origin
-                    for i in spatial_axes
-                ]
-            )
-            if not np.allclose(origin, image_origin) or not np.allclose(
-                labels_basis, image_basis
-            ):
-                raise ValueError("Labels and recording must share the same voxel grid.")
             assert live.source_id is not None
             y = extract_label_mean_trace(
-                layer, np.asarray(labels.data), live.source_id, axis_index
+                layer,
+                np.asarray(labels.data),
+                live.source_id,
+                axis_index,
+                labels_layer=labels,
             )
         else:
             raise ValueError("Live source has no backing layer.")

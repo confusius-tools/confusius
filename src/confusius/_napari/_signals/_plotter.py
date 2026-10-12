@@ -71,6 +71,7 @@ class SignalPlotter(QWidget):
         self._event_spans = []
         self._baseline_spans = []
         self._baseline_warning = None
+        self._extraction_warning = None
         self._axis_range: tuple[float, float] | None = None
         self._xaxis_dim: str | None = None
         self._autoscale = True
@@ -407,6 +408,7 @@ class SignalPlotter(QWidget):
         """Update existing lines in place when only live values change."""
         colors = get_napari_colors(self._viewer.theme)
         plotted = []
+        errors = []
         axis = self._xaxis_dim or TIME_DIM
         xlabel = axis.title() if self._xaxis_dim != "" else "No plottable axis"
         self._axis_reference = None
@@ -416,7 +418,9 @@ class SignalPlotter(QWidget):
         ):
             try:
                 x, y = self._live_sources.get_trace(live.id, axis)
-            except ValueError:
+            except ValueError as exc:
+                if live.source_type != "mouse":
+                    errors.append(f"{live.display_name}: {exc}")
                 continue
             if self._axis_reference is None:
                 self._axis_reference = live.reference_layer
@@ -427,22 +431,35 @@ class SignalPlotter(QWidget):
                 unit = coord.attrs.get("units")
                 if unit:
                     xlabel += f" ({unit})"
-            plotted.append((live.id, live.display_name, live.color, x, y))
+            plotted.append(
+                (live.id, live.display_name, live.color, live.line_style, x, y)
+            )
         for stored in (
             self._signals_store.visible_stored_signals()
             if self._xaxis_dim != ""
             else []
         ):
-            plotted.append((stored.id, stored.name, stored.color, stored.x, stored.y))
+            plotted.append(
+                (
+                    stored.id,
+                    stored.name,
+                    stored.color,
+                    stored.line_style,
+                    stored.x,
+                    stored.y,
+                )
+            )
         self._set_export_signals(
             [
                 ExportSignal(name, x, self._standardize(x, y, sid))
-                for sid, name, _, x, y in plotted
+                for sid, name, _, _, x, y in plotted
             ]
         )
         signature = (
             self._standardization,
-            tuple((sid, name, color) for sid, name, color, _, _ in plotted),
+            tuple(
+                (sid, name, color, style) for sid, name, color, style, _, _ in plotted
+            ),
         )
         old_xlim = self._axes.get_xlim()
         user_xlim = self._auto_xlim is not None and not np.allclose(
@@ -454,12 +471,20 @@ class SignalPlotter(QWidget):
             self._event_spans = []
             self._baseline_spans = []
             self._baseline_warning = None
+            self._extraction_warning = None
             self._vline = None
             self._lines = []
-            for sid, name, color, x, y in plotted:
+            for sid, name, color, style, x, y in plotted:
                 values = self._standardize(x, y, sid)
                 self._lines.extend(
-                    self._axes.plot(x, values, color=color, label=name, linewidth=1.5)
+                    self._axes.plot(
+                        x,
+                        values,
+                        color=color,
+                        linestyle=style,
+                        label=name,
+                        linewidth=1.5,
+                    )
                 )
             self._signature = signature
             if plotted:
@@ -492,7 +517,7 @@ class SignalPlotter(QWidget):
                 )
             self._draw_event_spans()
         else:
-            for line, (sid, _, _, x, y) in zip(self._lines, plotted):
+            for line, (sid, _, _, _, x, y) in zip(self._lines, plotted):
                 line.set_data(x, self._standardize(x, y, sid))
         self._axes.set_facecolor(colors["bg"])
         self._axes.tick_params(colors=colors["fg"])
@@ -512,7 +537,7 @@ class SignalPlotter(QWidget):
             self._axes.grid(False)
         numeric = [
             np.asarray(x)[np.isfinite(x)]
-            for _, _, _, x, _ in plotted
+            for _, _, _, _, x, _ in plotted
             if np.issubdtype(np.asarray(x).dtype, np.number)
         ]
         numeric = [x for x in numeric if len(x)]
@@ -536,6 +561,19 @@ class SignalPlotter(QWidget):
                 self._cursor_plot_value(), color=colors["fg"], alpha=0.6, animated=True
             )
         self._draw_baseline_spans(extent)
+        if self._extraction_warning is not None:
+            self._extraction_warning.remove()
+            self._extraction_warning = None
+        if errors:
+            self._extraction_warning = self._axes.text(
+                0.01,
+                0.99,
+                "Unavailable traces:\n" + "\n".join(errors),
+                transform=self._axes.transAxes,
+                va="top",
+                fontsize=8,
+                color=colors["fg"],
+            )
         self._bg = None
         self._canvas.draw_idle()
         if extent != self._axis_range:

@@ -11,6 +11,7 @@ from qtpy.QtGui import QColor, QFont
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QColorDialog,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -138,22 +139,19 @@ class SignalsManagerDialog(QDialog):
         self._export_btn.clicked.connect(self._export_selected)
         button_row.addWidget(self._export_btn)
 
-        self._remove_btn = QPushButton("Remove")
+        self._remove_btn = QPushButton("Remove Selected")
         self._remove_btn.setToolTip("Remove selected stored signal")
         self._remove_btn.setStyleSheet(_colored_button_style(200, 80, 80))
         self._remove_btn.clicked.connect(self._remove_selected)
         button_row.addWidget(self._remove_btn)
 
-        self._clear_btn = QPushButton("Clear All Stored")
-        self._clear_btn.setToolTip("Remove all stored signals")
-        self._clear_btn.setStyleSheet(_colored_button_style(200, 80, 80))
-        self._clear_btn.clicked.connect(self._store.clear)
-        button_row.addWidget(self._clear_btn)
         button_row.addStretch()
         layout.addLayout(button_row)
 
-        self._table = QTableWidget(0, 4, self)
-        self._table.setHorizontalHeaderLabels(["Visible", "Name", "Color", "Source"])
+        self._table = QTableWidget(0, 6, self)
+        self._table.setHorizontalHeaderLabels(
+            ["Visible", "Name", "Color", "Source", "Sync color", "Line style"]
+        )
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
@@ -169,6 +167,8 @@ class SignalsManagerDialog(QDialog):
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
             header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
             header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
             header.setDefaultAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
@@ -275,6 +275,24 @@ class SignalsManagerDialog(QDialog):
         italic_font.setItalic(True)
         source_item.setFont(italic_font)
         self._table.setItem(row, 3, source_item)
+        sync_item = QTableWidgetItem()
+        sync_item.setData(Qt.ItemDataRole.UserRole, signal.id)
+        if signal.backing_layer is not None:
+            sync_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable
+            )
+            sync_item.setCheckState(
+                Qt.CheckState.Unchecked
+                if signal.color_overridden
+                else Qt.CheckState.Checked
+            )
+            sync_item.setToolTip(
+                "Follow the point/label colour. Choosing a custom colour disables synchronization."
+            )
+        else:
+            sync_item.setFlags(Qt.ItemFlag.NoItemFlags)
+        self._table.setItem(row, 4, sync_item)
+        self._set_style_control(row, signal.id, signal.line_style)
 
     def _set_stored_row(self, row: int, signal) -> None:
         """Populate one table row from a stored signal."""
@@ -316,6 +334,36 @@ class SignalsManagerDialog(QDialog):
         source_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         source_item.setData(Qt.ItemDataRole.UserRole, signal.id)
         self._table.setItem(row, 3, source_item)
+        sync_item = QTableWidgetItem()
+        sync_item.setFlags(Qt.ItemFlag.NoItemFlags)
+        self._table.setItem(row, 4, sync_item)
+        self._set_style_control(row, signal.id, signal.line_style)
+
+    def _set_style_control(self, row: int, signal_id: str, style: str) -> None:
+        """Populate the line-style selector for a live or stored trace.
+
+        Parameters
+        ----------
+        row : int
+            Table row.
+        signal_id : str
+            Trace identifier.
+        style : str
+            Current matplotlib line style.
+        """
+        combo = QComboBox()
+        for name, value in (
+            ("Solid", "-"),
+            ("Dashed", "--"),
+            ("Dash-dot", "-."),
+            ("Dotted", ":"),
+        ):
+            combo.addItem(name, value)
+        combo.setCurrentIndex(combo.findData(style))
+        combo.currentIndexChanged.connect(
+            lambda: self._store.set_signal_line_style(signal_id, combo.currentData())
+        )
+        self._table.setCellWidget(row, 5, combo)
 
     # -- Item edit callbacks --------------------------------------------------
 
@@ -346,6 +394,10 @@ class SignalsManagerDialog(QDialog):
                     self._store.rename_live_signal(signal_id, item.text())
                 else:
                     self._store.rename_signal(signal_id, item.text())
+            elif item.column() == 4 and is_live:
+                self._store.set_live_signal_color_sync(
+                    signal_id, item.checkState() == Qt.CheckState.Checked
+                )
         except Exception as exc:  # noqa: BLE001
             show_error(str(exc))
             self._refresh_table()
