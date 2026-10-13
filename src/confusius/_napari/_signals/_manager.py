@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import Qt
@@ -10,10 +11,14 @@ from qtpy.QtGui import QColor, QFont
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QColorDialog,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -28,6 +33,9 @@ from confusius._napari._export import (
 )
 from confusius._napari._signals._store import LiveSignal, SignalStore
 from confusius._napari._theme import get_napari_colors
+
+if TYPE_CHECKING:
+    from confusius._napari._signals._live import LiveSources
 
 _SOURCE_LABELS = {
     "mouse": "Mouse",
@@ -75,17 +83,28 @@ class SignalsManagerDialog(QDialog):
         Shared stored-signals store.
     parent : QWidget | None, optional
         Optional parent widget.
+    live_sources : LiveSources, optional
+        Shared live controller for per-ROI layer enablement.
     """
 
-    def __init__(self, store: SignalStore, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        store: SignalStore,
+        parent: QWidget | None = None,
+        live_sources: LiveSources | None = None,
+    ) -> None:
         super().__init__(parent)
         self._store = store
+        self._live_sources = live_sources
         self._updating_table = False
         self.setWindowTitle("Signal Manager")
         self.setModal(False)
         self.resize(720, 360)
         self._setup_ui()
         self._store.changed.connect(self._refresh_table)
+        if live_sources is not None:
+            live_sources.sources_changed.connect(self._refresh_sources)
+            self._refresh_sources()
         self._refresh_table()
 
     def _setup_ui(self) -> None:
@@ -93,6 +112,17 @@ class SignalsManagerDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
+
+        if self._live_sources is not None:
+            self._sources_label = QLabel("ROI layers")
+            layout.addWidget(self._sources_label)
+            self._sources_list = QListWidget()
+            self._sources_list.setToolTip(
+                "Enable individual ROI layers. The Signals tab toggles all layers of a type."
+            )
+            self._sources_list.setMaximumHeight(110)
+            self._sources_list.itemChanged.connect(self._on_source_enabled)
+            layout.addWidget(self._sources_list)
 
         button_row = QHBoxLayout()
         self._import_btn = QPushButton("Import")
@@ -109,22 +139,19 @@ class SignalsManagerDialog(QDialog):
         self._export_btn.clicked.connect(self._export_selected)
         button_row.addWidget(self._export_btn)
 
-        self._remove_btn = QPushButton("Remove")
+        self._remove_btn = QPushButton("Remove Selected")
         self._remove_btn.setToolTip("Remove selected stored signal")
         self._remove_btn.setStyleSheet(_colored_button_style(200, 80, 80))
         self._remove_btn.clicked.connect(self._remove_selected)
         button_row.addWidget(self._remove_btn)
 
-        self._clear_btn = QPushButton("Clear All Stored")
-        self._clear_btn.setToolTip("Remove all stored signals")
-        self._clear_btn.setStyleSheet(_colored_button_style(200, 80, 80))
-        self._clear_btn.clicked.connect(self._store.clear)
-        button_row.addWidget(self._clear_btn)
         button_row.addStretch()
         layout.addLayout(button_row)
 
-        self._table = QTableWidget(0, 4, self)
-        self._table.setHorizontalHeaderLabels(["Visible", "Name", "Color", "Source"])
+        self._table = QTableWidget(0, 6, self)
+        self._table.setHorizontalHeaderLabels(
+            ["Visible", "Name", "Color", "Source", "Sync color", "Line style"]
+        )
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
@@ -140,11 +167,49 @@ class SignalsManagerDialog(QDialog):
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
             header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
             header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
             header.setDefaultAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
         self._table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self._table)
+
+    def _refresh_sources(self) -> None:
+        """Refresh per-ROI layer enablement controls."""
+        controller = self._live_sources
+        if controller is None:
+            return
+        self._sources_list.blockSignals(True)
+        self._sources_list.clear()
+        for source in controller.sources():
+            if source.layer is None:
+                continue
+            item = QListWidgetItem(source.layer.name)
+            item.setData(Qt.ItemDataRole.UserRole, source.id)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked if source.enabled else Qt.CheckState.Unchecked
+            )
+            self._sources_list.addItem(item)
+        self._sources_list.blockSignals(False)
+        has_rois = self._sources_list.count() > 0
+        self._sources_list.setVisible(has_rois)
+        self._sources_label.setVisible(has_rois)
+
+    def _on_source_enabled(self, item: QListWidgetItem) -> None:
+        """Apply source enablement without deleting its traces.
+
+        Parameters
+        ----------
+        item : qtpy.QtWidgets.QListWidgetItem
+            Changed source row.
+        """
+        if self._live_sources is not None:
+            self._live_sources.set_enabled(
+                item.data(Qt.ItemDataRole.UserRole),
+                item.checkState() == Qt.CheckState.Checked,
+            )
 
     # -- Table refresh --------------------------------------------------------
 
@@ -197,7 +262,12 @@ class SignalsManagerDialog(QDialog):
         )
         self._table.setCellWidget(row, 2, color_btn)
 
-        source_label = _SOURCE_LABELS.get(signal.source_type, signal.source_type)
+        source_label = signal.default_name or _SOURCE_LABELS.get(
+            signal.source_type, signal.source_type
+        )
+        name_item.setToolTip(signal.display_name)
+        if not signal.enabled or not signal.available:
+            source_label += " (unavailable)"
         source_item = QTableWidgetItem(source_label)
         source_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
         source_item.setData(Qt.ItemDataRole.UserRole, signal.id)
@@ -205,6 +275,24 @@ class SignalsManagerDialog(QDialog):
         italic_font.setItalic(True)
         source_item.setFont(italic_font)
         self._table.setItem(row, 3, source_item)
+        sync_item = QTableWidgetItem()
+        sync_item.setData(Qt.ItemDataRole.UserRole, signal.id)
+        if signal.backing_layer is not None:
+            sync_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable
+            )
+            sync_item.setCheckState(
+                Qt.CheckState.Unchecked
+                if signal.color_overridden
+                else Qt.CheckState.Checked
+            )
+            sync_item.setToolTip(
+                "Follow the point/label colour. Choosing a custom colour disables synchronization."
+            )
+        else:
+            sync_item.setFlags(Qt.ItemFlag.NoItemFlags)
+        self._table.setItem(row, 4, sync_item)
+        self._set_style_control(row, signal.id, signal.line_style)
 
     def _set_stored_row(self, row: int, signal) -> None:
         """Populate one table row from a stored signal."""
@@ -246,12 +334,42 @@ class SignalsManagerDialog(QDialog):
         source_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         source_item.setData(Qt.ItemDataRole.UserRole, signal.id)
         self._table.setItem(row, 3, source_item)
+        sync_item = QTableWidgetItem()
+        sync_item.setFlags(Qt.ItemFlag.NoItemFlags)
+        self._table.setItem(row, 4, sync_item)
+        self._set_style_control(row, signal.id, signal.line_style)
+
+    def _set_style_control(self, row: int, signal_id: str, style: str) -> None:
+        """Populate the line-style selector for a live or stored trace.
+
+        Parameters
+        ----------
+        row : int
+            Table row.
+        signal_id : str
+            Trace identifier.
+        style : str
+            Current matplotlib line style.
+        """
+        combo = QComboBox()
+        for name, value in (
+            ("Solid", "-"),
+            ("Dashed", "--"),
+            ("Dash-dot", "-."),
+            ("Dotted", ":"),
+        ):
+            combo.addItem(name, value)
+        combo.setCurrentIndex(combo.findData(style))
+        combo.currentIndexChanged.connect(
+            lambda: self._store.set_signal_line_style(signal_id, combo.currentData())
+        )
+        self._table.setCellWidget(row, 5, combo)
 
     # -- Item edit callbacks --------------------------------------------------
 
     def _is_live_id(self, signal_id: str) -> bool:
         """Return whether a signal ID belongs to a live signal."""
-        return signal_id.startswith(("mouse-", "point-", "label-"))
+        return self._store.get_live_signal(signal_id) is not None
 
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
         """Apply visibility or name edits back to the store."""
@@ -276,6 +394,10 @@ class SignalsManagerDialog(QDialog):
                     self._store.rename_live_signal(signal_id, item.text())
                 else:
                     self._store.rename_signal(signal_id, item.text())
+            elif item.column() == 4 and is_live:
+                self._store.set_live_signal_color_sync(
+                    signal_id, item.checkState() == Qt.CheckState.Checked
+                )
         except Exception as exc:  # noqa: BLE001
             show_error(str(exc))
             self._refresh_table()

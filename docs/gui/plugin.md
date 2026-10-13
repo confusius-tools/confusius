@@ -127,32 +127,42 @@ the first time you click **Show Signal Plot**.
 
 ### Choosing a data source
 
-Pick one of three source modes in the **Source** group:
+Signal extraction can be based on mouse location, Points layers, or Labels layers. The
+Signals tab shows the available sources and whether they are enabled. Click on the
+++plus++ icon to add a new 3D Points or Labels layer.
 
 **Mouse**
-: Hold ++shift++ and move the mouse over the canvas. The plot updates live with the
-  single-voxel signal at the cursor position.
+: Hold ++shift++ over the canvas. Signals are extracted at the cursor position from all
+  image layers. A radius of **0 mm** selects one voxel; a positive radius averages a
+  physical sphere. The legend shows the sampled voxel's world coordinates and radius. To 
+  select a persistent ROI, use a Points or Labels layer instead.
 
 ![ConfUSIus Signals panel — hover mode](../images/gui/plugin-signals.png)
 
 **Points**
-: Select a Points layer from the dropdown (or click **+** to create one). Each point
-  is plotted as a separate line colored by its face color. Add or remove points in
-  napari and the plot updates automatically.
+: All detected Points layers are used (click **+** to create one). Each point
+  is plotted as a separate line. By default, traces are coloured by the point's face
+  colour. You can override the colour in the signals manager.
 
 ![ConfUSIus Signals panel — points mode](../images/gui/plugin-signals-points.png)
 
 **Labels**
-: Select a Labels layer from the dropdown (or click **+** to create one). The mean
-  signal is extracted for each distinct non-zero label and plotted as a separate line,
-  colored by the label's color in the napari colormap. This is useful for quickly
-  comparing region-averaged signals after painting ROIs with napari's brush tool.
+: All detected Labels layers are used (click **+** to create one). The mean signal is
+  extracted for each distinct non-zero label. Labels are mapped into each recording's
+  current world-space grid with nearest-neighbor resampling. New ROI layers copy the
+  active image's current transform, including manual transformations. Moving an image
+  leaves the ROI fixed in world space and changes the sampled voxels. As with Points,
+  traces are coloured by the label's colormap by default, but you can override the
+  colour in the signals manager.
 
 ![ConfUSIus Signals panel — labels mode](../images/gui/plugin-signals-labels.png)
 
-In Points and Labels modes, the **Reference** dropdown selects which image layer to
-extract signals from. It defaults to **All image layers**, which plots each layer as a
-separate line (distinguished by line style).
+All eligible image layers supply separate traces automatically. Use the signal
+manager's **Visible** column to hide individual traces.
+
+By default, traces from different recordings have the same colour but different line
+styles. You can override both colour and line style independently for each trace in the
+signal manager.
 
 ### Axis parameters
 
@@ -162,13 +172,32 @@ separate line (distinguished by line style).
 | ***y* min / *y* max** | Manual limits for the vertical axis (disabled while autoscale is on). |
 | **Autoscale *y*-axis** | When enabled, the vertical axis rescales to fit the data automatically. Disabling it captures the current limits so you can fine-tune them. |
 
+A 3D volume without time can be plotted along a non-displayed voxel axis such as
+`k`. Selecting a 2D image (or an image with no multi-element slider axis) clears the
+plot rather than retaining a trace from the previously active image. Selecting or
+creating Points/Labels restores the reference recording's axes, so drawing ROIs
+continues to produce traces even after a temporary empty layer selection.
+
 ### Display options
 
 | Option | Description |
 |--------|-------------|
-| **Show grid** | Show or hide the background grid. |
-| **Show x-axis cursor** | Draw a vertical line on the plot that follows the napari dimension slider for the selected *x*-axis dimension. |
-| **Z-score signal** | Normalize each signal to zero mean and unit variance before plotting. The *y*-axis label changes from "Intensity" to "Z-score". |
+| **Standardization** | None (unmodified intensity), Z-score (zero mean and unit variance), or percent signal change (PSC). Applies to plotting and plot exports, not raw signals or FC. |
+| **PSC baseline** | Shown only for PSC. Choose **Manual intervals** or **Events**. Baseline periods are shaded on the plot and identified by a single **PSC baseline** legend entry. |
+| **Manual intervals** | Two-handle sliders select inclusive intervals in x-axis units; the initial interval covers the whole trace. Use **Add interval** for multiple periods and **−** to remove one. Selections survive layer/focus changes, clamping only when the available range shrinks. |
+| **Events** | Check event occurrences to use their union. Select **Outside selected events** to use the complement within each trace's time range. Events use half-open intervals `[onset, onset + duration)` and require a numeric time axis in seconds. Zero-duration events cannot define baseline periods. |
+
+The grid and x-axis cursor are always shown. The cursor follows the napari dimension
+slider for the selected *x*-axis dimension.
+
+PSC is `100 × (signal − baseline mean) / |baseline mean|`, using finite baseline
+samples. Empty or near-zero baselines yield missing values rather than misleading
+percentages, with an explanation on the plot. Custom intervals require a numeric
+x-axis; selecting a baseline does not disable or remove a mouse source. An empty
+event selection is explicitly undefined, including in outside mode. Event-based
+baselines update when selected events are removed, independently of the event-shading
+toggle. Switching baseline sources retains manual interval selections and never
+changes the annotations in the Events tab.
 
 !!! tip "Click to navigate"
     Left-click anywhere on the signal plot to jump the napari viewer to the
@@ -178,12 +207,19 @@ separate line (distinguished by line style).
 ### Managing signals
 
 Click **Manage Signals** to open a floating dialog where you can customize both live
-signals (from the current source mode) and imported signals:
+signals, QC/preprocessing snapshots, and imported signals:
 
 - **Rename**: Double-click a signal's name to edit it.
-- **Recolor**: Click the color swatch to pick a new color. Changes are synced back to
-  the napari layer (point face color or label colormap).
-- **Show / Hide**: Toggle individual signal visibility with the checkbox.
+- **Color**: Choose a custom colour for any trace. For ROI traces, this automatically unchecks **Sync color** and leaves the backing layer unchanged.
+- **Sync color**: Follow the current point/label colour. Available only for ROI traces.
+- **Line style**: Choose solid, dashed, dash-dot or dotted for a live or stored trace.
+- **Show / Hide**: Toggle plot visibility without changing extraction or FC seed selection.
+- **ROI layers**: Enable or disable individual Points/Labels layers while retaining their settings. This differs from the Signals tab, whose checkboxes toggle all layers of a type. Mouse enablement is controlled only in the Signals tab.
+- **Remove Selected**: Remove selected stored signals, never live traces. Select all rows to remove every stored signal; there is no separate clear-all action.
+
+Live traces can seed FC directly; the plot toolbar does not need a Pin action.
+Points and Labels provide persistent, editable spatial sources. Stored signals from
+imports, QC or preprocessing remain independent of live sources.
 
 ### Importing and exporting signals
 
@@ -200,7 +236,35 @@ signals (from the current source mode) and imported signals:
 : Click the **Export** button in the plot toolbar to export all currently plotted
   signals—both live and imported—to a CSV or TSV file.
 
+## Functional Connectivity Panel
+
+Select both a **Target recording** and an explicit **Seed trace**, then click
+**Compute map**. Every live seed choice identifies its source item and reference
+recording. Hidden traces remain selectable; unavailable or disabled sources cannot
+supply a map. No seed is chosen implicitly.
+
+The mouse radius is configured in Signals, not separately in FC. Creating a seed map
+preserves the active layer and signal plot axis. After computation,
+Shift-hover, point movement, label painting, radius changes and time-window changes
+update the selected map automatically. Changing the seed or target requires another
+explicit **Compute map** action. Missing or disabled sources pause updates and mark
+the map stale; they never cause a substitute seed to be selected.
+
+When the target differs from the seed reference, FC correlates the **reference
+recording's trace** against the target voxels. It does not re-extract the ROI from the
+target. Seed values are aligned to actual target time coordinates within the selected
+window, with no extrapolation. Live seed and target time units must match. Imported
+signals must express time in the target's units. FC currently requires time-bearing
+3D recordings without pose or extra dimensions.
+
+Preprocessing live ROI confounds retain their separate meaning: each selected ROI is
+extracted from the preprocessing input recording, as indicated by **from input** in
+the selection list. Confound and sample-mask selections survive signal renames.
+
 ## Events Panel
+
+The Events Panel appears before Signals in the sidebar. Its event occurrences can
+also define PSC baseline unions or their complements in the Signals panel.
 
 The Events Panel allows annotating *periods of time*—not individual frames—following the
 [BIDS

@@ -159,6 +159,33 @@ Released 2026-10-13.
 
 ### :frame_photo: Napari plugin
 
+- Signals and FC now share live mouse, point and label sources without requiring
+  pinning. Sources can be enabled independently, mouse traces support a shared
+  physical radius, and FC seeds explicitly identify their reference recording.
+  Mouse colours are configurable per recording and survive renames, while active
+  maps refresh after ROI edits and align seeds by actual time coordinates.
+  All Points/Labels layers are detected automatically. Mouse legends show world
+  coordinates, the default colour is ConfUSIus red, and the radius is labelled.
+  The grid and axis cursor are always shown, and None, Z-score and PSC display
+  options include PSC baseline range sliders with shaded intervals, a baseline
+  legend entry and feedback for undefined baselines. Creating or selecting ROI
+  layers restores reference axes after transient focus changes. Point/label colours
+  follow their backing layers by default, with optional per-trace synchronization
+  and custom colours. Recording-specific line styles distinguish shared ROI traces. Creating FC maps preserves focus and the
+  signal axis; 3D volume axes are correctly identified in mixed-dimensional viewers,
+  while selecting a 2D image clears stale traces. The redundant plot Pin action has
+  been removed; use Points for persistent mouse locations. The signal manager
+  distinguishes per-ROI layer enablement from the Signals tab's global controls,
+  removes the redundant mouse checkbox and source-removal action, and uses the
+  Color column for all trace colours. New ROI layers are named Points/Labels without
+  a `(3D)` suffix. Manual PSC baselines survive focus changes and are clamped only
+  when trace ranges shrink. The Events section precedes Signals, whose PSC baselines
+  can use selected event unions or the periods outside those unions. All eligible
+  images now supply traces without a reference dropdown. New ROIs copy the active
+  image's current manual transform, and labels are mapped into each recording's
+  world-space grid. Trace renames replace the legend text, and Remove Selected
+  replaces the separate Clear All Stored action
+  ([#496](https://github.com/confusius-tools/confusius/pull/496)).
 - Renaming a layer now immediately updates selectors in Registration, Signals,
   Quality Control, Video, and Data → Save without changing the selected layer
   ([#493](https://github.com/confusius-tools/confusius/pull/493)).

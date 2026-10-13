@@ -270,9 +270,10 @@ class ConfUSIusWidget(QWidget):
         # Shared store of BIDS temporal events, used by the event panel, the signal
         # plotter (background shading) and the time overlay (active-event readout).
         self._event_store = EventStore(self)
-        # Shared store of stored/live signals, used by the Signals panel (source of
-        # truth) and the QC panel (adds computed DVARS traces to the signal plot).
+        # Signals, FC and preprocessing share source identity and extraction.
         self._signal_store = SignalStore(self)
+        self._live_sources = self._signal_store.live_sources(self.viewer)
+        self.destroyed.connect(self._live_sources.close)
         self._apply_theme()
         self._setup_ui()
         self.viewer.events.theme.connect(self._on_theme_changed)
@@ -560,11 +561,11 @@ class ConfUSIusWidget(QWidget):
         tab_entries = [
             ("Data I/O", "file-input"),
             ("Video", "video"),
+            ("Events", "calendar-clock"),
             ("Signals", "chart-line"),
             ("Registration", "images"),
             ("Preprocessing", "brush-cleaning"),
             ("Functional Connectivity", "network"),
-            ("Events", "calendar-clock"),
             ("Quality Control", "clipboard-check"),
         ]
         signal_panel = SignalPanel(
@@ -575,11 +576,11 @@ class ConfUSIusWidget(QWidget):
         panels = [
             data_panel,
             video_panel,
+            EventPanel(self.viewer, self._event_store),
             signal_panel,
             RegistrationPanel(self.viewer),
             PreprocessingPanel(self.viewer, signal_store=self._signal_store),
             FunctionalConnectivityPanel(self.viewer, signal_store=self._signal_store),
-            EventPanel(self.viewer, self._event_store),
             QCPanel(
                 self.viewer,
                 signal_store=self._signal_store,

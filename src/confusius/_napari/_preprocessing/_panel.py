@@ -10,7 +10,7 @@ from typing import Literal, NamedTuple, TypeVar, cast
 import napari
 import numpy as np
 import xarray as xr
-from napari.layers import Layer
+from napari.layers import Image, Layer
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import QRectF, Qt
@@ -40,12 +40,9 @@ from superqt import QDoubleRangeSlider
 from confusius._dims import TIME_DIM
 from confusius._napari._signals._store import LiveSignal, SignalStore
 from confusius._napari._theme import get_napari_colors, rgba_css
-from confusius._napari._utils import (
-    CATEGORICAL_COLORS,
-    extract_label_mean_trace,
-    extract_voxel_trace,
-)
+from confusius._napari._utils import CATEGORICAL_COLORS
 from confusius._utils.coordinates import get_representative_step
+from confusius._utils.signals import align_signal_to_time
 from confusius.plotting.napari import plot_napari
 from confusius.signal import clean, compute_compcor_confounds, standardize
 from confusius.spatial import smooth_volume
@@ -474,8 +471,7 @@ def _align_series(
     )
 
     if time_coord is not None and x is not None:
-        source = xr.DataArray(y, dims=TIME_DIM, coords={TIME_DIM: x})
-        values = source.interp({TIME_DIM: time_coord}).values
+        values = align_signal_to_time(x, y, time_coord)
     else:
         if len(y) != n_timepoints:
             raise ValueError(
@@ -626,6 +622,7 @@ class PreprocessingPanel(QWidget):
         super().__init__()
         self._viewer = viewer
         self._signal_store = signal_store
+        self._live_sources = signal_store.live_sources(viewer)
         # Set by _begin_work; tracks which button ("Apply" or "Compute CompCor")
         # triggered the current background job so _end_work can restore its text.
         self._working_button: QPushButton | None = None
@@ -1240,38 +1237,59 @@ class PreprocessingPanel(QWidget):
 
     def _refresh_signal_combos(self) -> None:
         """Repopulate the confounds list and sample-mask combo from stored/live signals."""
-        names = [signal.name for signal in self._signal_store.stored_signals()]
-        names += [
-            live.name
-            for live in self._signal_store.live_signals()
-            if live.source_type != "mouse"
+        choices = [
+            (signal.id, signal.name) for signal in self._signal_store.stored_signals()
         ]
+        seen = set()
+        for live in self._signal_store.live_signals():
+            key = (live.source_key, live.source_id)
+            if live.source_type == "mouse" or key in seen:
+                continue
+            seen.add(key)
+            label = (
+                f"{live.backing_layer.name} | {live.source_type.title()} {live.source_id} (from input)"
+                if live.backing_layer is not None
+                else live.name
+            )
+            choices.append((f"roi:{live.source_key}:{live.source_id}", label))
+        names = [name for _, name in choices]
 
         self._confounds_list.setVisible(bool(names))
         self._confound_count_label.setVisible(bool(names))
         self._confounds_placeholder.setVisible(not names)
-        selected = set(self._selected_confound_names())
+        selected = set(self._selected_confound_ids())
         self._confounds_list.clear()
-        for name in names:
+        for signal_id, name in choices:
             item = QListWidgetItem(name)
+            item.setData(Qt.ItemDataRole.UserRole, signal_id)
             self._confounds_list.addItem(item)
-            item.setSelected(name in selected)
+            item.setSelected(signal_id in selected)
 
-        current_mask = self._mask_combo.currentText()
+        current_mask = self._mask_combo.currentData()
         self._mask_combo.blockSignals(True)
         try:
             self._mask_combo.clear()
             self._mask_combo.addItem(_NO_SIGNAL)
-            self._mask_combo.addItems(names)
-            index = self._mask_combo.findText(current_mask)
+            for signal_id, name in choices:
+                self._mask_combo.addItem(name, signal_id)
+            index = self._mask_combo.findData(current_mask)
             self._mask_combo.setCurrentIndex(max(index, 0))
         finally:
             self._mask_combo.blockSignals(False)
         self._on_sample_mask_changed()
 
-    def _selected_confound_names(self) -> list[str]:
-        """Return the names of every currently selected confound signal."""
-        return [item.text() for item in self._confounds_list.selectedItems()]
+    def _selected_confound_ids(self) -> list[str]:
+        """Return stable IDs of the selected confound signals.
+
+        Returns
+        -------
+        list[str]
+            Selected signal identifiers, independent of display names.
+        """
+        return [
+            item.data(Qt.ItemDataRole.UserRole)
+            for item in self._confounds_list.selectedItems()
+        ]
 
     def _prefill_resample_defaults(self, _index: int = -1) -> None:
         """Prefill the temporal step only when the selected source changes."""
@@ -1401,7 +1419,7 @@ class PreprocessingPanel(QWidget):
     def _update_confound_count(self) -> None:
         """Display how many nuisance signals will be regressed out."""
         self._confound_count_label.setText(
-            f"{len(self._selected_confound_names())} confounds selected"
+            f"{len(self._selected_confound_ids())} confounds selected"
         )
 
     def _on_compcor_toggled(self, checked: bool) -> None:
@@ -1439,10 +1457,10 @@ class PreprocessingPanel(QWidget):
         """
         self._mask_preview_raw = None
         source_layer = self._source_combo.currentData()
-        name = self._mask_combo.currentText()
-        if source_layer is not None and name not in ("", _NO_SIGNAL):
+        signal_id = self._mask_combo.currentData()
+        if source_layer is not None and signal_id is not None:
             try:
-                self._mask_preview_raw = self._resolve_raw_signal(name, source_layer)
+                self._mask_preview_raw = self._resolve_raw_signal(signal_id, source_layer)
             except ValueError:
                 pass
         self._refresh_mask_preview()
@@ -1559,61 +1577,23 @@ class PreprocessingPanel(QWidget):
             layer no longer exists, the point index is out of range, or no voxel
             matches the label.
         """
-        if live.layer_name is None:
+        if live.source_type == "mouse" or not isinstance(image_layer, Image):
             return None
         try:
-            spatial_layer = self._viewer.layers[live.layer_name]
-        except KeyError:
+            return self._live_sources.get_trace(live.id, reference=image_layer)
+        except ValueError:
             return None
 
-        da = image_layer.metadata.get("xarray")
-        xaxis_index = (
-            list(da.dims).index(TIME_DIM)
-            if da is not None and TIME_DIM in da.dims
-            else 0
-        )
-        x = (
-            np.asarray(da.coords[TIME_DIM].values)
-            if da is not None and TIME_DIM in da.coords
-            else None
-        )
-
-        if live.source_type == "point":
-            point_index = live.source_id
-            if point_index is None or point_index >= len(spatial_layer.data):
-                return None
-            pt_data = np.asarray(spatial_layer.data[point_index], dtype=float)
-            n_pt = len(pt_data)
-            scale = np.asarray(spatial_layer.scale, dtype=float)[-n_pt:]
-            translate = np.asarray(spatial_layer.translate, dtype=float)[-n_pt:]
-            pt_world = pt_data * scale + translate
-            img_ndim = image_layer.data.ndim
-            if n_pt < img_ndim:
-                padded = np.zeros(img_ndim)
-                padded[-n_pt:] = pt_world
-                pt_world = padded
-            y = extract_voxel_trace(image_layer, pt_world, xaxis_index)
-        elif live.source_type == "label":
-            label_id = live.source_id
-            if label_id is None:
-                return None
-            y = extract_label_mean_trace(
-                image_layer, np.asarray(spatial_layer.data), label_id, xaxis_index
-            )
-        else:
-            return None
-
-        if y is None:
-            return None
-        return x, y
-
-    def _resolve_raw_signal(self, name: str, source_layer: Layer) -> _RawSignal | None:
-        """Look up a confound/mask signal by name and return its raw `(x, y)` trace.
+    def _resolve_raw_signal(
+        self, signal_id: str | None, source_layer: Layer
+    ) -> _RawSignal | None:
+        """Resolve a stable confound/mask identifier to its raw trace.
 
         Parameters
         ----------
-        name : str
-            Combo box selection. `"None"` (or empty) resolves to `None`.
+        signal_id : str, optional
+            Stable stored-signal or ROI-item identifier. If not provided, no signal
+            is selected.
         source_layer : Layer
             Currently selected source layer, used as the reference image when the
             named signal is a live point/label signal.
@@ -1629,24 +1609,27 @@ class PreprocessingPanel(QWidget):
             If the named signal cannot be found, or a live signal's trace could
             not be re-extracted.
         """
-        if not name or name == _NO_SIGNAL:
+        if not signal_id or signal_id == _NO_SIGNAL:
             return None
 
         for signal in self._signal_store.stored_signals():
-            if signal.name == name:
+            if signal.id == signal_id:
                 return signal.x, signal.y
 
         for live in self._signal_store.live_signals():
-            if live.name == name and live.source_type != "mouse":
+            if (
+                f"roi:{live.source_key}:{live.source_id}" == signal_id
+                and live.source_type != "mouse"
+            ):
                 extracted = self._extract_live_series(live, source_layer)
                 if extracted is None:
                     raise ValueError(
-                        f"Could not extract signal {name!r} from layer "
+                        f"Could not extract signal {live.name!r} from layer "
                         f"{source_layer.name!r}."
                     )
                 return extracted
 
-        raise ValueError(f"Signal {name!r} not found.")
+        raise ValueError(f"Signal {signal_id!r} not found.")
 
     def _build_mask_spec(self, source_layer: Layer) -> _MaskSpec | None:
         """Resolve the sample-mask combo/mode/threshold controls into a `_MaskSpec`.
@@ -1661,7 +1644,7 @@ class PreprocessingPanel(QWidget):
         _MaskSpec or None
             `None` if no sample-mask signal is selected.
         """
-        raw = self._resolve_raw_signal(self._mask_combo.currentText(), source_layer)
+        raw = self._resolve_raw_signal(self._mask_combo.currentData(), source_layer)
         if raw is None:
             return None
         return self._make_mask_spec(*raw)
@@ -1932,7 +1915,7 @@ class PreprocessingPanel(QWidget):
         try:
             confounds_raw = [
                 raw
-                for name in self._selected_confound_names()
+                for name in self._selected_confound_ids()
                 if (raw := self._resolve_raw_signal(name, layer)) is not None
             ]
             mask_raw = self._build_mask_spec(layer)

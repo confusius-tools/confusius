@@ -1,1242 +1,308 @@
-"""Unit tests for the SignalPlotter widget.
-
-Pure-logic methods (_xaxis_dim_index, _extract_signals) are tested with
-lightweight mock layers.  Methods that touch the napari viewer (_active_layer,
-_on_mouse_move) use the make_napari_viewer fixture.
-"""
-
-from __future__ import annotations
-
-from typing import ClassVar
+"""Signals rendering tests using public source/store APIs and observable lines."""
 
 import numpy as np
-import numpy.testing as npt
 import pytest
-import xarray as xr
+from napari.utils.key_bindings import coerce_keybinding
+from numpy.testing import assert_allclose
 
-from confusius._napari._export import format_export_value
-from confusius._napari._signals._store import LiveSignal, SignalStore
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-class _Layer:
-    """Minimal layer stub for tests that do not need a live napari viewer."""
-
-    def __init__(self, data, metadata=None, type_string="image", rgb=False):
-        self.data = np.asarray(data)
-        self.metadata = metadata or {}
-        self._type_string = type_string
-        self.rgb = rgb
-        self.name = "mock"
-        self.ndim = self.data.ndim
-
-    def world_to_data(self, pos):
-        # Identity mapping: world == data coordinates in these tests.
-        return pos
-
-
-class _FakeEventShift:
-    modifiers: ClassVar[set[str]] = {"Shift"}
-
-
-class _FakeEventNoShift:
-    modifiers: ClassVar[set[str]] = set()
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
+from confusius._napari._signals._plotter import SignalPlotter
+from confusius._napari._signals._store import SignalStore
+from confusius.plotting.napari import plot_napari
 
 
 @pytest.fixture
-def viewer(make_napari_viewer):
-    return make_napari_viewer()
+def plot_setup(make_napari_viewer, sample_voxeldata_3dt, qtbot):
+    """Create a plot consuming a shared recording source."""
+    viewer = make_napari_viewer()
+    _, recording = plot_napari(
+        sample_voxeldata_3dt,
+        viewer=viewer,
+        name="data",
+        show_colorbar=False,
+        show_scale_bar=False,
+    )
+    store = SignalStore()
+    controller = store.live_sources(viewer)
+    plotter = SignalPlotter(viewer, store)
+    qtbot.addWidget(plotter)
+    viewer.cursor.position = recording.data_to_world((0, 1, 1, 1))
+    viewer.keymap[coerce_keybinding("Shift")](viewer)
+    yield viewer, recording, store, controller, plotter
+    plotter.close()
+    controller.close()
 
 
-@pytest.fixture
-def plotter(viewer):
-    from confusius._napari._signals._plotter import SignalPlotter
-
-    return SignalPlotter(viewer)
-
-
-@pytest.fixture
-def store():
-    return SignalStore()
-
-
-@pytest.fixture
-def plotter_with_store(viewer, store):
-    from confusius._napari._signals._plotter import SignalPlotter
-
-    return SignalPlotter(viewer, store=store)
+def test_plot_shares_mouse_trace_and_radius(plot_setup):
+    _, recording, store, controller, plotter = plot_setup
+    seed = store.live_signals()[0]
+    line = plotter._axes.lines[0]
+    assert_allclose(line.get_xdata(), recording.metadata["xarray"].time)
+    assert_allclose(line.get_ydata(), recording.data[:, 1, 1, 1])
+    controller.set_radius(0.11)
+    assert_allclose(
+        plotter._axes.lines[0].get_ydata(), controller.get_trace(seed.id)[1]
+    )
 
 
-# ---------------------------------------------------------------------------
-# _xaxis_dim_index
-# ---------------------------------------------------------------------------
-
-
-class TestXaxisDimIndex:
-    def test_returns_zero_without_xarray_metadata(self, plotter):
-        layer = _Layer(np.zeros((10, 4, 6, 8)))
-        assert plotter._xaxis_dim_index(layer) == 0
-
-    def test_returns_zero_when_no_time_dim_in_metadata(
-        self, plotter, sample_voxeldata_3d
-    ):
-        layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": sample_voxeldata_3d})
-        assert plotter._xaxis_dim_index(layer) == 0
-
-    def test_returns_zero_when_time_is_first_dim(self, plotter, sample_voxeldata_3dt):
-        layer = _Layer(
-            np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt}
+def test_mouse_point_and_label_traces_render_together(plot_setup):
+    viewer, recording, _, _controller, plotter = plot_setup
+    kwargs = {"scale": recording.scale[-3:], "translate": recording.translate[-3:]}
+    viewer.add_points([[2, 2, 2]], **kwargs)
+    labels = np.zeros(recording.data.shape[1:], dtype=np.int32)
+    labels[0, 0, :2] = 4
+    viewer.add_labels(labels, **kwargs)
+    values = {
+        line.get_label(): line.get_ydata()
+        for line in plotter._axes.lines
+        if not line.get_label().startswith("_")
+    }
+    assert len(values) == 3
+    for name, y in values.items():
+        expected = (
+            recording.data[:, 2, 2, 2]
+            if "Point" in name
+            else recording.data[:, 0, 0, :2].mean(axis=1)
+            if "Label" in name
+            else recording.data[:, 1, 1, 1]
         )
-        assert plotter._xaxis_dim_index(layer) == 0
-
-    def test_returns_correct_index_when_time_is_not_first(self, plotter):
-        da = xr.DataArray(np.zeros((4, 10, 6, 8)), dims=["plane", "time", "row", "col"])
-        layer = _Layer(np.zeros((4, 10, 6, 8)), metadata={"xarray": da})
-        assert plotter._xaxis_dim_index(layer) == 1
-
-
-# ---------------------------------------------------------------------------
-# _extract_signals
-# ---------------------------------------------------------------------------
-
-
-class TestExtractSignals:
-    def test_extracts_correct_signals(self, plotter, rng):
-        data = rng.random((10, 4, 6, 8))
-        layer = _Layer(data)
-        ts = plotter._extract_signals(layer, np.array([0, 1, 2, 3]))
-        npt.assert_array_equal(ts, data[:, 1, 2, 3])
-
-    def test_returns_none_for_out_of_bounds_position(self, plotter):
-        layer = _Layer(np.zeros((10, 4, 6, 8)))
-        assert plotter._extract_signals(layer, np.array([0, 99, 99, 99])) is None
-
-    def test_respects_non_standard_time_dim(self, plotter, rng):
-        # Time at dim 1: shape (plane=4, time=10, row=6, col=8).
-        data = rng.random((4, 10, 6, 8))
-        da = xr.DataArray(data, dims=["plane", "time", "row", "col"])
-        layer = _Layer(data, metadata={"xarray": da})
-        ts = plotter._extract_signals(layer, np.array([1, 0, 2, 3]))
-        npt.assert_array_equal(ts, data[1, :, 2, 3])
-
-
-# ---------------------------------------------------------------------------
-# _active_layer
-# ---------------------------------------------------------------------------
-
-
-class TestActiveLayer:
-    def test_returns_none_when_no_layer_selected(self, viewer, plotter):
-        assert plotter._active_layer() is None
-
-    def test_returns_none_for_2d_image(self, viewer, plotter):
-        viewer.add_image(np.zeros((4, 6)))
-        assert plotter._active_layer() is None
-
-    def test_returns_none_for_rgb_layer(self, viewer, plotter):
-        viewer.add_image(np.zeros((4, 6, 3), dtype=np.uint8), rgb=True)
-        assert plotter._active_layer() is None
-
-    def test_returns_none_for_image_without_xarray(self, viewer, plotter):
-        viewer.add_image(np.zeros((10, 4, 6, 8)))
-        assert plotter._active_layer() is None
-
-    def test_returns_layer_for_valid_image_with_xarray(
-        self, viewer, plotter, sample_voxeldata_3dt
-    ):
-        layer = viewer.add_image(
-            sample_voxeldata_3dt.values, metadata={"xarray": sample_voxeldata_3dt}
-        )
-        assert plotter._active_layer() is layer
-
-
-# ---------------------------------------------------------------------------
-# _on_mouse_move
-# ---------------------------------------------------------------------------
-
-
-class TestOnMouseMove:
-    def test_shift_updates_cursor_pos_and_current_layer(
-        self, viewer, plotter, sample_voxeldata_3dt
-    ):
-        layer = viewer.add_image(
-            sample_voxeldata_3dt.values, metadata={"xarray": sample_voxeldata_3dt}
-        )
-        viewer.layers.selection.active = layer
-        plotter._on_mouse_move(viewer, _FakeEventShift())
-        assert plotter._cursor_pos is not None
-        assert plotter._current_layer is layer
-
-    def test_no_shift_does_not_update_cursor_pos(self, viewer, plotter):
-        # Adding a layer fires _on_layer_change, which may set _current_layer.
-        # Without Shift, _on_mouse_move must not update _cursor_pos.
-        viewer.add_image(np.zeros((10, 4, 6, 8)))
-        plotter._on_mouse_move(viewer, _FakeEventNoShift())
-        assert plotter._cursor_pos is None
-
-
-# ---------------------------------------------------------------------------
-# Shift keybinding scoped to mouse source mode
-# ---------------------------------------------------------------------------
-
-
-def _bound_shift_handler(viewer):
-    from napari.utils.key_bindings import coerce_keybinding
-
-    return viewer.keymap.get(coerce_keybinding("Shift"))
-
-
-class TestShiftKeyBinding:
-    def test_bound_by_default_in_mouse_mode(self, viewer, plotter):
-        assert _bound_shift_handler(viewer) == plotter._on_shift_pressed
-
-    def test_unbound_when_leaving_mouse_mode(self, viewer, plotter):
-        plotter.set_source_mode("labels")
-        assert _bound_shift_handler(viewer) is None
-
-    def test_rebound_when_returning_to_mouse_mode(self, viewer, plotter):
-        plotter.set_source_mode("labels")
-        plotter.set_source_mode("mouse")
-        assert _bound_shift_handler(viewer) == plotter._on_shift_pressed
-
-    def test_preserves_a_pre_existing_shift_binding_while_in_other_modes(
-        self, viewer, plotter
-    ):
-        def other_handler(viewer):
-            pass
-
-        # Simulate another binding claiming Shift while this widget isn't using it.
-        plotter.set_source_mode("labels")
-        viewer.bind_key("Shift", other_handler, overwrite=True)
-
-        plotter.set_source_mode("mouse")
-        assert _bound_shift_handler(viewer) == plotter._on_shift_pressed
-
-        plotter.set_source_mode("labels")
-        assert _bound_shift_handler(viewer) is other_handler
-
-
-# ---------------------------------------------------------------------------
-# _get_xaxis_coords
-# ---------------------------------------------------------------------------
-
-
-class TestGetXaxisCoords:
-    def test_returns_none_without_xarray_metadata(self, plotter):
-        layer = _Layer(np.zeros((10, 4, 6, 8)))
-        assert plotter._get_xaxis_coords(layer) is None
-
-    def test_returns_none_when_slider_dim_has_no_coord(self, plotter):
-        # No time dim and no coord for the resolved slider dim (plane) -> None.
-        da = xr.DataArray(np.zeros((4, 6, 8)), dims=["plane", "row", "col"])
-        layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
-        assert plotter._get_xaxis_coords(layer) is None
-
-    def test_returns_correct_coords(self, plotter, sample_voxeldata_3dt):
-        layer = _Layer(
-            np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt}
-        )
-        coords = plotter._get_xaxis_coords(layer)
-        npt.assert_array_equal(coords, sample_voxeldata_3dt.coords["time"].values)
-
-    def test_resolves_slider_dim_coords_when_no_time(self, plotter):
-        # No time dim: the x-axis falls back to the slider dim (plane), so the trace
-        # is plotted against plane coordinates, not step indices.
-        plane = 1.0 + np.arange(4) * 0.2
-        da = xr.DataArray(
-            np.zeros((4, 6, 8)),
-            dims=["plane", "row", "col"],
-            coords={
-                "plane": xr.DataArray(plane, dims=["plane"], attrs={"units": "mm"})
-            },
-        )
-        layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
-        npt.assert_array_equal(plotter._get_xaxis_coords(layer), plane)
-
-
-# ---------------------------------------------------------------------------
-# _get_xaxis_label
-# ---------------------------------------------------------------------------
-
-
-class TestGetXaxisLabel:
-    def test_returns_index_without_xarray_metadata(self, plotter):
-        layer = _Layer(np.zeros((10, 4, 6, 8)))
-        assert plotter._get_xaxis_label(layer) == "Index"
-
-    def test_returns_capitalized_slider_dim_when_no_coord(self, plotter):
-        # No time dim: label falls back to the resolved slider dim (plane).
-        da = xr.DataArray(np.zeros((4, 6, 8)), dims=["plane", "row", "col"])
-        layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
-        assert plotter._get_xaxis_label(layer) == "Plane"
-
-    def test_uses_slider_dim_units_when_no_time(self, plotter):
-        # No time dim: label reflects the slider dim (plane) coordinate units.
-        da = xr.DataArray(
-            np.zeros((4, 6, 8)),
-            dims=["plane", "row", "col"],
-            coords={
-                "plane": xr.DataArray(
-                    1.0 + np.arange(4) * 0.2,
-                    dims=["plane"],
-                    attrs={"units": "mm"},
-                )
-            },
-        )
-        layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
-        assert plotter._get_xaxis_label(layer) == "Plane (mm)"
-
-    def test_uses_units_from_time_coord(self, plotter, sample_voxeldata_3dt):
-        # sample_voxeldata_3dt has time attrs={"units": "s"}, no long_name.
-        layer = _Layer(
-            np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_voxeldata_3dt}
-        )
-        assert plotter._get_xaxis_label(layer) == "Time (s)"
-
-    def test_uses_long_name_and_units(self, plotter):
-        da = xr.DataArray(
-            np.zeros((5, 4)),
-            dims=["time", "x"],
-            coords={
-                "time": xr.DataArray(
-                    np.arange(5) * 0.5,
-                    dims=["time"],
-                    attrs={"long_name": "Elapsed time", "units": "s"},
-                )
-            },
-        )
-        layer = _Layer(np.zeros((5, 4)), metadata={"xarray": da})
-        assert plotter._get_xaxis_label(layer) == "Elapsed time (s)"
-
-    def test_omits_parentheses_when_no_units(self, plotter):
-        da = xr.DataArray(
-            np.zeros((5, 4)),
-            dims=["time", "x"],
-            coords={
-                "time": xr.DataArray(
-                    np.arange(5),
-                    dims=["time"],
-                    attrs={"long_name": "Frame index"},
-                )
-            },
-        )
-        layer = _Layer(np.zeros((5, 4)), metadata={"xarray": da})
-        assert plotter._get_xaxis_label(layer) == "Frame index"
-
-
-# ---------------------------------------------------------------------------
-# _world_to_xaxis
-# ---------------------------------------------------------------------------
-
-
-class TestWorldToXaxis:
-    """_world_to_xaxis maps a world coordinate to the plot x-axis value."""
-
-    def _setup_plotter(self, plotter, xaxis_coords, *, xaxis_dim="time"):
-        """Wire a mock layer with identity world_to_data into the plotter."""
-        da = xr.DataArray(
-            np.zeros((len(xaxis_coords), 4)),
-            dims=[xaxis_dim, "x"],
-            coords={xaxis_dim: xaxis_coords},
-        )
-        layer = _Layer(da.values, metadata={"xarray": da})
-        plotter._current_layer = layer
-        plotter._xaxis_coords = np.asarray(xaxis_coords)
-        plotter._xaxis_dim = xaxis_dim
-
-    def test_returns_world_when_no_current_layer(self, plotter):
-        plotter._xaxis_coords = np.array([10.0, 10.5, 11.0])
-        plotter._current_layer = None
-        assert plotter._world_to_xaxis(3.0) == 3.0
-
-    def test_returns_world_when_no_xaxis_coords(self, plotter):
-        plotter._xaxis_coords = None
-        plotter._current_layer = _Layer(np.zeros((4, 4)))
-        assert plotter._world_to_xaxis(3.0) == 3.0
-
-    def test_returns_world_value_for_numeric_coords(self, plotter):
-        # Numeric coordinates return the world value directly (no snapping)
-        # so the cursor stays in exact sync with the time overlay.
-        self._setup_plotter(plotter, [10.0, 10.5, 11.0, 11.5])
-        assert plotter._world_to_xaxis(2.0) == 2.0
-
-    def test_out_of_bounds_falls_back_to_world_value(self, plotter):
-        self._setup_plotter(plotter, [10.0, 10.5, 11.0])
-        assert plotter._world_to_xaxis(99.0) == 99.0
-
-    def test_returns_string_for_non_numeric_coordinates(self, plotter):
-        # String coordinates (e.g., feature names) must be returned as-is so
-        # matplotlib places the cursor at the correct categorical position
-        # instead of inserting a spurious numeric category.
-        self._setup_plotter(
-            plotter, ["feat_A", "feat_B", "feat_C"], xaxis_dim="feature"
-        )
-        assert plotter._world_to_xaxis(1.0) == "feat_B"
-
-    def test_nonuniform_time_returns_world_value(self, plotter):
-        """Non-uniform numeric coordinates return the world value directly."""
-        self._setup_plotter(plotter, [0.0, 0.5, 2.0, 2.1, 5.0])
-        assert plotter._world_to_xaxis(3.0) == 3.0
-
-    def test_non_time_xaxis_dim_returns_world_value(self, plotter):
-        """Non-time numeric axes also return the world value directly."""
-        lag_coords = [0.0, 0.1, 0.2, 0.3, 0.4]
-        self._setup_plotter(plotter, lag_coords, xaxis_dim="lag")
-        assert plotter._world_to_xaxis(3.0) == 3.0
-
-
-# ---------------------------------------------------------------------------
-# _flush_cursor — axvline synchronisation
-# ---------------------------------------------------------------------------
-
-
-class TestFlushCursor:
-    """The blitted x-axis cursor must track the world coordinate.
-
-    Regression: _flush_cursor used a non-existent `_cursor_frame` attribute
-    instead of the value computed by `_world_to_xaxis`, causing the axvline
-    to silently fail to update (the AttributeError was swallowed by the
-    bare except clause).
-    """
-
-    def _add_vline_and_bg(self, plotter, x_initial=0.0):
-        """Add a vline and capture background so _flush_cursor can blit."""
-        plotter._vline = plotter._axes.axvline(x_initial, color="red", animated=True)
-        plotter._canvas.draw()
-        plotter._bg = plotter._canvas.copy_from_bbox(plotter._figure.bbox)
-
-    def test_flush_cursor_does_not_raise(self, plotter):
-        """_flush_cursor must not raise (regression for missing _cursor_frame)."""
-        self._add_vline_and_bg(plotter)
-        plotter._cursor_world = 2.0
-        # Before the fix this raised AttributeError caught by the except clause,
-        # which set _bg to None. After the fix, _bg must remain intact.
-        plotter._flush_cursor()
-        assert plotter._bg is not None
-
-    def test_flush_cursor_moves_vline_to_world_value(self, plotter):
-        """The vline x-position must reflect _world_to_xaxis(cursor_world)."""
-        self._add_vline_and_bg(plotter)
-        plotter._cursor_world = 3.0
-        plotter._flush_cursor()
-        expected = plotter._world_to_xaxis(3.0)
-        actual = plotter._vline.get_xdata()[0]
-        assert actual == pytest.approx(expected)
-
-    def test_flush_cursor_uses_world_value_with_xarray_coords(self, plotter):
-        """Even with xarray coords, the vline uses the world value directly
-        so it stays in exact sync with the time overlay (no snapping)."""
-        coords = np.array([10.0, 10.5, 11.0, 11.5, 12.0])
-        da = xr.DataArray(np.zeros((5, 4)), dims=["time", "x"], coords={"time": coords})
-        layer = _Layer(da.values, metadata={"xarray": da})
-        plotter._current_layer = layer
-        plotter._xaxis_coords = coords
-        plotter._xaxis_dim = "time"
-
-        self._add_vline_and_bg(plotter)
-        plotter._cursor_world = 2.0
-        plotter._flush_cursor()
-        actual = plotter._vline.get_xdata()[0]
-        # World value returned directly, not snapped to xarray coords.
-        assert actual == pytest.approx(2.0)
-
-    def test_flush_cursor_falls_back_to_world_for_no_xarray(self, plotter):
-        """Without xarray metadata the vline position equals the world value.
-
-        This is the video-layer case: no xarray metadata, so
-        `_world_to_xaxis` returns the world value unchanged, which is
-        `dims.point[time_idx]` -- the same value the time overlay uses.
-        """
-        plotter._xaxis_coords = None
-        plotter._current_layer = None
-        self._add_vline_and_bg(plotter)
-        plotter._cursor_world = 3.5
-        plotter._flush_cursor()
-        actual = plotter._vline.get_xdata()[0]
-        assert actual == pytest.approx(3.5)
-
-
-# ---------------------------------------------------------------------------
-# Video layer interaction — plotter must ignore non-xarray layers
-# ---------------------------------------------------------------------------
-
-
-class TestVideoLayerInteraction:
-    """When a video layer (no xarray metadata) is selected alongside a fUSI
-    scan, the plotter must continue using the fUSI layer for signal extraction,
-    cursor mapping, and click-to-navigate.
-    """
-
-    @pytest.fixture
-    def fusi_layer(self, viewer, sample_voxeldata_3dt):
-        """Add a real fUSI layer with xarray metadata to the viewer."""
-        from confusius.plotting import plot_napari
-
-        _, layer = plot_napari(
-            sample_voxeldata_3dt,
-            viewer=viewer,
-            show_colorbar=False,
-            show_scale_bar=False,
-        )
-        return layer
-
-    @pytest.fixture
-    def video_layer(self, viewer):
-        """Add a real video-like layer (no xarray, just fps metadata).
-
-        Uses a 4D grayscale array so that napari sees the same ndim as the
-        fUSI scan.  The critical property is the absence of xarray metadata.
-        """
-        data = np.zeros((20, 4, 48, 64), dtype=np.uint8)
-        return viewer.add_image(
-            data,
-            name="Video: test",
-            scale=(1 / 30.0, 1.0, 1.0, 1.0),
-            axis_labels=("time", "z", "y", "x"),
-            metadata={"fps": 30.0, "time_units": "s"},
-        )
-
-    def test_on_layer_change_retains_current_layer_when_video_selected(
-        self, viewer, plotter, fusi_layer, video_layer
-    ):
-        """Selecting the video layer must not clear _current_layer.
-
-        _active_layer() correctly returns None for the video layer, but
-        _on_layer_change must not overwrite _current_layer with None --
-        the previous fUSI layer must remain active for signal extraction.
-        """
-        # Set fUSI as the current layer (previous state).
-        plotter._current_layer = fusi_layer
-
-        # Now select the video layer.
-        viewer.layers.selection.active = video_layer
-        plotter._on_layer_change(None)
-
-        # _current_layer must still be the fUSI layer, not None.
-        assert plotter._current_layer is fusi_layer
-
-    def test_on_layer_change_updates_current_layer_for_valid_xarray_layer(
-        self, viewer, plotter, fusi_layer
-    ):
-        """Selecting a valid xarray layer must update _current_layer."""
-        plotter._current_layer = None
-
-        viewer.layers.selection.active = fusi_layer
-        plotter._on_layer_change(None)
-
-        assert plotter._current_layer is fusi_layer
-
-    def test_cursor_uses_world_value_when_video_selected(
-        self, viewer, plotter, fusi_layer, video_layer, sample_voxeldata_3dt
-    ):
-        """The x-axis cursor uses the world value directly (no snapping)
-        even when the fUSI layer is retained as _current_layer.  This
-        keeps the cursor in exact sync with the time overlay.
-        """
-        plotter._current_layer = fusi_layer
-        plotter._xaxis_coords = np.array(sample_voxeldata_3dt.coords["time"].values)
-        plotter._xaxis_dim = "time"
-
-        # Select the video layer (doesn't change _current_layer).
-        viewer.layers.selection.active = video_layer
-
-        # World value returned directly, not snapped to xarray coords.
-        result = plotter._world_to_xaxis(2.0)
-        assert result == pytest.approx(2.0)
-
-    def test_click_to_navigate_works_when_video_selected(
-        self, plotter, fusi_layer, sample_voxeldata_3dt
-    ):
-        """_x_to_frame must still convert xarray coords to frame indices
-        when _xaxis_coords is retained from the fUSI layer.
-        """
-        plotter._current_layer = fusi_layer
-        plotter._xaxis_coords = np.array(sample_voxeldata_3dt.coords["time"].values)
-
-        # Click on x=11.0 in the plot -> should map to frame index 2.
-        frame = plotter._x_to_frame(11.0)
-        assert frame == pytest.approx(2.0)
-
-    def test_flush_cursor_with_fusi_retained_after_video_selection(
-        self, viewer, plotter, fusi_layer, video_layer, sample_voxeldata_3dt
-    ):
-        """_flush_cursor must use the world value directly (no snapping)
-        when the video layer is selected but _current_layer is the fUSI.
-        """
-        plotter._current_layer = fusi_layer
-        plotter._xaxis_coords = np.array(sample_voxeldata_3dt.coords["time"].values)
-        plotter._xaxis_dim = "time"
-
-        plotter._vline = plotter._axes.axvline(0, color="red", animated=True)
-        plotter._canvas.draw()
-        plotter._bg = plotter._canvas.copy_from_bbox(plotter._figure.bbox)
-
-        # World value returned directly, not snapped to xarray coord 11.5.
-        plotter._cursor_world = 3.0
-        plotter._flush_cursor()
-
-        actual = plotter._vline.get_xdata()[0]
-        assert actual == pytest.approx(3.0)
-        assert plotter._bg is not None
-
-
-# ---------------------------------------------------------------------------
-# Panel x-axis combo — must not break when video layer is active
-# ---------------------------------------------------------------------------
-
-
-class TestPanelXaxisWithVideoLayer:
-    """The SignalPanel x-axis combo must remain stable when the active layer
-    changes to a video layer that lacks xarray metadata.
-
-    `_get_available_xaxis_dims` must fall back to scanning all layers for
-    xarray metadata instead of generating generic `dim_0` entries from
-    the video layer.
-    """
-
-    @pytest.fixture
-    def fusi_layer(self, viewer, sample_voxeldata_3dt):
-        """Add a real fUSI layer with xarray metadata to the viewer."""
-        from confusius.plotting import plot_napari
-
-        _, layer = plot_napari(
-            sample_voxeldata_3dt,
-            viewer=viewer,
-            show_colorbar=False,
-            show_scale_bar=False,
-        )
-        return layer
-
-    @pytest.fixture
-    def video_layer(self, viewer):
-        """Add a real video-like layer (no xarray, just fps metadata).
-
-        Uses a 4D grayscale array so that napari sees the same ndim as the
-        fUSI scan.  The critical property is the absence of xarray metadata.
-        """
-        data = np.zeros((20, 4, 48, 64), dtype=np.uint8)
-        return viewer.add_image(
-            data,
-            name="Video: test",
-            scale=(1 / 30.0, 1.0, 1.0, 1.0),
-            axis_labels=("time", "z", "y", "x"),
-            metadata={"fps": 30.0, "time_units": "s"},
-        )
-
-    @pytest.fixture
-    def signal_panel(self, viewer):
-        """Create a real SignalPanel wired to the viewer."""
-        from confusius._napari._signals._panel import SignalPanel
-
-        return SignalPanel(viewer)
-
-    def test_returns_time_when_fusi_is_active(self, viewer, signal_panel, fusi_layer):
-        """Baseline: x-axis dims include 'time' when fUSI is active."""
-        viewer.layers.selection.active = fusi_layer
-
-        dims = signal_panel._get_available_xaxis_dims()
-        assert "time" in dims
-
-    def test_falls_back_to_xarray_layers_when_video_is_active(
-        self, viewer, signal_panel, fusi_layer, video_layer
-    ):
-        """When the video layer is active, _get_available_xaxis_dims must
-        fall back to the fUSI layer's dims instead of returning generic dim names.
-        """
-        viewer.layers.selection.active = video_layer
-
-        dims = signal_panel._get_available_xaxis_dims()
-        assert "time" in dims
-        # Must NOT contain generic dim names from the video layer.
-        assert not any(d.startswith("dim_") for d in dims)
-
-    def test_returns_empty_when_no_xarray_layers_exist(
-        self, viewer, signal_panel, video_layer
-    ):
-        """When no layers have xarray metadata, return empty list."""
-        viewer.layers.selection.active = video_layer
-
-        dims = signal_panel._get_available_xaxis_dims()
-        assert dims == []
-
-    def test_xaxis_dim_index_finds_time_from_fusi_when_video_active(
-        self, viewer, signal_panel, fusi_layer, video_layer
-    ):
-        """_xaxis_dim_index must find the time dimension from the fUSI layer
-        even when the video layer is the active selection.
-        """
-        # Ensure the combo is populated from the fUSI layer before switching.
-        viewer.layers.selection.active = fusi_layer
-        signal_panel._refresh_xaxis_combo()
-
-        viewer.layers.selection.active = video_layer
-        signal_panel._xaxis_combo.setCurrentText("time")
-
-        idx = signal_panel._xaxis_dim_index()
-        assert idx == 0  # time is dim 0 in the fUSI layer.
-
-    def test_click_to_navigate_uses_world_coordinate_with_video_layer(
-        self, viewer, signal_panel, fusi_layer, video_layer
-    ):
-        """Regression: clicking at 300s on the plot must navigate to ~300s,
-        not 300/fps.
-
-        When a video layer is loaded its time scale (1/fps) becomes the
-        smallest scale on the time axis, shrinking `dims.range.step`.
-        The old code set `current_step` directly from a data index, so
-        the world coordinate was `data_index * range.step` instead of the
-        intended time.  The fix emits the x-axis plot value (already in
-        world coordinates) and uses `dims.set_point` which accepts
-        world coordinates directly.
-        """
-        # Ensure the combo is populated from the fUSI layer before switching.
-        viewer.layers.selection.active = fusi_layer
-        signal_panel._refresh_xaxis_combo()
-
-        viewer.layers.selection.active = video_layer
-        signal_panel._xaxis_combo.setCurrentText("time")
-
-        # Simulate the plotter emitting a click at x=12.5 (seconds).
-        # The panel calls set_point(0, 12.5) -- NOT current_step.
-        signal_panel._on_frame_clicked(12.5)
-
-        # Verify the viewer navigated to the correct world coordinate.
-        time_idx = signal_panel._xaxis_dim_index()
-        actual_world = float(viewer.dims.point[time_idx])
-        assert actual_world == pytest.approx(12.5)
-
-
-# ---------------------------------------------------------------------------
-# _update_plot — xlim regression
-# ---------------------------------------------------------------------------
-
-
-class TestUpdatePlotXlim:
-    def test_xlim_recovers_after_leaving_image(self, plotter, rng):
-        """Regression: xlim must not stay at matplotlib default [0, 1] after the
-        cursor briefly leaves the image and then returns.
-        """
-        data = rng.random((10, 4, 6, 8))
-        layer = _Layer(data)
-        plotter._current_layer = layer
-
-        # First valid plot — establishes the correct x range.
-        plotter._cursor_pos = np.array([0, 1, 2, 3])
-        plotter._update_plot()
-        xlim_first = plotter._axes.get_xlim()
-
-        # Cursor leaves the image (out-of-bounds → ts is None).
-        plotter._cursor_pos = np.array([0, 99, 99, 99])
-        plotter._update_plot()
-
-        # Cursor returns to the same valid position.
-        plotter._cursor_pos = np.array([0, 1, 2, 3])
-        plotter._update_plot()
-        xlim_recovered = plotter._axes.get_xlim()
-
-        # The recovered xlim must match the original, not be stuck at [0, 1].
-        npt.assert_allclose(xlim_recovered, xlim_first)
-
-
-# ---------------------------------------------------------------------------
-# TSV export
-# ---------------------------------------------------------------------------
-
-
-class TestTsvExport:
-    def test_writes_time_first_column_for_current_plot(
-        self, plotter, tmp_path, sample_voxeldata_3dt
-    ):
-        data = np.asarray(sample_voxeldata_3dt)
-        layer = _Layer(data, metadata={"xarray": sample_voxeldata_3dt})
-        layer.name = "signal"
-
-        plotter._current_layer = layer
-        plotter._cursor_pos = np.array([0, 1, 2, 3])
-        plotter._update_plot()
-
-        out_path = tmp_path / "timeseries.tsv"
-        plotter._write_current_plot_delimited(out_path, delimiter="\t")
-
-        rows = [line.split("\t") for line in out_path.read_text().splitlines()]
-        assert rows[0] == ["time", "signal"]
-        assert [row[0] for row in rows[1:]] == [
-            format_export_value(value)
-            for value in sample_voxeldata_3dt.coords["time"].values
-        ]
-        assert [row[1] for row in rows[1:]] == [
-            format_export_value(value) for value in data[:, 1, 2, 3]
-        ]
-        assert plotter._export_button.isEnabled()
-
-    def test_writes_csv_when_requested(self, plotter, tmp_path):
-        from confusius._napari._export import ExportSignal
-
-        plotter._set_export_signals(
-            [ExportSignal("signal", np.array([0.0, 1.0]), np.array([10.0, 11.5]))]
-        )
-
-        out_path = tmp_path / "timeseries.csv"
-        plotter._write_current_plot_delimited(out_path, delimiter=",")
-
-        rows = [line.split(",") for line in out_path.read_text().splitlines()]
-        assert rows == [["time", "signal"], ["0", "10"], ["1", "11.5"]]
-
-    def test_aligns_multiple_signals_and_deduplicates_headers(self, plotter, tmp_path):
-        from confusius._napari._export import ExportSignal
-
-        plotter._set_export_signals(
-            [
-                ExportSignal("series", np.array([0.0, 1.0]), np.array([10.0, 11.0])),
-                ExportSignal("series", np.array([1.0, 2.0]), np.array([20.0, 21.0])),
-            ]
-        )
-
-        out_path = tmp_path / "timeseries.tsv"
-        plotter._write_current_plot_delimited(out_path, delimiter="\t")
-
-        rows = [line.split("\t") for line in out_path.read_text().splitlines()]
-        assert rows == [
-            ["time", "series", "series_2"],
-            ["0", "10", ""],
-            ["1", "11", "20"],
-            ["2", "", "21"],
-        ]
-
-    def test_invalid_plot_clears_export_state(self, plotter):
-        from confusius._napari._export import ExportSignal
-
-        plotter._set_export_signals(
-            [ExportSignal("series", np.array([0.0, 1.0]), np.array([10.0, 11.0]))]
-        )
-
-        layer = _Layer(np.zeros((10, 4, 6, 8)))
-        plotter._current_layer = layer
-        plotter._cursor_pos = np.array([0, 99, 99, 99])
-        plotter._update_plot()
-
-        assert plotter._export_signals == []
-        assert not plotter._export_button.isEnabled()
-
-
-class TestStoredSignalIntegration:
-    def test_overlays_stored_signals_with_live_mouse_plot(
-        self, plotter_with_store, store, tmp_path
-    ):
-        path = tmp_path / "imported.csv"
-        path.write_text("time,external\n0,20\n1,21\n2,22\n")
-        store.import_file(path)
-
-        layer = _Layer(np.arange(3 * 2 * 2 * 2).reshape(3, 2, 2, 2))
-        layer.name = "live"
-        plotter_with_store._current_layer = layer
-        plotter_with_store._cursor_pos = np.array([0, 1, 1, 1])
-
-        plotter_with_store._update_plot()
-
-        out_path = tmp_path / "combined.tsv"
-        plotter_with_store._write_current_plot_delimited(out_path, delimiter="\t")
-        rows = [line.split("\t") for line in out_path.read_text().splitlines()]
-        assert rows == [
-            ["time", "live", "external"],
-            ["0", "7", "20"],
-            ["1", "15", "21"],
-            ["2", "23", "22"],
-        ]
-
-    def test_plots_stored_signals_without_live_data(
-        self, plotter_with_store, store, tmp_path
-    ):
-        path = tmp_path / "imported.tsv"
-        path.write_text("time\tbaseline\n0\t1.0\n0\t2.0\n1\t3.0\n")
-        store.import_file(path)
-
-        plotter_with_store._refresh_plot()
-
-        out_path = tmp_path / "imported_only.tsv"
-        plotter_with_store._write_current_plot_delimited(out_path, delimiter="\t")
-        rows = [line.split("\t") for line in out_path.read_text().splitlines()]
-        assert rows == [
-            ["time", "baseline"],
-            ["0", "1"],
-            ["0", "2"],
-            ["1", "3"],
-        ]
-
-    def test_imported_only_plot_shows_cursor_when_enabled(
-        self, plotter_with_store, store, tmp_path
-    ):
-        path = tmp_path / "imported.tsv"
-        path.write_text("time\tbaseline\n0\t1.0\n1\t2.0\n2\t3.0\n")
-        store.import_file(path)
-
-        plotter_with_store.set_show_cursor(True)
-        plotter_with_store._cursor_world = 1.5
-        plotter_with_store._refresh_plot()
-
-        assert plotter_with_store._vline is not None
-        assert plotter_with_store._vline.get_xdata()[0] == pytest.approx(1.5)
-
-    def test_hidden_imported_signal_is_excluded_from_export(
-        self, plotter_with_store, store, tmp_path
-    ):
-        path = tmp_path / "imported.csv"
-        path.write_text("time,external\n0,20\n1,21\n2,22\n")
-        imported = store.import_file(path)
-        store.set_signal_visible(imported[0].id, False)
-
-        layer = _Layer(np.arange(3 * 2 * 2 * 2).reshape(3, 2, 2, 2))
-        layer.name = "live"
-        plotter_with_store._current_layer = layer
-        plotter_with_store._cursor_pos = np.array([0, 1, 1, 1])
-
-        plotter_with_store._update_plot()
-
-        out_path = tmp_path / "combined.tsv"
-        plotter_with_store._write_current_plot_delimited(out_path, delimiter="\t")
-        rows = [line.split("\t") for line in out_path.read_text().splitlines()]
-        assert rows == [
-            ["time", "live"],
-            ["0", "7"],
-            ["1", "15"],
-            ["2", "23"],
-        ]
-
-    def test_imported_signal_color_is_used_for_overlay(
-        self, plotter_with_store, store, tmp_path
-    ):
-        path = tmp_path / "imported.csv"
-        path.write_text("time,external\n0,20\n1,21\n2,22\n")
-        imported = store.import_file(path)
-        store.set_signal_color(imported[0].id, "#123456")
-
-        plotter_with_store._refresh_plot()
-
-        line = plotter_with_store._axes.lines[0]
-        assert line.get_label() == "external"
-        assert line.get_color() == "#123456"
-
-    def test_xlim_defaults_to_largest_plotted_signal_extent(
-        self, plotter_with_store, store, tmp_path
-    ):
-        path = tmp_path / "imported.csv"
-        path.write_text("time,external\n-2,20\n0,21\n4,22\n")
-        store.import_file(path)
-
-        layer = _Layer(np.arange(3 * 2 * 2 * 2).reshape(3, 2, 2, 2))
-        layer.name = "live"
-        plotter_with_store._current_layer = layer
-        plotter_with_store._cursor_pos = np.array([0, 1, 1, 1])
-
-        plotter_with_store._update_plot()
-
-        xlim = plotter_with_store._axes.get_xlim()
-        assert xlim[0] == pytest.approx(-2.0)
-        assert xlim[1] == pytest.approx(4.0)
-
-    def test_importing_longer_signal_expands_existing_auto_xlim(
-        self, plotter_with_store, store, tmp_path
-    ):
-        layer = _Layer(np.arange(3 * 2 * 2 * 2).reshape(3, 2, 2, 2))
-        layer.name = "live"
-        plotter_with_store._current_layer = layer
-        plotter_with_store._cursor_pos = np.array([0, 1, 1, 1])
-        plotter_with_store._update_plot()
-
-        xlim_before = plotter_with_store._axes.get_xlim()
-        assert xlim_before[0] == pytest.approx(0.0)
-        assert xlim_before[1] == pytest.approx(2.0)
-
-        path = tmp_path / "imported.csv"
-        path.write_text("time,external\n-2,20\n0,21\n4,22\n")
-        store.import_file(path)
-
-        xlim_after = plotter_with_store._axes.get_xlim()
-        assert xlim_after[0] == pytest.approx(-2.0)
-        assert xlim_after[1] == pytest.approx(4.0)
-
-    def test_user_zoom_is_retained_across_mouse_moves(
-        self, plotter_with_store, store, tmp_path
-    ):
-        path = tmp_path / "imported.csv"
-        path.write_text("time,external\n-2,20\n0,21\n4,22\n")
-        store.import_file(path)
-
-        layer = _Layer(np.arange(5 * 3 * 3 * 3).reshape(5, 3, 3, 3))
-        layer.name = "live"
-        plotter_with_store._current_layer = layer
-        plotter_with_store._cursor_pos = np.array([0, 1, 1, 1])
-        plotter_with_store._update_plot()
-
-        plotter_with_store._axes.set_xlim((-1.0, 1.0))
-        plotter_with_store._cursor_pos = np.array([0, 2, 2, 2])
-        plotter_with_store._update_plot()
-
-        xlim = plotter_with_store._axes.get_xlim()
-        assert xlim[0] == pytest.approx(-1.0)
-        assert xlim[1] == pytest.approx(1.0)
-
-    def test_invalid_cursor_clears_previous_lines(
-        self, plotter_with_store, store, tmp_path
-    ):
-        path = tmp_path / "imported.csv"
-        path.write_text("time,external\n0,20\n1,21\n2,22\n")
-        store.import_file(path)
-
-        layer = _Layer(np.arange(3 * 2 * 2 * 2).reshape(3, 2, 2, 2))
-        layer.name = "live"
-        plotter_with_store._current_layer = layer
-        plotter_with_store._cursor_pos = np.array([0, 1, 1, 1])
-        plotter_with_store._update_plot()
-
-        plotter_with_store._signals_store.clear()
-        plotter_with_store._cursor_pos = np.array([0, 99, 99, 99])
-        plotter_with_store._update_plot()
-
-        assert len(plotter_with_store._axes.lines) == 0
-        assert plotter_with_store._axes.get_title() == ""
-
-    def test_hiding_imported_signal_resets_xlim_to_remaining_visible_signals(
-        self, plotter_with_store, store, tmp_path
-    ):
-        path = tmp_path / "imported.csv"
-        path.write_text("time,external\n-2,20\n0,21\n4,22\n")
-        imported = store.import_file(path)
-
-        layer = _Layer(np.arange(3 * 2 * 2 * 2).reshape(3, 2, 2, 2))
-        layer.name = "live"
-        plotter_with_store._current_layer = layer
-        plotter_with_store._cursor_pos = np.array([0, 1, 1, 1])
-        plotter_with_store._update_plot()
-
-        store.set_signal_visible(imported[0].id, False)
-
-        xlim = plotter_with_store._axes.get_xlim()
-        assert xlim[0] == pytest.approx(0.0)
-        assert xlim[1] == pytest.approx(2.0)
-
-    def test_zscore_of_constant_signal_gives_all_zeros(
-        self, plotter_with_store, store, tmp_path
-    ):
-        # A signal with all-identical values has std=0; z-scoring should yield
-        # all-zeros (ts - mean) rather than NaN.
-        path = tmp_path / "constant.csv"
-        path.write_text("time,flat\n0,5.0\n1,5.0\n2,5.0\n")
-        store.import_file(path)
-
-        plotter_with_store.set_zscore(True)
-        result = plotter_with_store._render_stored_only()
-
-        assert result is True
-        assert len(plotter_with_store._axes.lines) == 1
-        y_data = plotter_with_store._axes.lines[0].get_ydata()
-        npt.assert_array_equal(y_data, np.zeros(3))
-
-    def test_zscore_with_partial_nan_signal(self, plotter_with_store, store, tmp_path):
-        # A signal with some NaN values (e.g. alternating missing values as in
-        # a TSV with partial columns). Non-NaN values should be z-scored; NaN
-        # values should remain NaN and the plot should not crash.
-        path = tmp_path / "partial_nan.csv"
-        path.write_text("time,signal\n0,1.0\n1,\n2,3.0\n3,\n4,5.0\n")
-        store.import_file(path)
-
-        plotter_with_store.set_zscore(True)
-        result = plotter_with_store._render_stored_only()
-
-        assert result is True
-        assert len(plotter_with_store._axes.lines) == 1
-        y_data = plotter_with_store._axes.lines[0].get_ydata()
-        # NaN positions must remain NaN.
-        assert np.isnan(y_data[1])
-        assert np.isnan(y_data[3])
-        # Non-NaN positions must not be NaN.
-        assert not np.any(np.isnan(y_data[[0, 2, 4]]))
-
-    def test_close_event_disconnects_store_signals(
-        self, plotter_with_store, store, tmp_path, monkeypatch
-    ):
-        # Import a first signal so the plotter is in a known state.
-        path = tmp_path / "first.csv"
-        path.write_text("time,a\n0,1\n1,2\n")
-        store.import_file(path)
-
-        # Track calls to _refresh_plot after the plotter is closed.
-        call_count = {"n": 0}
-        original_refresh = plotter_with_store._refresh_plot
-
-        def _counting_refresh():
-            call_count["n"] += 1
-            original_refresh()
-
-        monkeypatch.setattr(plotter_with_store, "_refresh_plot", _counting_refresh)
-
-        # Close the plotter — this should disconnect the store signals.
-        plotter_with_store.close()
-
-        # Import another signal; _refresh_plot must NOT be called.
-        path2 = tmp_path / "second.csv"
-        path2.write_text("time,b\n0,10\n1,20\n")
-        store.import_file(path2)
-
-        assert call_count["n"] == 0
-
-
-# ---------------------------------------------------------------------------
-# Pinning and the live-signal dedup in _stored_plot_signals
-# ---------------------------------------------------------------------------
-
-
-class TestPinnedSignalAlwaysVisible:
-    def test_pinned_signal_stays_visible_while_its_live_origin_is_active(
-        self, plotter_with_store, store
-    ):
-        # A pinned signal is a distinct stored entry (see the "(pinned)" name
-        # suffix applied by _pin_current_signals) and must always render — it
-        # must not be silently hidden just because its live origin is still
-        # active, which previously made pinning look like it had no effect.
-        store.pin_signal(
-            origin="label-3",
-            name="Label 3 (pinned)",
-            x=np.array([0.0, 1.0]),
-            y=np.array([1.0, 2.0]),
-            color="#123456",
-            source_label="Pinned from labels",
-        )
-        store.register_live_signals(
-            [
-                LiveSignal(
-                    id="label-3",
-                    name="Label 3",
-                    color="#123456",
-                    visible=True,
-                    source_type="label",
-                    source_id=3,
-                )
-            ]
-        )
-
-        names = [s.label for s in plotter_with_store._stored_plot_signals()]
-        assert "Label 3 (pinned)" in names
-
-    def test_legend_shown_for_a_single_stored_signal(
-        self, plotter_with_store, store, tmp_path
-    ):
-        # _render_stored_only's title is generic ("Stored Signals"), unlike the
-        # mouse-hover title which already names the voxel, so even a lone line
-        # needs its own legend entry to be identifiable.
-        path = tmp_path / "single.csv"
-        path.write_text("time,a\n0,1\n1,2\n")
-        store.import_file(path)
-
-        result = plotter_with_store._render_stored_only()
-
-        assert result is True
-        assert plotter_with_store._axes.get_legend() is not None
-
-
-class TestPinCurrentSignals:
-    def test_pins_every_currently_plotted_live_signal(self, plotter_with_store, store):
-        from confusius._napari._signals._plotter import LivePlotSignal
-
-        plotter_with_store._set_live_plot_signals(
-            [
-                LivePlotSignal(
-                    origin="label-1",
-                    name="Label 1",
-                    x=np.array([0.0, 1.0]),
-                    y=np.array([1.0, 2.0]),
-                    color="#111111",
-                ),
-                LivePlotSignal(
-                    origin="label-2",
-                    name="Label 2",
-                    x=np.array([0.0, 1.0]),
-                    y=np.array([3.0, 4.0]),
-                    color="#222222",
-                ),
-            ]
-        )
-
-        plotter_with_store._pin_current_signals()
-
-        origins = {s.pin_origin for s in store.stored_signals()}
-        assert origins == {"label-1", "label-2"}
-
-    def test_pins_raw_values_when_zscore_is_enabled(
-        self, plotter_with_store, store, rng
-    ):
-        data = rng.random((10, 4, 6, 8))
-        plotter_with_store._current_layer = _Layer(data)
-        plotter_with_store._cursor_pos = np.array([0, 1, 2, 3])
-        plotter_with_store.set_zscore(True)
-        plotter_with_store._update_plot()
-
-        plotter_with_store._pin_current_signals()
-
-        npt.assert_allclose(store.stored_signals()[0].y, data[:, 1, 2, 3])
-
-    def test_pin_button_disabled_when_no_live_signal_is_plotted(
-        self, plotter_with_store
-    ):
-        plotter_with_store._set_live_plot_signals([])
-        assert plotter_with_store._pin_button.isEnabled() is False
-
-    def test_pin_button_enabled_when_a_live_signal_is_plotted(self, plotter_with_store):
-        from confusius._napari._signals._plotter import LivePlotSignal
-
-        plotter_with_store._set_live_plot_signals(
-            [
-                LivePlotSignal(
-                    origin="label-1",
-                    name="Label 1",
-                    x=np.array([0.0]),
-                    y=np.array([1.0]),
-                    color="#111111",
-                )
-            ]
-        )
-        assert plotter_with_store._pin_button.isEnabled() is True
-
-
-class TestPointColorSync:
-    def test_store_color_reaches_layer_and_selected_point_swatch(
-        self, viewer, plotter_with_store, store
-    ):
-        img = viewer.add_image(np.random.default_rng(0).random((10, 4, 6, 8)))
-        points = viewer.add_points(np.array([[1, 2, 3], [2, 3, 4]]), ndim=3)
-        plotter_with_store.set_ref_layers([img])
-        plotter_with_store.set_points_layer(points)
-        plotter_with_store.set_source_mode("points")
-        points.selected_data = {0}
-
-        store.set_live_signal_color("point-0", "#123456")
-
-        npt.assert_allclose(
-            points.face_color[0], [0x12 / 255, 0x34 / 255, 0x56 / 255, 1]
-        )
-        npt.assert_allclose(points.face_color[1], [1, 1, 1, 1])
-        assert points.current_face_color.startswith("#123456")
-
-    def test_controls_swatch_color_reaches_store(
-        self, viewer, plotter_with_store, store
-    ):
-        img = viewer.add_image(np.random.default_rng(0).random((10, 4, 6, 8)))
-        points = viewer.add_points(np.array([[1, 2, 3], [2, 3, 4]]), ndim=3)
-        plotter_with_store.set_ref_layers([img])
-        plotter_with_store.set_points_layer(points)
-        plotter_with_store.set_source_mode("points")
-        points.selected_data = {1}
-
-        # The layer controls swatch sets `current_face_color`, not `face_color`.
-        points.current_face_color = "#123456"
-
-        assert store.get_live_signal("point-1").color == "#123456"
-        assert store.get_live_signal("point-0").color == "#ffffff"
+        assert_allclose(y, expected)
+
+
+def test_mouse_name_color_and_default_display(plot_setup):
+    from confusius._utils.colors import RED
+
+    viewer, recording, store, _, plotter = plot_setup
+    signal = store.live_signals()[0]
+    world = recording.data_to_world((0, 1, 1, 1))
+    assert signal.display_name == (
+        f"data | z={world[-3]:.2f}, y={world[-2]:.2f}, x={world[-1]:.2f} mm (radius 0 mm)"
+    )
+    assert signal.color == RED
+    assert plotter._vline is not None
+    assert any(line.get_visible() for line in plotter._axes.get_xgridlines())
+    assert not any(action.text() == "Pin" for action in plotter._toolbar.actions())
+    viewer.cursor.position = recording.data_to_world((0, 2, 2, 2))
+    viewer.keymap[coerce_keybinding("Shift")](viewer)
+    assert store.live_signals()[0].display_name != signal.display_name
+
+
+def test_stored_visibility_color_and_rename_are_preserved(plot_setup):
+    _, recording, store, controller, plotter = plot_setup
+    times = recording.metadata["xarray"].time.values
+    signal = store.pin_signal(
+        "stored", "external", times, np.arange(len(times)), "#123456", "test"
+    )
+    controller.set_enabled("mouse", False)
+    store.rename_signal(signal.id, "renamed")
+    line = plotter._axes.lines[0]
+    assert line.get_label() == "renamed"
+    assert line.get_color() == "#123456"
+    assert_allclose(line.get_ydata(), signal.y)
+    store.set_signal_visible(signal.id, False)
+    assert len(plotter._axes.lines) == 0
+    assert not plotter._export_button.isEnabled()
+
+
+def test_custom_live_name_replaces_generated_legend_name(plot_setup):
+    _, recording, store, controller, plotter = plot_setup
+    seed = store.live_signals()[0]
+    store.rename_live_signal(seed.id, "Motor cortex")
+    assert plotter._axes.lines[0].get_label() == "Motor cortex"
+    recording.name = "renamed recording"
+    controller.set_radius(0.11)
+    assert plotter._axes.lines[0].get_label() == "Motor cortex"
+    assert "renamed recording" in store.get_live_signal(seed.id).default_name
+
+
+def test_same_roi_traces_use_distinct_recording_styles_and_custom_override(plot_setup):
+    viewer, recording, store, controller, plotter = plot_setup
+    controller.set_enabled("mouse", False)
+    viewer.add_points(
+        [[1, 1, 1]],
+        scale=recording.scale[-3:],
+        translate=recording.translate[-3:],
+        face_color="red",
+    )
+    _, second = plot_napari(
+        recording.metadata["xarray"],
+        viewer=viewer,
+        show_colorbar=False,
+        show_scale_bar=False,
+    )
+    seeds = [s for s in store.live_signals() if s.source_type == "point"]
+    assert {line.get_color() for line in plotter._lines} == {"#ff0000"}
+    assert {line.get_linestyle() for line in plotter._lines} == {"-", "--"}
+    seed = next(s for s in seeds if s.reference_layer is second)
+    store.set_signal_line_style(seed.id, ":")
+    assert {line.get_linestyle() for line in plotter._lines} == {"-", ":"}
+    store.set_live_signal_color(seed.id, "#123456")
+    assert {line.get_color() for line in plotter._lines} == {"#ff0000", "#123456"}
+    store.set_live_signal_color_sync(seed.id, True)
+    assert {line.get_color() for line in plotter._lines} == {"#ff0000"}
+    assert {line.get_linestyle() for line in plotter._lines} == {"-", ":"}
+
+
+def test_mouse_updates_preserve_user_zoom_and_manual_ylim(plot_setup):
+    viewer, recording, _, _, plotter = plot_setup
+    plotter._axes.set_xlim(10.5, 11.5)
+    plotter.set_autoscale(False)
+    plotter.set_ylim(-3, 3)
+    viewer.cursor.position = recording.data_to_world((0, 2, 2, 2))
+    viewer.keymap[coerce_keybinding("Shift")](viewer)
+    assert_allclose(plotter._axes.get_xlim(), (10.5, 11.5))
+    assert_allclose(plotter.get_ylim(), (-3, 3))
+
+
+def test_plot_close_does_not_remove_shared_sources_or_shift(plot_setup):
+    viewer, recording, store, controller, plotter = plot_setup
+    seed = store.live_signals()[0]
+    plotter.close()
+    assert viewer.keymap.get(coerce_keybinding("Shift")) is not None
+    assert_allclose(controller.get_trace(seed.id)[1], recording.data[:, 1, 1, 1])
+
+
+def test_zscore_constant_and_missing_values_are_display_only(plot_setup):
+    _, recording, store, controller, plotter = plot_setup
+    controller.set_enabled("mouse", False)
+    y = np.full(recording.data.shape[0], 3.0)
+    y[2] = np.nan
+    signal = store.pin_signal(
+        "constant",
+        "constant",
+        recording.metadata["xarray"].time.values,
+        y,
+        "#123456",
+        "test",
+    )
+    plotter.set_zscore(True)
+    expected = np.zeros_like(y)
+    expected[2] = np.nan
+    assert_allclose(plotter._axes.lines[0].get_ydata(), expected)
+    assert_allclose(store.stored_signals()[0].y, signal.y)
+
+
+def test_axis_cursor_uses_coordinate_values(plot_setup):
+    _, _, _, _, plotter = plot_setup
+    plotter.set_show_cursor(True)
+    plotter.set_xaxis_cursor(11.25)
+    plotter._canvas.draw()
+    assert_allclose(plotter._vline.get_xdata(), (11.25, 11.25))
+
+
+def test_non_time_volume_axis_remains_supported(
+    make_napari_viewer, sample_voxeldata_3d, qtbot
+):
+    """The lifecycle refactor must preserve plotting a volume slider axis."""
+    viewer = make_napari_viewer()
+    _, recording = plot_napari(
+        sample_voxeldata_3d, viewer=viewer, show_colorbar=False, show_scale_bar=False
+    )
+    store = SignalStore()
+    plotter = SignalPlotter(viewer, store)
+    qtbot.addWidget(plotter)
+    plotter.set_xaxis_dim("k")
+    viewer.cursor.position = recording.data_to_world((1, 1, 1))
+    viewer.keymap[coerce_keybinding("Shift")](viewer)
+    assert_allclose(
+        np.asarray(plotter._axes.lines[0].get_ydata(), dtype=float),
+        np.asarray(recording.data, dtype=float)[:, 1, 1],
+    )
+    store.live_sources(viewer).close()
+
+
+@pytest.mark.parametrize(
+    ("intervals", "expected"),
+    [
+        (None, [-50, 0, 50, np.nan]),
+        ([(10, 10)], [0, 100, 200, np.nan]),
+        ([(10, 11), (11, 12)], [-50, 0, 50, np.nan]),
+        ([(20, 30)], [np.nan] * 4),
+        ([(13, 13)], [np.nan] * 4),
+    ],
+)
+def test_psc_baselines_display_export_and_preserve_raw(plot_setup, intervals, expected):
+    _, _, store, controller, plotter = plot_setup
+    controller.set_enabled("mouse", False)
+    raw = np.array([2.0, 4.0, 6.0, np.nan])
+    store.pin_signal("psc", "psc", np.arange(10, 14), raw, "#123456", "test")
+    plotter.set_standardization("psc", intervals)
+    assert_allclose(plotter._axes.lines[0].get_ydata(), expected)
+    assert_allclose(plotter._export_signals[0].y_values, expected)
+    assert_allclose(store.stored_signals()[0].y, raw)
+    assert plotter._axes.get_ylabel() == "Signal change (%)"
+    if not np.isfinite(expected).any():
+        assert "PSC undefined" in plotter._baseline_warning.get_text()
+    else:
+        assert plotter._baseline_warning is None
+    assert plotter._baseline_spans
+
+
+@pytest.mark.parametrize("raw", [[0.0, 0.0], [-2.0, -4.0], [np.nan, np.inf]])
+def test_psc_zero_negative_and_nonfinite_baselines(plot_setup, raw):
+    _, _, store, controller, plotter = plot_setup
+    controller.set_enabled("mouse", False)
+    store.pin_signal("psc", "psc", np.arange(2), np.array(raw), "#123456", "test")
+    plotter.set_standardization("psc")
+    expected = [100 / 3, -100 / 3] if raw[0] == -2 else [np.nan, np.nan]
+    assert_allclose(plotter._axes.lines[0].get_ydata(), expected)
+
+
+@pytest.mark.parametrize("intervals", [[(2, 1)], [(np.nan, 2)], [(0, np.inf)]])
+def test_invalid_psc_intervals_are_rejected(plot_setup, intervals):
+    plotter = plot_setup[-1]
+    with pytest.raises(ValueError, match="finite ordered"):
+        plotter.set_standardization("psc", intervals)
+
+
+@pytest.mark.parametrize("outside", [False, True])
+def test_event_baselines_use_half_open_union_or_its_complement(plot_setup, outside):
+    _, _, store, controller, plotter = plot_setup
+    controller.set_enabled("mouse", False)
+    raw = np.arange(2.0, 14.0, 2.0)
+    store.pin_signal("events", "events", np.arange(6), raw, "#123456", "test")
+    plotter.set_standardization(
+        "psc", [(1.0, 3.0), (2.0, 4.0)], baseline_source="events", outside=outside
+    )
+    mean = raw[[0, 4, 5]].mean() if outside else raw[1:4].mean()
+    expected = (raw - mean) / mean * 100
+    assert_allclose(plotter._axes.lines[0].get_ydata(), expected)
+    assert_allclose(plotter._export_signals[0].y_values, expected)
+    spans = plotter._baseline_spans
+    bounds = [(span.get_x(), span.get_x() + span.get_width()) for span in spans]
+    assert bounds == ([(0.0, 1.0), (4.0, 5.0)] if outside else [(1.0, 4.0)])
+    assert_allclose(store.stored_signals()[0].y, raw)
+
+
+@pytest.mark.parametrize("outside", [False, True])
+def test_empty_event_selection_is_explicitly_undefined(plot_setup, outside):
+    _, _, _, _, plotter = plot_setup
+    plotter.set_standardization("psc", [], baseline_source="events", outside=outside)
+    assert not np.isfinite(plotter._axes.lines[0].get_ydata()).any()
+    assert "selected periods" in plotter._baseline_warning.get_text()
+    assert not plotter._baseline_spans
+
+
+def test_event_baseline_rejects_non_seconds_time_coordinates(plot_setup):
+    _, recording, _, _, plotter = plot_setup
+    recording.metadata["xarray"].time.attrs["units"] = "ms"
+    plotter.set_standardization("psc", [(10.0, 12.0)], baseline_source="events")
+    assert not np.isfinite(plotter._axes.lines[0].get_ydata()).any()
+    assert "seconds time axis" in plotter._baseline_warning.get_text()
+
+
+def test_disabling_grid_does_not_warn_or_enable_it(plot_setup):
+    plotter = plot_setup[-1]
+    plotter.set_show_grid(False)
+    assert not any(line.get_visible() for line in plotter._axes.get_xgridlines())
+
+
+def test_reopened_plot_resumes_shared_live_updates(plot_setup):
+    """Closing the plot suspends rendering, not the live source lifecycle."""
+    _, _, store, controller, plotter = plot_setup
+    seed = store.live_signals()[0]
+    plotter.close()
+    controller.set_radius(0.11)
+    plotter.show()
+    assert_allclose(
+        plotter._axes.lines[0].get_ydata(), controller.get_trace(seed.id)[1]
+    )

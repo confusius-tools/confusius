@@ -44,6 +44,7 @@ import napari
 import numpy as np
 from napari.layers import Image
 from napari.qt import get_qapp
+from napari.utils.key_bindings import coerce_keybinding
 from qtpy.QtCore import QEventLoop, Qt, QTimer
 from rich.console import Console
 
@@ -516,13 +517,11 @@ try:
     plotter = ts_panel._ensure_plotter()
     _qt_sleep(350)  # Let the dock resize QTimer.singleShot(200, …) fire.
 
-    # Inject a signal from the spatial centre of the volume directly,
-    # bypassing the actual mouse event so no display is needed.
+    # Position the shared mouse source without requiring a physical mouse event.
     layer2 = viewer2.layers[0]
     center_data = np.array([0] + [s // 2 for s in layer2.data.shape[1:]], dtype=float)
-    plotter._current_layer = layer2
-    plotter._cursor_pos = np.array(layer2.data_to_world(center_data))
-    plotter._update_plot()
+    viewer2.cursor.position = tuple(layer2.data_to_world(center_data))
+    viewer2.keymap[coerce_keybinding("Shift")](viewer2)
     get_qapp().processEvents()
 
     viewer2.window._qt_window.resize(1400, 1050)
@@ -633,11 +632,7 @@ try:
     viewer4.layers.selection.active = layer4
     get_qapp().processEvents()
 
-    # Select the Points radio button on the panel so the UI reflects the correct state
-    # (radio checked, combo enabled and showing "ROI Points"). The radio toggle fires
-    # _on_source_mode_changed → _sync_source_to_plotter, which sets the layer and mode
-    # on the plotter automatically.
-    ts_panel4._radio_points.setChecked(True)
+    # Register the Points source through the same control used interactively.
     get_qapp().processEvents()
 
     viewer4.window._qt_window.resize(1400, 1050)
@@ -695,10 +690,7 @@ try:
     viewer5.layers.selection.active = layer5
     get_qapp().processEvents()
 
-    # Select the Labels radio button on the panel so the UI reflects the correct state
-    # (radio checked, combo enabled and showing "Brain Regions"). The radio toggle fires
-    # _on_source_mode_changed → _sync_source_to_plotter automatically.
-    ts_panel5._radio_labels.setChecked(True)
+    # Register the Labels source without replacing the shared mouse source.
     get_qapp().processEvents()
 
     viewer5.window._qt_window.resize(1400, 1050)
@@ -1232,12 +1224,8 @@ try:
     signals_panel9 = widget9._accordion_panels["Signals"]
     plotter9 = signals_panel9._ensure_plotter()
     _qt_sleep(350)
-    plotter9.set_source_mode("labels")
-    plotter9.set_labels_layer(labels9)
-    plotter9.set_ref_layers([fusi9])
-    plotter9._cursor_world = rearing_onset
+    plotter9.set_xaxis_cursor(rearing_onset)
     plotter9.set_show_cursor(True)
-    plotter9._update_plot_from_labels()
 
     # Select the fUSI so events and the overlay read its true time coordinate, then
     # put the slider at the first onset and activate the overlay.
@@ -1304,11 +1292,9 @@ try:
 
     def _set_cursor9(t: float) -> None:
         viewer9.dims.set_point(VIDEO_TIME_AXIS, t)
-        plotter9._cursor_world = t
-        # Re-render the labels-mode plot so the cursor line moves to the new time
-        # (the video frame in the grid also updates to this time step).
-        plotter9.set_show_cursor(True)
-        plotter9._update_plot_from_labels()
+        plotter9.set_xaxis_cursor(t)
+        # Let the cursor blit timer settle without re-extracting ROI signals.
+        _qt_sleep(25)
         widget9._time_overlay.update()
         get_qapp().processEvents()
         get_qapp().processEvents()

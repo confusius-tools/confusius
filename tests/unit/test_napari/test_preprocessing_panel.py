@@ -506,7 +506,7 @@ class TestSignalCombos:
             source_label="test",
         )
 
-        assert panel._selected_confound_names() == ["a"]
+        assert panel._selected_confound_ids() == [signals_store.stored_signals()[0].id]
 
     def test_selecting_a_range_yields_every_item_in_it(
         self, panel, signals_store, tmp_path
@@ -531,7 +531,9 @@ class TestSignalCombos:
             selection_model.SelectionFlag.Select | selection_model.SelectionFlag.Rows,
         )
 
-        assert set(panel._selected_confound_names()) == {"b", "c"}
+        assert set(panel._selected_confound_ids()) == {
+            s.id for s in signals_store.stored_signals()[1:3]
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -631,7 +633,7 @@ class TestResolveRawSignal:
             show_colorbar=False,
             show_scale_bar=False,
         )
-        x, y = panel._resolve_raw_signal("a", layer)
+        x, y = panel._resolve_raw_signal(signals_store.stored_signals()[0].id, layer)
         np.testing.assert_allclose(x, [0.0, 1.0, 2.0])
         np.testing.assert_allclose(y, [1.0, 2.0, 3.0])
 
@@ -653,21 +655,14 @@ class TestResolveRawSignal:
             scale=spatial_scale,
             translate=spatial_translate,
         )
-        signals_store.register_live_signals(
-            [
-                LiveSignal(
-                    id="point-0",
-                    name="Point 0",
-                    color="#000000",
-                    visible=True,
-                    source_type="point",
-                    source_id=0,
-                    layer_name=points_layer.name,
-                ),
-            ]
+        controller = signals_store.live_sources(viewer)
+        controller.add_source(points_layer)
+        signal = next(
+            s for s in signals_store.live_signals() if s.source_type == "point"
         )
-
-        x, y = panel._resolve_raw_signal("Point 0", image_layer)
+        x, y = panel._resolve_raw_signal(
+            f"roi:{signal.source_key}:{signal.source_id}", image_layer
+        )
         np.testing.assert_allclose(x, sample_voxeldata_3dt["time"].values)
         np.testing.assert_allclose(y, sample_voxeldata_3dt.values[:, 1, 2, 3])
 
@@ -682,22 +677,20 @@ class TestResolveRawSignal:
         )
         labels_data = np.zeros(sample_voxeldata_3dt.shape[1:], dtype=np.int32)
         labels_data[0, 0, :2] = 1
-        labels_layer = viewer.add_labels(labels_data, name="Labels (3D)")
-        signals_store.register_live_signals(
-            [
-                LiveSignal(
-                    id="label-1",
-                    name="Label 1",
-                    color="#000000",
-                    visible=True,
-                    source_type="label",
-                    source_id=1,
-                    layer_name=labels_layer.name,
-                ),
-            ]
+        labels_layer = viewer.add_labels(
+            labels_data,
+            name="Labels (3D)",
+            scale=image_layer.scale[-3:],
+            translate=image_layer.translate[-3:],
         )
-
-        x, y = panel._resolve_raw_signal("Label 1", image_layer)
+        controller = signals_store.live_sources(viewer)
+        controller.add_source(labels_layer)
+        signal = next(
+            s for s in signals_store.live_signals() if s.source_type == "label"
+        )
+        x, y = panel._resolve_raw_signal(
+            f"roi:{signal.source_key}:{signal.source_id}", image_layer
+        )
         expected = sample_voxeldata_3dt.values[:, 0, 0, :2].mean(axis=-1)
         np.testing.assert_allclose(x, sample_voxeldata_3dt["time"].values)
         np.testing.assert_allclose(y, expected)
@@ -725,7 +718,7 @@ class TestResolveRawSignal:
             ]
         )
         with pytest.raises(ValueError, match="Could not extract signal"):
-            panel._resolve_raw_signal("Point 0", image_layer)
+            panel._resolve_raw_signal("roi::0", image_layer)
 
 
 # ---------------------------------------------------------------------------
@@ -1144,24 +1137,12 @@ class TestApplyEndToEnd:
             scale=spatial_scale,
             translate=spatial_translate,
         )
-        signals_store.register_live_signals(
-            [
-                LiveSignal(
-                    id="point-0",
-                    name="Point 0",
-                    color="#000000",
-                    visible=True,
-                    source_type="point",
-                    source_id=0,
-                    layer_name=points_layer.name,
-                ),
-            ]
-        )
+        signals_store.live_sources(viewer).add_source(points_layer)
 
         panel._refresh_layer_combos()
         panel._refresh_signal_combos()
         panel._source_combo.setCurrentText("power_doppler")
-        _check_confound(panel, "Point 0")
+        _check_confound(panel, "Points (3D) | Point 0 (from input)")
 
         panel._apply()
         qtbot.waitUntil(lambda: len(viewer.layers) == 3, timeout=5000)
@@ -1376,7 +1357,12 @@ class TestComputeCompcor:
             expected.isel(component=0).values,
             rtol=1e-5,
         )
-        assert set(panel._selected_confound_names()) == {"motion", *stored}
+        selected_names = {
+            s.name
+            for s in signals_store.stored_signals()
+            if s.id in panel._selected_confound_ids()
+        }
+        assert selected_names == {"motion", *stored}
         assert panel._confound_count_label.text() == "3 confounds selected"
         assert notifications == [
             "Computed 2 CompCor components from power_doppler; selected as confounds."

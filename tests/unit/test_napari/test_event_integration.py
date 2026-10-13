@@ -52,10 +52,9 @@ def test_plotter_shades_events(rng, make_napari_viewer):
     store.add_event(1.0, 2.0, "stim")
 
     plotter = SignalPlotter(viewer, event_store=store)
-    # Drive a mouse-mode plot so the axes have data lines.
-    plotter._current_layer = layer
-    plotter._cursor_pos = np.array(viewer.dims.point)
-    plotter._update_plot()
+    # Position the shared mouse source so the axes have data lines.
+    viewer.cursor.position = layer.data_to_world((0, 1, 1, 1))
+    viewer.keymap[coerce_keybinding("Shift")](viewer)
 
     assert len(plotter._event_spans) == 1
 
