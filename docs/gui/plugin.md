@@ -127,58 +127,42 @@ the first time you click **Show Signal Plot**.
 
 ### Choosing a data source
 
-Mouse, Points and Labels sources can coexist in the **Source** group. Their
-checkboxes enable extraction without deleting registered sources. All Points and
-Labels layers are detected automatically, including layers already present when the
-panel opens. Use **Manage Signals** to disable individual sources or hide traces.
+Signal extraction can be based on mouse location, Points layers, or Labels layers. The
+Signals tab shows the available sources and whether they are enabled. Click on the
+++plus++ icon to add a new 3D Points or Labels layer.
 
 **Mouse**
-: Hold ++shift++ over the canvas, including at a stationary cursor. The shared cursor
-  supplies a trace for each configured reference recording. A radius of **0 mm**
-  selects one voxel; a positive radius averages a physical sphere. Signals and FC
-  consume the same raw trace and radius. The legend shows the sampled voxel's
-  world coordinates and radius. To keep a mouse location as a persistent ROI, place
-  a point there.
+: Hold ++shift++ over the canvas. Signals are extracted at the cursor position from all
+  image layers. A radius of **0 mm** selects one voxel; a positive radius averages a
+  physical sphere. The legend shows the sampled voxel's world coordinates and radius. To 
+  select a persistent ROI, use a Points or Labels layer instead.
 
 ![ConfUSIus Signals panel — hover mode](../images/gui/plugin-signals.png)
 
 **Points**
 : All detected Points layers are used (click **+** to create one). Each point
-  is plotted as a separate line. Move, add or remove points in napari and the traces
-  update automatically. Deleting a point invalidates that point's FC seed rather
-  than selecting the point that takes its place in the list.
+  is plotted as a separate line. By default, traces are coloured by the point's face
+  colour. You can override the colour in the signals manager.
 
 ![ConfUSIus Signals panel — points mode](../images/gui/plugin-signals-points.png)
 
 **Labels**
-: All detected Labels layers are used (click **+** to create one). The mean
-  signal is extracted for each distinct non-zero label. Painting updates the traces
-  after a short debounce. Erasing a label makes its trace unavailable; repainting the
-  same label restores its identity and settings. Labels are mapped into each
-  recording's current world-space grid with nearest-neighbor resampling. New ROI
-  layers copy the active image's current transform, including manual transformations.
-  Moving an image leaves the ROI fixed in world space and changes the sampled voxels;
-  traces with no overlapping labelled voxels show an extraction warning.
+: All detected Labels layers are used (click **+** to create one). The mean signal is
+  extracted for each distinct non-zero label. Labels are mapped into each recording's
+  current world-space grid with nearest-neighbor resampling. New ROI layers copy the
+  active image's current transform, including manual transformations. Moving an image
+  leaves the ROI fixed in world space and changes the sampled voxels. As with Points,
+  traces are coloured by the label's colormap by default, but you can override the
+  colour in the signals manager.
 
 ![ConfUSIus Signals panel — labels mode](../images/gui/plugin-signals-labels.png)
 
 All eligible image layers supply separate traces automatically. Use the signal
-manager's **Visible** column to hide individual traces without changing extraction
-or FC seed availability.
+manager's **Visible** column to hide individual traces.
 
-Mouse traces default to ConfUSIus red for the first recording and distinct colours
-for additional recordings; change them using the signal manager's **Color** column. Point traces use each point's face colour, and label traces use the
-Labels layer's colormap. Editing those colours in napari updates the plot and signal
-manager while **Sync color** is checked. Choosing a custom trace colour in the
-manager automatically turns synchronization off for that trace, without changing
-the ROI or other recordings' traces. Rechecking synchronization restores the current
-ROI colour. Image colormaps do not affect signal colours.
-
-Line styles distinguish recordings: solid, dashed, dash-dot and dotted are assigned
-consistently across their traces, cycling after four recordings. The manager's
-**Line style** column can override each trace's style independently of colour.
-Renaming a trace replaces its legend name; the **Source** column retains its full
-recording/ROI identity.
+By default, traces from different recordings have the same colour but different line
+styles. You can override both colour and line style independently for each trace in the
+signal manager.
 
 ### Axis parameters
 
