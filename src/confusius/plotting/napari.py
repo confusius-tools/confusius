@@ -358,6 +358,8 @@ def draw_napari_labels(
     >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
     """
     data = ensure_voxeldata(data)
+    # The painting background is an intensity image, regardless of its dtype.
+    kwargs["layer_type"] = "image"
     viewer, image_layer = plot_napari(data, viewer=viewer, **kwargs)
     display_data = cast(xr.DataArray, image_layer.metadata["xarray"])
 

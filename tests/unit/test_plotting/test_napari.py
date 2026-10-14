@@ -513,6 +513,24 @@ class TestDrawNapariLabels:
         with pytest.raises(ValueError, match="VoxelToWorldIndex"):
             draw_napari_labels(data)
 
+    def test_integer_background_remains_image(
+        self, sample_voxeldata_3d, make_napari_viewer
+    ) -> None:
+        """Integer backgrounds support image display settings when drawing ROIs."""
+        data = (sample_voxeldata_3d * 100).astype(np.uint16)
+        viewer = make_napari_viewer()
+
+        _, labels_layer = draw_napari_labels(
+            data, viewer=viewer, contrast_limits=(0, 100)
+        )
+
+        image_layer = viewer.layers[0]
+        assert isinstance(image_layer, Image)
+        npt.assert_array_equal(image_layer.data, data.values)
+        npt.assert_allclose(image_layer.contrast_limits, (0, 100))
+        assert isinstance(labels_layer, Labels)
+        npt.assert_array_equal(labels_layer.data, np.zeros(data.shape, dtype=np.int32))
+
     def test_labels_scale_translate_match_image(
         self, sample_voxeldata_3d, make_napari_viewer
     ):
