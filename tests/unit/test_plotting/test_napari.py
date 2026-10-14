@@ -255,6 +255,36 @@ class TestPlotNapari:
         with pytest.raises(ValueError, match="Unknown layer_type"):
             plot_napari(sample_voxeldata_3d, layer_type="bogus")  # ty: ignore[invalid-argument-type]
 
+    @pytest.mark.parametrize(
+        ("dtype", "expected"),
+        [
+            (np.bool_, Labels),
+            (np.int8, Labels),
+            (np.int32, Labels),
+            (np.uint16, Labels),
+            (np.float32, Image),
+            (np.float64, Image),
+            pytest.param(
+                np.complex64,
+                Image,
+                marks=pytest.mark.filterwarnings("ignore:Complex-valued data"),
+            ),
+        ],
+    )
+    def test_default_layer_type_follows_dtype(
+        self, dtype, expected, make_napari_viewer
+    ) -> None:
+        data = create_voxeldata(
+            (np.arange(64).reshape(4, 4, 4) % 3).astype(dtype),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+        )
+
+        _, layer = plot_napari(data, viewer=make_napari_viewer())
+
+        assert type(layer) is expected
+
     def test_without_voxel_to_world_index_raises(self) -> None:
         """plot_napari raises clearly without a voxel-to-world index."""
         data = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
