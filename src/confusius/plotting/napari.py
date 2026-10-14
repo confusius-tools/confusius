@@ -213,6 +213,21 @@ def plot_napari(
     if any(u is not None for u in all_units):
         layer_kwargs.setdefault("units", all_units)
 
+    # Layers are always positioned in world space (scale/translate are real
+    # physical spacing/origin, and oblique input is resampled onto an
+    # axis-aligned world grid), so axis_labels shows world names (z/y/x) to
+    # honestly reflect what the dims slider actually scrubs through, even
+    # though `data` itself stays on its native voxel dims with its index intact.
+    layer_kwargs.setdefault("axis_labels", axis_labels)
+
+    layer_kwargs.setdefault("translate", coord_translates)
+
+    # Pass the underlying array (numpy or Dask) rather than the DataArray. napari's
+    # rendering loop adds overhead on every frame when given an xarray DataArray,
+    # making time scrubbing noticeably slow for lazy (Dask-backed) data.
+    layer_kwargs.setdefault("metadata", {})["xarray"] = data
+    layer_kwargs["metadata"].setdefault("source_xarray", source_data)
+
     if resolved_layer_type == "image":
         plot_data = coerce_complex_to_magnitude(data, caller="plot_napari")
 
@@ -226,13 +241,6 @@ def plot_napari(
                     order.append(all_dims.index(dim))
             layer_kwargs["order"] = tuple(order)
 
-        # Layers are always positioned in world space (scale/translate are real
-        # physical spacing/origin, and oblique input is resampled onto an
-        # axis-aligned world grid), so axis_labels shows world names (z/y/x) to
-        # honestly reflect what the dims slider actually scrubs through, even
-        # though `data` itself stays on its native voxel dims with its index intact.
-        layer_kwargs.setdefault("axis_labels", axis_labels)
-
         if "colormap" not in layer_kwargs:
             cmap_attr = data.attrs.get("cmap")
             if cmap_attr is not None:
@@ -242,13 +250,6 @@ def plot_napari(
         # trailing axis of length 3/4 as RGB channels.
         layer_kwargs.setdefault("rgb", False)
 
-        layer_kwargs.setdefault("translate", coord_translates)
-
-        # Pass the underlying array (numpy or Dask) rather than the DataArray. napari's
-        # rendering loop adds overhead on every frame when given an xarray DataArray,
-        # making time scrubbing noticeably slow for lazy (Dask-backed) data.
-        layer_kwargs.setdefault("metadata", {})["xarray"] = data
-        layer_kwargs["metadata"].setdefault("source_xarray", source_data)
         viewer, layer = napari.imshow(
             plot_data.data,
             scale=scale,
@@ -274,11 +275,9 @@ def plot_napari(
             layer.colorbar.visible = True
 
     elif resolved_layer_type == "labels":
-        layer_kwargs.setdefault("translate", coord_translates)
-        layer_kwargs.setdefault("metadata", {})["xarray"] = data
-        layer_kwargs["metadata"].setdefault("source_xarray", source_data)
         if viewer is None:
             viewer = napari.Viewer()
+
         values = data.values
         if not np.issubdtype(values.dtype, np.integer):
             values = values.astype(np.int32)
