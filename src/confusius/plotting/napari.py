@@ -81,9 +81,9 @@ def plot_napari(
     resample_interpolation : {"linear", "nearest", "bspline"}, optional
         Interpolation method used when resampling oblique (non-axis-aligned)
         voxel-to-world `data` onto an axis-aligned world grid for display. If not
-        provided, defaults to `"nearest"` for `layer_type="labels"` (blending
-        distinct integer labels together is never meaningful) and `"linear"`
-        otherwise.
+        provided, defaults to `"nearest"` for labels layers (including those
+        inferred with `layer_type="auto"`; blending distinct integer labels
+        together is never meaningful) and `"linear"` for image layers.
     resample_fill_value : float, optional
         Value assigned to voxels outside `data`'s field of view after resampling
         oblique data. If not provided, defaults to `data`'s own minimum value.
@@ -221,9 +221,7 @@ def plot_napari(
 
     layer_kwargs.setdefault("translate", coord_translates)
 
-    # Pass the underlying array (numpy or Dask) rather than the DataArray. napari's
-    # rendering loop adds overhead on every frame when given an xarray DataArray,
-    # making time scrubbing noticeably slow for lazy (Dask-backed) data.
+    # Pass the underlying array to avoid modest per-slice xarray overhead.
     layer_kwargs.setdefault("metadata", {})["xarray"] = data
     layer_kwargs["metadata"].setdefault("source_xarray", source_data)
 
@@ -277,9 +275,9 @@ def plot_napari(
         if viewer is None:
             viewer = napari.Viewer()
 
-        values = data.values
-        if not np.issubdtype(values.dtype, np.integer):
-            values = values.astype(np.int32)
+        # Keep label conversion lazy for Dask-backed data.
+        if not np.issubdtype(data.dtype, np.integer):
+            data = data.astype(np.int32)
 
         # Build a DirectLabelColormap from attrs when the caller has not already
         # supplied one. This lets atlas annotations and masks carry their colormap
@@ -290,7 +288,7 @@ def plot_napari(
                 layer_kwargs["colormap"] = colormap
 
         layer = viewer.add_labels(  # type: ignore
-            values,
+            data.data,
             scale=scale,
             **layer_kwargs,
         )

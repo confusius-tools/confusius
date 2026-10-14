@@ -12,8 +12,9 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
-- [`plot_napari`][confusius.plotting.plot_napari]'s `layer_type` defaults to
-  `"auto"` instead of `"image"`: integer and boolean data open as a labels layer,
+- [`plot_napari`][confusius.plotting.plot_napari] and its `data.fusi.plot.napari()`
+  and `data.fusi.plot()` accessors default to `layer_type="auto"` instead of
+  `"image"`: integer and boolean data open as a labels layer,
   other data as an image layer. Pass `layer_type="image"` to display integer data
   as an image ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 

@@ -64,7 +64,7 @@ class FUSIPlotAccessor:
         show_scale_bar: bool = True,
         dim_order: tuple[str, ...] | None = None,
         viewer: "Viewer | None" = None,
-        layer_type: Literal["image", "labels"] = "image",
+        layer_type: Literal["image", "labels", "auto"] = "auto",
         resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
         resample_fill_value: float | None = None,
         **layer_kwargs,
@@ -86,14 +86,15 @@ class FUSIPlotAccessor:
         viewer : napari.Viewer, optional
             Existing napari viewer to add the layer to. If not provided, a new
             viewer is created.
-        layer_type : {"image", "labels"}, default: "image"
+        layer_type : {"image", "labels", "auto"}, default: "auto"
             Type of layer to create. Use "image" for fUSI data and "labels" for
-            ROI masks, segmentations, or other label data.
+            ROI masks, segmentations, or other label data. "auto" picks "labels"
+            for integer or boolean data and "image" otherwise.
         resample_interpolation : {"linear", "nearest", "bspline"}, optional
             Interpolation method used when resampling oblique (non-axis-aligned)
             voxel-to-world data onto an axis-aligned world grid for display. If not
-            provided, defaults to `"nearest"` for `layer_type="labels"` and
-            `"linear"` otherwise.
+            provided, defaults to `"nearest"` for labels layers (including those
+            inferred with `layer_type="auto"`) and `"linear"` for image layers.
         resample_fill_value : float, optional
             Value assigned to voxels outside this DataArray's field of view after
             resampling oblique data. If not provided, defaults to its own minimum

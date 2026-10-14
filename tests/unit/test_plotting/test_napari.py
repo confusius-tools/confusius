@@ -1,5 +1,6 @@
 """Tests for napari-based plotting functions."""
 
+import dask.array as da
 import numpy as np
 import numpy.testing as npt
 import pytest
@@ -273,8 +274,9 @@ class TestPlotNapari:
             ),
         ],
     )
+    @pytest.mark.parametrize("api", ["function", "accessor", "callable_accessor"])
     def test_default_layer_type_follows_dtype(
-        self, dtype, expected, make_napari_viewer
+        self, dtype, expected, api, make_napari_viewer
     ) -> None:
         data = create_voxeldata(
             (np.arange(64).reshape(4, 4, 4) % 3).astype(dtype),
@@ -283,9 +285,34 @@ class TestPlotNapari:
             origin=(0.0, 0.0, 0.0),
         )
 
-        _, layer = plot_napari(data, viewer=make_napari_viewer())
+        viewer = make_napari_viewer()
+        if api == "function":
+            _, layer = plot_napari(data, viewer=viewer)
+        elif api == "accessor":
+            _, layer = data.fusi.plot.napari(viewer=viewer)
+        else:
+            _, layer = data.fusi.plot(viewer=viewer)
 
         assert type(layer) is expected
+
+    @pytest.mark.parametrize("dtype", [np.int16, np.bool_, np.float32])
+    def test_labels_preserve_lazy_data(self, dtype, make_napari_viewer) -> None:
+        """Labels retain Dask backing and preserve values when casting is needed."""
+        values = (np.arange(64).reshape(4, 4, 4) % 3).astype(dtype)
+        data = create_voxeldata(
+            da.from_array(values, chunks=(2, 2, 2)),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+        )
+
+        _, layer = plot_napari(data, viewer=make_napari_viewer(), layer_type="labels")
+
+        assert isinstance(layer.data, da.Array)
+        assert layer.data.dtype == (
+            values.dtype if np.issubdtype(dtype, np.integer) else np.dtype(np.int32)
+        )
+        npt.assert_array_equal(layer.data.compute(), values.astype(layer.data.dtype))
 
     def test_labels_colormap_from_cmap_norm_without_rgb_lookup(
         self, make_napari_viewer
