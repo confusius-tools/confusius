@@ -46,7 +46,7 @@ def plot_napari(
     show_scale_bar: bool = True,
     dim_order: tuple[str, ...] | None = None,
     viewer: "Viewer | None" = None,
-    layer_type: Literal["image", "labels"] = "image",
+    layer_type: Literal["image", "labels", "auto"] = "auto",
     resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
     resample_fill_value: float | None = None,
     **layer_kwargs,
@@ -73,9 +73,10 @@ def plot_napari(
     viewer : napari.Viewer, optional
         Existing napari viewer to add the layer to. If not provided, a new viewer
         is created.
-    layer_type : {"image", "labels"}, default: "image"
+    layer_type : {"image", "labels", "auto"}, default: "auto"
         Type of layer to create. Use "image" for fUSI data and "labels" for
-        ROI masks, segmentations, or other label data.
+        ROI masks, segmentations, or other label data. "auto" picks "labels" for integer
+        data and "image" otherwise.
     resample_interpolation : {"linear", "nearest", "bspline"}, optional
         Interpolation method used when resampling oblique (non-axis-aligned)
         voxel-to-world `data` onto an axis-aligned world grid for display. If not
@@ -158,14 +159,19 @@ def plot_napari(
     >>> viewer, layer = plot_napari(data)
     >>> viewer, layer = plot_napari(roi_mask, viewer=viewer, layer_type="labels")
     """
-    if layer_type not in ("image", "labels"):
+    resolved_layer_type = layer_type
+    if resolved_layer_type == "auto":
+        resolved_layer_type = (
+            "labels" if np.issubdtype(data.dtype, np.integer) else "image"
+        )
+    if resolved_layer_type not in ("image", "labels"):
         raise ValueError(
-            f"Unknown layer_type: {layer_type!r}. Expected 'image' or 'labels'."
+            f"Unknown layer_type: {layer_type!r}. Expected 'image', 'labels' or 'auto'."
         )
     data = ensure_voxeldata(data)
 
     resolved_interpolation = resample_interpolation or (
-        "nearest" if layer_type == "labels" else "linear"
+        "nearest" if resolved_layer_type == "labels" else "linear"
     )
     source_data = data
     data = resample_to_axis_aligned_world_grid(
@@ -207,7 +213,7 @@ def plot_napari(
     if any(u is not None for u in all_units):
         layer_kwargs.setdefault("units", all_units)
 
-    if layer_type == "image":
+    if resolved_layer_type == "image":
         plot_data = coerce_complex_to_magnitude(data, caller="plot_napari")
 
         # The last 2 (2D) or 3 (3D) dimensions are the displayed spatial axes.
@@ -267,7 +273,7 @@ def plot_napari(
         if show_colorbar:
             layer.colorbar.visible = True
 
-    elif layer_type == "labels":
+    elif resolved_layer_type == "labels":
         layer_kwargs.setdefault("translate", coord_translates)
         layer_kwargs.setdefault("metadata", {})["xarray"] = data
         layer_kwargs["metadata"].setdefault("source_xarray", source_data)
