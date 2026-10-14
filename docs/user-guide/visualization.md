@@ -149,11 +149,12 @@ and elevation slices with the sliders or mouse wheel.
 
 ### Napari Parameters
 
-Both `plot_napari` and `data.fusi.plot.napari()` default to `layer_type="auto"`:
-integer and boolean data open as labels layers, and other data as image layers.
-Pass `layer_type="image"` explicitly for integer-valued intensity data, or
-`layer_type="labels"` to explicitly select a labels layer. The shorthand
-`data.fusi.plot()` uses the same default.
+Both [`plot_napari`][confusius.plotting.plot_napari] and
+[`data.fusi.plot.napari()`][confusius.xarray.FUSIPlotAccessor.napari] default to
+`layer_type="auto"`: integer and boolean data open as labels layers, and other data
+as image layers. Pass `layer_type="image"` explicitly for integer-valued intensity
+data, or `layer_type="labels"` to explicitly select a labels layer. The shorthand
+[`data.fusi.plot()`][confusius.xarray.FUSIPlotAccessor] uses the same default.
 
 By default napari auto-scales contrast to the data range. For power Doppler, working
 in decibel scale with explicit limits is often more informative:
