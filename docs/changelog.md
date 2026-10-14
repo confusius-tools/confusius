@@ -30,7 +30,7 @@ Current development version for the next ConfUSIus release.
 - Fetching a cached BrainGlobe atlas no longer warns or checks the network repeatedly
   for regions with no upstream mesh, such as Allen mouse RSPd4. Mesh availability is
   remembered per annotation-set version; available meshes deleted locally are still
-  downloaded again ([#507](https://github.com/confusius-tools/confusius/issues/507)).
+  downloaded again ([#508](https://github.com/confusius-tools/confusius/pull/508)).
 
 ### :frame_photo: Napari plugin
 
