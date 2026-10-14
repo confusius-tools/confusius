@@ -216,14 +216,8 @@ napari.Viewer(ndisplay=3).add_surface(atlas.atlas.get_meshes("root")["root"])
 Pass `sides="left"` or `sides="right"` to clip to one hemisphere, or a list of sides to
 choose one per region; single-hemisphere meshes come back under `_L`/`_R`-suffixed keys.
 Because meshes come back in the atlas's current world space, they stay aligned with the
-volumes after a resample (see below). All available region meshes are downloaded together
-the first time an atlas is fetched, so they are available offline afterwards. Some regions
-have no upstream mesh (for example, Allen mouse RSPd4). Fetching silently records these in
-`.confusius-unavailable-meshes.json` inside the versioned BrainGlobe mesh directory, so
-later fetches need no mesh-related network access once all available meshes are cached.
-Requesting a missing mesh still raises an error. Deleted available meshes are downloaded
-again, and a new annotation-set version gets its own availability record. To recheck
-meshes added upstream without a version bump, delete that record and fetch again.
+volumes after a resample (see below). All region meshes are downloaded together the
+first time an atlas is fetched, so they are available offline afterwards.
 
 ## Masks for Regional Analysis
 
