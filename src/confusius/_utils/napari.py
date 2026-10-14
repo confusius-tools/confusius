@@ -26,11 +26,12 @@ def infer_layer_type(dtype: npt.DTypeLike) -> Literal["image", "labels"]:
     Returns
     -------
     {"image", "labels"}
-        `"labels"` for integer dtypes (e.g. atlas annotations, ROI masks), which
-        should render with per-label colors rather than a continuous colormap.
+        `"labels"` for integer or boolean dtypes (e.g. atlas annotations, ROI masks),
+        which should render with per-label colors rather than a continuous colormap.
         `"image"` for all other dtypes.
     """
-    return "labels" if np.issubdtype(np.dtype(dtype), np.integer) else "image"
+    # Dtype kinds: "b" boolean, "i" signed integer, "u" unsigned integer
+    return "labels" if np.dtype(dtype).kind in "biu" else "image"
 
 
 def build_direct_label_colormap(data: xr.DataArray) -> DirectLabelColormap | None:
@@ -63,7 +64,7 @@ def build_direct_label_colormap(data: xr.DataArray) -> DirectLabelColormap | Non
         lambda: np.zeros(4, dtype=np.float32)  # unknown labels → transparent.
     )
     if rgb_lookup:
-        labels = sorted(int(k) for k in rgb_lookup)
+        labels = sorted(int(k) for k in rgb_lookup if int(k) != 0)
     else:
         labels = sorted(int(label) for label in np.unique(data.values) if label != 0)
     for label in labels:

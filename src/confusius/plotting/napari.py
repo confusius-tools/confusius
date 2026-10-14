@@ -77,7 +77,7 @@ def plot_napari(
     layer_type : {"image", "labels", "auto"}, default: "auto"
         Type of layer to create. Use "image" for fUSI data and "labels" for
         ROI masks, segmentations, or other label data. "auto" picks "labels" for integer
-        data and "image" otherwise.
+        or boolean data and "image" otherwise.
     resample_interpolation : {"linear", "nearest", "bspline"}, optional
         Interpolation method used when resampling oblique (non-axis-aligned)
         voxel-to-world `data` onto an axis-aligned world grid for display. If not
