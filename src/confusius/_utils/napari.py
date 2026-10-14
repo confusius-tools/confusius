@@ -53,17 +53,20 @@ def build_direct_label_colormap(data: xr.DataArray) -> DirectLabelColormap | Non
     """
     cmap_attr = data.attrs.get("cmap")
     norm_attr = data.attrs.get("norm")
-    if (cmap_attr is None or norm_attr is None) and "rgb_lookup" in data.attrs:
-        cmap_attr, norm_attr = build_atlas_cmap_and_norm(data.attrs["rgb_lookup"])
+    rgb_lookup = data.attrs.get("rgb_lookup")
     if cmap_attr is None or norm_attr is None:
-        return None
+        if rgb_lookup is None:
+            return None
+        cmap_attr, norm_attr = build_atlas_cmap_and_norm(rgb_lookup)
 
     color_dict: defaultdict[int | None, np.ndarray] = defaultdict(
         lambda: np.zeros(4, dtype=np.float32)  # unknown labels → transparent.
     )
-    for label in np.unique(data.values):
-        if label == 0:
-            continue  # background_value=0 is always transparent.
+    if rgb_lookup:
+        labels = sorted(int(k) for k in rgb_lookup)
+    else:
+        labels = sorted(int(label) for label in np.unique(data.values) if label != 0)
+    for label in labels:
         color_dict[int(label)] = np.array(
             cmap_attr(norm_attr(int(label))), dtype=np.float32
         )
