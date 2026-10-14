@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -108,12 +109,13 @@ def fake_atlases(monkeypatch: pytest.MonkeyPatch) -> list[_FakeBgAtlas]:
     monkeypatch.setattr(brainglobe_atlasapi, "BrainGlobeAtlas", factory)
 
     def fake_load_lazy_ngff_array(atlas, location, name, pyramid_level):
-        source = {
-            "templates/fake/1_0": atlas.template,
-            "annotation-sets/fake/1_0": (
-                atlas.annotation if "annotation" in name.lower() else atlas.hemispheres
-            ),
-        }[location]
+        source = (
+            atlas.template
+            if "template" in name.lower()
+            else atlas.annotation
+            if "annotation" in name.lower()
+            else atlas.hemispheres
+        )
         return da.from_array(source)
 
     monkeypatch.setattr(
@@ -227,13 +229,14 @@ def mesh_fake_atlases(
 @pytest.fixture
 def fake_s3(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """Patch s3fs with a fake that lists `remote_ids` and records every `get` call."""
-    state = SimpleNamespace(remote_ids={"997", "10"}, calls=[])
+    state = SimpleNamespace(remote_ids={"997", "10"}, calls=[], listings=[])
 
     class FakeS3FileSystem:
         def __init__(self, *args, **kwargs):
             pass
 
         def ls(self, path):
+            state.listings.append(path)
             return [f"{path}/{rid}" for rid in state.remote_ids]
 
         def get(self, rpaths, lpaths, callback=None):
@@ -263,22 +266,30 @@ def test_prefetches_missing_meshes_in_one_batched_call(
 
 
 def test_cached_meshes_skip_the_network(
-    mesh_fake_atlases: Path, fake_s3: SimpleNamespace
+    mesh_fake_atlases: Path, fake_s3: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (mesh_fake_atlases / "997").write_bytes(b"draco")
     (mesh_fake_atlases / "10").write_bytes(b"draco")
 
+    def unexpected_status_check(**kwargs):
+        pytest.fail("Cached meshes must not trigger a network check.")
+
+    monkeypatch.setattr(
+        brainglobe_atlasapi.utils, "check_s3_status", unexpected_status_check
+    )
     fetch_brainglobe_atlas("allen_mouse_25um")
 
     assert fake_s3.calls == []
+    assert fake_s3.listings == []
 
 
-def test_regions_without_remote_mesh_are_skipped_with_warning(
+def test_regions_without_remote_mesh_are_skipped_without_warning(
     mesh_fake_atlases: Path, fake_s3: SimpleNamespace
 ) -> None:
     fake_s3.remote_ids.discard("10")
 
-    with pytest.warns(UserWarning, match=r"no mesh for region id\(s\) \['10'\]"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         fetch_brainglobe_atlas("allen_mouse_25um")
 
     [(rpaths, _)] = fake_s3.calls
@@ -291,10 +302,101 @@ def test_no_remote_meshes_at_all_skips_download(
 ) -> None:
     fake_s3.remote_ids.clear()
 
-    with pytest.warns(UserWarning, match=r"no mesh for region id\(s\) \['10', '997'\]"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         fetch_brainglobe_atlas("allen_mouse_25um")
 
     assert fake_s3.calls == []
+
+
+@pytest.mark.parametrize("remote_ids", [{"997"}, set()])
+def test_known_unavailable_meshes_skip_network_on_later_fetches(
+    mesh_fake_atlases: Path,
+    fake_s3: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    remote_ids: set[str],
+) -> None:
+    fake_s3.remote_ids = remote_ids
+    fetch_brainglobe_atlas("allen_mouse_25um")
+
+    fake_s3.calls.clear()
+    fake_s3.listings.clear()
+
+    def unexpected_status_check(**kwargs):
+        pytest.fail("Known-unavailable meshes must not trigger a network check.")
+
+    monkeypatch.setattr(
+        brainglobe_atlasapi.utils, "check_s3_status", unexpected_status_check
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        # Each fetch constructs a fresh BrainGlobeAtlas; only disk state is shared.
+        fetch_brainglobe_atlas("allen_mouse_25um")
+
+    assert fake_s3.calls == []
+    assert fake_s3.listings == []
+
+
+def test_deleted_available_mesh_is_downloaded_again(
+    mesh_fake_atlases: Path, fake_s3: SimpleNamespace
+) -> None:
+    fake_s3.remote_ids.discard("10")
+    fetch_brainglobe_atlas("allen_mouse_25um")
+    (mesh_fake_atlases / "997").unlink()
+    fake_s3.calls.clear()
+
+    fetch_brainglobe_atlas("allen_mouse_25um")
+
+    [(rpaths, lpaths)] = fake_s3.calls
+    assert [Path(r).name for r in rpaths] == ["997"]
+    assert Path(lpaths[0]).read_bytes() == b"draco"
+    assert not (mesh_fake_atlases / "10").exists()
+
+
+def test_new_annotation_version_rechecks_mesh_availability(
+    mesh_fake_atlases: Path,
+    fake_s3: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_s3.remote_ids.discard("10")
+    fetch_brainglobe_atlas("allen_mouse_25um")
+    fake_s3.remote_ids.add("10")
+    fake_s3.calls.clear()
+    fake_s3.listings.clear()
+    new_mesh_dir = mesh_fake_atlases / "2_0" / "annotations.precomputed" / "mesh"
+    new_mesh_dir.mkdir(parents=True)
+
+    def factory(atlas_name, **kwargs):
+        atlas = _FakeBgAtlas(atlas_name, mesh_dir=new_mesh_dir)
+        annotation_set = atlas.metadata["annotation_set"]
+        assert isinstance(annotation_set, dict)
+        annotation_set["location"] = "/annotation-sets/fake/2_0"
+        return atlas
+
+    monkeypatch.setattr(brainglobe_atlasapi, "BrainGlobeAtlas", factory)
+    fetch_brainglobe_atlas("allen_mouse_25um")
+
+    assert fake_s3.listings == [
+        "s3://brainglobe/atlas/annotation-sets/fake/2_0/annotations.precomputed/mesh"
+    ]
+    [(rpaths, _)] = fake_s3.calls
+    assert {Path(r).name for r in rpaths} == {"10", "997"}
+    assert (new_mesh_dir / "10").read_bytes() == b"draco"
+
+
+@pytest.mark.parametrize("cache_content", ['["10"', "null", '{"10": true}', "[10]"])
+def test_invalid_mesh_availability_record_is_rebuilt(
+    mesh_fake_atlases: Path, fake_s3: SimpleNamespace, cache_content: str
+) -> None:
+    record = mesh_fake_atlases / ".confusius-unavailable-meshes.json"
+    record.write_text(cache_content)
+    fake_s3.remote_ids.discard("10")
+
+    fetch_brainglobe_atlas("allen_mouse_25um")
+
+    assert record.read_text() == '["10"]'
+    assert (mesh_fake_atlases / "997").read_bytes() == b"draco"
+    assert not (mesh_fake_atlases / "10").exists()
 
 
 def test_failed_download_removes_partial_files(
@@ -324,4 +426,13 @@ def test_unreachable_bucket_skips_prefetch_with_warning(
         result = fetch_brainglobe_atlas("allen_mouse_25um")
 
     assert fake_s3.calls == []
+    assert fake_s3.listings == []
+    assert not (mesh_fake_atlases / ".confusius-unavailable-meshes.json").exists()
     validate_atlas(result)
+
+    monkeypatch.setattr(
+        brainglobe_atlasapi.utils, "check_s3_status", lambda **kwargs: True
+    )
+    fetch_brainglobe_atlas("allen_mouse_25um")
+    assert (mesh_fake_atlases / "997").read_bytes() == b"draco"
+    assert (mesh_fake_atlases / "10").read_bytes() == b"draco"

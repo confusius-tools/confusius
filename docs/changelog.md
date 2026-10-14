@@ -25,6 +25,13 @@ Current development version for the next ConfUSIus release.
   colormap from the lookup instead of scanning the whole volume
   ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 
+### :bug: Fixes
+
+- Fetching a cached BrainGlobe atlas no longer warns or checks the network repeatedly
+  for regions with no upstream mesh, such as Allen mouse RSPd4. Mesh availability is
+  remembered per annotation-set version; available meshes deleted locally are still
+  downloaded again ([#507](https://github.com/confusius-tools/confusius/issues/507)).
+
 ### :frame_photo: Napari plugin
 
 - Boolean arrays open as labels layers
