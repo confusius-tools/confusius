@@ -4,7 +4,9 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 import xarray as xr
+from matplotlib.colors import BoundaryNorm, ListedColormap
 from napari.layers import Image, Labels
+from napari.utils.colormaps import DirectLabelColormap
 
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
@@ -284,6 +286,27 @@ class TestPlotNapari:
         _, layer = plot_napari(data, viewer=make_napari_viewer())
 
         assert type(layer) is expected
+
+    def test_labels_colormap_from_cmap_norm_without_rgb_lookup(
+        self, make_napari_viewer
+    ) -> None:
+        # Without rgb_lookup, the colormap labels come from the data values.
+        cmap = ListedColormap([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        norm = BoundaryNorm([0.5, 1.5, 2.5], cmap.N)
+        labels = create_voxeldata(
+            np.array([[[0, 1], [2, 0]]], dtype=np.int32),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+            attrs={"cmap": cmap, "norm": norm},
+        )
+
+        _, layer = plot_napari(labels, viewer=make_napari_viewer())
+
+        colormap = layer.colormap
+        assert isinstance(colormap, DirectLabelColormap)
+        npt.assert_allclose(colormap.color_dict[1], [1.0, 0.0, 0.0, 1.0])
+        npt.assert_allclose(colormap.color_dict[2], [0.0, 0.0, 1.0, 1.0])
 
     def test_without_voxel_to_world_index_raises(self) -> None:
         """plot_napari raises clearly without a voxel-to-world index."""
