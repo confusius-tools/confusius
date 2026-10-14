@@ -10,6 +10,25 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- [`plot_napari`][confusius.plotting.plot_napari]'s `layer_type` defaults to
+  `"auto"` instead of `"image"`: integer and boolean data open as a labels layer,
+  other data as an image layer. Pass `layer_type="image"` to display integer data
+  as an image ([#504](https://github.com/confusius-tools/confusius/pull/504)).
+
+### :zap: Performance
+
+- [`plot_napari`][confusius.plotting.plot_napari] opens labels data carrying an
+  `rgb_lookup` attribute, such as atlas annotations, faster by building the
+  colormap from the lookup instead of scanning the whole volume
+  ([#504](https://github.com/confusius-tools/confusius/pull/504)).
+
+### :frame_photo: Napari plugin
+
+- Boolean arrays open as labels layers
+  ([#504](https://github.com/confusius-tools/confusius/pull/504)).
+
 ## 0.8.0
 
 Released 2026-10-13.
