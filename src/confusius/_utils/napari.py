@@ -1,6 +1,7 @@
 """Napari layer-construction helpers shared by the CLI, GUI panels, and file readers."""
 
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import Any, Literal
 
 import numpy as np

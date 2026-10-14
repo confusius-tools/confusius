@@ -7,6 +7,7 @@ import warnings
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, TypedDict
 
+import numpy as np
 import xarray as xr
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_warning
@@ -114,7 +115,7 @@ def _list_atlases() -> tuple[list[str], list[str] | None]:
 
 @thread_worker
 def _fetch_atlas(atlas_name: str) -> xr.Dataset:
-    """Fetch a BrainGlobe atlas and load it into memory in a background thread.
+    """Fetch a BrainGlobe atlas in a background thread, leaving it lazy.
 
     Parameters
     ----------
@@ -124,13 +125,15 @@ def _fetch_atlas(atlas_name: str) -> xr.Dataset:
     Returns
     -------
     xarray.Dataset
-        In-memory atlas Dataset.
+        Atlas Dataset whose volumes are still Dask arrays over the cached Zarr
+        stores.
     """
-    # The fetched Dataset is lazy zarr; the three layers and `get_masks` all need the
-    # full arrays, so compute once here rather than on each GUI-thread access.
+    # Reading the volumes here cost several seconds and gigabytes for fine atlases
+    # (e.g. 2.4 GB for whs_sd_rat_39um). The layers take the Dask arrays as is, and
+    # napari reads only the displayed slices; masks read what they need on first use.
     # `fetch_brainglobe_atlas` accepts any atlas name string despite its `AtlasName`
     # Literal annotation, so new BrainGlobe atlases work without a stub bump.
-    return fetch_brainglobe_atlas(atlas_name).compute()  # ty: ignore[invalid-argument-type]
+    return fetch_brainglobe_atlas(atlas_name)  # ty: ignore[invalid-argument-type]
 
 
 @thread_worker
@@ -151,13 +154,15 @@ def _fetch_template(fetch: Callable[..., xr.DataArray]) -> xr.DataArray:
 
 
 @thread_worker
-def _compute_masks(atlas: xr.Dataset, region_ids: list[int], side: str) -> xr.DataArray:
+def _compute_masks(
+    atlas: xr.Dataset, region_ids: list[int], side: str
+) -> tuple[xr.DataArray, xr.Dataset]:
     """Compute region masks in a background thread.
 
     Parameters
     ----------
     atlas : xarray.Dataset
-        Loaded atlas Dataset.
+        Loaded atlas Dataset, possibly still lazy.
     region_ids : list[int]
         Structure ids to mask.
     side : {"both", "left", "right"}
@@ -165,11 +170,26 @@ def _compute_masks(atlas: xr.Dataset, region_ids: list[int], side: str) -> xr.Da
 
     Returns
     -------
-    xarray.DataArray
+    masks : xarray.DataArray
         Masks stacked along a `mask` dimension, as returned by
         [`get_masks`][confusius.atlas.AtlasAccessor.get_masks].
+    atlas : xarray.Dataset
+        `atlas` with `annotation` and `hemispheres` in memory, for the panel to keep
+        so later mask requests skip the read.
     """
-    return atlas.atlas.get_masks(region_ids, sides=side)  # type: ignore[arg-type]
+    # `get_masks` needs both volumes whole; read them once here, off the GUI thread.
+    # Load only the data: `DataArray.compute()` would also materialize the lazy
+    # z/y/x world coordinates, three dense float64 grids (6 GB for whs_sd_rat_39um)
+    # that exhausted memory. `np.asarray` reads a Dask array and passes an
+    # already-loaded NumPy array through without copying (later requests).
+    atlas = atlas.assign(
+        annotation=atlas["annotation"].copy(data=np.asarray(atlas["annotation"].data)),
+        hemispheres=atlas["hemispheres"].copy(
+            data=np.asarray(atlas["hemispheres"].data)
+        ),
+    )
+    masks = atlas.atlas.get_masks(region_ids, sides=side)  # type: ignore[arg-type]
+    return masks, atlas
 
 
 def _make_progress_bar() -> QProgressBar:
@@ -905,10 +925,36 @@ class AtlasPanel(QWidget):
             show_error("Add at least one region.")
             return
         self._begin_masks_work()
+        atlas_name = self._masks_atlas_name
         worker = _compute_masks(atlas, region_ids, self._side_combo.currentText())
-        worker.returned.connect(self._on_masks_returned)
+        worker.returned.connect(
+            lambda result: self._on_masks_worker_returned(atlas_name, atlas, result)
+        )
         worker.errored.connect(self._on_masks_error)
         worker.start()
+
+    def _on_masks_worker_returned(
+        self,
+        atlas_name: str | None,
+        requested: xr.Dataset,
+        result: tuple[xr.DataArray, xr.Dataset],
+    ) -> None:
+        """Keep the in-memory atlas volumes, then add the mask layers.
+
+        Parameters
+        ----------
+        atlas_name : str, optional
+            Loaded atlas the masks were requested for.
+        requested : xarray.Dataset
+            Atlas Dataset the worker was given.
+        result : tuple of (xarray.DataArray, xarray.Dataset)
+            Masks and the atlas with `annotation` and `hemispheres` in memory.
+        """
+        masks, in_memory = result
+        # Only replace the stored atlas if it was not removed or reloaded meanwhile.
+        if atlas_name is not None and self._atlases.get(atlas_name) is requested:
+            self._atlases[atlas_name] = in_memory
+        self._on_masks_returned(masks)
 
     def _on_masks_returned(self, masks: xr.DataArray) -> None:
         try:

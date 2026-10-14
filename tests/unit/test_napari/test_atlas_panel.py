@@ -12,7 +12,8 @@ from napari.layers import Image, Labels
 from numpy.testing import assert_array_equal
 from qtpy.QtWidgets import QApplication
 
-from confusius._napari._atlas._panel import TEMPLATES, AtlasPanel
+from confusius._napari._atlas._panel import TEMPLATES, AtlasPanel, _compute_masks
+from confusius.validation import validate_voxeldata
 
 
 @pytest.fixture
@@ -291,6 +292,46 @@ class TestRegionSelection:
         for column in range(3):
             assert results.columnWidth(column) == selected.columnWidth(column)
         assert results.rowHeight(0) == selected.rowHeight(0)
+
+
+class TestLazyAtlas:
+    """Atlases stay Dask-backed until masks need the full volumes."""
+
+    @pytest.fixture
+    def lazy_atlas(self, atlas_ds):
+        return atlas_ds.chunk({"k": 2})
+
+    def test_volumes_layers_keep_dask_arrays(self, panel, viewer, lazy_atlas) -> None:
+        import dask.array as da
+
+        _load(panel, lazy_atlas, "lazy")
+        panel._add_atlas_layers("lazy")
+
+        for suffix in ("reference", "annotation", "hemispheres"):
+            assert isinstance(viewer.layers[f"lazy {suffix}"].data, da.Array)
+
+    def test_mask_request_loads_volumes_once(
+        self, panel, viewer, lazy_atlas, atlas_ds
+    ) -> None:
+        _load(panel, lazy_atlas, "lazy")
+        masks, in_memory = _compute_masks.__wrapped__(lazy_atlas, [10], "left")
+        panel._on_masks_worker_returned("lazy", lazy_atlas, (masks, in_memory))
+
+        expected = atlas_ds.atlas.get_masks([10], sides="left")
+        assert_array_equal(viewer.layers["ch_L"].data, expected.values[0])
+        stored = panel._atlases["lazy"]
+        assert isinstance(stored["annotation"].data, np.ndarray)
+        assert isinstance(stored["hemispheres"].data, np.ndarray)
+        validate_voxeldata(stored["annotation"])
+
+    def test_removed_atlas_is_not_restored(self, panel, lazy_atlas) -> None:
+        _load(panel, lazy_atlas, "lazy")
+        result = _compute_masks.__wrapped__(lazy_atlas, [10], "both")
+        panel._remove_atlas("lazy")
+
+        panel._on_masks_worker_returned("lazy", lazy_atlas, result)
+
+        assert "lazy" not in panel._atlases
 
 
 class TestMaskLoading:
