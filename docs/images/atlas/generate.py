@@ -98,7 +98,7 @@ _section("Load Atlas")
 console.print(f"Fetching BrainGlobe atlas {_ATLAS_NAME!r}")
 atlas = cf.datasets.fetch_brainglobe_atlas(_ATLAS_NAME)
 console.print(
-    f"  {atlas.atlas.reference.dims}, shape {dict(atlas.atlas.reference.sizes)}"
+    f"  {atlas.atlas.template.dims}, shape {dict(atlas.atlas.template.sizes)}"
 )
 
 # ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ _section("Annotation contours")
 
 for bg_color, suffix in [("white", "light"), ("black", "dark")]:
     plotter = cf.plotting.plot_volume(
-        atlas.atlas.reference.sel(z=slice(_SLICE_Z, _SLICE_Z)),
+        atlas.atlas.template.sel(z=slice(_SLICE_Z, _SLICE_Z)),
         show_colorbar=False,
         bg_color=bg_color,
     )

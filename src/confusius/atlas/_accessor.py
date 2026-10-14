@@ -47,7 +47,7 @@ class AtlasAccessor:
     Parameters
     ----------
     ds : xarray.Dataset
-        Atlas Dataset with `reference`, `annotation`, and `hemispheres` data variables as
+        Atlas Dataset with `template`, `annotation`, and `hemispheres` data variables as
         VoxelData arrays on a common `k`/`j`/`i` grid, and the atlas
         metadata in `attrs`.
     """
@@ -59,15 +59,15 @@ class AtlasAccessor:
     # ── Data properties ───────────────────────────────────────────────────────────────
 
     @property
-    def reference(self) -> xr.DataArray:
-        """Reference template VoxelData array.
+    def template(self) -> xr.DataArray:
+        """Anatomical template VoxelData array.
 
         Returns
         -------
         xarray.DataArray
-            The reference template VoxelData array.
+            The anatomical template VoxelData array.
         """
-        return self._ds["reference"]
+        return self._ds["template"]
 
     @property
     def annotation(self) -> xr.DataArray:
@@ -358,7 +358,7 @@ class AtlasAccessor:
     ) -> xr.Dataset:
         """Resample the atlas onto an explicit output grid.
 
-        The atlas reference volume is resampled with `interpolation`; `annotation` and
+        The atlas template volume is resampled with `interpolation`; `annotation` and
         `hemispheres` are always resampled with nearest-neighbor interpolation to
         preserve integer labels. The returned Dataset stores the composed pull transform
         from its new world space back to the atlas base space in `attrs["world_to_base"]`.
@@ -387,8 +387,8 @@ class AtlasAccessor:
             Resampled atlas Dataset on the requested grid. Meshes returned by
             `get_meshes` are transformed through the composed `world_to_base` attribute.
         """
-        resampled_ref = resample_volume(
-            self.reference,
+        resampled_template = resample_volume(
+            self.template,
             transform,
             output_sizes=output_sizes,
             output_spacing=output_spacing,
@@ -422,11 +422,11 @@ class AtlasAccessor:
             sitk_threads=sitk_threads,
         )
         composed = _compose_world_to_base_transforms(
-            self._world_to_base_transform, transform, resampled_ref, self.reference
+            self._world_to_base_transform, transform, resampled_template, self.template
         )
         return xr.Dataset(
             {
-                "reference": resampled_ref,
+                "template": resampled_template,
                 "annotation": resampled_ann,
                 "hemispheres": resampled_hemi,
             },
@@ -490,12 +490,12 @@ class AtlasAccessor:
             name: output[name].fusi.affine.reindex_voxels_like(reference)
             for name in output.data_vars
         }
-        reference_attrs = dict(data_vars["reference"].attrs)
+        template_attrs = dict(data_vars["template"].attrs)
         if "affines" in reference.attrs:
-            reference_attrs["affines"] = deepcopy(reference.attrs["affines"])
+            template_attrs["affines"] = deepcopy(reference.attrs["affines"])
         else:
-            reference_attrs.pop("affines", None)
-        data_vars["reference"] = data_vars["reference"].assign_attrs(reference_attrs)
+            template_attrs.pop("affines", None)
+        data_vars["template"] = data_vars["template"].assign_attrs(template_attrs)
         world_to_base = output.attrs["world_to_base"]
         if isinstance(world_to_base, xr.DataArray):
             world_to_base = world_to_base.fusi.affine.reindex_voxels_like(reference)
@@ -857,7 +857,7 @@ def get_atlas_meshes(
     region_list, side_list = _normalize_regions_and_sides(regions, sides)
 
     structures = ds.attrs["structures"]
-    reference = ds["reference"]
+    template = ds["template"]
     hemispheres = ds["hemispheres"]
     world_to_base = ds.attrs["world_to_base"]
 
@@ -902,7 +902,7 @@ def get_atlas_meshes(
     # One transform call for all regions: the base transform can be nonlinear, and
     # evaluating it once on the concatenated vertices is much cheaper than per region.
     vertices_mm = _apply_world_to_base_transform(
-        world_to_base, np.concatenate(vertices_per_region, axis=0), reference
+        world_to_base, np.concatenate(vertices_per_region, axis=0), template
     )
 
     vertices_per_region = np.split(vertices_mm, vertices_sections, axis=0)
@@ -942,7 +942,7 @@ def get_atlas_meshes(
 
         if clip:
             region_vertices, region_faces = _drop_vertices_outside_grid(
-                region_vertices, region_faces, reference
+                region_vertices, region_faces, template
             )
 
         mesh_dict[acronym] = (region_vertices, region_faces)

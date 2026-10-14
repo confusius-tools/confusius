@@ -195,7 +195,7 @@ cmap = "berlin" if is_dark_theme else None
 
 # Broadcast the shared background and brain outline across a "region" dimension
 # matching mapper.maps_, so plot_stat_map can slice both by region in one call.
-bg_by_region = atlas_native.reference.expand_dims(region=mapper.maps_.region)
+bg_by_region = atlas_native.template.expand_dims(region=mapper.maps_.region)
 
 fig, axes = plt.subplots(2, 2, figsize=(8, 6), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)

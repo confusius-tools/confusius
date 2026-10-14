@@ -8,7 +8,7 @@ A brain atlas ties every voxel of a reference volume to a named region. In ConfU
 atlas is a plain [`xarray.Dataset`][xarray.Dataset] on a common [VoxelData
 grid](voxeldata.md#the-voxeldata-model) (`k`/`j`/`i` voxel dims, derived world
 `z`/`y`/`x` coordinates), with three data variables
-([`reference`][confusius.atlas.AtlasAccessor.reference], the template volume;
+([`template`][confusius.atlas.AtlasAccessor.template], the anatomical template volume;
 [`annotation`][confusius.atlas.AtlasAccessor.annotation], integer region labels; and
 [`hemispheres`][confusius.atlas.AtlasAccessor.hemispheres], 1 = left, 2 = right), plus an
 [`.atlas`][confusius.atlas.AtlasAccessor] accessor that carries all atlas-aware
@@ -49,7 +49,7 @@ Coordinates:
   * y            (k, j, i) float64 10MB 0.0 0.0 0.0 0.0 0.0 ... 7.9 7.9 7.9 7.9
   * x            (k, j, i) float64 10MB 0.0 0.1 0.2 0.3 ... 11.0 11.1 11.2 11.3
 Data variables:
-    reference    (k, j, i) float32 5MB 0.0 0.0 0.0 0.0 0.0 ... 1.0 1.0 1.0 1.0
+    template     (k, j, i) float32 5MB 0.0 0.0 0.0 0.0 0.0 ... 1.0 1.0 1.0 1.0
     annotation   (k, j, i) int32 5MB 0 0 0 0 0 0 0 0 0 0 ... 0 0 0 0 0 0 0 0 0 0
     hemispheres  (k, j, i) int8 1MB 2 2 2 2 2 2 2 2 2 2 ... 1 1 1 1 1 1 1 1 1 1
 Indexes:
@@ -182,7 +182,7 @@ automatically:
 
 ```python
 plotter = cf.plotting.plot_volume(
-    atlas.atlas.reference.sel(z=slice(6, 6)), show_colorbar=False
+    atlas.atlas.template.sel(z=slice(6, 6)), show_colorbar=False
 )
 plotter.add_contours(atlas.atlas.annotation.sel(z=slice(6, 6)))
 ```

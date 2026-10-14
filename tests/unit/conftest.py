@@ -1030,7 +1030,7 @@ def atlas_ds(structure_list: list[dict], mock_structures: StructuresDict) -> xr.
         20: [0, 255, 0],
     }
 
-    reference_da = create_voxeldata(
+    template_da = create_voxeldata(
         np.ones(shape, dtype=np.float32),
         dims=["k", "j", "i"],
         spacing=(resolution_mm, resolution_mm, resolution_mm),
@@ -1054,7 +1054,7 @@ def atlas_ds(structure_list: list[dict], mock_structures: StructuresDict) -> xr.
 
     return xr.Dataset(
         {
-            "reference": reference_da,
+            "template": template_da,
             "annotation": annotation_da,
             "hemispheres": hemispheres_da,
         },

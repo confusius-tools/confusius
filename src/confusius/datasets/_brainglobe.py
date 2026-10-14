@@ -180,7 +180,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     Returns
     -------
     xarray.Dataset
-        Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
+        Atlas Dataset with data variables `template`, `annotation`, and `hemispheres`
         on a common voxel-to-world `(k, j, i)` grid, with world `z`/`y`/`x` coordinates
         in millimetres.
     """
@@ -212,10 +212,10 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     )
 
     template_location = metadata["annotation_set"]["template"]["location"][1:]
-    template = _load_lazy_ngff_array(
+    template_data = _load_lazy_ngff_array(
         atlas, template_location, V3_TEMPLATE_NAME, atlas._template_pyramid_level
     )
-    reference = _build(template.astype(np.float32), {"cmap": "gray"})
+    template = _build(template_data.astype(np.float32), {"cmap": "gray"})
 
     annotation_location = metadata["annotation_set"]["location"][1:]
     annotation_data = _load_lazy_ngff_array(
@@ -259,7 +259,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
 
     return xr.Dataset(
         {
-            "reference": reference,
+            "template": template,
             "annotation": annotation,
             "hemispheres": hemispheres,
         },
@@ -313,7 +313,7 @@ def fetch_brainglobe_atlas(
     Returns
     -------
     xarray.Dataset
-        Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
+        Atlas Dataset with data variables `template`, `annotation`, and `hemispheres`
         on a common voxel-to-world `(k, j, i)` grid with world `z`/`y`/`x` coordinates
         in millimetres, and the `.atlas` accessor for structure queries, masks, and
         meshes.
