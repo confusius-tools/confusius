@@ -86,6 +86,8 @@ def _fetch_all_meshes(atlas: BrainGlobeAtlas) -> None:
     # A missing upstream mesh is normal (e.g. Allen mouse RSPd4), not a failed fetch.
     remote_names = {Path(key).name for key in fs.ls(remote_dir)}
     unavailable.update(missing.keys() - remote_names)
+    # The mesh directory may have been removed while the atlas volumes stayed cached.
+    unavailable_path.parent.mkdir(parents=True, exist_ok=True)
     unavailable_path.write_text(json.dumps(sorted(unavailable)))
     missing = {rid: path for rid, path in missing.items() if rid in remote_names}
     if not missing:

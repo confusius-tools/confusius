@@ -242,6 +242,7 @@ def fake_s3(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         def get(self, rpaths, lpaths, callback=None):
             state.calls.append((list(rpaths), list(lpaths)))
             for lpath in lpaths:
+                Path(lpath).parent.mkdir(parents=True, exist_ok=True)
                 Path(lpath).write_bytes(b"draco")
 
     monkeypatch.setattr(s3fs, "S3FileSystem", FakeS3FileSystem)
@@ -351,6 +352,24 @@ def test_deleted_available_mesh_is_downloaded_again(
     assert [Path(r).name for r in rpaths] == ["997"]
     assert Path(lpaths[0]).read_bytes() == b"draco"
     assert not (mesh_fake_atlases / "10").exists()
+
+
+def test_deleted_mesh_directory_is_downloaded_again(
+    mesh_fake_atlases: Path, fake_s3: SimpleNamespace
+) -> None:
+    fetch_brainglobe_atlas("allen_mouse_25um")
+    for path in mesh_fake_atlases.iterdir():
+        path.unlink()
+    mesh_fake_atlases.rmdir()
+    fake_s3.calls.clear()
+
+    fetch_brainglobe_atlas("allen_mouse_25um")
+
+    [(rpaths, _)] = fake_s3.calls
+    assert {Path(r).name for r in rpaths} == {"10", "997"}
+    assert (mesh_fake_atlases / "997").read_bytes() == b"draco"
+    assert (mesh_fake_atlases / "10").read_bytes() == b"draco"
+    assert (mesh_fake_atlases / ".confusius-unavailable-meshes.json").read_text() == "[]"
 
 
 def test_new_annotation_version_rechecks_mesh_availability(
