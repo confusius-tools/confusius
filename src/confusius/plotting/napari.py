@@ -25,6 +25,7 @@ from confusius._utils.napari import (
     build_direct_label_colormap,
     build_roi_labels_features,
     get_napari_layer_geometry,
+    infer_layer_type,
 )
 from confusius._utils.plotting import resample_to_axis_aligned_world_grid
 from confusius._utils.stack import find_stack_level
@@ -161,9 +162,7 @@ def plot_napari(
     """
     resolved_layer_type = layer_type
     if resolved_layer_type == "auto":
-        resolved_layer_type = (
-            "labels" if np.issubdtype(data.dtype, np.integer) else "image"
-        )
+        resolved_layer_type = infer_layer_type(data.dtype)
     if resolved_layer_type not in ("image", "labels"):
         raise ValueError(
             f"Unknown layer_type: {layer_type!r}. Expected 'image', 'labels' or 'auto'."
