@@ -48,9 +48,12 @@ def build_direct_label_colormap(data: xr.DataArray) -> DirectLabelColormap | Non
     Returns
     -------
     napari.utils.colormaps.DirectLabelColormap or None
-        Colormap mapping each unique non-zero label in `data` to its atlas color,
-        with unknown/background labels transparent. `None` if `data.attrs` carries
-        neither a `cmap`/`norm` pair nor `rgb_lookup`.
+        Colormap mapping each non-zero label to its atlas color, with
+        unknown/background labels transparent. Labels are taken from the keys of
+        `data.attrs["rgb_lookup"]` when present, so labels absent from `data` are
+        colored too; otherwise from the unique values of `data`, which loads it
+        into memory. `None` if `data.attrs` carries neither a `cmap`/`norm` pair
+        nor `rgb_lookup`.
     """
     cmap_attr = data.attrs.get("cmap")
     norm_attr = data.attrs.get("norm")
