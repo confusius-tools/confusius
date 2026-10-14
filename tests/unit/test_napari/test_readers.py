@@ -8,11 +8,13 @@ correct.
 
 from pathlib import Path
 
+import dask.array as da
 import nibabel as nib
 import numpy as np
 import numpy.testing as npt
 import pytest
 import xarray as xr
+from dask.callbacks import Callback
 
 from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
 from confusius._utils.geometry import (
@@ -346,6 +348,34 @@ class TestReaderLayerData:
         _, kwargs, _ = reader(str(zarr_3d_path))[0]
 
         assert isinstance(kwargs["metadata"]["xarray"], xr.DataArray)
+
+    def test_atlas_colormap_does_not_compute_voxels(
+        self, tmp_path: Path, sample_roi_labels: xr.DataArray
+    ) -> None:
+        """Atlas layer construction stays lazy and colors absent regions too."""
+        path = tmp_path / "atlas_subset.zarr"
+        save(sample_roi_labels.isel(k=slice(0, 2)).chunk({"k": 1}), path)
+        executed_tasks: list[object] = []
+
+        with Callback(posttask=lambda *args: executed_tasks.append(args[0])):
+            reader = read_zarr(str(path))
+            assert reader is not None
+            data, kwargs, layer_type = reader(str(path))[0]
+
+        assert executed_tasks == []
+        assert isinstance(data, da.Array)
+        assert layer_type == "labels"
+        # Region 42 is outside the saved subset but still has its atlas color.
+        npt.assert_allclose(
+            kwargs["colormap"].map(np.array([0, 3, 7, 42, 999])),
+            [
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 1.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0, 1.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ],
+        )
 
     def test_integer_dtype_is_labels_layer(self, integer_zarr_path: Path) -> None:
         """Integer-dtype arrays are returned as a 'labels' layer, not 'image'."""
