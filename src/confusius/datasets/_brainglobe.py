@@ -38,8 +38,9 @@ def _fetch_all_meshes(atlas: BrainGlobeAtlas) -> None:
     Warns
     -----
     UserWarning
-        If the BrainGlobe S3 bucket is unreachable. Uncached meshes are left to
-        BrainGlobe's lazy per-region download on first use.
+        If the BrainGlobe S3 bucket is unreachable or mesh availability cannot be
+        cached. Uncached meshes are left to BrainGlobe's lazy per-region download
+        on first use when the bucket is unreachable.
     """
     missing = {
         str(structure["id"]): Path(structure["mesh_filename"])
@@ -56,7 +57,7 @@ def _fetch_all_meshes(atlas: BrainGlobeAtlas) -> None:
     )
     try:
         unavailable_ids = json.loads(unavailable_path.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         unavailable_ids = []
     if not isinstance(unavailable_ids, list) or not all(
         isinstance(rid, str) for rid in unavailable_ids
@@ -86,9 +87,17 @@ def _fetch_all_meshes(atlas: BrainGlobeAtlas) -> None:
     # A missing upstream mesh is normal (e.g. Allen mouse RSPd4), not a failed fetch.
     remote_names = {Path(key).name for key in fs.ls(remote_dir)}
     unavailable.update(missing.keys() - remote_names)
-    # The mesh directory may have been removed while the atlas volumes stayed cached.
-    unavailable_path.parent.mkdir(parents=True, exist_ok=True)
-    unavailable_path.write_text(json.dumps(sorted(unavailable)))
+    try:
+        # The mesh directory may have been removed while the atlas volumes stayed cached.
+        unavailable_path.parent.mkdir(parents=True, exist_ok=True)
+        unavailable_path.write_text(json.dumps(sorted(unavailable)))
+    except OSError as error:
+        # Optional metadata must not prevent loading an otherwise usable shared cache.
+        warnings.warn(
+            f"Could not cache unavailable mesh IDs: {error}. "
+            "Later fetches may check the network again.",
+            stacklevel=2,
+        )
     missing = {rid: path for rid, path in missing.items() if rid in remote_names}
     if not missing:
         return

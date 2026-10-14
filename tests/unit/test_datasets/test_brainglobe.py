@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import warnings
 from pathlib import Path
 from types import SimpleNamespace
@@ -369,7 +370,9 @@ def test_deleted_mesh_directory_is_downloaded_again(
     assert {Path(r).name for r in rpaths} == {"10", "997"}
     assert (mesh_fake_atlases / "997").read_bytes() == b"draco"
     assert (mesh_fake_atlases / "10").read_bytes() == b"draco"
-    assert (mesh_fake_atlases / ".confusius-unavailable-meshes.json").read_text() == "[]"
+    assert (
+        mesh_fake_atlases / ".confusius-unavailable-meshes.json"
+    ).read_text() == "[]"
 
 
 def test_new_annotation_version_rechecks_mesh_availability(
@@ -416,6 +419,54 @@ def test_invalid_mesh_availability_record_is_rebuilt(
     assert record.read_text() == '["10"]'
     assert (mesh_fake_atlases / "997").read_bytes() == b"draco"
     assert not (mesh_fake_atlases / "10").exists()
+
+
+@pytest.mark.parametrize("error_code", [errno.EACCES, errno.EROFS])
+def test_read_only_mesh_cache_still_loads_atlas(
+    mesh_fake_atlases: Path,
+    fake_s3: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    error_code: int,
+) -> None:
+    (mesh_fake_atlases / "997").write_bytes(b"draco")
+    fake_s3.remote_ids.discard("10")
+    write_text = Path.write_text
+
+    def fail_record_write(path, *args, **kwargs):
+        if path.name == ".confusius-unavailable-meshes.json":
+            raise OSError(error_code, "Cache is read-only")
+        return write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_record_write)
+    with pytest.warns(UserWarning, match="Could not cache unavailable mesh IDs"):
+        result = fetch_brainglobe_atlas("allen_mouse_25um")
+
+    validate_atlas(result)
+    np.testing.assert_array_equal(result.reference.compute(), np.ones((4, 6, 8)))
+    assert fake_s3.calls == []
+    assert (mesh_fake_atlases / "997").read_bytes() == b"draco"
+
+
+def test_unreadable_mesh_availability_record_is_ignored(
+    mesh_fake_atlases: Path,
+    fake_s3: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (mesh_fake_atlases / "997").write_bytes(b"draco")
+    fake_s3.remote_ids.discard("10")
+    read_text = Path.read_text
+
+    def fail_record_read(path, *args, **kwargs):
+        if path.name == ".confusius-unavailable-meshes.json":
+            raise PermissionError("Cache record belongs to another user")
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_record_read)
+    result = fetch_brainglobe_atlas("allen_mouse_25um")
+
+    validate_atlas(result)
+    np.testing.assert_array_equal(result.reference.compute(), np.ones((4, 6, 8)))
+    assert fake_s3.calls == []
 
 
 def test_failed_download_removes_partial_files(
