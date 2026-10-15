@@ -149,7 +149,8 @@ features = [
     "content.code.copy",
     "content.code.annotate",
     "content.tooltips",
-    "content.footnote.tooltips"
+    "content.footnote.tooltips",
+    "content.action.copy"
 ]
 
 [project.theme.icon]
@@ -275,3 +276,45 @@ generic = true
 
 [project.markdown_extensions.pymdownx.tasklist]
 custom_checkbox = true
+
+# The "llmstxt" plugin writes an llms.txt index for AI agents, a Markdown copy of
+# every page listed below, and llms-full.txt with all of them concatenated.
+# Pages must match a section pattern to be included. Links derive from `site_url`,
+# which mike extends with the deployed version (`MIKE_DOCS_VERSION`).
+# The version in `markdown_description` tracks `pyproject.toml` and is bumped by the
+# release skill (`.claude/skills/release/SKILL.md`).
+# Read more: https://zensical.org/docs/compatibility/mkdocs/plugins/#llmstxt
+[project.plugins.llmstxt]
+full_output = "llms-full.txt"
+markdown_description = """
+This file describes ConfUSIus version 0.9.0.dev0. ConfUSIus is a Python library built on xarray for loading, registering, extracting signals from, and visualizing functional ultrasound imaging (fUSI) data. Every spatial array is a VoxelData `xarray.DataArray` with dims `(..., time, pose, k, j, i)` and a voxel-to-world affine index. Install with `pip install confusius`. The package is in beta and the API may change between releases.
+"""
+
+[project.plugins.llmstxt.sections]
+# Listed explicitly to keep the reading order of the nav (globs sort alphabetically).
+"User guide" = [
+    "user-guide/getting-started.md",
+    "user-guide/installation.md",
+    "user-guide/io.md",
+    "user-guide/voxeldata.md",
+    "user-guide/xarray.md",
+    "user-guide/multipose.md",
+    "user-guide/beamformed-iq.md",
+    "user-guide/visualization.md",
+    "user-guide/quality-control.md",
+    "user-guide/atlas.md",
+    "user-guide/datasets.md",
+    "user-guide/registration.md",
+    "user-guide/timing.md",
+    "user-guide/spatial.md",
+    "user-guide/signal.md",
+    "user-guide/decomposition.md",
+    "user-guide/decoding.md",
+    "user-guide/connectivity.md",
+    "user-guide/glm.md",
+    "user-guide/stats.md",
+]
+"Graphical interface" = ["gui/overview.md", "gui/plugin.md"]
+"API reference" = ["api/*.md"]
+"Examples" = ["examples/_built/*/*.md"]
+"Optional" = ["changelog.md", "contributing.md", "citing.md"]
