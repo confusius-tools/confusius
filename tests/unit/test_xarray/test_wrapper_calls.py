@@ -444,7 +444,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
 
     monkeypatch.setattr("confusius.xarray.plotting.plot_napari", _napari)
     monkeypatch.setattr("confusius.xarray.plotting.draw_napari_labels", _draw)
-    monkeypatch.setattr("confusius.xarray.plotting.labels_from_layer", _labels)
+    monkeypatch.setattr("confusius.xarray.plotting.extract_labels_from_layer", _labels)
     monkeypatch.setattr("confusius.xarray.plotting.plot_carpet", _carpet)
     monkeypatch.setattr("confusius.xarray.plotting.plot_volume", _volume)
     monkeypatch.setattr("confusius.xarray.plotting.plot_contours", _contours)
@@ -497,7 +497,10 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
         {"labels_layer_name": "roi", "viewer": viewer, "colormap": "hot"},
     )
 
-    assert sample_voxeldata_3d.fusi.plot.labels_from_layer("layer") is sample_roi_labels
+    assert (
+        sample_voxeldata_3d.fusi.plot.extract_labels_from_layer("layer")
+        is sample_roi_labels
+    )
     assert calls["labels"] == ("layer", sample_voxeldata_3d)
 
     assert sample_voxeldata_3d.fusi.plot.carpet(

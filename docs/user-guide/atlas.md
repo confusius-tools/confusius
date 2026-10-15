@@ -4,11 +4,11 @@ icon: lucide/brain
 
 # Atlases
 
-A brain atlas ties every voxel of a reference volume to a named region. In ConfUSIus an
+A brain atlas ties every voxel of a template volume to a named region. In ConfUSIus an
 atlas is a plain [`xarray.Dataset`][xarray.Dataset] on a common [VoxelData
 grid](voxeldata.md#the-voxeldata-model) (`k`/`j`/`i` voxel dims, derived world
 `z`/`y`/`x` coordinates), with three data variables
-([`reference`][confusius.atlas.AtlasAccessor.reference], the template volume;
+([`template`][confusius.atlas.AtlasAccessor.template], the anatomical template volume;
 [`annotation`][confusius.atlas.AtlasAccessor.annotation], integer region labels; and
 [`hemispheres`][confusius.atlas.AtlasAccessor.hemispheres], 1 = left, 2 = right), plus an
 [`.atlas`][confusius.atlas.AtlasAccessor] accessor that carries all atlas-aware
@@ -49,7 +49,7 @@ Coordinates:
   * y            (k, j, i) float64 10MB 0.0 0.0 0.0 0.0 0.0 ... 7.9 7.9 7.9 7.9
   * x            (k, j, i) float64 10MB 0.0 0.1 0.2 0.3 ... 11.0 11.1 11.2 11.3
 Data variables:
-    reference    (k, j, i) float32 5MB 0.0 0.0 0.0 0.0 0.0 ... 1.0 1.0 1.0 1.0
+    template     (k, j, i) float32 5MB 0.0 0.0 0.0 0.0 0.0 ... 1.0 1.0 1.0 1.0
     annotation   (k, j, i) int32 5MB 0 0 0 0 0 0 0 0 0 0 ... 0 0 0 0 0 0 0 0 0 0
     hemispheres  (k, j, i) int8 1MB 2 2 2 2 2 2 2 2 2 2 ... 1 1 1 1 1 1 1 1 1 1
 Indexes:
@@ -75,7 +75,7 @@ directly.
     [Adding a new atlas](https://brainglobe.info/documentation/brainglobe-atlasapi/adding-a-new-atlas.html)
     guide and the `atlas_scripts` in the
     [brainglobe-atlasapi](https://github.com/brainglobe/brainglobe-atlasapi) repository
-    walk through packaging a reference stack, an annotation stack, and a structure
+    walk through packaging a template stack, an annotation stack, and a structure
     hierarchy into a distributable atlas.
 
 ## Exploring the Structure Hierarchy
@@ -172,23 +172,23 @@ functions in `confusius.atlas` that take the Dataset as their first argument, so
 `cf.atlas.search_atlas(atlas, "visual")` is equivalent to `atlas.atlas.search("visual")`. Both
 forms validate the Dataset as an atlas before running.
 
-## Plotting Annotations over the Reference
+## Plotting Annotations over the Template
 
-The reference and annotation volumes plot with the ordinary
+The template and annotation volumes plot with the ordinary
 [`plot_volume`][confusius.plotting.plot_volume] tools. Overlaying the region boundaries on
-a reference slice with [`add_contours`][confusius.plotting.VolumePlotter.add_contours]
+a template slice with [`add_contours`][confusius.plotting.VolumePlotter.add_contours]
 gives the familiar atlas view; contour colors come from each region's atlas color
 automatically:
 
 ```python
 plotter = cf.plotting.plot_volume(
-    atlas.atlas.reference.sel(z=slice(6, 6)), show_colorbar=False
+    atlas.atlas.template.sel(z=slice(6, 6)), show_colorbar=False
 )
 plotter.add_contours(atlas.atlas.annotation.sel(z=slice(6, 6)))
 ```
 
-![Coronal reference slice with Allen region annotation contours](../images/atlas/atlas-annotation-light.png#only-light)
-![Coronal reference slice with Allen region annotation contours](../images/atlas/atlas-annotation-dark.png#only-dark)
+![Coronal template slice with Allen region annotation contours](../images/atlas/atlas-annotation-light.png#only-light)
+![Coronal template slice with Allen region annotation contours](../images/atlas/atlas-annotation-dark.png#only-dark)
 
 ## Region Surface Meshes
 
@@ -264,7 +264,7 @@ seed connectivity maps](../examples/_built/connectivity/atlas_seed_map.md) for m
 
 An atlas is only useful once it shares a grid with your data. After registering a
 recording to the atlas template (see [Registration](registration.md)),
-[`resample_like`][confusius.atlas.AtlasAccessor.resample_like] warps the reference,
+[`resample_like`][confusius.atlas.AtlasAccessor.resample_like] warps the template,
 annotation, hemisphere map, and region meshes onto the recording's grid in one call,
 using an affine, B-spline, or displacement-field transform from
 [`register_volume`][confusius.registration.register_volume]:

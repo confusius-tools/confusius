@@ -33,6 +33,7 @@ from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
     sort_coords_for_plot,
 )
+from confusius.registration import resample_like
 from confusius.validation import ensure_voxeldata
 from confusius.xarray import create_voxeldata
 
@@ -312,7 +313,7 @@ def draw_napari_labels(
 
     Displays the data as an image layer and adds an empty Labels layer on top. The user
     can paint integer labels directly on the image using napari's brush tool. After
-    painting, call [`labels_from_layer`][confusius.plotting.labels_from_layer] with the
+    painting, call [`extract_labels_from_layer`][confusius.plotting.extract_labels_from_layer] with the
     returned Labels layer and the original data to obtain an integer label map as a
     DataArray with the same spatial coordinates.
 
@@ -338,7 +339,7 @@ def draw_napari_labels(
     labels_layer : napari.layers.Labels
         The empty Labels layer initialised to zeros. After the user paints
         labels in the viewer, pass this layer to
-        [`labels_from_layer`][confusius.plotting.labels_from_layer] to obtain
+        [`extract_labels_from_layer`][confusius.plotting.extract_labels_from_layer] to obtain
         an integer label map.
 
     Notes
@@ -346,6 +347,14 @@ def draw_napari_labels(
     The Labels layer is initialised with the same `scale` and `translate`
     parameters as the image layer so that the napari canvas shows a consistent
     world coordinate frame regardless of voxel spacing or data origin.
+
+    Oblique or sheared input is interpolated onto an axis-aligned grid for display;
+    extraction then uses nearest-neighbor interpolation to return painted labels
+    to the original grid. Thin regions and boundaries can change in this round trip.
+    Prefer drawing in an existing axis-aligned acquisition/scanner frame when
+    available. A known world-space transform can be applied with
+    [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] without
+    resampling voxels; labels must be transformed consistently when changing frames.
 
     Examples
     --------
@@ -355,7 +364,7 @@ def draw_napari_labels(
     >>> viewer, labels_layer = draw_napari_labels(pwd.mean("time"))
     >>> # … paint labels in the viewer …
     >>> # Convert painted labels to an integer label map DataArray.
-    >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
+    >>> label_map = extract_labels_from_layer(labels_layer, pwd.mean("time"))
     """
     data = ensure_voxeldata(data)
     # The painting background is an intensity image, regardless of its dtype.
@@ -391,7 +400,7 @@ def draw_napari_labels(
     return viewer, labels_layer
 
 
-def labels_from_layer(
+def extract_labels_from_layer(
     labels_layer: "Labels",
     data: xr.DataArray,
 ) -> xr.DataArray:
@@ -435,12 +444,17 @@ def labels_from_layer(
     Raises
     ------
     ValueError
-        If `labels_layer` does not contain any non-zero labels.
+        If the layer shape does not match its voxel grid, or no non-zero labels
+        remain on the reference grid.
 
     Notes
     -----
-    The label array is taken directly from `labels_layer.data`. No
-    rasterisation is performed: this is a direct read of the painted values.
+    Painted labels are read on the display grid stored in the layer's `xarray`
+    metadata, then resampled onto `data`'s grid with nearest-neighbor interpolation
+    and zero background when the grids differ. Without that metadata, the layer
+    is assumed to use `data`'s grid. Nearest-neighbor interpolation preserves label
+    IDs but can change boundaries or remove thin regions. Prefer drawing on an
+    existing axis-aligned grid to avoid this interpolation round trip.
 
     Per-label colors are read from `labels_layer.get_color(label)`, which works for both
     the default cyclic colormap and any `DirectLabelColormap` set on the layer.
@@ -452,7 +466,7 @@ def labels_from_layer(
     >>> pwd = xr.open_zarr("output.zarr")["power_doppler"].compute()
     >>> viewer, labels_layer = draw_napari_labels(pwd.mean("time"))
     >>> # … paint labels in the viewer …
-    >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
+    >>> label_map = extract_labels_from_layer(labels_layer, pwd.mean("time"))
     >>> label_map.dims
     ('mask', 'k', 'j', 'i')
     >>> # Slice a single label for display alongside a seed map.
@@ -467,13 +481,33 @@ def labels_from_layer(
     all_dims = [str(dim) for dim in data.dims]
     time_dim = TIME_DIM if TIME_DIM in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
-    if label_array.shape != tuple(data.sizes[dim] for dim in spatial_dims):
-        metadata_data = getattr(labels_layer, "metadata", {}).get("xarray")
-        if isinstance(metadata_data, xr.DataArray):
-            data = ensure_voxeldata(metadata_data)
-            all_dims = [str(dim) for dim in data.dims]
-            time_dim = TIME_DIM if TIME_DIM in all_dims else None
-            spatial_dims = [d for d in all_dims if d != time_dim]
+    metadata_data = labels_layer.metadata.get("xarray")
+    display_data = (
+        ensure_voxeldata(metadata_data)
+        if isinstance(metadata_data, xr.DataArray)
+        else data
+    )
+    display_dims = [str(dim) for dim in display_data.dims if dim != TIME_DIM]
+    if label_array.shape != tuple(display_data.sizes[dim] for dim in display_dims):
+        raise ValueError("labels_layer shape does not match its voxel grid.")
+
+    # Equal array shapes do not imply equal physical grids after display resampling.
+    if not display_data.xindexes["z"].equals(data.xindexes["z"]):
+        painted = create_voxeldata(
+            label_array,
+            dims=display_dims,
+            k=display_data.coords["k"],
+            j=display_data.coords["j"],
+            i=display_data.coords["i"],
+            pose=display_data.coords.get(POSE_DIM)
+            if POSE_DIM in display_dims
+            else None,
+            voxel_to_world=get_voxel_to_world_affine(display_data),
+            units=get_voxel_to_world_units(display_data),
+        )
+        label_array = resample_like(
+            painted, data, np.eye(4), interpolation="nearest", fill_value=0
+        ).values
 
     # Copy auxiliary spatial coordinates only. Native voxel coords and `pose` are
     # passed through `create_voxeldata`; derived `z`/`y`/`x` are rebuilt from the index.
@@ -506,7 +540,7 @@ def labels_from_layer(
     # (e.g. label_map.sel(mask=2)) and is directly accepted by
     # extract_with_labels, plot_contours, and add_contours.
     if len(unique_labels) == 0:
-        raise ValueError("labels_layer does not contain any non-zero labels.")
+        raise ValueError("No non-zero labels remain on the reference grid.")
 
     layers = [np.where(label_array == k, k, 0).astype(np.int32) for k in unique_labels]
     stacked = np.stack(layers, axis=0)

@@ -238,7 +238,7 @@ average_fusi = xr.concat([fusi.mean("time") for fusi in fusi_list], dim="extra")
 # space in which we can draw region boundaries and pull out anatomically defined masks.
 #
 # [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] gives us the
-# Allen atlas as an `xarray.Dataset`, holding the `reference`, `annotation` and
+# Allen atlas as an `xarray.Dataset`, holding the `template`, `annotation` and
 # `hemispheres` volumes on a common grid plus an `.atlas` accessor for structure
 # queries. The template carries its scanner-to-Allen transform in `world_to_sform`.
 # Composing its inverse with the estimated registration transform maps atlas
