@@ -177,11 +177,12 @@ def _compute_masks(
         `atlas` with `annotation` and `hemispheres` in memory, for the panel to keep
         so later mask requests skip the read.
     """
-    # `get_masks` needs both volumes whole; read them once here, off the GUI thread.
-    # Load only the data: `DataArray.compute()` would also materialize the lazy
-    # z/y/x world coordinates, three dense float64 grids (6 GB for whs_sd_rat_39um)
-    # that exhausted memory. `np.asarray` reads a Dask array and passes an
-    # already-loaded NumPy array through without copying (later requests).
+    # `get_masks` needs only annotation and hemispheres (the latter to restrict a mask
+    # to one side); read them once here, off the GUI thread. Something like
+    # `DataArray.compute()` would also materialize the lazy z/y/x world coordinates,
+    # dense float64 grids that can be quite memory heavy for some atlases.
+    # `np.asarray` reads a Dask array and passes an already-loaded NumPy array through
+    # without copying.
     atlas = atlas.assign(
         annotation=atlas["annotation"].copy(data=np.asarray(atlas["annotation"].data)),
         hemispheres=atlas["hemispheres"].copy(
@@ -352,7 +353,8 @@ class _LoadedAtlasRow(QWidget):
         self.name = name
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(2)
+        # Gap between the button row and the progress bar under it.
+        outer.setSpacing(6)
         layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -379,6 +381,8 @@ class _LoadedAtlasRow(QWidget):
             btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             layout.addWidget(btn)
 
+        # Under the buttons, not beside them: in the button row the bar's minimum
+        # width pushed the panel past the sidebar width (issue #183 overflow).
         self.progress = _make_progress_bar()
         outer.addWidget(self.progress)
 
@@ -596,15 +600,15 @@ class AtlasPanel(QWidget):
     # Atlas list
     # ------------------------------------------------------------------
 
-    def showEvent(self, event: QShowEvent | None) -> None:  # ty: ignore[invalid-method-override]
+    def showEvent(self, a0: QShowEvent | None) -> None:
         """Fetch the BrainGlobe atlas list the first time the panel becomes visible.
 
         Parameters
         ----------
-        event : qtpy.QtGui.QShowEvent
+        a0 : qtpy.QtGui.QShowEvent
             Qt show event.
         """
-        super().showEvent(event)
+        super().showEvent(a0)
         if not self._atlases_listed:
             self._atlases_listed = True
             worker = _list_atlases()

@@ -25,17 +25,16 @@ Current development version for the next ConfUSIus release.
   colormap from the lookup instead of scanning the whole volume
   ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 - [`plot_napari`][confusius.plotting.plot_napari] hands Dask-backed labels to napari
-  lazily, so only the displayed slices are read, and colours atlas labels from their
-  `rgb_lookup` without scanning the volume
+  lazily, so only the displayed slices are read
   ([#488](https://github.com/confusius-tools/confusius/pull/488)).
 
 ### :frame_photo: Napari plugin
 
-- New **Atlas** tab: load any BrainGlobe atlas (downloaded ones listed first),
-  several at a time, and for each one add its reference, annotation and hemispheres
-  layers, browse its structure hierarchy in a read-only dock, search its regions to
-  load one Labels layer per region mask with a hemisphere selector, or remove it to
-  free memory. Atlases stay on disk until a volume is displayed or a mask requested
+- New **Atlas** tab: load any BrainGlobe atlas (downloaded ones listed first) and
+  for each one add its reference, annotation and hemispheres layers, browse its
+  structure hierarchy in a read-only dock, search its regions to load one Labels
+  layer per region mask with a hemisphere selector, or remove it to free memory.
+  Atlases stay on disk until a volume is displayed or a mask requested
   ([#488](https://github.com/confusius-tools/confusius/pull/488)).
 - The Atlas tab also loads the fUSI templates shipped in `confusius.datasets`
   (Huang 2025, Pepe-Mariani 2026) as Image layers

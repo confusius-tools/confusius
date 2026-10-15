@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from brainglobe_atlasapi.structure_class import StructuresDict
 
 SWATCH_SIZE_PX = 12
-"""Side length of the colour swatch drawn next to each structure acronym."""
+"""Side length of the color swatch drawn next to each structure acronym."""
 
 TREE_INDENTATION_PX = 12
 """Horizontal offset between a structure and its children (Qt defaults to 20)."""
@@ -30,7 +30,7 @@ class StructureTreeWidget(QTreeWidget):
 
     One row per BrainGlobe structure, nested following
     `ds.atlas.structures.tree`, with columns `acronym`, `name` and `id`. The acronym
-    cell carries a colour swatch from the structure's `rgb_triplet`. Rows are not
+    cell carries a color swatch from the structure's `rgb_triplet`. Rows are not
     editable and selecting one has no side effect.
 
     Parameters
@@ -116,7 +116,7 @@ class StructureTreeWidget(QTreeWidget):
         Returns
         -------
         qtpy.QtWidgets.QTreeWidgetItem
-            Row with acronym, name and id columns and a colour swatch icon.
+            Row with acronym, name and id columns and a color swatch icon.
         """
         item = QTreeWidgetItem([info["acronym"], info["name"], str(info["id"])])
         swatch = QPixmap(SWATCH_SIZE_PX, SWATCH_SIZE_PX)

@@ -501,7 +501,7 @@ try:
     from confusius.datasets import fetch_brainglobe_atlas
 
     _ATLAS_NAME = "allen_mouse_100um"
-    atlas_ds = fetch_brainglobe_atlas(_ATLAS_NAME, check_latest=False).compute()
+    atlas_ds = fetch_brainglobe_atlas(_ATLAS_NAME, check_latest=False)
 
     viewer1b = napari.Viewer(show=False)
     widget1b = ConfUSIusWidget(viewer1b)
