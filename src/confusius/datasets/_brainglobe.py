@@ -40,7 +40,7 @@ def _fetch_all_meshes(atlas: BrainGlobeAtlas) -> None:
     UserWarning
         If the BrainGlobe S3 bucket is unreachable or mesh availability cannot be
         cached. Uncached meshes are left to BrainGlobe's lazy per-region download
-        on first use when the bucket is unreachable.
+        on first use.
     """
     missing = {
         str(structure["id"]): Path(structure["mesh_filename"])
