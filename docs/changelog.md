@@ -197,7 +197,8 @@ Released 2026-10-13.
   ([#500](https://github.com/confusius-tools/confusius/pull/500)).
 - The documentation site publishes [`llms.txt`](https://confusius.tools/latest/llms.txt)
   and `llms-full.txt` for AI assistants, along with a Markdown copy of every page
-  and a "Copy as Markdown" button in the page header.
+  and a "Copy as Markdown" button in the page header
+  ([#513](https://github.com/confusius-tools/confusius/pull/513)).
 
 ### :frame_photo: Napari plugin
 
