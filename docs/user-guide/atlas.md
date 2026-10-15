@@ -4,7 +4,7 @@ icon: lucide/brain
 
 # Atlases
 
-A brain atlas ties every voxel of a reference volume to a named region. In ConfUSIus an
+A brain atlas ties every voxel of a template volume to a named region. In ConfUSIus an
 atlas is a plain [`xarray.Dataset`][xarray.Dataset] on a common [VoxelData
 grid](voxeldata.md#the-voxeldata-model) (`k`/`j`/`i` voxel dims, derived world
 `z`/`y`/`x` coordinates), with three data variables
@@ -172,7 +172,7 @@ functions in `confusius.atlas` that take the Dataset as their first argument, so
 `cf.atlas.search_atlas(atlas, "visual")` is equivalent to `atlas.atlas.search("visual")`. Both
 forms validate the Dataset as an atlas before running.
 
-## Plotting Annotations over the Reference
+## Plotting Annotations over the Template
 
 The template and annotation volumes plot with the ordinary
 [`plot_volume`][confusius.plotting.plot_volume] tools. Overlaying the region boundaries on

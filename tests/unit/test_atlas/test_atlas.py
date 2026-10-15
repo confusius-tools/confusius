@@ -700,7 +700,7 @@ class TestNonlinearMesh:
     def test_field_drops_vertices_warped_outside_grid(
         self, atlas_ds: xr.Dataset
     ) -> None:
-        """Vertices a nonlinear warp pushes outside the reference grid are dropped."""
+        """Vertices a nonlinear warp pushes outside the template grid are dropped."""
         reference = atlas_ds.atlas.template
         data = np.zeros((3, *reference.shape))
         data[2] = 0.5  # inverts to a -0.5 shift, pushing every vertex off the grid

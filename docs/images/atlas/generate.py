@@ -102,7 +102,7 @@ console.print(
 )
 
 # ---------------------------------------------------------------------------
-# 1. Reference slice with region annotation contours
+# 1. Template slice with region annotation contours
 # ---------------------------------------------------------------------------
 
 _section("Annotation contours")

@@ -1012,7 +1012,7 @@ def atlas_ds(structure_list: list[dict], mock_structures: StructuresDict) -> xr.
     (0.1 mm), so sampling the map splits the mesh 3/3.
     """
     shape = (4, 6, 8)
-    # 50 µm so the OBJ mesh (z up to 100 µm) stays inside the reference grid, which the
+    # 50 µm so the OBJ mesh (z up to 100 µm) stays inside the template grid, which the
     # nonlinear get_meshes tests require.
     resolution_mm = 0.05
 

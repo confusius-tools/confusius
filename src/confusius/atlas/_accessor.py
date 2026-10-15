@@ -307,7 +307,7 @@ class AtlasAccessor:
             the hemisphere map makes this orientation-agnostic and correct after an
             arbitrary resample.
         clip : bool, default: True
-            Whether to clip each mesh to the current reference grid. Unclipped meshes
+            Whether to clip each mesh to the current template grid. Unclipped meshes
             are still transformed to the current world space but may extend past the
             grid's bounding box.
 
@@ -319,7 +319,7 @@ class AtlasAccessor:
             `"left"`/`"right"` (left/right requests for the same region would otherwise
             share a key). `vertices` holds coordinates in the current world space
             (millimetres); after a nonlinear resample, vertices warped outside the
-            reference grid are dropped. `faces` holds zero-indexed triangle indices
+            template grid are dropped. `faces` holds zero-indexed triangle indices
             (int32).
 
         Raises
@@ -818,7 +818,7 @@ def get_atlas_meshes(
         hemisphere map makes this orientation-agnostic and correct after an arbitrary
         resample.
     clip : bool, default: True
-        Whether to clip each mesh to the reference grid. Unclipped meshes are still
+        Whether to clip each mesh to the template grid. Unclipped meshes are still
         transformed to the atlas's world space but may extend past the grid's bounding
         box.
 
@@ -829,7 +829,7 @@ def get_atlas_meshes(
         suffixed with `_L`/`_R` when the corresponding `side` is `"left"`/`"right"`
         (left/right requests for the same region would otherwise share a key). `vertices`
         holds coordinates in the atlas's world space (millimetres); after a nonlinear
-        resample, vertices warped outside the reference grid are dropped. `faces` holds
+        resample, vertices warped outside the template grid are dropped. `faces` holds
         zero-indexed triangle indices (int32).
 
     Raises
