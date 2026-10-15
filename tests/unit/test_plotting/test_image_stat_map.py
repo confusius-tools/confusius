@@ -62,7 +62,7 @@ class TestPlotStatMapVisualRegression:
         savefig_kwargs={"facecolor": "auto"},
     )
     def test_plot_stat_map_default(self, matplotlib_pyplot):
-        """Baseline test for default plot_stat_map appearance (gray bg + coolwarm overlay)."""
+        """Baseline test for default plot_stat_map appearance (gray bg + berlin overlay)."""
         bg_volume, stat_map = _create_deterministic_bg_and_stat_map()
         plotter = plot_stat_map(stat_map, bg_volume=bg_volume, slice_mode="z")
         return plotter.figure
@@ -148,13 +148,19 @@ class TestPlotStatMap:
         overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.get_alpha() == 0.5
 
-    def test_overlay_uses_coolwarm_by_default_for_signed_data(
-        self, sample_voxeldata_3d, matplotlib_pyplot
+    @pytest.mark.parametrize(
+        ("bg_color", "expected"), [("black", "berlin"), ("white", "coolwarm")]
+    )
+    def test_default_diverging_cmap_follows_bg_color(
+        self, sample_voxeldata_3d, matplotlib_pyplot, bg_color, expected
     ):
+        """coolwarm's white midpoint vanishes on dark backgrounds; berlin's is black."""
         stat_map = _signed_stat_map(sample_voxeldata_3d)
-        plotter = plot_stat_map(stat_map, bg_volume=sample_voxeldata_3d, slice_mode="z")
+        plotter = plot_stat_map(
+            stat_map, bg_volume=sample_voxeldata_3d, slice_mode="z", bg_color=bg_color
+        )
         overlay = _axes(plotter).ravel()[0].collections[-1]
-        assert overlay.cmap.name.startswith("coolwarm")
+        assert overlay.cmap.name.startswith(expected)
 
     def test_default_bounds_are_symmetric_min_max_for_signed_data(
         self, sample_voxeldata_3d, matplotlib_pyplot
@@ -223,7 +229,7 @@ class TestPlotStatMap:
             auto_range=False,
         )
         overlay = _axes(plotter).ravel()[0].collections[-1]
-        assert overlay.cmap.name.startswith("coolwarm")
+        assert overlay.cmap.name.startswith("berlin")
         assert overlay.norm.vmin == -2.0
         assert overlay.norm.vmax == 5.0
 

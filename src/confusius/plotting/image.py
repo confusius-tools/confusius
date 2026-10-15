@@ -1949,9 +1949,10 @@ class VolumePlotter:
             - Both positive and negative values: diverging, symmetric `[-m, m]`
               range where `m = max(|vmin|, |vmax|)` over the bounds actually
               provided, falling back to the largest magnitude in `stat_map` when
-              neither is given, with `cmap` defaulting to `"coolwarm"` — the right
-              choice for diverging statistics where the sign is meaningful (e.g.
-              t-statistics, correlation coefficients, PCA/ICA component maps).
+              neither is given, with `cmap` defaulting to `"coolwarm"` on light
+              backgrounds and `"berlin"` on dark ones (judged from `bg_color`),
+              both diverging colormaps for statistics where the sign is meaningful
+              (e.g. t-statistics, correlation coefficients, PCA/ICA component maps).
             - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
               defaulting to `"viridis"` — the right choice for non-diverging
               statistics where only magnitude matters (e.g. R², F-statistics).
@@ -1961,8 +1962,8 @@ class VolumePlotter:
               non-positive cases).
 
             Set to `False` to use the resolved `vmin`/`vmax` directly with no
-            zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of
-            sign).
+            zero-anchoring (`cmap` then defaults to the same background-dependent diverging
+            colormap regardless of sign).
         threshold : float, optional
             Threshold applied to `|stat_map|`. See `threshold_mode` for the masking
             direction. If not provided, no thresholding is applied.
@@ -2040,7 +2041,7 @@ class VolumePlotter:
         """
         stat_map = stat_map.compute()
         resolved_vmin, resolved_vmax, resolved_cmap = _resolve_colormap_style(
-            stat_map, vmin, vmax, cmap, auto_range
+            stat_map, vmin, vmax, cmap, auto_range, bg_color=self._bg_color
         )
         return self.add_volume(
             stat_map,
@@ -3445,9 +3446,10 @@ def plot_stat_map(
         - Both positive and negative values: diverging, symmetric `[-m, m]` range
           where `m = max(|vmin|, |vmax|)` over the bounds actually provided,
           falling back to the largest magnitude in `stat_map` when neither is
-          given, with `cmap` defaulting to `"coolwarm"` — the right choice for
-          diverging statistics where the sign is meaningful (e.g. t-statistics,
-          correlation coefficients, PCA/ICA component maps).
+          given, with `cmap` defaulting to `"coolwarm"` on light backgrounds and
+          `"berlin"` on dark ones (judged from `bg_color`), both diverging
+          colormaps for statistics where the sign is meaningful (e.g.
+          t-statistics, correlation coefficients, PCA/ICA component maps).
         - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
           defaulting to `"viridis"` — the right choice for non-diverging
           statistics where only magnitude matters (e.g. R², F-statistics).
@@ -3457,7 +3459,8 @@ def plot_stat_map(
           non-positive cases).
 
         Set to `False` to use the resolved `vmin`/`vmax` directly with no
-        zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of sign).
+        zero-anchoring (`cmap` then defaults to the same background-dependent diverging
+        colormap regardless of sign).
     alpha : float or xarray.DataArray, optional
         Opacity of the `stat_map` overlay: a single scalar value, or a 3D DataArray
         sharing `stat_map`'s dims, shape, and coordinates (for independent per-slice,

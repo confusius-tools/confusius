@@ -44,6 +44,31 @@ def _relative_luminance(color: str) -> float:
     return 0.2126 * _linearize(r) + 0.7152 * _linearize(g) + 0.0722 * _linearize(b)
 
 
+_DARK_BACKGROUND_LUMINANCE = 0.179
+"""WCAG relative luminance below which a background counts as dark.
+
+This is the luminance at which black and white text have equal contrast ratio
+against the background (https://www.w3.org/TR/WCAG21/#dfn-contrast-ratio).
+"""
+
+
+def _is_dark_background(bg_color: str) -> bool:
+    """Return whether `bg_color` counts as dark for contrast purposes.
+
+    Parameters
+    ----------
+    bg_color : str
+        Any matplotlib-compatible background color string.
+
+    Returns
+    -------
+    bool
+        Whether the WCAG relative luminance of `bg_color` is below
+        `_DARK_BACKGROUND_LUMINANCE`.
+    """
+    return _relative_luminance(bg_color) < _DARK_BACKGROUND_LUMINANCE
+
+
 def _auto_fg_color(bg_color: str) -> str:
     """Return white or black for maximum WCAG contrast against `bg_color`.
 
@@ -55,10 +80,10 @@ def _auto_fg_color(bg_color: str) -> str:
     Returns
     -------
     str
-        `"white"` when the background is dark (relative luminance < 0.179),
+        `"white"` when the background is dark (see `_is_dark_background`),
         `"black"` otherwise.
     """
-    return "white" if _relative_luminance(bg_color) < 0.179 else "black"
+    return "white" if _is_dark_background(bg_color) else "black"
 
 
 def _resolve_font_sizes(
@@ -151,7 +176,36 @@ def _style_colorbar(
 
 
 _DIVERGING_CMAP = "coolwarm"
-"""Default colormap for data spanning both signs (see `_resolve_colormap_style`)."""
+"""Default colormap for data spanning both signs on light backgrounds.
+
+See `_default_diverging_cmap`.
+"""
+
+_DIVERGING_CMAP_DARK = "berlin"
+"""Default colormap for data spanning both signs on dark backgrounds.
+
+coolwarm's white midpoint reads as a hole on a dark background; berlin (Crameri's
+perceptually uniform diverging colormap) has a black midpoint instead. See
+`_default_diverging_cmap`.
+"""
+
+
+def _default_diverging_cmap(bg_color: str) -> str:
+    """Return the default diverging colormap name for `bg_color`.
+
+    Parameters
+    ----------
+    bg_color : str
+        Background the colormap is drawn on, as any matplotlib color string.
+
+    Returns
+    -------
+    str
+        `_DIVERGING_CMAP_DARK` when `bg_color` is dark (see `_is_dark_background`),
+        `_DIVERGING_CMAP` otherwise.
+    """
+    return _DIVERGING_CMAP_DARK if _is_dark_background(bg_color) else _DIVERGING_CMAP
+
 
 _SEQUENTIAL_CMAP = "viridis"
 """Default colormap for non-negative data (see `_resolve_colormap_style`)."""
@@ -171,6 +225,8 @@ def _resolve_colormap_style(
     vmax: float | None,
     cmap: "str | Colormap | None",
     auto_range: bool,
+    *,
+    bg_color: str,
 ) -> tuple[float, float, "str | Colormap"]:
     """Resolve `(vmin, vmax, cmap)` from the sign of `data` and the bounds given.
 
@@ -182,15 +238,15 @@ def _resolve_colormap_style(
     - Both positive and negative values: diverging, symmetric `[-m, m]` range
       where `m = max(|vmin|, |vmax|)` over the bounds actually provided, falling
       back to the largest magnitude in `data` when neither is given, with `cmap`
-      defaulting to `_DIVERGING_CMAP`.
+      defaulting to `_default_diverging_cmap(bg_color)`.
     - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
       defaulting to `_SEQUENTIAL_CMAP`.
     - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
       defaulting to `_SEQUENTIAL_CMAP_NEGATIVE`.
 
     When `auto_range` is `False`, `vmin`/`vmax` are used directly with no
-    zero-anchoring, and `cmap` defaults to `_DIVERGING_CMAP` regardless of
-    `data`'s sign. In both cases, an explicitly provided `cmap` is always used
+    zero-anchoring, and `cmap` defaults to `_default_diverging_cmap(bg_color)` regardless
+    of `data`'s sign. In both cases, an explicitly provided `cmap` is always used
     as-is.
 
     Parameters
@@ -207,6 +263,9 @@ def _resolve_colormap_style(
         Colormap to use. If not provided, one is picked from the sign of `data`.
     auto_range : bool
         Whether to anchor the range on zero based on the sign of `data`.
+    bg_color : str
+        Background the colormap is drawn on. Picks the diverging default:
+        `"coolwarm"` on light backgrounds, `"berlin"` on dark ones.
 
     Returns
     -------
@@ -217,6 +276,7 @@ def _resolve_colormap_style(
     cmap : str or matplotlib.colors.Colormap
         Resolved colormap.
     """
+    diverging = _default_diverging_cmap(bg_color)
     values = np.asarray(data).ravel().astype(float)
     values = values[np.isfinite(values)]
     data_min = float(values.min()) if values.size > 0 else 0.0
@@ -229,7 +289,7 @@ def _resolve_colormap_style(
         return (
             resolved_vmin,
             resolved_vmax,
-            cmap if cmap is not None else _DIVERGING_CMAP,
+            cmap if cmap is not None else diverging,
         )
 
     if data_min < 0 < data_max:
@@ -237,7 +297,7 @@ def _resolve_colormap_style(
         # to the data's own min/max for the missing one would drop it silently.
         explicit = [abs(bound) for bound in (vmin, vmax) if bound is not None]
         abs_max = max(explicit) if explicit else max(abs(data_min), abs(data_max))
-        return -abs_max, abs_max, cmap if cmap is not None else _DIVERGING_CMAP
+        return -abs_max, abs_max, cmap if cmap is not None else diverging
 
     if data_max > 0:
         return 0.0, resolved_vmax, cmap if cmap is not None else _SEQUENTIAL_CMAP

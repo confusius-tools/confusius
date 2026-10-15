@@ -123,6 +123,12 @@ class TestPlotMatrixBehaviour:
         assert image.norm.vmax == pytest.approx(1.0)
         assert image.cmap.name == "coolwarm"
 
+    def test_dark_background_defaults_to_berlin(self, matplotlib_pyplot):
+        """The diverging default follows bg_color, matching plot_stat_map."""
+        matrix = np.array([[1.0, -0.8], [-0.8, 1.0]])
+        _, ax = plot_matrix(matrix, bg_color="black")
+        assert ax.collections[0].cmap.name == "berlin"
+
     @pytest.mark.parametrize("bound", [{"vmax": 0.5}, {"vmin": -0.5}])
     def test_a_lone_bound_caps_the_symmetric_range(self, bound, matplotlib_pyplot):
         """A bound given on its own sets the symmetric range by itself, rather than
