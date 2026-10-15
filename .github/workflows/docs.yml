@@ -165,6 +165,11 @@ jobs:
         run: xvfb-run -a uv run python tools/build_gallery.py
 
       - name: Build documentation
+        env:
+          # PR previews deploy under `pr-preview/pr-N`. Pass that prefix the way mike
+          # does for dev/release deploys, so canonical URLs, the sitemap, and llms.txt
+          # links point into the preview. Empty means site root.
+          MIKE_DOCS_VERSION: ${{ github.event_name == 'pull_request' && format('pr-preview/pr-{0}', github.event.number) || '' }}
         run: uv run zensical build --clean --strict
 
       - name: Upload site artifact
