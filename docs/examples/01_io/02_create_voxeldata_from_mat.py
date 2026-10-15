@@ -31,10 +31,8 @@ from remotezip import RemoteZip
 import confusius as cf
 from confusius.glm import FirstLevelModel, gamma_hrf
 
-# Adapt colors to the current Matplotlib style.
+# Adapt the background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
-is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
-stat_cmap = "berlin" if is_dark_theme else None
 
 # Keep notebook output compact for large DataArray displays.
 _ = xr.set_options(display_expand_attrs=False, display_expand_data=False)
@@ -202,7 +200,6 @@ active_voxels = z_map > active_threshold
 plotter = z_map.fusi.plot.stat_map(
     bg_volume=mean_doppler,
     threshold=active_threshold,
-    cmap=stat_cmap,
     cbar_label="task z-score",
     bg_color=bg_color,
 )

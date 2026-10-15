@@ -187,11 +187,9 @@ mapper.maps_
 # [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] elsewhere).
 
 # %% tags=["thumbnail"]
-# coolwarm's white midpoint reads as a washed-out hole on a dark background, so switch
-# to berlin (Crameri's perceptually uniform diverging colormap, black midpoint) when the
-# current Matplotlib style is dark.
-is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
-cmap = "berlin" if is_dark_theme else None
+# The default diverging colormap follows `bg_color`: coolwarm on a light background,
+# berlin (black midpoint) on a dark one, where coolwarm's white midpoint would read
+# as a washed-out hole.
 
 # Broadcast the shared background and brain outline across a "region" dimension
 # matching mapper.maps_, so plot_stat_map can slice both by region in one call.
@@ -204,7 +202,6 @@ plotter = cf.plotting.plot_stat_map(
     mapper.maps_,
     bg_volume=bg_by_region,
     slice_mode="region",
-    cmap=cmap,
     vmax=0.8,
     threshold=0.2,
     cbar_label="Pearson correlation",

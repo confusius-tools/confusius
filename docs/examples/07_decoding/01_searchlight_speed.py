@@ -257,10 +257,6 @@ z_scores = glm.compute_contrast("speed")
 # contrast. Both maps cover the whole plane.
 
 # %% tags=["thumbnail"]
-is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
-searchlight_cmap = "inferno" if is_dark_theme else "inferno_r"
-glm_cmap = "berlin" if is_dark_theme else "coolwarm"
-
 background_data = data.mean("time").fusi.scale.db()
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 3), constrained_layout=True)
@@ -268,7 +264,7 @@ fig, axes = plt.subplots(1, 2, figsize=(10, 3), constrained_layout=True)
 searchlight.scores_.fusi.plot.stat_map(
     bg_volume=background_data,
     axes=axes[0],
-    cmap=searchlight_cmap,
+    cmap="viridis",
     vmin=0,
     auto_range=False,
     cbar_label="Cross-validated $R^2$",
@@ -280,7 +276,6 @@ axes[0].set_title("Searchlight decoding of speed")
 z_scores.where(mask).fusi.plot.stat_map(
     bg_volume=background_data,
     axes=axes[1],
-    cmap=glm_cmap,
     cbar_label="z-score",
     show_titles=False,
     bg_color=bg_color,
