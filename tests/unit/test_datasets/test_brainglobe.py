@@ -128,7 +128,7 @@ def fake_atlases(monkeypatch: pytest.MonkeyPatch) -> list[_FakeBgAtlas]:
 def test_returns_valid_atlas_dataset(fake_atlases: list[_FakeBgAtlas]) -> None:
     result = fetch_brainglobe_atlas("allen_mouse_25um")
     assert isinstance(result, xr.Dataset)
-    assert set(result.data_vars) == {"reference", "annotation", "hemispheres"}
+    assert set(result.data_vars) == {"template", "annotation", "hemispheres"}
     assert result.attrs["name"] == "allen_mouse_25um"
     # The builder output must satisfy the atlas validator.
     validate_atlas(result)
@@ -146,12 +146,10 @@ def test_converts_brainglobe_arrays_to_voxeldata(
     fake_atlases: list[_FakeBgAtlas], source: str, expected: type[np.generic]
 ) -> None:
     result = fetch_brainglobe_atlas("allen_mouse_25um")
-    data_var = "reference" if source == "template" else source
-
-    assert result[data_var].dtype == expected
-    assert result[data_var].dims == ("k", "j", "i")
+    assert result[source].dtype == expected
+    assert result[source].dims == ("k", "j", "i")
     np.testing.assert_allclose(
-        result[data_var].x.isel(k=0, j=0).to_numpy(), np.arange(8) * 0.025
+        result[source].x.isel(k=0, j=0).to_numpy(), np.arange(8) * 0.025
     )
 
 
@@ -184,7 +182,7 @@ def test_fetch_loads_ngff_arrays_lazily_and_downloads_missing_resolution(
 
     result = fetch_brainglobe_atlas("allen_mouse_25um")
 
-    assert isinstance(result.reference.data, da.Array)
+    assert isinstance(result.template.data, da.Array)
     assert isinstance(result.annotation.data, da.Array)
     assert isinstance(result.hemispheres.data, da.Array)
     assert len(atlas.fs.downloads) == 3
@@ -442,7 +440,7 @@ def test_read_only_mesh_cache_still_loads_atlas(
         result = fetch_brainglobe_atlas("allen_mouse_25um")
 
     validate_atlas(result)
-    np.testing.assert_array_equal(result.reference.compute(), np.ones((4, 6, 8)))
+    np.testing.assert_array_equal(result.template.compute(), np.ones((4, 6, 8)))
     assert fake_s3.calls == []
     assert (mesh_fake_atlases / "997").read_bytes() == b"draco"
 
@@ -465,7 +463,7 @@ def test_unreadable_mesh_availability_record_is_ignored(
     result = fetch_brainglobe_atlas("allen_mouse_25um")
 
     validate_atlas(result)
-    np.testing.assert_array_equal(result.reference.compute(), np.ones((4, 6, 8)))
+    np.testing.assert_array_equal(result.template.compute(), np.ones((4, 6, 8)))
     assert fake_s3.calls == []
 
 
