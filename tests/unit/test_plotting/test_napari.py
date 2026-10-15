@@ -12,7 +12,11 @@ from confusius._utils.geometry import (
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
 )
-from confusius.plotting import draw_napari_labels, labels_from_layer, plot_napari
+from confusius.plotting import (
+    draw_napari_labels,
+    extract_labels_from_layer,
+    plot_napari,
+)
 from confusius.xarray import create_voxeldata
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
@@ -467,10 +471,40 @@ class TestDrawNapariLabels:
         npt.assert_allclose(labels_layer.translate, image_layer.translate, rtol=1e-5)
         assert tuple(labels_layer.axis_labels) == tuple(image_layer.axis_labels)
         painted = np.asarray(labels_layer.data)
-        painted[0, 0, 0] = 1
-        label_map = labels_from_layer(labels_layer, sample_voxeldata_3d_oblique)
-        assert label_map.shape[1:] == labels_layer.data.shape
+        painted[:] = np.where(np.indices(painted.shape)[2] % 2, 7, 3)
+        label_map = extract_labels_from_layer(labels_layer, sample_voxeldata_3d_oblique)
+        assert label_map.shape[1:] == sample_voxeldata_3d_oblique.shape
         assert has_voxel_to_world_index(label_map)
+        display = labels_layer.metadata["xarray"]
+        voxel_points = np.stack(
+            np.meshgrid(
+                *(
+                    sample_voxeldata_3d_oblique.coords[d].values
+                    for d in ("k", "j", "i")
+                ),
+                indexing="ij",
+            )
+        ).reshape(3, -1)
+        homogeneous = np.vstack((voxel_points, np.ones(voxel_points.shape[1])))
+        display_points = np.linalg.solve(
+            get_voxel_to_world_affine(display),
+            get_voxel_to_world_affine(sample_voxeldata_3d_oblique) @ homogeneous,
+        )[:3]
+        nearest = np.floor(display_points + 0.5).astype(int)
+        valid = np.all(
+            (nearest >= 0) & (nearest < np.array(painted.shape)[:, None]), axis=0
+        )
+        expected = np.zeros(voxel_points.shape[1], dtype=np.int32)
+        expected[valid] = painted[tuple(nearest[:, valid])]
+        expected = expected.reshape(sample_voxeldata_3d_oblique.shape)
+        for label in (3, 7):
+            npt.assert_array_equal(
+                label_map.sel(mask=label), np.where(expected == label, label, 0)
+            )
+        npt.assert_allclose(
+            get_voxel_to_world_affine(label_map),
+            get_voxel_to_world_affine(sample_voxeldata_3d_oblique),
+        )
         viewer.close()
 
     def test_strips_time_dim_from_labels_shape(
@@ -489,8 +523,66 @@ class TestDrawNapariLabels:
         viewer.close()
 
 
-class TestLabelsFromLayer:
-    """Tests for labels_from_layer."""
+class TestExtractLabelsFromLayer:
+    """Tests for extract_labels_from_layer."""
+
+    @pytest.mark.parametrize("with_metadata", [True, False])
+    def test_same_shape_shifted_grid(self, make_napari_viewer, with_metadata) -> None:
+        """Equal shapes must not hide a one-voxel physical offset."""
+        painted = np.zeros((2, 3, 4), dtype=np.int32)
+        painted[:, :, 1] = 3
+        painted[:, :, 2] = 7
+        display = create_voxeldata(
+            painted, dims=("k", "j", "i"), spacing=(1, 1, 1), origin=(0, 0, 0)
+        )
+        reference = create_voxeldata(
+            np.zeros_like(painted),
+            dims=("k", "j", "i"),
+            spacing=(1, 1, 1),
+            origin=(0, 0, 1),
+        )
+        viewer = make_napari_viewer()
+        layer = viewer.add_labels(
+            painted, metadata={"xarray": display} if with_metadata else {}
+        )
+        result = extract_labels_from_layer(layer, reference)
+        expected = np.zeros_like(painted)
+        if with_metadata:
+            expected[:, :, :-1] = painted[:, :, 1:]
+        else:
+            expected[:] = painted
+        for label in (3, 7):
+            npt.assert_array_equal(
+                result.sel(mask=label), np.where(expected == label, label, 0)
+            )
+        npt.assert_allclose(
+            get_voxel_to_world_affine(result), get_voxel_to_world_affine(reference)
+        )
+        npt.assert_array_equal(result.coords["i"], reference.coords["i"])
+
+    def test_labels_outside_reference_raise(self, make_napari_viewer) -> None:
+        """Out-of-field voxels are background, even when the layer has no zeros."""
+        painted = np.full((2, 3, 4), 7, dtype=np.int32)
+        display = create_voxeldata(
+            painted, dims=("k", "j", "i"), spacing=(1, 1, 1), origin=(0, 0, 0)
+        )
+        reference = create_voxeldata(
+            np.zeros_like(painted),
+            dims=("k", "j", "i"),
+            spacing=(1, 1, 1),
+            origin=(0, 0, 10),
+        )
+        viewer = make_napari_viewer()
+        layer = viewer.add_labels(painted, metadata={"xarray": display})
+        with pytest.raises(ValueError, match="No non-zero labels remain"):
+            extract_labels_from_layer(layer, reference)
+
+    def test_mismatched_shape_raises(self, sample_voxeldata_3d, make_napari_viewer):
+        """A layer without matching grid metadata cannot be positioned safely."""
+        viewer = make_napari_viewer()
+        layer = viewer.add_labels(np.ones((2, 2, 2), dtype=np.int32))
+        with pytest.raises(ValueError, match="shape does not match"):
+            extract_labels_from_layer(layer, sample_voxeldata_3d)
 
     def test_no_labels_raises(self, sample_voxeldata_3d, make_napari_viewer) -> None:
         viewer = make_napari_viewer()
@@ -501,7 +593,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
         with pytest.raises(ValueError, match="non-zero labels"):
-            labels_from_layer(labels_layer, sample_voxeldata_3d)
+            extract_labels_from_layer(labels_layer, sample_voxeldata_3d)
         viewer.close()
 
     def test_multiple_labels_stack_as_sorted_disjoint_slices(
@@ -517,7 +609,7 @@ class TestLabelsFromLayer:
         )
 
         assert isinstance(labels_layer, Labels)
-        result = labels_from_layer(labels_layer, sample_roi_labels)
+        result = extract_labels_from_layer(labels_layer, sample_roi_labels)
 
         # np.unique sorts ascending: motor=3, somatosensory=7, visual=42.
         npt.assert_array_equal(result.coords["mask"].values, [3, 7, 42])
@@ -540,7 +632,7 @@ class TestLabelsFromLayer:
         )
 
         assert isinstance(labels_layer, Labels)
-        result = labels_from_layer(labels_layer, sample_roi_labels)
+        result = extract_labels_from_layer(labels_layer, sample_roi_labels)
 
         # World coordinates must still be index-derived, not materialized plain
         # arrays (see AGENTS.md: world coordinates are never stored directly).
@@ -564,7 +656,7 @@ class TestLabelsFromLayer:
         )
 
         assert isinstance(labels_layer, Labels)
-        result = labels_from_layer(labels_layer, sample_voxeldata_3dt)
+        result = extract_labels_from_layer(labels_layer, sample_voxeldata_3dt)
 
         assert result.dims == ("mask", "k", "j", "i")
         viewer.close()
@@ -583,7 +675,7 @@ class TestLabelsFromLayer:
         )
 
         assert isinstance(labels_layer, Labels)
-        result = labels_from_layer(labels_layer, sample_roi_labels)
+        result = extract_labels_from_layer(labels_layer, sample_roi_labels)
 
         assert result.attrs["long_name"] == "Drawn label map"
         assert result.attrs["labels_layer_name"] == "hand_drawn"

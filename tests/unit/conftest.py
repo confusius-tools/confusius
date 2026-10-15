@@ -827,7 +827,7 @@ def sample_roi_labels():
     units match `sample_voxeldata_3d` so the fixtures pair naturally for tests
     combining image + label data.
 
-    Attributes mirror what `Atlas` / `labels_from_layer` produce in production:
+    Attributes mirror what `Atlas` / `extract_labels_from_layer` produce in production:
     `roi_labels` for status-bar names and `rgb_lookup` for per-label colors.
     """
     shape = (4, 6, 8)
