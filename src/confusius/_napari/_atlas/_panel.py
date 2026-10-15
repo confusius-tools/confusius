@@ -369,7 +369,7 @@ class _LoadedAtlasRow(QWidget):
 
         self.volumes_btn = QPushButton("Volumes")
         self.volumes_btn.setToolTip(
-            "Add the reference, annotation and hemispheres volumes as layers"
+            "Add the template, annotation and hemispheres volumes as layers"
         )
         self.tree_btn = QPushButton("Tree")
         self.tree_btn.setToolTip("Show or hide the structure tree")
@@ -395,11 +395,11 @@ class AtlasPanel(QWidget):
     - **fUSI template**: pick one of the templates shipped in
       [`confusius.datasets`][confusius.datasets], see which atlas space it is aligned
       to, and load it as an Image layer.
-    - **BrainGlobe atlas**: pick an atlas (downloaded ones listed first) and load it
-      into memory. Each loaded atlas gets a row with buttons to add its `reference`,
-      `annotation` and `hemispheres` layers, open its structure tree in a right dock,
-      reveal the region-mask group for it, or remove it to free memory. An atlas can
-      be loaded only once.
+    - **BrainGlobe atlas**: pick an atlas (downloaded ones listed first) and load it;
+      its volumes stay on disk until needed. Each loaded atlas gets a row with buttons
+      to add its `template`, `annotation` and `hemispheres` layers, open its structure
+      tree in a right dock, reveal the region-mask group for it, or remove it to free
+      memory. An atlas can be loaded only once.
     - **Region masks**: search one loaded atlas's structures, build a list of
       regions, pick a hemisphere, and load one Labels layer per region mask.
 
@@ -713,7 +713,7 @@ class AtlasPanel(QWidget):
         self._loaded_label.show()
 
     def _add_atlas_layers(self, name: str) -> None:
-        """Add the reference, annotation and hemispheres layers of a loaded atlas.
+        """Add the template, annotation and hemispheres layers of a loaded atlas.
 
         Parameters
         ----------
@@ -733,9 +733,7 @@ class AtlasPanel(QWidget):
             # them as napari notifications so they appear in the UI.
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                plot_napari(
-                    ds["reference"], viewer=self.viewer, name=f"{name} reference"
-                )
+                plot_napari(ds["template"], viewer=self.viewer, name=f"{name} template")
                 plot_napari(
                     ds["annotation"],
                     viewer=self.viewer,

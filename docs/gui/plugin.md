@@ -90,7 +90,7 @@ falls back to BrainGlobe's cached list, or to the downloaded atlases alone.
    appears as a row under **Loaded atlases**. An atlas can be loaded once; the button
    is disabled while the selected atlas is already in the list.
 2. Each row has four buttons:
-    - **Volumes** adds three layers, `<atlas> reference` (Image), `<atlas> annotation`
+    - **Volumes** adds three layers, `<atlas> template` (Image), `<atlas> annotation`
       (Labels, colored with the atlas palette) and `<atlas> hemispheres` (Labels).
     - **Tree** opens the structure hierarchy in a right dock named
       `Atlas structures: <atlas>`, with one row per region showing its acronym, name,

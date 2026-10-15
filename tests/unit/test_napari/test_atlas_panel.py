@@ -112,8 +112,8 @@ class TestAtlasLoading:
         loaded_panel._add_atlas_layers("mock")
 
         names = [layer.name for layer in viewer.layers]
-        assert names == ["mock reference", "mock annotation", "mock hemispheres"]
-        assert isinstance(viewer.layers["mock reference"], Image)
+        assert names == ["mock template", "mock annotation", "mock hemispheres"]
+        assert isinstance(viewer.layers["mock template"], Image)
         assert isinstance(viewer.layers["mock annotation"], Labels)
         assert isinstance(viewer.layers["mock hemispheres"], Labels)
         assert_array_equal(
@@ -307,7 +307,7 @@ class TestLazyAtlas:
         _load(panel, lazy_atlas, "lazy")
         panel._add_atlas_layers("lazy")
 
-        for suffix in ("reference", "annotation", "hemispheres"):
+        for suffix in ("template", "annotation", "hemispheres"):
             assert isinstance(viewer.layers[f"lazy {suffix}"].data, da.Array)
 
     def test_mask_request_loads_volumes_once(

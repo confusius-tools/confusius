@@ -924,7 +924,7 @@ def build_default_tour(
             title="Loaded Atlases",
             body=(
                 "Each loaded atlas gets a row like this one (a placeholder for the "
-                "tour). <b>Volumes</b> adds the reference, annotation and "
+                "tour). <b>Volumes</b> adds the template, annotation and "
                 "hemispheres layers, <b>Tree</b> opens the structure hierarchy in a "
                 "dock, <b>Masks</b> opens the region-mask tools below, and <b>✕</b> "
                 "removes the atlas and frees its memory."

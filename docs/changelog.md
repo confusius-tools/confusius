@@ -50,7 +50,7 @@ Current development version for the next ConfUSIus release.
 ### :frame_photo: Napari plugin
 
 - New **Atlas** tab: load any BrainGlobe atlas (downloaded ones listed first) and
-  for each one add its reference, annotation and hemispheres layers, browse its
+  for each one add its template, annotation and hemispheres layers, browse its
   structure hierarchy in a read-only dock, search its regions to load one Labels
   layer per region mask with a hemisphere selector, or remove it to free memory.
   Atlases stay on disk until a volume is displayed or a mask requested
