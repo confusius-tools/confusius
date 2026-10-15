@@ -131,9 +131,14 @@ class ThresholdedColormap(mcolors.LinearSegmentedColormap):
                 f"vmin={norm.vmin!r}, vmax={norm.vmax!r}."
             )
 
-        colors = _gray_band_colors(
-            source, norm, 0.0 if threshold is None else abs(threshold), threshold_mode
-        )
+        if threshold is None:
+            # No band in either mode: pass the source's stops through untouched.
+            colors: list[ColorStop] = [
+                (i / (source.N - 1), source(i / (source.N - 1)))
+                for i in range(source.N)
+            ]
+        else:
+            colors = _gray_band_colors(source, norm, abs(threshold), threshold_mode)
         # Preserve the source colormap's resolution. The default N=256 of
         # `LinearSegmentedColormap.from_list` collapses larger discrete cmaps such as
         # the atlas `ListedColormap` (N == number of regions, often >256), aliasing

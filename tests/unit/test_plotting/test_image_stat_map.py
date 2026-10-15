@@ -410,6 +410,13 @@ class TestThresholdedColormap:
             colormaps["berlin"](0.5)
         )
 
+    def test_upper_mode_without_threshold_matches_source(self, matplotlib_pyplot):
+        norm = mcolors.Normalize(-1.0, 1.0)
+        cmap = ThresholdedColormap(colormaps["coolwarm"], norm, threshold_mode="upper")
+        coolwarm = colormaps["coolwarm"]
+        for value in (0.0, 0.5, 1.0):
+            assert cmap(value) == pytest.approx(coolwarm(value))
+
     def test_rejects_norm_without_finite_bounds(self, matplotlib_pyplot):
         with pytest.raises(ValueError, match="must be finite"):
             ThresholdedColormap(colormaps["coolwarm"], mcolors.Normalize())
