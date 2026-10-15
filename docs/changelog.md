@@ -57,7 +57,7 @@ Current development version for the next ConfUSIus release.
   ([#488](https://github.com/confusius-tools/confusius/pull/488)).
 - The Atlas tab also loads the fUSI templates shipped in `confusius.datasets`
   (`huang_2025`, `pepe_mariani_2026`) as Image layers
-  ([#483](https://github.com/confusius-tools/confusius/issues/483)).
+  ([#488](https://github.com/confusius-tools/confusius/pull/488)).
 - The `confusius` launcher takes `--atlas NAME [NAME ...]` and
   `--template NAME [NAME ...]` to open the plugin with BrainGlobe atlases (with their
   volume layers) and fUSI templates already loaded
