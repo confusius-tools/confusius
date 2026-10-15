@@ -69,8 +69,7 @@ def test_tour_keeps_a_real_atlas_with_the_demo_name(widget, atlas_ds) -> None:
     assert isinstance(atlas_panel, AtlasPanel)
     tour = build_default_tour(widget, is_dark=True)
     steps = _steps_by_title(tour)
-    atlas_panel._atlas_name = "allen_mouse_25um"
-    atlas_panel._on_atlas_returned(atlas_ds)
+    atlas_panel._on_atlas_returned(atlas_ds, "allen_mouse_25um")
 
     steps["Loaded Atlases"].pre_action()
     assert tour._on_close is not None

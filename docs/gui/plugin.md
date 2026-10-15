@@ -131,9 +131,20 @@ The **Region masks** group shows which atlas it is linked to right in the title.
 ### fUSI templates
 
 The **Template** dropdown lists the templates shipped in
-[`confusius.datasets`][confusius.datasets]; the line beneath it names the reference
-atlas each template is aligned to. Click **Load template** to download it on first use
-(it is cached afterwards) and add it as an Image layer named after the template.
+[`confusius.datasets`][confusius.datasets] by the name of their fetcher
+(`huang_2025` for `fetch_template_huang_2025`, ...); the line beneath it names the
+reference atlas each template is aligned to. Click **Load template** to download it on
+first use (it is cached afterwards) and add it as an Image layer named after the
+template.
+
+!!! tip "Launch with atlases or templates from the CLI"
+    `--atlas` and `--template` take one or more names and open the plugin with them
+    loaded: atlases with their three volume layers, templates as Image layers.
+    ```bash
+    confusius --atlas allen_mouse_25um whs_sd_rat_39um --template huang_2025
+    ```
+    Put data files before these options, since each takes every name that follows
+    it.
 
 ## Video Panel
 

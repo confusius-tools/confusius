@@ -12,7 +12,8 @@ from napari.layers import Image, Labels
 from numpy.testing import assert_array_equal
 from qtpy.QtWidgets import QApplication
 
-from confusius._napari._atlas._panel import TEMPLATES, AtlasPanel, _compute_masks
+from confusius._napari._atlas._panel import AtlasPanel, _compute_masks
+from confusius._utils.templates import FUSI_TEMPLATES
 from confusius.validation import validate_voxeldata
 
 
@@ -35,8 +36,7 @@ def errors(monkeypatch) -> list[str]:
 
 
 def _load(panel, ds, name: str) -> None:
-    panel._atlas_name = name
-    panel._on_atlas_returned(ds)
+    panel._on_atlas_returned(ds, name)
 
 
 @pytest.fixture
@@ -368,24 +368,24 @@ class TestMaskLoading:
 class TestTemplateLoading:
     def test_dropdown_lists_every_template(self, panel) -> None:
         combo = panel._template_combo
-        assert [combo.itemText(i) for i in range(combo.count())] == list(TEMPLATES)
+        assert [combo.itemText(i) for i in range(combo.count())] == list(FUSI_TEMPLATES)
+        assert "huang_2025" in FUSI_TEMPLATES
 
     def test_reference_atlas_label_follows_combo(self, panel) -> None:
         combo = panel._template_combo
         for index in range(combo.count()):
             combo.setCurrentIndex(index)
-            expected = TEMPLATES[combo.currentText()]["reference_atlas"]
+            expected = FUSI_TEMPLATES[combo.currentText()]["reference_atlas"]
             assert panel._template_reference.text() == f"Reference atlas: {expected}"
 
-    def test_adds_image_layer_named_after_label(
+    def test_adds_image_layer_named_after_template(
         self, panel, viewer, sample_voxeldata_3d
     ) -> None:
-        panel._template_label = "Huang 2025 mouse vascular"
         panel._begin_template_work()
-        panel._on_template_returned(sample_voxeldata_3d)
+        panel._on_template_returned(sample_voxeldata_3d, "huang_2025")
 
         assert len(viewer.layers) == 1
-        layer = viewer.layers["Huang 2025 mouse vascular"]
+        layer = viewer.layers["huang_2025"]
         assert isinstance(layer, Image)
         assert panel._template_progress.isHidden()
         assert panel._load_template_btn.isEnabled()
@@ -447,8 +447,7 @@ class TestPanelWidth:
         # Showing the panel otherwise starts the BrainGlobe listing worker.
         panel._atlases_listed = True
         panel.show()
-        panel._atlas_name = "allen_mouse_bluebrain_barrels_10um"
-        panel._on_atlas_returned(atlas_ds)
+        panel._on_atlas_returned(atlas_ds, "allen_mouse_bluebrain_barrels_10um")
         panel._toggle_masks("allen_mouse_bluebrain_barrels_10um")
         QApplication.processEvents()
         assert panel.minimumSizeHint().width() <= self.SIDEBAR_MIN_WIDTH
@@ -496,3 +495,58 @@ class TestProgressBarsKeepLayout:
         QApplication.processEvents()
 
         assert loaded_panel.sizeHint().height() == idle_height
+
+
+class TestProgrammaticLoading:
+    """`load_atlas` / `load_template` run the button paths without the widgets."""
+
+    @pytest.fixture
+    def offline(self, monkeypatch, atlas_ds, sample_voxeldata_3d):
+        """Serve every fetch from fixtures so the workers never touch the network."""
+        monkeypatch.setattr(
+            "confusius._napari._atlas._panel.fetch_brainglobe_atlas",
+            lambda name, **kwargs: atlas_ds.assign_attrs(name=name),
+        )
+        monkeypatch.setattr(
+            "confusius._napari._atlas._panel.fetch_template",
+            lambda name, **kwargs: sample_voxeldata_3d,
+        )
+
+    def test_load_atlas_adds_row_and_layers(
+        self, qtbot, panel, viewer, offline
+    ) -> None:
+        panel.load_atlas("allen_mouse_25um", add_layers=True)
+        qtbot.waitUntil(lambda: len(viewer.layers) == 3, timeout=10_000)
+
+        assert list(panel._atlas_rows) == ["allen_mouse_25um"]
+        assert [layer.name for layer in viewer.layers] == [
+            "allen_mouse_25um template",
+            "allen_mouse_25um annotation",
+            "allen_mouse_25um hemispheres",
+        ]
+        assert panel._atlas_progress.isHidden()
+        assert panel._pending_layers == set()
+
+    def test_concurrent_loads_keep_their_names(
+        self, qtbot, panel, viewer, offline
+    ) -> None:
+        panel.load_atlas("allen_mouse_25um")
+        panel.load_atlas("whs_sd_rat_39um")
+        panel.load_atlas("allen_mouse_25um")  # Duplicate while loading: ignored.
+        qtbot.waitUntil(lambda: len(panel._atlases) == 2, timeout=10_000)
+
+        assert set(panel._atlas_rows) == {"allen_mouse_25um", "whs_sd_rat_39um"}
+        assert panel._atlases["whs_sd_rat_39um"].attrs["name"] == "whs_sd_rat_39um"
+        assert len(viewer.layers) == 0
+        qtbot.waitUntil(lambda: panel._atlas_progress.isHidden(), timeout=10_000)
+
+    def test_load_template_adds_layer(self, qtbot, panel, viewer, offline) -> None:
+        panel.load_template("pepe_mariani_2026")
+        qtbot.waitUntil(lambda: len(viewer.layers) == 1, timeout=10_000)
+
+        assert viewer.layers[0].name == "pepe_mariani_2026"
+        qtbot.waitUntil(lambda: panel._template_progress.isHidden(), timeout=10_000)
+
+    def test_unknown_template_raises(self, panel) -> None:
+        with pytest.raises(KeyError, match="Unknown fUSI template"):
+            panel.load_template("nope")

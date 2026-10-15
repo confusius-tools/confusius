@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import re
 import warnings
-from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, TypedDict
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 import numpy as np
 import xarray as xr
@@ -35,11 +35,8 @@ from confusius._napari._qt import (
     install_no_scroll_wheel_filter,
     make_segmented_buttons,
 )
-from confusius.datasets import (
-    fetch_brainglobe_atlas,
-    fetch_template_huang_2025,
-    fetch_template_pepe_mariani_2026,
-)
+from confusius._utils.templates import FUSI_TEMPLATES, fetch_template
+from confusius.datasets import fetch_brainglobe_atlas
 from confusius.plotting.napari import plot_napari
 
 if TYPE_CHECKING:
@@ -47,28 +44,6 @@ if TYPE_CHECKING:
     from qtpy.QtGui import QShowEvent
     from qtpy.QtWidgets import QDockWidget
 
-
-class TemplateSpec(TypedDict):
-    """One entry of the fUSI template dropdown."""
-
-    fetch: Callable[..., xr.DataArray]
-    """`confusius.datasets.fetch_template_*` function returning the template."""
-
-    reference_atlas: str
-    """Human-readable name of the atlas space the template is aligned to."""
-
-
-TEMPLATES: dict[str, TemplateSpec] = {
-    "Huang 2025 mouse vascular": {
-        "fetch": fetch_template_huang_2025,
-        "reference_atlas": "Allen Mouse Brain Atlas (CCFv3)",
-    },
-    "Pepe-Mariani 2026 mouse vascular": {
-        "fetch": fetch_template_pepe_mariani_2026,
-        "reference_atlas": "Allen Mouse Brain Atlas (CCFv3)",
-    },
-}
-"""fUSI templates offered in the template dropdown, keyed by display label."""
 
 REGION_TABLE_ROW_HEIGHT_PX = 24
 """Fixed row height shared by the results and selected region tables."""
@@ -137,20 +112,20 @@ def _fetch_atlas(atlas_name: str) -> xr.Dataset:
 
 
 @thread_worker
-def _fetch_template(fetch: Callable[..., xr.DataArray]) -> xr.DataArray:
+def _fetch_template(name: str) -> xr.DataArray:
     """Fetch a fUSI template in a background thread.
 
     Parameters
     ----------
-    fetch : callable
-        One of the `confusius.datasets.fetch_template_*` functions.
+    name : str
+        A key of `FUSI_TEMPLATES`, e.g. `"huang_2025"`.
 
     Returns
     -------
     xarray.DataArray
         Template VoxelData array.
     """
-    return fetch(print_citation=False)
+    return fetch_template(name, print_citation=False)
 
 
 @thread_worker
@@ -420,9 +395,13 @@ class AtlasPanel(QWidget):
         self._atlas_rows: dict[str, _LoadedAtlasRow] = {}
         self._trees: dict[str, StructureTreeWidget] = {}
         self._tree_docks: dict[str, QDockWidget] = {}
-        self._atlas_name: str | None = None
         self._masks_atlas_name: str | None = None
-        self._template_label: str | None = None
+        # In-flight loads, so several atlases or templates can load at once (e.g.
+        # from the CLI) and the busy state only clears when the last one ends.
+        self._atlas_jobs = 0
+        self._template_jobs = 0
+        # Atlases whose volumes are added as layers as soon as they are loaded.
+        self._pending_layers: set[str] = set()
         self._atlases_listed = False
         self._setup_ui()
         install_no_scroll_wheel_filter(self)
@@ -473,7 +452,7 @@ class AtlasPanel(QWidget):
         self._template_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
-        self._template_combo.addItems(list(TEMPLATES))
+        self._template_combo.addItems(list(FUSI_TEMPLATES))
         self._template_combo.currentTextChanged.connect(self._update_template_reference)
         combo_row = QHBoxLayout()
         combo_row.addWidget(QLabel("Template"))
@@ -652,6 +631,7 @@ class AtlasPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _begin_atlas_work(self) -> None:
+        self._atlas_jobs += 1
         self._atlas_combo.setEnabled(False)
         self._load_atlas_btn.setEnabled(False)
         self._load_atlas_btn.setText("Loading…")
@@ -660,6 +640,9 @@ class AtlasPanel(QWidget):
         QApplication.processEvents()
 
     def _end_atlas_work(self) -> None:
+        self._atlas_jobs = max(self._atlas_jobs - 1, 0)
+        if self._atlas_jobs:
+            return
         self._atlas_combo.setEnabled(self._atlas_combo.count() > 0)
         self._load_atlas_btn.setText("Load atlas")
         self._update_load_atlas_button()
@@ -674,16 +657,43 @@ class AtlasPanel(QWidget):
         if name in self._atlases:
             show_error(f"{name} is already loaded.")
             return
-        self._atlas_name = name
+        self.load_atlas(name)
+
+    def load_atlas(self, name: str, *, add_layers: bool = False) -> None:
+        """Load a BrainGlobe atlas in the background and list it under Loaded atlases.
+
+        This is what the Load atlas button does; the CLI's `--atlas` option calls it
+        directly. An atlas already loaded or loading is left alone.
+
+        Parameters
+        ----------
+        name : str
+            BrainGlobe atlas name, e.g. `"allen_mouse_25um"`. Downloaded into the
+            BrainGlobe cache on first use.
+        add_layers : bool, default: False
+            Whether to add the atlas's template, annotation and hemispheres layers as
+            soon as it is loaded, as the row's Volumes button would.
+        """
+        if name in self._atlases or name in self._pending_layers:
+            return
+        if add_layers:
+            self._pending_layers.add(name)
         self._begin_atlas_work()
         worker = _fetch_atlas(name)
-        worker.returned.connect(self._on_atlas_returned)
-        worker.errored.connect(self._on_atlas_error)
+        worker.returned.connect(lambda ds: self._on_atlas_returned(ds, name))
+        worker.errored.connect(lambda exc: self._on_atlas_error(exc, name))
         worker.start()
 
-    def _on_atlas_returned(self, ds: xr.Dataset) -> None:
-        """Register a loaded atlas under its row; layers are added on demand."""
-        name = self._atlas_name or str(ds.attrs.get("name", "atlas"))
+    def _on_atlas_returned(self, ds: xr.Dataset, name: str) -> None:
+        """Register a loaded atlas under its row; layers are added on demand.
+
+        Parameters
+        ----------
+        ds : xarray.Dataset
+            Loaded atlas Dataset.
+        name : str
+            BrainGlobe atlas name it was requested under.
+        """
         self._atlases[name] = ds
         if name not in self._atlas_rows:
             self._add_atlas_row(name)
@@ -694,8 +704,13 @@ class AtlasPanel(QWidget):
             self._load_masks_btn.setEnabled(False)
             self._refresh_search()
         self._end_atlas_work()
+        if name in self._pending_layers:
+            self._pending_layers.discard(name)
+            self._add_atlas_layers(name)
 
-    def _on_atlas_error(self, exc: Exception) -> None:
+    def _on_atlas_error(self, exc: Exception, name: str | None = None) -> None:
+        if name is not None:
+            self._pending_layers.discard(name)
         self._end_atlas_work()
         show_error(str(exc))
 
@@ -980,12 +995,13 @@ class AtlasPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _update_template_reference(self, label: str) -> None:
-        spec = TEMPLATES.get(label)
+        spec = FUSI_TEMPLATES.get(label)
         self._template_reference.setText(
             f"Reference atlas: {spec['reference_atlas']}" if spec else ""
         )
 
     def _begin_template_work(self) -> None:
+        self._template_jobs += 1
         self._template_combo.setEnabled(False)
         self._load_template_btn.setEnabled(False)
         self._load_template_btn.setText("Loading…")
@@ -993,22 +1009,55 @@ class AtlasPanel(QWidget):
         QApplication.processEvents()
 
     def _end_template_work(self) -> None:
+        self._template_jobs = max(self._template_jobs - 1, 0)
+        if self._template_jobs:
+            return
         self._template_combo.setEnabled(True)
         self._load_template_btn.setEnabled(True)
         self._load_template_btn.setText("Load template")
         self._template_progress.hide()
 
     def _load_template(self) -> None:
-        label = self._template_combo.currentText()
-        self._template_label = label
+        self.load_template(self._template_combo.currentText())
+
+    def load_template(self, name: str) -> None:
+        """Fetch a fUSI template in the background and add it as an Image layer.
+
+        This is what the Load template button does; the CLI's `--template` option
+        calls it directly.
+
+        Parameters
+        ----------
+        name : str
+            A key of `FUSI_TEMPLATES`, e.g. `"huang_2025"`. The layer takes this
+            name.
+
+        Raises
+        ------
+        KeyError
+            If `name` is not a known template.
+        """
+        if name not in FUSI_TEMPLATES:
+            raise KeyError(
+                f"Unknown fUSI template {name!r}; expected one of "
+                f"{sorted(FUSI_TEMPLATES)}."
+            )
         self._begin_template_work()
-        worker = _fetch_template(TEMPLATES[label]["fetch"])
-        worker.returned.connect(self._on_template_returned)
+        worker = _fetch_template(name)
+        worker.returned.connect(lambda da: self._on_template_returned(da, name))
         worker.errored.connect(self._on_template_error)
         worker.start()
 
-    def _on_template_returned(self, da: xr.DataArray) -> None:
-        name = self._template_label or "template"
+    def _on_template_returned(self, da: xr.DataArray, name: str) -> None:
+        """Add a fetched template as an Image layer.
+
+        Parameters
+        ----------
+        da : xarray.DataArray
+            Template VoxelData array.
+        name : str
+            Template name, used as the layer name.
+        """
         try:
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")

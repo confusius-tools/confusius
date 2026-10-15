@@ -56,8 +56,12 @@ Current development version for the next ConfUSIus release.
   Atlases stay on disk until a volume is displayed or a mask requested
   ([#488](https://github.com/confusius-tools/confusius/pull/488)).
 - The Atlas tab also loads the fUSI templates shipped in `confusius.datasets`
-  (Huang 2025, Pepe-Mariani 2026) as Image layers
+  (`huang_2025`, `pepe_mariani_2026`) as Image layers
   ([#483](https://github.com/confusius-tools/confusius/issues/483)).
+- The `confusius` launcher takes `--atlas NAME [NAME ...]` and
+  `--template NAME [NAME ...]` to open the plugin with BrainGlobe atlases (with their
+  volume layers) and fUSI templates already loaded
+  ([#488](https://github.com/confusius-tools/confusius/pull/488)).
 - Boolean arrays open as labels layers
   ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 

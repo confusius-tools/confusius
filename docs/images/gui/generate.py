@@ -511,8 +511,7 @@ try:
     atlas_panel._atlases_listed = True
     atlas_panel._atlas_combo.clear()
     atlas_panel._atlas_combo.addItem(f"{_ATLAS_NAME} (downloaded)", _ATLAS_NAME)
-    atlas_panel._atlas_name = _ATLAS_NAME
-    atlas_panel._on_atlas_returned(atlas_ds)
+    atlas_panel._on_atlas_returned(atlas_ds, _ATLAS_NAME)
     atlas_panel._add_atlas_layers(_ATLAS_NAME)
     atlas_panel._toggle_masks(_ATLAS_NAME)
     atlas_panel._search_edit.setText("visual")
