@@ -72,6 +72,15 @@ def test_retheme_swaps_theme_colors(figure) -> None:
     )
 
 
+def test_retheme_recolors_tick_marks(figure) -> None:
+    retheme(figure["fig"], LIGHT, DARK)
+
+    tick = figure["ax1"].xaxis.get_major_ticks()[0].tick1line
+    assert mcolors.to_rgba(tick.get_markeredgecolor()) == pytest.approx(
+        mcolors.to_rgba(DARK.fg)
+    )
+
+
 def test_retheme_keeps_intentional_colors(figure) -> None:
     figure["fig"].set_facecolor("#123456")
 

@@ -68,6 +68,8 @@ _COLOR_SLOTS = (
     ("get_facecolor", "set_facecolor"),
     ("get_edgecolor", "set_edgecolor"),
     ("get_color", "set_color"),
+    ("get_markeredgecolor", "set_markeredgecolor"),
+    ("get_markerfacecolor", "set_markerfacecolor"),
 )
 """Getter/setter pairs through which artists expose a single color."""
 
