@@ -10,6 +10,20 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- Rename `labels_from_layer` to `extract_labels_from_layer`, including the
+  `.fusi.plot` accessor
+  ([#512](https://github.com/confusius-tools/confusius/pull/512)).
+
+### :bug: Fixes
+
+- Labels painted over oblique or sheared data in napari now return to the original
+  reference voxel grid using nearest-neighbor interpolation, rather than retaining
+  the display grid or being assigned incorrect geometry. The drawing documentation
+  explains interpolation limits and recommends an existing axis-aligned frame
+  ([#512](https://github.com/confusius-tools/confusius/pull/512)).
+
 ## 0.8.0
 
 Released 2026-10-13.
