@@ -196,6 +196,11 @@ def render_both(
     tuple[str, dict[str, Any]] or None
         The light rendering and its metadata, with the dark rendering added under
         `"dark"`. `None` when `printer` returns `None` (an empty figure).
+
+    Notes
+    -----
+    The layout is frozen only while the dark rendering is printed; the figure's
+    layout engine is restored before returning.
     """
     light = printer(fig)
     if light is None:
@@ -203,7 +208,9 @@ def render_both(
     data, metadata = light
     # Layout engines (constrained, tight) re-solve on every draw and are not
     # idempotent, so the dark render would come out shifted by a few pixels.
-    # Freezing the layout after the light render keeps the geometry identical.
+    # Freezing the layout during the dark render keeps the geometry identical; the
+    # engine is restored afterwards so later cells still re-solve the layout.
+    engine = fig.get_layout_engine()
     fig.set_layout_engine("none")
     retheme(fig, LIGHT, DARK)
     try:
@@ -211,6 +218,7 @@ def render_both(
             hook(fig, "dark")
         dark = printer(fig)
     finally:
+        fig.set_layout_engine(engine)
         retheme(fig, DARK, LIGHT)
         if hook is not None:
             hook(fig, "light")

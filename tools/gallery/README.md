@@ -39,8 +39,10 @@ What this means when writing an example:
 
 - Read the background from matplotlib rather than hardcoding it, and pass it on
   to the plotting functions: `bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])`.
-  Pure black text, lines and markers count as theme colors and turn light in dark
-  mode; any other explicit color is kept as is.
+  Pure black and pure white are theme colors wherever they appear (text, lines, line
+  markers, and backgrounds); always pass `bg_color` to the plotting functions rather
+  than relying on their `"black"` default. Per-element colors (`scatter(c="black")`,
+  collections) are left alone, and any other explicit color is kept as is.
 - Do not branch on the theme in the example: there is only one run. Leave `cmap`
   unset on `plot_stat_map` and `plot_matrix` so the library's background-aware
   default applies, or pick a colormap that reads well on both backgrounds.

@@ -25,32 +25,35 @@ from tools.gallery.theme import DARK, LIGHT, render_both, retheme
 @pytest.fixture
 def figure():
     """A light-themed figure exercising every kind of artist the swap touches."""
-    plt.style.use("default")
-    plt.rcParams.update({"figure.facecolor": LIGHT.bg, "axes.facecolor": LIGHT.axes_bg})
-    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(6, 3), layout="constrained")
-    banded = ThresholdedColormap(
-        colormaps[LIGHT.diverging_cmap], mcolors.Normalize(-1.0, 1.0), threshold=0.2
-    )
-    image = ax0.imshow(
-        np.linspace(-1.0, 1.0, 12).reshape(3, 4), cmap=banded, norm=banded.norm
-    )
-    fig.colorbar(image, ax=ax0)
-    scatter = ax1.scatter([0, 1], [0, 1], c=[0, 1], cmap=LIGHT.diverging_cmap)
-    (theme_line,) = ax1.plot([0, 1], color="black")
-    (red_line,) = ax1.plot([1, 0], color="tab:red")
-    legend = ax1.legend([theme_line, red_line], ["theme", "kept"], framealpha=0.8)
-    ax1.set_title("title")
-    artists = {
-        "fig": fig,
-        "ax1": ax1,
-        "image": image,
-        "scatter": scatter,
-        "theme_line": theme_line,
-        "red_line": red_line,
-        "legend": legend,
-    }
-    yield artists
-    plt.close(fig)
+    with matplotlib.rc_context():
+        plt.style.use("default")
+        plt.rcParams.update(
+            {"figure.facecolor": LIGHT.bg, "axes.facecolor": LIGHT.axes_bg}
+        )
+        fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(6, 3), layout="constrained")
+        banded = ThresholdedColormap(
+            colormaps[LIGHT.diverging_cmap], mcolors.Normalize(-1.0, 1.0), threshold=0.2
+        )
+        image = ax0.imshow(
+            np.linspace(-1.0, 1.0, 12).reshape(3, 4), cmap=banded, norm=banded.norm
+        )
+        fig.colorbar(image, ax=ax0)
+        scatter = ax1.scatter([0, 1], [0, 1], c=[0, 1], cmap=LIGHT.diverging_cmap)
+        (theme_line,) = ax1.plot([0, 1], color="black")
+        (red_line,) = ax1.plot([1, 0], color="tab:red")
+        legend = ax1.legend([theme_line, red_line], ["theme", "kept"], framealpha=0.8)
+        ax1.set_title("title")
+        artists = {
+            "fig": fig,
+            "ax1": ax1,
+            "image": image,
+            "scatter": scatter,
+            "theme_line": theme_line,
+            "red_line": red_line,
+            "legend": legend,
+        }
+        yield artists
+        plt.close(fig)
 
 
 def _corner_rgb(png_b64: str) -> tuple[float, float, float]:
@@ -127,7 +130,11 @@ def test_render_both_returns_light_data_and_dark_metadata(figure) -> None:
     # The figure is handed back in its light state, with identical geometry.
     again = printer(figure["fig"])
     assert again is not None
-    assert again[0] == data
+    assert _corner_rgb(again[0]) == pytest.approx(mcolors.to_rgb(LIGHT.bg), abs=1 / 255)
+    assert (
+        figure["fig"].get_layout_engine().__class__.__name__
+        == "ConstrainedLayoutEngine"
+    )
 
 
 def test_render_both_passes_through_empty_figure() -> None:
