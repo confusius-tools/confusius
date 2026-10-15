@@ -12,6 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`plot_stat_map`][confusius.plotting.plot_stat_map] and
+  [`plot_matrix`][confusius.plotting.plot_matrix] default to the `"berlin"`
+  colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
+  light ones), judged from `bg_color`
+  ([#0](https://github.com/confusius-tools/confusius/pull/0)).
 - Rename `labels_from_layer` to `extract_labels_from_layer`, including the
   `.fusi.plot` accessor
   ([#512](https://github.com/confusius-tools/confusius/pull/512)).
@@ -24,6 +29,13 @@ Current development version for the next ConfUSIus release.
   `"image"`: integer and boolean data open as a labels layer,
   other data as an image layer. Pass `layer_type="image"` to display integer data
   as an image ([#504](https://github.com/confusius-tools/confusius/pull/504)).
+
+### :sparkles: Enhancements
+
+- New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
+  colormap stat maps are drawn with, which remembers its source colormap and
+  threshold and can be rebuilt on another colormap with `with_source`
+  ([#0](https://github.com/confusius-tools/confusius/pull/0)).
 
 ### :zap: Performance
 
@@ -43,6 +55,12 @@ Current development version for the next ConfUSIus release.
   for regions with no upstream mesh, such as Allen mouse RSPd4. Mesh availability is
   remembered per annotation-set version; available meshes deleted locally are still
   downloaded again ([#508](https://github.com/confusius-tools/confusius/pull/508)).
+
+### :wrench: Maintenance
+
+- The examples gallery runs each example once and renders its light and dark
+  figures from that single run
+  ([#0](https://github.com/confusius-tools/confusius/pull/0)).
 
 ### :frame_photo: Napari plugin
 
