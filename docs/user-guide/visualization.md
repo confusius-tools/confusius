@@ -278,13 +278,9 @@ Extraction maps the painted labels back onto `mean_vol`'s original voxel grid us
 nearest-neighbor interpolation, with zero background outside the display grid.
 Label IDs are preserved, but boundaries can change and thin regions can disappear.
 
-Prefer drawing in an existing axis-aligned acquisition/scanner frame when available.
-For example, draw on the Pepe–Mariani template as fetched, before applying its
-`world_to_sform` transform. A known transform can be applied afterward to both the
-image and extracted labels using
-[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply], without resampling
-voxel values. This changes the world frame, not the voxel grid; do not discard or
-replace the affine arbitrarily just to make the data axis-aligned.
+Prefer drawing in an existing axis-aligned acquisition/scanner frame when available. A
+known transform can be applied afterward to both the image and extracted labels using
+[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] without resampling.
 
 ## Static Volume Plots
 
