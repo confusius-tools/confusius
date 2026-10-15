@@ -44,6 +44,13 @@ Current development version for the next ConfUSIus release.
   remembered per annotation-set version; available meshes deleted locally are still
   downloaded again ([#508](https://github.com/confusius-tools/confusius/pull/508)).
 
+### :books: Documentation
+
+- The documentation site publishes [`llms.txt`](https://confusius.tools/latest/llms.txt)
+  and `llms-full.txt` for AI assistants, along with a Markdown copy of every page
+  and a "Copy as Markdown" button in the page header
+  ([#513](https://github.com/confusius-tools/confusius/pull/513)).
+
 ### :frame_photo: Napari plugin
 
 - Boolean arrays open as labels layers
@@ -195,10 +202,6 @@ Released 2026-10-13.
   types such as `xarray.DataArray` link to the xarray docs instead of resolving to the
   `confusius.xarray` subpackage
   ([#500](https://github.com/confusius-tools/confusius/pull/500)).
-- The documentation site publishes [`llms.txt`](https://confusius.tools/latest/llms.txt)
-  and `llms-full.txt` for AI assistants, along with a Markdown copy of every page
-  and a "Copy as Markdown" button in the page header
-  ([#513](https://github.com/confusius-tools/confusius/pull/513)).
 
 ### :frame_photo: Napari plugin
 
