@@ -231,7 +231,6 @@ def _build_one(
         render.render_notebook(
             source_notebook,
             source_notebook,
-            source_notebook,
             out_dir=out_dir,
             base_name=base_name,
             runtime_seconds=0.0,
@@ -249,25 +248,15 @@ def _build_one(
         )
 
     if not interactive:
-        print(
-            f"-> {spec.section}/{base_name} ({n_cells} cells, light+dark)", flush=True
-        )
+        print(f"-> {spec.section}/{base_name} ({n_cells} cells)", flush=True)
 
-    light_task = progress.add_task(f"{spec.section}/{base_name} (light)", total=n_cells)
-    light_notebook, light_seconds = execute.execute_example(
-        spec.source,
-        theme="light",
-        on_cell_executed=_advance_on_cell(progress, light_task),
-    )
-    dark_task = progress.add_task(f"{spec.section}/{base_name} (dark)", total=n_cells)
-    dark_notebook, _ = execute.execute_example(
-        spec.source,
-        theme="dark",
-        on_cell_executed=_advance_on_cell(progress, dark_task),
+    task = progress.add_task(f"{spec.section}/{base_name}", total=n_cells)
+    executed_notebook, seconds = execute.execute_example(
+        spec.source, on_cell_executed=_advance_on_cell(progress, task)
     )
 
     if not interactive:
-        print(f"   done in {light_seconds:.1f}s", flush=True)
+        print(f"   done in {seconds:.1f}s", flush=True)
 
     scratch = cache_root / "_scratch" / spec.section / base_name
     if scratch.exists():
@@ -276,11 +265,10 @@ def _build_one(
 
     render.render_notebook(
         source_notebook,
-        light_notebook,
-        dark_notebook,
+        executed_notebook,
         out_dir=scratch,
         base_name=base_name,
-        runtime_seconds=light_seconds,
+        runtime_seconds=seconds,
         binder_url=binder_url,
     )
 
