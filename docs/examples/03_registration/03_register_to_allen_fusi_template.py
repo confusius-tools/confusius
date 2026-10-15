@@ -155,7 +155,7 @@ _ = fig.suptitle("Template (red) / recording (cyan)")
 # the recording's native coordinates directly to Allen atlas coordinates.
 #
 # [`resample_like`][confusius.atlas.AtlasAccessor.resample_like] then brings the atlas's
-# reference volume, annotations, and hemisphere map onto the recording's grid in one
+# template volume, annotations, and hemisphere map onto the recording's grid in one
 # call.
 
 # %%

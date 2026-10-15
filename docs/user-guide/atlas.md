@@ -75,7 +75,7 @@ directly.
     [Adding a new atlas](https://brainglobe.info/documentation/brainglobe-atlasapi/adding-a-new-atlas.html)
     guide and the `atlas_scripts` in the
     [brainglobe-atlasapi](https://github.com/brainglobe/brainglobe-atlasapi) repository
-    walk through packaging a reference stack, an annotation stack, and a structure
+    walk through packaging a template stack, an annotation stack, and a structure
     hierarchy into a distributable atlas.
 
 ## Exploring the Structure Hierarchy
@@ -174,9 +174,9 @@ forms validate the Dataset as an atlas before running.
 
 ## Plotting Annotations over the Reference
 
-The reference and annotation volumes plot with the ordinary
+The template and annotation volumes plot with the ordinary
 [`plot_volume`][confusius.plotting.plot_volume] tools. Overlaying the region boundaries on
-a reference slice with [`add_contours`][confusius.plotting.VolumePlotter.add_contours]
+a template slice with [`add_contours`][confusius.plotting.VolumePlotter.add_contours]
 gives the familiar atlas view; contour colors come from each region's atlas color
 automatically:
 
@@ -187,8 +187,8 @@ plotter = cf.plotting.plot_volume(
 plotter.add_contours(atlas.atlas.annotation.sel(z=slice(6, 6)))
 ```
 
-![Coronal reference slice with Allen region annotation contours](../images/atlas/atlas-annotation-light.png#only-light)
-![Coronal reference slice with Allen region annotation contours](../images/atlas/atlas-annotation-dark.png#only-dark)
+![Coronal template slice with Allen region annotation contours](../images/atlas/atlas-annotation-light.png#only-light)
+![Coronal template slice with Allen region annotation contours](../images/atlas/atlas-annotation-dark.png#only-dark)
 
 ## Region Surface Meshes
 
@@ -264,7 +264,7 @@ seed connectivity maps](../examples/_built/connectivity/atlas_seed_map.md) for m
 
 An atlas is only useful once it shares a grid with your data. After registering a
 recording to the atlas template (see [Registration](registration.md)),
-[`resample_like`][confusius.atlas.AtlasAccessor.resample_like] warps the reference,
+[`resample_like`][confusius.atlas.AtlasAccessor.resample_like] warps the template,
 annotation, hemisphere map, and region meshes onto the recording's grid in one call,
 using an affine, B-spline, or displacement-field transform from
 [`register_volume`][confusius.registration.register_volume]:

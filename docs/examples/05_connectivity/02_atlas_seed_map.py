@@ -7,7 +7,7 @@
 # interest as seeds, and correlate each seed's signal against every voxel with
 # [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps]. Each resulting map is
 # displayed with [`plot_stat_map`][confusius.plotting.plot_stat_map], using the
-# resampled Allen reference volume as background.
+# resampled Allen template volume as background.
 #
 # We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
 # in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022][^collection],
@@ -176,7 +176,7 @@ mapper.maps_
 # ## Plot the seed maps
 #
 # Each seed's map is plotted with [`plot_stat_map`][confusius.plotting.plot_stat_map]
-# over the resampled Allen reference volume, with `vmax=0.8` fixing the colormap to a
+# over the resampled Allen template volume, with `vmax=0.8` fixing the colormap to a
 # shared range so the four seeds are directly comparable. `mapper.maps_` stacks all
 # four seed maps along a `region` dimension, so a single `plot_stat_map` call with
 # `slice_mode="region"` plots one panel per seed as long as the background is broadcast

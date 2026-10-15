@@ -377,7 +377,7 @@ class AtlasAccessor:
         output_direction : (3, 3) numpy.ndarray
             Unit world-space direction columns for native `k`/`j`/`i` output axes.
         interpolation : {"linear", "nearest", "bspline"}, default: "linear"
-            Interpolation used for the atlas reference volume.
+            Interpolation used for the atlas template volume.
         sitk_threads : int, default: -1
             Number of SimpleITK threads.
 
@@ -453,7 +453,7 @@ class AtlasAccessor:
             Pull transform mapping reference world coordinates to atlas world
             coordinates.
         interpolation : {"linear", "nearest", "bspline"}, default: "linear"
-            Interpolation used for the atlas reference volume.
+            Interpolation used for the atlas template volume.
         sitk_threads : int, default: -1
             Number of SimpleITK threads.
 
