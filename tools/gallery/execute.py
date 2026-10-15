@@ -7,7 +7,6 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
 
 import jupytext
 import nbformat
@@ -18,52 +17,21 @@ OnCellExecuted = Callable[..., None]
 """Hook invoked after each cell finishes.
 
 nbclient calls it as `hook(cell=..., cell_index=..., execute_reply=...)`; the
-callable must accept those keyword arguments (typically via `**kwargs`).
+callable must accept those keyword arguments (typically via `**kwargs`). The
+injected setup cell is `cell_index == 0`.
 """
 
-_THEME_COMMON_PRE: list[str] = [
-    "import warnings",
-    "import matplotlib as mpl",
-    "from matplotlib import style as mpl_style",
-    "warnings.filterwarnings('ignore', message='IProgress not found.*')",
-    # rich.live.Live.refresh() warns once per process (Python's default warning
-    # dedup) the first time it detects a Jupyter kernel without ipywidgets
-    # installed. Left unfiltered, this fires in only one of the light/dark
-    # passes, breaking the gallery's output-parity check.
-    "warnings.filterwarnings('ignore', message='install \"ipywidgets\" for Jupyter support')",
-]
-_THEME_COMMON_MID: list[str] = [
-    "mpl.rcParams['figure.dpi'] = 160",
-    "mpl.rcParams['savefig.dpi'] = 200",
-    "mpl.rcParams['figure.figsize'] = (7, 4)",
-]
-_THEME_COMMON_POST: list[str] = [
-    "try:",
-    "    from matplotlib_inline.backend_inline import set_matplotlib_formats",
-    "    set_matplotlib_formats('retina')",
-    "except Exception:",
-    "    pass",
-]
-_THEME_SETUP: dict[str, list[str]] = {
-    "light": [
-        *_THEME_COMMON_PRE,
-        "mpl_style.use('default')",
-        *_THEME_COMMON_MID,
-        "mpl.rcParams['figure.facecolor'] = '#f8f9fb'",
-        "mpl.rcParams['axes.facecolor'] = '#ffffff'",
-        "mpl.rcParams['savefig.facecolor'] = '#f8f9fb'",
-        *_THEME_COMMON_POST,
-    ],
-    "dark": [
-        *_THEME_COMMON_PRE,
-        "mpl_style.use('dark_background')",
-        *_THEME_COMMON_MID,
-        "mpl.rcParams['figure.facecolor'] = '#090c10'",
-        "mpl.rcParams['axes.facecolor'] = '#111720'",
-        "mpl.rcParams['savefig.facecolor'] = '090c10'",
-        *_THEME_COMMON_POST,
-    ],
-}
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+_SETUP_SOURCE = "\n".join(
+    [
+        "import sys",
+        f"sys.path.insert(0, {str(_REPO_ROOT)!r})",
+        "from tools.gallery.theme import setup_kernel",
+        "setup_kernel()",
+    ]
+)
+"""Code of the setup cell run before the example (see `tools.gallery.theme`)."""
 
 
 def read_example(source: Path) -> nbformat.NotebookNode:
@@ -71,25 +39,41 @@ def read_example(source: Path) -> nbformat.NotebookNode:
     return jupytext.read(source)
 
 
-def _theme_setup_cell(theme: Literal["light", "dark"]) -> nbformat.NotebookNode:
-    """Return a hidden setup cell for themed execution."""
-    return nbformat.v4.new_code_cell(
-        "\n".join(_THEME_SETUP[theme]),
-        metadata={"tags": ["_gallery_internal"]},
-    )
-
-
 def execute_example(
     source: Path,
     *,
     timeout: int = 600,
-    theme: Literal["light", "dark"] | None = None,
     on_cell_executed: OnCellExecuted | None = None,
 ) -> tuple[nbformat.NotebookNode, float]:
-    """Execute one percent-format `.py` example end-to-end."""
+    """Execute one percent-format `.py` example end-to-end.
+
+    Parameters
+    ----------
+    source : pathlib.Path
+        The example script.
+    timeout : int, default: 600
+        Per-cell timeout in seconds.
+    on_cell_executed : OnCellExecuted, optional
+        Hook called after each cell, including the setup cell at index 0.
+
+    Returns
+    -------
+    notebook : nbformat.NotebookNode
+        The executed notebook, with the same cells as `source`. Figure outputs
+        carry their dark rendering under `metadata["image/png"]["dark"]`.
+    seconds : float
+        Wall-clock execution time.
+
+    Raises
+    ------
+    RuntimeError
+        If the kernel setup cell fails; theming would otherwise be silently off.
+    """
     notebook = read_example(source)
-    if theme is not None:
-        notebook.cells.insert(0, _theme_setup_cell(theme))
+    setup_cell = nbformat.v4.new_code_cell(
+        _SETUP_SOURCE, metadata={"tags": ["_gallery_internal"]}
+    )
+    notebook.cells.insert(0, setup_cell)
 
     kernel_manager = KernelManager()
     kernel_manager.kernel_cmd = [  # ty: ignore[unresolved-attribute]
@@ -102,7 +86,7 @@ def execute_example(
 
     # allow_errors=True lets execution continue past failing cells, so the
     # traceback ends up as a regular `error` output that the renderer (see
-    # tools/gallery/render.py) inlines into the rendered page — matching what
+    # tools/gallery/render.py) inlines into the rendered page, matching what
     # a normal Jupyter notebook would show after a failed run. A broken
     # example therefore degrades to "renders with a visible traceback"
     # instead of aborting the whole gallery build.
@@ -120,4 +104,12 @@ def execute_example(
         start = time.perf_counter()
         client.execute()
         elapsed = time.perf_counter() - start
+
+    # The setup cell is ours, not the example's: drop it so the notebook lines up
+    # one to one with the source. Its own failure is a build error, not content.
+    notebook.cells.pop(0)
+    errors = [out for out in setup_cell.outputs if out.get("output_type") == "error"]
+    if errors:
+        traceback = "\n".join(errors[0].get("traceback", []))
+        raise RuntimeError(f"Gallery kernel setup failed:\n{traceback}")
     return notebook, elapsed

@@ -5,6 +5,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
+from tools.gallery import execute
 from tools.gallery.execute import execute_example
 
 
@@ -61,3 +64,35 @@ def test_execute_captures_cell_error_as_output_and_continues(tmp_path: Path) -> 
         if out.get("output_type") == "stream" and out.get("name") == "stdout"
     ]
     assert any("after" in out.get("text", "") for out in after_streams)
+
+
+def test_execute_attaches_dark_rendering_to_figure_outputs(tmp_path: Path) -> None:
+    """One run yields both themes: the dark PNG rides along in the output metadata."""
+    src = tmp_path / "ex.py"
+    src.write_text("# %%\nimport matplotlib.pyplot as plt\n_ = plt.plot([1, 2, 3])\n")
+
+    nb, _ = execute_example(src, timeout=120)
+
+    code_cells = [c for c in nb.cells if c.cell_type == "code"]
+    assert len(code_cells) == 1, "the injected setup cell must not leak out"
+    images = [
+        out
+        for out in code_cells[0].outputs
+        if out.get("output_type") == "display_data" and "image/png" in out["data"]
+    ]
+    assert len(images) == 1
+    dark = images[0]["metadata"]["image/png"]["dark"]
+    assert isinstance(dark, str)
+    assert dark != images[0]["data"]["image/png"]
+
+
+def test_execute_raises_when_kernel_setup_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broken setup cell must not silently produce light-only pages."""
+    monkeypatch.setattr(execute, "_SETUP_SOURCE", "raise RuntimeError('no theme')")
+    src = tmp_path / "ex.py"
+    src.write_text("# %%\nprint('hi')\n")
+
+    with pytest.raises(RuntimeError, match="no theme"):
+        execute_example(src, timeout=60)
