@@ -8,7 +8,7 @@ import xarray as xr
 from confusius.plotting import (
     VolumePlotter,
     draw_napari_labels,
-    labels_from_layer,
+    extract_labels_from_layer,
     plot_carpet,
     plot_composite,
     plot_contours,
@@ -173,9 +173,12 @@ class FUSIPlotAccessor:
         Displays the data as an image layer and adds an empty Labels layer on
         top. The user paints integer labels directly on the image using
         napari's brush tool. After painting, pass the returned Labels layer to
-        [`labels_from_layer`][confusius.xarray.plotting.FUSIPlotAccessor.labels_from_layer]
+        [`extract_labels_from_layer`][confusius.xarray.plotting.FUSIPlotAccessor.extract_labels_from_layer]
         to obtain an integer label map in the same spatial coordinates as the
-        data.
+        data. Oblique or sheared input requires interpolation for display and
+        nearest-neighbor interpolation back to the original grid; boundaries and
+        thin regions can change. Prefer an existing axis-aligned scanner frame
+        when available.
 
         Parameters
         ----------
@@ -196,7 +199,7 @@ class FUSIPlotAccessor:
         labels_layer : napari.layers.Labels
             The empty Labels layer initialised to zeros. After painting labels
             in the viewer, pass it to
-            [`labels_from_layer`][confusius.xarray.plotting.FUSIPlotAccessor.labels_from_layer]
+            [`extract_labels_from_layer`][confusius.xarray.plotting.FUSIPlotAccessor.extract_labels_from_layer]
             to convert the paintings to an integer label map.
 
         Examples
@@ -208,7 +211,7 @@ class FUSIPlotAccessor:
         >>> viewer, labels_layer = pwd.mean("time").fusi.plot.draw_napari_labels()
         >>> # … paint labels in the viewer …
         >>> # Convert painted labels to an integer label map.
-        >>> label_map = pwd.mean("time").fusi.plot.labels_from_layer(labels_layer)
+        >>> label_map = pwd.mean("time").fusi.plot.extract_labels_from_layer(labels_layer)
         """
         return draw_napari_labels(
             self._obj,
@@ -217,15 +220,16 @@ class FUSIPlotAccessor:
             **plot_kwargs,
         )
 
-    def labels_from_layer(
+    def extract_labels_from_layer(
         self,
         labels_layer: "Labels",
     ) -> xr.DataArray:
         """Convert a napari Labels layer to an integer label map DataArray.
 
-        Reads the integer array painted in `labels_layer` and wraps it in an
-        [`xarray.DataArray`][xarray.DataArray] whose spatial dimensions and
-        coordinates match those of the data.
+        Extracts painted labels onto the data's original voxel grid, using
+        nearest-neighbor resampling when the display grid differs. Label IDs are
+        preserved, but boundaries and thin regions can change. Drawing on an
+        existing axis-aligned grid avoids this interpolation round trip.
 
         Parameters
         ----------
@@ -247,12 +251,12 @@ class FUSIPlotAccessor:
         >>> pwd = xr.open_zarr("output.zarr")["power_doppler"].compute()
         >>> viewer, labels_layer = pwd.mean("time").fusi.plot.draw_napari_labels()
         >>> # … paint labels in the viewer …
-        >>> label_map = pwd.mean("time").fusi.plot.labels_from_layer(labels_layer)
+        >>> label_map = pwd.mean("time").fusi.plot.extract_labels_from_layer(labels_layer)
         >>> # Use the label map for region-based analysis.
         >>> from confusius.extract import extract_with_labels
         >>> signals = extract_with_labels(pwd, label_map)
         """
-        return labels_from_layer(labels_layer, self._obj)
+        return extract_labels_from_layer(labels_layer, self._obj)
 
     def carpet(
         self,
