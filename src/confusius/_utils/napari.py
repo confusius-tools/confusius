@@ -26,11 +26,12 @@ def infer_layer_type(dtype: npt.DTypeLike) -> Literal["image", "labels"]:
     Returns
     -------
     {"image", "labels"}
-        `"labels"` for integer dtypes (e.g. atlas annotations, ROI masks), which
-        should render with per-label colors rather than a continuous colormap.
+        `"labels"` for integer or boolean dtypes (e.g. atlas annotations, ROI masks),
+        which should render with per-label colors rather than a continuous colormap.
         `"image"` for all other dtypes.
     """
-    return "labels" if np.issubdtype(np.dtype(dtype), np.integer) else "image"
+    # Dtype kinds: "b" boolean, "i" signed integer, "u" unsigned integer
+    return "labels" if np.dtype(dtype).kind in "biu" else "image"
 
 
 def build_direct_label_colormap(data: xr.DataArray) -> DirectLabelColormap | None:
@@ -47,23 +48,29 @@ def build_direct_label_colormap(data: xr.DataArray) -> DirectLabelColormap | Non
     Returns
     -------
     napari.utils.colormaps.DirectLabelColormap or None
-        Colormap mapping each unique non-zero label in `data` to its atlas color,
-        with unknown/background labels transparent. `None` if `data.attrs` carries
-        neither a `cmap`/`norm` pair nor `rgb_lookup`.
+        Colormap mapping each non-zero label to its atlas color, with
+        unknown/background labels transparent. Labels are taken from the keys of
+        `data.attrs["rgb_lookup"]` when present, so labels absent from `data` are
+        colored too; otherwise from the unique values of `data`, which loads it
+        into memory. `None` if `data.attrs` carries neither a `cmap`/`norm` pair
+        nor `rgb_lookup`.
     """
     cmap_attr = data.attrs.get("cmap")
     norm_attr = data.attrs.get("norm")
-    if (cmap_attr is None or norm_attr is None) and "rgb_lookup" in data.attrs:
-        cmap_attr, norm_attr = build_atlas_cmap_and_norm(data.attrs["rgb_lookup"])
+    rgb_lookup = data.attrs.get("rgb_lookup")
     if cmap_attr is None or norm_attr is None:
-        return None
+        if rgb_lookup is None:
+            return None
+        cmap_attr, norm_attr = build_atlas_cmap_and_norm(rgb_lookup)
 
     color_dict: defaultdict[int | None, np.ndarray] = defaultdict(
         lambda: np.zeros(4, dtype=np.float32)  # unknown labels → transparent.
     )
-    for label in np.unique(data.values):
-        if label == 0:
-            continue  # background_value=0 is always transparent.
+    if rgb_lookup:
+        labels = sorted(int(k) for k in rgb_lookup if int(k) != 0)
+    else:
+        labels = sorted(int(label) for label in np.unique(data.values) if label != 0)
+    for label in labels:
         color_dict[int(label)] = np.array(
             cmap_attr(norm_attr(int(label))), dtype=np.float32
         )

@@ -298,6 +298,10 @@ def _get_image_display_kwargs_from_layer(layer: Layer) -> dict[str, Any]:
     for attr in ("colormap", "gamma", "opacity"):
         if hasattr(layer, attr):
             kwargs[attr] = getattr(layer, attr)
+
+    # Forcing any possible image layer with integers to remain image layers after
+    # registration.
+    kwargs["layer_type"] = "image"
     return kwargs
 
 

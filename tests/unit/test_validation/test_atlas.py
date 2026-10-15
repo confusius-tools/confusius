@@ -38,7 +38,7 @@ def _make_atlas(
 
     return xr.Dataset(
         {
-            "reference": mk(np.ones(shape, dtype=np.float32)),
+            "template": mk(np.ones(shape, dtype=np.float32)),
             "annotation": mk(np.zeros(shape, dtype=np.int32)),
             "hemispheres": mk(np.ones(shape, dtype=np.int8)),
         },
@@ -67,9 +67,10 @@ def test_non_dataset_raises_type_error() -> None:
         validate_atlas(xr.DataArray(np.zeros((3, 3, 3))))  # ty: ignore[invalid-argument-type]
 
 
-def test_missing_data_var_raises() -> None:
-    ds = _make_atlas().drop_vars("annotation")
-    with pytest.raises(ValueError, match="annotation"):
+@pytest.mark.parametrize("name", ["template", "annotation", "hemispheres"])
+def test_missing_data_var_raises(name: str) -> None:
+    ds = _make_atlas().drop_vars(name)
+    with pytest.raises(ValueError, match=name):
         validate_atlas(ds)
 
 
@@ -81,10 +82,10 @@ def test_hemispheres_as_coordinate_reported_missing() -> None:
         validate_atlas(ds)
 
 
-def test_reference_wrong_dtype_raises_type_error() -> None:
+def test_template_wrong_dtype_raises_type_error() -> None:
     ds = _make_atlas()
-    ds["reference"] = ds["reference"].astype(np.int32)
-    with pytest.raises(TypeError, match="reference"):
+    ds["template"] = ds["template"].astype(np.int32)
+    with pytest.raises(TypeError, match="template"):
         validate_atlas(ds)
 
 
@@ -147,7 +148,7 @@ def test_matching_variable_affines_pass() -> None:
     ds = _make_atlas()
     aff = np.eye(4)
     aff[0, 3] = 5.0
-    ds["reference"].attrs["affines"] = {"world_to_sform": aff}
+    ds["template"].attrs["affines"] = {"world_to_sform": aff}
     ds["annotation"].attrs["affines"] = {"world_to_sform": aff.copy()}
     validate_atlas(ds)
 
@@ -155,7 +156,7 @@ def test_matching_variable_affines_pass() -> None:
 def test_mismatched_variable_affines_raise() -> None:
     """Two variables disagreeing on a same-named affine are invalid."""
     ds = _make_atlas()
-    ds["reference"].attrs["affines"] = {"world_to_sform": np.eye(4)}
+    ds["template"].attrs["affines"] = {"world_to_sform": np.eye(4)}
     other = np.eye(4)
     other[0, 3] = 5.0
     ds["hemispheres"].attrs["affines"] = {"world_to_sform": other}
@@ -179,7 +180,7 @@ def test_non_spatial_dims_raise() -> None:
     """A dim outside (k, j, i) fails the grid check, before an index is required."""
     ds = xr.Dataset(
         {
-            "reference": xr.DataArray(
+            "template": xr.DataArray(
                 np.ones((3, 3, 3), dtype=np.float32), dims=("k", "j", "w")
             ),
             "annotation": xr.DataArray(
@@ -199,7 +200,7 @@ def test_missing_index_raises() -> None:
     """Variables on canonical voxel dims but without a VoxelToWorldIndex are invalid."""
     ds = xr.Dataset(
         {
-            "reference": xr.DataArray(
+            "template": xr.DataArray(
                 np.ones((3, 3, 3), dtype=np.float32), dims=("k", "j", "i")
             ),
             "annotation": xr.DataArray(
@@ -217,7 +218,7 @@ def test_missing_index_raises() -> None:
 
 def test_mismatched_dims_raise() -> None:
     ds = _make_atlas()
-    # Give annotation a different (but still valid voxel) dim set than reference.
+    # Give annotation a different (but still valid voxel) dim set than template.
     ds = ds.assign(
         annotation=xr.DataArray(np.zeros((3, 3), dtype=np.int32), dims=("j", "i"))
     )

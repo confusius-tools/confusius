@@ -127,7 +127,7 @@ that share some dimensions and coordinates. It shows up when a source naturally 
 several co-registered variables together, rather than one array per file. An atlas is a
 good example: loading one with
 [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] gives you a
-Dataset with `reference`, `annotation`, and `hemispheres` variables sharing the same
+Dataset with `template`, `annotation`, and `hemispheres` variables sharing the same
 voxel grid and world coordinates:
 
 ```pycon
@@ -143,7 +143,7 @@ Coordinates:
   * y            (k, j, i) float64 10MB 0.0 0.0 0.0 ... 7.9 7.9
   * x            (k, j, i) float64 10MB 0.0 0.1 0.2 ... 11.2 11.3
 Data variables:
-    reference    (k, j, i) float32 5MB 0.0 0.0 0.0 ... 1.0 1.0
+    template     (k, j, i) float32 5MB 0.0 0.0 0.0 ... 1.0 1.0
     annotation   (k, j, i) int32 5MB 0 0 0 0 0 ... 0 0 0 0 0
     hemispheres  (k, j, i) int8 1MB 2 2 2 2 2 ... 1 1 1 1 1
 Indexes:
@@ -159,7 +159,7 @@ Attributes:
 
 ConfUSIus mostly operates on DataArray objects. Datasets are a convenient way to group
 several DataArrays together when they naturally belong together, as with the atlas
-above—pull out a single variable (e.g. `atlas["reference"]`) to get a DataArray back.
+above—pull out a single variable (e.g. `atlas["template"]`) to get a DataArray back.
 
 ## Basic Operations
 

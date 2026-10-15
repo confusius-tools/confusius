@@ -15,6 +15,22 @@ Current development version for the next ConfUSIus release.
 - Rename `labels_from_layer` to `extract_labels_from_layer`, including the
   `.fusi.plot` accessor
   ([#512](https://github.com/confusius-tools/confusius/pull/512)).
+- Atlas Datasets use `template` instead of `reference`, matching BrainGlobe's naming.
+  Use `atlas.atlas.template` or `atlas["template"]`; update custom atlas Datasets and
+  regenerate previously saved atlas stores
+  ([#510](https://github.com/confusius-tools/confusius/pull/510)).
+- [`plot_napari`][confusius.plotting.plot_napari] and its `data.fusi.plot.napari()`
+  and `data.fusi.plot()` accessors default to `layer_type="auto"` instead of
+  `"image"`: integer and boolean data open as a labels layer,
+  other data as an image layer. Pass `layer_type="image"` to display integer data
+  as an image ([#504](https://github.com/confusius-tools/confusius/pull/504)).
+
+### :zap: Performance
+
+- [`plot_napari`][confusius.plotting.plot_napari] opens labels data carrying an
+  `rgb_lookup` attribute, such as atlas annotations, faster by building the
+  colormap from the lookup instead of scanning the whole volume
+  ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 
 ### :bug: Fixes
 
@@ -23,6 +39,15 @@ Current development version for the next ConfUSIus release.
   the display grid or being assigned incorrect geometry. The drawing documentation
   explains interpolation limits and recommends an existing axis-aligned frame
   ([#512](https://github.com/confusius-tools/confusius/pull/512)).
+- Fetching a cached BrainGlobe atlas no longer warns or checks the network repeatedly
+  for regions with no upstream mesh, such as Allen mouse RSPd4. Mesh availability is
+  remembered per annotation-set version; available meshes deleted locally are still
+  downloaded again ([#508](https://github.com/confusius-tools/confusius/pull/508)).
+
+### :frame_photo: Napari plugin
+
+- Boolean arrays open as labels layers
+  ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 
 ## 0.8.0
 

@@ -102,8 +102,8 @@ def _transform_points(
 def _compose_world_to_base_transforms(
     old_transform: WorldToBaseTransform,
     new_transform: WorldToBaseTransform,
-    new_reference: xr.DataArray,
-    old_reference: xr.DataArray,
+    new_template: xr.DataArray,
+    old_template: xr.DataArray,
 ) -> WorldToBaseTransform:
     """Compose mesh pull transforms as `old_transform ∘ new_transform`.
 
@@ -113,17 +113,17 @@ def _compose_world_to_base_transforms(
         Pull transform from the current atlas world space to the base atlas space.
     new_transform : numpy.ndarray or xarray.DataArray
         Pull transform from the new atlas world space to the current atlas space.
-    new_reference : xarray.DataArray
-        Reference grid of the new atlas space.
-    old_reference : xarray.DataArray
-        Reference grid of the current atlas space.
+    new_template : xarray.DataArray
+        Template grid of the new atlas space.
+    old_template : xarray.DataArray
+        Template grid of the current atlas space.
 
     Returns
     -------
     numpy.ndarray or xarray.DataArray
         Pull transform from the new atlas world space to the base atlas space. Affine
         when both inputs are affine, otherwise a dense displacement field on
-        `new_reference`'s grid.
+        `new_template`'s grid.
     """
     # Shape-check before np.allclose: a malformed (non-(4, 4)) affine must be
     # rejected by _validate_world_to_base_transform below with a clear error, not
@@ -155,26 +155,26 @@ def _compose_world_to_base_transforms(
     # output-grid position from the requested spacing, origin, and direction rather
     # than the derived N-D world coordinates.
     dims = list(WORLD_DIMS)
-    voxel_dims = get_voxel_to_world_spatial_dims(new_reference)
-    shape = tuple(new_reference.sizes[dim] for dim in voxel_dims)
+    voxel_dims = get_voxel_to_world_spatial_dims(new_template)
+    shape = tuple(new_template.sizes[dim] for dim in voxel_dims)
     spacing = np.asarray(
-        [new_reference.fusi.spacing[dim] for dim in voxel_dims], dtype=np.float64
+        [new_template.fusi.spacing[dim] for dim in voxel_dims], dtype=np.float64
     )
     origin = np.asarray(
-        [new_reference.fusi.origin[dim] for dim in dims], dtype=np.float64
+        [new_template.fusi.origin[dim] for dim in dims], dtype=np.float64
     )
-    direction = np.asarray(new_reference.fusi.direction, dtype=np.float64)
+    direction = np.asarray(new_template.fusi.direction, dtype=np.float64)
     voxel_positions = np.stack(
         np.meshgrid(*(np.arange(size) for size in shape), indexing="ij"), axis=-1
     ).reshape(-1, len(dims))
     reference_points = voxel_positions @ (direction @ np.diag(spacing)).T + origin
-    current_points = _transform_points(new_transform, reference_points, new_reference)
-    base_points = _transform_points(old_transform, current_points, old_reference)
+    current_points = _transform_points(new_transform, reference_points, new_template)
+    base_points = _transform_points(old_transform, current_points, old_template)
     # Points and displacement components are both in DataArray dim order (component
     # `dims[i]` displaces along axis `dims[i]`), matching `_transform_points` and
     # `_interpolate_displacement_field`, so no axis reversal is needed.
     displacement = (base_points - reference_points).T.reshape(
-        len(dims), *new_reference.shape
+        len(dims), *new_template.shape
     )
 
     # A displacement field is a VoxelData array (voxel-to-world index,
@@ -313,7 +313,7 @@ def _invert_displacement_field_at_points(
 def _apply_world_to_base_transform(
     transform: WorldToBaseTransform,
     vertices: npt.NDArray[np.float64],
-    reference: xr.DataArray,
+    template: xr.DataArray,
 ) -> npt.NDArray[np.float64]:
     """Transform mesh vertices from base atlas space into the atlas's world space.
 
@@ -324,8 +324,8 @@ def _apply_world_to_base_transform(
         space.
     vertices : (N, 3) numpy.ndarray
         Mesh vertices expressed in the base atlas world coordinates (millimetres).
-    reference : xarray.DataArray
-        The atlas's reference grid. Used to sample B-spline transforms into a dense
+    template : xarray.DataArray
+        The atlas's template grid. Used to sample B-spline transforms into a dense
         displacement field when needed.
 
     Returns
@@ -340,7 +340,7 @@ def _apply_world_to_base_transform(
 
     field = transform
     if transform.attrs.get("type") == "bspline_transform":
-        field = sample_displacement_field_like(transform, reference)
+        field = sample_displacement_field_like(transform, template)
 
     initial_guess_affine: npt.NDArray[np.float64] | None = None
     pre_affine = transform.attrs.get("affines", {}).get("bspline_initialization")

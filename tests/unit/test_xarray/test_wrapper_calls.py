@@ -459,7 +459,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
             "show_scale_bar": False,
             "dim_order": None,
             "viewer": None,
-            "layer_type": "image",
+            "layer_type": "auto",
             "resample_interpolation": None,
             "resample_fill_value": None,
         },
