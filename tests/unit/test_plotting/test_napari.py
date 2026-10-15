@@ -1,10 +1,13 @@
 """Tests for napari-based plotting functions."""
 
+import dask.array as da
 import numpy as np
 import numpy.testing as npt
 import pytest
 import xarray as xr
+from matplotlib.colors import BoundaryNorm, ListedColormap
 from napari.layers import Image, Labels
+from napari.utils.colormaps import DirectLabelColormap
 
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
@@ -255,6 +258,83 @@ class TestPlotNapari:
         with pytest.raises(ValueError, match="Unknown layer_type"):
             plot_napari(sample_voxeldata_3d, layer_type="bogus")  # ty: ignore[invalid-argument-type]
 
+    @pytest.mark.parametrize(
+        ("dtype", "expected"),
+        [
+            (np.bool_, Labels),
+            (np.int8, Labels),
+            (np.int32, Labels),
+            (np.uint16, Labels),
+            (np.float32, Image),
+            (np.float64, Image),
+            pytest.param(
+                np.complex64,
+                Image,
+                marks=pytest.mark.filterwarnings("ignore:Complex-valued data"),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("api", ["function", "accessor", "callable_accessor"])
+    def test_default_layer_type_follows_dtype(
+        self, dtype, expected, api, make_napari_viewer
+    ) -> None:
+        data = create_voxeldata(
+            (np.arange(64).reshape(4, 4, 4) % 3).astype(dtype),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+        )
+
+        viewer = make_napari_viewer()
+        if api == "function":
+            _, layer = plot_napari(data, viewer=viewer)
+        elif api == "accessor":
+            _, layer = data.fusi.plot.napari(viewer=viewer)
+        else:
+            _, layer = data.fusi.plot(viewer=viewer)
+
+        assert type(layer) is expected
+
+    @pytest.mark.parametrize("dtype", [np.int16, np.bool_, np.float32])
+    def test_labels_preserve_lazy_data(self, dtype, make_napari_viewer) -> None:
+        """Labels retain Dask backing and preserve values when casting is needed."""
+        values = (np.arange(64).reshape(4, 4, 4) % 3).astype(dtype)
+        data = create_voxeldata(
+            da.from_array(values, chunks=(2, 2, 2)),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+        )
+
+        _, layer = plot_napari(data, viewer=make_napari_viewer(), layer_type="labels")
+
+        assert isinstance(layer.data, da.Array)
+        assert layer.data.dtype == (
+            values.dtype if np.issubdtype(dtype, np.integer) else np.dtype(np.int32)
+        )
+        npt.assert_array_equal(layer.data.compute(), values.astype(layer.data.dtype))
+
+    def test_labels_colormap_from_cmap_norm_without_rgb_lookup(
+        self, make_napari_viewer
+    ) -> None:
+        # Without rgb_lookup, the colormap labels come from the data values.
+        cmap = ListedColormap([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        norm = BoundaryNorm([0.5, 1.5, 2.5], cmap.N)
+        labels = create_voxeldata(
+            np.array([[[0, 1], [2, 0]]], dtype=np.int32),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+            attrs={"cmap": cmap, "norm": norm},
+        )
+
+        _, layer = plot_napari(labels, viewer=make_napari_viewer())
+
+        colormap = layer.colormap
+        assert isinstance(colormap, DirectLabelColormap)
+        npt.assert_allclose(colormap.color_dict[1], [1.0, 0.0, 0.0, 1.0])
+        npt.assert_allclose(colormap.color_dict[2], [0.0, 0.0, 1.0, 1.0])
+
     def test_without_voxel_to_world_index_raises(self) -> None:
         """plot_napari raises clearly without a voxel-to-world index."""
         data = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
@@ -432,6 +512,24 @@ class TestDrawNapariLabels:
 
         with pytest.raises(ValueError, match="VoxelToWorldIndex"):
             draw_napari_labels(data)
+
+    def test_integer_background_remains_image(
+        self, sample_voxeldata_3d, make_napari_viewer
+    ) -> None:
+        """Integer backgrounds support image display settings when drawing ROIs."""
+        data = (sample_voxeldata_3d * 100).astype(np.uint16)
+        viewer = make_napari_viewer()
+
+        _, labels_layer = draw_napari_labels(
+            data, viewer=viewer, contrast_limits=(0, 100)
+        )
+
+        image_layer = viewer.layers[0]
+        assert isinstance(image_layer, Image)
+        npt.assert_array_equal(image_layer.data, data.values)
+        npt.assert_allclose(image_layer.contrast_limits, (0, 100))
+        assert isinstance(labels_layer, Labels)
+        npt.assert_array_equal(labels_layer.data, np.zeros(data.shape, dtype=np.int32))
 
     def test_labels_scale_translate_match_image(
         self, sample_voxeldata_3d, make_napari_viewer

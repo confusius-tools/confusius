@@ -922,7 +922,7 @@ def on_apply_transform_finished(
     display_kwargs = (
         _get_image_display_kwargs_from_layer(source_layer)
         if source_layer is not None
-        else {}
+        else {"layer_type": "image"}
     )
     display_kwargs["blending"] = "additive"
     contrast_limits = tuple(calc_data_range(registered.data))
