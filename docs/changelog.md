@@ -16,7 +16,7 @@ Current development version for the next ConfUSIus release.
   [`plot_matrix`][confusius.plotting.plot_matrix] default to the `"berlin"`
   colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
   light ones), judged from `bg_color`
-  ([#0](https://github.com/confusius-tools/confusius/pull/0)).
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - Rename `labels_from_layer` to `extract_labels_from_layer`, including the
   `.fusi.plot` accessor
   ([#512](https://github.com/confusius-tools/confusius/pull/512)).
@@ -35,7 +35,7 @@ Current development version for the next ConfUSIus release.
 - New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
   colormap stat maps are drawn with, which remembers its source colormap and
   threshold and can be rebuilt on another colormap with `with_source`
-  ([#0](https://github.com/confusius-tools/confusius/pull/0)).
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 
 ### :zap: Performance
 
@@ -60,7 +60,7 @@ Current development version for the next ConfUSIus release.
 
 - The examples gallery runs each example once and renders its light and dark
   figures from that single run
-  ([#0](https://github.com/confusius-tools/confusius/pull/0)).
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 
 ### :frame_photo: Napari plugin
 
