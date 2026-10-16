@@ -552,11 +552,41 @@ class TestTemplateLoading:
 
     def test_error_restores_idle_state(self, panel, errors) -> None:
         panel._begin_template_work()
-        panel._on_template_error(RuntimeError("offline"))
+        panel._on_template_downloading("brunner_grillet_2021")
+        panel._on_template_error(RuntimeError("offline"), "brunner_grillet_2021")
 
         assert errors == ["offline"]
         assert panel._template_combo.isEnabled()
         assert panel._load_template_btn.text() == "Load template"
+        assert panel._template_notice.isHidden()
+
+    def test_download_notice_names_templates_until_loaded(
+        self, panel, sample_voxeldata_3d
+    ) -> None:
+        panel._begin_template_work()
+        panel._begin_template_work()
+        assert panel._load_template_btn.text() == "Loading…"
+        assert panel._template_notice.isHidden()
+
+        panel._on_template_downloading("pepe_mariani_2026")
+        panel._on_template_downloading("brunner_grillet_2021")
+        assert panel._load_template_btn.text() == "Downloading…"
+        # The templates page itself is hidden until its tab is picked, so check the
+        # label's own flag rather than visibility through the panel.
+        assert not panel._template_notice.isHidden()
+        assert (
+            panel._template_notice.text()
+            == "Downloading brunner_grillet_2021, pepe_mariani_2026…"
+        )
+
+        panel._on_template_returned(sample_voxeldata_3d, "brunner_grillet_2021")
+        assert panel._template_notice.text() == "Downloading pepe_mariani_2026…"
+        assert not panel._template_combo.isEnabled()
+
+        panel._on_template_returned(sample_voxeldata_3d, "pepe_mariani_2026")
+        assert panel._template_notice.isHidden()
+        assert panel._load_template_btn.text() == "Load template"
+        assert panel._template_combo.isEnabled()
 
     def test_load_lazily_unchecked_by_default(self, panel) -> None:
         assert not panel._template_lazy_check.isChecked()
@@ -568,11 +598,21 @@ class TestTemplateLoading:
         import dask.array as da
 
         monkeypatch.setattr(
+            "confusius._napari._atlas._panel.is_template_cached", lambda name: True
+        )
+        monkeypatch.setattr(
             "confusius._napari._atlas._panel.fetch_template",
             lambda name, **kwargs: sample_voxeldata_3d.chunk({"k": 2}),
         )
 
-        result = _fetch_template.__wrapped__("brunner_grillet_2021", lazy)
+        # The worker is a generator (it yields while downloading); run it to the
+        # end and take its return value, as napari's GeneratorWorker does.
+        steps = _fetch_template.__wrapped__("brunner_grillet_2021", lazy)
+        try:
+            while True:
+                next(steps)
+        except StopIteration as stop:
+            result = stop.value
 
         assert isinstance(result.data, da.Array if lazy else np.ndarray)
         # The world coordinates stay index-derived either way.
@@ -690,9 +730,35 @@ class TestProgrammaticLoading:
             lambda name, **kwargs: atlas_ds.assign_attrs(name=name),
         )
         monkeypatch.setattr(
+            "confusius._napari._atlas._panel.is_template_cached", lambda name: True
+        )
+        monkeypatch.setattr(
             "confusius._napari._atlas._panel.fetch_template",
             lambda name, **kwargs: sample_voxeldata_3d.chunk({"k": 2}),
         )
+
+    def test_uncached_template_shows_download_notice_while_fetching(
+        self, qtbot, panel, viewer, offline, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "confusius._napari._atlas._panel.is_template_cached", lambda name: False
+        )
+        seen: list[str] = []
+        monkeypatch.setattr(
+            panel,
+            "_on_template_downloading",
+            lambda name: (
+                seen.append(name),
+                AtlasPanel._on_template_downloading(panel, name),
+            ),
+        )
+
+        panel.load_template("pepe_mariani_2026")
+        qtbot.waitUntil(lambda: len(viewer.layers) == 1, timeout=10_000)
+
+        assert seen == ["pepe_mariani_2026"]
+        assert panel._template_notice.isHidden()
+        assert panel._templates_downloading == set()
 
     def test_uncached_atlas_shows_download_notice_while_fetching(
         self, qtbot, panel, offline, monkeypatch

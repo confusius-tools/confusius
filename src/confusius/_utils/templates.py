@@ -59,9 +59,54 @@ def fetch_template(name: str, **kwargs: object) -> xr.DataArray:
     """
     from confusius import datasets
 
+    fetcher = getattr(datasets, _lookup(name)["fetcher"])
+    return fetcher(**kwargs)
+
+
+def is_template_cached(name: str) -> bool:
+    """Whether a fUSI template is in the local cache, so fetching it needs no network.
+
+    Parameters
+    ----------
+    name : str
+        A key of [`FUSI_TEMPLATES`][confusius._utils.templates.FUSI_TEMPLATES].
+
+    Returns
+    -------
+    bool
+        Whether the template's fetcher has recorded a complete release in the cache
+        (see `confusius.datasets.is_dataset_cached`).
+
+    Raises
+    ------
+    KeyError
+        If `name` is not a known template.
+    """
+    from confusius import datasets
+
+    return datasets.is_dataset_cached(_lookup(name)["fetcher"])
+
+
+def _lookup(name: str) -> TemplateSpec:
+    """Return the registry entry of a template.
+
+    Parameters
+    ----------
+    name : str
+        A key of `FUSI_TEMPLATES`.
+
+    Returns
+    -------
+    TemplateSpec
+        The template's entry.
+
+    Raises
+    ------
+    KeyError
+        If `name` is not a known template.
+    """
     if name not in FUSI_TEMPLATES:
         raise KeyError(
             f"Unknown fUSI template {name!r}; expected one of {sorted(FUSI_TEMPLATES)}."
         )
-    fetcher = getattr(datasets, FUSI_TEMPLATES[name]["fetcher"])
-    return fetcher(**kwargs)
+    return FUSI_TEMPLATES[name]

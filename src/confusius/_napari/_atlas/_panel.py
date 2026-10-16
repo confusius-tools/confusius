@@ -36,7 +36,11 @@ from confusius._napari._qt import (
     install_no_scroll_wheel_filter,
     make_segmented_buttons,
 )
-from confusius._utils.templates import FUSI_TEMPLATES, fetch_template
+from confusius._utils.templates import (
+    FUSI_TEMPLATES,
+    fetch_template,
+    is_template_cached,
+)
 from confusius.datasets import fetch_brainglobe_atlas, is_brainglobe_atlas_cached
 from confusius.plotting.napari import plot_napari
 
@@ -147,7 +151,7 @@ def _fetch_atlas(atlas_name: str) -> Generator[str, None, xr.Dataset]:
 
 
 @thread_worker
-def _fetch_template(name: str, lazy: bool) -> xr.DataArray:
+def _fetch_template(name: str, lazy: bool) -> Generator[str, None, xr.DataArray]:
     """Fetch a fUSI template in a background thread.
 
     Parameters
@@ -159,11 +163,18 @@ def _fetch_template(name: str, lazy: bool) -> xr.DataArray:
         they are read into memory here, once; the world coordinates stay lazy either
         way (see `_compute_masks` for why not `DataArray.compute()`).
 
+    Yields
+    ------
+    str
+        `name`, once, before the fetch when it has to download the template.
+
     Returns
     -------
     xarray.DataArray
         Template VoxelData array.
     """
+    if not is_template_cached(name):
+        yield name
     da = fetch_template(name, print_citation=False)
     if not lazy:
         da = da.copy(data=np.asarray(da.data))
@@ -393,8 +404,10 @@ class AtlasPanel(QWidget):
         # cache, which can take minutes for fine atlases and deserves a notice.
         self._atlas_downloading = False
         # In-flight template loads, so several can load at once (e.g. from the CLI)
-        # and the busy state only clears when the last one ends.
+        # and the busy state only clears when the last one ends; those still
+        # downloading are named in the notice under the dropdown.
         self._template_jobs = 0
+        self._templates_downloading: set[str] = set()
         # Whether to add the three volume layers as soon as the atlas is loaded.
         self._pending_layers = False
         self._atlases_listed = False
@@ -471,6 +484,12 @@ class AtlasPanel(QWidget):
             "once (unchecked) browses faster."
         )
         group_layout.addWidget(self._template_lazy_check)
+
+        self._template_notice = QLabel()
+        self._template_notice.setObjectName("confusius_subtitle")
+        self._template_notice.setWordWrap(True)
+        self._template_notice.hide()
+        group_layout.addWidget(self._template_notice)
 
         self._template_progress = _make_progress_bar()
         group_layout.addWidget(self._template_progress)
@@ -1043,22 +1062,53 @@ class AtlasPanel(QWidget):
             f"Reference atlas: {spec['reference_atlas']}" if spec else ""
         )
 
+    def _update_template_controls(self) -> None:
+        """Enable the template widgets for the current state: idle, loading or
+        downloading, naming the templates still downloading in the notice."""
+        busy = self._template_jobs > 0
+        downloading = sorted(self._templates_downloading)
+        if downloading:
+            text = "Downloading…"
+        elif busy:
+            text = "Loading…"
+        else:
+            text = "Load template"
+        self._load_template_btn.setText(text)
+        self._template_combo.setEnabled(not busy)
+        self._load_template_btn.setEnabled(not busy)
+        self._template_notice.setText(f"Downloading {', '.join(downloading)}…")
+        self._template_notice.setVisible(bool(downloading))
+
     def _begin_template_work(self) -> None:
         self._template_jobs += 1
-        self._template_combo.setEnabled(False)
-        self._load_template_btn.setEnabled(False)
-        self._load_template_btn.setText("Loading…")
         self._template_progress.show()
+        self._update_template_controls()
         QApplication.processEvents()
 
-    def _end_template_work(self) -> None:
+    def _end_template_work(self, name: str) -> None:
+        """Clear one template load; the busy state ends with the last one.
+
+        Parameters
+        ----------
+        name : str
+            Template whose load finished or failed.
+        """
         self._template_jobs = max(self._template_jobs - 1, 0)
-        if self._template_jobs:
-            return
-        self._template_combo.setEnabled(True)
-        self._load_template_btn.setEnabled(True)
-        self._load_template_btn.setText("Load template")
-        self._template_progress.hide()
+        self._templates_downloading.discard(name)
+        if not self._template_jobs:
+            self._template_progress.hide()
+        self._update_template_controls()
+
+    def _on_template_downloading(self, name: str) -> None:
+        """Tell the user an in-flight template load is downloading `name` first.
+
+        Parameters
+        ----------
+        name : str
+            Template being downloaded.
+        """
+        self._templates_downloading.add(name)
+        self._update_template_controls()
 
     def _load_template(self) -> None:
         self.load_template(
@@ -1093,8 +1143,9 @@ class AtlasPanel(QWidget):
             )
         self._begin_template_work()
         worker = _fetch_template(name, lazy)
+        worker.yielded.connect(self._on_template_downloading)
         worker.returned.connect(lambda da: self._on_template_returned(da, name))
-        worker.errored.connect(self._on_template_error)
+        worker.errored.connect(lambda exc: self._on_template_error(exc, name))
         worker.start()
 
     def _on_template_returned(self, da: xr.DataArray, name: str) -> None:
@@ -1116,8 +1167,8 @@ class AtlasPanel(QWidget):
                     show_warning(str(w.message))
         except Exception as exc:  # noqa: BLE001
             show_error(str(exc))
-        self._end_template_work()
+        self._end_template_work(name)
 
-    def _on_template_error(self, exc: Exception) -> None:
-        self._end_template_work()
+    def _on_template_error(self, exc: Exception, name: str) -> None:
+        self._end_template_work(name)
         show_error(str(exc))

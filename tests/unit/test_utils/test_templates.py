@@ -3,7 +3,11 @@
 import pytest
 
 from confusius import datasets
-from confusius._utils.templates import FUSI_TEMPLATES, fetch_template
+from confusius._utils.templates import (
+    FUSI_TEMPLATES,
+    fetch_template,
+    is_template_cached,
+)
 
 
 def test_every_entry_names_a_datasets_fetcher():
@@ -34,3 +38,22 @@ def test_fetch_template_resolves_fetcher_and_forwards_kwargs(
 def test_fetch_template_unknown_name_raises():
     with pytest.raises(KeyError, match="Unknown fUSI template 'nope'"):
         fetch_template("nope")
+
+
+@pytest.mark.parametrize("cached", [True, False])
+def test_is_template_cached_asks_the_datasets_registry(monkeypatch, cached):
+    asked = []
+
+    def fake_is_dataset_cached(fetcher_name, data_dir=None):
+        asked.append(fetcher_name)
+        return cached
+
+    monkeypatch.setattr(datasets, "is_dataset_cached", fake_is_dataset_cached)
+
+    assert is_template_cached("pepe_mariani_2026") is cached
+    assert asked == ["fetch_template_pepe_mariani_2026"]
+
+
+def test_is_template_cached_unknown_name_raises():
+    with pytest.raises(KeyError, match="Unknown fUSI template 'nope'"):
+        is_template_cached("nope")

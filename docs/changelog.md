@@ -35,8 +35,9 @@ Current development version for the next ConfUSIus release.
 ### :sparkles: Enhancements
 
 - New [`is_brainglobe_atlas_cached`][confusius.datasets.is_brainglobe_atlas_cached]
-  tells whether a BrainGlobe atlas can be fetched without downloading its volumes
-  ([#488](https://github.com/confusius-tools/confusius/pull/488)).
+  and [`is_dataset_cached`][confusius.datasets.is_dataset_cached] tell whether a
+  BrainGlobe atlas, or a ConfUSIus dataset or template, can be fetched without
+  downloading ([#488](https://github.com/confusius-tools/confusius/pull/488)).
 
 ### :zap: Performance
 

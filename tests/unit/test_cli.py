@@ -228,6 +228,9 @@ class TestRunAtlasAndTemplate:
             lambda name, **kwargs: atlas_ds,
         )
         monkeypatch.setattr(
+            "confusius._napari._atlas._panel.is_template_cached", lambda name: True
+        )
+        monkeypatch.setattr(
             "confusius._napari._atlas._panel.fetch_template",
             lambda name, **kwargs: sample_voxeldata_3d,
         )

@@ -140,8 +140,9 @@ The **Template** dropdown lists the templates shipped in
 [`confusius.datasets`][confusius.datasets] by the name of their fetcher
 (`brunner_grillet_2021` for `fetch_template_brunner_grillet_2021`, ...); the line beneath it names the
 reference atlas each template is aligned to. Click **Load template** to download it on
-first use (it is cached afterwards) and add it as an Image layer named after the
-template. The voxels are read into memory once, a few tens of megabytes; check
+first use (a note under the dropdown says so; it is cached afterwards) and add it as
+an Image layer named after the template. The voxels are read into memory once, a
+few tens of megabytes; check
 **Load lazily** to leave them on disk and let napari read each displayed slice
 instead, which browses slower for these gzip-compressed files.
 

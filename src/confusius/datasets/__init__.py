@@ -11,7 +11,7 @@ from ._nunez_elizalde_2022 import fetch_nunez_elizalde_2022
 from ._pepe_mariani_2026 import fetch_template_pepe_mariani_2026
 from ._pepe_mariani_2026_bids import fetch_pepe_mariani_2026
 from ._pereira_2025 import fetch_pereira_2025
-from ._registry import list_datasets
+from ._registry import is_dataset_cached, list_datasets
 from ._utils import get_datasets_dir
 
 __all__ = [
@@ -26,5 +26,6 @@ __all__ = [
     "fetch_template_pepe_mariani_2026",
     "get_datasets_dir",
     "is_brainglobe_atlas_cached",
+    "is_dataset_cached",
     "list_datasets",
 ]
