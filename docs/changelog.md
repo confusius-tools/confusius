@@ -697,7 +697,7 @@ Released 2026-07-10.
   ([#273](https://github.com/confusius-tools/confusius/pull/273)).
 - Dataset fetchers now print the citation to use for the fetched data and accept a
   `print_citation` argument to silence it. The template fetchers
-  [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] and
+  `fetch_template_huang_2025` and
   [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026]
   also expose the citation on the returned DataArray as `da.attrs["citation"]`
   ([#279](https://github.com/confusius-tools/confusius/pull/279)).

@@ -14,9 +14,9 @@ import confusius as cf
     "fetcher,name,filename,coordinate_affine",
     [
         (
-            cf.datasets.fetch_template_huang_2025,
-            "huang-2025-template",
-            "huang-2025-space-allen50_desc-vascular.nii.gz",
+            cf.datasets.fetch_template_brunner_2021,
+            "brunner-2021-template",
+            "brunner-2021-space-allen50_desc-vascular.nii.gz",
             "sform",
         ),
         (
@@ -69,6 +69,9 @@ def test_fetch_template(
         assert actual.attrs["qform_code"] == 1
         assert actual.attrs["sform_code"] == 5
     assert actual.attrs["citation"]
+    if name == "brunner-2021-template":
+        assert "10.1038/s41596-021-00548-8" in actual.attrs["citation"]
+        assert "10.5281/zenodo.4905862" in actual.attrs["citation"]
     assert "[italic]" not in actual.attrs["citation"]
     assert "If you use this template" in capsys.readouterr().out
     cached = tmp_path / "cache" / name / "1.0.0"
