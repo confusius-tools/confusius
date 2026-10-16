@@ -158,6 +158,7 @@ def _build_one(
     interactive: bool,
     binder_url: str | None = None,
     run: bool = True,
+    use_cache: bool = True,
 ) -> RenderedExample:
     """Build one example and return its rendered metadata.
 
@@ -181,6 +182,11 @@ def _build_one(
         Whether to execute the example. When `False`, a cached result is still
         restored if present; otherwise the page is rendered from the source with no
         outputs (code and markdown only) and is not cached.
+    use_cache : bool, default: True
+        Whether to restore a cached result instead of executing when `run` is
+        `True`. When `False`, the example is executed even if a cached result
+        exists, and the fresh result replaces it. Examples that are not run are
+        always restored from cache if present.
 
     Returns
     -------
@@ -204,7 +210,7 @@ def _build_one(
     # total has to match that — counting markdown cells would leave it stuck.
     n_cells = sum(1 for c in source_notebook.cells if c.cell_type == "code")
 
-    if cache_entry.is_dir():
+    if cache_entry.is_dir() and (use_cache or not run):
         progress.add_task(f"{spec.section}/{base_name} [cached]", total=1, completed=1)
         # The live bar already conveys this interactively; in CI/non-TTY the bar is
         # disabled, so emit a plain flushed line instead.
@@ -311,6 +317,7 @@ def build_gallery(
     binder_repo: str | None = None,
     binder_ref: str = "main",
     only: Sequence[Path] | None = None,
+    use_cache: bool = True,
 ) -> None:
     """Run the full pipeline and write the gallery to disk.
 
@@ -338,6 +345,10 @@ def build_gallery(
         the rest are restored from cache if present, or rendered without outputs
         (code and markdown only). If not provided, every example is executed;
         an empty sequence executes none.
+    use_cache : bool, default: True
+        Whether examples selected for execution may be restored from cache
+        instead. When `False`, they are executed even if cached and the cache
+        entry is replaced; examples not selected still come from cache.
 
     Raises
     ------
@@ -371,6 +382,7 @@ def build_gallery(
                 _build_one(
                     spec,
                     run=run_paths is None or spec.source.resolve() in run_paths,
+                    use_cache=use_cache,
                     built_dir=built_dir,
                     cache_root=cache_root,
                     deps_fingerprint=deps_fingerprint,

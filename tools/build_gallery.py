@@ -13,6 +13,10 @@ restored from cache if present, or rendered without outputs (code only). To run
 nothing at all and only render, pass ``--no-run``::
 
     uv run python tools/build_gallery.py --no-run
+
+To re-execute examples that already have a cached result, pass ``--no-cache``::
+
+    uv run python tools/build_gallery.py --no-cache docs/examples/01_io/01_confusius_xarray_101.py
 """
 
 from __future__ import annotations
@@ -81,6 +85,14 @@ def main() -> int:
             "rendered without outputs. Cannot be combined with example paths."
         ),
     )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help=(
+            "Execute the selected examples even if a cached result exists, and "
+            "replace it. Examples not selected still come from cache."
+        ),
+    )
     args = parser.parse_args()
     if args.no_run and args.examples:
         parser.error("--no-run cannot be combined with example paths.")
@@ -100,6 +112,7 @@ def main() -> int:
             binder_repo=BINDER_REPO,
             binder_ref=binder_ref,
             only=[] if args.no_run else (args.examples or None),
+            use_cache=not args.no_cache,
         )
     except ValueError as exc:
         print(exc, file=sys.stderr)

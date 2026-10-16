@@ -26,7 +26,8 @@ After running `just gallery`, browse `docs/examples/_built/` for the rendered ou
 To iterate on prose or layout without executing anything, pass `--no-run` to the
 builder (`uv run python tools/build_gallery.py --no-run`): every page is restored
 from cache if present, or rendered with code and Markdown only. Name example
-scripts instead to run just those.
+scripts instead to run just those. Add `--no-cache` to execute the selected
+examples even when a cached result exists; the result replaces the cache entry.
 The first markdown heading in each example becomes the page title; the next markdown
 paragraph is used as the index-card summary.
 
