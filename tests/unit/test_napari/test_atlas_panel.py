@@ -17,6 +17,7 @@ from confusius._napari._atlas._panel import (
     AtlasPanel,
     _compute_masks,
     _fetch_template,
+    _read_volume,
 )
 from confusius._utils.templates import FUSI_TEMPLATES
 from confusius.validation import validate_voxeldata
@@ -165,6 +166,10 @@ class TestAtlasControls:
             "Annotation",
             "Hemispheres",
         ]
+
+    def test_read_into_memory_unchecked_by_default(self, panel) -> None:
+        assert panel._in_memory_check.text() == "Read into memory"
+        assert not panel._in_memory_check.isChecked()
 
 
 class TestAtlasLoading:
@@ -469,6 +474,53 @@ class TestLazyAtlas:
 
         for suffix in ("template", "annotation", "hemispheres"):
             assert isinstance(viewer.layers[f"lazy {suffix}"].data, da.Array)
+
+    def test_read_into_memory_reads_the_clicked_volume_in_a_worker(
+        self, qtbot, panel, viewer, lazy_atlas
+    ) -> None:
+        import dask.array as da
+
+        _load(panel, lazy_atlas, "lazy")
+        panel._in_memory_check.setChecked(True)
+        panel._volume_btns["annotation"].click()
+        assert panel._volume_reads == 1
+        assert not panel._layers_progress.isHidden()
+        qtbot.waitUntil(lambda: len(viewer.layers) == 1, timeout=10_000)
+
+        layer = viewer.layers["lazy annotation"]
+        assert isinstance(layer.data, np.ndarray)
+        assert_array_equal(layer.data, lazy_atlas["annotation"].values)
+        # The read volume is kept for the masks worker and later clicks; the others
+        # stay on disk.
+        assert isinstance(panel._atlas["annotation"].data, np.ndarray)
+        assert isinstance(panel._atlas["template"].data, da.Array)
+        validate_voxeldata(panel._atlas["annotation"])
+        qtbot.waitUntil(lambda: panel._layers_progress.isHidden(), timeout=10_000)
+        assert panel._volume_reads == 0
+
+    def test_read_into_memory_adds_in_memory_volume_directly(
+        self, panel, viewer, atlas_ds
+    ) -> None:
+        _load(panel, atlas_ds, "mock")
+        panel._in_memory_check.setChecked(True)
+        panel._volume_btns["template"].click()
+
+        assert [layer.name for layer in viewer.layers] == ["mock template"]
+        assert panel._volume_reads == 0
+
+    def test_volume_read_for_a_removed_atlas_still_adds_its_layer(
+        self, panel, viewer, lazy_atlas
+    ) -> None:
+        _load(panel, lazy_atlas, "lazy")
+        loaded = _read_volume.__wrapped__(lazy_atlas["template"])
+        panel._remove_atlas()
+        panel._volume_reads = 1
+
+        panel._on_volume_read(loaded, "template", "lazy")
+
+        assert [layer.name for layer in viewer.layers] == ["lazy template"]
+        assert panel._atlas is None
+        assert panel._layers_progress.isHidden()
 
     def test_mask_request_loads_volumes_once(
         self, panel, viewer, lazy_atlas, atlas_ds

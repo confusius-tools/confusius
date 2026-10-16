@@ -17,6 +17,7 @@ from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -179,6 +180,24 @@ def _fetch_template(name: str, lazy: bool) -> Generator[str, None, xr.DataArray]
     if not lazy:
         da = da.copy(data=np.asarray(da.data))
     return da
+
+
+@thread_worker
+def _read_volume(volume: xr.DataArray) -> xr.DataArray:
+    """Read one atlas volume into memory in a background thread.
+
+    Parameters
+    ----------
+    volume : xarray.DataArray
+        Lazy atlas volume (`template`, `annotation` or `hemispheres`).
+
+    Returns
+    -------
+    xarray.DataArray
+        The same volume with its voxels in memory; the world coordinates stay
+        index-derived (see `_compute_masks` for why not `DataArray.compute()`).
+    """
+    return volume.copy(data=np.asarray(volume.data))
 
 
 @thread_worker
@@ -410,6 +429,9 @@ class AtlasPanel(QWidget):
         self._templates_downloading: set[str] = set()
         # Whether to add the three volume layers as soon as the atlas is loaded.
         self._pending_layers = False
+        # Volume reads in flight (Read into memory checked); the layers progress bar
+        # stays up until the last one ends.
+        self._volume_reads = 0
         self._atlases_listed = False
         # Last `_list_atlases` result, kept to rebuild the dropdown after a download.
         self._atlas_list: AtlasListing | None = None
@@ -549,15 +571,33 @@ class AtlasPanel(QWidget):
         group_layout.addLayout(load_row)
 
         self._volume_btns: dict[AtlasVolume, QPushButton] = {}
-        layers_row = QHBoxLayout()
-        layers_row.setSpacing(4)
+        buttons_row = QHBoxLayout()
+        buttons_row.setSpacing(4)
         for volume in ATLAS_VOLUME_LAYER_TYPES:
             btn = QPushButton(volume.capitalize())
             btn.setToolTip(f"Add the {volume} volume as a layer")
             btn.clicked.connect(lambda _=False, v=volume: self._add_layer(v))
             self._volume_btns[volume] = btn
-            layers_row.addWidget(btn)
-        group_layout.addLayout(layers_row)
+            buttons_row.addWidget(btn)
+        self._in_memory_check = QCheckBox("Read into memory")
+        self._in_memory_check.setChecked(False)
+        self._in_memory_check.setToolTip(
+            "Read a volume into memory once when its button is clicked, so its layer "
+            "scrubs smoothly (a few hundred MB for a 25 µm mouse atlas).\n"
+            "Unchecked, napari reads the displayed slices from disk, the only option "
+            "for fine atlases such as allen_mouse_10um."
+        )
+        # "Layers" labels the button row; the box sits under the buttons, aligned
+        # with them, as their option.
+        layers_grid = QGridLayout()
+        layers_grid.setContentsMargins(0, 0, 0, 0)
+        layers_grid.setHorizontalSpacing(6)
+        layers_grid.setVerticalSpacing(4)
+        layers_grid.addWidget(QLabel("Layers"), 0, 0)
+        layers_grid.addLayout(buttons_row, 0, 1)
+        layers_grid.addWidget(self._in_memory_check, 1, 1)
+        layers_grid.setColumnStretch(1, 1)
+        group_layout.addLayout(layers_grid)
 
         self._layers_progress = _make_progress_bar()
         group_layout.addWidget(self._layers_progress)
@@ -851,13 +891,72 @@ class AtlasPanel(QWidget):
     def _add_layer(self, volume: AtlasVolume) -> None:
         """Add one volume of the loaded atlas as a layer named `<atlas> <volume>`.
 
+        With Read into memory checked, a volume still on disk is first read in a
+        background thread and kept on the panel's atlas, so the masks worker and
+        later clicks reuse it.
+
         Parameters
         ----------
         volume : {"template", "annotation", "hemispheres"}
             Atlas data variable to add.
         """
-        if self._atlas is None:
+        if self._atlas is None or self._atlas_name is None:
             return
+        da = self._atlas[volume]
+        name = self._atlas_name
+        if self._in_memory_check.isChecked() and not isinstance(da.data, np.ndarray):
+            self._volume_reads += 1
+            self._layers_progress.show()
+            worker = _read_volume(da)
+            worker.returned.connect(
+                lambda loaded: self._on_volume_read(loaded, volume, name)
+            )
+            worker.errored.connect(self._on_volume_read_error)
+            worker.start()
+            return
+        self._show_volume(da, volume, name)
+
+    def _on_volume_read(
+        self, loaded: xr.DataArray, volume: AtlasVolume, name: str
+    ) -> None:
+        """Keep a volume read into memory on the atlas, then add its layer.
+
+        Parameters
+        ----------
+        loaded : xarray.DataArray
+            The volume with its voxels in memory.
+        volume : {"template", "annotation", "hemispheres"}
+            Atlas data variable it is.
+        name : str
+            Atlas the read was requested for; the volume is only kept if that atlas
+            is still the loaded one.
+        """
+        if self._atlas is not None and self._atlas_name == name:
+            self._atlas = self._atlas.assign({volume: loaded})
+        self._end_volume_read()
+        self._show_volume(loaded, volume, name)
+
+    def _on_volume_read_error(self, exc: Exception) -> None:
+        self._end_volume_read()
+        show_error(str(exc))
+
+    def _end_volume_read(self) -> None:
+        self._volume_reads = max(self._volume_reads - 1, 0)
+        if not self._volume_reads:
+            self._layers_progress.hide()
+
+    def _show_volume(self, da: xr.DataArray, volume: AtlasVolume, name: str) -> None:
+        """Add an atlas volume as the `<name> <volume>` layer, on the GUI thread.
+
+        Parameters
+        ----------
+        da : xarray.DataArray
+            Volume to display, lazy or in memory.
+        volume : {"template", "annotation", "hemispheres"}
+            Atlas data variable it is, which picks the layer type.
+        name : str
+            Atlas name the layer is named after.
+        """
         # Layer creation must run on the GUI thread, so the bar cannot animate;
         # painting it before the work still tells the user something is happening.
         self._layers_progress.show()
@@ -868,10 +967,10 @@ class AtlasPanel(QWidget):
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 plot_napari(
-                    self._atlas[volume],
+                    da,
                     viewer=self.viewer,
                     layer_type=ATLAS_VOLUME_LAYER_TYPES[volume],
-                    name=f"{self._atlas_name} {volume}",
+                    name=f"{name} {volume}",
                 )
             for w in caught:
                 if issubclass(w.category, UserWarning):
@@ -879,7 +978,8 @@ class AtlasPanel(QWidget):
         except Exception as exc:  # noqa: BLE001
             show_error(str(exc))
         finally:
-            self._layers_progress.hide()
+            if not self._volume_reads:
+                self._layers_progress.hide()
 
     def _remove_atlas(self) -> None:
         """Forget the loaded atlas: drop its data, tree dock and region tables."""

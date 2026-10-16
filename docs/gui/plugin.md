@@ -98,7 +98,11 @@ list, or to the downloaded atlases alone.
 2. **Template**, **Annotation** and **Hemispheres** each add that volume as a layer:
    `<atlas> template` (Image), `<atlas> annotation` (Labels, colored with the atlas
    palette) or `<atlas> hemispheres` (Labels). Clicking a button again adds the layer
-   again under a numbered name.
+   again under a numbered name. By default the layer reads the displayed slices from
+   disk, which keeps memory low for fine atlases. Check **Read into memory** to read
+   the clicked volume once in the background instead (a few hundred megabytes for a
+   25 µm mouse atlas): its layer then scrubs smoothly, and the region masks reuse the
+   volume.
 3. **Structure tree** opens the structure hierarchy in a right dock named
    `Atlas structures: <atlas>`, with one row per region showing its acronym, name, id
    and color. Click again to hide it. The tree is for browsing only.
@@ -111,7 +115,8 @@ space.
 
 !!! warning "Memory"
     Loading an atlas reads no voxels, and the volume layers read only the slices on
-    screen. **Load masks** reads the whole annotation and hemispheres volumes into
+    screen unless **Read into memory** is checked. **Load masks** reads the whole
+    annotation and hemispheres volumes into
     memory the first time, which needs several gigabytes for high-resolution atlases
     such as `allen_mouse_10um`; prefer the 25 µm or 50 µm versions when building
     masks.
