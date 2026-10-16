@@ -36,7 +36,7 @@ class TestBuildParser:
         ns = build_parser().parse_args(["a.nii", "b.nii.gz", "c.scan"])
         assert ns.path == [Path("a.nii"), Path("b.nii.gz"), Path("c.scan")]
 
-    def test_atlas_and_template_take_several_names(self) -> None:
+    def test_atlas_takes_one_name_and_template_several(self) -> None:
         from confusius._cli import build_parser
 
         ns = build_parser().parse_args(
@@ -44,23 +44,20 @@ class TestBuildParser:
                 "a.nii",
                 "--atlas",
                 "allen_mouse_25um",
-                "whs_sd_rat_39um",
                 "--template",
                 "huang_2025",
                 "pepe_mariani_2026",
-                "--atlas",
-                "allen_mouse_10um",
             ]
         )
         assert ns.path == [Path("a.nii")]
-        assert ns.atlas == ["allen_mouse_25um", "whs_sd_rat_39um", "allen_mouse_10um"]
+        assert ns.atlas == "allen_mouse_25um"
         assert ns.template == ["huang_2025", "pepe_mariani_2026"]
 
     def test_atlas_and_template_default_empty(self) -> None:
         from confusius._cli import build_parser
 
         ns = build_parser().parse_args([])
-        assert ns.atlas == []
+        assert ns.atlas is None
         assert ns.template == []
 
     def test_unknown_template_rejected(self, capsys) -> None:
@@ -231,32 +228,22 @@ class TestRunAtlasAndTemplate:
             lambda name, **kwargs: sample_voxeldata_3d,
         )
 
-    def test_opens_with_atlases_and_templates_loaded(
+    def test_opens_with_atlas_and_template_loaded(
         self, qtbot, make_napari_viewer, offline
     ) -> None:
         from confusius._cli import build_parser, run
 
         args = build_parser().parse_args(
-            [
-                "--atlas",
-                "allen_mouse_25um",
-                "allen_mouse_25um",
-                "whs_sd_rat_39um",
-                "--template",
-                "huang_2025",
-            ]
+            ["--atlas", "allen_mouse_25um", "--template", "huang_2025"]
         )
         viewer = make_napari_viewer()
         run(args, viewer=viewer)
-        qtbot.waitUntil(lambda: len(viewer.layers) == 7, timeout=10_000)
+        qtbot.waitUntil(lambda: len(viewer.layers) == 4, timeout=10_000)
 
         names = {layer.name for layer in viewer.layers}
         assert names == {
             "allen_mouse_25um template",
             "allen_mouse_25um annotation",
             "allen_mouse_25um hemispheres",
-            "whs_sd_rat_39um template",
-            "whs_sd_rat_39um annotation",
-            "whs_sd_rat_39um hemispheres",
             "huang_2025",
         }

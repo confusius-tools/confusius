@@ -86,34 +86,34 @@ falls back to BrainGlobe's cached list, or to the downloaded atlases alone.
 
 1. Pick an atlas and click **Load atlas**. The first load of an atlas downloads it
    into the BrainGlobe cache (shared with other BrainGlobe tools) while the progress
-   bar animates; later loads read from the cache. The atlas stays on disk and
-   appears as a row under **Loaded atlases**. An atlas can be loaded once; the button
-   is disabled while the selected atlas is already in the list.
-2. Each row has four buttons:
-    - **Volumes** adds three layers, `<atlas> template` (Image), `<atlas> annotation`
-      (Labels, colored with the atlas palette) and `<atlas> hemispheres` (Labels).
-    - **Tree** opens the structure hierarchy in a right dock named
-      `Atlas structures: <atlas>`, with one row per region showing its acronym, name,
-      id and color. Click again to hide it. The tree is for browsing only.
-    - **Masks** opens the **Region masks** group below for that atlas. Click again to
-      hide it.
-    - **✕** removes the atlas from the list, closes its tree, and frees its memory.
-      Layers already added stay in the viewer.
+   bar animates; later loads read from the cache. The atlas stays on disk. One atlas
+   is loaded at a time: the dropdown and **Load atlas** lock until **✕** removes it,
+   and the buttons below become active.
+2. **Template**, **Annotation** and **Hemispheres** each add that volume as a layer:
+   `<atlas> template` (Image), `<atlas> annotation` (Labels, colored with the atlas
+   palette) or `<atlas> hemispheres` (Labels). Clicking a button again adds the layer
+   again under a numbered name.
+3. **Structure tree** opens the structure hierarchy in a right dock named
+   `Atlas structures: <atlas>`, with one row per region showing its acronym, name, id
+   and color. Click again to hide it. The tree is for browsing only.
+4. **✕** removes the atlas, closes its tree, empties the **Region masks** group below
+   and frees its memory. Layers already added stay in the viewer.
 
 The three volumes share one voxel grid in millimeters, so they line up with any fUSI
 layer loaded through the Data I/O Panel once the recording is registered to the atlas
 space.
 
 !!! warning "Memory"
-    Loading an atlas reads no voxels, and the layers added by **Volumes** read only
-    the slices on screen. **Load masks** reads the whole annotation and hemispheres
-    volumes into memory the first time, which needs several gigabytes for
-    high-resolution atlases such as `allen_mouse_10um`; prefer the 25 µm or 50 µm
-    versions when building masks.
+    Loading an atlas reads no voxels, and the volume layers read only the slices on
+    screen. **Load masks** reads the whole annotation and hemispheres volumes into
+    memory the first time, which needs several gigabytes for high-resolution atlases
+    such as `allen_mouse_10um`; prefer the 25 µm or 50 µm versions when building
+    masks.
 
 ### Region masks
 
-The **Region masks** group shows which atlas it is linked to right in the title.
+The **Region masks** group is greyed out until an atlas is loaded, then lists its
+structures.
 
 1. Type in **Search** to filter the structures. The pattern is a case-insensitive
    regular expression matched against both the acronym and the name, exactly like
@@ -137,14 +137,14 @@ reference atlas each template is aligned to. Click **Load template** to download
 first use (it is cached afterwards) and add it as an Image layer named after the
 template.
 
-!!! tip "Launch with atlases or templates from the CLI"
-    `--atlas` and `--template` take one or more names and open the plugin with them
-    loaded: atlases with their three volume layers, templates as Image layers.
+!!! tip "Launch with an atlas or templates from the CLI"
+    `--atlas` takes one atlas name and `--template` one or more template names; the
+    plugin opens with them loaded, the atlas with its three volume layers and the
+    templates as Image layers.
     ```bash
-    confusius --atlas allen_mouse_25um whs_sd_rat_39um --template huang_2025
+    confusius --atlas allen_mouse_25um --template huang_2025
     ```
-    Put data files before these options, since each takes every name that follows
-    it.
+    Put data files before `--template`, since it takes every name that follows it.
 
 ## Video Panel
 

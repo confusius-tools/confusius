@@ -20,7 +20,7 @@ Outputs (all saved to docs/images/gui/):
 
 - `plugin-data-io.png` — Data I/O panel with a scan loaded.
 - `plugin-atlas.png` — Atlas panel with the Allen 100 µm atlas loaded and its
-  region-mask search open.
+  region masks filtered.
 - `plugin-signals.png` — Signals panel in hover mode.
 - `plugin-signals-points.png` — Signals panel in points mode.
 - `plugin-signals-labels.png` — Signals panel in labels mode.
@@ -494,7 +494,7 @@ except Exception as exc:
     _warn(f"plugin-data-io.png failed: {exc}")
 
 # ---------------------------------------------------------------------------
-# 1b. Atlas panel — Allen 100 µm atlas loaded, region masks open
+# 1b. Atlas panel — Allen 100 µm atlas loaded, region masks filtered
 # ---------------------------------------------------------------------------
 
 try:
@@ -512,8 +512,8 @@ try:
     atlas_panel._atlas_combo.clear()
     atlas_panel._atlas_combo.addItem(f"{_ATLAS_NAME} (downloaded)", _ATLAS_NAME)
     atlas_panel._on_atlas_returned(atlas_ds, _ATLAS_NAME)
-    atlas_panel._add_atlas_layers(_ATLAS_NAME)
-    atlas_panel._toggle_masks(_ATLAS_NAME)
+    for volume in ("template", "annotation", "hemispheres"):
+        atlas_panel._add_layer(volume)
     atlas_panel._search_edit.setText("visual")
     _qt_sleep(200)
 

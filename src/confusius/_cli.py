@@ -98,15 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--atlas",
-        nargs="+",
-        action="extend",
-        default=[],
         metavar="NAME",
         help=(
-            "BrainGlobe atlas name(s) to load in the Atlas tab on launch, with "
-            "their template, annotation and hemispheres layers, e.g. `--atlas "
-            "allen_mouse_25um whs_sd_rat_39um`. Downloaded on first use. Pass data "
-            "files before this option, as it takes every following name."
+            "BrainGlobe atlas to load in the Atlas tab on launch, with its template, "
+            "annotation and hemispheres layers, e.g. `--atlas allen_mouse_25um`. "
+            "Downloaded on first use."
         ),
     )
     parser.add_argument(
@@ -120,7 +116,8 @@ def build_parser() -> argparse.ArgumentParser:
             "fUSI template(s) to load as Image layers on launch, named after their "
             "`confusius.datasets` fetcher: "
             + ", ".join(FUSI_TEMPLATES)
-            + ". Downloaded on first use."
+            + ". Downloaded on first use. Pass data files before this option, as "
+            "it takes every following name."
         ),
     )
     # The `datasets` namespace is dispatched in `main`, not by this parser, so
@@ -197,7 +194,7 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
         The viewer with the ConfUSIus widget docked and the requested data
         files added as layers (one layer per file, in the same order as
         `args.path`; see `_open_paths` for how the layer type is chosen). The
-        first loaded layer is paired with `args.video` if it is also set. Atlases
+        first loaded layer is paired with `args.video` if it is also set. The atlas
         and templates named in `args.atlas` / `args.template` are loaded through
         the Atlas tab in background workers, so their layers appear once the
         downloads finish.
@@ -223,9 +220,9 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
 
     if args.atlas or args.template:
         atlas_panel = widget._accordion_panels["Atlas"]
+        if args.atlas:
+            atlas_panel.load_atlas(args.atlas, add_layers=True)  # type: ignore
         # dict.fromkeys keeps the first occurrence of repeated names, in order.
-        for name in dict.fromkeys(args.atlas):
-            atlas_panel.load_atlas(name, add_layers=True)  # type: ignore
         for name in dict.fromkeys(args.template):
             atlas_panel.load_template(name)  # type: ignore
 
