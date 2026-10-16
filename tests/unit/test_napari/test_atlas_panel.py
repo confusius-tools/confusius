@@ -167,9 +167,9 @@ class TestAtlasControls:
             "Hemispheres",
         ]
 
-    def test_read_into_memory_unchecked_by_default(self, panel) -> None:
-        assert panel._in_memory_check.text() == "Read into memory"
-        assert not panel._in_memory_check.isChecked()
+    def test_make_layers_lazily_checked_by_default(self, panel) -> None:
+        assert panel._lazy_layers_check.text() == "Make layers lazily"
+        assert panel._lazy_layers_check.isChecked()
 
 
 class TestAtlasLoading:
@@ -193,7 +193,7 @@ class TestAtlasLoading:
         assert_array_equal(
             viewer.layers["mock annotation"].data, atlas_ds["annotation"].values
         )
-        assert loaded_panel._layers_progress.isHidden()
+        assert loaded_panel._atlas_progress.isHidden()
 
     def test_second_click_adds_the_layer_again(self, loaded_panel, viewer) -> None:
         loaded_panel._volume_btns["template"].click()
@@ -475,16 +475,16 @@ class TestLazyAtlas:
         for suffix in ("template", "annotation", "hemispheres"):
             assert isinstance(viewer.layers[f"lazy {suffix}"].data, da.Array)
 
-    def test_read_into_memory_reads_the_clicked_volume_in_a_worker(
+    def test_unchecked_lazy_box_reads_the_clicked_volume_in_a_worker(
         self, qtbot, panel, viewer, lazy_atlas
     ) -> None:
         import dask.array as da
 
         _load(panel, lazy_atlas, "lazy")
-        panel._in_memory_check.setChecked(True)
+        panel._lazy_layers_check.setChecked(False)
         panel._volume_btns["annotation"].click()
         assert panel._volume_reads == 1
-        assert not panel._layers_progress.isHidden()
+        assert not panel._atlas_progress.isHidden()
         qtbot.waitUntil(lambda: len(viewer.layers) == 1, timeout=10_000)
 
         layer = viewer.layers["lazy annotation"]
@@ -495,14 +495,14 @@ class TestLazyAtlas:
         assert isinstance(panel._atlas["annotation"].data, np.ndarray)
         assert isinstance(panel._atlas["template"].data, da.Array)
         validate_voxeldata(panel._atlas["annotation"])
-        qtbot.waitUntil(lambda: panel._layers_progress.isHidden(), timeout=10_000)
+        qtbot.waitUntil(lambda: panel._atlas_progress.isHidden(), timeout=10_000)
         assert panel._volume_reads == 0
 
-    def test_read_into_memory_adds_in_memory_volume_directly(
+    def test_unchecked_lazy_box_adds_in_memory_volume_directly(
         self, panel, viewer, atlas_ds
     ) -> None:
         _load(panel, atlas_ds, "mock")
-        panel._in_memory_check.setChecked(True)
+        panel._lazy_layers_check.setChecked(False)
         panel._volume_btns["template"].click()
 
         assert [layer.name for layer in viewer.layers] == ["mock template"]
@@ -520,7 +520,7 @@ class TestLazyAtlas:
 
         assert [layer.name for layer in viewer.layers] == ["lazy template"]
         assert panel._atlas is None
-        assert panel._layers_progress.isHidden()
+        assert panel._atlas_progress.isHidden()
 
     def test_mask_request_loads_volumes_once(
         self, panel, viewer, lazy_atlas, atlas_ds
@@ -698,6 +698,54 @@ class TestPanelWidth:
 
     SIDEBAR_MIN_WIDTH = 430
 
+    def test_panel_fits_the_plugin_sidebar_in_every_state(
+        self, make_napari_viewer, atlas_ds
+    ) -> None:
+        """Measured inside the real widget, so napari's stylesheet (button padding,
+        combo minimums) counts, unlike a bare panel."""
+        from qtpy.QtWidgets import QScrollArea
+
+        from confusius._napari._widget import ConfUSIusWidget
+
+        viewer = make_napari_viewer()
+        widget = ConfUSIusWidget(viewer)
+        viewer.window.add_dock_widget(widget, area="right")
+        panel = widget._accordion_panels["Atlas"]
+        assert isinstance(panel, AtlasPanel)
+        panel._atlases_listed = True
+        for btn, _ in widget._accordion_btns:
+            if btn.text() == "Atlas" and not btn.isChecked():
+                btn.click()
+        scroll = widget.findChild(QScrollArea)
+        assert isinstance(scroll, QScrollArea)
+        scrollbar, content = scroll.verticalScrollBar(), scroll.widget()
+        assert scrollbar is not None and content is not None
+        # The accordion scroll area never shows a horizontal bar, so its content
+        # must fit the widget's minimum width minus the vertical bar and frame.
+        available = (
+            widget.minimumWidth()
+            - scrollbar.sizeHint().width()
+            - 2 * scroll.frameWidth()
+        )
+        long_name = "allen_mouse_bluebrain_barrels_10um"
+
+        def content_width() -> int:
+            QApplication.processEvents()
+            return content.minimumSizeHint().width()
+
+        assert content_width() <= available
+        panel._on_atlases_listed(({long_name: "1.0"}, {long_name: "1.1"}))
+        assert content_width() <= available
+        panel._begin_atlas_work()
+        panel._on_atlas_downloading(long_name)
+        assert content_width() <= available
+        panel._on_atlas_returned(atlas_ds, long_name)
+        assert content_width() <= available
+        panel._templates_page_btn.click()
+        panel._begin_template_work()
+        panel._on_template_downloading("brunner_grillet_2021")
+        assert content_width() <= available
+
     def test_long_atlas_names_do_not_widen_panel(self, panel) -> None:
         # Showing the panel otherwise starts the BrainGlobe listing worker.
         panel._atlases_listed = True
@@ -753,18 +801,24 @@ class TestPages:
 class TestProgressBarsKeepLayout:
     """Showing a progress bar must not change the panel height (sidebar scrollbar)."""
 
-    def test_layers_masks_and_atlas_bars_reserve_their_space(
-        self, loaded_panel
-    ) -> None:
+    def test_masks_and_atlas_bars_reserve_their_space(self, loaded_panel) -> None:
         QApplication.processEvents()
         idle_height = loaded_panel.sizeHint().height()
 
-        loaded_panel._layers_progress.show()
         loaded_panel._begin_masks_work()
         loaded_panel._begin_atlas_work()
         QApplication.processEvents()
 
         assert loaded_panel.sizeHint().height() == idle_height
+
+    def test_atlas_bar_is_shared_by_fetch_and_volume_reads(self, loaded_panel) -> None:
+        loaded_panel._begin_atlas_work()
+        loaded_panel._volume_reads = 1
+        loaded_panel._end_atlas_work()
+        assert not loaded_panel._atlas_progress.isHidden()
+
+        loaded_panel._end_volume_read()
+        assert loaded_panel._atlas_progress.isHidden()
 
 
 class TestProgrammaticLoading:

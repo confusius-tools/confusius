@@ -889,8 +889,8 @@ def build_default_tour(
                 "lock until <b>✕</b> removes it and frees its memory. While it is "
                 "loaded, <b>Template</b>, <b>Annotation</b> and <b>Hemispheres</b> "
                 "each add that volume as a layer, reading only the slices on screen "
-                "unless <b>Read into memory</b> is checked, and <b>Structure tree</b> "
-                "opens the region hierarchy in a dock."
+                "while <b>Make layers lazily</b> is checked, and <b>Structure "
+                "tree</b> opens the region hierarchy in a dock."
             ),
             anchor="left",
             spotlight_rect=_panel_attr_rect(

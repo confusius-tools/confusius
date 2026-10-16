@@ -17,7 +17,6 @@ from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -429,8 +428,8 @@ class AtlasPanel(QWidget):
         self._templates_downloading: set[str] = set()
         # Whether to add the three volume layers as soon as the atlas is loaded.
         self._pending_layers = False
-        # Volume reads in flight (Read into memory checked); the layers progress bar
-        # stays up until the last one ends.
+        # Volume reads in flight (Make layers lazily unchecked); the atlas progress
+        # bar stays up until the last one ends.
         self._volume_reads = 0
         self._atlases_listed = False
         # Last `_list_atlases` result, kept to rebuild the dropdown after a download.
@@ -552,9 +551,6 @@ class AtlasPanel(QWidget):
         self._atlas_notice.hide()
         group_layout.addWidget(self._atlas_notice)
 
-        self._atlas_progress = _make_progress_bar()
-        group_layout.addWidget(self._atlas_progress)
-
         self._load_atlas_btn = QPushButton("Load atlas")
         self._load_atlas_btn.setObjectName("primary_btn")
         self._load_atlas_btn.clicked.connect(self._load_atlas)
@@ -570,6 +566,20 @@ class AtlasPanel(QWidget):
         load_row.addWidget(self._remove_atlas_btn)
         group_layout.addLayout(load_row)
 
+        # One bar for the atlas fetch above it and the volume reads below it.
+        self._atlas_progress = _make_progress_bar()
+        group_layout.addWidget(self._atlas_progress)
+
+        self._lazy_layers_check = QCheckBox("Make layers lazily")
+        self._lazy_layers_check.setChecked(True)
+        self._lazy_layers_check.setToolTip(
+            "Checked, napari reads the displayed slices from disk, the only option "
+            "for fine atlases such as allen_mouse_10um.\n"
+            "Unchecked, a click below first reads that volume into memory (a few "
+            "hundred MB for a 25 µm mouse atlas), so its layer scrubs smoothly."
+        )
+        group_layout.addWidget(self._lazy_layers_check)
+
         self._volume_btns: dict[AtlasVolume, QPushButton] = {}
         buttons_row = QHBoxLayout()
         buttons_row.setSpacing(4)
@@ -579,28 +589,7 @@ class AtlasPanel(QWidget):
             btn.clicked.connect(lambda _=False, v=volume: self._add_layer(v))
             self._volume_btns[volume] = btn
             buttons_row.addWidget(btn)
-        self._in_memory_check = QCheckBox("Read into memory")
-        self._in_memory_check.setChecked(False)
-        self._in_memory_check.setToolTip(
-            "Read a volume into memory once when its button is clicked, so its layer "
-            "scrubs smoothly (a few hundred MB for a 25 µm mouse atlas).\n"
-            "Unchecked, napari reads the displayed slices from disk, the only option "
-            "for fine atlases such as allen_mouse_10um."
-        )
-        # "Layers" labels the button row; the box sits under the buttons, aligned
-        # with them, as their option.
-        layers_grid = QGridLayout()
-        layers_grid.setContentsMargins(0, 0, 0, 0)
-        layers_grid.setHorizontalSpacing(6)
-        layers_grid.setVerticalSpacing(4)
-        layers_grid.addWidget(QLabel("Layers"), 0, 0)
-        layers_grid.addLayout(buttons_row, 0, 1)
-        layers_grid.addWidget(self._in_memory_check, 1, 1)
-        layers_grid.setColumnStretch(1, 1)
-        group_layout.addLayout(layers_grid)
-
-        self._layers_progress = _make_progress_bar()
-        group_layout.addWidget(self._layers_progress)
+        group_layout.addLayout(buttons_row)
 
         self._tree_btn = QPushButton("Structure tree")
         self._tree_btn.setToolTip("Show or hide the structure tree")
@@ -649,11 +638,6 @@ class AtlasPanel(QWidget):
         # to show the selected side.
         self._side_combo.setMinimumContentsLength(len(max(MASK_SIDES, key=len)) + 2)
         self._side_combo.addItems(MASK_SIDES)
-        side_row = QHBoxLayout()
-        side_row.addWidget(QLabel("Side"))
-        side_row.addWidget(self._side_combo)
-        side_row.addStretch()
-        group_layout.addLayout(side_row)
 
         self._masks_progress = _make_progress_bar()
         group_layout.addWidget(self._masks_progress)
@@ -662,7 +646,11 @@ class AtlasPanel(QWidget):
         self._load_masks_btn.setObjectName("primary_btn")
         self._load_masks_btn.setEnabled(False)
         self._load_masks_btn.clicked.connect(self._load_masks)
-        group_layout.addWidget(self._load_masks_btn)
+        side_row = QHBoxLayout()
+        side_row.addWidget(QLabel("Side"))
+        side_row.addWidget(self._side_combo)
+        side_row.addWidget(self._load_masks_btn, stretch=1)
+        group_layout.addLayout(side_row)
         return group
 
     def _update_atlas_controls(self) -> None:
@@ -791,10 +779,14 @@ class AtlasPanel(QWidget):
     # Atlas loading
     # ------------------------------------------------------------------
 
+    def _update_atlas_progress(self) -> None:
+        """Show the shared bar while the atlas fetch or any volume read is running."""
+        self._atlas_progress.setVisible(self._atlas_loading or self._volume_reads > 0)
+
     def _begin_atlas_work(self) -> None:
         self._atlas_loading = True
         self._atlas_status.hide()
-        self._atlas_progress.show()
+        self._update_atlas_progress()
         self._update_atlas_controls()
         QApplication.processEvents()
 
@@ -802,7 +794,7 @@ class AtlasPanel(QWidget):
         self._atlas_loading = False
         self._atlas_downloading = False
         self._atlas_notice.hide()
-        self._atlas_progress.hide()
+        self._update_atlas_progress()
         self._update_atlas_controls()
 
     def _on_atlas_downloading(self, name: str) -> None:
@@ -891,7 +883,7 @@ class AtlasPanel(QWidget):
     def _add_layer(self, volume: AtlasVolume) -> None:
         """Add one volume of the loaded atlas as a layer named `<atlas> <volume>`.
 
-        With Read into memory checked, a volume still on disk is first read in a
+        With Make layers lazily unchecked, a volume still on disk is first read in a
         background thread and kept on the panel's atlas, so the masks worker and
         later clicks reuse it.
 
@@ -904,9 +896,11 @@ class AtlasPanel(QWidget):
             return
         da = self._atlas[volume]
         name = self._atlas_name
-        if self._in_memory_check.isChecked() and not isinstance(da.data, np.ndarray):
+        if not self._lazy_layers_check.isChecked() and not isinstance(
+            da.data, np.ndarray
+        ):
             self._volume_reads += 1
-            self._layers_progress.show()
+            self._update_atlas_progress()
             worker = _read_volume(da)
             worker.returned.connect(
                 lambda loaded: self._on_volume_read(loaded, volume, name)
@@ -942,8 +936,7 @@ class AtlasPanel(QWidget):
 
     def _end_volume_read(self) -> None:
         self._volume_reads = max(self._volume_reads - 1, 0)
-        if not self._volume_reads:
-            self._layers_progress.hide()
+        self._update_atlas_progress()
 
     def _show_volume(self, da: xr.DataArray, volume: AtlasVolume, name: str) -> None:
         """Add an atlas volume as the `<name> <volume>` layer, on the GUI thread.
@@ -959,7 +952,7 @@ class AtlasPanel(QWidget):
         """
         # Layer creation must run on the GUI thread, so the bar cannot animate;
         # painting it before the work still tells the user something is happening.
-        self._layers_progress.show()
+        self._atlas_progress.show()
         QApplication.processEvents()
         try:
             # Capture warnings from plot_napari (e.g. non-uniform spacing) and re-emit
@@ -978,8 +971,7 @@ class AtlasPanel(QWidget):
         except Exception as exc:  # noqa: BLE001
             show_error(str(exc))
         finally:
-            if not self._volume_reads:
-                self._layers_progress.hide()
+            self._update_atlas_progress()
 
     def _remove_atlas(self) -> None:
         """Forget the loaded atlas: drop its data, tree dock and region tables."""
