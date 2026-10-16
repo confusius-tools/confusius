@@ -57,12 +57,14 @@ class TestBuilder:
 
     def test_dataset_schema_contract(self, atlas_ds: xr.Dataset) -> None:
         """The atlas fixture exposes the expected dtypes, dims, and spatial coords."""
-        assert atlas_ds.atlas.reference.dtype == np.float32
+        assert atlas_ds.atlas.template.dtype == np.float32
+        assert set(atlas_ds.data_vars) == {"template", "annotation", "hemispheres"}
+        xr.testing.assert_identical(atlas_ds.atlas.template, atlas_ds["template"])
         assert atlas_ds.atlas.annotation.dtype == np.int32
         assert atlas_ds.atlas.hemispheres.dtype == np.int8
 
         for da in [
-            atlas_ds.atlas.reference,
+            atlas_ds.atlas.template,
             atlas_ds.atlas.annotation,
             atlas_ds.atlas.hemispheres,
         ]:
@@ -79,7 +81,7 @@ class TestBuilder:
     def test_hemispheres_is_data_var(self, atlas_ds: xr.Dataset) -> None:
         """hemispheres must be a data variable, not a coordinate.
 
-        As a coordinate it would ride along on `reference`/`annotation` and be silently
+        As a coordinate it would ride along on `template`/`annotation` and be silently
         linear-interpolated (to fractional labels) by regridding ops such as resampling
         into a non-orthogonal frame.
         """
@@ -87,7 +89,7 @@ class TestBuilder:
         assert "hemispheres" not in atlas_ds.coords
         # It must not leak onto the other variables as a coordinate.
         assert "hemispheres" not in atlas_ds["annotation"].coords
-        assert "hemispheres" not in atlas_ds["reference"].coords
+        assert "hemispheres" not in atlas_ds["template"].coords
 
 
 class TestStructuresSerialization:
@@ -164,7 +166,7 @@ class TestStructureMetadata:
         """Dropping attrs (as many xarray ops do) must give a clear error, not KeyError obscurity."""
         stripped = atlas_ds.drop_attrs()
         with pytest.raises(KeyError, match="keep_attrs"):
-            stripped.atlas.structures
+            _ = stripped.atlas.structures
 
 
 class TestSearch:
@@ -396,8 +398,12 @@ class TestGetMesh:
     ) -> None:
         vertices_id, faces_id = atlas_ds.atlas.get_meshes(997)["root"]
         vertices_str, faces_str = atlas_ds.atlas.get_meshes("root")["root"]
+        # numpy integer ids (e.g. straight out of a labels array) are accepted too.
+        vertices_np, faces_np = atlas_ds.atlas.get_meshes(np.int64(997))["root"]
         np.testing.assert_array_equal(vertices_id, vertices_str)
         np.testing.assert_array_equal(faces_id, faces_str)
+        np.testing.assert_array_equal(vertices_id, vertices_np)
+        np.testing.assert_array_equal(faces_id, faces_np)
 
     def test_region_without_mesh_raises(self, atlas_ds: xr.Dataset) -> None:
         with pytest.raises(ValueError, match="No mesh file"):
@@ -406,34 +412,6 @@ class TestGetMesh:
     def test_unknown_region_raises(self, atlas_ds: xr.Dataset) -> None:
         with pytest.raises(KeyError):
             atlas_ds.atlas.get_meshes(9999)
-
-    def test_empty_regions_raises(self, atlas_ds: xr.Dataset) -> None:
-        with pytest.raises(ValueError, match="at least one region"):
-            atlas_ds.atlas.get_meshes([])
-
-    def test_batched_regions_match_individual_calls(self, atlas_ds: xr.Dataset) -> None:
-        """Regions requested together come back exactly as requested one at a time.
-
-        The batch transforms every region's vertices in one pass and splits the result
-        back apart, so differently sized meshes catch a mis-split.
-        """
-        batched = atlas_ds.atlas.get_meshes([997, 10])
-
-        assert list(batched) == ["root", "ch"]
-        for acronym, region in zip(["root", "ch"], [997, 10]):
-            expected_vertices, expected_faces = atlas_ds.atlas.get_meshes(region)[
-                acronym
-            ]
-            np.testing.assert_array_equal(batched[acronym][0], expected_vertices)
-            np.testing.assert_array_equal(batched[acronym][1], expected_faces)
-
-    def test_per_region_sides_disambiguate_keys(self, atlas_ds: xr.Dataset) -> None:
-        """The same region on both sides must not collide on a single dict key."""
-        meshes = atlas_ds.atlas.get_meshes([997, 997], sides=["left", "right"])
-
-        assert list(meshes) == ["root_L", "root_R"]
-        assert np.all(meshes["root_L"][0][:, 2] >= 0.1)
-        assert np.all(meshes["root_R"][0][:, 2] < 0.1)
 
     def test_empty_regions_raises(self, atlas_ds: xr.Dataset) -> None:
         with pytest.raises(ValueError, match="at least one region"):
@@ -514,7 +492,7 @@ class TestIO:
         loaded = load_atlas(path)
 
         np.testing.assert_array_equal(
-            loaded.atlas.reference.values, atlas_ds.atlas.reference.values
+            loaded.atlas.template.values, atlas_ds.atlas.template.values
         )
         np.testing.assert_array_equal(
             loaded.atlas.annotation.values, atlas_ds.atlas.annotation.values
@@ -559,15 +537,15 @@ class TestIO:
         aff = np.array(
             [[1.0, 0, 0, 0.5], [0, 1, 0, -0.2], [0, 0, 1, 0.3], [0, 0, 0, 1.0]]
         )
-        reference = atlas_ds.atlas.reference.copy()
+        reference = atlas_ds.atlas.template.copy()
         reference.attrs = {**reference.attrs, "affines": {"world_to_sform": aff}}
         resampled = atlas_ds.atlas.resample_like(reference, np.eye(4))
-        assert "affines" in resampled["reference"].attrs  # guards the scenario.
+        assert "affines" in resampled["template"].attrs  # guards the scenario.
 
         path = tmp_path / "atlas.zarr"
         save_atlas(resampled, path)
         loaded = load_atlas(path)
-        got = loaded["reference"].attrs["affines"]["world_to_sform"]
+        got = loaded["template"].attrs["affines"]["world_to_sform"]
         assert isinstance(got, np.ndarray)
         np.testing.assert_allclose(got, aff)
 
@@ -708,7 +686,7 @@ class TestNonlinearMesh:
 
     def test_field_warps_mesh_x_column(self, atlas_ds: xr.Dataset) -> None:
         """A uniform +0.01 pull on component 2 (x) shifts only the mesh x-column by -0.01."""
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         data = np.zeros((3, *reference.shape))
         data[2] = 0.01  # component 2 == x
         ds = _with_world_to_base_transform(atlas_ds, _field_on_grid(reference, data))
@@ -722,8 +700,8 @@ class TestNonlinearMesh:
     def test_field_drops_vertices_warped_outside_grid(
         self, atlas_ds: xr.Dataset
     ) -> None:
-        """Vertices a nonlinear warp pushes outside the reference grid are dropped."""
-        reference = atlas_ds.atlas.reference
+        """Vertices a nonlinear warp pushes outside the template grid are dropped."""
+        reference = atlas_ds.atlas.template
         data = np.zeros((3, *reference.shape))
         data[2] = 0.5  # inverts to a -0.5 shift, pushing every vertex off the grid
         ds = _with_world_to_base_transform(atlas_ds, _field_on_grid(reference, data))
@@ -736,7 +714,7 @@ class TestNonlinearMesh:
         self, atlas_ds: xr.Dataset, monkeypatch
     ) -> None:
         """A B-spline mesh transform is sampled to a dense field before warping."""
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         data = np.zeros((3, *reference.shape))
         data[2] = 0.01
         field = _field_on_grid(reference, data)
@@ -760,14 +738,14 @@ class TestNonlinearMesh:
     def test_resample_like_affine_stores_transform_in_attr(
         self, atlas_ds: xr.Dataset
     ) -> None:
-        resampled = atlas_ds.atlas.resample_like(atlas_ds.atlas.reference, np.eye(4))
+        resampled = atlas_ds.atlas.resample_like(atlas_ds.atlas.template, np.eye(4))
         assert isinstance(resampled.attrs["world_to_base"], np.ndarray)
         assert "world_to_base" not in resampled.data_vars
 
     def test_resample_like_field_stores_transform_as_dataarray_attr(
         self, atlas_ds: xr.Dataset
     ) -> None:
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         field = _field_on_grid(reference, np.zeros((3, *reference.shape)))
         resampled = atlas_ds.atlas.resample_like(reference, field)
         assert isinstance(resampled.attrs["world_to_base"], xr.DataArray)
@@ -778,7 +756,7 @@ class TestNonlinearMesh:
         """An affine pull translation warps the mesh by its inverse."""
         transform = np.eye(4)
         transform[2, 3] = 0.02  # +0.02 pull on x → mesh x shifted by -0.02
-        resampled = atlas_ds.atlas.resample_like(atlas_ds.atlas.reference, transform)
+        resampled = atlas_ds.atlas.resample_like(atlas_ds.atlas.template, transform)
 
         warped, _ = resampled.atlas.get_meshes(997)["root"]
         base, _ = atlas_ds.atlas.get_meshes(997)["root"]
@@ -790,7 +768,7 @@ class TestNonlinearMesh:
         self, atlas_ds: xr.Dataset
     ) -> None:
         """A `reference` with a `time` dim still resamples, using only its spatial grid."""
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         with_time = create_voxeldata(
             reference.data[np.newaxis],
             dims=["time", "k", "j", "i"],
@@ -801,14 +779,14 @@ class TestNonlinearMesh:
         resampled = atlas_ds.atlas.resample_like(with_time, np.eye(4))
         expected = atlas_ds.atlas.resample_like(reference, np.eye(4))
 
-        assert "time" not in resampled["reference"].dims
-        xr.testing.assert_allclose(resampled["reference"], expected["reference"])
+        assert "time" not in resampled["template"].dims
+        xr.testing.assert_allclose(resampled["template"], expected["template"])
 
     def test_nonlinear_atlas_roundtrips_through_zarr(
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:
         """The displacement-field transform serializes and get_meshes still works."""
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         data = np.zeros((3, *reference.shape))
         data[2] = 0.01
         resampled = atlas_ds.atlas.resample_like(
@@ -829,7 +807,7 @@ class TestNonlinearMesh:
 
     def test_resample_matches_resample_like(self, atlas_ds: xr.Dataset) -> None:
         """Grid-spec resample equals resample_like on an equivalent reference."""
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         by_like = atlas_ds.atlas.resample_like(reference, np.eye(4))
         by_grid = atlas_ds.atlas.resample(
             np.eye(4),
@@ -838,7 +816,7 @@ class TestNonlinearMesh:
             output_origin=reference.fusi.origin,
             output_direction=reference.fusi.direction,
         )
-        for var in ["reference", "annotation", "hemispheres"]:
+        for var in ["template", "annotation", "hemispheres"]:
             np.testing.assert_array_equal(by_like[var].values, by_grid[var].values)
 
     def test_resample_preserves_output_direction(self, atlas_ds: xr.Dataset) -> None:
@@ -846,13 +824,13 @@ class TestNonlinearMesh:
         direction = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]])
         result = atlas_ds.atlas.resample(
             np.eye(4),
-            output_sizes=atlas_ds.atlas.reference.sizes,
-            output_spacing=atlas_ds.atlas.reference.fusi.spacing,
-            output_origin=atlas_ds.atlas.reference.fusi.origin,
+            output_sizes=atlas_ds.atlas.template.sizes,
+            output_spacing=atlas_ds.atlas.template.fusi.spacing,
+            output_origin=atlas_ds.atlas.template.fusi.origin,
             output_direction=direction,
         )
 
-        for name in ["reference", "annotation", "hemispheres"]:
+        for name in ["template", "annotation", "hemispheres"]:
             np.testing.assert_allclose(result[name].fusi.direction, direction)
 
 
@@ -869,7 +847,7 @@ class TestTransformComposition:
         self, atlas_ds: xr.Dataset
     ) -> None:
         """Two affine resamples compose to the matrix product and the same mesh."""
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         a = np.eye(4)
         a[2, 3] = 0.02
         b = np.eye(4)
@@ -890,7 +868,7 @@ class TestTransformComposition:
         self, atlas_ds: xr.Dataset
     ) -> None:
         """Resampling an already-transformed atlas by identity leaves the transform intact."""
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         a = np.eye(4)
         a[2, 3] = 0.02
         once = atlas_ds.atlas.resample_like(reference, a)
@@ -902,7 +880,7 @@ class TestTransformComposition:
         self, atlas_ds: xr.Dataset
     ) -> None:
         """An affine followed by a zero field composes to a field giving the affine's mesh."""
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         a = np.eye(4)
         a[2, 3] = 0.02
         zero_field = _field_on_grid(reference, np.zeros((3, *reference.shape)))
@@ -925,7 +903,7 @@ class TestTransformComposition:
         self, atlas_ds: xr.Dataset
     ) -> None:
         """A bspline_initialization affine seeds the field inversion get_meshes runs."""
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         data = np.zeros((3, *reference.shape))
         data[2] = 0.01
         field = _field_on_grid(reference, data)
@@ -952,7 +930,7 @@ class TestTransformComposition:
         routes through `_compose_world_to_base_transforms` -> `_transform_points`,
         which has its own equivalent bspline branch for the old transform side.
         """
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         data = np.zeros((3, *reference.shape))
         data[2] = 0.01
         field = _field_on_grid(reference, data)
@@ -980,7 +958,7 @@ class TestTransformComposition:
         Zarr store, never passed through `resample_like`'s own validation) is
         rejected at composition time rather than propagated silently."""
         ds = _with_world_to_base_transform(atlas_ds, np.eye(3))
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         # A DataArray new_transform (not an ndarray) forces the full point-based
         # composition path, which is what actually validates the old transform's
         # shape; an all-ndarray composition would instead crash on `@` itself.
@@ -999,7 +977,7 @@ class TestTransformComposition:
         a foreign/corrupted store) must raise clearly instead of failing deep in
         `.fusi.spacing`/`.fusi.origin`.
         """
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         bad_field = xr.DataArray(
             np.zeros((3, *reference.shape)),
             dims=["component", *reference.dims],
@@ -1016,7 +994,7 @@ class TestTransformComposition:
     ) -> None:
         """A malformed stored DataArray transform (bad attrs['type']) is rejected
         at composition time rather than propagated silently."""
-        reference = atlas_ds.atlas.reference
+        reference = atlas_ds.atlas.template
         bad = xr.DataArray(
             np.zeros((3, *reference.shape)),
             dims=["comp", *reference.dims],

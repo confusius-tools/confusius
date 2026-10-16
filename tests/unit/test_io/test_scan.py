@@ -146,7 +146,7 @@ def _write_scan_metadata(
         ("Session_tag", "ses-01"),
         ("Scan_tag", "scan-01"),
         ("Project_tag", "proj-01"),
-        ("Date", "2025-01-01"),
+        ("Date", "2025-01-01 12:34:56"),
         ("Neuroscan_version", "1.0"),
         ("Machine_SN", "SN-0001"),
         ("User_name", "user"),
@@ -298,13 +298,22 @@ class TestLoadScan2D:
             "iconeus_session",
             "iconeus_scan",
             "iconeus_project",
-            "iconeus_date",
+            "iconeus_datetime",
         ):
             assert key in scan_2d.attrs
         # Spot-check a few values against the fixture to guard against empty-string bugs.
         assert scan_2d.attrs["iconeus_subject"] == "sub-01"
-        assert scan_2d.attrs["iconeus_date"] == "2025-01-01"
+        assert scan_2d.attrs["iconeus_datetime"] == "2025-01-01T12:34:56+00:00"
         assert scan_2d.attrs["device_serial_number"] == "SN-0001"
+
+    def test_unparseable_date_kept_raw(self, scan_2d_path: Path) -> None:
+        """A `Date` string that is not a date is stored unchanged."""
+        with h5py.File(scan_2d_path, "r+") as f:
+            del f["scanMetaData/Date"]
+            f["scanMetaData"].create_dataset(
+                "Date", data=np.array([[b"unknown"]], dtype=object)
+            )
+        assert load_scan(scan_2d_path).attrs["iconeus_datetime"] == "unknown"
 
     def test_name_from_scan_tag(self, scan_2d: xr.DataArray) -> None:
         """DataArray name is taken from iconeus_scan (Scan_tag)."""

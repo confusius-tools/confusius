@@ -7,15 +7,18 @@
 # interest as seeds, and correlate each seed's signal against every voxel with
 # [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps]. Each resulting map is
 # displayed with [`plot_stat_map`][confusius.plotting.plot_stat_map], using the
-# resampled Allen reference volume as background.
+# resampled Allen template volume as background.
 #
 # We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
-# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022],
+# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022][^collection],
 # and the [Pepe, Mariani 2026 fUSI
 # template][confusius.datasets.fetch_template_pepe_mariani_2026], which carries the
 # affine transform required to bring it into Allen Common Coordinate Framework (CCF)
 # space. For the full registration workflow, see [Register a recording to an Allen fUSI
 # template](../registration/register_to_allen_fusi_template.md).
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Fetch the recording and register to the Allen atlas
@@ -66,7 +69,7 @@ moving = data.mean(dim="time").fusi.scale.db().compute()
 # - Use [`register_volume`][confusius.registration.register_volume] to refine the
 #   alignment.
 # - Resample the Allen atlas into the recording's native space with
-#   [`resample_like`][confusius.atlas.Atlas.resample_like].
+#   [`resample_like`][confusius.atlas.AtlasAccessor.resample_like].
 #
 # For the full walkthrough, see [Register a recording to an Allen fUSI
 # template](../registration/register_to_allen_fusi_template.md).
@@ -173,7 +176,7 @@ mapper.maps_
 # ## Plot the seed maps
 #
 # Each seed's map is plotted with [`plot_stat_map`][confusius.plotting.plot_stat_map]
-# over the resampled Allen reference volume, with `vmax=0.8` fixing the colormap to a
+# over the resampled Allen template volume, with `vmax=0.8` fixing the colormap to a
 # shared range so the four seeds are directly comparable. `mapper.maps_` stacks all
 # four seed maps along a `region` dimension, so a single `plot_stat_map` call with
 # `slice_mode="region"` plots one panel per seed as long as the background is broadcast
@@ -192,7 +195,7 @@ cmap = "berlin" if is_dark_theme else None
 
 # Broadcast the shared background and brain outline across a "region" dimension
 # matching mapper.maps_, so plot_stat_map can slice both by region in one call.
-bg_by_region = atlas_native.reference.expand_dims(region=mapper.maps_.region)
+bg_by_region = atlas_native.template.expand_dims(region=mapper.maps_.region)
 
 fig, axes = plt.subplots(2, 2, figsize=(8, 6), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)

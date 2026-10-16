@@ -1,10 +1,13 @@
 """Tests for napari-based plotting functions."""
 
+import dask.array as da
 import numpy as np
 import numpy.testing as npt
 import pytest
 import xarray as xr
+from matplotlib.colors import BoundaryNorm, ListedColormap
 from napari.layers import Image, Labels
+from napari.utils.colormaps import DirectLabelColormap
 
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
@@ -14,7 +17,7 @@ from confusius._utils.geometry import (
 )
 from confusius.plotting import (
     draw_napari_labels,
-    labels_from_layer,
+    extract_labels_from_layer,
     plot_atlas_mesh,
     plot_napari,
     plot_surface,
@@ -261,6 +264,83 @@ class TestPlotNapari:
         with pytest.raises(ValueError, match="Unknown layer_type"):
             plot_napari(sample_voxeldata_3d, layer_type="bogus")  # ty: ignore[invalid-argument-type]
 
+    @pytest.mark.parametrize(
+        ("dtype", "expected"),
+        [
+            (np.bool_, Labels),
+            (np.int8, Labels),
+            (np.int32, Labels),
+            (np.uint16, Labels),
+            (np.float32, Image),
+            (np.float64, Image),
+            pytest.param(
+                np.complex64,
+                Image,
+                marks=pytest.mark.filterwarnings("ignore:Complex-valued data"),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("api", ["function", "accessor", "callable_accessor"])
+    def test_default_layer_type_follows_dtype(
+        self, dtype, expected, api, make_napari_viewer
+    ) -> None:
+        data = create_voxeldata(
+            (np.arange(64).reshape(4, 4, 4) % 3).astype(dtype),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+        )
+
+        viewer = make_napari_viewer()
+        if api == "function":
+            _, layer = plot_napari(data, viewer=viewer)
+        elif api == "accessor":
+            _, layer = data.fusi.plot.napari(viewer=viewer)
+        else:
+            _, layer = data.fusi.plot(viewer=viewer)
+
+        assert type(layer) is expected
+
+    @pytest.mark.parametrize("dtype", [np.int16, np.bool_, np.float32])
+    def test_labels_preserve_lazy_data(self, dtype, make_napari_viewer) -> None:
+        """Labels retain Dask backing and preserve values when casting is needed."""
+        values = (np.arange(64).reshape(4, 4, 4) % 3).astype(dtype)
+        data = create_voxeldata(
+            da.from_array(values, chunks=(2, 2, 2)),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+        )
+
+        _, layer = plot_napari(data, viewer=make_napari_viewer(), layer_type="labels")
+
+        assert isinstance(layer.data, da.Array)
+        assert layer.data.dtype == (
+            values.dtype if np.issubdtype(dtype, np.integer) else np.dtype(np.int32)
+        )
+        npt.assert_array_equal(layer.data.compute(), values.astype(layer.data.dtype))
+
+    def test_labels_colormap_from_cmap_norm_without_rgb_lookup(
+        self, make_napari_viewer
+    ) -> None:
+        # Without rgb_lookup, the colormap labels come from the data values.
+        cmap = ListedColormap([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        norm = BoundaryNorm([0.5, 1.5, 2.5], cmap.N)
+        labels = create_voxeldata(
+            np.array([[[0, 1], [2, 0]]], dtype=np.int32),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+            attrs={"cmap": cmap, "norm": norm},
+        )
+
+        _, layer = plot_napari(labels, viewer=make_napari_viewer())
+
+        colormap = layer.colormap
+        assert isinstance(colormap, DirectLabelColormap)
+        npt.assert_allclose(colormap.color_dict[1], [1.0, 0.0, 0.0, 1.0])
+        npt.assert_allclose(colormap.color_dict[2], [0.0, 0.0, 1.0, 1.0])
+
     def test_without_voxel_to_world_index_raises(self) -> None:
         """plot_napari raises clearly without a voxel-to-world index."""
         data = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
@@ -439,6 +519,24 @@ class TestDrawNapariLabels:
         with pytest.raises(ValueError, match="VoxelToWorldIndex"):
             draw_napari_labels(data)
 
+    def test_integer_background_remains_image(
+        self, sample_voxeldata_3d, make_napari_viewer
+    ) -> None:
+        """Integer backgrounds support image display settings when drawing ROIs."""
+        data = (sample_voxeldata_3d * 100).astype(np.uint16)
+        viewer = make_napari_viewer()
+
+        _, labels_layer = draw_napari_labels(
+            data, viewer=viewer, contrast_limits=(0, 100)
+        )
+
+        image_layer = viewer.layers[0]
+        assert isinstance(image_layer, Image)
+        npt.assert_array_equal(image_layer.data, data.values)
+        npt.assert_allclose(image_layer.contrast_limits, (0, 100))
+        assert isinstance(labels_layer, Labels)
+        npt.assert_array_equal(labels_layer.data, np.zeros(data.shape, dtype=np.int32))
+
     def test_labels_scale_translate_match_image(
         self, sample_voxeldata_3d, make_napari_viewer
     ):
@@ -473,10 +571,40 @@ class TestDrawNapariLabels:
         npt.assert_allclose(labels_layer.translate, image_layer.translate, rtol=1e-5)
         assert tuple(labels_layer.axis_labels) == tuple(image_layer.axis_labels)
         painted = np.asarray(labels_layer.data)
-        painted[0, 0, 0] = 1
-        label_map = labels_from_layer(labels_layer, sample_voxeldata_3d_oblique)
-        assert label_map.shape[1:] == labels_layer.data.shape
+        painted[:] = np.where(np.indices(painted.shape)[2] % 2, 7, 3)
+        label_map = extract_labels_from_layer(labels_layer, sample_voxeldata_3d_oblique)
+        assert label_map.shape[1:] == sample_voxeldata_3d_oblique.shape
         assert has_voxel_to_world_index(label_map)
+        display = labels_layer.metadata["xarray"]
+        voxel_points = np.stack(
+            np.meshgrid(
+                *(
+                    sample_voxeldata_3d_oblique.coords[d].values
+                    for d in ("k", "j", "i")
+                ),
+                indexing="ij",
+            )
+        ).reshape(3, -1)
+        homogeneous = np.vstack((voxel_points, np.ones(voxel_points.shape[1])))
+        display_points = np.linalg.solve(
+            get_voxel_to_world_affine(display),
+            get_voxel_to_world_affine(sample_voxeldata_3d_oblique) @ homogeneous,
+        )[:3]
+        nearest = np.floor(display_points + 0.5).astype(int)
+        valid = np.all(
+            (nearest >= 0) & (nearest < np.array(painted.shape)[:, None]), axis=0
+        )
+        expected = np.zeros(voxel_points.shape[1], dtype=np.int32)
+        expected[valid] = painted[tuple(nearest[:, valid])]
+        expected = expected.reshape(sample_voxeldata_3d_oblique.shape)
+        for label in (3, 7):
+            npt.assert_array_equal(
+                label_map.sel(mask=label), np.where(expected == label, label, 0)
+            )
+        npt.assert_allclose(
+            get_voxel_to_world_affine(label_map),
+            get_voxel_to_world_affine(sample_voxeldata_3d_oblique),
+        )
         viewer.close()
 
     def test_strips_time_dim_from_labels_shape(
@@ -495,8 +623,66 @@ class TestDrawNapariLabels:
         viewer.close()
 
 
-class TestLabelsFromLayer:
-    """Tests for labels_from_layer."""
+class TestExtractLabelsFromLayer:
+    """Tests for extract_labels_from_layer."""
+
+    @pytest.mark.parametrize("with_metadata", [True, False])
+    def test_same_shape_shifted_grid(self, make_napari_viewer, with_metadata) -> None:
+        """Equal shapes must not hide a one-voxel physical offset."""
+        painted = np.zeros((2, 3, 4), dtype=np.int32)
+        painted[:, :, 1] = 3
+        painted[:, :, 2] = 7
+        display = create_voxeldata(
+            painted, dims=("k", "j", "i"), spacing=(1, 1, 1), origin=(0, 0, 0)
+        )
+        reference = create_voxeldata(
+            np.zeros_like(painted),
+            dims=("k", "j", "i"),
+            spacing=(1, 1, 1),
+            origin=(0, 0, 1),
+        )
+        viewer = make_napari_viewer()
+        layer = viewer.add_labels(
+            painted, metadata={"xarray": display} if with_metadata else {}
+        )
+        result = extract_labels_from_layer(layer, reference)
+        expected = np.zeros_like(painted)
+        if with_metadata:
+            expected[:, :, :-1] = painted[:, :, 1:]
+        else:
+            expected[:] = painted
+        for label in (3, 7):
+            npt.assert_array_equal(
+                result.sel(mask=label), np.where(expected == label, label, 0)
+            )
+        npt.assert_allclose(
+            get_voxel_to_world_affine(result), get_voxel_to_world_affine(reference)
+        )
+        npt.assert_array_equal(result.coords["i"], reference.coords["i"])
+
+    def test_labels_outside_reference_raise(self, make_napari_viewer) -> None:
+        """Out-of-field voxels are background, even when the layer has no zeros."""
+        painted = np.full((2, 3, 4), 7, dtype=np.int32)
+        display = create_voxeldata(
+            painted, dims=("k", "j", "i"), spacing=(1, 1, 1), origin=(0, 0, 0)
+        )
+        reference = create_voxeldata(
+            np.zeros_like(painted),
+            dims=("k", "j", "i"),
+            spacing=(1, 1, 1),
+            origin=(0, 0, 10),
+        )
+        viewer = make_napari_viewer()
+        layer = viewer.add_labels(painted, metadata={"xarray": display})
+        with pytest.raises(ValueError, match="No non-zero labels remain"):
+            extract_labels_from_layer(layer, reference)
+
+    def test_mismatched_shape_raises(self, sample_voxeldata_3d, make_napari_viewer):
+        """A layer without matching grid metadata cannot be positioned safely."""
+        viewer = make_napari_viewer()
+        layer = viewer.add_labels(np.ones((2, 2, 2), dtype=np.int32))
+        with pytest.raises(ValueError, match="shape does not match"):
+            extract_labels_from_layer(layer, sample_voxeldata_3d)
 
     def test_no_labels_raises(self, sample_voxeldata_3d, make_napari_viewer) -> None:
         viewer = make_napari_viewer()
@@ -507,7 +693,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
         with pytest.raises(ValueError, match="non-zero labels"):
-            labels_from_layer(labels_layer, sample_voxeldata_3d)
+            extract_labels_from_layer(labels_layer, sample_voxeldata_3d)
         viewer.close()
 
     def test_multiple_labels_stack_as_sorted_disjoint_slices(
@@ -523,7 +709,7 @@ class TestLabelsFromLayer:
         )
 
         assert isinstance(labels_layer, Labels)
-        result = labels_from_layer(labels_layer, sample_roi_labels)
+        result = extract_labels_from_layer(labels_layer, sample_roi_labels)
 
         # np.unique sorts ascending: motor=3, somatosensory=7, visual=42.
         npt.assert_array_equal(result.coords["mask"].values, [3, 7, 42])
@@ -546,7 +732,7 @@ class TestLabelsFromLayer:
         )
 
         assert isinstance(labels_layer, Labels)
-        result = labels_from_layer(labels_layer, sample_roi_labels)
+        result = extract_labels_from_layer(labels_layer, sample_roi_labels)
 
         # World coordinates must still be index-derived, not materialized plain
         # arrays (see AGENTS.md: world coordinates are never stored directly).
@@ -570,7 +756,7 @@ class TestLabelsFromLayer:
         )
 
         assert isinstance(labels_layer, Labels)
-        result = labels_from_layer(labels_layer, sample_voxeldata_3dt)
+        result = extract_labels_from_layer(labels_layer, sample_voxeldata_3dt)
 
         assert result.dims == ("mask", "k", "j", "i")
         viewer.close()
@@ -589,7 +775,7 @@ class TestLabelsFromLayer:
         )
 
         assert isinstance(labels_layer, Labels)
-        result = labels_from_layer(labels_layer, sample_roi_labels)
+        result = extract_labels_from_layer(labels_layer, sample_roi_labels)
 
         assert result.attrs["long_name"] == "Drawn label map"
         assert result.attrs["labels_layer_name"] == "hand_drawn"
@@ -766,7 +952,7 @@ class TestPlotAtlasMesh:
         shifted = atlas_ds.atlas.resample_like(grid, np.eye(4))
         viewer = make_napari_viewer()
         _, image_layer = plot_napari(
-            shifted.atlas.reference, viewer=viewer, show_scale_bar=False
+            shifted.atlas.template, viewer=viewer, show_scale_bar=False
         )
         _, surface_layer = plot_atlas_mesh(
             shifted, "root", viewer=viewer, show_scale_bar=False

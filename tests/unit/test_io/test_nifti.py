@@ -487,14 +487,23 @@ class TestLoadNifti:
             np.array([2.05, 2.15, 2.25]),
         )
 
+    @pytest.mark.parametrize(
+        ("header_unit", "time_unit", "factor"),
+        [
+            ("sec", "s", 1),
+            ("msec", "ms", 1000),
+            ("usec", "us", 1_000_000),
+            ("unknown", None, 1),
+        ],
+    )
     def test_load_nifti_scalar_time_sidecar_converts_to_header_time_units(
-        self, tmp_path: Path
+        self, tmp_path: Path, header_unit, time_unit, factor
     ) -> None:
-        """Scalar sidecar timings are converted from seconds to header time units."""
+        """Timing and processing metadata use the loaded time coordinate's units."""
         data = np.random.default_rng(0).random((5, 4, 3)).astype(np.float32)
         path = tmp_path / "scalar_time_ms_units.nii.gz"
         img = nib.Nifti1Image(data, np.eye(4))
-        img.header.set_xyzt_units(xyz="mm", t="msec")
+        img.header.set_xyzt_units(xyz="mm", t=header_unit)
         img.to_filename(path)
 
         with open(tmp_path / "scalar_time_ms_units.json", "w") as f:
@@ -504,21 +513,46 @@ class TestLoadNifti:
                     "FrameAcquisitionDuration": 0.4,
                     "SliceTiming": [0.0, 0.1, 0.2],
                     "SliceEncodingDirection": "k",
+                    "ClutterFilterWindowDuration": 400,
+                    "ClutterFilterWindowStride": 300,
+                    "PowerDopplerIntegrationDuration": 200,
+                    "ConfUSIusAxialVelocityIntegrationDuration": 160,
+                    "ConfUSIusBmodeIntegrationDuration": 100,
                 },
                 f,
             )
 
         loaded = load_nifti(path)
 
-        assert loaded.coords["time"].attrs["units"] == "ms"
-        assert loaded.coords["time"].item() == pytest.approx(2050.0)
+        assert loaded.coords["time"].attrs.get("units") == time_unit
+        assert loaded.coords["time"].item() == pytest.approx(2.05 * factor)
         assert loaded.coords["time"].attrs[
             "volume_acquisition_duration"
-        ] == pytest.approx(400.0)
+        ] == pytest.approx(0.4 * factor)
         np.testing.assert_allclose(
             loaded.coords["slice_time"].values,
-            np.array([2050.0, 2150.0, 2250.0]),
+            np.array([2.05, 2.15, 2.25]) * factor,
         )
+        for attr, seconds in {
+            "clutter_filter_window_duration": 0.4,
+            "clutter_filter_window_stride": 0.3,
+            "power_doppler_integration_duration": 0.2,
+            "axial_velocity_integration_duration": 0.16,
+            "bmode_integration_duration": 0.1,
+        }.items():
+            assert loaded.attrs[attr] == pytest.approx(seconds * factor)
+        with pytest.warns(UserWarning, match="slice_time.*missing"):
+            save_nifti(loaded, tmp_path / "roundtrip.nii.gz")
+        with open(tmp_path / "roundtrip.json") as f:
+            roundtripped = json.load(f)
+        for key, milliseconds in {
+            "ClutterFilterWindowDuration": 400,
+            "ClutterFilterWindowStride": 300,
+            "PowerDopplerIntegrationDuration": 200,
+            "ConfUSIusAxialVelocityIntegrationDuration": 160,
+            "ConfUSIusBmodeIntegrationDuration": 100,
+        }.items():
+            assert roundtripped[key] == pytest.approx(milliseconds)
 
     def test_load_nifti_scalar_time_invalid_slice_direction_preserves_fields(
         self, tmp_path: Path
@@ -1988,9 +2022,6 @@ class TestSaveNifti:
                 "clutter_filters": "Index-based SVD [50, +inf[",
                 "clutter_filter_window_duration": 0.6,
                 "clutter_filter_window_stride": 0.6,
-                "power_doppler_integration_stride": 0.2,
-                "axial_velocity_integration_stride": 0.25,
-                "bmode_integration_stride": 0.3,
                 "axial_velocity_lag": 2,
                 "axial_velocity_spatial_kernel": 3,
             }
@@ -2005,12 +2036,9 @@ class TestSaveNifti:
             sidecar = json.load(f)
 
         assert sidecar["ClutterFilters"] == "Index-based SVD [50, +inf["
-        assert sidecar["ClutterFilterWindowDuration"] == pytest.approx(0.6)
-        assert sidecar["ClutterFilterWindowStride"] == pytest.approx(0.6)
-        assert sidecar["PowerDopplerIntegrationStride"] == pytest.approx(0.2)
+        assert sidecar["ClutterFilterWindowDuration"] == pytest.approx(600)
+        assert sidecar["ClutterFilterWindowStride"] == pytest.approx(600)
         assert sidecar["FrameAcquisitionDuration"] == pytest.approx(0.3)
-        assert sidecar["ConfUSIusAxialVelocityIntegrationStride"] == pytest.approx(0.25)
-        assert sidecar["ConfUSIusBmodeIntegrationStride"] == pytest.approx(0.3)
         assert sidecar["ConfUSIusAxialVelocityLag"] == 2
         assert sidecar["ConfUSIusAxialVelocitySpatialKernel"] == 3
         assert sidecar["ConfUSIusLongName"] == "Power Doppler intensity"
@@ -3581,7 +3609,7 @@ class TestRoundtrip:
             {
                 "task_name": "rest",
                 "manufacturer": "Verasonics",
-                "probe_central_frequency": 15.0,
+                "probe_center_frequency": 15.0,
             }
         )
 
@@ -3593,7 +3621,7 @@ class TestRoundtrip:
         np.testing.assert_allclose(np.asarray(loaded), original.values)
         assert loaded.attrs["task_name"] == "rest"
         assert loaded.attrs["manufacturer"] == "Verasonics"
-        assert loaded.attrs["probe_central_frequency"] == 15.0
+        assert loaded.attrs["probe_center_frequency"] == 15.0
 
     def test_roundtrip_preserves_units(self, tmp_path, sample_voxeldata_3d):
         """Spatial units survive a save/load roundtrip."""
@@ -3654,33 +3682,37 @@ class TestRoundtrip:
         assert sidecar["RepetitionTime"] == 1.0  # Converted from 1000 ms to 1 s.
         assert "DelayAfterTrigger" not in sidecar
 
-    def test_save_converts_processing_duration_attrs_to_seconds(
-        self, tmp_path, sample_voxeldata_3dt
+    @pytest.mark.parametrize(
+        ("time_unit", "factor"),
+        [("s", 0.001), ("ms", 1), ("us", 1000), (None, 0.001)],
+    )
+    def test_save_converts_processing_duration_attrs_to_milliseconds(
+        self, tmp_path, sample_voxeldata_3dt, time_unit, factor
     ) -> None:
-        """Processing duration and stride attrs are converted to seconds in sidecar."""
+        """JSON processing fields use milliseconds regardless of coordinate units."""
         da = sample_voxeldata_3dt.copy().assign_coords(
             time=xr.DataArray(
-                np.arange(sample_voxeldata_3dt.sizes["time"]) * 100.0,
+                np.arange(sample_voxeldata_3dt.sizes["time"]) * 100.0 * factor,
                 dims=["time"],
                 attrs={
-                    "units": "ms",
+                    "units": time_unit,
                     "volume_acquisition_reference": "start",
-                    "volume_acquisition_duration": 100.0,
+                    "volume_acquisition_duration": 100.0 * factor,
                 },
             )
         )
         da.attrs.update(
             {
-                "clutter_filter_window_duration": 300.0,
-                "clutter_filter_window_stride": 200.0,
-                "power_doppler_integration_duration": 80.0,
-                "power_doppler_integration_stride": 40.0,
-                "axial_velocity_integration_duration": 160.0,
-                "axial_velocity_integration_stride": 50.0,
-                "bmode_integration_duration": 100.0,
-                "bmode_integration_stride": 60.0,
+                "clutter_filter_window_duration": 300.0 * factor,
+                "clutter_filter_window_stride": 200.0 * factor,
+                "power_doppler_integration_duration": 80.0 * factor,
+                "axial_velocity_integration_duration": 160.0 * factor,
+                "bmode_integration_duration": 100.0 * factor,
             }
         )
+
+        if time_unit is None:
+            da = da.isel(time=0, drop=True)
 
         nifti_path = tmp_path / "processing_duration_ms.nii.gz"
         save_nifti(da, nifti_path)
@@ -3689,14 +3721,22 @@ class TestRoundtrip:
         with open(sidecar_path) as f:
             sidecar = json.load(f)
 
-        assert sidecar["ClutterFilterWindowDuration"] == pytest.approx(0.3)
-        assert sidecar["ClutterFilterWindowStride"] == pytest.approx(0.2)
-        assert sidecar["PowerDopplerIntegrationDuration"] == pytest.approx(0.08)
-        assert sidecar["PowerDopplerIntegrationStride"] == pytest.approx(0.04)
-        assert sidecar["ConfUSIusAxialVelocityIntegrationDuration"] == pytest.approx(
-            0.16
-        )
-        assert sidecar["ConfUSIusAxialVelocityIntegrationStride"] == pytest.approx(0.05)
-        assert sidecar["ConfUSIusBmodeIntegrationDuration"] == pytest.approx(0.1)
-        assert sidecar["ConfUSIusBmodeIntegrationStride"] == pytest.approx(0.06)
+        assert sidecar["ClutterFilterWindowDuration"] == pytest.approx(300)
+        assert sidecar["ClutterFilterWindowStride"] == pytest.approx(200)
+        assert sidecar["PowerDopplerIntegrationDuration"] == pytest.approx(80)
+        assert sidecar["ConfUSIusAxialVelocityIntegrationDuration"] == pytest.approx(160)
+        assert sidecar["ConfUSIusBmodeIntegrationDuration"] == pytest.approx(100)
+        loaded = load_nifti(nifti_path)
+        if time_unit is None:
+            assert "time" not in loaded.coords
+        else:
+            assert loaded.time.attrs["units"] == "s"
+        for attr, seconds in {
+            "clutter_filter_window_duration": 0.3,
+            "clutter_filter_window_stride": 0.2,
+            "power_doppler_integration_duration": 0.08,
+            "axial_velocity_integration_duration": 0.16,
+            "bmode_integration_duration": 0.1,
+        }.items():
+            assert loaded.attrs[attr] == pytest.approx(seconds)
 

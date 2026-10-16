@@ -573,7 +573,6 @@ Attributes:
     clutter_filter_window_duration:       0.4
     clutter_filter_window_stride:         0.3999999999999999
     power_doppler_integration_duration:   0.19999999999999996
-    power_doppler_integration_stride:     0.19999999999999998
 ```
 
 To actually compute the power Doppler values and load them into memory, you must call
@@ -687,7 +686,6 @@ Attributes:
     axial_velocity_lag:                   1
     axial_velocity_spatial_kernel:        3
     axial_velocity_integration_duration:  0.19999999999999996
-    axial_velocity_integration_stride:    0.19999999999999998
 ```
 
 !!! info "Processing parameters"

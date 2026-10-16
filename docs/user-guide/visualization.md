@@ -10,7 +10,7 @@ generation**:
 | Tool | Backend | Best for |
 |---|---|---|
 | [`plot_napari`][confusius.plotting.plot_napari] / [`.fusi.plot.napari()`][confusius.xarray.FUSIPlotAccessor.napari] | napari | Interactive exploration of 3D+t datasets |
-| [`draw_napari_labels`][confusius.plotting.draw_napari_labels] / [`.fusi.plot.draw_napari_labels()`][confusius.xarray.FUSIPlotAccessor.draw_napari_labels] + [`labels_from_layer`][confusius.plotting.labels_from_layer] / [`.fusi.plot.labels_from_layer()`][confusius.xarray.FUSIPlotAccessor.labels_from_layer] | napari | Interactive manual ROI drawing |
+| [`draw_napari_labels`][confusius.plotting.draw_napari_labels] / [`.fusi.plot.draw_napari_labels()`][confusius.xarray.FUSIPlotAccessor.draw_napari_labels] + [`extract_labels_from_layer`][confusius.plotting.extract_labels_from_layer] / [`.fusi.plot.extract_labels_from_layer()`][confusius.xarray.FUSIPlotAccessor.extract_labels_from_layer] | napari | Interactive manual ROI drawing |
 | [`plot_surface`][confusius.plotting.plot_surface] / [`plot_atlas_mesh`][confusius.plotting.plot_atlas_mesh] / [`.atlas.plot.mesh()`][confusius.atlas.AtlasPlotAccessor.mesh] | napari | Overlaying meshes (e.g. atlas region surfaces) in 3D |
 | [`plot_volume`][confusius.plotting.plot_volume] / [`.fusi.plot.volume()`][confusius.xarray.FUSIPlotAccessor.volume] | Matplotlib | Static slice grids |
 | [`plot_contours`][confusius.plotting.plot_contours] / [`.fusi.plot.contours()`][confusius.xarray.FUSIPlotAccessor.contours] | Matplotlib | Contour-only grids (masks or atlas outlines) |
@@ -85,10 +85,10 @@ concise syntax; both call the same underlying functions.
     )
     mean_vol = pwd.mean("time").compute()
     angio = cf.load(
-        bids_root / "sub-CR022/ses-20201011/angio" / "sub-CR022_ses-20201011_pwd.nii.gz"
+        bids_root / "sub-CR022/ses-20201011/susi" / "sub-CR022_ses-20201011_pwd.nii.gz"
     ).compute()
     angio_2 = cf.load(
-        bids_root / "sub-CR022/ses-20201007/angio" / "sub-CR022_ses-20201007_pwd.nii.gz"
+        bids_root / "sub-CR022/ses-20201007/susi" / "sub-CR022_ses-20201007_pwd.nii.gz"
     ).compute()
     atlas_labels = cf.load(
         bids_root
@@ -149,6 +149,13 @@ and elevation slices with the sliders or mouse wheel.
     integration with other imaging modalities like microscopy or MRI.
 
 ### Napari Parameters
+
+Both [`plot_napari`][confusius.plotting.plot_napari] and
+[`data.fusi.plot.napari()`][confusius.xarray.FUSIPlotAccessor.napari] default to
+`layer_type="auto"`: integer and boolean data open as labels layers, and other data
+as image layers. Pass `layer_type="image"` explicitly for integer-valued intensity
+data, or `layer_type="labels"` to explicitly select a labels layer. The shorthand
+[`data.fusi.plot()`][confusius.xarray.FUSIPlotAccessor] uses the same default.
 
 By default napari auto-scales contrast to the data range. For power Doppler, working
 in decibel scale with explicit limits is often more informative:
@@ -249,18 +256,18 @@ the spatial scale and origin are consistent regardless of voxel size or data ori
 ![napari viewer with two painted ROI regions](../images/visualization/napari-draw-labels.png)
 
 Once you have finished painting, use
-[`labels_from_layer`][confusius.plotting.labels_from_layer] to convert the Labels layer
+[`extract_labels_from_layer`][confusius.plotting.extract_labels_from_layer] to convert the Labels layer
 into a stacked integer DataArray compatible with
 [`extract_with_labels`][confusius.extract.extract_with_labels],
 [`plot_contours`][confusius.plotting.plot_contours], and
 [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours]:
 
 ```python
-from confusius.plotting import labels_from_layer
+from confusius.plotting import extract_labels_from_layer
 
 # Convert the painted layer to a stacked DataArray.
 # label_map has dims ("mask", "k", "j", "i"), one layer per painted label.
-label_map = labels_from_layer(labels_layer, mean_vol)
+label_map = extract_labels_from_layer(labels_layer, mean_vol)
 
 # Each label's color as painted in napari is stored in attrs["rgb_lookup"]
 # and will be reused automatically by plot_contours and add_contours.
@@ -273,6 +280,15 @@ region_signals = pwd.fusi.extract.with_labels(label_map)
 plotter = mean_vol.fusi.scale.db().fusi.plot.volume(slice_mode="z", cmap="gray")
 plotter.add_contours(label_map)
 ```
+
+For oblique or sheared data, painting takes place on an axis-aligned display grid.
+Extraction maps the painted labels back onto `mean_vol`'s original voxel grid using
+nearest-neighbor interpolation, with zero background outside the display grid.
+Label IDs are preserved, but boundaries can change and thin regions can disappear.
+
+Prefer drawing in an existing axis-aligned acquisition/scanner frame when available. A
+known transform can be applied afterward to both the image and extracted labels using
+[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] without resampling.
 
 ## Static Volume Plots
 
@@ -752,5 +768,5 @@ and the [Xarray Integration API reference](../api/xarray.md).
 [^nunez2022]:
     Nunez-Elizalde, A. O., et al. "A Neurophysiological fUSI-BIDS dataset from awake,
     behaving mice." figshare dataset, 2022. DOI.org (Datacite),
-    <https://doi.org/10.6084/m9.figshare.19316228>; mirrored on OSF at
-    <https://osf.io/43skw/>.
+    <https://doi.org/10.6084/m9.figshare.19316228>; the fUSI-BIDS re-export is hosted
+    in the [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).

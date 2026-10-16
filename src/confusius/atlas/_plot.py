@@ -60,7 +60,7 @@ class AtlasPlotAccessor:
             the same side to all regions, or a sequence of the same length as `regions`
             for per-region control.
         clip : bool, default: True
-            Whether to clip the mesh to the reference grid, forwarded to
+            Whether to clip the mesh to the template grid, forwarded to
             [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes].
         values : (N,) or (N, T) numpy.ndarray, optional
             Per-vertex scalar values used to color the surface through the layer's

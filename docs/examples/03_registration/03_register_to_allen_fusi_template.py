@@ -8,10 +8,13 @@
 # the aligned atlas for reuse.
 #
 # We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
-# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022],
+# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022][^collection],
 # and the [Pepe, Mariani 2026 fUSI template][confusius.datasets.fetch_template_pepe_mariani_2026],
 # which carries the affine transform required to bring it into Allen Common Coordinate
 # Framework (CCF) space.
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Fetch the recording and the template
@@ -152,7 +155,7 @@ _ = fig.suptitle("Template (red) / recording (cyan)")
 # the recording's native coordinates directly to Allen atlas coordinates.
 #
 # [`resample_like`][confusius.atlas.AtlasAccessor.resample_like] then brings the atlas's
-# reference volume, annotations, and hemisphere map onto the recording's grid in one
+# template volume, annotations, and hemisphere map onto the recording's grid in one
 # call.
 
 # %%

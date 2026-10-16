@@ -46,45 +46,41 @@ jobs:
             libxcb-xfixes0 \
             libxcb-xinerama0
 
+      - name: Get dataset release catalog
+        run: >-
+          curl --fail --show-error --silent --retry 3
+          https://confusius-datasets.s3.us-west-2.amazonaws.com/last_versions.conf
+          --output .dataset-versions.conf
+
       - name: Cache Nunez-Elizalde dataset
         uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/nunez-elizalde-2022-bids
-          key: ${{ runner.os }}-nunez-elizalde-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
-          restore-keys: |
-            ${{ runner.os }}-nunez-elizalde-bids-
+          key: ${{ runner.os }}-s3-nunez-elizalde-bids-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
 
       - name: Cache Cybis Pereira dataset
         uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/cybis-pereira-2026-bids
-          key: ${{ runner.os }}-cybis-pereira-2026-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
-          restore-keys: |
-            ${{ runner.os }}-cybis-pereira-2026-bids-
+          key: ${{ runner.os }}-s3-cybis-pereira-2026-bids-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
 
       - name: Cache Khallaf dataset
         uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/khallaf-2026-bids
-          key: ${{ runner.os }}-khallaf-2026-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
-          restore-keys: |
-            ${{ runner.os }}-khallaf-2026-bids-
+          key: ${{ runner.os }}-s3-khallaf-2026-bids-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
 
       - name: Cache Pepe Mariani template
         uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/pepe-mariani-2026-template
-          key: ${{ runner.os }}-pepe-mariani-2026-template-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
-          restore-keys: |
-            ${{ runner.os }}-pepe-mariani-2026-template-
+          key: ${{ runner.os }}-s3-pepe-mariani-2026-template-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
 
       - name: Cache Pepe Mariani dataset
         uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/pepe-mariani-2026-bids
-          key: ${{ runner.os }}-pepe-mariani-2026-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
-          restore-keys: |
-            ${{ runner.os }}-pepe-mariani-2026-bids-
+          key: ${{ runner.os }}-s3-pepe-mariani-2026-bids-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
 
       - name: Cache BrainGlobe atlases
         uses: actions/cache@v6
@@ -134,7 +130,7 @@ jobs:
             docs/images/visualization/*.gif
             docs/images/home/*.png
             docs/images/home/*.gif
-          key: ${{ runner.os }}-docs-images-${{ hashFiles('uv.lock', 'docs/images/**/generate.py', 'tools/prefetch_doc_datasets.py', 'src/**/*.py') }}
+          key: ${{ runner.os }}-docs-images-${{ hashFiles('.dataset-versions.conf', 'uv.lock', 'docs/images/**/generate.py', 'tools/prefetch_doc_datasets.py', 'src/**/*.py') }}
           restore-keys: |
             ${{ runner.os }}-docs-images-
 
@@ -158,9 +154,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .gallery-cache
-          key: ${{ runner.os }}-gallery-${{ hashFiles('uv.lock', 'docs/examples/**/*.py', 'tools/gallery/**/*.py', 'tools/build_gallery.py') }}
-          restore-keys: |
-            ${{ runner.os }}-gallery-
+          key: ${{ runner.os }}-gallery-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'uv.lock', 'docs/examples/**/*.py', 'tools/gallery/**/*.py', 'tools/build_gallery.py') }}
 
       - name: Build example gallery
         env:
@@ -171,17 +165,22 @@ jobs:
         run: xvfb-run -a uv run python tools/build_gallery.py
 
       - name: Build documentation
+        env:
+          # PR previews deploy under `pr-preview/pr-N`. Pass that prefix the way mike
+          # does for dev/release deploys, so canonical URLs, the sitemap, and llms.txt
+          # links point into the preview. Empty means site root.
+          MIKE_DOCS_VERSION: ${{ github.event_name == 'pull_request' && format('pr-preview/pr-{0}', github.event.number) || '' }}
         run: uv run zensical build --clean --strict
 
       - name: Upload site artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: site-${{ github.sha }}
           path: site/
           retention-days: 14
 
       - name: Upload gallery artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: gallery-built-${{ github.sha }}
           path: |
@@ -190,7 +189,7 @@ jobs:
           retention-days: 14
 
       - name: Upload generated images artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: docs-images-${{ github.sha }}
           path: docs/images/
@@ -316,6 +315,19 @@ jobs:
         if: github.ref == 'refs/heads/main'
         working-directory: /tmp/confusius-docs
         run: uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --push --update-aliases dev
+
+      - name: Expose llms.txt at the site root
+        # Root-level symlinks into `latest/`, like the `latest` alias mike maintains.
+        # Committed before `mike deploy` because mike writes git objects directly and
+        # leaves the working tree stale; its `--push` then carries this commit too.
+        # No-op once the symlinks exist.
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: /tmp/confusius-docs
+        run: |
+          ln -sfn latest/llms.txt llms.txt
+          ln -sfn latest/llms-full.txt llms-full.txt
+          git add llms.txt llms-full.txt
+          git diff --cached --quiet || git commit -m "chore: expose llms.txt at the site root"
 
       - name: Deploy release docs
         if: startsWith(github.ref, 'refs/tags/v')

@@ -13,7 +13,7 @@ the light and dark passes to produce identical output, and download progress
 on a cold cache would otherwise show up in one but not the other.
 
 Add an entry here whenever a new image generator or example pulls data. The
-args must match the call site exactly so the OSF index resolves to the same
+args must match the call site exactly so the S3 release manifest resolves to the same
 files.
 """
 
@@ -42,6 +42,7 @@ _RABUT_2024_MEMBERS = ("data/human/S2R1.mat",)
 def _prefetch_nunez_elizalde() -> None:
     # docs/images/home/generate.py
     fetch_nunez_elizalde_2022(
+        print_citation=False,
         subjects=["CR022", "CR024"],
         sessions=["20201011", "20201029"],
         tasks="spontaneous",
@@ -50,6 +51,7 @@ def _prefetch_nunez_elizalde() -> None:
 
     # docs/images/qc/generate.py
     fetch_nunez_elizalde_2022(
+        print_citation=False,
         subjects="CR024",
         sessions="20201029",
         tasks="spontaneous",
@@ -58,6 +60,7 @@ def _prefetch_nunez_elizalde() -> None:
 
     # docs/images/gui/generate.py
     fetch_nunez_elizalde_2022(
+        print_citation=False,
         subjects="CR022",
         sessions=["20201007", "20201011"],
         tasks="spontaneous",
@@ -66,14 +69,16 @@ def _prefetch_nunez_elizalde() -> None:
 
     # docs/images/visualization/generate.py
     fetch_nunez_elizalde_2022(
+        print_citation=False,
         subjects="CR022",
         sessions=["20201011", "20201007"],
         tasks="spontaneous",
         acqs="slice04",
     )
 
-    # docs/examples/01_io/01_confusius_xarray_101.py
+    # docs/examples/01_io/01_confusius_xarray_101.py.
     fetch_nunez_elizalde_2022(
+        print_citation=False,
         subjects="CR022",
         sessions="20201011",
         tasks="spontaneous",
@@ -84,6 +89,7 @@ def _prefetch_nunez_elizalde() -> None:
     # docs/examples/04_connectivity/02_atlas_seed_map.py,
     # docs/examples/05_atlases_and_templates/01_saving_resampled_atlas.py
     fetch_nunez_elizalde_2022(
+        print_citation=False,
         subjects="CR022",
         sessions="20201007",
         tasks="spontaneous",
@@ -95,10 +101,11 @@ def _prefetch_pepe_mariani_template() -> None:
     # docs/examples/04_connectivity/01_atlas_correlation_matrix.py,
     # docs/examples/04_connectivity/02_atlas_seed_map.py,
     # docs/examples/05_atlases_and_templates/01_saving_resampled_atlas.py
-    fetch_template_pepe_mariani_2026()
+    fetch_template_pepe_mariani_2026(print_citation=False)
 
     # docs/examples/01_io/03_load_multipose_recordings.py
     fetch_pepe_mariani_2026(
+        print_citation=False,
         datasets="rawdata",
         subjects="cp230420a",
         sessions="1MEDISOses5",
@@ -117,6 +124,7 @@ def _prefetch_allen_atlas() -> None:
 def _prefetch_cybis_pereira() -> None:
     # docs/images/gui/generate.py (openfield video panel)
     fetch_cybis_pereira_2026(
+        print_citation=False,
         datasets=["rawdata", "dlc-videos"],
         subjects="rat75",
         sessions="20220525",
@@ -125,23 +133,27 @@ def _prefetch_cybis_pereira() -> None:
 
     # docs/images/gui/generate.py (within-scan registration GIF)
     fetch_cybis_pereira_2026(
+        print_citation=False,
         datasets="rawdata",
         subjects="rat75",
         sessions="20220523",
         acqs="slice32",
     )
 
-    # docs/examples/02_registration/01_register_volume_same_subject.py
+    # docs/examples/02_registration/01_register_volume_same_subject.py,
+    # docs/examples/01_io/04_dataset_collection.py.
     fetch_cybis_pereira_2026(
+        print_citation=False,
         datasets="rawdata",
         subjects="rat75",
         sessions=["20220523", "20220524"],
-        datatypes="angio",
+        datatypes="susi",
         acqs="slice32",
     )
 
     # docs/examples/02_registration/02_volumewise_motion_correction.py
     fetch_cybis_pereira_2026(
+        print_citation=False,
         datasets="rawdata",
         subjects="rat75",
         sessions="20220523",
@@ -152,6 +164,7 @@ def _prefetch_cybis_pereira() -> None:
     # docs/examples/06_decoding/01_searchlight_speed.py
     # docs/examples/05_glm/02_first_level_continuous.py
     fetch_cybis_pereira_2026(
+        print_citation=False,
         datasets="rawdata",
         subjects="rat75",
         sessions="20220524",
@@ -162,6 +175,7 @@ def _prefetch_cybis_pereira() -> None:
 def _prefetch_khallaf() -> None:
     # docs/examples/05_glm/01_first_level.py
     fetch_khallaf_2026(
+        print_citation=False,
         datasets="rawdata",
         subjects="5622",
         sessions="IPM",
@@ -170,7 +184,7 @@ def _prefetch_khallaf() -> None:
     # Mouse template and Allen atlas used for registration and masks in the same
     # example. Warming the brainglobe atlas here keeps its download progress out of
     # the parity-sensitive gallery render.
-    fetch_template_pepe_mariani_2026()
+    fetch_template_pepe_mariani_2026(print_citation=False)
     fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)
 
 

@@ -116,7 +116,7 @@ def finalize_registration_layer(
     display_kwargs = (
         _get_image_display_kwargs_from_layer(source_layer)
         if source_layer is not None
-        else {}
+        else {"layer_type": "image"}
     )
     if payload["operation"] == "register_volume":
         display_kwargs["colormap"] = "cyan"

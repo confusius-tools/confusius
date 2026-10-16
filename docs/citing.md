@@ -8,7 +8,7 @@ icon: lucide/quote
 
 If you use ConfUSIus in your research, please cite it using the following reference:
 
-> Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus (v0.7.1). Zenodo.
+> Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus (v0.8.0). Zenodo.
 > https://doi.org/10.5281/zenodo.18611124
 
 Or in BibTeX format:
@@ -19,7 +19,7 @@ Or in BibTeX format:
   title     = {ConfUSIus},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {v0.7.1},
+  version   = {v0.8.0},
   doi       = {10.5281/zenodo.18611124},
   url       = {https://doi.org/10.5281/zenodo.18611124}
 }
@@ -316,38 +316,51 @@ License: **[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)**.
 
 ## Templates
 
-### Huang et al. (2025)
+### Brunner, Grillet et al. (2021)
 
-The [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025]
-function provides a vascular mouse template derived from OpenfUSAnalyzer. If you use
-this template in your research, please cite:
+The [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
+function provides an Allen-aligned vascular mouse template. If you use this template
+in your research, please cite the paper and source dataset:
 
-> Huang, Y.-A., Lambert, T., Verbeyst, D., Fitzgerald, N. E., Grillet, M.,
-> Brunner, C., Montaldo, G., Vanduffel, W., & Urban, A. (2025). OfUSA: OpenfUS
-> Analyzer, a versatile open-source framework for the analysis and visualization of
-> functional ultrasound imaging data across animal models. *bioRxiv*.
-> https://doi.org/10.1101/2025.09.16.676515
+> Brunner, C., Grillet, M., Urban, A., Roska, B., Montaldo, G., & Macé, E. (2021).
+> Whole-brain functional ultrasound imaging in awake head-fixed mice.
+> *Nature Protocols*, 16, 3547–3571.
+> https://doi.org/10.1038/s41596-021-00548-8
+
+> Macé, E., & Montaldo, G. (2020). Whole-brain visually evoked activity maps in
+> head-fixed awake mice (June 2021 metadata update). *Zenodo*.
+> https://doi.org/10.5281/zenodo.4905862
 
 Or in BibTeX format:
 
 ```bibtex
-@misc{huang_ofusa:_2025,
-  title = {OfUSA: OpenfUS Analyzer, a versatile open-source framework for the analysis and
-           visualization of functional ultrasound imaging data across animal models},
-  copyright = {http://creativecommons.org/licenses/by-nc/4.0/},
-  shorttitle = {OfUSA},
-  url = {http://biorxiv.org/lookup/doi/10.1101/2025.09.16.676515},
-  doi = {10.1101/2025.09.16.676515},
-  language = {en},
-  author = {Huang, Yun-An and Lambert, Théo and Verbeyst, Damon and Fitzgerald, Nora Eilis and
-            Grillet, Micheline and Brunner, Clément and Montaldo, Gabriel and
-            Vanduffel, Wim and Urban, Alan},
-  month = sep,
-  year = {2025},
+@article{brunner2021,
+  title = {Whole-brain functional ultrasound imaging in awake head-fixed mice},
+  author = {Brunner, Clément and Grillet, Micheline and Urban, Alan and Roska, Botond and
+            Montaldo, Gabriel and Macé, Emilie},
+  journal = {Nature Protocols},
+  volume = {16},
+  number = {7},
+  pages = {3547--3571},
+  year = {2021},
+  doi = {10.1038/s41596-021-00548-8},
+}
+
+@dataset{mace_montaldo2020,
+  title = {Whole-brain visually evoked activity maps in head-fixed awake mice},
+  author = {Macé, Emilie and Montaldo, Gabriel},
+  publisher = {Zenodo},
+  year = {2020},
+  note = {June 2021 metadata update},
+  doi = {10.5281/zenodo.4905862},
 }
 ```
 
-License: **[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)**.
+The template conversion reorders axes and assigns the Allen 50 µm coordinate grid
+without changing vascular voxel values. Also cite Wang et al. (2020) for the Allen
+CCF reference framework: <https://doi.org/10.1016/j.cell.2020.04.007>.
+
+License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
 
 ### Pepe, Mariani et al. (2026)
 

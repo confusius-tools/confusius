@@ -45,17 +45,26 @@ class SignalPanel(QWidget):
         The active napari viewer instance.
     event_store : EventStore, optional
         Shared store of temporal events whose intervals are shaded on the plot.
+    signal_store : SignalStore, optional
+        Shared store of stored/live signals. If not provided, a private store is
+        created. Pass the same instance used elsewhere (e.g. the QC panel) so
+        stored signals are available across panels.
     """
 
     def __init__(
-        self, viewer: napari.Viewer, event_store: EventStore | None = None
+        self,
+        viewer: napari.Viewer,
+        event_store: EventStore | None = None,
+        signal_store: SignalStore | None = None,
     ) -> None:
         super().__init__()
         self._viewer = viewer
         self._event_store = event_store
         self._plotter: SignalPlotter | None = None
         self._signals_manager: SignalsManagerDialog | None = None
-        self._signals_store = SignalStore(self)
+        self._signals_store = (
+            signal_store if signal_store is not None else SignalStore(self)
+        )
         self._cached_xaxis_dim_index: int | None = None
         self._setup_ui()
         viewer.events.theme.connect(self._on_theme_changed)
@@ -143,6 +152,7 @@ class SignalPanel(QWidget):
 
         self._viewer.layers.events.inserted.connect(self._on_layer_inserted)
         self._viewer.layers.events.removed.connect(self._refresh_source_combos)
+        self._viewer.layers.events.renamed.connect(self._refresh_source_combos)
         self._viewer.layers.selection.events.active.connect(
             self._on_active_layer_changed
         )
@@ -246,7 +256,7 @@ class SignalPanel(QWidget):
         # Show plot button, disabled while the dock is visible.
         self._show_btn = QPushButton("Show Signal Plot")
         self._show_btn.setObjectName("primary_btn")
-        self._show_btn.clicked.connect(self._show_plot)
+        self._show_btn.clicked.connect(self.show_plot)
         layout.addWidget(self._show_btn)
 
         self._manage_btn = QPushButton("Manage Signals")
@@ -340,7 +350,7 @@ class SignalPanel(QWidget):
 
         return self._plotter
 
-    def _show_plot(self) -> None:
+    def show_plot(self) -> None:
         """Show or re-dock the signal plot widget."""
         # If the plotter is already in a live dock, just raise it.
         if self._plotter is not None and self._plotter.parent() is not None:
@@ -470,9 +480,9 @@ class SignalPanel(QWidget):
         """Repopulate all source combo boxes from the current viewer layers."""
         self._cached_xaxis_dim_index = None
         # Preserve current selections.
-        cur_points = self._points_combo.currentText()
-        cur_labels = self._labels_combo.currentText()
-        cur_ref = self._ref_combo.currentText()
+        cur_points = self._points_combo.currentData()
+        cur_labels = self._labels_combo.currentData()
+        cur_ref = self._ref_combo.currentData()
 
         self._points_combo.blockSignals(True)
         self._labels_combo.blockSignals(True)
@@ -488,9 +498,9 @@ class SignalPanel(QWidget):
             for layer in self._viewer.layers:
                 t = layer._type_string
                 if t == "points":
-                    self._points_combo.addItem(layer.name)
+                    self._points_combo.addItem(layer.name, layer)
                 elif t == "labels":
-                    self._labels_combo.addItem(layer.name)
+                    self._labels_combo.addItem(layer.name, layer)
                 elif t == "image" and not getattr(layer, "rgb", False):
                     # Include layers with at least one non-displayed signal
                     # dimension so spatial maps (tSNR, CV, ...) are excluded.
@@ -503,14 +513,14 @@ class SignalPanel(QWidget):
                     else:
                         has_signal_dim = layer.data.ndim >= 4
                     if has_signal_dim:
-                        self._ref_combo.addItem(layer.name)
+                        self._ref_combo.addItem(layer.name, layer)
 
             for combo, prev in (
                 (self._points_combo, cur_points),
                 (self._labels_combo, cur_labels),
                 (self._ref_combo, cur_ref),
             ):
-                text_index = combo.findText(prev)
+                text_index = combo.findData(prev)
                 if text_index >= 0:
                     combo.setCurrentIndex(text_index)
         finally:
@@ -553,35 +563,10 @@ class SignalPanel(QWidget):
         else:
             mode = "mouse"
 
-        # Reference layers.
-        ref_text = self._ref_combo.currentText()
-        if ref_text == "All image layers" or not ref_text:
-            plotter.set_ref_layers(None)
-        else:
-            try:
-                plotter.set_ref_layers([self._viewer.layers[ref_text]])
-            except KeyError:
-                plotter.set_ref_layers(None)
-
-        # Points layer.
-        points_text = self._points_combo.currentText()
-        if points_text:
-            try:
-                plotter.set_points_layer(self._viewer.layers[points_text])
-            except KeyError:
-                plotter.set_points_layer(None)
-        else:
-            plotter.set_points_layer(None)
-
-        # Labels layer.
-        labels_text = self._labels_combo.currentText()
-        if labels_text:
-            try:
-                plotter.set_labels_layer(self._viewer.layers[labels_text])
-            except KeyError:
-                plotter.set_labels_layer(None)
-        else:
-            plotter.set_labels_layer(None)
+        ref_layer = self._ref_combo.currentData()
+        plotter.set_ref_layers([ref_layer] if ref_layer is not None else None)
+        plotter.set_points_layer(self._points_combo.currentData())
+        plotter.set_labels_layer(self._labels_combo.currentData())
 
         # Mode last, triggers a replot with the already-updated layers.
         plotter.set_source_mode(mode)

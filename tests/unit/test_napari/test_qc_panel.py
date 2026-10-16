@@ -41,14 +41,18 @@ class TestTimeDimIndex:
         viewer.add_image(np.zeros((4, 6, 8)), metadata={"xarray": None})
         assert qc_panel._time_dim_index() == 0
 
-    def test_finds_time_dim_from_xarray_layer(self, viewer, qc_panel, sample_voxeldata_3dt):
+    def test_finds_time_dim_from_xarray_layer(
+        self, viewer, qc_panel, sample_voxeldata_3dt
+    ):
         plot_napari(
             sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
         )
-        assert qc_panel._time_dim_index() == list(sample_voxeldata_3dt.dims).index("time")
+        assert qc_panel._time_dim_index() == list(sample_voxeldata_3dt.dims).index(
+            "time"
+        )
 
 
 class TestCurrentTimeWorld:
@@ -100,3 +104,106 @@ class TestRefreshLayers:
         layer = viewer.add_image(np.zeros((10, 4, 6, 8)), name="my_layer")
         viewer.layers.remove(layer)
         assert qc_panel._layer_combo.count() == 0
+
+
+# ---------------------------------------------------------------------------
+# _store_dvars_signal
+# ---------------------------------------------------------------------------
+
+
+class TestStoreDvarsSignal:
+    def test_noop_without_a_signal_store(self, viewer):
+        from confusius._napari._qc._panel import QCPanel
+
+        panel = QCPanel(viewer)
+        dvars = xr.DataArray([0.1, 0.2, 0.3], dims=["time"], coords={"time": [0, 1, 2]})
+        panel._store_dvars_signal(dvars, "my_layer")  # Must not raise.
+
+    def test_adds_dvars_to_the_signal_store(self, viewer):
+        from confusius._napari._qc._panel import QCPanel
+        from confusius._napari._signals._store import SignalStore
+
+        store = SignalStore()
+        panel = QCPanel(viewer, signal_store=store)
+        dvars = xr.DataArray([0.1, 0.2, 0.3], dims=["time"], coords={"time": [0, 1, 2]})
+
+        panel._store_dvars_signal(dvars, "my_layer")
+
+        stored = store.stored_signals()
+        assert len(stored) == 1
+        assert stored[0].name == "DVARS (my_layer)"
+        np.testing.assert_array_equal(stored[0].y, [0.1, 0.2, 0.3])
+        np.testing.assert_array_equal(stored[0].x, [0, 1, 2])
+
+    def test_recomputing_updates_in_place_instead_of_duplicating(self, viewer):
+        from confusius._napari._qc._panel import QCPanel
+        from confusius._napari._signals._store import SignalStore
+
+        store = SignalStore()
+        panel = QCPanel(viewer, signal_store=store)
+        first = xr.DataArray([0.1, 0.2], dims=["time"], coords={"time": [0, 1]})
+        second = xr.DataArray([0.9, 0.8], dims=["time"], coords={"time": [0, 1]})
+
+        panel._store_dvars_signal(first, "my_layer")
+        panel._store_dvars_signal(second, "my_layer")
+
+        stored = store.stored_signals()
+        assert len(stored) == 1
+        np.testing.assert_array_equal(stored[0].y, [0.9, 0.8])
+
+    def test_falls_back_to_frame_index_without_time_coordinate(self, viewer):
+        from confusius._napari._qc._panel import QCPanel
+        from confusius._napari._signals._store import SignalStore
+
+        store = SignalStore()
+        panel = QCPanel(viewer, signal_store=store)
+        dvars = xr.DataArray([1.0, 2.5, 3.0], dims=["time"])
+
+        panel._store_dvars_signal(dvars, "my_layer")
+
+        np.testing.assert_array_equal(store.stored_signals()[0].x, [0, 1, 2])
+
+    def test_opens_the_signal_plot_after_storing(self, viewer):
+        from confusius._napari._qc._panel import QCPanel
+        from confusius._napari._signals._store import SignalStore
+
+        calls = []
+        panel = QCPanel(
+            viewer, signal_store=SignalStore(), show_signal_plot=lambda: calls.append(1)
+        )
+        dvars = xr.DataArray([0.1, 0.2], dims=["time"], coords={"time": [0, 1]})
+
+        panel._store_dvars_signal(dvars, "my_layer")
+
+        assert calls == [1]
+
+
+class TestShowPlots:
+    def test_reopens_signal_plot_when_dvars_is_stored(self, viewer):
+        from confusius._napari._qc._panel import QCPanel
+        from confusius._napari._signals._store import SignalStore
+
+        calls = []
+        panel = QCPanel(
+            viewer, signal_store=SignalStore(), show_signal_plot=lambda: calls.append(1)
+        )
+        dvars = xr.DataArray([0.1, 0.2], dims=["time"], coords={"time": [0, 1]})
+        panel._store_dvars_signal(dvars, "my_layer")
+
+        panel._show_plots()
+
+        assert calls == [1, 1]
+        assert panel._qc_plots is None  # No carpet was computed.
+
+    def test_does_not_open_signal_plot_without_stored_dvars(self, viewer):
+        from confusius._napari._qc._panel import QCPanel
+        from confusius._napari._signals._store import SignalStore
+
+        calls = []
+        panel = QCPanel(
+            viewer, signal_store=SignalStore(), show_signal_plot=lambda: calls.append(1)
+        )
+
+        panel._show_plots()
+
+        assert calls == []

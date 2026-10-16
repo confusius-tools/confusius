@@ -197,8 +197,9 @@ def apply_affine(
     Returns
     -------
     xarray.DataArray
-        `da` with updated spatial coordinates and updated `attrs["affines"]`. When
-        `affine` is a string, that key is dropped from the result.
+        `da` with updated spatial coordinates and updated `attrs["affines"]`. No
+        entry is removed: when `affine` is a string, that key is kept as the
+        identity, since the world frame now is that named space.
 
     Raises
     ------
@@ -265,11 +266,10 @@ def apply_affine(
     inv_affine = np.linalg.inv(affine_array)
     for stored_key, val in stored.items():
         if stored_key == applied_key:
-            # Composing this stored affine with itself is deterministically
-            # identity (arr @ inv(arr) == I), regardless of what it held --
-            # applying "by key" means "move the world frame to align with
-            # this named affine," which by construction leaves nothing to
-            # report here.
+            # The world frame now is this named space. Store an exact identity
+            # instead of `arr @ inv(arr)`, which carries floating-point error. A
+            # single `(4, 4)` identity is valid even for pose-stacked data.
+            new_affines[stored_key] = np.eye(affine_array.shape[-1])
             continue
         arr = np.asarray(val, dtype=np.float64)
         if arr.ndim in (2, 3):
@@ -300,7 +300,7 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     A VoxelData array's stored `voxel_to_world` affine is defined in
     terms of voxel *coordinate values*, which stay unchanged across cropping or
     striding by design (see
-    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]).
+    `VoxelToWorldIndex`).
     Because of this, the affine generally does not describe where voxel *position*
     `(0, ..., 0)` sits in world space, or the world distance between
     consecutive positions, once `da` has been cropped or strided from a larger
@@ -651,7 +651,8 @@ class FUSIAffineAccessor:
         -------
         xarray.DataArray
             The DataArray with updated spatial coordinates and `attrs["affines"]`.
-            When `affine` is a string, that key is dropped from the result.
+            No entry is removed: when `affine` is a string, that key is kept as the
+            identity, since the world frame now is that named space.
 
         Raises
         ------

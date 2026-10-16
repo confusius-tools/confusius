@@ -34,25 +34,25 @@ def test_manager_applies_store_mutations(
     name_item = dialog._table.item(0, 1)
     assert name_item is not None
     name_item.setText("baseline")
-    assert signals_store.imported_signals()[0].name == "baseline"
+    assert signals_store.stored_signals()[0].name == "baseline"
 
     visible_item = dialog._table.item(0, 0)
     assert visible_item is not None
     visible_item.setCheckState(Qt.CheckState.Unchecked)
-    assert signals_store.imported_signals()[0].visible is False
+    assert signals_store.stored_signals()[0].visible is False
 
     monkeypatch.setattr(
         "confusius._napari._signals._manager.QColorDialog.getColor",
         lambda *args, **kwargs: QColor("#123456"),
     )
     dialog._choose_color(imported[0].id)
-    assert signals_store.imported_signals()[0].color == "#123456"
+    assert signals_store.stored_signals()[0].color == "#123456"
 
     dialog._table.selectRow(0)
     dialog._remove_selected()
     # Should have removed only the first signal, leaving the second.
-    assert len(signals_store.imported_signals()) == 1
-    assert signals_store.imported_signals()[0].name == "b"
+    assert len(signals_store.stored_signals()) == 1
+    assert signals_store.stored_signals()[0].name == "b"
 
 
 def test_manager_updates_on_store_change(qtbot, signals_store, signals_csv):
@@ -77,7 +77,7 @@ def test_manager_clear_all_button(qtbot, signals_store, signals_csv):
 
     dialog._clear_btn.click()
 
-    assert signals_store.imported_signals() == []
+    assert signals_store.stored_signals() == []
     assert dialog._table.rowCount() == 0
 
 
@@ -87,12 +87,49 @@ def test_manager_handles_multiple_selection(qtbot, signals_store, signals_csv):
     dialog = SignalsManagerDialog(signals_store)
     qtbot.addWidget(dialog)
 
-    assert len(signals_store.imported_signals()) == 2
+    assert len(signals_store.stored_signals()) == 2
 
     dialog._table.selectAll()
     dialog._remove_selected()
 
-    assert signals_store.imported_signals() == []
+    assert signals_store.stored_signals() == []
+
+
+def test_manager_export_selected_writes_only_selected_signals(
+    qtbot, signals_store, signals_csv, monkeypatch, tmp_path
+):
+    signals_store.import_file(signals_csv)
+    dialog = SignalsManagerDialog(signals_store)
+    qtbot.addWidget(dialog)
+
+    out_path = tmp_path / "selected.csv"
+    monkeypatch.setattr(
+        "confusius._napari._signals._manager.prompt_delimited_export_path",
+        lambda *args, **kwargs: (out_path, ","),
+    )
+
+    dialog._table.selectRow(0)
+    dialog._export_selected()
+
+    content = out_path.read_text()
+    assert "a" in content
+    assert "b" not in content.split("\n")[0]
+
+
+def test_manager_export_selected_shows_error_when_nothing_selected(
+    qtbot, signals_store, signals_csv, monkeypatch
+):
+    signals_store.import_file(signals_csv)
+    dialog = SignalsManagerDialog(signals_store)
+    qtbot.addWidget(dialog)
+    dialog._table.clearSelection()
+
+    errors = []
+    monkeypatch.setattr("confusius._napari._signals._manager.show_error", errors.append)
+
+    dialog._export_selected()
+
+    assert errors == ["Select one or more stored signals to export."]
 
 
 def test_manager_imports_multiple_files(qtbot, signals_store, monkeypatch, tmp_path):
@@ -111,7 +148,7 @@ def test_manager_imports_multiple_files(qtbot, signals_store, monkeypatch, tmp_p
 
     dialog._import_file()
 
-    assert [signal.name for signal in signals_store.imported_signals()] == ["a", "b"]
+    assert [signal.name for signal in signals_store.stored_signals()] == ["a", "b"]
 
 
 def test_manager_import_dialog_filters_supported_formats(

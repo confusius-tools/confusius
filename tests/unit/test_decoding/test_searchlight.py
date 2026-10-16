@@ -620,16 +620,18 @@ def test_parallel_matches_serial(decoding_volume, full_mask, rng):
     xr.testing.assert_identical(serial.scores_, parallel.scores_)
 
 
-def test_progress_bar_does_not_change_scores(decoding_volume, full_mask, rng):
+def test_progress_bar_does_not_change_scores(decoding_volume, full_mask, rng, capsys):
     """Streaming results to drive the progress bar keeps centers and scores aligned."""
     y = rng.standard_normal(decoding_volume.sizes["time"])
 
     quiet = SearchLight(
         mask=full_mask, estimator=Ridge(), radius=0.25, cv=3, show_progress=False
     ).fit(decoding_volume, y)
+    assert "Scoring searchlights" not in capsys.readouterr().out
     noisy = SearchLight(
         mask=full_mask, estimator=Ridge(), radius=0.25, cv=3, show_progress=True
     ).fit(decoding_volume, y)
+    assert "Scoring searchlights" in capsys.readouterr().out
 
     xr.testing.assert_identical(quiet.scores_, noisy.scores_)
 

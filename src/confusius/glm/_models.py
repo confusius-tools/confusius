@@ -31,7 +31,9 @@ def _positive_reciprocal(x: npt.NDArray[np.floating]) -> npt.NDArray[np.floating
     (n,) or (n, m) numpy.ndarray
         Element-wise reciprocal with zeros preserved as zeros.
     """
-    return np.where(x == 0, 0, 1.0 / x)
+    # `np.where` evaluates both branches, so `1.0 / x` would warn on the zeros the
+    # select is there to discard. `np.divide` skips them instead.
+    return np.divide(1.0, x, out=np.zeros_like(x), where=x != 0)
 
 
 class OLSModel:
@@ -136,7 +138,9 @@ class OLSModel:
 
         whitened_residuals = whitened_Y - self.whitened_design @ beta
 
-        # Estimate dispersion (variance): sigma^2 = RSS / (n - p).
+        # Estimate dispersion (variance): sigma^2 = RSS / (n - p). Sum the residuals
+        # rather than using `||Y||² - beta·(X'Y)`; see `ARModel.fit` for why that
+        # identity goes negative on voxels the design fits exactly.
         rss = np.sum(whitened_residuals**2, axis=0)
         if self.df_residuals > 0:
             dispersion = rss / self.df_residuals
@@ -294,29 +298,52 @@ class ARModel:
         B_sym = B + B.transpose(0, 2, 1)  # B[i] + B[i].T for each lag.
 
         # `XtX[v] = A - sum_i rho[i,v]·B_sym[i] + sum_{ij} rho[i,v]·rho[j,v]·C[i,j]`.
+        # The three-operand term needs `optimize=True` to contract pairwise; einsum's
+        # default builds the whole `(order, order, V, K, K)` intermediate, which costs
+        # ~6x more at AR(2) and grows with the order. The two-operand term is faster
+        # without it.
         XtX = (
             A[np.newaxis]
             - np.einsum("iv,ikl->vkl", self.rho, B_sym)
-            + np.einsum("iv,jv,ijkl->vkl", self.rho, self.rho, C)
+            + np.einsum("iv,jv,ijkl->vkl", self.rho, self.rho, C, optimize=True)
         )  # (V, K, K)
 
         # P = X.T @ whitened_Y — clean cross of X with whitened Y. (K, V).
         P = X.T @ whitened_Y
         # Q[i] = L[i].T @ whitened_Y — lagged cross with whitened Y. (order, K, V).
-        Q = np.einsum("itk,tv->ikv", L, whitened_Y)
+        # `optimize=True` routes this through BLAS instead of einsum's own loop; on a
+        # (600, 15) design and 147k voxels that is ~30x faster.
+        Q = np.einsum("itk,tv->ikv", L, whitened_Y, optimize=True)
         # `XtY[v] = P[:, v] - sum_i rho[i,v] · Q[i, :, v]`.
         XtY = P.T - np.einsum("iv,ikv->vk", self.rho, Q)  # (V, K)
 
-        # Per-voxel normalized covariance and beta via pseudoinverse, so a
-        # rank-deficient user-supplied design produces a min-norm solution
-        # instead of a `LinAlgError` (matches `OLSModel`'s `spl.pinv` and
-        # nilearn's single-rho `ARModel`, which inherits OLS's pinv).
-        cov_beta = np.linalg.pinv(XtX)  # (V, K, K)
+        # Per-voxel normalized covariance and beta. `pinv` is the general answer: a
+        # rank-deficient design gives a min-norm solution instead of a `LinAlgError`
+        # (matching `OLSModel`'s `spl.pinv` and nilearn's single-rho `ARModel`, which
+        # inherits OLS's pinv). But `pinv` is a batched SVD over V matrices and
+        # dominates the fit -- ~6x the cost of the LU-based `inv` on a (147k, 15, 15)
+        # stack, for results that agree to ~1e-14. Whitening left-multiplies the design
+        # by `I - sum_i rho[i]·S^(i+1)`, with `S` the one-step shift: that factor is
+        # unit lower triangular, so it is invertible for every rho no matter how
+        # extreme, and a full-rank design keeps every `XtX[v]` positive definite. `inv`
+        # is safe there. `pinv` stays for the rank-deficient case, where `inv` would
+        # silently return garbage rather than raise.
+        if self.df_model == K:
+            cov_beta = np.linalg.inv(XtX)  # (V, K, K)
+        else:
+            cov_beta = np.linalg.pinv(XtX)  # (V, K, K)
         # beta: (V, K) transposed to (K, V) to match convention.
         beta = np.einsum("vij,vj->vi", cov_beta, XtY).T
 
         # Whitened residuals: wresid = wY - wX @ beta, computed without wX.
         # wX[v] @ beta[:,v] = X @ beta[:,v] - sum_i rho[i,v] * L[i] @ beta[:,v]
+        #
+        # Summing these is the expensive half of the fit, and `beta` solves the normal
+        # equations, so `rss = ||wY||² - beta·XtY` looks like a free win. It is not:
+        # atlas-resampled recordings carry whole constant regions outside the recorded
+        # field of view that the design explains exactly, and there that identity
+        # subtracts two equal quantities, so its sign is pure rounding. A negative rss
+        # gives a negative dispersion and NaN in every map downstream.
         wresid = whitened_Y - X @ beta
         for i in range(self.order):
             wresid += self.rho[i] * (L[i] @ beta)  # rho[i]: (V,), L[i]@beta: (T,V)
