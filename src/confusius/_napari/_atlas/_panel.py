@@ -36,10 +36,12 @@ from confusius._napari._qt import (
     make_segmented_buttons,
 )
 from confusius._utils.templates import FUSI_TEMPLATES, fetch_template
-from confusius.datasets import fetch_brainglobe_atlas
+from confusius.datasets import fetch_brainglobe_atlas, is_brainglobe_atlas_cached
 from confusius.plotting.napari import plot_napari
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     import napari
     from qtpy.QtGui import QShowEvent
     from qtpy.QtWidgets import QDockWidget
@@ -99,7 +101,7 @@ def _list_atlases() -> tuple[list[str], list[str] | None]:
 
 
 @thread_worker
-def _fetch_atlas(atlas_name: str) -> xr.Dataset:
+def _fetch_atlas(atlas_name: str) -> Generator[str, None, xr.Dataset]:
     """Fetch a BrainGlobe atlas in a background thread, leaving it lazy.
 
     Parameters
@@ -107,12 +109,22 @@ def _fetch_atlas(atlas_name: str) -> xr.Dataset:
     atlas_name : str
         BrainGlobe atlas name.
 
+    Yields
+    ------
+    str
+        `atlas_name`, once, before the fetch when it has to download the atlas (or
+        part of it) into the BrainGlobe cache.
+
     Returns
     -------
     xarray.Dataset
         Atlas Dataset whose volumes are still Dask arrays over the cached Zarr
         stores.
     """
+    # BrainGlobe downloads behind a terminal progress bar the panel cannot show, so
+    # tell the panel up front that a (possibly long) download is starting.
+    if not is_brainglobe_atlas_cached(atlas_name):
+        yield atlas_name
     # Reading the volumes here cost several seconds and gigabytes for fine atlases
     # (e.g. 2.4 GB for whs_sd_rat_39um). The layers take the Dask arrays as is, and
     # napari reads only the displayed slices; masks read what they need on first use.
@@ -357,6 +369,9 @@ class AtlasPanel(QWidget):
         self._tree: StructureTreeWidget | None = None
         self._tree_dock: QDockWidget | None = None
         self._atlas_loading = False
+        # Whether the in-flight load is downloading the atlas into the BrainGlobe
+        # cache, which can take minutes for fine atlases and deserves a notice.
+        self._atlas_downloading = False
         # In-flight template loads, so several can load at once (e.g. from the CLI)
         # and the busy state only clears when the last one ends.
         self._template_jobs = 0
@@ -459,6 +474,12 @@ class AtlasPanel(QWidget):
         self._atlas_status.hide()
         group_layout.addWidget(self._atlas_status)
 
+        self._atlas_notice = QLabel()
+        self._atlas_notice.setObjectName("confusius_subtitle")
+        self._atlas_notice.setWordWrap(True)
+        self._atlas_notice.hide()
+        group_layout.addWidget(self._atlas_notice)
+
         self._atlas_progress = _make_progress_bar()
         group_layout.addWidget(self._atlas_progress)
 
@@ -504,7 +525,7 @@ class AtlasPanel(QWidget):
         group_layout.setSpacing(6)
 
         self._search_edit = QLineEdit()
-        self._search_edit.setPlaceholderText("Acronym or name (regex)")
+        self._search_edit.setPlaceholderText("Acronym or name")
         self._search_edit.textChanged.connect(self._refresh_search)
         search_row = QHBoxLayout()
         search_row.addWidget(QLabel("Search"))
@@ -559,10 +580,18 @@ class AtlasPanel(QWidget):
 
         The dropdown and Load atlas work only while no atlas is loaded or loading;
         everything that needs an atlas (its volume buttons, Structure tree, ✕ and the
-        Region masks group) only while one is loaded.
+        Region masks group) only while one is loaded. The Load atlas text says what
+        is going on in the other states.
         """
         loaded = self._atlas is not None
         idle = not loaded and not self._atlas_loading
+        if self._atlas_loading:
+            text = "Downloading…" if self._atlas_downloading else "Loading…"
+        elif loaded:
+            text = "Remove atlas to load another one →"
+        else:
+            text = "Load atlas"
+        self._load_atlas_btn.setText(text)
         self._atlas_combo.setEnabled(idle and self._atlas_combo.count() > 0)
         self._load_atlas_btn.setEnabled(idle and bool(self._atlas_combo.currentData()))
         self._remove_atlas_btn.setEnabled(loaded)
@@ -637,7 +666,6 @@ class AtlasPanel(QWidget):
 
     def _begin_atlas_work(self) -> None:
         self._atlas_loading = True
-        self._load_atlas_btn.setText("Loading…")
         self._atlas_status.hide()
         self._atlas_progress.show()
         self._update_atlas_controls()
@@ -645,8 +673,25 @@ class AtlasPanel(QWidget):
 
     def _end_atlas_work(self) -> None:
         self._atlas_loading = False
-        self._load_atlas_btn.setText("Load atlas")
+        self._atlas_downloading = False
+        self._atlas_notice.hide()
         self._atlas_progress.hide()
+        self._update_atlas_controls()
+
+    def _on_atlas_downloading(self, name: str) -> None:
+        """Tell the user the in-flight load is downloading `name` first.
+
+        Parameters
+        ----------
+        name : str
+            BrainGlobe atlas name being downloaded.
+        """
+        self._atlas_downloading = True
+        self._atlas_notice.setText(
+            f"Downloading {name} into the BrainGlobe cache. This can take a while, "
+            "especially on a slow connection."
+        )
+        self._atlas_notice.show()
         self._update_atlas_controls()
 
     def _load_atlas(self) -> None:
@@ -680,6 +725,7 @@ class AtlasPanel(QWidget):
         self._pending_layers = add_layers
         self._begin_atlas_work()
         worker = _fetch_atlas(name)
+        worker.yielded.connect(self._on_atlas_downloading)
         worker.returned.connect(lambda ds: self._on_atlas_returned(ds, name))
         worker.errored.connect(self._on_atlas_error)
         worker.start()

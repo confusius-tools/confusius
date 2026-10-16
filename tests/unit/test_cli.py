@@ -220,6 +220,10 @@ class TestRunAtlasAndTemplate:
     @pytest.fixture
     def offline(self, monkeypatch, atlas_ds, sample_voxeldata_3d):
         monkeypatch.setattr(
+            "confusius._napari._atlas._panel.is_brainglobe_atlas_cached",
+            lambda name: True,
+        )
+        monkeypatch.setattr(
             "confusius._napari._atlas._panel.fetch_brainglobe_atlas",
             lambda name, **kwargs: atlas_ds,
         )

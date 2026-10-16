@@ -25,6 +25,12 @@ Current development version for the next ConfUSIus release.
   other data as an image layer. Pass `layer_type="image"` to display integer data
   as an image ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 
+### :sparkles: Enhancements
+
+- New [`is_brainglobe_atlas_cached`][confusius.datasets.is_brainglobe_atlas_cached]
+  tells whether a BrainGlobe atlas can be fetched without downloading its volumes
+  ([#488](https://github.com/confusius-tools/confusius/pull/488)).
+
 ### :zap: Performance
 
 - [`plot_napari`][confusius.plotting.plot_napari] opens labels data carrying an

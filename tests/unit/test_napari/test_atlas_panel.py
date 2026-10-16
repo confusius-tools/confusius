@@ -110,6 +110,33 @@ class TestAtlasControls:
         assert not panel._atlas_combo.isEnabled()
         assert not panel._load_atlas_btn.isEnabled()
         assert not panel._remove_atlas_btn.isEnabled()
+        assert not panel._atlas_notice.isVisibleTo(panel)
+
+    def test_download_notice_names_the_atlas_until_it_is_loaded(
+        self, panel, atlas_ds
+    ) -> None:
+        panel._begin_atlas_work()
+        panel._on_atlas_downloading("allen_mouse_10um")
+
+        assert panel._load_atlas_btn.text() == "Downloading…"
+        assert panel._atlas_notice.isVisibleTo(panel)
+        assert panel._atlas_notice.text().startswith("Downloading allen_mouse_10um")
+
+        _load(panel, atlas_ds, "allen_mouse_10um")
+
+        assert not panel._atlas_notice.isVisibleTo(panel)
+        assert panel._atlas_downloading is False
+
+    def test_download_notice_hidden_after_error(self, panel, errors) -> None:
+        panel._begin_atlas_work()
+        panel._on_atlas_downloading("allen_mouse_10um")
+        panel._on_atlas_error(RuntimeError("offline"))
+
+        assert not panel._atlas_notice.isVisibleTo(panel)
+        assert panel._load_atlas_btn.text() == "Load atlas"
+
+    def test_search_placeholder_does_not_mention_regex(self, panel) -> None:
+        assert panel._search_edit.placeholderText() == "Acronym or name"
 
     def test_loaded_unlocks_atlas_buttons_and_locks_load(self, loaded_panel) -> None:
         _list(loaded_panel)
@@ -121,7 +148,9 @@ class TestAtlasControls:
             "tree": True,
             "masks": True,
         }
-        assert loaded_panel._load_atlas_btn.text() == "Load atlas"
+        assert (
+            loaded_panel._load_atlas_btn.text() == "Remove atlas to load another one →"
+        )
 
     def test_volume_buttons_follow_volume_order(self, panel) -> None:
         assert list(panel._volume_btns) == list(ATLAS_VOLUME_LAYER_TYPES)
@@ -274,7 +303,9 @@ class TestAtlasList:
 
     def test_listing_error_shows_status(self, panel) -> None:
         panel._on_atlases_error(RuntimeError("offline"))
-        assert panel._atlas_status.text() == "Could not list BrainGlobe atlases: offline"
+        assert (
+            panel._atlas_status.text() == "Could not list BrainGlobe atlases: offline"
+        )
         assert not panel._load_atlas_btn.isEnabled()
 
 
@@ -564,6 +595,10 @@ class TestProgrammaticLoading:
     def offline(self, monkeypatch, atlas_ds, sample_voxeldata_3d):
         """Serve every fetch from fixtures so the workers never touch the network."""
         monkeypatch.setattr(
+            "confusius._napari._atlas._panel.is_brainglobe_atlas_cached",
+            lambda name: True,
+        )
+        monkeypatch.setattr(
             "confusius._napari._atlas._panel.fetch_brainglobe_atlas",
             lambda name, **kwargs: atlas_ds.assign_attrs(name=name),
         )
@@ -571,6 +606,29 @@ class TestProgrammaticLoading:
             "confusius._napari._atlas._panel.fetch_template",
             lambda name, **kwargs: sample_voxeldata_3d,
         )
+
+    def test_uncached_atlas_shows_download_notice_while_fetching(
+        self, qtbot, panel, offline, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "confusius._napari._atlas._panel.is_brainglobe_atlas_cached",
+            lambda name: False,
+        )
+        seen: list[str] = []
+        monkeypatch.setattr(
+            panel,
+            "_on_atlas_downloading",
+            lambda name: (
+                seen.append(name),
+                AtlasPanel._on_atlas_downloading(panel, name),
+            ),
+        )
+
+        panel.load_atlas("allen_mouse_10um")
+        qtbot.waitUntil(lambda: panel._atlas is not None, timeout=10_000)
+
+        assert seen == ["allen_mouse_10um"]
+        assert not panel._atlas_notice.isVisibleTo(panel)
 
     def test_load_atlas_adds_layers(self, qtbot, panel, viewer, offline) -> None:
         panel.load_atlas("allen_mouse_25um", add_layers=True)

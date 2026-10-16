@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._brainglobe import fetch_brainglobe_atlas
+from ._brainglobe import fetch_brainglobe_atlas, is_brainglobe_atlas_cached
 from ._cybis_pereira_2026 import fetch_cybis_pereira_2026
 from ._huang_2025 import fetch_template_huang_2025
 from ._khallaf_2026 import fetch_khallaf_2026
@@ -25,5 +25,6 @@ __all__ = [
     "fetch_template_huang_2025",
     "fetch_template_pepe_mariani_2026",
     "get_datasets_dir",
+    "is_brainglobe_atlas_cached",
     "list_datasets",
 ]

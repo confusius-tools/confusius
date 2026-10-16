@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
@@ -150,22 +150,156 @@ def _load_lazy_ngff_array(
     dask.array.Array
         Lazy array for the requested resolution level, not yet computed.
     """
-    import ngff_zarr as nz
     from brainglobe_atlasapi.descriptors import remote_url_s3
     from fsspec.callbacks import TqdmCallback
 
-    path = atlas.root_dir / location / name
-    multiscale = nz.from_ngff_zarr(path)
-    dataset_path = multiscale.metadata.datasets[pyramid_level].path
-    resolution_path = path / dataset_path
-
-    if not (resolution_path / "c").exists():
+    multiscale, dataset_path, resolution_path = _open_ngff_level(
+        atlas, location, name, pyramid_level
+    )
+    if not _ngff_level_is_on_disk(resolution_path):
         remote_path = remote_url_s3.format(f"{location}/{name}/{dataset_path}/")
         atlas.fs.get(
             remote_path, resolution_path, recursive=True, callback=TqdmCallback()
         )
 
     return multiscale.images[pyramid_level].data
+
+
+def _open_ngff_level(
+    atlas: BrainGlobeAtlas, location: str, name: str, pyramid_level: int
+) -> tuple[Any, str, Path]:
+    """Open a BrainGlobe v3 zarr store and locate one of its pyramid levels on disk.
+
+    Reads the store metadata only, never the voxels.
+
+    Parameters
+    ----------
+    atlas : brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas
+        An already-loaded
+        [`BrainGlobeAtlas`][brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas] instance.
+    location : str
+        Atlas-relative directory containing the zarr store.
+    name : str
+        Zarr store directory name.
+    pyramid_level : int
+        Resolution pyramid level to locate.
+
+    Returns
+    -------
+    multiscale : ngff_zarr.Multiscales
+        The opened multiscale image.
+    dataset_path : str
+        Store-relative path of the level, e.g. `"0"`.
+    resolution_path : pathlib.Path
+        Local directory of the level; its `c` subdirectory holds the chunks once
+        downloaded.
+    """
+    import ngff_zarr as nz
+
+    path = atlas.root_dir / location / name
+    multiscale = nz.from_ngff_zarr(path)
+    dataset_path = multiscale.metadata.datasets[pyramid_level].path
+    return multiscale, dataset_path, path / dataset_path
+
+
+def _ngff_level_is_on_disk(resolution_path: Path) -> bool:
+    """Whether a pyramid level's chunks were downloaded into the BrainGlobe cache.
+
+    Parameters
+    ----------
+    resolution_path : pathlib.Path
+        Local directory of the level, from `_open_ngff_level`.
+
+    Returns
+    -------
+    bool
+        Whether the level's `c` chunk directory exists.
+    """
+    return (resolution_path / "c").exists()
+
+
+def _volume_sources(atlas: BrainGlobeAtlas) -> dict[str, tuple[str, str, int]]:
+    """Locate the zarr pyramid level backing each atlas volume read from disk.
+
+    Parameters
+    ----------
+    atlas : brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas
+        An already-loaded
+        [`BrainGlobeAtlas`][brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas] instance.
+
+    Returns
+    -------
+    dict[str, tuple[str, str, int]]
+        `(location, name, pyramid_level)` arguments for `_load_lazy_ngff_array`,
+        keyed by volume: `template`, `annotation` and, for asymmetric atlases only,
+        `hemispheres` (BrainGlobe synthesizes symmetric hemispheres in memory).
+    """
+    from brainglobe_atlasapi.descriptors import (
+        V3_ANNOTATION_NAME,
+        V3_HEMISPHERES_NAME,
+        V3_TEMPLATE_NAME,
+    )
+
+    metadata = atlas.metadata
+    template_location = metadata["annotation_set"]["template"]["location"][1:]
+    annotation_location = metadata["annotation_set"]["location"][1:]
+    sources = {
+        "template": (
+            template_location,
+            V3_TEMPLATE_NAME,
+            atlas._template_pyramid_level,
+        ),
+        "annotation": (
+            annotation_location,
+            V3_ANNOTATION_NAME,
+            atlas._annotation_pyramid_level,
+        ),
+    }
+    if not metadata["symmetric"]:
+        sources["hemispheres"] = (
+            annotation_location,
+            V3_HEMISPHERES_NAME,
+            atlas._annotation_pyramid_level,
+        )
+    return sources
+
+
+def is_brainglobe_atlas_cached(atlas_name: str) -> bool:
+    """Whether a BrainGlobe atlas can be fetched without downloading its volumes.
+
+    True when the atlas metadata and every volume
+    [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] reads
+    (`template`, `annotation` and, for asymmetric atlases, `hemispheres`) are in
+    BrainGlobe's default cache (`~/.brainglobe`). Region meshes are not checked.
+    Never touches the network.
+
+    Parameters
+    ----------
+    atlas_name : str
+        BrainGlobe atlas name, e.g. `"allen_mouse_25um"`.
+
+    Returns
+    -------
+    bool
+        Whether the next fetch of `atlas_name` reads everything from the cache.
+
+    Examples
+    --------
+    >>> is_brainglobe_atlas_cached("allen_mouse_100um")  # doctest: +SKIP
+    True
+    """
+    from brainglobe_atlasapi import BrainGlobeAtlas
+    from brainglobe_atlasapi.list_atlases import get_downloaded_atlases
+
+    # Constructing a BrainGlobeAtlas downloads its metadata when missing; check the
+    # cache listing first so this stays offline.
+    if atlas_name not in get_downloaded_atlases():
+        return False
+    atlas = BrainGlobeAtlas(atlas_name, check_latest=False)  # ty: ignore[invalid-argument-type]
+    return all(
+        _ngff_level_is_on_disk(_open_ngff_level(atlas, *source)[2])
+        for source in _volume_sources(atlas).values()
+    )
 
 
 def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
@@ -205,25 +339,11 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
             attrs=attrs,
         )
 
-    from brainglobe_atlasapi.descriptors import (
-        V3_ANNOTATION_NAME,
-        V3_HEMISPHERES_NAME,
-        V3_TEMPLATE_NAME,
-    )
-
-    template_location = metadata["annotation_set"]["template"]["location"][1:]
-    template_data = _load_lazy_ngff_array(
-        atlas, template_location, V3_TEMPLATE_NAME, atlas._template_pyramid_level
-    )
+    sources = _volume_sources(atlas)
+    template_data = _load_lazy_ngff_array(atlas, *sources["template"])
     template = _build(template_data.astype(np.float32), {"cmap": "gray"})
 
-    annotation_location = metadata["annotation_set"]["location"][1:]
-    annotation_data = _load_lazy_ngff_array(
-        atlas,
-        annotation_location,
-        V3_ANNOTATION_NAME,
-        atlas._annotation_pyramid_level,
-    )
+    annotation_data = _load_lazy_ngff_array(atlas, *sources["annotation"])
     annotation = _build(
         annotation_data.view(np.int32),  # type: ignore
         {
@@ -236,17 +356,12 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
 
     world_to_base = np.eye(4)
 
-    if metadata["symmetric"]:
+    if "hemispheres" in sources:
+        hemispheres_data = _load_lazy_ngff_array(atlas, *sources["hemispheres"])
+    else:
         # Synthesized in-memory from `shape` by BrainGlobe itself, not read from disk —
         # no laziness to preserve here.
         hemispheres_data = atlas.hemispheres
-    else:
-        hemispheres_data = _load_lazy_ngff_array(
-            atlas,
-            annotation_location,
-            V3_HEMISPHERES_NAME,
-            atlas._annotation_pyramid_level,
-        )
     hemispheres = _build(
         hemispheres_data.view(np.int8),  # type: ignore
         {
