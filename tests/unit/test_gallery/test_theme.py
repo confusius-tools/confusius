@@ -173,9 +173,26 @@ def test_render_both_restores_light_when_hook_raises(figure) -> None:
     assert figure["fig"].get_facecolor() == pytest.approx(mcolors.to_rgba(LIGHT.bg))
 
 
-def test_default_project_hook_is_a_noop(figure) -> None:
+def test_default_project_hook_flips_sequential_cmaps_and_back(figure) -> None:
+    """The shipped hook swaps inferno_r for inferno on dark pages, plain or banded."""
     from tools.gallery.hooks import gallery_retheme
 
+    ax = figure["ax1"]
+    plain = ax.scatter([0, 1], [1, 0], c=[0, 1], cmap="inferno_r")
+    banded = ax.imshow(
+        np.linspace(0.0, 1.0, 4).reshape(2, 2),
+        cmap=ThresholdedColormap(colormaps["inferno_r"], mcolors.Normalize(0.0, 1.0)),
+    )
     before = figure["fig"].get_facecolor()
+
     gallery_retheme(figure["fig"], "dark")
+
+    assert plain.get_cmap().name == "inferno"
+    assert banded.get_cmap().source.name == "inferno"
+    assert figure["scatter"].get_cmap().name == LIGHT.diverging_cmap
     assert figure["fig"].get_facecolor() == before
+
+    gallery_retheme(figure["fig"], "light")
+
+    assert plain.get_cmap().name == "inferno_r"
+    assert banded.get_cmap().source.name == "inferno_r"

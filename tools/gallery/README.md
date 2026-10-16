@@ -49,12 +49,14 @@ What this means when writing an example:
 - Images not drawn by matplotlib (PIL images, screenshots) are shown unchanged in
   both themes.
 
-When the built-in swap is not enough for the whole gallery (say, a sequential
-colormap that should flip direction on dark backgrounds), edit `gallery_retheme`
+When the built-in swap is not enough for the whole gallery, edit `gallery_retheme`
 in `tools/gallery/hooks.py`. It runs in the kernel after the swap, with `"dark"`
 before the dark rendering and `"light"` after the figure is swapped back, and must
-undo for `"light"` what it did for `"dark"`. It is a no-op by default. Editing it
-invalidates the whole gallery cache, like any change to `tools/gallery`.
+undo for `"light"` what it did for `"dark"`. As shipped it flips sequential
+colormaps whose low end should fade into the page: draw with `inferno_r` on the
+light page and the dark page gets `inferno`. Add pairs to `SEQUENTIAL_CMAP_SWAPS`
+there to extend it. Editing the file invalidates the whole gallery cache, like any
+change to `tools/gallery`.
 
 ## Tips
 

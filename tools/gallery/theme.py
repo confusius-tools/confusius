@@ -129,30 +129,29 @@ def _swap_colors(fig: Figure, src: Theme, dst: Theme) -> None:
         setter(color)
 
 
-def _swap_cmaps(fig: Figure, src: Theme, dst: Theme) -> None:
-    """Switch every mappable drawn with `src`'s diverging colormap to `dst`'s.
+def swap_cmaps(fig: Figure, mapping: dict[str, str]) -> None:
+    """Switch every mappable drawn with a colormap in `mapping` to its replacement.
 
-    A `ThresholdedColormap` is matched on its source and rebuilt with the same
-    gray band, so thresholded stat maps keep their threshold in both themes.
-    Colorbars follow their mappable automatically.
+    Colormaps are matched by name. A `ThresholdedColormap` is matched on its
+    source and rebuilt with the same gray band, so thresholded stat maps keep
+    their threshold in both themes. Colorbars follow their mappable
+    automatically. Shared by the built-in theme swap and `tools.gallery.hooks`.
 
     Parameters
     ----------
     fig : matplotlib.figure.Figure
         Figure to update in place.
-    src : Theme
-        Theme the figure is currently drawn with.
-    dst : Theme
-        Theme to switch to.
+    mapping : dict[str, str]
+        Colormap names to replace, mapped to the replacement's name.
     """
     mappables: list[Any] = fig.findobj(lambda a: isinstance(a, ScalarMappable))
     for mappable in mappables:
         cmap = mappable.get_cmap()
         if isinstance(cmap, ThresholdedColormap):
-            if cmap.source.name == src.diverging_cmap:
-                mappable.set_cmap(cmap.with_source(dst.diverging_cmap))
-        elif cmap.name == src.diverging_cmap:
-            mappable.set_cmap(dst.diverging_cmap)
+            if cmap.source.name in mapping:
+                mappable.set_cmap(cmap.with_source(mapping[cmap.source.name]))
+        elif cmap.name in mapping:
+            mappable.set_cmap(mapping[cmap.name])
 
 
 def retheme(fig: Figure, src: Theme, dst: Theme) -> None:
@@ -171,7 +170,7 @@ def retheme(fig: Figure, src: Theme, dst: Theme) -> None:
         Theme to recolor to.
     """
     _swap_colors(fig, src, dst)
-    _swap_cmaps(fig, src, dst)
+    swap_cmaps(fig, {src.diverging_cmap: dst.diverging_cmap})
 
 
 def render_both(

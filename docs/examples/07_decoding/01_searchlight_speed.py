@@ -264,7 +264,7 @@ fig, axes = plt.subplots(1, 2, figsize=(10, 3), constrained_layout=True)
 searchlight.scores_.fusi.plot.stat_map(
     bg_volume=background_data,
     axes=axes[0],
-    cmap="viridis",
+    cmap="inferno_r",
     vmin=0,
     auto_range=False,
     cbar_label="Cross-validated $R^2$",
