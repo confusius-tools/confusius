@@ -45,13 +45,13 @@ class TestBuildParser:
                 "--atlas",
                 "allen_mouse_25um",
                 "--template",
-                "huang_2025",
+                "brunner_grillet_2021",
                 "pepe_mariani_2026",
             ]
         )
         assert ns.path == [Path("a.nii")]
         assert ns.atlas == "allen_mouse_25um"
-        assert ns.template == ["huang_2025", "pepe_mariani_2026"]
+        assert ns.template == ["brunner_grillet_2021", "pepe_mariani_2026"]
 
     def test_atlas_and_template_default_empty(self) -> None:
         from confusius._cli import build_parser
@@ -66,8 +66,8 @@ class TestBuildParser:
         from confusius._cli import build_parser
 
         with pytest.raises(SystemExit):
-            build_parser().parse_args(["--template", "Huang 2025"])
-        assert "huang_2025" in capsys.readouterr().err
+            build_parser().parse_args(["--template", "Brunner 2021"])
+        assert "brunner_grillet_2021" in capsys.readouterr().err
 
     def test_lazy_and_video(self) -> None:
         from confusius._cli import build_parser
@@ -238,7 +238,7 @@ class TestRunAtlasAndTemplate:
         from confusius._cli import build_parser, run
 
         args = build_parser().parse_args(
-            ["--atlas", "allen_mouse_25um", "--template", "huang_2025"]
+            ["--atlas", "allen_mouse_25um", "--template", "brunner_grillet_2021"]
         )
         viewer = make_napari_viewer()
         run(args, viewer=viewer)
@@ -249,5 +249,5 @@ class TestRunAtlasAndTemplate:
             "allen_mouse_25um template",
             "allen_mouse_25um annotation",
             "allen_mouse_25um hemispheres",
-            "huang_2025",
+            "brunner_grillet_2021",
         }

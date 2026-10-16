@@ -529,7 +529,7 @@ class TestTemplateLoading:
     def test_dropdown_lists_every_template(self, panel) -> None:
         combo = panel._template_combo
         assert [combo.itemText(i) for i in range(combo.count())] == list(FUSI_TEMPLATES)
-        assert "huang_2025" in FUSI_TEMPLATES
+        assert "brunner_grillet_2021" in FUSI_TEMPLATES
 
     def test_reference_atlas_label_follows_combo(self, panel) -> None:
         combo = panel._template_combo
@@ -542,10 +542,10 @@ class TestTemplateLoading:
         self, panel, viewer, sample_voxeldata_3d
     ) -> None:
         panel._begin_template_work()
-        panel._on_template_returned(sample_voxeldata_3d, "huang_2025")
+        panel._on_template_returned(sample_voxeldata_3d, "brunner_grillet_2021")
 
         assert len(viewer.layers) == 1
-        layer = viewer.layers["huang_2025"]
+        layer = viewer.layers["brunner_grillet_2021"]
         assert isinstance(layer, Image)
         assert panel._template_progress.isHidden()
         assert panel._load_template_btn.isEnabled()
@@ -572,7 +572,7 @@ class TestTemplateLoading:
             lambda name, **kwargs: sample_voxeldata_3d.chunk({"k": 2}),
         )
 
-        result = _fetch_template.__wrapped__("huang_2025", lazy)
+        result = _fetch_template.__wrapped__("brunner_grillet_2021", lazy)
 
         assert isinstance(result.data, da.Array if lazy else np.ndarray)
         # The world coordinates stay index-derived either way.

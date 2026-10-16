@@ -138,7 +138,7 @@ structures.
 
 The **Template** dropdown lists the templates shipped in
 [`confusius.datasets`][confusius.datasets] by the name of their fetcher
-(`huang_2025` for `fetch_template_huang_2025`, ...); the line beneath it names the
+(`brunner_grillet_2021` for `fetch_template_brunner_grillet_2021`, ...); the line beneath it names the
 reference atlas each template is aligned to. Click **Load template** to download it on
 first use (it is cached afterwards) and add it as an Image layer named after the
 template. The voxels are read into memory once, a few tens of megabytes; check
@@ -150,7 +150,7 @@ instead, which browses slower for these gzip-compressed files.
     plugin opens with them loaded, the atlas with its three volume layers and the
     templates as Image layers.
     ```bash
-    confusius --atlas allen_mouse_25um --template huang_2025
+    confusius --atlas allen_mouse_25um --template brunner_grillet_2021
     ```
     Put data files before `--template`, since it takes every name that follows it.
 

@@ -153,7 +153,7 @@ def _fetch_template(name: str, lazy: bool) -> xr.DataArray:
     Parameters
     ----------
     name : str
-        A key of `FUSI_TEMPLATES`, e.g. `"huang_2025"`.
+        A key of `FUSI_TEMPLATES`, e.g. `"brunner_grillet_2021"`.
     lazy : bool
         Whether to leave the voxels as a Dask array over the cached file. Otherwise
         they are read into memory here, once; the world coordinates stay lazy either
@@ -1075,7 +1075,7 @@ class AtlasPanel(QWidget):
         Parameters
         ----------
         name : str
-            A key of `FUSI_TEMPLATES`, e.g. `"huang_2025"`. The layer takes this
+            A key of `FUSI_TEMPLATES`, e.g. `"brunner_grillet_2021"`. The layer takes this
             name.
         lazy : bool, default: False
             Whether to leave the voxels on disk as a Dask array, as the Load lazily

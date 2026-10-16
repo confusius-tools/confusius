@@ -23,8 +23,8 @@ class TemplateSpec(TypedDict):
 
 
 FUSI_TEMPLATES: dict[str, TemplateSpec] = {
-    "huang_2025": {
-        "fetcher": "fetch_template_huang_2025",
+    "brunner_grillet_2021": {
+        "fetcher": "fetch_template_brunner_grillet_2021",
         "reference_atlas": "Allen Mouse Brain Atlas (CCFv3)",
     },
     "pepe_mariani_2026": {
@@ -42,7 +42,7 @@ def fetch_template(name: str, **kwargs: object) -> xr.DataArray:
     ----------
     name : str
         A key of [`FUSI_TEMPLATES`][confusius._utils.templates.FUSI_TEMPLATES], e.g.
-        `"huang_2025"`.
+        `"brunner_grillet_2021"`.
     **kwargs
         Forwarded to the template's `confusius.datasets.fetch_template_*` function
         (`data_dir`, `refresh`, `print_citation`).

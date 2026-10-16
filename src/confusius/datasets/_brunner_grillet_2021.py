@@ -1,4 +1,4 @@
-"""Fetcher for the Huang et al. (2025) vascular fUSI template."""
+"""Fetcher for the Brunner, Grillet et al. (2021) vascular fUSI template."""
 
 from __future__ import annotations
 
@@ -19,25 +19,27 @@ from confusius.datasets._utils import (
 )
 from confusius.io.loadsave import load
 
-_TEMPLATE_ROOT = "huang-2025-template"
-_FILENAME = "huang-2025-space-allen50_desc-vascular.nii.gz"
+_TEMPLATE_ROOT = "brunner-grillet-2021-template"
+_FILENAME = "brunner-grillet-2021-fusi-template.nii.gz"
 _TOTAL_SIZE_BYTES = 16_338_965
 _CITATION = (
-    "Huang, Y.-A., Lambert, T., Verbeyst, D., Fitzgerald, N. E., Grillet, M., "
-    "Brunner, C., Montaldo, G., Vanduffel, W., & Urban, A. (2025). "
-    "[citation.title]OfUSA: OpenfUS Analyzer, a versatile open-source framework for the "
-    "analysis and visualization of functional ultrasound imaging data across animal "
-    "models.[/citation.title] [italic]bioRxiv[/italic]. "
-    "[citation.doi]https://doi.org/10.1101/2025.09.16.676515[/citation.doi]"
+    "Brunner, C., Grillet, M., Urban, A., Roska, B., Montaldo, G., & Macé, E. (2021). "
+    "[citation.title]Whole-brain functional ultrasound imaging in awake head-fixed "
+    "mice.[/citation.title] [italic]Nature Protocols[/italic], 16, 3547–3571. "
+    "[citation.doi]https://doi.org/10.1038/s41596-021-00548-8[/citation.doi]\n"
+    "Macé, E., & Montaldo, G. (2020). [citation.title]Whole-brain visually evoked "
+    "activity maps in head-fixed awake mice[/citation.title] (June 2021 metadata "
+    "update). [italic]Zenodo[/italic]. "
+    "[citation.doi]https://doi.org/10.5281/zenodo.4905862[/citation.doi]"
 )
 
 
-def fetch_template_huang_2025(
+def fetch_template_brunner_grillet_2021(
     data_dir: str | Path | None = None,
     refresh: bool = False,
     print_citation: bool = True,
 ) -> xr.DataArray:
-    """Fetch the Huang et al. (2025) mouse vascular fUSI template.
+    """Fetch the Brunner, Grillet et al. (2021) mouse vascular fUSI template.
 
     Downloads the template from the ConfUSIus dataset collection, caches it locally,
     and returns the loaded NIfTI as a VoxelData array.
@@ -63,17 +65,21 @@ def fetch_template_huang_2025(
     References
     ----------
     [^1]:
-        Huang, Y.-A. et al. (2025). OfUSA: OpenfUS Analyzer, a versatile open-source
-        framework for the analysis and visualization of functional ultrasound imaging
-        data across animal models.
-        [https://doi.org/10.1101/2025.09.16.676515](https://doi.org/10.1101/2025.09.16.676515)
+        Brunner, C., Grillet, M. et al. (2021). Whole-brain functional ultrasound
+        imaging in awake head-fixed mice. Nature Protocols, 16, 3547–3571.
+        [https://doi.org/10.1038/s41596-021-00548-8](https://doi.org/10.1038/s41596-021-00548-8)
 
     [^2]:
-        [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).
+        Macé, E. and Montaldo, G. (2020). Whole-brain visually evoked activity maps in
+        head-fixed awake mice (June 2021 metadata update). Zenodo.
+        [https://doi.org/10.5281/zenodo.4905862](https://doi.org/10.5281/zenodo.4905862)
 
     [^3]:
-        Template license (CC BY-NC-SA 4.0):
-        [https://creativecommons.org/licenses/by-nc-sa/4.0/](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+        [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).
+
+    [^4]:
+        Template license (CC BY 4.0):
+        [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/)
     """
     cache_dir = get_datasets_dir(data_dir) / _TEMPLATE_ROOT
     cache_dir.mkdir(parents=True, exist_ok=True)

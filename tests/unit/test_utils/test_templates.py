@@ -23,9 +23,9 @@ def test_fetch_template_resolves_fetcher_and_forwards_kwargs(
         calls.append(kwargs)
         return sample_voxeldata_3d
 
-    monkeypatch.setattr(datasets, "fetch_template_huang_2025", fake_fetcher)
+    monkeypatch.setattr(datasets, "fetch_template_brunner_grillet_2021", fake_fetcher)
 
-    result = fetch_template("huang_2025", print_citation=False, refresh=True)
+    result = fetch_template("brunner_grillet_2021", print_citation=False, refresh=True)
 
     assert result is sample_voxeldata_3d
     assert calls == [{"print_citation": False, "refresh": True}]
