@@ -316,9 +316,9 @@ License: **[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)**.
 
 ## Templates
 
-### Brunner et al. (2021)
+### Brunner, Grillet et al. (2021)
 
-The [`fetch_template_brunner_2021`][confusius.datasets.fetch_template_brunner_2021]
+The [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
 function provides an Allen-aligned vascular mouse template. If you use this template
 in your research, please cite the paper and source dataset:
 

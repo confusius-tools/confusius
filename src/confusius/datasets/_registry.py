@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ._brunner_2021 import _TEMPLATE_ROOT as _brunner_2021_template_root
-from ._brunner_2021 import _TOTAL_SIZE_BYTES as _brunner_2021_size
+from ._brunner_grillet_2021 import _TEMPLATE_ROOT as _brunner_grillet_2021_template_root
+from ._brunner_grillet_2021 import _TOTAL_SIZE_BYTES as _brunner_grillet_2021_size
 from ._cybis_pereira_2026 import _BIDS_ROOT as _cybis_pereira_2026_bids_root
 from ._cybis_pereira_2026 import _TOTAL_SIZE_BYTES as _cybis_pereira_2026_size
 from ._khallaf_2026 import _BIDS_ROOT as _khallaf_2026_bids_root
@@ -59,9 +59,9 @@ _REGISTRY: tuple[RegistryEntry, ...] = (
         _khallaf_2026_bids_root,
     ),
     (
-        "fetch_template_brunner_2021",
-        _brunner_2021_size,
-        _brunner_2021_template_root,
+        "fetch_template_brunner_grillet_2021",
+        _brunner_grillet_2021_size,
+        _brunner_grillet_2021_template_root,
     ),
     (
         "fetch_template_pepe_mariani_2026",

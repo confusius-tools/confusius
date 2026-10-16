@@ -1,4 +1,4 @@
-"""Fetcher for the Brunner et al. (2021) vascular fUSI template."""
+"""Fetcher for the Brunner, Grillet et al. (2021) vascular fUSI template."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ from confusius.datasets._utils import (
 )
 from confusius.io.loadsave import load
 
-_TEMPLATE_ROOT = "brunner-2021-template"
-_FILENAME = "brunner-2021-space-allen50_desc-vascular.nii.gz"
+_TEMPLATE_ROOT = "brunner-grillet-2021-template"
+_FILENAME = "brunner-grillet-2021-fusi-template.nii.gz"
 _TOTAL_SIZE_BYTES = 16_338_965
 _CITATION = (
     "Brunner, C., Grillet, M., Urban, A., Roska, B., Montaldo, G., & Macé, E. (2021). "
@@ -34,12 +34,12 @@ _CITATION = (
 )
 
 
-def fetch_template_brunner_2021(
+def fetch_template_brunner_grillet_2021(
     data_dir: str | Path | None = None,
     refresh: bool = False,
     print_citation: bool = True,
 ) -> xr.DataArray:
-    """Fetch the Brunner et al. (2021) mouse vascular fUSI template.
+    """Fetch the Brunner, Grillet et al. (2021) mouse vascular fUSI template.
 
     Downloads the template from the ConfUSIus dataset collection, caches it locally,
     and returns the loaded NIfTI as a VoxelData array.
@@ -65,8 +65,8 @@ def fetch_template_brunner_2021(
     References
     ----------
     [^1]:
-        Brunner, C. et al. (2021). Whole-brain functional ultrasound imaging in awake
-        head-fixed mice. Nature Protocols, 16, 3547–3571.
+        Brunner, C., Grillet, M. et al. (2021). Whole-brain functional ultrasound
+        imaging in awake head-fixed mice. Nature Protocols, 16, 3547–3571.
         [https://doi.org/10.1038/s41596-021-00548-8](https://doi.org/10.1038/s41596-021-00548-8)
 
     [^2]:

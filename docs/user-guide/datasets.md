@@ -115,19 +115,19 @@ fetchers and their full download sizes:
 >>> from confusius.datasets import list_datasets
 >>>
 >>> list_datasets()
-                   Available Datasets
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
-┃ Fetch function                   ┃     Size ┃ On disk ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
-│ fetch_nunez_elizalde_2022        │ 6.983 GB │    ✗    │
-│ fetch_pereira_2025               │ 29.96 GB │    ✗    │
-│ fetch_cybis_pereira_2026         │ 12.88 GB │    ✗    │
-│ fetch_pepe_mariani_2026          │ 37.56 GB │    ✗    │
-│ fetch_landemard_2026             │ 42.04 GB │    ✗    │
-│ fetch_khallaf_2026               │ 24.02 GB │    ✗    │
-│ fetch_template_brunner_2021      │ 16.34 MB │    ✗    │
-│ fetch_template_pepe_mariani_2026 │ 5.508 MB │    ✗    │
-└──────────────────────────────────┴──────────┴─────────┘
+                     Available Datasets
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
+┃ Fetch function                      ┃     Size ┃ On disk ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
+│ fetch_nunez_elizalde_2022           │ 6.983 GB │    ✗    │
+│ fetch_pereira_2025                  │ 29.96 GB │    ✗    │
+│ fetch_cybis_pereira_2026            │ 12.88 GB │    ✗    │
+│ fetch_pepe_mariani_2026             │ 37.56 GB │    ✗    │
+│ fetch_landemard_2026                │ 42.04 GB │    ✗    │
+│ fetch_khallaf_2026                  │ 24.02 GB │    ✗    │
+│ fetch_template_brunner_grillet_2021 │ 16.34 MB │    ✗    │
+│ fetch_template_pepe_mariani_2026    │ 5.508 MB │    ✗    │
+└─────────────────────────────────────┴──────────┴─────────┘
 ```
 
 The sizes shown are for the **full** dataset. Filtered fetches are typically a small
@@ -415,22 +415,26 @@ applies to template fetchers.
 
 ## Available Templates
 
-=== "Brunner 2021"
+=== "Brunner, Grillet 2021"
 
-    A vascular mouse fUSI template from Brunner et al. (2021)[^brunner2021], sourced
+    A vascular mouse fUSI template from Brunner, Grillet et al. (2021)[^brunner2021], sourced
     from the Macé and Montaldo Zenodo dataset[^brunner_dataset] and distributed as
     a NIfTI with its JSON sidecar in the S3 collection under **CC BY 4.0**. Total
     size: **~16.3 MB**.
 
-    Use [`fetch_template_brunner_2021`][confusius.datasets.fetch_template_brunner_2021]
+    Use
+    [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
     to download and load the template directly. Its axes are reordered onto the
     Allen 50 µm grid, whose affine is explicitly assigned without changing vascular
     voxel values:
 
     ```python
-    from confusius.datasets import fetch_brainglobe_atlas, fetch_template_brunner_2021
+    from confusius.datasets import (
+        fetch_brainglobe_atlas,
+        fetch_template_brunner_grillet_2021,
+    )
 
-    template = fetch_template_brunner_2021()
+    template = fetch_template_brunner_grillet_2021()
     atlas = fetch_brainglobe_atlas("allen_mouse_50um")
     ```
 
@@ -511,8 +515,8 @@ parameters and return types.
     <https://doi.org/10.1038/s41586-026-10772-5>
 
 [^brunner2021]:
-    Brunner, C. et al. (2021). Whole-brain functional ultrasound imaging in awake
-    head-fixed mice. *Nature Protocols*, 16, 3547–3571.
+    Brunner, C., Grillet, M. et al. (2021). Whole-brain functional ultrasound imaging
+    in awake head-fixed mice. *Nature Protocols*, 16, 3547–3571.
     <https://doi.org/10.1038/s41596-021-00548-8>
 
 [^brunner_dataset]:
