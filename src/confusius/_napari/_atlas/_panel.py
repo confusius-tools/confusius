@@ -73,26 +73,38 @@ ATLAS_VOLUME_LAYER_TYPES: dict[AtlasVolume, Literal["image", "labels"]] = {
 """napari layer type used for each atlas volume, in button order."""
 
 
+AtlasListing = tuple[dict[str, str | None], dict[str, str] | None]
+"""Result of `_list_atlases`: local versions of the downloaded atlases, by name, and
+the latest version of every atlas BrainGlobe knows about, or `None` when that list
+could not be fetched."""
+
+
 @thread_worker
-def _list_atlases() -> tuple[list[str], list[str] | None]:
+def _list_atlases() -> AtlasListing:
     """List BrainGlobe atlases in a background thread.
 
     Returns
     -------
-    downloaded : list[str]
-        Atlas names already present in the BrainGlobe cache.
-    available : list[str] or None
-        Every atlas name BrainGlobe knows about, sorted, or `None` when the list
-        could not be fetched and BrainGlobe has no cached copy of it.
+    downloaded : dict[str, str or None]
+        Local version (e.g. `"1.2"`) of every atlas in the BrainGlobe cache, by name.
+    available : dict[str, str] or None
+        Latest version of every atlas BrainGlobe knows about, by name, or `None` when
+        the list could not be fetched and BrainGlobe has no cached copy of it.
     """
     from brainglobe_atlasapi.list_atlases import (
         get_all_atlases_lastversions,
         get_downloaded_atlases,
+        get_local_atlas_version,
     )
 
-    downloaded = get_downloaded_atlases()
+    downloaded = {
+        name: get_local_atlas_version(name) for name in get_downloaded_atlases()
+    }
     try:
-        available = sorted(get_all_atlases_lastversions())
+        available = {
+            name: str(version)
+            for name, version in get_all_atlases_lastversions().items()
+        }
     except Exception:  # noqa: BLE001
         # Offline with no cached `last_versions.conf`: BrainGlobe raises instead of
         # returning an empty mapping.
@@ -378,6 +390,8 @@ class AtlasPanel(QWidget):
         # Whether to add the three volume layers as soon as the atlas is loaded.
         self._pending_layers = False
         self._atlases_listed = False
+        # Last `_list_atlases` result, kept to rebuild the dropdown after a download.
+        self._atlas_list: AtlasListing | None = None
         self._setup_ui()
         install_no_scroll_wheel_filter(self)
 
@@ -620,24 +634,61 @@ class AtlasPanel(QWidget):
             worker.errored.connect(self._on_atlases_error)
             worker.start()
 
-    def _on_atlases_listed(self, result: tuple[list[str], list[str] | None]) -> None:
-        downloaded, available = result
-        combo = self._atlas_combo
-        combo.clear()
-        for name in downloaded:
-            combo.addItem(f"{name} (downloaded)", name)
-        if available is None:
+    def _on_atlases_listed(self, result: AtlasListing) -> None:
+        self._atlas_list = result
+        if result[1] is None:
             self._set_atlas_status("Could not fetch the BrainGlobe atlas list.")
         else:
             self._atlas_status.hide()
-            others = [name for name in available if name not in set(downloaded)]
-            if downloaded and others:
-                combo.insertSeparator(combo.count())
-            for name in others:
-                combo.addItem(name, name)
-        if self._atlas_name is not None:
-            self._select_atlas_in_combo(self._atlas_name)
+        self._populate_atlas_combo()
+
+    def _populate_atlas_combo(self) -> None:
+        """Rebuild the dropdown from the last listing, keeping the selection.
+
+        Downloaded atlases come first, flagged when BrainGlobe has published a newer
+        version than the cached one, then a separator and every other atlas, all
+        sorted by name.
+        """
+        if self._atlas_list is None:
+            return
+        downloaded, available = self._atlas_list
+        latest = available or {}
+        combo = self._atlas_combo
+        selected = self._atlas_name or combo.currentData()
+        combo.clear()
+        for name in sorted(downloaded):
+            local = downloaded[name]
+            outdated = local is not None and latest.get(name, local) != local
+            suffix = " (downloaded, update available)" if outdated else " (downloaded)"
+            combo.addItem(name + suffix, name)
+        others = [name for name in sorted(latest) if name not in downloaded]
+        if downloaded and others:
+            combo.insertSeparator(combo.count())
+        for name in others:
+            combo.addItem(name, name)
+        if selected is not None:
+            self._select_atlas_in_combo(str(selected))
         self._update_atlas_controls()
+
+    def _mark_downloaded(self, name: str) -> None:
+        """Move a freshly fetched atlas into the dropdown's downloaded group.
+
+        A successful fetch leaves the atlas in the BrainGlobe cache, at the latest
+        version when it was just downloaded. An atlas that was already cached keeps
+        its recorded local version, and so its update flag. Before the listing has
+        arrived there is nothing to do: the listing will find the atlas on disk.
+
+        Parameters
+        ----------
+        name : str
+            BrainGlobe atlas name that was just fetched.
+        """
+        if self._atlas_list is None:
+            return
+        downloaded, available = self._atlas_list
+        if name not in downloaded:
+            downloaded[name] = (available or {}).get(name)
+            self._populate_atlas_combo()
 
     def _on_atlases_error(self, exc: Exception) -> None:
         self._atlas_combo.clear()
@@ -748,6 +799,7 @@ class AtlasPanel(QWidget):
         self._selected_table.setRowCount(0)
         self._load_masks_btn.setEnabled(False)
         self._refresh_search()
+        self._mark_downloaded(name)
         self._select_atlas_in_combo(name)
         self._end_atlas_work()
         if self._pending_layers:

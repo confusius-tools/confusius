@@ -43,8 +43,13 @@ def _load(panel, ds, name: str) -> None:
     panel._on_atlas_returned(ds, name)
 
 
-def _list(panel, downloaded=("mock",), others=("other",)) -> None:
-    panel._on_atlases_listed((list(downloaded), [*downloaded, *others]))
+def _list(panel, downloaded=("mock",), others=("other",), latest=None) -> None:
+    """Feed the panel a listing where every atlas is at version 1.0 unless `latest`
+    names a newer remote version for some of them."""
+    local = {name: "1.0" for name in downloaded}
+    remote = {name: "1.0" for name in [*downloaded, *others]}
+    remote.update(latest or {})
+    panel._on_atlases_listed((local, remote))
 
 
 @pytest.fixture
@@ -197,6 +202,35 @@ class TestAtlasLoading:
         assert loaded_panel._atlas_combo.currentData() == "mock"
         assert not loaded_panel._atlas_combo.isEnabled()
 
+    def test_load_before_listing_leaves_the_placeholder(self, loaded_panel) -> None:
+        combo = loaded_panel._atlas_combo
+        assert combo.count() == 1
+        assert combo.currentData() is None
+
+    def test_fresh_download_moves_atlas_into_downloaded_group(
+        self, panel, atlas_ds
+    ) -> None:
+        _list(panel, downloaded=("mock",), others=("other", "zzz"))
+        combo = panel._atlas_combo
+        assert combo.itemText(2) == "other"
+
+        _load(panel, atlas_ds, "other")
+
+        assert [combo.itemText(i) for i in range(combo.count())] == [
+            "mock (downloaded)",
+            "other (downloaded)",
+            "",  # Separator.
+            "zzz",
+        ]
+        assert combo.currentData() == "other"
+
+    def test_reloading_an_outdated_atlas_keeps_its_update_flag(
+        self, panel, atlas_ds
+    ) -> None:
+        _list(panel, downloaded=("mock",), others=(), latest={"mock": "2.0"})
+        _load(panel, atlas_ds, "mock")
+        assert panel._atlas_combo.itemText(0) == "mock (downloaded, update available)"
+
     def test_error_restores_idle_state(self, panel, errors) -> None:
         _list(panel)
         panel._pending_layers = True
@@ -274,7 +308,9 @@ class TestAtlasRemoval:
 
 class TestAtlasList:
     def test_downloaded_first_then_separator_then_others(self, panel) -> None:
-        panel._on_atlases_listed((["b_atlas"], ["a_atlas", "b_atlas", "c_atlas"]))
+        panel._on_atlases_listed(
+            ({"b_atlas": "1.0"}, {"c_atlas": "1.0", "a_atlas": "1.0", "b_atlas": "1.0"})
+        )
 
         combo = panel._atlas_combo
         assert combo.itemText(0) == "b_atlas (downloaded)"
@@ -287,15 +323,39 @@ class TestAtlasList:
         assert combo.isEnabled()
         assert panel._load_atlas_btn.isEnabled()
 
-    def test_unavailable_list_keeps_downloaded_and_shows_status(self, panel) -> None:
-        panel._on_atlases_listed((["b_atlas"], None))
+    def test_newer_remote_version_flags_downloaded_atlas(self, panel) -> None:
+        panel._on_atlases_listed(
+            ({"a_atlas": "1.0", "b_atlas": "1.0"}, {"a_atlas": "1.1", "b_atlas": "1.0"})
+        )
 
-        assert [panel._atlas_combo.itemData(i) for i in range(1)] == ["b_atlas"]
+        combo = panel._atlas_combo
+        assert combo.itemText(0) == "a_atlas (downloaded, update available)"
+        assert combo.itemText(1) == "b_atlas (downloaded)"
+        assert combo.count() == 2
+
+    def test_unknown_local_version_is_not_flagged(self, panel) -> None:
+        panel._on_atlases_listed(({"a_atlas": None}, {"a_atlas": "1.1"}))
+        assert panel._atlas_combo.itemText(0) == "a_atlas (downloaded)"
+
+    def test_unavailable_list_keeps_downloaded_and_shows_status(self, panel) -> None:
+        panel._on_atlases_listed(({"b_atlas": "1.0"}, None))
+
+        assert panel._atlas_combo.itemText(0) == "b_atlas (downloaded)"
+        assert panel._atlas_combo.itemData(0) == "b_atlas"
         assert panel._atlas_combo.count() == 1
         assert panel._atlas_status.isVisibleTo(panel)
 
+    def test_relisting_keeps_the_selected_atlas(self, panel) -> None:
+        _list(panel, downloaded=("mock",), others=("other",))
+        combo = panel._atlas_combo
+        combo.setCurrentIndex(combo.findData("other"))
+
+        _list(panel, downloaded=("mock",), others=("other", "zzz"))
+
+        assert combo.currentData() == "other"
+
     def test_nothing_available_disables_dropdown_and_load(self, panel) -> None:
-        panel._on_atlases_listed(([], None))
+        panel._on_atlases_listed(({}, None))
 
         assert panel._atlas_combo.count() == 0
         assert not panel._atlas_combo.isEnabled()
@@ -531,7 +591,12 @@ class TestPanelWidth:
         QApplication.processEvents()
         initial = panel.minimumSizeHint().width()
         long_names = [f"demba_allen_seg_dev_mouse_p{i}_25um" for i in range(10, 60)]
-        panel._on_atlases_listed((["allen_mouse_bluebrain_barrels_10um"], long_names))
+        panel._on_atlases_listed(
+            (
+                {"allen_mouse_bluebrain_barrels_10um": "1.0"},
+                {name: "1.0" for name in long_names},
+            )
+        )
         QApplication.processEvents()
         assert panel.minimumSizeHint().width() <= initial
         assert initial <= self.SIDEBAR_MIN_WIDTH

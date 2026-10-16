@@ -80,15 +80,19 @@ writing any Python. It has two pages, switched with the buttons at its top:
 
 The **Atlas** dropdown lists every atlas known to
 [BrainGlobe](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html),
-with the ones already in your BrainGlobe cache first and marked `(downloaded)`. The
-list is fetched the first time you open the panel; without a network connection it
-falls back to BrainGlobe's cached list, or to the downloaded atlases alone.
+with the ones already in your BrainGlobe cache first and marked `(downloaded)`, or
+`(downloaded, update available)` when BrainGlobe has published a newer version than
+the cached one. Loading always uses the cached version; to update an atlas, run
+`brainglobe update -a <atlas>` in a terminal. The list is fetched the first time you
+open the panel; without a network connection it falls back to BrainGlobe's cached
+list, or to the downloaded atlases alone.
 
 1. Pick an atlas and click **Load atlas**. The first load of an atlas downloads it
    into the BrainGlobe cache (shared with other BrainGlobe tools): a note under the
    dropdown says so for as long as the download runs, which can take several minutes
-   for fine atlases such as `allen_mouse_10um`. Later loads read from the cache in a
-   second or two. The atlas stays on disk. One atlas is loaded at a time: the dropdown
+   for fine atlases such as `allen_mouse_10um`; the atlas then joins the downloaded
+   group of the dropdown. Later loads read from the cache in a second or two. The
+   atlas stays on disk. One atlas is loaded at a time: the dropdown
    and **Load atlas** lock until **✕** removes it, and the buttons below become
    active.
 2. **Template**, **Annotation** and **Hemispheres** each add that volume as a layer:
