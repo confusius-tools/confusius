@@ -948,10 +948,10 @@ Released 2026-07-07.
   signed fUSI signals NMF-compatible.
 - Add an [atlas-based region correlation matrix
   example](examples/_built/connectivity/atlas_correlation_matrix.md) to the gallery,
-  demonstrating registration to the Pepe-Mariani 2026 template, resampling the Allen
-  Mouse Brain Atlas onto a recording's native grid, and plotting a region correlation
-  matrix with [`plot_matrix`][confusius.plotting.plot_matrix]'s `groups` annotation
-  ([#243](https://github.com/confusius-tools/confusius/pull/243)).
+  demonstrating registration to the Pepe, Mariani *et al.* (2026) template, resampling
+  the Allen Mouse Brain Atlas onto a recording's native grid, and plotting a region
+  correlation matrix with [`plot_matrix`][confusius.plotting.plot_matrix]'s `groups`
+  annotation ([#243](https://github.com/confusius-tools/confusius/pull/243)).
 
 ### :wrench: Maintenance
 
