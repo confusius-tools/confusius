@@ -9,7 +9,10 @@ to run every example, or pass specific example scripts to run only those::
     uv run python tools/build_gallery.py docs/examples/01_io/01_confusius_xarray_101.py
 
 The whole gallery is still rendered either way; the examples you do not name are
-restored from cache if present, or rendered without outputs (code only).
+restored from cache if present, or rendered without outputs (code only). To run
+nothing at all and only render, pass ``--no-run``::
+
+    uv run python tools/build_gallery.py --no-run
 """
 
 from __future__ import annotations
@@ -70,7 +73,17 @@ def main() -> int:
             "rendered without outputs. If not provided, all examples are run."
         ),
     )
+    parser.add_argument(
+        "--no-run",
+        action="store_true",
+        help=(
+            "Run no example at all: every page is taken from cache if present, or "
+            "rendered without outputs. Cannot be combined with example paths."
+        ),
+    )
     args = parser.parse_args()
+    if args.no_run and args.examples:
+        parser.error("--no-run cannot be combined with example paths.")
 
     if not EXAMPLES_ROOT.is_dir():
         print(f"No examples directory at {EXAMPLES_ROOT}", file=sys.stderr)
@@ -86,7 +99,7 @@ def main() -> int:
             repo_root=REPO_ROOT,
             binder_repo=BINDER_REPO,
             binder_ref=binder_ref,
-            only=args.examples or None,
+            only=[] if args.no_run else (args.examples or None),
         )
     except ValueError as exc:
         print(exc, file=sys.stderr)

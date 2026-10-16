@@ -336,7 +336,8 @@ def build_gallery(
         Example scripts to execute. Every discovered example is still rendered
         into the gallery (so `index.md` lists them all), but only these are run;
         the rest are restored from cache if present, or rendered without outputs
-        (code and markdown only). If not provided, every example is executed.
+        (code and markdown only). If not provided, every example is executed;
+        an empty sequence executes none.
 
     Raises
     ------
