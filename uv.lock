@@ -814,7 +814,7 @@ dev = [
     { name = "pytest-qt", specifier = ">=4.5.0" },
     { name = "ruff", specifier = ">=0.16.5" },
     { name = "ty", specifier = ">=0.0.77,<0.1.0" },
-    { name = "zensical", specifier = ">=0.0.55" },
+    { name = "zensical", specifier = ">=0.0.67" },
 ]
 
 [[package]]

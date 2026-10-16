@@ -17,6 +17,13 @@ Current development version for the next ConfUSIus release.
   colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
   light ones), judged from `bg_color`
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- Use
+  [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
+  instead of `fetch_template_huang_2025` for the vascular mouse template. The fetcher
+  uses the published Brunner, Grillet 2021 release, with paper and dataset citations
+  and a CC BY 4.0 license. Voxel values and Allen-grid geometry are unchanged;
+  downloads use a new `brunner-grillet-2021-template` cache directory
+  ([#517](https://github.com/confusius-tools/confusius/pull/517)).
 - Rename `labels_from_layer` to `extract_labels_from_layer`, including the
   `.fusi.plot` accessor
   ([#512](https://github.com/confusius-tools/confusius/pull/512)).
@@ -56,16 +63,23 @@ Current development version for the next ConfUSIus release.
   remembered per annotation-set version; available meshes deleted locally are still
   downloaded again ([#508](https://github.com/confusius-tools/confusius/pull/508)).
 
-### :wrench: Maintenance
+### :books: Documentation
 
-- The examples gallery runs each example once and renders its light and dark
-  figures from that single run
-  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- The documentation site publishes [`llms.txt`](https://confusius.tools/latest/llms.txt)
+  and `llms-full.txt` for AI assistants, along with a Markdown copy of every page
+  and a "Copy as Markdown" button in the page header
+  ([#513](https://github.com/confusius-tools/confusius/pull/513)).
 
 ### :frame_photo: Napari plugin
 
 - Boolean arrays open as labels layers
   ([#504](https://github.com/confusius-tools/confusius/pull/504)).
+  
+### :wrench: Maintenance
+
+- The examples gallery runs each example once and renders its light and dark
+  figures from that single run
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 
 ## 0.8.0
 
@@ -708,7 +722,7 @@ Released 2026-07-10.
   ([#273](https://github.com/confusius-tools/confusius/pull/273)).
 - Dataset fetchers now print the citation to use for the fetched data and accept a
   `print_citation` argument to silence it. The template fetchers
-  [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] and
+  `fetch_template_huang_2025` and
   [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026]
   also expose the citation on the returned DataArray as `da.attrs["citation"]`
   ([#279](https://github.com/confusius-tools/confusius/pull/279)).
