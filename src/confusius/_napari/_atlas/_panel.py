@@ -573,10 +573,8 @@ class AtlasPanel(QWidget):
         self._lazy_layers_check = QCheckBox("Make layers lazily")
         self._lazy_layers_check.setChecked(True)
         self._lazy_layers_check.setToolTip(
-            "Checked, napari reads the displayed slices from disk, the only option "
-            "for fine atlases such as allen_mouse_10um.\n"
-            "Unchecked, a click below first reads that volume into memory (a few "
-            "hundred MB for a 25 µm mouse atlas), so its layer scrubs smoothly."
+            "Checked, napari reads the displayed slices from disk.\n"
+            "Unchecked, napari first reads that volume into memory."
         )
         group_layout.addWidget(self._lazy_layers_check)
 
