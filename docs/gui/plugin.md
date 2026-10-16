@@ -141,7 +141,9 @@ The **Template** dropdown lists the templates shipped in
 (`huang_2025` for `fetch_template_huang_2025`, ...); the line beneath it names the
 reference atlas each template is aligned to. Click **Load template** to download it on
 first use (it is cached afterwards) and add it as an Image layer named after the
-template.
+template. The voxels are read into memory once, a few tens of megabytes; check
+**Load lazily** to leave them on disk and let napari read each displayed slice
+instead, which browses slower for these gzip-compressed files.
 
 !!! tip "Launch with an atlas or templates from the CLI"
     `--atlas` takes one atlas name and `--template` one or more template names; the

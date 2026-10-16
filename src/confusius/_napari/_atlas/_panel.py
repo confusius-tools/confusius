@@ -15,6 +15,7 @@ from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QComboBox,
     QGroupBox,
     QHBoxLayout,
@@ -146,20 +147,27 @@ def _fetch_atlas(atlas_name: str) -> Generator[str, None, xr.Dataset]:
 
 
 @thread_worker
-def _fetch_template(name: str) -> xr.DataArray:
+def _fetch_template(name: str, lazy: bool) -> xr.DataArray:
     """Fetch a fUSI template in a background thread.
 
     Parameters
     ----------
     name : str
         A key of `FUSI_TEMPLATES`, e.g. `"huang_2025"`.
+    lazy : bool
+        Whether to leave the voxels as a Dask array over the cached file. Otherwise
+        they are read into memory here, once; the world coordinates stay lazy either
+        way (see `_compute_masks` for why not `DataArray.compute()`).
 
     Returns
     -------
     xarray.DataArray
         Template VoxelData array.
     """
-    return fetch_template(name, print_citation=False)
+    da = fetch_template(name, print_citation=False)
+    if not lazy:
+        da = da.copy(data=np.asarray(da.data))
+    return da
 
 
 @thread_worker
@@ -454,6 +462,15 @@ class AtlasPanel(QWidget):
         self._template_reference.setWordWrap(True)
         group_layout.addWidget(self._template_reference)
         self._update_template_reference(self._template_combo.currentText())
+
+        self._template_lazy_check = QCheckBox("Load lazily")
+        self._template_lazy_check.setChecked(False)
+        self._template_lazy_check.setToolTip(
+            "Keep the template as a lazy Dask array that napari reads slice by "
+            "slice.\nTemplates are small gzip files, so reading them into memory "
+            "once (unchecked) browses faster."
+        )
+        group_layout.addWidget(self._template_lazy_check)
 
         self._template_progress = _make_progress_bar()
         group_layout.addWidget(self._template_progress)
@@ -1044,9 +1061,12 @@ class AtlasPanel(QWidget):
         self._template_progress.hide()
 
     def _load_template(self) -> None:
-        self.load_template(self._template_combo.currentText())
+        self.load_template(
+            self._template_combo.currentText(),
+            lazy=self._template_lazy_check.isChecked(),
+        )
 
-    def load_template(self, name: str) -> None:
+    def load_template(self, name: str, *, lazy: bool = False) -> None:
         """Fetch a fUSI template in the background and add it as an Image layer.
 
         This is what the Load template button does; the CLI's `--template` option
@@ -1057,6 +1077,9 @@ class AtlasPanel(QWidget):
         name : str
             A key of `FUSI_TEMPLATES`, e.g. `"huang_2025"`. The layer takes this
             name.
+        lazy : bool, default: False
+            Whether to leave the voxels on disk as a Dask array, as the Load lazily
+            box does, instead of reading them into memory once.
 
         Raises
         ------
@@ -1069,7 +1092,7 @@ class AtlasPanel(QWidget):
                 f"{sorted(FUSI_TEMPLATES)}."
             )
         self._begin_template_work()
-        worker = _fetch_template(name)
+        worker = _fetch_template(name, lazy)
         worker.returned.connect(lambda da: self._on_template_returned(da, name))
         worker.errored.connect(self._on_template_error)
         worker.start()

@@ -16,6 +16,7 @@ from confusius._napari._atlas._panel import (
     ATLAS_VOLUME_LAYER_TYPES,
     AtlasPanel,
     _compute_masks,
+    _fetch_template,
 )
 from confusius._utils.templates import FUSI_TEMPLATES
 from confusius.validation import validate_voxeldata
@@ -557,6 +558,27 @@ class TestTemplateLoading:
         assert panel._template_combo.isEnabled()
         assert panel._load_template_btn.text() == "Load template"
 
+    def test_load_lazily_unchecked_by_default(self, panel) -> None:
+        assert not panel._template_lazy_check.isChecked()
+
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_fetch_reads_voxels_once_unless_lazy(
+        self, monkeypatch, sample_voxeldata_3d, lazy
+    ) -> None:
+        import dask.array as da
+
+        monkeypatch.setattr(
+            "confusius._napari._atlas._panel.fetch_template",
+            lambda name, **kwargs: sample_voxeldata_3d.chunk({"k": 2}),
+        )
+
+        result = _fetch_template.__wrapped__("huang_2025", lazy)
+
+        assert isinstance(result.data, da.Array if lazy else np.ndarray)
+        # The world coordinates stay index-derived either way.
+        validate_voxeldata(result)
+        assert_array_equal(np.asarray(result.data), sample_voxeldata_3d.values)
+
 
 class TestStructureTreeDock:
     def test_button_toggles_one_right_dock(self, loaded_panel, viewer) -> None:
@@ -669,7 +691,7 @@ class TestProgrammaticLoading:
         )
         monkeypatch.setattr(
             "confusius._napari._atlas._panel.fetch_template",
-            lambda name, **kwargs: sample_voxeldata_3d,
+            lambda name, **kwargs: sample_voxeldata_3d.chunk({"k": 2}),
         )
 
     def test_uncached_atlas_shows_download_notice_while_fetching(
@@ -734,11 +756,26 @@ class TestProgrammaticLoading:
         loaded_panel.load_atlas("mock")
         assert loaded_panel._atlas_loading is False
 
-    def test_load_template_adds_layer(self, qtbot, panel, viewer, offline) -> None:
+    def test_load_template_adds_in_memory_layer(
+        self, qtbot, panel, viewer, offline
+    ) -> None:
         panel.load_template("pepe_mariani_2026")
         qtbot.waitUntil(lambda: len(viewer.layers) == 1, timeout=10_000)
 
         assert viewer.layers[0].name == "pepe_mariani_2026"
+        assert isinstance(viewer.layers[0].data, np.ndarray)
+        qtbot.waitUntil(lambda: panel._template_progress.isHidden(), timeout=10_000)
+
+    def test_load_lazily_box_keeps_dask_layer(
+        self, qtbot, panel, viewer, offline
+    ) -> None:
+        import dask.array as da
+
+        panel._template_lazy_check.setChecked(True)
+        panel._load_template_btn.click()
+        qtbot.waitUntil(lambda: len(viewer.layers) == 1, timeout=10_000)
+
+        assert isinstance(viewer.layers[0].data, da.Array)
         qtbot.waitUntil(lambda: panel._template_progress.isHidden(), timeout=10_000)
 
     def test_unknown_template_raises(self, panel) -> None:
