@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from ._types import ExampleSpec
+from zallery._types import ExampleSpec
 
 
 def cache_key(

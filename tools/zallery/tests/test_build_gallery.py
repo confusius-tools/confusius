@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.gallery._pipeline import build_gallery
+from zallery.pipeline import build_gallery
 
 GalleryPaths = tuple[Path, Path, Path]
 

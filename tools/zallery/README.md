@@ -1,5 +1,11 @@
 # Authoring Examples
 
+This directory is `zallery`, the gallery builder ConfUSIus uses, kept as a uv
+workspace member so it can become its own distribution later. Its tests live in
+`tests/` here and run with `just test`. The ConfUSIus side of the setup is
+`tools/build_gallery.py` (paths, Binder, cache fingerprint, CLI flags) and
+`tools/gallery_hooks.py` (the theme hook described below).
+
 Examples live under `docs/examples/<section>/<name>.py` in jupytext percent-format.
 Section folders contain a `_section.md` whose first heading becomes the section title in
 the generated index.
@@ -55,13 +61,13 @@ What this means when writing an example:
   both themes.
 
 When the built-in swap is not enough for the whole gallery, edit `gallery_retheme`
-in `tools/gallery/hooks.py`. It runs in the kernel after the swap, with `"dark"`
+in `tools/gallery_hooks.py`. It runs in the kernel after the swap, with `"dark"`
 before the dark rendering and `"light"` after the figure is swapped back, and must
 undo for `"light"` what it did for `"dark"`. As shipped it flips sequential
 colormaps whose low end should fade into the page: draw with `inferno_r` on the
 light page and the dark page gets `inferno`. Add pairs to `SEQUENTIAL_CMAP_SWAPS`
 there to extend it. Editing the file invalidates the whole gallery cache, like any
-change to `tools/gallery`.
+change to the `zallery` sources or the hook.
 
 ## Tips
 

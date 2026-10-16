@@ -26,23 +26,23 @@ import os
 import sys
 from pathlib import Path
 
-# Ensure the repo root is importable when this script is invoked directly.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from tools.gallery._pipeline import build_gallery
+import zallery
+from zallery import build_gallery
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_ROOT = REPO_ROOT / "docs" / "examples"
 BUILT_DIR = EXAMPLES_ROOT / "_built"
 CACHE_ROOT = REPO_ROOT / ".gallery-cache"
 BINDER_REPO = "confusius-tools/confusius"
+HOOK_MODULE = "tools.gallery_hooks"
+"""Module with this project's `gallery_retheme` hook; `REPO_ROOT` makes it importable."""
 
 
 def _deps_fingerprint() -> str:
     """Return a string identifying gallery execution/render inputs.
 
-    Uses `uv.lock` plus the gallery-builder source files directly. Any change to the
-    locked dependencies or gallery pipeline forces a cache miss.
+    Uses `uv.lock`, the `zallery` sources, the project hook and this script. Any
+    change to the locked dependencies or the gallery pipeline forces a cache miss.
 
     Binder branch/ref is intentionally excluded so expensive gallery execution can be
     reused across branches.
@@ -53,11 +53,13 @@ def _deps_fingerprint() -> str:
     if lockfile.is_file():
         parts.append(lockfile.read_text(encoding="utf-8"))
 
-    gallery_root = REPO_ROOT / "tools" / "gallery"
-    if gallery_root.is_dir():
-        for path in sorted(gallery_root.glob("*.py")):
-            parts.append(f"\n# {path.relative_to(REPO_ROOT)}\n")
-            parts.append(path.read_text(encoding="utf-8"))
+    zallery_root = Path(zallery.__file__).resolve().parent
+    for path in sorted(zallery_root.glob("*.py")):
+        parts.append(f"\n# zallery/{path.name}\n")
+        parts.append(path.read_text(encoding="utf-8"))
+
+    parts.append("\n# tools/gallery_hooks.py\n")
+    parts.append((REPO_ROOT / "tools" / "gallery_hooks.py").read_text(encoding="utf-8"))
 
     parts.append("\n# tools/build_gallery.py\n")
     parts.append(Path(__file__).read_text(encoding="utf-8"))
@@ -113,6 +115,8 @@ def main() -> int:
             binder_ref=binder_ref,
             only=[] if args.no_run else (args.examples or None),
             use_cache=not args.no_cache,
+            hook_module=HOOK_MODULE,
+            hook_root=REPO_ROOT,
         )
     except ValueError as exc:
         print(exc, file=sys.stderr)

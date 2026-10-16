@@ -100,7 +100,7 @@ def _png_data(output: dict[str, object]) -> str | None:
 
 
 def _dark_png_data(output: dict[str, object]) -> str | None:
-    """Return the dark-theme PNG payload stored by `tools.gallery.theme`, if any."""
+    """Return the dark-theme PNG payload stored by `zallery.theme`, if any."""
     metadata = output.get("metadata")
     if not isinstance(metadata, dict):
         return None
@@ -284,7 +284,7 @@ def render_notebook(
         The example as read from disk; provides code, Markdown and cell tags.
     executed_notebook : nbformat.NotebookNode
         The same cells after execution. Figure outputs carry their dark rendering
-        under `metadata["image/png"]["dark"]` (see `tools.gallery.theme`); other
+        under `metadata["image/png"]["dark"]` (see `zallery.theme`); other
         PNGs are shown unchanged in both themes.
     out_dir : pathlib.Path
         Directory to write the page and image folders into.

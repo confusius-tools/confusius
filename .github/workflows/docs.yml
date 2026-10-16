@@ -152,7 +152,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .gallery-cache
-          key: ${{ runner.os }}-gallery-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'uv.lock', 'docs/examples/**/*.py', 'tools/gallery/**/*.py', 'tools/build_gallery.py') }}
+          key: ${{ runner.os }}-gallery-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'uv.lock', 'docs/examples/**/*.py', 'tools/zallery/src/**/*.py', 'tools/gallery_hooks.py', 'tools/build_gallery.py') }}
 
       - name: Build example gallery
         env:
