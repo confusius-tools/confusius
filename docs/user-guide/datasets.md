@@ -115,19 +115,19 @@ fetchers and their full download sizes:
 >>> from confusius.datasets import list_datasets
 >>>
 >>> list_datasets()
-                   Available Datasets
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
-┃ Fetch function                   ┃     Size ┃ On disk ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
-│ fetch_nunez_elizalde_2022        │ 6.983 GB │    ✗    │
-│ fetch_pereira_2025               │ 29.96 GB │    ✗    │
-│ fetch_cybis_pereira_2026         │ 12.88 GB │    ✗    │
-│ fetch_pepe_mariani_2026          │ 37.56 GB │    ✗    │
-│ fetch_landemard_2026             │ 42.04 GB │    ✗    │
-│ fetch_khallaf_2026               │ 24.02 GB │    ✗    │
-│ fetch_template_huang_2025        │ 16.34 MB │    ✗    │
-│ fetch_template_pepe_mariani_2026 │ 5.508 MB │    ✗    │
-└──────────────────────────────────┴──────────┴─────────┘
+                     Available Datasets
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
+┃ Fetch function                      ┃     Size ┃ On disk ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
+│ fetch_nunez_elizalde_2022           │ 6.983 GB │    ✗    │
+│ fetch_pereira_2025                  │ 29.96 GB │    ✗    │
+│ fetch_cybis_pereira_2026            │ 12.88 GB │    ✗    │
+│ fetch_pepe_mariani_2026             │ 37.56 GB │    ✗    │
+│ fetch_landemard_2026                │ 42.04 GB │    ✗    │
+│ fetch_khallaf_2026                  │ 24.02 GB │    ✗    │
+│ fetch_template_brunner_grillet_2021 │ 16.34 MB │    ✗    │
+│ fetch_template_pepe_mariani_2026    │ 5.508 MB │    ✗    │
+└─────────────────────────────────────┴──────────┴─────────┘
 ```
 
 The sizes shown are for the **full** dataset. Filtered fetches are typically a small
@@ -415,20 +415,26 @@ applies to template fetchers.
 
 ## Available Templates
 
-=== "Huang 2025"
+=== "Brunner, Grillet 2021"
 
-    A vascular mouse fUSI template derived from Huang et al. (2025)[^huang2025] and
-    distributed as a NIfTI with its JSON sidecar in the S3 collection. Total size:
-    **~16.3 MB**.
+    A vascular mouse fUSI template from Brunner, Grillet et al. (2021)[^brunner2021], sourced
+    from the Macé and Montaldo Zenodo dataset[^brunner_dataset] and distributed as
+    a NIfTI with its JSON sidecar in the S3 collection under **CC BY 4.0**. Total
+    size: **~16.3 MB**.
 
-    Use [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] to
-    download and load the template directly. The Huang 2025 template is already
-    resampled to the Allen space:
+    Use
+    [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
+    to download and load the template directly. Its axes are reordered onto the
+    Allen 50 µm grid, whose affine is explicitly assigned without changing vascular
+    voxel values:
 
     ```python
-    from confusius.datasets import fetch_brainglobe_atlas, fetch_template_huang_2025
+    from confusius.datasets import (
+        fetch_brainglobe_atlas,
+        fetch_template_brunner_grillet_2021,
+    )
 
-    template = fetch_template_huang_2025()
+    template = fetch_template_brunner_grillet_2021()
     atlas = fetch_brainglobe_atlas("allen_mouse_50um")
     ```
 
@@ -508,11 +514,15 @@ parameters and return types.
     eusocial mammal. *Nature*.
     <https://doi.org/10.1038/s41586-026-10772-5>
 
-[^huang2025]:
-    Huang, Y.-A. et al. (2025). OfUSA: OpenfUS Analyzer, a versatile open-source
-    framework for the analysis and visualization of functional ultrasound imaging data
-    across animal models.
-    <https://doi.org/10.1101/2025.09.16.676515>
+[^brunner2021]:
+    Brunner, C., Grillet, M. et al. (2021). Whole-brain functional ultrasound imaging
+    in awake head-fixed mice. *Nature Protocols*, 16, 3547–3571.
+    <https://doi.org/10.1038/s41596-021-00548-8>
+
+[^brunner_dataset]:
+    Macé, E. and Montaldo, G. (2020). Whole-brain visually evoked activity maps in
+    head-fixed awake mice (June 2021 metadata update). *Zenodo*.
+    <https://doi.org/10.5281/zenodo.4905862>
 
 [^pepe_mariani2026]:
     Pepe, C. et al. (2026). Structural and dynamic embedding of the mouse

@@ -12,6 +12,13 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Use
+  [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
+  instead of `fetch_template_huang_2025` for the vascular mouse template. The fetcher
+  uses the published Brunner, Grillet 2021 release, with paper and dataset citations
+  and a CC BY 4.0 license. Voxel values and Allen-grid geometry are unchanged;
+  downloads use a new `brunner-grillet-2021-template` cache directory
+  ([#517](https://github.com/confusius-tools/confusius/pull/517)).
 - Rename `labels_from_layer` to `extract_labels_from_layer`, including the
   `.fusi.plot` accessor
   ([#512](https://github.com/confusius-tools/confusius/pull/512)).
@@ -697,7 +704,7 @@ Released 2026-07-10.
   ([#273](https://github.com/confusius-tools/confusius/pull/273)).
 - Dataset fetchers now print the citation to use for the fetched data and accept a
   `print_citation` argument to silence it. The template fetchers
-  [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] and
+  `fetch_template_huang_2025` and
   [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026]
   also expose the citation on the returned DataArray as `da.attrs["citation"]`
   ([#279](https://github.com/confusius-tools/confusius/pull/279)).
