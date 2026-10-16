@@ -193,7 +193,7 @@ plotter.add_contours(atlas.atlas.annotation.sel(z=slice(6, 6)))
 ## Region Surface Meshes
 
 Many BrainGlobe atlases bundle a triangular surface mesh per region.
-[`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes] takes one or more regions and returns
+[`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes] takes one region or many and returns
 a `(vertices, faces)` pair per region, keyed by acronym, in the atlas's world space
 (millimeters) and ready to hand to any 3D viewer:
 
@@ -203,12 +203,12 @@ dict_keys(['VISp', 'AUDp'])
 >>> vertices, faces = atlas.atlas.get_meshes("root")["root"]
 ```
 
-napari's `add_surface` takes exactly that pair:
+To display them, [`plot_atlas_mesh`][confusius.plotting.plot_atlas_mesh] (also reachable
+as `atlas.atlas.plot.mesh`) takes the same regions and draws them in napari, each in its
+own atlas color:
 
 ```python
-import napari
-
-napari.Viewer(ndisplay=3).add_surface(atlas.atlas.get_meshes("root")["root"])
+atlas.atlas.plot.mesh("root")
 ```
 
 ![Whole-brain surface mesh of the Allen mouse atlas in napari](../images/atlas/atlas-mesh-root.png)

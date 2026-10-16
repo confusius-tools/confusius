@@ -32,6 +32,20 @@ Current development version for the next ConfUSIus release.
   other data as an image layer. Pass `layer_type="image"` to display integer data
   as an image ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 
+### :sparkles: Enhancements
+
+- Added [`plot_surface`][confusius.plotting.plot_surface] to display a triangular mesh as
+  a napari surface layer, and [`plot_atlas_mesh`][confusius.plotting.plot_atlas_mesh]
+  (also reachable as `ds.atlas.plot.mesh`) to display atlas regions with their mesh, name,
+  color, and units read from the atlas, aligned with the atlas template or a
+  registered fUSI volume shown with `plot_napari`. Like
+  [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes], it accepts one region or a
+  sequence of them with a single hemisphere filter or one per region, mirroring
+  [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and merges the requested
+  regions into a single surface layer, each drawn in its own atlas color. Hovering the
+  mesh names the region under the cursor in the status bar
+  ([#263](https://github.com/confusius-tools/confusius/pull/263)).
+
 ### :zap: Performance
 
 - [`plot_napari`][confusius.plotting.plot_napari] opens labels data carrying an
