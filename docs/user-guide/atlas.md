@@ -31,7 +31,9 @@ atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um")
 
 The first call downloads the atlas through BrainGlobe and caches it in BrainGlobe's own
 cache (`~/.brainglobe`, shared with other BrainGlobe tools); later calls read from the
-cache. Any name from the
+cache. [`is_brainglobe_atlas_cached`][confusius.datasets.is_brainglobe_atlas_cached]
+tells whether a given atlas is already there, so a fetch needs no network. Any name
+from the
 [BrainGlobe atlas list](https://brainglobe.info/documentation/brainglobe-atlasapi/usage/atlas-details.html)
 works, covering mouse, rat, human, zebrafish, and more, at several resolutions.
 

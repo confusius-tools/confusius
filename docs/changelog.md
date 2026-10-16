@@ -75,7 +75,7 @@ Current development version for the next ConfUSIus release.
   memory, browse its structure
   hierarchy in a read-only dock, search its regions to load one Labels layer per
   region mask with a hemisphere selector, or remove it to free memory. The atlas
-  stays on disk until a volume is displayed or a mask requested
+  stays on disk until a volume is read into memory or a mask requested
   ([#488](https://github.com/confusius-tools/confusius/pull/488)).
 - The Atlas tab also loads the fUSI templates shipped in `confusius.datasets`
   (`brunner_grillet_2021`, `pepe_mariani_2026`) as Image layers

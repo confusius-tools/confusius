@@ -101,8 +101,8 @@ list, or to the downloaded atlases alone.
    again under a numbered name. With **Make layers lazily** checked, the default, the
    layer reads the displayed slices from disk, which keeps memory low for fine
    atlases. Uncheck it to read the clicked volume once in the background instead (a
-   few hundred megabytes for a 25 µm mouse atlas): its layer then scrubs smoothly,
-   and the region masks reuse the volume.
+   few hundred megabytes for a 25 µm mouse atlas): its layer then never waits on the
+   disk, and the region masks reuse the volume.
 3. **Structure tree** opens the structure hierarchy in a right dock named
    `Atlas structures: <atlas>`, with one row per region showing its acronym, name, id
    and color. Click again to hide it. The tree is for browsing only.
