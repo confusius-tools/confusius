@@ -1,7 +1,7 @@
 """Plotting helpers shared across the plotting/napari modules and registration views."""
 
-from collections.abc import Sequence
-from typing import Literal
+from collections.abc import Hashable, Mapping, Sequence
+from typing import Literal, NamedTuple
 
 import numpy as np
 import xarray as xr
@@ -139,8 +139,78 @@ def qr_axis_spacing(
     return row_to_axis, axis_spacing
 
 
+class AxisPhase(NamedTuple):
+    """A world axis's established origin and spacing, to phase-lock later grids to.
+
+    `origin` is a voxel *center* (matching every other "origin" in this
+    codebase), but `snap_origin_to_phase` locks cell *edges*, which need both
+    `origin` and `spacing` to derive (`origin - spacing / 2`) -- and a later
+    grid's own spacing may differ (e.g. a higher-resolution moving scan).
+
+    Attributes
+    ----------
+    origin : float
+        World position of this axis's voxel 0 center.
+    spacing : float
+        World distance between consecutive voxels along this axis.
+    """
+
+    origin: float
+    spacing: float
+
+
+def snap_origin_to_phase(origin: float, spacing: float, phase: AxisPhase) -> float:
+    """Shift `origin` down so this grid's cell edges nest with `phase`'s.
+
+    Phase-locks an independently-computed display grid to a reference grid, so
+    two overlaid volumes' *cells* coincide whenever `spacing` evenly divides
+    `phase.spacing` (matching resolutions, or an integer-upsampled overlay) --
+    without moving `origin` near `phase.origin`, which may sit far away in
+    world space (e.g. a different session's probe placement). Aligns cell
+    *edges*, not centers: matching `origin` to `phase.origin` directly only
+    aligns voxel *centers*, which at any resolution ratio other than 1 does
+    not also align *edges* (e.g. at a 2x ratio, every other fine-grid center
+    would land exactly on a coarse-grid edge instead of nesting inside a
+    coarse cell) -- so the shared reference point is edge-derived
+    (`phase.origin - phase.spacing / 2`) instead. When the two spacings don't
+    share an integer ratio, this still minimizes the phase offset to less than
+    `spacing`, rather than an arbitrary bounding-box-derived value.
+
+    Parameters
+    ----------
+    origin : float
+        World position of the grid's own first sample (a voxel center), before
+        snapping.
+    spacing : float
+        World distance between consecutive samples of this grid.
+    phase : AxisPhase
+        Reference grid's own origin and spacing to phase-lock `origin` to.
+
+    Returns
+    -------
+    float
+        `origin`, shifted down by less than `spacing` so that its cell edge
+        `result - spacing / 2` is congruent, modulo `spacing`, to `phase`'s own
+        edge `phase.origin - phase.spacing / 2`.
+    """
+    own_edge = origin - spacing / 2.0
+    phase_edge = phase.origin - phase.spacing / 2.0
+    offset = (own_edge - phase_edge) % spacing
+    # `own_edge` is already (near) an exact multiple of `spacing` away from
+    # `phase_edge` -- floating-point noise in `%` can then land `offset` close
+    # to `spacing` instead of close to `0` (e.g. `1.0 % 0.2` lands near `0.2`,
+    # not `0.0`, since `0.2` has no exact binary representation), which would
+    # otherwise shift `origin` down by a spurious extra step.
+    if spacing - offset < 1e-6 * spacing:
+        offset = 0.0
+    return own_edge - offset + spacing / 2.0
+
+
 def compute_oblique_axis_aligned_grid_geometry(
-    data: xr.DataArray, world_dims: Sequence[str]
+    data: xr.DataArray,
+    world_dims: Sequence[str],
+    *,
+    axis_origins: "Mapping[Hashable, AxisPhase] | None" = None,
 ) -> tuple[list[int], list[float], list[float]]:
     """Compute the axis-aligned grid shape/spacing/origin `data` would resample onto.
 
@@ -160,6 +230,14 @@ def compute_oblique_axis_aligned_grid_geometry(
     world_dims : collections.abc.Sequence of str
         World coordinate names (`"z"`/`"y"`/`"x"`) to compute grid geometry for, in
         order.
+    axis_origins : mapping of collections.abc.Hashable to AxisPhase, optional
+        Reference origin/spacing per world axis, established by an earlier call
+        on the same plotter. When given for a world axis, that axis's own
+        bounding-box origin is shifted (by less than its own spacing) to be
+        congruent with the reference, via `snap_origin_to_phase`, so cells from
+        two volumes at matching (or evenly divisible) resolutions land on the
+        same grid instead of merely overlapping. Axes not present in the mapping
+        are unaffected.
 
     Returns
     -------
@@ -226,6 +304,8 @@ def compute_oblique_axis_aligned_grid_geometry(
                 f"Cannot resample {dim!r} onto an axis-aligned world grid: the "
                 "voxel-to-world affine is singular along this axis."
             )
+        if axis_origins is not None and dim in axis_origins:
+            lower = snap_origin_to_phase(lower, dim_spacing, axis_origins[dim])
         origin.append(lower)
         spacing.append(dim_spacing)
         # A relative tolerance absorbs floating-point noise in `upper`/`lower`
@@ -243,6 +323,7 @@ def resample_to_axis_aligned_world_grid(
     reference: xr.DataArray | None = None,
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float | None = None,
+    axis_origins: "Mapping[Hashable, AxisPhase] | None" = None,
 ) -> xr.DataArray:
     """Resample voxel-to-world data onto an axis-aligned world grid for display.
 
@@ -262,6 +343,11 @@ def resample_to_axis_aligned_world_grid(
         Value assigned to voxels outside `data`'s field of view after resampling.
         If not provided, defaults to `float(data.min())` (see
         [`resample_volume`][confusius.registration.resample_volume]).
+    axis_origins : mapping of collections.abc.Hashable to AxisPhase, optional
+        Reference origin/spacing per world axis to phase-lock the synthesized
+        grid to, forwarded to `compute_oblique_axis_aligned_grid_geometry`.
+        Ignored when `reference` is given, since a reference grid already fully
+        determines the output positions. Only meaningful when `data` is oblique.
 
     Returns
     -------
@@ -341,7 +427,7 @@ def resample_to_axis_aligned_world_grid(
         # dominates that row of the affine, not the positionally-matching one.
         # Pick that dominant voxel dim's spacing for each output world axis.
         shape, spacing, origin = compute_oblique_axis_aligned_grid_geometry(
-            data, world_dims
+            data, world_dims, axis_origins=axis_origins
         )
 
         result = resample_volume(
