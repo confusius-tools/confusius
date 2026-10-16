@@ -165,6 +165,11 @@ jobs:
         run: xvfb-run -a uv run python tools/build_gallery.py
 
       - name: Build documentation
+        env:
+          # PR previews deploy under `pr-preview/pr-N`. Pass that prefix the way mike
+          # does for dev/release deploys, so canonical URLs, the sitemap, and llms.txt
+          # links point into the preview. Empty means site root.
+          MIKE_DOCS_VERSION: ${{ github.event_name == 'pull_request' && format('pr-preview/pr-{0}', github.event.number) || '' }}
         run: uv run zensical build --clean --strict
 
       - name: Upload site artifact
@@ -310,6 +315,19 @@ jobs:
         if: github.ref == 'refs/heads/main'
         working-directory: /tmp/confusius-docs
         run: uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --push --update-aliases dev
+
+      - name: Expose llms.txt at the site root
+        # Root-level symlinks into `latest/`, like the `latest` alias mike maintains.
+        # Committed before `mike deploy` because mike writes git objects directly and
+        # leaves the working tree stale; its `--push` then carries this commit too.
+        # No-op once the symlinks exist.
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: /tmp/confusius-docs
+        run: |
+          ln -sfn latest/llms.txt llms.txt
+          ln -sfn latest/llms-full.txt llms-full.txt
+          git add llms.txt llms-full.txt
+          git diff --cached --quiet || git commit -m "chore: expose llms.txt at the site root"
 
       - name: Deploy release docs
         if: startsWith(github.ref, 'refs/tags/v')
