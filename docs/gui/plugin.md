@@ -87,22 +87,18 @@ the cached one. Loading always uses the cached version; to update an atlas, run
 open the panel; without a network connection it falls back to BrainGlobe's cached
 list, or to the downloaded atlases alone.
 
-1. Pick an atlas and click **Load atlas**. The first load of an atlas downloads it
-   into the BrainGlobe cache (shared with other BrainGlobe tools): a note under the
-   dropdown says so for as long as the download runs, which can take several minutes
-   for fine atlases such as `allen_mouse_10um`; the atlas then joins the downloaded
-   group of the dropdown. Later loads read from the cache in a second or two. The
-   atlas stays on disk. One atlas is loaded at a time: the dropdown
-   and **Load atlas** lock until **✕** removes it, and the buttons below become
-   active.
+1. Pick an atlas and click **Load atlas**. The first load of an atlas downloads it into
+   the BrainGlobe cache (shared with other BrainGlobe tools): a note under the dropdown
+   says if the download is running, which can take several minutes for bigger atlases
+   such as `allen_mouse_10um`. Later loads read from the cache in a second or two. The
+   atlas stays on disk. One atlas is loaded at a time: the dropdown and **Load atlas**
+   lock until **✕** removes it, and the buttons below become active.
 2. **Template**, **Annotation** and **Hemispheres** each add that volume as a layer:
    `<atlas> template` (Image), `<atlas> annotation` (Labels, colored with the atlas
-   palette) or `<atlas> hemispheres` (Labels). Clicking a button again adds the layer
-   again under a numbered name. With **Make layers lazily** checked, the default, the
-   layer reads the displayed slices from disk, which keeps memory low for fine
-   atlases. Uncheck it to read the clicked volume once in the background instead (a
-   few hundred megabytes for a 25 µm mouse atlas): its layer then never waits on the
-   disk, and the region masks reuse the volume.
+   palette) or `<atlas> hemispheres` (Labels). With **Make layers lazily** checked (the
+   default), the layer reads the displayed slices from disk, which keeps memory low for
+   bigger atlases. Uncheck it to read the clicked volume once in the background instead
+   before creating the napari layer.
 3. **Structure tree** opens the structure hierarchy in a right dock named
    `Atlas structures: <atlas>`, with one row per region showing its acronym, name, id
    and color. Click again to hide it. The tree is for browsing only.
@@ -143,13 +139,11 @@ structures.
 
 The **Template** dropdown lists the templates shipped in
 [`confusius.datasets`][confusius.datasets] by the name of their fetcher
-(`brunner_grillet_2021` for `fetch_template_brunner_grillet_2021`, ...); the line beneath it names the
-reference atlas each template is aligned to. Click **Load template** to download it on
-first use (a note under the dropdown says so; it is cached afterwards) and add it as
-an Image layer named after the template. The voxels are read into memory once, a
-few tens of megabytes; check
-**Load lazily** to leave them on disk and let napari read each displayed slice
-instead, which browses slower for these gzip-compressed files.
+(`brunner_grillet_2021` for `fetch_template_brunner_grillet_2021`, ...); the line
+beneath it names the reference atlas each template is aligned to. Click **Load
+template** to download it on first use and add it as an Image layer named after the
+template. The voxels are read into memory if **Load lazily** is unchecked (the default);
+check this box to leave them on disk and let napari read each displayed slice instead.
 
 !!! tip "Launch with an atlas or templates from the CLI"
     `--atlas` takes one atlas name and `--template` one or more template names; the

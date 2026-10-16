@@ -45,9 +45,6 @@ Current development version for the next ConfUSIus release.
   `rgb_lookup` attribute, such as atlas annotations, faster by building the
   colormap from the lookup instead of scanning the whole volume
   ([#504](https://github.com/confusius-tools/confusius/pull/504)).
-- [`plot_napari`][confusius.plotting.plot_napari] hands Dask-backed labels to napari
-  lazily, so only the displayed slices are read
-  ([#488](https://github.com/confusius-tools/confusius/pull/488)).
 
 ### :bug: Fixes
 
