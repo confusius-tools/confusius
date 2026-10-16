@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import socket
 import sys
 from pathlib import Path
 
 import pytest
 
 from tools.gallery import execute
-from tools.gallery.execute import execute_example
+from tools.gallery.execute import execute_example, find_kernel_ports
 
 
 def test_execute_runs_jupytext_py_and_returns_executed_nb(tmp_path: Path) -> None:
@@ -96,3 +97,48 @@ def test_execute_raises_when_kernel_setup_fails(
 
     with pytest.raises(RuntimeError, match="no theme"):
         execute_example(src, timeout=60)
+
+
+def test_execute_binds_kernel_ports_below_the_ephemeral_range(tmp_path: Path) -> None:
+    """Kernel ports stay out of the range the OS hands to outgoing connections.
+
+    Ports drawn from that range can be taken by a client connection between
+    jupyter_client choosing them and the kernel binding them, which surfaced in CI
+    as a heartbeat socket failing with "Address already in use".
+    """
+    src = tmp_path / "ex.py"
+    src.write_text(
+        "# %%\n"
+        "from ipykernel.kernelapp import IPKernelApp\n"
+        "app = IPKernelApp.instance()\n"
+        "print(app.shell_port, app.iopub_port, app.stdin_port, "
+        "app.control_port, app.hb_port)\n"
+    )
+
+    nb, _ = execute_example(src, timeout=60)
+
+    stdout = "".join(
+        out.get("text", "")
+        for out in nb.cells[0].outputs
+        if out.get("output_type") == "stream" and out.get("name") == "stdout"
+    )
+    ports = [int(token) for token in stdout.split()]
+    assert len(ports) == 5
+    assert len(set(ports)) == 5
+    assert all(10000 <= port < 32768 for port in ports)
+
+
+def test_find_kernel_ports_skips_ports_in_use(monkeypatch: pytest.MonkeyPatch) -> None:
+    taken = find_kernel_ports(1)[0]
+    held = socket.socket()
+    held.bind(("127.0.0.1", taken))
+    # Start the scan on the held port so the skip is exercised deterministically.
+    monkeypatch.setattr(execute.random, "randrange", lambda *_: taken)
+    try:
+        ports = find_kernel_ports()
+    finally:
+        held.close()
+
+    assert taken not in ports
+    assert len(set(ports)) == 5
+    assert all(taken < port < 32768 for port in ports)

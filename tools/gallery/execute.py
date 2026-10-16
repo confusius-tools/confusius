@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import random
+import socket
 import sys
 import tempfile
 import time
@@ -32,6 +34,87 @@ _SETUP_SOURCE = "\n".join(
     ]
 )
 """Code of the setup cell run before the example (see `tools.gallery.theme`)."""
+
+_KERNEL_IP = "127.0.0.1"
+"""Address the kernel binds its sockets to."""
+
+_EPHEMERAL_PORT_FLOOR = 32768
+"""Lowest port the OS hands to outgoing connections, unless the system says otherwise.
+
+This is Linux's default (`/proc/sys/net/ipv4/ip_local_port_range`, read when
+available); macOS and Windows start at 49152, so the same floor is safe there too.
+"""
+
+_LOWEST_KERNEL_PORT = 10000
+"""Lowest port considered for a kernel socket, clear of well-known service ports."""
+
+
+def _ephemeral_port_floor() -> int:
+    """Return the start of the OS's ephemeral port range.
+
+    Returns
+    -------
+    int
+        The lower bound of `/proc/sys/net/ipv4/ip_local_port_range` when it can be
+        read, `_EPHEMERAL_PORT_FLOOR` otherwise.
+    """
+    try:
+        text = Path("/proc/sys/net/ipv4/ip_local_port_range").read_text()
+        return int(text.split()[0])
+    except (OSError, ValueError, IndexError):
+        return _EPHEMERAL_PORT_FLOOR
+
+
+def find_kernel_ports(count: int = 5) -> list[int]:
+    """Return `count` free localhost ports below the OS's ephemeral range.
+
+    jupyter_client picks kernel ports by binding to port 0, which draws from the
+    ephemeral range, and closes them again before the kernel binds. Outgoing
+    connections made in that window, nbclient's own ZMQ connects included, draw from
+    the same range and can take a port first, so the kernel's bind fails with
+    "Address already in use" (seen in CI on the heartbeat socket). Ports below the
+    range are never assigned to outgoing connections, so they cannot be lost that way.
+
+    Parameters
+    ----------
+    count : int, default: 5
+        Number of ports to return, one per kernel channel.
+
+    Returns
+    -------
+    list[int]
+        Distinct ports that were free on `_KERNEL_IP` when probed, in increasing
+        order from a random starting point.
+
+    Raises
+    ------
+    RuntimeError
+        If fewer than `count` free ports are found.
+    """
+    floor = _ephemeral_port_floor()
+    # A random start keeps two concurrent builds, or a stuck process, from
+    # fighting over the same first ports every time.
+    start = random.randrange(_LOWEST_KERNEL_PORT, floor - count)
+    ports: list[int] = []
+    held: list[socket.socket] = []
+    for port in range(start, floor):
+        sock = socket.socket()
+        try:
+            sock.bind((_KERNEL_IP, port))
+        except OSError:
+            sock.close()
+            continue
+        held.append(sock)
+        ports.append(port)
+        if len(ports) == count:
+            break
+    for sock in held:
+        sock.close()
+    if len(ports) < count:
+        raise RuntimeError(
+            f"Could not find {count} free ports in [{start}, {floor}) for the kernel."
+        )
+    return ports
 
 
 def read_example(source: Path) -> nbformat.NotebookNode:
@@ -76,6 +159,17 @@ def execute_example(
     notebook.cells.insert(0, setup_cell)
 
     kernel_manager = KernelManager()
+    kernel_manager.ip = _KERNEL_IP
+    # With port caching on (the TCP default) the provisioner replaces preset ports
+    # with ephemeral ones of its own; off, the ports below are written as given.
+    kernel_manager.cache_ports = False
+    (
+        kernel_manager.shell_port,
+        kernel_manager.iopub_port,
+        kernel_manager.stdin_port,
+        kernel_manager.control_port,
+        kernel_manager.hb_port,
+    ) = find_kernel_ports()
     kernel_manager.kernel_cmd = [  # ty: ignore[unresolved-attribute]
         sys.executable,
         "-m",
