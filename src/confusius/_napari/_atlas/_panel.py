@@ -688,8 +688,7 @@ class AtlasPanel(QWidget):
         """
         self._atlas_downloading = True
         self._atlas_notice.setText(
-            f"Downloading {name} into the BrainGlobe cache. This can take a while, "
-            "especially on a slow connection."
+            f"Downloading {name}… This can take a while for large atlases."
         )
         self._atlas_notice.show()
         self._update_atlas_controls()
