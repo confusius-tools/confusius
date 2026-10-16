@@ -3,7 +3,7 @@
 This directory is `zallery`, the gallery builder ConfUSIus uses, kept as a uv
 workspace member so it can become its own distribution later. Its tests live in
 `tests/` here and run with `just test`. The ConfUSIus side of the setup is
-`tools/build_gallery.py` (paths, Binder, cache fingerprint, CLI flags) and
+the `[tool.zallery]` table in `pyproject.toml` (paths, Binder, hook) and
 `tools/gallery_hooks.py` (the theme hook described below).
 
 Examples live under `docs/examples/<section>/<name>.py` in jupytext percent-format.
@@ -30,7 +30,7 @@ just gallery
 
 After running `just gallery`, browse `docs/examples/_built/` for the rendered output.
 To iterate on prose or layout without executing anything, pass `--no-run` to the
-builder (`uv run python tools/build_gallery.py --no-run`): every page is restored
+builder (`uv run zallery --no-run`): every page is restored
 from cache if present, or rendered with code and Markdown only. Name example
 scripts instead to run just those. Add `--no-cache` to execute the selected
 examples even when a cached result exists; the result replaces the cache entry.
@@ -68,6 +68,24 @@ colormaps whose low end should fade into the page: draw with `inferno_r` on the
 light page and the dark page gets `inferno`. Add pairs to `SEQUENTIAL_CMAP_SWAPS`
 there to extend it. Editing the file invalidates the whole gallery cache, like any
 change to the `zallery` sources or the hook.
+
+## Configuration
+
+`zallery` reads the `[tool.zallery]` table of the nearest `pyproject.toml` above the
+working directory; relative paths resolve against that file's directory. All keys
+are optional:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `examples` | `docs/examples` | Directory of example sections. |
+| `built` | `<examples>/_built` | Where rendered pages and images go. |
+| `cache` | `.gallery-cache` | Execution/render cache. |
+| `binder_repo` | unset | `owner/repo` for the Binder launch buttons. |
+| `hook` | unset | Module defining `gallery_retheme(fig, theme)`. |
+| `fingerprint` | `["uv.lock"]` | Files whose change invalidates the cache. |
+
+The git ref stamped into Binder URLs comes from the `ZALLERY_BINDER_REF`
+environment variable (default `main`).
 
 ## Tips
 

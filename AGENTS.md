@@ -103,9 +103,9 @@ Docs are built on CI and deployed to a separate `confusius-docs` repo; see
 `.github/workflows/docs.yml` and `tools/prefetch_doc_datasets.py` for the pipeline
 (gallery build, image generation, dataset prefetch/cache) and `docs/contributing.md`
 for the human contributor workflow. The example gallery builder is the `zallery`
-workspace package in `tools/zallery` (tests included, run by `just test`);
-`tools/build_gallery.py` and `tools/gallery_hooks.py` are the ConfUSIus-side
-configuration and theme hook.
+workspace package in `tools/zallery` (tests included, run by `just test`), invoked
+as `uv run zallery`; the `[tool.zallery]` table in `pyproject.toml` and
+`tools/gallery_hooks.py` are the ConfUSIus-side configuration and theme hook.
 
 Use the `/release NEW_VERSION` skill (`.claude/skills/release/SKILL.md`) for the full
 release process (version bumps, changelog, tag, push, announcements).

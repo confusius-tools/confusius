@@ -92,6 +92,13 @@ dev = [
     "zallery",
 ]
 
+[tool.zallery]
+# Examples gallery builder (tools/zallery); build with `uv run zallery`.
+examples = "docs/examples"
+cache = ".gallery-cache"
+binder_repo = "confusius-tools/confusius"
+hook = "tools.gallery_hooks"
+
 [tool.numpydoc_validation]
 exclude = [
     '\.__init__$',

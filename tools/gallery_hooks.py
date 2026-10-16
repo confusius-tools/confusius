@@ -9,8 +9,8 @@ after the figure is swapped back. Whatever it changes for `"dark"` it must undo
 for `"light"`, since the same figure object is returned to the example.
 
 This file is the project's side of the gallery tooling: the project owns it, the
-`zallery` package (`tools/zallery`) is the tool. `tools/build_gallery.py` names it
-through `HOOK_MODULE`.
+`zallery` package (`tools/zallery`) is the tool. The `[tool.zallery]` table in
+`pyproject.toml` names it under `hook`.
 """
 
 from __future__ import annotations
