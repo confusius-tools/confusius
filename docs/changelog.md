@@ -12,6 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`plot_stat_map`][confusius.plotting.plot_stat_map] and
+  [`plot_matrix`][confusius.plotting.plot_matrix] default to the `"berlin"`
+  colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
+  light ones), judged from `bg_color`
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - Use
   [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
   instead of `fetch_template_huang_2025` for the vascular mouse template. The fetcher
@@ -31,6 +36,13 @@ Current development version for the next ConfUSIus release.
   `"image"`: integer and boolean data open as a labels layer,
   other data as an image layer. Pass `layer_type="image"` to display integer data
   as an image ([#504](https://github.com/confusius-tools/confusius/pull/504)).
+
+### :sparkles: Enhancements
+
+- New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
+  colormap stat maps are drawn with, which remembers its source colormap and
+  threshold and can be rebuilt on another colormap with `with_source`
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 
 ### :zap: Performance
 
@@ -62,6 +74,12 @@ Current development version for the next ConfUSIus release.
 
 - Boolean arrays open as labels layers
   ([#504](https://github.com/confusius-tools/confusius/pull/504)).
+  
+### :wrench: Maintenance
+
+- The examples gallery runs each example once and renders its light and dark
+  figures from that single run
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 
 ## 0.8.0
 

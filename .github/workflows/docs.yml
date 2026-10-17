@@ -101,10 +101,8 @@ jobs:
       - name: Pre-fetch docs datasets
         # Single source of truth for every dataset the docs pipeline loads
         # (userguide image generators and gallery examples). Running it before
-        # both downstream steps guarantees they hit a warm cache, which the
-        # gallery renderer relies on: it enforces light/dark output parity,
-        # and download progress on a cold cache would otherwise show up in
-        # one pass but not the other.
+        # both downstream steps guarantees they hit a warm cache, so download
+        # progress never leaks into the rendered example output.
         run: uv run tools/prefetch_doc_datasets.py
 
       - name: Ensure docs images directories exist
