@@ -8,12 +8,14 @@ See https://napari.org/dev/plugins/testing_and_publishing/test.html
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
 from qtpy.QtWidgets import QWidget
 
 import confusius._napari._video._video_panel as panel_module
-from confusius._napari._timeaxis import find_time_dim_index
+from confusius._napari._timeaxis import find_time_dim_index, read_current_time
 from confusius._napari._video._video_panel import VideoPanel
 from confusius._napari._video._video_viewer import _VideoArray
 from confusius.plotting import plot_napari
@@ -249,9 +251,22 @@ def test_time_sync_main_to_video(viewer, panel, add_video):
 def test_time_sync_video_to_main(viewer, panel, add_video):
     add_video(_FakeVideo(n_frames=450))
     t_idx = find_time_dim_index(viewer)
-    panel._video_viewer.model.dims.set_point(0, 11.0)
-    step = float(viewer.layers[0].scale[t_idx])
-    assert viewer.dims.point[t_idx] == pytest.approx(11.0, abs=step)
+    # 11.2 s falls between the 11.0 s and 11.5 s fUSI frames.
+    panel._video_viewer.model.dims.set_point(0, 11.2)
+    assert viewer.dims.point[t_idx] == pytest.approx(11.2)
+    assert read_current_time(viewer)[0] == pytest.approx(11.0)
+
+
+def test_signal_cursor_follows_video_time(viewer, panel, add_video):
+    from confusius._napari._signals._panel import SignalPanel
+
+    add_video(_FakeVideo(n_frames=450))
+    signals = SignalPanel(viewer)
+    # A stub plotter: the real one docks a Matplotlib canvas this test does not need.
+    signals._plotter = plotter = MagicMock()
+    signals._cursor_check.setChecked(True)
+    panel._video_viewer.model.dims.set_point(0, 11.2)
+    assert plotter.set_xaxis_cursor.call_args.args[0] == pytest.approx(11.2)
 
 
 def test_video_viewer_follows_theme(viewer, panel, add_video):

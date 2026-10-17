@@ -452,7 +452,13 @@ class VideoViewer:
             return
         self._syncing = True
         try:
-            self._main.dims.set_point(time_idx, float(self.model.dims.point[0]))
+            video_time = float(self.model.dims.point[0])
+            self._main.dims.set_point(time_idx, video_time)
+            # When the main step changes, napari's time slider snaps the point
+            # to that step. Setting it again keeps the video's exact time (the
+            # step is unchanged, so the slider leaves it alone): the main viewer
+            # still shows its nearest frame, and time cursors follow the video.
+            self._main.dims.set_point(time_idx, video_time)
         finally:
             self._syncing = False
 
