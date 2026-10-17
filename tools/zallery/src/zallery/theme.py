@@ -10,6 +10,7 @@ palette-swapping the drawn artists and printing again.
 
 from __future__ import annotations
 
+import importlib
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -23,13 +24,11 @@ import numpy as np
 from matplotlib.cm import ScalarMappable
 from matplotlib.figure import Figure
 
-from confusius.plotting import ThresholdedColormap
-
 Printer = Callable[[Figure], tuple[str, dict[str, Any]] | None]
 """A matplotlib_inline figure printer: base64 PNG plus metadata, or `None` if empty."""
 
 Hook = Callable[[Figure, Literal["light", "dark"]], None]
-"""Project hook run after the built-in swap, see `tools.gallery.hooks`."""
+"""Project hook run after the built-in swap, see `setup_kernel`."""
 
 
 @dataclass(frozen=True)
@@ -132,10 +131,11 @@ def _swap_colors(fig: Figure, src: Theme, dst: Theme) -> None:
 def swap_cmaps(fig: Figure, mapping: dict[str, str]) -> None:
     """Switch every mappable drawn with a colormap in `mapping` to its replacement.
 
-    Colormaps are matched by name. A `ThresholdedColormap` is matched on its
-    source and rebuilt with the same gray band, so thresholded stat maps keep
-    their threshold in both themes. Colorbars follow their mappable
-    automatically. Shared by the built-in theme swap and `tools.gallery.hooks`.
+    Colormaps are matched by name. A colormap derived from another one, exposing
+    the original as `source` and a `with_source(name)` rebuild (as confusius'
+    `ThresholdedColormap` does), is matched on its source and rebuilt, so derived
+    colormaps keep their shape in both themes. Colorbars follow their mappable
+    automatically. Shared by the built-in theme swap and the project hook.
 
     Parameters
     ----------
@@ -147,9 +147,11 @@ def swap_cmaps(fig: Figure, mapping: dict[str, str]) -> None:
     mappables: list[Any] = fig.findobj(lambda a: isinstance(a, ScalarMappable))
     for mappable in mappables:
         cmap = mappable.get_cmap()
-        if isinstance(cmap, ThresholdedColormap):
-            if cmap.source.name in mapping:
-                mappable.set_cmap(cmap.with_source(mapping[cmap.source.name]))
+        source = getattr(cmap, "source", None)
+        with_source = getattr(cmap, "with_source", None)
+        if source is not None and with_source is not None:
+            if source.name in mapping:
+                mappable.set_cmap(with_source(mapping[source.name]))
         elif cmap.name in mapping:
             mappable.set_cmap(mapping[cmap.name])
 
@@ -226,16 +228,26 @@ def render_both(
     return data, {**metadata, "dark": dark[0]}
 
 
-def setup_kernel() -> None:
+def setup_kernel(hook_module: str | None = None) -> None:
     """Configure the running kernel: light rcParams, retina PNGs, dark hook.
 
     Must run before any example cell. `savefig.facecolor` is deliberately left at
     `"auto"` so the swapped figure facecolor is what gets printed.
+
+    Parameters
+    ----------
+    hook_module : str, optional
+        Dotted name of a module defining `gallery_retheme(fig, theme)`, the
+        project hook called after the built-in swap (see `render_both`). It must
+        be importable from the kernel. If not provided, only the built-in swap
+        runs.
     """
     from IPython import get_ipython
     from matplotlib_inline.backend_inline import set_matplotlib_formats
 
-    from tools.gallery.hooks import gallery_retheme
+    hook: Hook | None = None
+    if hook_module is not None:
+        hook = importlib.import_module(hook_module).gallery_retheme
 
     warnings.filterwarnings("ignore", message="IProgress not found.*")
     # rich.live.Live.refresh() warns once per process the first time it detects a
@@ -258,6 +270,4 @@ def setup_kernel() -> None:
     shell = get_ipython()
     png_formatter = shell.display_formatter.formatters["image/png"]
     printer = png_formatter.lookup_by_type(Figure)
-    png_formatter.for_type(
-        Figure, partial(render_both, printer=printer, hook=gallery_retheme)
-    )
+    png_formatter.for_type(Figure, partial(render_both, printer=printer, hook=hook))

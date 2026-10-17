@@ -7,7 +7,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from ._types import RenderedExample
+from zallery._types import RenderedExample
 
 _DEFAULT_THUMB_LIGHT = "_assets/default_thumb.svg"
 _DEFAULT_THUMB_DARK = "_assets/default_thumb_dark.svg"
@@ -102,11 +102,14 @@ def build_index(rendered: list[RenderedExample], *, root: Path) -> str:
         by_section[rendered_example.spec.section].append(rendered_example)
 
     parts: list[str] = [
-        "# Examples\n\n"
-        "These examples show how to use ConfUSIus on real data, with an emphasis on\n"
-        "workflows you can run and adapt in your own analyses.\n\n"
-        "Each example starts from a plain Python script and is rendered as a notebook-style\n"
-        "page with code, outputs, and downloadable source files.\n\n"
+        (
+            "# Examples\n\n"
+            "These examples show how to use ConfUSIus on real data, with an emphasis on\n"
+            "workflows you can run and adapt in your own analyses.\n\n"
+            "Each example starts from a plain Python script and is rendered as a "
+            "notebook-style\n"
+            "page with code, outputs, and downloadable source files.\n\n"
+        )
     ]
 
     # Iterate in insertion order; discover() yields specs sorted by the section

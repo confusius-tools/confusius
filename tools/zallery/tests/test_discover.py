@@ -1,10 +1,10 @@
-"""Tests for tools.gallery.discover."""
+"""Tests for zallery.discover."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from tools.gallery.discover import discover
+from zallery.discover import discover
 
 
 def test_discover_returns_examples_grouped_by_section(gallery_tree: Path) -> None:

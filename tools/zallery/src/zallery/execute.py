@@ -23,17 +23,34 @@ callable must accept those keyword arguments (typically via `**kwargs`). The
 injected setup cell is `cell_index == 0`.
 """
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
 
-_SETUP_SOURCE = "\n".join(
-    [
-        "import sys",
-        f"sys.path.insert(0, {str(_REPO_ROOT)!r})",
-        "from tools.gallery.theme import setup_kernel",
-        "setup_kernel()",
+def _setup_source(hook_module: str | None, hook_root: Path | None) -> str:
+    """Return the code of the setup cell run before the example.
+
+    Parameters
+    ----------
+    hook_module : str, optional
+        Dotted name of the project hook module passed to
+        `zallery.theme.setup_kernel`. If not provided, only the built-in swap runs.
+    hook_root : pathlib.Path, optional
+        Directory inserted at the front of the kernel's `sys.path` so that
+        `hook_module` is importable. If not provided, the kernel's default path is
+        used as is.
+
+    Returns
+    -------
+    str
+        Python source for the setup cell.
+    """
+    lines = []
+    if hook_root is not None:
+        lines += ["import sys", f"sys.path.insert(0, {str(hook_root)!r})"]
+    lines += [
+        "from zallery.theme import setup_kernel",
+        f"setup_kernel({hook_module!r})",
     ]
-)
-"""Code of the setup cell run before the example (see `tools.gallery.theme`)."""
+    return "\n".join(lines)
+
 
 _KERNEL_IP = "127.0.0.1"
 """Address the kernel binds its sockets to."""
@@ -127,6 +144,8 @@ def execute_example(
     *,
     timeout: int = 600,
     on_cell_executed: OnCellExecuted | None = None,
+    hook_module: str | None = None,
+    hook_root: Path | None = None,
 ) -> tuple[nbformat.NotebookNode, float]:
     """Execute one percent-format `.py` example end-to-end.
 
@@ -138,6 +157,12 @@ def execute_example(
         Per-cell timeout in seconds.
     on_cell_executed : OnCellExecuted, optional
         Hook called after each cell, including the setup cell at index 0.
+    hook_module : str, optional
+        Dotted name of the module defining the project's `gallery_retheme` hook
+        (see `zallery.theme.setup_kernel`). If not provided, only the built-in
+        theme swap runs.
+    hook_root : pathlib.Path, optional
+        Directory put on the kernel's `sys.path` so `hook_module` is importable.
 
     Returns
     -------
@@ -154,7 +179,7 @@ def execute_example(
     """
     notebook = read_example(source)
     setup_cell = nbformat.v4.new_code_cell(
-        _SETUP_SOURCE, metadata={"tags": ["_gallery_internal"]}
+        _setup_source(hook_module, hook_root), metadata={"tags": ["_gallery_internal"]}
     )
     notebook.cells.insert(0, setup_cell)
 

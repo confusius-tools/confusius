@@ -1,4 +1,4 @@
-"""Tests for tools.gallery.render."""
+"""Tests for zallery.render."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import nbformat
 import pytest
 
-from tools.gallery.render import render_notebook
+from zallery.render import render_notebook
 
 
 def _make_nb(*, thumbnail: bool = False) -> nbformat.NotebookNode:

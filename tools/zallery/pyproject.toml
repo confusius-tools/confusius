@@ -1,0 +1,27 @@
+[project]
+name = "zallery"
+version = "0.1.0"
+description = "Build a light-and-dark example gallery for Zensical docs from jupytext scripts."
+readme = "README.md"
+license = "BSD-3-Clause"
+authors = [{ name = "ConfUSIus developers" }]
+requires-python = ">=3.11,<3.15"
+dependencies = [
+    "ipykernel>=6.29.0",
+    "ipython>=9.6.0",
+    "jupyter-client>=8.6.0",
+    "jupytext>=1.16.0",
+    "matplotlib>=3.11.0",
+    "matplotlib-inline>=0.1.7",
+    "nbclient>=0.10.0",
+    "nbformat>=5.10.0",
+    "numpy>=2.3.4",
+    "rich>=14.2.0",
+]
+
+[project.scripts]
+zallery = "zallery.cli:main"
+
+[build-system]
+requires = ["uv-build>=0.9.5,<0.12.0"]
+build-backend = "uv_build"

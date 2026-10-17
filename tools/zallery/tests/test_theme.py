@@ -1,4 +1,4 @@
-"""Tests for tools.gallery.theme."""
+"""Tests for zallery.theme."""
 
 from __future__ import annotations
 
@@ -18,8 +18,24 @@ import pytest
 from IPython.core.pylabtools import retina_figure
 from matplotlib import colormaps
 
-from confusius.plotting import ThresholdedColormap
-from tools.gallery.theme import DARK, LIGHT, render_both, retheme
+from zallery.theme import DARK, LIGHT, render_both, retheme
+
+
+class _DerivedColormap(mcolors.ListedColormap):
+    """A colormap built from another one, like confusius' `ThresholdedColormap`.
+
+    It exposes the original as `source` and rebuilds itself through
+    `with_source`, which is the shape `zallery.theme.swap_cmaps` relies on.
+    """
+
+    def __init__(self, source: mcolors.Colormap) -> None:
+        super().__init__(
+            source(np.linspace(0.0, 1.0, source.N)), name=f"{source.name}_derived"
+        )
+        self.source = source
+
+    def with_source(self, name: str) -> _DerivedColormap:
+        return _DerivedColormap(colormaps[name])
 
 
 @pytest.fixture
@@ -31,11 +47,10 @@ def figure():
             {"figure.facecolor": LIGHT.bg, "axes.facecolor": LIGHT.axes_bg}
         )
         fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(6, 3), layout="constrained")
-        banded = ThresholdedColormap(
-            colormaps[LIGHT.diverging_cmap], mcolors.Normalize(-1.0, 1.0), threshold=0.2
-        )
         image = ax0.imshow(
-            np.linspace(-1.0, 1.0, 12).reshape(3, 4), cmap=banded, norm=banded.norm
+            np.linspace(-1.0, 1.0, 12).reshape(3, 4),
+            cmap=_DerivedColormap(colormaps[LIGHT.diverging_cmap]),
+            norm=mcolors.Normalize(-1.0, 1.0),
         )
         fig.colorbar(image, ax=ax0)
         scatter = ax1.scatter([0, 1], [0, 1], c=[0, 1], cmap=LIGHT.diverging_cmap)
@@ -100,13 +115,12 @@ def test_retheme_preserves_alpha(figure) -> None:
     assert frame == pytest.approx(mcolors.to_rgba(DARK.axes_bg, alpha=0.8))
 
 
-def test_retheme_swaps_diverging_colormaps_including_thresholded(figure) -> None:
+def test_retheme_swaps_diverging_colormaps_including_derived(figure) -> None:
     retheme(figure["fig"], LIGHT, DARK)
 
-    banded = figure["image"].get_cmap()
-    assert isinstance(banded, ThresholdedColormap)
-    assert banded.source.name == DARK.diverging_cmap
-    assert banded.threshold == 0.2
+    derived = figure["image"].get_cmap()
+    assert isinstance(derived, _DerivedColormap)
+    assert derived.source.name == DARK.diverging_cmap
     assert figure["scatter"].get_cmap().name == DARK.diverging_cmap
 
     retheme(figure["fig"], DARK, LIGHT)
@@ -171,28 +185,3 @@ def test_render_both_restores_light_when_hook_raises(figure) -> None:
         )
 
     assert figure["fig"].get_facecolor() == pytest.approx(mcolors.to_rgba(LIGHT.bg))
-
-
-def test_default_project_hook_flips_sequential_cmaps_and_back(figure) -> None:
-    """The shipped hook swaps inferno_r for inferno on dark pages, plain or banded."""
-    from tools.gallery.hooks import gallery_retheme
-
-    ax = figure["ax1"]
-    plain = ax.scatter([0, 1], [1, 0], c=[0, 1], cmap="inferno_r")
-    banded = ax.imshow(
-        np.linspace(0.0, 1.0, 4).reshape(2, 2),
-        cmap=ThresholdedColormap(colormaps["inferno_r"], mcolors.Normalize(0.0, 1.0)),
-    )
-    before = figure["fig"].get_facecolor()
-
-    gallery_retheme(figure["fig"], "dark")
-
-    assert plain.get_cmap().name == "inferno"
-    assert banded.get_cmap().source.name == "inferno"
-    assert figure["scatter"].get_cmap().name == LIGHT.diverging_cmap
-    assert figure["fig"].get_facecolor() == before
-
-    gallery_retheme(figure["fig"], "light")
-
-    assert plain.get_cmap().name == "inferno_r"
-    assert banded.get_cmap().source.name == "inferno_r"

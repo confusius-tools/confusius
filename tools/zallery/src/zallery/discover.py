@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ._types import ExampleSpec
+from zallery._types import ExampleSpec
 
 # Strip leading "01_", "02_" etc. from section directory names and example file
 # names so the built output uses clean names ("io", "decomposition",

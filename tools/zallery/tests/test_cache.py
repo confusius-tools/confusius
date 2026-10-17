@@ -1,11 +1,11 @@
-"""Tests for tools.gallery.cache."""
+"""Tests for zallery.cache."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from tools.gallery._types import ExampleSpec
-from tools.gallery.cache import cache_key
+from zallery._types import ExampleSpec
+from zallery.cache import cache_key
 
 
 def _spec(source: Path) -> ExampleSpec:
