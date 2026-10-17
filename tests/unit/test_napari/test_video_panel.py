@@ -172,6 +172,33 @@ def test_missing_file_shows_error_and_opens_nothing(panel, tmp_path, monkeypatch
     assert panel._video_viewer is None
 
 
+def test_video_messages_show_on_video_canvas_within_it(
+    viewer, panel, add_video, tmp_path
+):
+    from napari._qt.dialogs.qt_notification import NapariQtNotification
+
+    add_video(_FakeVideo())
+    canvas = panel._video_viewer.qt_viewer.canvas.native
+    # Narrower than napari's 400 px toast.
+    canvas.resize(300, 200)
+    panel._path_edit.setText(str(tmp_path / "nope.mp4"))
+    panel._load_from_path()
+    panel._video_viewer.frame_step_spin.setValue(2)
+
+    toasts = canvas.findChildren(NapariQtNotification)
+    assert [toast.message.text().split()[0] for toast in toasts] == [
+        "Video",
+        "File",
+        "Frame",
+    ]
+    for toast in toasts[1:]:
+        assert 0 <= toast.x()
+        assert toast.geometry().right() < canvas.width()
+    assert not viewer.window._qt_viewer.canvas.native.findChildren(
+        NapariQtNotification
+    )
+
+
 def test_two_videos_share_video_grid(viewer, panel, add_video):
     add_video(_FakeVideo(), "a")
     add_video(_FakeVideo(h=10, w=200), "b")

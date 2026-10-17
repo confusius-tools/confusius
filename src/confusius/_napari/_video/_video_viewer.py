@@ -12,8 +12,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+
+# napari has no public toast API: this is the toast it shows its own
+# notifications with.
+from napari._qt.dialogs.qt_notification import NapariQtNotification
 from napari.components import ViewerModel
 from napari.qt import QtViewer, QtViewerButtons, get_stylesheet
+from napari.settings import get_settings
+from napari.utils.notifications import NotificationSeverity
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QWIDGETSIZE_MAX,
@@ -105,6 +111,33 @@ class _VideoArray:
             return np.stack(frames)[(slice(None), *spatial_idx)]
 
         raise IndexError(f"Unsupported time index type: {type(time_idx)}")
+
+
+class _VideoToast(NapariQtNotification):
+    """napari toast that fits the width of the video canvas it sits on.
+
+    napari's toast is at least 400 px wide, wider than a narrow video viewer.
+    napari also places it again on each resize of its canvas, which the
+    slide-in animation would undo while the dock of a just-shown video viewer
+    takes its size.
+    """
+
+    def move_to_bottom_right(self, offset: tuple[int, int] = (8, 8)) -> None:
+        """Fit the toast to its canvas width and move it to the bottom right.
+
+        Parameters
+        ----------
+        offset : tuple[int, int], default: (8, 8)
+            Gap in pixels between the toast and the right and bottom edges of
+            its canvas.
+        """
+        parent = self.parent()
+        if isinstance(parent, QWidget):
+            # ponytail: the message keeps napari's 200 px minimum width, so a
+            # canvas narrower than about 270 px still clips the toast.
+            self.setFixedWidth(min(self.MIN_WIDTH, parent.width() - 2 * offset[0]))
+        self.geom_anim.stop()
+        super().move_to_bottom_right(offset)
 
 
 class VideoViewer:
@@ -413,6 +446,27 @@ class VideoViewer:
             + "QtLayerButtons, QtViewerButtons, QtLayerList { min-width: 0px; }"
             + "QSpinBox { min-width: 0px; }"
         )
+
+    def notify(
+        self, message: str, severity: NotificationSeverity = NotificationSeverity.INFO
+    ) -> None:
+        """Show `message` as a napari toast on the video canvas.
+
+        napari shows every notification on the main canvas, beside the video
+        viewer; messages about videos show on the video canvas instead. Like
+        napari's own toasts, messages below napari's GUI notification level are
+        not shown.
+
+        Parameters
+        ----------
+        message : str
+            Text to show.
+        severity : napari.utils.notifications.NotificationSeverity, default: NotificationSeverity.INFO
+            Severity setting the toast's icon.
+        """
+        if severity < get_settings().application.gui_notification_level:
+            return
+        _VideoToast(message, severity, parent=self.qt_viewer.canvas.native).show()
 
     def _toggle_grid(self, checked: bool = False) -> None:
         """Toggle this viewer's grid mode.

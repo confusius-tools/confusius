@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from napari.utils.notifications import show_error, show_info
+from napari.utils.notifications import NotificationSeverity, show_error
 from napari_video.napari_video import VideoReaderNP
 from qtpy.QtWidgets import (
     QFileDialog,
@@ -148,13 +148,13 @@ class VideoPanel(QWidget):
             Video file to open.
         """
         if not path.is_file():
-            show_error(f"File not found: {path}")
+            self._show_error(f"File not found: {path}")
             return
 
         try:
             video = VideoReaderNP(str(path), remove_leading_singleton=False)
         except Exception as exc:  # noqa: BLE001
-            show_error(f"Cannot open video: {exc}")
+            self._show_error(f"Cannot open video: {exc}")
             return
 
         if self._video_viewer is None:
@@ -175,10 +175,23 @@ class VideoPanel(QWidget):
 
         n_frames = video.number_of_frames
         n_shown = len(range(0, n_frames, self._frame_step))
-        show_info(
+        self._video_viewer.notify(
             f"Video '{path.stem}' added ({n_frames} frames, {video.frame_rate:.1f} "
             f"fps, showing {n_shown} at step {self._frame_step})."
         )
+
+    def _show_error(self, message: str) -> None:
+        """Show an error on the video viewer, or on the main viewer if it is hidden.
+
+        Parameters
+        ----------
+        message : str
+            Error message to show.
+        """
+        if self._video_viewer is not None and not self._video_viewer.dock.isHidden():
+            self._video_viewer.notify(message, NotificationSeverity.ERROR)
+        else:
+            show_error(message)
 
     def _open_video_viewer(self) -> VideoViewer:
         """Create the video viewer and show its controls in the panel.
@@ -240,7 +253,7 @@ class VideoPanel(QWidget):
 
         first = self._videos[0]
         n_shown = len(range(0, first.video.number_of_frames, value))
-        show_info(
+        self._video_viewer.notify(
             f"Frame step {value}: showing {n_shown} frames "
             f"({first.fps / value:.1f} fps effective)."
         )
