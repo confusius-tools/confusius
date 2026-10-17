@@ -65,9 +65,7 @@ Current development version for the next ConfUSIus release.
 - Videos play in their own viewer, docked between the main canvas and the sidebar,
   and follow the fUSI time in both directions without changing how the fUSI layers
   are displayed. The **Video** tab lists them in napari's layer list with frame step,
-  transpose, grid and delete controls. The signal and QC plot cursors follow the
-  video time while the video viewer plays, and video messages show on the video
-  viewer. napari's Home button resets both viewers
+  transpose, grid and delete controls. napari's Home button resets both viewers
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 - `confusius --video PATH` opens a video without a data file
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).

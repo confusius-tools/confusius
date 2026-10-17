@@ -79,12 +79,11 @@ recording.
 
 1. Type a path in **Video file** and click **Add video** (or press ++enter++), or click
    **Browse** to pick a file and add it right away.
-2. The video viewer opens with the video as a new layer. The bottom-left corner of its
-   canvas shows the current video time.
+2. The video viewer opens with the video as a new layer.
 
-Repeat to add more videos: the video viewer shows them side by side in its grid.
-Frame `n` of a video is shown at `n / fps` seconds, so a video lines up with a
-recording whose time coordinate starts at the first video frame.
+Repeat to add more videos: the video viewer shows them side by side in its grid. Frame
+`n` of a video is shown at `n / fps` seconds, so a video lines up with a recording whose
+time coordinate starts at the first video frame.
 
 !!! tip "Launch with a video from the CLI"
     Pass `--video` to open a video at launch, with or without data files:
@@ -98,9 +97,8 @@ recording whose time coordinate starts at the first video frame.
 ### Loaded videos
 
 The **Loaded videos** group lists the video layers with napari's layer list: select,
-rename, reorder or hide them as you would in the main viewer. Right-click a video for
-a short menu with **Toggle visibility**, **Show all videos**, **Hide other videos**
-and **Remove selected videos**. The row above the list holds the video controls:
+rename, reorder or hide them as you would in the main viewer. Right-click the layer for
+a short advanced menu. The row above the list holds the video controls:
 
 | Control | Description |
 |---------|-------------|
