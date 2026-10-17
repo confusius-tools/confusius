@@ -206,19 +206,14 @@ connectivity = cf.connectivity.ConnectivityMatrix(kind="correlation").fit_transf
 # brain area each region belongs to without cluttering the plot with per-region colors.
 # `group_colors` lets us reuse the atlas's own official colors for each area, computed
 # above from `atlas.lookup`, instead of arbitrary ones. The default diverging colormap
-# (`"coolwarm"`) can look washed out on a dark background, so we switch to the more
-# perceptually uniform `"berlin"` colormap in dark mode.
+# follows `bg_color`: `"coolwarm"` on a light background, `"berlin"` on a dark one.
 
 # %% tags=["thumbnail"]
-is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
-cmap = "berlin" if is_dark_theme else None
-
 fig, ax = cf.plotting.plot_matrix(
     connectivity,
     labels=region_order,
     groups=group_labels,
     group_colors=group_colors,
-    cmap=cmap,
     vmax=0.8,
     cbar_label="Pearson correlation",
     title="Region correlation matrix",
