@@ -1,11 +1,11 @@
-"""Tests for tools.gallery.index."""
+"""Tests for zallery.index."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from tools.gallery._types import ExampleSpec, RenderedExample
-from tools.gallery.index import build_index
+from zallery._types import ExampleSpec, RenderedExample
+from zallery.index import build_index
 
 
 def _spec(source: Path, section: str) -> ExampleSpec:

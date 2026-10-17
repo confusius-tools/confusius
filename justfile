@@ -8,7 +8,7 @@ set windows-shell := ["pwsh.exe", "-c"]
 # Build the examples gallery from docs/examples/*.py.
 gallery:
     uv run python tools/prefetch_doc_datasets.py
-    uv run python tools/build_gallery.py
+    uv run zallery
 
 # Remove generated gallery artifacts and the gallery cache.
 [unix]
@@ -48,11 +48,11 @@ generate-doc-images:
 
 # Run all tests.
 test:
-    uv run pytest tests/ --mpl
+    uv run pytest --mpl
 
 # Run tests with verbose output.
 test-verbose:
-    uv run pytest tests/ -v --mpl
+    uv run pytest -v --mpl
 
 # Generate baseline images for visual regression tests.
 [unix]

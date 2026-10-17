@@ -152,15 +152,15 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .gallery-cache
-          key: ${{ runner.os }}-gallery-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'uv.lock', 'docs/examples/**/*.py', 'tools/gallery/**/*.py', 'tools/build_gallery.py') }}
+          key: ${{ runner.os }}-gallery-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'uv.lock', 'docs/examples/**/*.py', 'tools/zallery/src/**/*.py', 'tools/gallery_hooks.py') }}
 
       - name: Build example gallery
         env:
           QT_QPA_PLATFORM: "xcb"
           PYOPENGL_PLATFORM: "glx"
           LIBGL_ALWAYS_SOFTWARE: "1"
-          CONFUSIUS_BINDER_REF: ${{ github.head_ref || github.ref_name }}
-        run: xvfb-run -a uv run python tools/build_gallery.py
+          ZALLERY_BINDER_REF: ${{ github.head_ref || github.ref_name }}
+        run: xvfb-run -a uv run zallery
 
       - name: Build documentation
         env:

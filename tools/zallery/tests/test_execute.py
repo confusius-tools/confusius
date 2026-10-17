@@ -1,4 +1,4 @@
-"""Tests for tools.gallery.execute."""
+"""Tests for zallery.execute."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from tools.gallery import execute
-from tools.gallery.execute import execute_example, find_kernel_ports
+from zallery import execute
+from zallery.execute import execute_example, find_kernel_ports
 
 
 def test_execute_runs_jupytext_py_and_returns_executed_nb(tmp_path: Path) -> None:
@@ -40,7 +40,7 @@ def test_execute_uses_current_python_interpreter(tmp_path: Path) -> None:
 def test_execute_captures_cell_error_as_output_and_continues(tmp_path: Path) -> None:
     """A failing cell records its traceback and execution continues to the next cell.
 
-    The renderer (`tools.gallery.render`) already inlines `error` outputs into
+    The renderer (`zallery.render`) already inlines `error` outputs into
     the rendered Markdown the same way a normal Jupyter notebook would, so the
     executor must not abort on the first failing cell.
     """
@@ -91,7 +91,9 @@ def test_execute_raises_when_kernel_setup_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A broken setup cell must not silently produce light-only pages."""
-    monkeypatch.setattr(execute, "_SETUP_SOURCE", "raise RuntimeError('no theme')")
+    monkeypatch.setattr(
+        execute, "_setup_source", lambda *_: "raise RuntimeError('no theme')"
+    )
     src = tmp_path / "ex.py"
     src.write_text("# %%\nprint('hi')\n")
 
@@ -142,3 +144,20 @@ def test_find_kernel_ports_skips_ports_in_use(monkeypatch: pytest.MonkeyPatch) -
     assert taken not in ports
     assert len(set(ports)) == 5
     assert all(taken < port < 32768 for port in ports)
+
+
+def test_execute_imports_the_project_hook_into_the_kernel(tmp_path: Path) -> None:
+    """`hook_module` is resolved on `hook_root` inside the kernel and really runs."""
+    marker = tmp_path / "hook_calls.txt"
+    (tmp_path / "myhooks.py").write_text(
+        "from pathlib import Path\n"
+        "def gallery_retheme(fig, theme):\n"
+        f"    with Path({str(marker)!r}).open('a') as f:\n"
+        "        f.write(theme + '\\n')\n"
+    )
+    src = tmp_path / "ex.py"
+    src.write_text("# %%\nimport matplotlib.pyplot as plt\n_ = plt.plot([1, 2, 3])\n")
+
+    execute_example(src, timeout=120, hook_module="myhooks", hook_root=tmp_path)
+
+    assert marker.read_text() == "dark\nlight\n"

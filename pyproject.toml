@@ -64,18 +64,20 @@ confusius = "confusius._napari:napari.yaml"
 requires = ["uv-build>=0.9.5,<0.12.0"]
 build-backend = "uv_build"
 
+[tool.uv.workspace]
+# The examples-gallery builder is its own package so it can be split out later.
+members = ["tools/zallery"]
+
 [tool.uv.sources]
 # TODO: pin xarray to a released version once it ships the fix for
 # #11530, #11531, and #11512.
 xarray = { git = "https://github.com/pydata/xarray.git" }
+zallery = { workspace = true }
 
 [dependency-groups]
 dev = [
     "codespell>=2.3.0",
     "ipykernel>=6.29.0",
-    "jupytext>=1.16.0",
-    "nbclient>=0.10.0",
-    "nbformat>=5.10.0",
     "numpydoc>=1.11.0rc0",
     "prek>=0.4.8",
     "pytest>=9.1.1",
@@ -87,7 +89,15 @@ dev = [
     "zensical>=0.0.67",
     "mkdocstrings[python]>=1.0.4",
     "pytest-qt>=4.5.0",
+    "zallery",
 ]
+
+[tool.zallery]
+# Examples gallery builder (tools/zallery); build with `uv run zallery`.
+examples = "docs/examples"
+cache = ".gallery-cache"
+binder_repo = "confusius-tools/confusius"
+hook = "tools.gallery_hooks"
 
 [tool.numpydoc_validation]
 exclude = [
@@ -111,17 +121,19 @@ omit = ["*/confusius/_napari/*", "*/confusius/_cli.py"]
 
 [tool.ruff]
 exclude = ["benchmark/*"]
+# Package roots, so imports of `confusius`, `zallery` and `tools` sort as first-party.
+src = [".", "src", "tools/zallery/src"]
 
 [tool.codespell]
 # Author surnames from cited references that codespell reads as typos.
 ignore-words-list = "hart,portugues"
 
 [tool.ty.src]
-include = ["src", "tests"]
+include = ["src", "tests", "tools/zallery/src"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-testpaths = ["tests"]
+testpaths = ["tests", "tools/zallery/tests"]
 pythonpath = ["."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
