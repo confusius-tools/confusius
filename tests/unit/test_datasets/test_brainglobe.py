@@ -14,10 +14,15 @@ import numpy as np
 import pytest
 import s3fs
 import xarray as xr
+from brainglobe_atlasapi.descriptors import (
+    V3_ANNOTATION_NAME,
+    V3_HEMISPHERES_NAME,
+    V3_TEMPLATE_NAME,
+)
 from brainglobe_atlasapi.structure_class import StructuresDict
 
 import confusius.datasets._brainglobe as brainglobe_module
-from confusius.datasets import fetch_brainglobe_atlas
+from confusius.datasets import fetch_brainglobe_atlas, is_brainglobe_atlas_cached
 from confusius.validation import validate_atlas
 
 
@@ -465,6 +470,78 @@ def test_unreadable_mesh_availability_record_is_ignored(
     validate_atlas(result)
     np.testing.assert_array_equal(result.template.compute(), np.ones((4, 6, 8)))
     assert fake_s3.calls == []
+
+
+class TestIsBrainglobeAtlasCached:
+    """`is_brainglobe_atlas_cached` inspects the cache without touching the network."""
+
+    @pytest.fixture
+    def atlas(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _FakeBgAtlas:
+        """Fake downloaded, asymmetric atlas whose zarr stores resolve under tmp_path."""
+        import ngff_zarr
+        from brainglobe_atlasapi import list_atlases
+
+        atlas = _FakeBgAtlas("allen_mouse_25um")
+        atlas.metadata["symmetric"] = False
+        atlas.root_dir = tmp_path
+        monkeypatch.setattr(
+            brainglobe_atlasapi, "BrainGlobeAtlas", lambda *args, **kwargs: atlas
+        )
+        monkeypatch.setattr(
+            list_atlases, "get_downloaded_atlases", lambda: ["allen_mouse_25um"]
+        )
+        monkeypatch.setattr(
+            ngff_zarr,
+            "from_ngff_zarr",
+            lambda path: SimpleNamespace(
+                metadata=SimpleNamespace(datasets=[SimpleNamespace(path="0")]),
+                images=[],
+            ),
+        )
+        return atlas
+
+    @staticmethod
+    def _download_level(root: Path, location: str, name: str) -> None:
+        (root / location / name / "0" / "c").mkdir(parents=True)
+
+    def test_false_and_offline_when_atlas_not_downloaded(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from brainglobe_atlasapi import list_atlases
+
+        def no_network(*args, **kwargs):
+            raise AssertionError("BrainGlobeAtlas must not be constructed")
+
+        monkeypatch.setattr(brainglobe_atlasapi, "BrainGlobeAtlas", no_network)
+        monkeypatch.setattr(list_atlases, "get_downloaded_atlases", list)
+
+        assert is_brainglobe_atlas_cached("allen_mouse_25um") is False
+
+    def test_true_when_every_volume_level_is_on_disk(
+        self, atlas: _FakeBgAtlas, tmp_path: Path
+    ) -> None:
+        self._download_level(tmp_path, "templates/fake/1_0", V3_TEMPLATE_NAME)
+        self._download_level(tmp_path, "annotation-sets/fake/1_0", V3_ANNOTATION_NAME)
+        self._download_level(tmp_path, "annotation-sets/fake/1_0", V3_HEMISPHERES_NAME)
+
+        assert is_brainglobe_atlas_cached("allen_mouse_25um") is True
+
+    def test_false_when_a_volume_level_is_missing(
+        self, atlas: _FakeBgAtlas, tmp_path: Path
+    ) -> None:
+        self._download_level(tmp_path, "templates/fake/1_0", V3_TEMPLATE_NAME)
+        self._download_level(tmp_path, "annotation-sets/fake/1_0", V3_ANNOTATION_NAME)
+
+        assert is_brainglobe_atlas_cached("allen_mouse_25um") is False
+
+    def test_symmetric_atlas_needs_no_hemispheres_level(
+        self, atlas: _FakeBgAtlas, tmp_path: Path
+    ) -> None:
+        atlas.metadata["symmetric"] = True
+        self._download_level(tmp_path, "templates/fake/1_0", V3_TEMPLATE_NAME)
+        self._download_level(tmp_path, "annotation-sets/fake/1_0", V3_ANNOTATION_NAME)
+
+        assert is_brainglobe_atlas_cached("allen_mouse_25um") is True
 
 
 def test_failed_download_removes_partial_files(

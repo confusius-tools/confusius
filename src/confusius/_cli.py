@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     -------
     argparse.ArgumentParser
         The parser configured with the launcher's positional path argument and
-        `--lazy` / `--video` options.
+        `--lazy` / `--video` / `--atlas` / `--template` options.
     """
     parser = argparse.ArgumentParser(
         prog="confusius",
@@ -90,6 +90,34 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Path to a video file (.mp4, .mov, .avi) to display side-by-side "
             "with the first fUSI data file. Requires at least one data file."
+        ),
+    )
+    # Importing the template registry here is cheap; `confusius.datasets` is not,
+    # so the fetchers are resolved only when a template is actually loaded.
+    from confusius._utils.templates import FUSI_TEMPLATES
+
+    parser.add_argument(
+        "--atlas",
+        metavar="NAME",
+        help=(
+            "BrainGlobe atlas to load in the Atlas tab on launch, with its template, "
+            "annotation and hemispheres layers, e.g. `--atlas allen_mouse_25um`. "
+            "Downloaded on first use."
+        ),
+    )
+    parser.add_argument(
+        "--template",
+        nargs="+",
+        action="extend",
+        default=[],
+        choices=list(FUSI_TEMPLATES),
+        metavar="NAME",
+        help=(
+            "fUSI template(s) to load as Image layers on launch, named after their "
+            "`confusius.datasets` fetcher: "
+            + ", ".join(FUSI_TEMPLATES)
+            + ". Downloaded on first use. Pass data files before this option, as "
+            "it takes every following name."
         ),
     )
     # The `datasets` namespace is dispatched in `main`, not by this parser, so
@@ -165,9 +193,11 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
     napari.Viewer
         The viewer with the ConfUSIus widget docked and the requested data
         files added as layers (one layer per file, in the same order as
-        `args.path`; see [`_open_paths`][confusius._cli._open_paths] for how
-        the layer type is chosen). The first loaded layer is paired with
-        `args.video` if it is also set.
+        `args.path`; see `_open_paths` for how the layer type is chosen). The
+        first loaded layer is paired with `args.video` if it is also set. The atlas
+        and templates named in `args.atlas` / `args.template` are loaded through
+        the Atlas tab in background workers, so their layers appear once the
+        downloads finish.
     """
     import napari
 
@@ -187,6 +217,14 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
             )
         video_panel = widget._accordion_panels["Video"]
         video_panel._add_video(args.video, layers[0])  # type: ignore
+
+    if args.atlas or args.template:
+        atlas_panel = widget._accordion_panels["Atlas"]
+        if args.atlas:
+            atlas_panel.load_atlas(args.atlas, add_layers=True)  # type: ignore
+        # dict.fromkeys keeps the first occurrence of repeated names, in order.
+        for name in dict.fromkeys(args.template):
+            atlas_panel.load_template(name)  # type: ignore
 
     return viewer
 
