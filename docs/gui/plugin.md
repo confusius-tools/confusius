@@ -146,6 +146,8 @@ The **Template** dropdown lists the templates available through the
 for example `brunner_grillet_2021` for `fetch_template_brunner_grillet_2021`. The line
 under the dropdown names the reference atlas of the selected template.
 
+![ConfUSIus Atlas panel, fUSI templates page](../images/gui/plugin-templates.png)
+
 Click **Load template** to add the template as an Image layer with the same name. The
 template is downloaded if not found in the cache. With **Load lazily** unchecked (the
 default), the plugin reads the voxels into memory. Checked, napari reads each displayed

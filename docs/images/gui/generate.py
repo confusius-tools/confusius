@@ -21,6 +21,8 @@ Outputs (all saved to docs/images/gui/):
 - `plugin-data-io.png` — Data I/O panel with a scan loaded.
 - `plugin-atlas.png` — Atlas panel with the Allen 100 µm atlas loaded and its
   region masks filtered.
+- `plugin-templates.png` — Atlas panel on its fUSI templates page with the
+  Pepe, Mariani 2026 template loaded.
 - `plugin-signals.png` — Signals panel in hover mode.
 - `plugin-signals-points.png` — Signals panel in points mode.
 - `plugin-signals-labels.png` — Signals panel in labels mode.
@@ -522,6 +524,41 @@ try:
     _ok("Saved plugin-atlas.png")
 except Exception as exc:
     _warn(f"plugin-atlas.png failed: {exc}")
+
+# ---------------------------------------------------------------------------
+# 1c. Atlas panel, fUSI templates page — Pepe, Mariani 2026 template loaded
+# ---------------------------------------------------------------------------
+
+try:
+    from confusius.datasets import fetch_template_pepe_mariani_2026
+
+    _TEMPLATE_NAME = "pepe_mariani_2026"
+    template = fetch_template_pepe_mariani_2026(print_citation=False)
+    # What the Load template button does with Load lazily unchecked: voxels in
+    # memory, world coordinates left to the index.
+    template = template.copy(data=np.asarray(template.data))
+
+    viewer1c = napari.Viewer(show=False)
+    widget1c = ConfUSIusWidget(viewer1c)
+    viewer1c.window.add_dock_widget(widget1c, name="ConfUSIus", area="right")
+    atlas_panel1c = _open_accordion_panel(widget1c, "Atlas")
+    # Skip the BrainGlobe listing worker: this page does not show atlases.
+    atlas_panel1c._atlases_listed = True
+    atlas_panel1c._templates_page_btn.click()
+    atlas_panel1c._template_combo.setCurrentText(_TEMPLATE_NAME)
+    atlas_panel1c._on_template_returned(template, _TEMPLATE_NAME)
+    # The default contrast limits span the whole range, which leaves the vessels
+    # dim; clip to the bulk of the values as a click on auto-contrast would.
+    viewer1c.layers[_TEMPLATE_NAME].contrast_limits = tuple(
+        np.percentile(template.values, (1, 99.5))
+    )
+    _qt_sleep(200)
+
+    _napari_screenshot(viewer1c, str(HERE / "plugin-templates.png"))
+    viewer1c.close()
+    _ok("Saved plugin-templates.png")
+except Exception as exc:
+    _warn(f"plugin-templates.png failed: {exc}")
 
 # ---------------------------------------------------------------------------
 # 2. Signals panel — hover mode, voxel time series at spatial centre
