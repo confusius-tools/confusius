@@ -9,6 +9,7 @@ its time axis drives the video viewer's time slider and vice versa.
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -150,11 +151,17 @@ class VideoViewer:
     anchor : qtpy.QtWidgets.QWidget, optional
         A widget living inside a dock widget of the main window (typically
         the panel creating this viewer).  The video dock is placed between
-        the main canvas and that dock.  If not provided, or if that dock is
-        floating, the video dock is simply added to the right dock area.
+        the main canvas and that dock, and closing that dock closes the video
+        viewer too.  If not provided, or if that dock is floating, the video
+        dock is simply added to the right dock area.
     """
 
     def __init__(self, viewer: napari.Viewer, *, anchor: QWidget | None = None) -> None:
+        # napari hands plugin widgets a `PublicOnlyProxy` of the viewer, which
+        # also wraps what its methods return: the dock from `add_dock_widget`
+        # would then be a proxy that Qt's `splitDockWidget` rejects, and the
+        # `reset_view` override below would land on the proxy, not the viewer.
+        viewer = getattr(viewer, "__wrapped__", viewer)
         self._main = viewer
         self.model = ViewerModel(title="Video")
         self.model.theme = viewer.theme
@@ -183,7 +190,15 @@ class VideoViewer:
             )
             widget.setMaximumHeight(QWIDGETSIZE_MAX)
         self._anchor_dock: QDockWidget | None = None
-        self._place_left_of(anchor)
+        anchor_dock = anchor
+        while anchor_dock is not None and not isinstance(anchor_dock, QDockWidget):
+            anchor_dock = anchor_dock.parentWidget()
+        if anchor_dock is not None and anchor_dock is not self.dock:
+            self._place_left_of(anchor_dock)
+            # The anchor's close button deletes its dock (napari's
+            # `remove_dock_widget`); the video dock would then outlive the
+            # controls that drive it, with no close button of its own.
+            anchor_dock.destroyed.connect(self._on_anchor_destroyed)
 
         # Panel-side controls built from napari's own widgets for this model,
         # laid out like napari's layer panel: a row with the transpose and
@@ -228,10 +243,12 @@ class VideoViewer:
         # napari's layer context menu acts on the main viewer's layers and
         # offers commands a video layer cannot run (duplicate, split RGB,
         # projections decode every frame), so the list's delegate shows a
-        # small menu of our own instead.
+        # small menu of our own instead, built once: its actions always act on
+        # the current selection.
         delegate = self.layer_list.itemDelegate()
+        layer_menu = self.build_layer_context_menu()
         delegate.show_context_menu = lambda index, model, pos, parent: (  # type: ignore
-            self.build_layer_context_menu().exec(pos)
+            layer_menu.exec(pos)
         )
 
         self.controls = QWidget()
@@ -271,19 +288,16 @@ class VideoViewer:
         self.model.layers.events.removed.connect(self._update_time_text)
         self.model.layers.events.removed.connect(self._on_layer_removed)
 
-    def _place_left_of(self, anchor: QWidget | None) -> None:
-        """Move the video dock between the main canvas and `anchor`'s dock.
+    def _place_left_of(self, dock: QDockWidget) -> None:
+        """Move the video dock between the main canvas and `dock`.
 
         Parameters
         ----------
-        anchor : qtpy.QtWidgets.QWidget, optional
-            A widget inside the dock to sit next to.
+        dock : qtpy.QtWidgets.QDockWidget
+            The dock to sit next to.
         """
-        dock = anchor
-        while dock is not None and not isinstance(dock, QDockWidget):
-            dock = dock.parentWidget()
         window = find_main_window(self.dock)
-        if dock is None or dock is self.dock or window is None or dock.isFloating():
+        if window is None or dock.isFloating():
             return
         # `splitDockWidget` puts the second dock after the first, so the video
         # dock is added first and the panel's dock re-inserted to its right.
@@ -512,6 +526,8 @@ class VideoViewer:
             # to that step. Setting it again keeps the video's exact time (the
             # step is unchanged, so the slider leaves it alone): the main viewer
             # still shows its nearest frame, and time cursors follow the video.
+            # Without a snap the point already equals `video_time`, so this
+            # emits no second point event.
             self._main.dims.set_point(time_idx, video_time)
         finally:
             self._syncing = False
@@ -550,6 +566,23 @@ class VideoViewer:
                 Qt.Orientation.Horizontal,
             )
 
+    def _on_anchor_destroyed(self) -> None:
+        """Close the video viewer once the dock it was placed next to is gone."""
+        # The anchor dock is mid-destruction: no resize may touch it.
+        self._anchor_dock = None
+        # Closing the whole window destroys the anchor dock too, and the video
+        # dock along with it; one event-loop pass later, only a lone anchor
+        # removal leaves the video dock in a window to close.
+        # ponytail: a panel opened again builds a second video viewer, whose GL
+        # canvas can crash the GL stacks `hide` describes; keeping one viewer
+        # per main window, outside the panel, would avoid it.
+        QTimer.singleShot(0, self._close_if_docked)
+
+    def _close_if_docked(self) -> None:
+        """Close the video viewer, unless it or its window is already gone."""
+        if hasattr(self, "model") and find_main_window(self.dock) is not None:
+            self.close()
+
     def close(self) -> None:
         """Disconnect from the main viewer and remove the dock."""
         object.__delattr__(self._main, "reset_view")
@@ -567,9 +600,11 @@ class VideoViewer:
         self.qt_viewer.close()
         # Safe to delete: napari's action manager drops its tooltip hooks on
         # the buttons' `destroyed` signal.  Unparenting pulls the controls
-        # out of the panel's layout.
-        self.controls.setParent(None)
-        self.controls.deleteLater()
+        # out of the panel's layout.  They are gone already if the panel was
+        # deleted first.
+        with contextlib.suppress(RuntimeError):
+            self.controls.setParent(None)
+            self.controls.deleteLater()
         # The model's event callbacks hold bound methods of the QtViewer, so
         # dropping both references is what lets the QtViewer be collected.
         del self.qt_viewer, self.model, self.dock, self.controls

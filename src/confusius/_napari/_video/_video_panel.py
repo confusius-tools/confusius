@@ -153,6 +153,9 @@ class VideoPanel(QWidget):
 
         try:
             video = VideoReaderNP(str(path), remove_leading_singleton=False)
+            # Decode one frame now: a file that opens but cannot be decoded
+            # (truncated, zero frames) must fail before the video viewer shows.
+            video[0]
         except Exception as exc:  # noqa: BLE001
             self._show_error(f"Cannot open video: {exc}")
             return

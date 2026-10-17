@@ -172,6 +172,25 @@ def test_missing_file_shows_error_and_opens_nothing(panel, tmp_path, monkeypatch
     assert panel._video_viewer is None
 
 
+def test_undecodable_video_shows_error_and_opens_nothing(panel, tmp_path, monkeypatch):
+    class _UndecodableVideo(_FakeVideo):
+        def __getitem__(self, idx):
+            raise ValueError("cannot decode frame")
+
+    errors = []
+    monkeypatch.setattr(panel_module, "show_error", errors.append)
+    monkeypatch.setattr(
+        panel_module, "VideoReaderNP", lambda p, **kw: _UndecodableVideo()
+    )
+    path = tmp_path / "truncated.mp4"
+    path.touch()
+    panel._path_edit.setText(str(path))
+    panel._load_from_path()
+    assert errors and "cannot decode frame" in errors[0]
+    assert panel._video_viewer is None
+    assert not panel._no_videos_label.isHidden()
+
+
 def test_video_messages_show_on_video_canvas_within_it(
     viewer, panel, add_video, tmp_path
 ):
@@ -420,6 +439,20 @@ def test_layer_context_menu_acts_on_video_layers(viewer, panel, add_video):
     ]
 
 
+def test_layer_context_menu_is_reused(viewer, panel, add_video, monkeypatch):
+    from qtpy.QtCore import QPoint
+    from qtpy.QtWidgets import QMenu
+
+    add_video(_FakeVideo())
+    shown = []
+    monkeypatch.setattr(QMenu, "exec", lambda menu, *args: shown.append(menu))
+    delegate = panel._video_viewer.layer_list.itemDelegate()
+    for _ in range(2):
+        delegate.show_context_menu(None, None, QPoint(), None)
+    assert len(shown) == 2
+    assert shown[0] is shown[1]
+
+
 def test_overlay_shows_video_time(viewer, panel, add_video):
     add_video(_FakeVideo(n_frames=450), "a")
     add_video(_FakeVideo(n_frames=450), "b")
@@ -500,6 +533,34 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
     relayout()
     assert not panel_dock.isHidden()
     assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+
+
+def test_closing_panel_dock_closes_video_viewer(
+    make_napari_viewer, sample_voxeldata_3dt, monkeypatch, tmp_path, qtbot
+):
+    from napari.utils._proxies import PublicOnlyProxy
+    from qtpy.QtCore import QCoreApplication, QEvent
+
+    viewer = make_napari_viewer()
+    plot_napari(
+        sample_voxeldata_3dt, viewer=viewer, show_colorbar=False, show_scale_bar=False
+    )
+    # napari hands plugin widgets a proxy of the viewer.
+    panel = VideoPanel(PublicOnlyProxy(viewer))  # ty: ignore[invalid-argument-type]
+    panel_dock = viewer.window.add_dock_widget(panel, name="ConfUSIus")
+    path = tmp_path / "clip.mp4"
+    path.touch()
+    monkeypatch.setattr(panel_module, "VideoReaderNP", lambda p, **kw: _FakeVideo())
+    panel._path_edit.setText(str(path))
+    panel._load_from_path()
+    assert "Video" in viewer.window.dock_widgets
+    assert "reset_view" in viewer.__dict__
+
+    # What the panel dock's close button does.
+    viewer.window.remove_dock_widget(panel_dock)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    qtbot.waitUntil(lambda: "Video" not in viewer.window.dock_widgets)
+    assert "reset_view" not in viewer.__dict__
 
 
 class TestTimeOverlayFallback:
