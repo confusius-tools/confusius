@@ -214,7 +214,19 @@ jobs:
           name: site-${{ github.sha }}
           path: site/
 
+      # A build may finish after the PR closes and its preview is removed.
+      - name: Check PR is still open
+        id: preview-state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          STATE=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '.state')
+          echo "state=$STATE" >> "$GITHUB_OUTPUT"
+
       - name: Deploy PR preview
+        if: steps.preview-state.outputs.state == 'open'
         uses: peaceiris/actions-gh-pages@v4
         with:
           personal_token: ${{ secrets.DOCS_DEPLOY_TOKEN }}
@@ -225,6 +237,7 @@ jobs:
           keep_files: true
 
       - name: Update pr-preview/versions.json for mike version switcher
+        if: steps.preview-state.outputs.state == 'open'
         env:
           GH_TOKEN: ${{ secrets.DOCS_DEPLOY_TOKEN }}
         run: |
@@ -251,6 +264,7 @@ jobs:
           fi
 
       - name: Post preview URL comment
+        if: steps.preview-state.outputs.state == 'open'
         uses: marocchino/sticky-pull-request-comment@v3
         with:
           message: |
