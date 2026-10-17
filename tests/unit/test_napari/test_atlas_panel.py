@@ -86,37 +86,61 @@ def _rows(table) -> list[tuple[str, str, str]]:
 def _atlas_controls_enabled(panel) -> dict[str, bool]:
     return {
         "combo": panel._atlas_combo.isEnabled(),
-        "load": panel._load_atlas_btn.isEnabled(),
-        "remove": panel._remove_atlas_btn.isEnabled(),
+        "download": panel._download_atlas_btn.isVisibleTo(panel),
         "volumes": all(btn.isEnabled() for btn in panel._volume_btns.values()),
         "tree": panel._tree_btn.isEnabled(),
         "masks": panel._masks_group.isEnabled(),
     }
 
 
+def _select(panel, name: str) -> None:
+    """Pick an atlas in the dropdown as the user would."""
+    combo = panel._atlas_combo
+    combo.setCurrentIndex(combo.findData(name))
+
+
+@pytest.fixture
+def offline(monkeypatch, atlas_ds, sample_voxeldata_3d):
+    """Serve every fetch from fixtures so the workers never touch the network."""
+    monkeypatch.setattr(
+        "confusius._napari._atlas._panel.is_brainglobe_atlas_cached",
+        lambda name: True,
+    )
+    monkeypatch.setattr(
+        "confusius._napari._atlas._panel.fetch_brainglobe_atlas",
+        lambda name, **kwargs: atlas_ds.assign_attrs(name=name),
+    )
+    monkeypatch.setattr(
+        "confusius._napari._atlas._panel.is_template_cached", lambda name: True
+    )
+    monkeypatch.setattr(
+        "confusius._napari._atlas._panel.fetch_template",
+        lambda name, **kwargs: sample_voxeldata_3d.chunk({"k": 2}),
+    )
+
+
 class TestAtlasControls:
-    def test_idle_after_listing_enables_only_dropdown_and_load(self, panel) -> None:
+    def test_idle_after_listing_enables_only_dropdown(self, panel) -> None:
         _list(panel)
+        assert panel._atlas_combo.currentIndex() == -1
+        assert panel._atlas_combo.placeholderText() == "Select an atlas"
         assert _atlas_controls_enabled(panel) == {
             "combo": True,
-            "load": True,
-            "remove": False,
+            "download": False,
             "volumes": False,
             "tree": False,
             "masks": False,
         }
 
-    def test_load_disabled_while_list_is_fetching(self, panel) -> None:
+    def test_nothing_to_download_while_list_is_fetching(self, panel) -> None:
         assert panel._atlas_combo.currentData() is None
-        assert not panel._load_atlas_btn.isEnabled()
+        assert not panel._download_atlas_btn.isVisibleTo(panel)
 
-    def test_loading_locks_dropdown_and_load(self, panel) -> None:
+    def test_loading_locks_dropdown(self, panel) -> None:
         _list(panel)
         panel._begin_atlas_work()
-        assert panel._load_atlas_btn.text() == "Loading…"
         assert not panel._atlas_combo.isEnabled()
-        assert not panel._load_atlas_btn.isEnabled()
-        assert not panel._remove_atlas_btn.isEnabled()
+        assert not panel._download_atlas_btn.isVisibleTo(panel)
         assert not panel._atlas_notice.isVisibleTo(panel)
 
     def test_download_notice_names_the_atlas_until_it_is_loaded(
@@ -125,39 +149,44 @@ class TestAtlasControls:
         panel._begin_atlas_work()
         panel._on_atlas_downloading("allen_mouse_10um")
 
-        assert panel._load_atlas_btn.text() == "Downloading…"
+        btn = panel._download_atlas_btn
+        assert btn.isVisibleTo(panel)
+        assert btn.text() == "Downloading…"
+        assert not btn.isEnabled()
         assert panel._atlas_notice.isVisibleTo(panel)
         assert panel._atlas_notice.text().startswith("Downloading allen_mouse_10um")
 
         _load(panel, atlas_ds, "allen_mouse_10um")
 
         assert not panel._atlas_notice.isVisibleTo(panel)
+        assert not btn.isVisibleTo(panel)
         assert panel._atlas_downloading is False
 
-    def test_download_notice_hidden_after_error(self, panel, errors) -> None:
+    def test_failed_download_offers_the_button_again(self, panel, errors) -> None:
+        _list(panel, downloaded=("mock",), others=("other",))
+        _select(panel, "other")
         panel._begin_atlas_work()
-        panel._on_atlas_downloading("allen_mouse_10um")
+        panel._on_atlas_downloading("other")
         panel._on_atlas_error(RuntimeError("offline"))
 
         assert not panel._atlas_notice.isVisibleTo(panel)
-        assert panel._load_atlas_btn.text() == "Load atlas"
+        btn = panel._download_atlas_btn
+        assert btn.isVisibleTo(panel)
+        assert btn.isEnabled()
+        assert btn.text() == "Download atlas"
 
     def test_search_placeholder_does_not_mention_regex(self, panel) -> None:
         assert panel._search_edit.placeholderText() == "Acronym or name"
 
-    def test_loaded_unlocks_atlas_buttons_and_locks_load(self, loaded_panel) -> None:
+    def test_loaded_unlocks_atlas_buttons(self, loaded_panel) -> None:
         _list(loaded_panel)
         assert _atlas_controls_enabled(loaded_panel) == {
-            "combo": False,
-            "load": False,
-            "remove": True,
+            "combo": True,
+            "download": False,
             "volumes": True,
             "tree": True,
             "masks": True,
         }
-        assert (
-            loaded_panel._load_atlas_btn.text() == "Remove atlas to load another one →"
-        )
 
     def test_volume_buttons_follow_volume_order(self, panel) -> None:
         assert list(panel._volume_btns) == list(ATLAS_VOLUME_LAYER_TYPES)
@@ -206,7 +235,8 @@ class TestAtlasLoading:
     def test_dropdown_points_at_loaded_atlas_once_listed(self, loaded_panel) -> None:
         _list(loaded_panel, downloaded=("other",), others=("mock",))
         assert loaded_panel._atlas_combo.currentData() == "mock"
-        assert not loaded_panel._atlas_combo.isEnabled()
+        assert loaded_panel._atlas_combo.isEnabled()
+        assert loaded_panel._atlas is not None
 
     def test_load_before_listing_leaves_the_placeholder(self, loaded_panel) -> None:
         combo = loaded_panel._atlas_combo
@@ -245,9 +275,22 @@ class TestAtlasLoading:
 
         assert errors == ["boom"]
         assert panel._atlas_progress.isHidden()
-        assert panel._load_atlas_btn.text() == "Load atlas"
-        assert panel._load_atlas_btn.isEnabled()
+        assert panel._atlas_combo.isEnabled()
+        assert not panel._download_atlas_btn.isVisibleTo(panel)
         assert panel._pending_layers is False
+
+    def test_failed_load_of_downloaded_atlas_offers_a_retry(
+        self, panel, errors
+    ) -> None:
+        _list(panel)
+        panel._select_atlas_in_combo("mock")
+        panel._begin_atlas_work()
+        panel._on_atlas_error(RuntimeError("boom"))
+
+        btn = panel._download_atlas_btn
+        assert btn.isVisibleTo(panel)
+        assert btn.isEnabled()
+        assert btn.text() == "Load atlas"
 
     def test_other_atlas_replaces_loaded_one(
         self, loaded_panel, viewer, atlas_ds
@@ -279,18 +322,21 @@ class TestAtlasLoading:
         assert not loaded_panel._load_masks_btn.isEnabled()
 
 
-class TestAtlasRemoval:
-    def test_remove_resets_panel(self, loaded_panel, viewer) -> None:
-        _list(loaded_panel)
+class TestAtlasSelection:
+    def test_selecting_an_atlas_not_downloaded_drops_the_loaded_one(
+        self, loaded_panel, viewer
+    ) -> None:
+        _list(loaded_panel, downloaded=("mock",), others=("other",))
         loaded_panel._toggle_tree()
         dock = loaded_panel._tree_dock
         _select_rows(loaded_panel._results_table, [0])
         loaded_panel._add_regions()
 
-        loaded_panel._remove_atlas_btn.click()
+        _select(loaded_panel, "other")
 
         assert loaded_panel._atlas is None
         assert loaded_panel._atlas_name is None
+        assert loaded_panel._atlas_loading is False
         assert loaded_panel._tree is None
         assert loaded_panel._tree_dock is None
         assert dock.widget() is None
@@ -299,17 +345,55 @@ class TestAtlasRemoval:
         assert loaded_panel._selected_table.rowCount() == 0
         assert _atlas_controls_enabled(loaded_panel) == {
             "combo": True,
-            "load": True,
-            "remove": False,
+            "download": True,
             "volumes": False,
             "tree": False,
             "masks": False,
         }
+        assert loaded_panel._download_atlas_btn.text() == "Download atlas"
 
-    def test_remove_keeps_layers_in_viewer(self, loaded_panel, viewer) -> None:
+    def test_switching_keeps_layers_in_viewer(self, loaded_panel, viewer) -> None:
+        _list(loaded_panel, downloaded=("mock",), others=("other",))
         loaded_panel._volume_btns["annotation"].click()
-        loaded_panel._remove_atlas()
+        _select(loaded_panel, "other")
         assert [layer.name for layer in viewer.layers] == ["mock annotation"]
+
+    def test_selecting_a_downloaded_atlas_loads_it(
+        self, qtbot, panel, offline
+    ) -> None:
+        _list(panel, downloaded=("allen_mouse_25um",), others=("other",))
+
+        _select(panel, "allen_mouse_25um")
+
+        assert panel._atlas_loading
+        assert not panel._atlas_combo.isEnabled()
+        assert not panel._download_atlas_btn.isVisibleTo(panel)
+        qtbot.waitUntil(lambda: panel._atlas is not None, timeout=10_000)
+        assert panel._atlas_name == "allen_mouse_25um"
+        assert panel._atlas_combo.isEnabled()
+        assert not panel._download_atlas_btn.isVisibleTo(panel)
+        assert panel._masks_group.isEnabled()
+
+    def test_download_button_fetches_the_selected_atlas(
+        self, qtbot, panel, offline
+    ) -> None:
+        _list(panel, downloaded=("mock",), others=("other",))
+        _select(panel, "other")
+        assert panel._atlas is None
+        assert panel._atlas_loading is False
+
+        panel._download_atlas_btn.click()
+
+        assert panel._atlas_loading
+        qtbot.waitUntil(lambda: panel._atlas is not None, timeout=10_000)
+        assert panel._atlas_name == "other"
+        assert panel._atlas_combo.currentText() == "other (downloaded)"
+        assert not panel._download_atlas_btn.isVisibleTo(panel)
+
+    def test_relisting_does_not_load_anything(self, panel) -> None:
+        _list(panel)
+        assert panel._atlas_loading is False
+        assert panel._atlas is None
 
 
 class TestAtlasList:
@@ -327,7 +411,7 @@ class TestAtlasList:
             "c_atlas",
         ]
         assert combo.isEnabled()
-        assert panel._load_atlas_btn.isEnabled()
+        assert combo.currentIndex() == -1
 
     def test_newer_remote_version_flags_downloaded_atlas(self, panel) -> None:
         panel._on_atlases_listed(
@@ -360,19 +444,19 @@ class TestAtlasList:
 
         assert combo.currentData() == "other"
 
-    def test_nothing_available_disables_dropdown_and_load(self, panel) -> None:
+    def test_nothing_available_disables_dropdown(self, panel) -> None:
         panel._on_atlases_listed(({}, None))
 
         assert panel._atlas_combo.count() == 0
         assert not panel._atlas_combo.isEnabled()
-        assert not panel._load_atlas_btn.isEnabled()
+        assert not panel._download_atlas_btn.isVisibleTo(panel)
 
     def test_listing_error_shows_status(self, panel) -> None:
         panel._on_atlases_error(RuntimeError("offline"))
         assert (
             panel._atlas_status.text() == "Could not list BrainGlobe atlases: offline"
         )
-        assert not panel._load_atlas_btn.isEnabled()
+        assert not panel._atlas_combo.isEnabled()
 
 
 class TestMasksGroup:
@@ -728,18 +812,26 @@ class TestPanelWidth:
             - 2 * scroll.frameWidth()
         )
         long_name = "allen_mouse_bluebrain_barrels_10um"
+        other_long_name = "demba_allen_seg_dev_mouse_p56_25um"
 
         def content_width() -> int:
             QApplication.processEvents()
             return content.minimumSizeHint().width()
 
         assert content_width() <= available
-        panel._on_atlases_listed(({long_name: "1.0"}, {long_name: "1.1"}))
+        panel._on_atlases_listed(
+            ({long_name: "1.0"}, {long_name: "1.1", other_long_name: "1.0"})
+        )
+        assert content_width() <= available
+        # Selecting an atlas that is not downloaded shows the Download atlas button
+        # without starting any worker.
+        _select(panel, other_long_name)
+        assert panel._download_atlas_btn.isVisibleTo(panel)
         assert content_width() <= available
         panel._begin_atlas_work()
-        panel._on_atlas_downloading(long_name)
+        panel._on_atlas_downloading(other_long_name)
         assert content_width() <= available
-        panel._on_atlas_returned(atlas_ds, long_name)
+        panel._on_atlas_returned(atlas_ds, other_long_name)
         assert content_width() <= available
         panel._templates_page_btn.click()
         panel._begin_template_work()
@@ -822,26 +914,7 @@ class TestProgressBarsKeepLayout:
 
 
 class TestProgrammaticLoading:
-    """`load_atlas` / `load_template` run the button paths without the widgets."""
-
-    @pytest.fixture
-    def offline(self, monkeypatch, atlas_ds, sample_voxeldata_3d):
-        """Serve every fetch from fixtures so the workers never touch the network."""
-        monkeypatch.setattr(
-            "confusius._napari._atlas._panel.is_brainglobe_atlas_cached",
-            lambda name: True,
-        )
-        monkeypatch.setattr(
-            "confusius._napari._atlas._panel.fetch_brainglobe_atlas",
-            lambda name, **kwargs: atlas_ds.assign_attrs(name=name),
-        )
-        monkeypatch.setattr(
-            "confusius._napari._atlas._panel.is_template_cached", lambda name: True
-        )
-        monkeypatch.setattr(
-            "confusius._napari._atlas._panel.fetch_template",
-            lambda name, **kwargs: sample_voxeldata_3d.chunk({"k": 2}),
-        )
+    """`load_atlas` / `load_template` run the selection paths without the widgets."""
 
     def test_uncached_template_shows_download_notice_while_fetching(
         self, qtbot, panel, viewer, offline, monkeypatch

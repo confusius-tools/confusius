@@ -11,7 +11,7 @@ import numpy as np
 import xarray as xr
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_warning
-from qtpy.QtCore import Qt
+from qtpy.QtCore import QSignalBlocker, Qt
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -24,7 +24,6 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
-    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -389,13 +388,15 @@ class AtlasPanel(QWidget):
 
     Two pages:
 
-    - **Atlases**: pick a BrainGlobe atlas (downloaded ones listed first) and load it;
-      its volumes stay on disk until needed. One atlas is loaded at a time: the
-      dropdown and **Load atlas** lock until **✕** removes it. While it is loaded,
-      **Template**, **Annotation** and **Hemispheres** each add that volume as a
-      layer, **Structure tree** opens the region hierarchy in a right dock, and the
-      always-present **Region masks** group lets you search its structures, build a
-      list of regions, pick a hemisphere, and load one Labels layer per region mask.
+    - **Atlases**: pick a BrainGlobe atlas (downloaded ones listed first). A
+      downloaded atlas loads as soon as it is selected, its volumes staying on disk
+      until needed; any other greys the rest of the page out behind a **Download
+      atlas** button. The panel holds the selected atlas only: picking another one
+      drops it. While an atlas is loaded, **Template**, **Annotation** and
+      **Hemispheres** each add that volume as a layer, **Structure tree** opens the
+      region hierarchy in a right dock, and the always-present **Region masks**
+      group lets you search its structures, build a list of regions, pick a
+      hemisphere, and load one Labels layer per region mask.
     - **fUSI templates**: pick one of the templates shipped in
       [`confusius.datasets`][confusius.datasets], see which atlas space it is aligned
       to, and load it as an Image layer.
@@ -532,8 +533,9 @@ class AtlasPanel(QWidget):
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
         self._atlas_combo.setMaxVisibleItems(20)
+        self._atlas_combo.setPlaceholderText("Select an atlas")
         self._atlas_combo.addItem("Fetching atlas list…")
-        self._atlas_combo.currentIndexChanged.connect(self._update_atlas_controls)
+        self._atlas_combo.currentIndexChanged.connect(self._on_atlas_selected)
         combo_row = QHBoxLayout()
         combo_row.addWidget(QLabel("Atlas"))
         combo_row.addWidget(self._atlas_combo, stretch=1)
@@ -551,20 +553,13 @@ class AtlasPanel(QWidget):
         self._atlas_notice.hide()
         group_layout.addWidget(self._atlas_notice)
 
-        self._load_atlas_btn = QPushButton("Load atlas")
-        self._load_atlas_btn.setObjectName("primary_btn")
-        self._load_atlas_btn.clicked.connect(self._load_atlas)
-        self._remove_atlas_btn = QPushButton("✕")
-        self._remove_atlas_btn.setToolTip("Remove the atlas and free its memory")
-        self._remove_atlas_btn.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
-        )
-        self._remove_atlas_btn.clicked.connect(self._remove_atlas)
-        load_row = QHBoxLayout()
-        load_row.setSpacing(4)
-        load_row.addWidget(self._load_atlas_btn, stretch=1)
-        load_row.addWidget(self._remove_atlas_btn)
-        group_layout.addLayout(load_row)
+        # Only shown while the selected atlas is not loaded: a downloaded atlas loads
+        # on selection, so this is the download step (or a retry after an error).
+        self._download_atlas_btn = QPushButton("Download atlas")
+        self._download_atlas_btn.setObjectName("primary_btn")
+        self._download_atlas_btn.clicked.connect(self._download_atlas)
+        self._download_atlas_btn.hide()
+        group_layout.addWidget(self._download_atlas_btn)
 
         # One bar for the atlas fetch above it and the volume reads below it.
         self._atlas_progress = _make_progress_bar()
@@ -654,27 +649,49 @@ class AtlasPanel(QWidget):
     def _update_atlas_controls(self) -> None:
         """Enable the atlas widgets for the current state: none, loading or loaded.
 
-        The dropdown and Load atlas work only while no atlas is loaded or loading;
-        everything that needs an atlas (its volume buttons, Structure tree, ✕ and the
-        Region masks group) only while one is loaded. The Load atlas text says what
-        is going on in the other states.
+        The dropdown locks while an atlas loads. Everything that needs an atlas (its
+        volume buttons, Structure tree and the Region masks group) is enabled only
+        while one is loaded. Download atlas appears only while the selected atlas is
+        not the loaded one: before a download, during it (disabled, as a status) or
+        after a failed load.
         """
         loaded = self._atlas is not None
-        idle = not loaded and not self._atlas_loading
+        selected = self._atlas_combo.currentData()
         if self._atlas_loading:
-            text = "Downloading…" if self._atlas_downloading else "Loading…"
-        elif loaded:
-            text = "Remove atlas to load another one →"
+            show_download = self._atlas_downloading
+            text = "Downloading…"
+        elif selected and selected != self._atlas_name:
+            show_download = True
+            text = "Load atlas" if self._is_downloaded(selected) else "Download atlas"
         else:
-            text = "Load atlas"
-        self._load_atlas_btn.setText(text)
-        self._atlas_combo.setEnabled(idle and self._atlas_combo.count() > 0)
-        self._load_atlas_btn.setEnabled(idle and bool(self._atlas_combo.currentData()))
-        self._remove_atlas_btn.setEnabled(loaded)
+            show_download = False
+            text = "Download atlas"
+        self._download_atlas_btn.setText(text)
+        self._download_atlas_btn.setEnabled(not self._atlas_loading)
+        self._download_atlas_btn.setVisible(show_download)
+        self._atlas_combo.setEnabled(
+            not self._atlas_loading and self._atlas_combo.count() > 0
+        )
         for btn in self._volume_btns.values():
             btn.setEnabled(loaded)
         self._tree_btn.setEnabled(loaded)
         self._masks_group.setEnabled(loaded)
+
+    def _is_downloaded(self, name: str) -> bool:
+        """Whether the last listing found an atlas in the BrainGlobe cache.
+
+        Parameters
+        ----------
+        name : str
+            BrainGlobe atlas name.
+
+        Returns
+        -------
+        bool
+            Whether the atlas is in the listing's downloaded group. False before the
+            listing has arrived.
+        """
+        return self._atlas_list is not None and name in self._atlas_list[0]
 
     # ------------------------------------------------------------------
     # Atlas list
@@ -717,19 +734,24 @@ class AtlasPanel(QWidget):
         latest = available or {}
         combo = self._atlas_combo
         selected = self._atlas_name or combo.currentData()
-        combo.clear()
-        for name in sorted(downloaded):
-            local = downloaded[name]
-            outdated = local is not None and latest.get(name, local) != local
-            suffix = " (downloaded, update available)" if outdated else " (downloaded)"
-            combo.addItem(name + suffix, name)
-        others = [name for name in sorted(latest) if name not in downloaded]
-        if downloaded and others:
-            combo.insertSeparator(combo.count())
-        for name in others:
-            combo.addItem(name, name)
-        if selected is not None:
-            self._select_atlas_in_combo(str(selected))
+        # Rebuilding the list is not a user selection: keep `_on_atlas_selected` out
+        # of it, so the panel's atlas is untouched and nothing loads by itself.
+        with QSignalBlocker(combo):
+            combo.clear()
+            for name in sorted(downloaded):
+                local = downloaded[name]
+                outdated = local is not None and latest.get(name, local) != local
+                suffix = (
+                    " (downloaded, update available)" if outdated else " (downloaded)"
+                )
+                combo.addItem(name + suffix, name)
+            others = [name for name in sorted(latest) if name not in downloaded]
+            if downloaded and others:
+                combo.insertSeparator(combo.count())
+            for name in others:
+                combo.addItem(name, name)
+            # Nothing selected shows the placeholder text instead of the first atlas.
+            combo.setCurrentIndex(combo.findData(selected) if selected else -1)
         self._update_atlas_controls()
 
     def _mark_downloaded(self, name: str) -> None:
@@ -762,7 +784,7 @@ class AtlasPanel(QWidget):
         self._atlas_status.show()
 
     def _select_atlas_in_combo(self, name: str) -> None:
-        """Point the (locked) dropdown at the loaded atlas, when the list has it.
+        """Point the dropdown at the loaded atlas, when the list has it.
 
         Parameters
         ----------
@@ -771,7 +793,9 @@ class AtlasPanel(QWidget):
         """
         index = self._atlas_combo.findData(name)
         if index >= 0:
-            self._atlas_combo.setCurrentIndex(index)
+            with QSignalBlocker(self._atlas_combo):
+                self._atlas_combo.setCurrentIndex(index)
+            self._update_atlas_controls()
 
     # ------------------------------------------------------------------
     # Atlas loading
@@ -810,20 +834,32 @@ class AtlasPanel(QWidget):
         self._atlas_notice.show()
         self._update_atlas_controls()
 
-    def _load_atlas(self) -> None:
+    def _on_atlas_selected(self) -> None:
+        """Make the selected atlas the panel's atlas: load it if downloaded, else
+        drop the current one and offer Download atlas."""
         name = self._atlas_combo.currentData()
-        if not name:
-            show_error("Select an atlas.")
+        if not name or name == self._atlas_name:
             return
-        self.load_atlas(str(name))
+        if self._atlas is not None:
+            self._remove_atlas()
+        if self._is_downloaded(str(name)):
+            self.load_atlas(str(name))
+        else:
+            self._update_atlas_controls()
+
+    def _download_atlas(self) -> None:
+        name = self._atlas_combo.currentData()
+        if name:
+            self.load_atlas(str(name))
 
     def load_atlas(self, name: str, *, add_layers: bool = False) -> None:
         """Load a BrainGlobe atlas in the background as the panel's atlas.
 
-        This is what the Load atlas button does; the CLI's `--atlas` option calls it
-        directly. The panel holds one atlas: an atlas already loaded under another
-        name is removed first (its layers stay in the viewer). The call is ignored
-        while this atlas is already loaded or another load is in progress.
+        This is what selecting a downloaded atlas, or clicking Download atlas, does;
+        the CLI's `--atlas` option calls it directly. The panel holds one atlas: an
+        atlas already loaded under another name is removed first (its layers stay in
+        the viewer). The call is ignored while this atlas is already loaded or
+        another load is in progress.
 
         Parameters
         ----------

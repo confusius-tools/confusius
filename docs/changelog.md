@@ -67,12 +67,12 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
-- New **Atlas** tab: load a BrainGlobe atlas (downloaded ones listed first), add its
-  template, annotation and hemispheres layers one at a time, read from disk or into
-  memory, browse its structure
-  hierarchy in a read-only dock, search its regions to load one Labels layer per
-  region mask with a hemisphere selector, or remove it to free memory. The atlas
-  stays on disk until a volume is read into memory or a mask requested
+- New **Atlas** tab: pick a BrainGlobe atlas (downloaded ones listed first and loaded
+  on selection, the others behind a Download button), add its template, annotation
+  and hemispheres layers one at a time, read from disk or into memory, browse its
+  structure hierarchy in a read-only dock, or search its regions to load one Labels
+  layer per region mask with a hemisphere selector. The atlas stays on disk until a
+  volume is read into memory or a mask requested
   ([#488](https://github.com/confusius-tools/confusius/pull/488)).
 - The Atlas tab also loads the fUSI templates shipped in `confusius.datasets`
   (`brunner_grillet_2021`, `pepe_mariani_2026`) as Image layers

@@ -869,15 +869,13 @@ def build_default_tour(
             target=_panel_attr("Atlas", AtlasPanel, "_atlas_combo"),
             title="BrainGlobe Atlases",
             body=(
-                "Pick any BrainGlobe atlas (already downloaded ones come first) and "
-                "click <b>Load atlas</b>. The first load downloads the atlas into "
-                "the BrainGlobe cache, shared with other BrainGlobe tools; later "
-                "loads read it from there."
+                "Pick any BrainGlobe atlas: already downloaded ones come first and "
+                "load as soon as they are selected. Any other shows a <b>Download "
+                "atlas</b> button that fetches it into the BrainGlobe cache, shared "
+                "with other BrainGlobe tools, and loads it."
             ),
             anchor="left",
-            spotlight_rect=_panel_attr_rect(
-                "Atlas", AtlasPanel, "_atlas_combo", "_load_atlas_btn"
-            ),
+            spotlight_rect=_panel_attr_rect("Atlas", AtlasPanel, "_atlas_combo"),
             tooltip_target=_dock_widget,
             pre_action=_select_atlas_page("_atlases_page_btn"),
         ),
@@ -885,16 +883,15 @@ def build_default_tour(
             target=_panel_attr("Atlas", AtlasPanel, "_tree_btn"),
             title="Atlas Layers",
             body=(
-                "One atlas is loaded at a time: the dropdown and <b>Load atlas</b> "
-                "lock until <b>✕</b> removes it and frees its memory. While it is "
-                "loaded, <b>Template</b>, <b>Annotation</b> and <b>Hemispheres</b> "
-                "each add that volume as a layer, reading only the slices on screen "
-                "while <b>Make layers lazily</b> is checked, and <b>Structure "
-                "tree</b> opens the region hierarchy in a dock."
+                "The panel holds the selected atlas; picking another one frees it. "
+                "While an atlas is loaded, <b>Template</b>, <b>Annotation</b> and "
+                "<b>Hemispheres</b> each add that volume as a layer, reading only "
+                "the slices on screen while <b>Make layers lazily</b> is checked, "
+                "and <b>Structure tree</b> opens the region hierarchy in a dock."
             ),
             anchor="left",
             spotlight_rect=_panel_attr_rect(
-                "Atlas", AtlasPanel, "_load_atlas_btn", "_tree_btn"
+                "Atlas", AtlasPanel, "_lazy_layers_check", "_tree_btn"
             ),
             tooltip_target=_dock_widget,
             pre_action=_select_atlas_page("_atlases_page_btn"),

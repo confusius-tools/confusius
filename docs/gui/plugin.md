@@ -87,12 +87,15 @@ the cached one. Loading always uses the cached version; to update an atlas, run
 open the panel; without a network connection it falls back to BrainGlobe's cached
 list, or to the downloaded atlases alone.
 
-1. Pick an atlas and click **Load atlas**. The first load of an atlas downloads it into
-   the BrainGlobe cache (shared with other BrainGlobe tools): a note under the dropdown
-   says if the download is running, which can take several minutes for bigger atlases
-   such as `allen_mouse_10um`. Later loads read from the cache in a second or two. The
-   atlas stays on disk. One atlas is loaded at a time: the dropdown and **Load atlas**
-   lock until **✕** removes it, and the buttons below become active.
+1. Pick an atlas. A downloaded one loads from the cache in a second or two, reading no
+   voxels, and the buttons below become active. Any other atlas greys them out behind
+   a **Download atlas** button: clicking it downloads the atlas into the BrainGlobe
+   cache (shared with other BrainGlobe tools), with a note under the dropdown while
+   the download runs, which can take several minutes for bigger atlases such as
+   `allen_mouse_10um`, then loads it and moves it into the downloaded group of the
+   dropdown. The panel holds the selected atlas only: picking another one drops it,
+   closes its tree, empties the **Region masks** group below and frees its memory.
+   Layers already added stay in the viewer.
 2. **Template**, **Annotation** and **Hemispheres** each add that volume as a layer:
    `<atlas> template` (Image), `<atlas> annotation` (Labels, colored with the atlas
    palette) or `<atlas> hemispheres` (Labels). With **Make layers lazily** checked (the
@@ -102,8 +105,6 @@ list, or to the downloaded atlases alone.
 3. **Structure tree** opens the structure hierarchy in a right dock named
    `Atlas structures: <atlas>`, with one row per region showing its acronym, name, id
    and color. Click again to hide it. The tree is for browsing only.
-4. **✕** removes the atlas, closes its tree, empties the **Region masks** group below
-   and frees its memory. Layers already added stay in the viewer.
 
 The three volumes share one voxel grid in millimeters, so they line up with any fUSI
 layer loaded through the Data I/O Panel once the recording is registered to the atlas
