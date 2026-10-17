@@ -67,19 +67,17 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
-- New **Atlas** tab: pick a BrainGlobe atlas (downloaded ones listed first and loaded
-  on selection, the others behind a Download button), add its template, annotation
-  and hemispheres layers one at a time, read from disk or into memory, browse its
-  structure hierarchy in a read-only dock, or search its regions to load one Labels
-  layer per region mask with a hemisphere selector. The atlas stays on disk until a
-  volume is read into memory or a mask requested
+- New **Atlas** tab. Atlases page and Templates page. For atlases, the user can download
+  any of the [BrainGlobe
+  atlases](https://brainglobe.info/documentation/brainglobe-atlasapi/usage/atlas-details.html),
+  just like with [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas].
+  There are options to create layers from the atlas template, annotations and
+  hemispheres volumes. Masks can be constructed from the anatomical regions just like
+  with [`get_atlas_masks`][confusius.atlas.get_atlas_masks]. For templates, the user can
+  load into an image layer any of the fUSI templates in `confusius.datasets`
   ([#488](https://github.com/confusius-tools/confusius/pull/488)).
-- The Atlas tab also loads the fUSI templates shipped in `confusius.datasets`
-  (`brunner_grillet_2021`, `pepe_mariani_2026`) as Image layers
-  ([#488](https://github.com/confusius-tools/confusius/pull/488)).
-- The `confusius` launcher takes `--atlas NAME` and `--template NAME [NAME ...]` to
-  open the plugin with a BrainGlobe atlas (with its volume layers) and fUSI templates
-  already loaded
+- The `confusius` launcher takes `--atlas NAME` and `--template NAME [NAME ...]`.
+  The plugin opens with the atlas, its volume layers and the templates loaded
   ([#488](https://github.com/confusius-tools/confusius/pull/488)).
 - Boolean arrays open as labels layers
   ([#504](https://github.com/confusius-tools/confusius/pull/504)).

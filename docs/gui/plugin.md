@@ -70,90 +70,95 @@ Three save modes are applied automatically depending on what is available:
 
 ## Atlas Panel
 
-The Atlas Panel brings brain atlases and fUSI templates into the viewer without
-writing any Python. It has two pages, switched with the buttons at its top:
-**Atlases** and **fUSI templates**.
+The Atlas Panel loads brain atlases and fUSI templates into the viewer. The panel has
+two pages, **Atlases** and **fUSI templates**. The two buttons at the top of the panel
+switch between them.
 
 ![ConfUSIus Atlas panel](../images/gui/plugin-atlas.png)
 
 ### Atlases
 
-The **Atlas** dropdown lists every atlas known to
-[BrainGlobe](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html),
-with the ones already in your BrainGlobe cache first and marked `(downloaded)`, or
-`(downloaded, update available)` when BrainGlobe has published a newer version than
-the cached one. Loading always uses the cached version; to update an atlas, run
-`brainglobe update -a <atlas>` in a terminal. The list is fetched the first time you
-open the panel; without a network connection it falls back to BrainGlobe's cached
-list, or to the downloaded atlases alone.
+The **Atlas** dropdown lists every atlas that
+[BrainGlobe](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html)
+knows. The atlases that are already in cache come first, marked `(downloaded)`. The
+mark changes to `(downloaded, update available)` when BrainGlobe has a newer version
+than the cached one. The plugin always loads the cached version. The command
+`brainglobe update -a <atlas>` updates an atlas.
 
-1. Pick an atlas. A downloaded one loads from the cache in a second or two, reading no
-   voxels, and the buttons below become active. Any other atlas greys them out behind
-   a **Download atlas** button: clicking it downloads the atlas into the BrainGlobe
-   cache (shared with other BrainGlobe tools), with a note under the dropdown while
-   the download runs, which can take several minutes for bigger atlases such as
-   `allen_mouse_10um`, then loads it and moves it into the downloaded group of the
-   dropdown. The panel holds the selected atlas only: picking another one drops it,
-   closes its tree, empties the **Region masks** group below and frees its memory.
-   Layers already added stay in the viewer.
-2. **Template**, **Annotation** and **Hemispheres** each add that volume as a layer:
-   `<atlas> template` (Image), `<atlas> annotation` (Labels, colored with the atlas
-   palette) or `<atlas> hemispheres` (Labels). With **Make layers lazily** checked (the
-   default), the layer reads the displayed slices from disk, which keeps memory low for
-   bigger atlases. Uncheck it to read the clicked volume once in the background instead
-   before creating the napari layer.
-3. **Structure tree** opens the structure hierarchy in a right dock named
-   `Atlas structures: <atlas>`, with one row per region showing its acronym, name, id
-   and color. Click again to hide it. The tree is for browsing only.
+The plugin gets the list from BrainGlobe the first time you open the panel. Without a
+network connection, the dropdown shows the cached list from BrainGlobe. If there is no
+cached list, it shows only the downloaded atlases.
 
-The three volumes share one voxel grid in millimeters, so they line up with any fUSI
-layer loaded through the Data I/O Panel once the recording is registered to the atlas
-space.
+1. Select an atlas in the dropdown. The buttons below become active if the atlas can be
+   found in cache.
+2. If the atlas is not downloaded, click **Download atlas**. The download is done via
+   BrainGlobe. Large atlases can take several minutes. The atlas then loads and moves to
+   the downloaded group of the dropdown.
+3. Click **Template**, **Annotation** or **Hemispheres** to add that volume as a
+   layer. The layers are `<atlas> template` (Image), `<atlas> annotation` (Labels,
+   with the atlas colors) and `<atlas> hemispheres` (Labels).
+4. Click **Structure tree** to show the structure hierarchy in a dock on the right.
+   The dock is named `Atlas structures: <atlas>`. Each row shows the acronym, name,
+   id and color of one region. Click the button again to hide the dock. The tree is
+   for browsing only.
+
+The **Make layers lazily** box controls how a volume layer reads its data. Checked
+(the default), napari reads only the displayed slices from disk. This keeps memory low
+for large atlases. Unchecked, the plugin reads the whole volume into memory before it
+creates the layer.
+
+The panel holds one atlas, the selected one. When you select a different atlas, the
+panel removes the current one. It closes the structure tree, empties the **Region
+masks** group and frees the memory. Layers already in the viewer stay in the viewer.
+
+The three volumes share one voxel grid in millimeters. After you register a recording
+to the atlas space, its layer aligns with the atlas layers.
 
 !!! warning "Memory"
-    Loading an atlas reads no voxels, and the volume layers read only the slices on
-    screen while **Make layers lazily** is checked. **Load masks** reads the whole
-    annotation and hemispheres volumes into
-    memory the first time, which needs several gigabytes for high-resolution atlases
-    such as `allen_mouse_10um`; prefer the 25 µm or 50 µm versions when building
-    masks.
+    Loading an atlas reads no voxels. While **Make layers lazily** is checked, the
+    volume layers read only the slices on screen. **Load masks** reads the whole
+    annotation and hemispheres volumes into memory the first time. For
+    high-resolution atlases such as `allen_mouse_10um`, this needs several gigabytes.
 
 ### Region masks
 
-The **Region masks** group is greyed out until an atlas is loaded, then lists its
-structures.
+With a loaded atlas, the **Region masks**  lists the structures of the atlas.
 
-1. Type in **Search** to filter the structures. The pattern is a case-insensitive
-   regular expression matched against both the acronym and the name, exactly like
-   [`search`][confusius.atlas.AtlasAccessor.search]. Use anchors for an exact
-   acronym, e.g. `^VISp$`. An empty field lists every structure.
-2. Select one or more rows and click **▼ Add**, or double-click a row, to move it to
-   the lower table. **▲ Remove** or a double-click takes it back. A region can only be
-   added once.
-3. Choose a **Side**: `both`, `left` or `right`. It applies to every selected region.
-4. Click **Load masks**. One Labels layer is added per region, named by its acronym
-   with an `_L` or `_R` suffix for single-hemisphere masks, holding the region id in
-   every voxel of the region and its descendants, as
-   [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] does.
+1. Type a pattern in **Search** to filter the structures. The pattern is a
+   case-insensitive regular expression, as in
+   [`search`][confusius.atlas.AtlasAccessor.search]. It matches the acronym and the
+   name. For an exact acronym, use anchors, for example `^VISp$`. An empty field lists
+   every structure.
+2. Select one or more rows and click **▼ Add** to move them to the lower table. A
+   double-click on a row does the same. To move a row back, select it and click
+   **▲ Remove**, or double-click it. Each region appears once in the lower table.
+3. Select a **Side**: `both`, `left` or `right`. The side applies to every region in
+   the lower table.
+4. Click **Load masks**. The plugin adds one Labels layer per region, named with the
+   acronym of the region. Single-hemisphere masks get an `_L` or `_R` suffix. Each
+   voxel of the region and its descendants holds the region id, as in
+   [`get_masks`][confusius.atlas.AtlasAccessor.get_masks].
 
 ### fUSI templates
 
-The **Template** dropdown lists the templates shipped in
-[`confusius.datasets`][confusius.datasets] by the name of their fetcher
-(`brunner_grillet_2021` for `fetch_template_brunner_grillet_2021`, ...); the line
-beneath it names the reference atlas each template is aligned to. Click **Load
-template** to download it on first use and add it as an Image layer named after the
-template. The voxels are read into memory if **Load lazily** is unchecked (the default);
-check this box to leave them on disk and let napari read each displayed slice instead.
+The **Template** dropdown lists the templates available through the
+[`confusius.datasets`][confusius.datasets]. Each template is named after its fetcher,
+for example `brunner_grillet_2021` for `fetch_template_brunner_grillet_2021`. The line
+under the dropdown names the reference atlas of the selected template.
+
+Click **Load template** to add the template as an Image layer with the same name. The
+template is downloaded if not found in the cache. With **Load lazily** unchecked (the
+default), the plugin reads the voxels into memory. Checked, napari reads each displayed
+slice from disk.
 
 !!! tip "Launch with an atlas or templates from the CLI"
-    `--atlas` takes one atlas name and `--template` one or more template names; the
-    plugin opens with them loaded, the atlas with its three volume layers and the
-    templates as Image layers.
+    `--atlas` takes one atlas name. `--template` takes one or more template names.
+    The plugin opens with the atlas and its three volume layers loaded, and with each
+    template as an Image layer.
     ```bash
     confusius --atlas allen_mouse_25um --template brunner_grillet_2021
     ```
-    Put data files before `--template`, since it takes every name that follows it.
+    Put data files before `--template`, because it takes every name that follows it.
 
 ## Video Panel
 
