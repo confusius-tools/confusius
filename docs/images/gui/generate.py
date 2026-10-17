@@ -6,7 +6,7 @@ Two datasets are fetched automatically via `confusius.datasets`:
   collection — used for the Data I/O, Signals, and QC screenshots. First run
   downloads ~30 MB.
 - **Cybis Pereira et al. (2026)** fUSI-BIDS dataset from the same collection — used
-  for the Video panel GIF. First run downloads ~200 MB (raw fUSI + DLC video).
+  for the video and events GIFs. First run downloads ~200 MB (raw fUSI + DLC video).
 
 Subsequent runs use the local cache.
 
@@ -710,118 +710,7 @@ except Exception as exc:
     _warn(f"plugin-signals-labels.png failed: {exc}")
 
 # ---------------------------------------------------------------------------
-# 6. Video panel — time-scrubbing GIF via the plugin
-# ---------------------------------------------------------------------------
-
-try:
-    from PIL import Image as _PILImage
-
-    from confusius._napari._data._load_panel import DataPanel
-    from confusius._napari._video._video_panel import VideoPanel
-
-    viewer6 = napari.Viewer(show=False)
-    widget6 = ConfUSIusWidget(viewer6)
-    viewer6.window.add_dock_widget(widget6, name="ConfUSIus", area="right")
-    _qt_sleep(200)
-
-    # Load fUSI via the Data I/O panel (scan already in display orientation).
-    data_panel = widget6.findChild(DataPanel)
-    if data_panel is None:
-        raise RuntimeError("DataPanel not found in ConfUSIusWidget")
-    data_panel._path_edit.setText(str(_VIDEO_FUSI_PATH))
-    data_panel._compute_check.setChecked(False)  # Load eagerly.
-
-    _load_loop = QEventLoop()
-    viewer6.layers.events.inserted.connect(lambda _e: _load_loop.quit())
-    data_panel._load()
-    _load_loop.exec()
-
-    fusi_layer = viewer6.layers[-1]
-    assert isinstance(fusi_layer, Image)
-    fusi_layer.gamma = DISPLAY_GAMMA
-    fusi_layer.contrast_limits = VIDEO_DISPLAY_CONTRAST
-    _qt_sleep(100)
-
-    # Attach video via the Video panel, using the fUSI layer as reference.
-    video_panel = widget6.findChild(VideoPanel)
-    if video_panel is None:
-        raise RuntimeError("VideoPanel not found in ConfUSIusWidget")
-    ref_idx = video_panel._ref_combo.findText(fusi_layer.name)
-    if ref_idx >= 0:
-        video_panel._ref_combo.setCurrentIndex(ref_idx)
-    video_panel._path_edit.setText(str(_VIDEO_MP4_PATH))
-    video_panel._load_from_path()
-    _qt_sleep(200)
-
-    video_layer = next(
-        layer
-        for layer in viewer6.layers
-        if layer is not fusi_layer and layer.name.startswith("Video:")
-    )
-
-    _open_accordion_panel(widget6, "Video")
-
-    # Size the window, then refit camera to layers (napari "home" button).
-    win6 = viewer6.window._qt_window
-    win6.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
-    win6.show()
-    win6.resize(1400, 900)
-    get_qapp().processEvents()
-    viewer6.reset_view()
-    _qt_sleep(100)
-
-    # --- GIF: scrub the time slider so the grid viewers animate. ---
-    # Follows the 3D-orbit GIF pattern in docs/images/visualization/generate.py:
-    # capture full-window frames, shared-palette quantize, save as animated GIF.
-    N_GIF_FRAMES = 60
-    GIF_FPS = 12
-    GIF_WIDTH = 1100
-    # Scrub inside the actual time overlap between the fUSI and video layers.
-    # Use `set_point` (world coordinate) instead of `set_current_step` (index),
-    # because the layers have different time scales in the shared grid.
-    fusi_min, fusi_max = fusi_layer.extent.world[:, VIDEO_TIME_AXIS]
-    video_min, video_max = video_layer.extent.world[:, VIDEO_TIME_AXIS]
-    gif_t_start_s = max(float(fusi_min), float(video_min)) + 0.5
-    gif_t_stop_s = min(float(fusi_max), float(video_max)) - 0.5
-    if gif_t_stop_s <= gif_t_start_s:
-        raise RuntimeError("No overlapping fUSI/video time range available for GIF")
-    step_times = np.linspace(gif_t_start_s, gif_t_stop_s, N_GIF_FRAMES)
-
-    frames_pil: list = []
-    for t in step_times:
-        viewer6.dims.set_point(VIDEO_TIME_AXIS, float(t))
-        get_qapp().processEvents()
-        get_qapp().processEvents()
-        raw = viewer6.screenshot(canvas_only=False)
-        if raw.size == 0:
-            raise RuntimeError("napari returned an empty screenshot frame")
-        raw = raw[..., :3]
-        h, w = raw.shape[:2]
-        scale = GIF_WIDTH / w
-        frames_pil.append(
-            _PILImage.fromarray(raw).resize(
-                (GIF_WIDTH, int(h * scale)), _PILImage.Resampling.LANCZOS
-            )
-        )
-
-    palette_src = frames_pil[0].quantize(colors=256, dither=0)
-    quantized = [frame.quantize(palette=palette_src, dither=0) for frame in frames_pil]
-
-    gif_path = str(HERE / "plugin-video.gif")
-    quantized[0].save(
-        gif_path,
-        save_all=True,
-        append_images=quantized[1:],
-        duration=1000 // GIF_FPS,
-        loop=0,
-    )
-    viewer6.close()
-    _ok("Saved plugin-video.gif")
-except Exception as exc:
-    _warn(f"plugin-video.gif failed: {exc}")
-
-# ---------------------------------------------------------------------------
-# 7. Registration panel — rigid between-session GIF via the plugin
+# 6. Registration panel — rigid between-session GIF via the plugin
 # ---------------------------------------------------------------------------
 
 try:
@@ -997,7 +886,7 @@ except Exception as exc:
     _warn(f"plugin-registration.gif failed: {exc}")
 
 # ---------------------------------------------------------------------------
-# 8. Registration panel — within-scan motion-correction GIF via the plugin
+# 7. Registration panel — within-scan motion-correction GIF via the plugin
 # ---------------------------------------------------------------------------
 
 try:
@@ -1158,6 +1047,110 @@ try:
     _ok("Saved plugin-registration-volumewise.gif")
 except Exception as exc:
     _warn(f"plugin-registration-volumewise.gif failed: {exc}")
+
+# ---------------------------------------------------------------------------
+# 8. Video panel — time-scrubbing GIF via the plugin
+# ---------------------------------------------------------------------------
+
+try:
+    from PIL import Image as _PILImage
+
+    from confusius._napari._data._load_panel import DataPanel
+    from confusius._napari._video._video_panel import VideoPanel
+
+    viewer6 = napari.Viewer(show=False)
+    widget6 = ConfUSIusWidget(viewer6)
+    viewer6.window.add_dock_widget(widget6, name="ConfUSIus", area="right")
+    _qt_sleep(200)
+
+    # Load fUSI via the Data I/O panel (scan already in display orientation).
+    data_panel = widget6.findChild(DataPanel)
+    if data_panel is None:
+        raise RuntimeError("DataPanel not found in ConfUSIusWidget")
+    data_panel._path_edit.setText(str(_VIDEO_FUSI_PATH))
+    data_panel._compute_check.setChecked(False)  # Load eagerly.
+
+    _load_loop = QEventLoop()
+    viewer6.layers.events.inserted.connect(lambda _e: _load_loop.quit())
+    data_panel._load()
+    _load_loop.exec()
+
+    fusi_layer = viewer6.layers[-1]
+    assert isinstance(fusi_layer, Image)
+    fusi_layer.gamma = DISPLAY_GAMMA
+    fusi_layer.contrast_limits = VIDEO_DISPLAY_CONTRAST
+    _qt_sleep(100)
+
+    # Open the video from the Video panel; it plays in the video viewer docked
+    # beside the main canvas.
+    _open_accordion_panel(widget6, "Video")
+    video_panel = widget6.findChild(VideoPanel)
+    if video_panel is None:
+        raise RuntimeError("VideoPanel not found in ConfUSIusWidget")
+    video_panel._path_edit.setText(str(_VIDEO_MP4_PATH))
+    video_panel._load_from_path()
+    _qt_sleep(200)
+
+    video_layer = video_panel._video_viewer.model.layers[0]
+
+    # Size the window, then refit camera to layers (napari "home" button).
+    win6 = viewer6.window._qt_window
+    win6.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    win6.show()
+    win6.resize(1400, 900)
+    get_qapp().processEvents()
+    viewer6.reset_view()
+    _qt_sleep(100)
+
+    # --- GIF: scrub the main time slider so the video viewer follows. ---
+    # Follows the 3D-orbit GIF pattern in docs/images/visualization/generate.py:
+    # capture full-window frames, shared-palette quantize, save as animated GIF.
+    N_GIF_FRAMES = 60
+    GIF_FPS = 12
+    GIF_WIDTH = 1100
+    # Scrub inside the actual time overlap between the fUSI and video layers.
+    # The two viewers share world time, so `set_point` (seconds) moves both.
+    fusi_min, fusi_max = fusi_layer.extent.world[:, VIDEO_TIME_AXIS]
+    video_min, video_max = video_layer.extent.world[:, 0]
+    gif_t_start_s = max(float(fusi_min), float(video_min)) + 0.5
+    gif_t_stop_s = min(float(fusi_max), float(video_max)) - 0.5
+    if gif_t_stop_s <= gif_t_start_s:
+        raise RuntimeError("No overlapping fUSI/video time range available for GIF")
+    step_times = np.linspace(gif_t_start_s, gif_t_stop_s, N_GIF_FRAMES)
+
+    frames_pil: list = []
+    for t in step_times:
+        viewer6.dims.set_point(VIDEO_TIME_AXIS, float(t))
+        get_qapp().processEvents()
+        get_qapp().processEvents()
+        raw = viewer6.screenshot(canvas_only=False)
+        if raw.size == 0:
+            raise RuntimeError("napari returned an empty screenshot frame")
+        raw = raw[..., :3]
+        h, w = raw.shape[:2]
+        scale = GIF_WIDTH / w
+        frames_pil.append(
+            _PILImage.fromarray(raw).resize(
+                (GIF_WIDTH, int(h * scale)), _PILImage.Resampling.LANCZOS
+            )
+        )
+
+    palette_src = frames_pil[0].quantize(colors=256, dither=0)
+    quantized = [frame.quantize(palette=palette_src, dither=0) for frame in frames_pil]
+
+    gif_path = str(HERE / "plugin-video.gif")
+    quantized[0].save(
+        gif_path,
+        save_all=True,
+        append_images=quantized[1:],
+        duration=1000 // GIF_FPS,
+        loop=0,
+    )
+    # Left open: the Events GIF reuses this window and its video viewer.
+    _ok("Saved plugin-video.gif")
+except Exception as exc:
+    _warn(f"plugin-video.gif failed: {exc}")
+
 # ---------------------------------------------------------------------------
 # 9. Events panel — GIF of creating events with the Start/End workflow
 # ---------------------------------------------------------------------------
@@ -1169,31 +1162,21 @@ try:
     from qtpy.QtCore import QPoint
     from qtpy.QtWidgets import QScrollArea
 
-    from confusius._napari._video._video_panel import VideoPanel
-
-    da_gif = cf.load(_VIDEO_FUSI_PATH)
-
-    viewer9 = napari.Viewer(show=False)
-    _viewer9, fusi9 = plot_napari(
-        da_gif,
-        viewer=viewer9,
-        gamma=DISPLAY_GAMMA,
-        contrast_limits=VIDEO_DISPLAY_CONTRAST,
-    )
-    widget9 = ConfUSIusWidget(viewer9)
-    viewer9.window.add_dock_widget(widget9, name="ConfUSIus", area="right")
-    _qt_sleep(200)
+    # Reuse the Videos GIF window, with its fUSI layer and video viewer: a second
+    # video viewer in one process crashes some GL drivers (Mesa), even in a new
+    # window.
+    viewer9, widget9, fusi9 = viewer6, widget6, fusi_layer
+    da_meta9 = fusi9.metadata["xarray"]
 
     # Two behavioural events to annotate, with absolute world-time onsets and
     # durations (seconds): a "rearing" event, then a "grooming" event.
-    gif_time = np.asarray(da_gif.coords["time"].values, dtype=float)
+    gif_time = np.asarray(da_meta9.coords["time"].values, dtype=float)
     gif_t0 = float(gif_time[0])
     rearing_onset, rearing_duration = gif_t0 + 300.0, 20.0
     grooming_onset, grooming_duration = gif_t0 + 355.0, 40.0
     settle_t = grooming_onset + grooming_duration
 
     # --- Labels layer aligned to the fUSI spatial axes, two painted regions. ---
-    da_meta9 = fusi9.metadata["xarray"]
     spatial9 = [i for i, d in enumerate(da_meta9.dims) if d != "time"]
     spatial_shape9 = tuple(da_meta9.shape[i] for i in spatial9)
     spatial_scale9 = tuple(float(fusi9.scale[i]) for i in spatial9)
@@ -1211,20 +1194,10 @@ try:
         name="Labels (3D)",
         scale=spatial_scale9,
         translate=spatial_translate9,
+        # Matching units keep napari from warning about inconsistent units.
+        units=tuple(fusi9.units[i] for i in spatial9),
         opacity=0.7,
     )
-
-    # --- Behavioural video via the Video panel; group fUSI + labels in one cell. ---
-    video_panel9 = widget9.findChild(VideoPanel)
-    _ref_idx9 = video_panel9._ref_combo.findText(fusi9.name)
-    if _ref_idx9 >= 0:
-        video_panel9._ref_combo.setCurrentIndex(_ref_idx9)
-    video_panel9._path_edit.setText(str(_VIDEO_MP4_PATH))
-    video_panel9._load_from_path()
-    _qt_sleep(300)
-    # stride=2 keeps [fUSI, Labels] overlaid in one grid cell; the video gets its own.
-    viewer9.grid.stride = 2
-    get_qapp().processEvents()
 
     events_panel9 = widget9._accordion_panels["Events"]
 
@@ -1306,7 +1279,7 @@ try:
         viewer9.dims.set_point(VIDEO_TIME_AXIS, t)
         plotter9._cursor_world = t
         # Re-render the labels-mode plot so the cursor line moves to the new time
-        # (the video frame in the grid also updates to this time step).
+        # (the video viewer follows the same time).
         plotter9.set_show_cursor(True)
         plotter9._update_plot_from_labels()
         widget9._time_overlay.update()

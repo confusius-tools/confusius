@@ -88,8 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--video",
         type=Path,
         help=(
-            "Path to a video file (.mp4, .mov, .avi) to display side-by-side "
-            "with the first fUSI data file. Requires at least one data file."
+            "Path to a video file (.mp4, .mov, .avi) to open in the video viewer, "
+            "time-synchronized with any fUSI data file loaded."
         ),
     )
     # The `datasets` namespace is dispatched in `main`, not by this parser, so
@@ -166,8 +166,8 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
         The viewer with the ConfUSIus widget docked and the requested data
         files added as layers (one layer per file, in the same order as
         `args.path`; see [`_open_paths`][confusius._cli._open_paths] for how
-        the layer type is chosen). The first loaded layer is paired with
-        `args.video` if it is also set.
+        the layer type is chosen). `args.video`, if set, is opened in the Video
+        panel's dedicated viewer.
     """
     import napari
 
@@ -178,15 +178,12 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
     widget = ConfUSIusWidget(viewer)
     viewer.window.add_dock_widget(widget, name="ConfUSIus")
 
-    layers = _open_paths(viewer, args.path, lazy=args.lazy) if args.path else []
+    if args.path:
+        _open_paths(viewer, args.path, lazy=args.lazy)
 
     if args.video is not None:
-        if not layers:
-            build_parser().error(
-                "--video requires a data file to be specified as well."
-            )
         video_panel = widget._accordion_panels["Video"]
-        video_panel._add_video(args.video, layers[0])  # type: ignore
+        video_panel._add_video(args.video)  # type: ignore
 
     return viewer
 
