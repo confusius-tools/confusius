@@ -1,9 +1,8 @@
 """Tests for the click-to-navigate feature.
 
 Left-clicking on a matplotlib plot (signals or QC) should navigate the napari
-viewer to the corresponding time slice.  Pure-logic helpers (_x_to_frame) are
-tested with lightweight stubs; viewer integration is tested with
-make_napari_viewer following the napari plugin testing guidelines.
+viewer to the corresponding time slice. Click events use lightweight stubs;
+widgets use make_napari_viewer following the napari plugin testing guidelines.
 """
 
 from __future__ import annotations
@@ -51,26 +50,6 @@ def qc_widget(viewer):
 
 
 # ---------------------------------------------------------------------------
-# SignalPlotter._x_to_frame
-# ---------------------------------------------------------------------------
-
-
-class TestXToFrame:
-    def test_returns_x_val_when_no_coords(self, plotter):
-        plotter._xaxis_coords = None
-        assert plotter._x_to_frame(5.0) == 5.0
-
-    def test_maps_time_value_to_nearest_frame_index(self, plotter):
-        plotter._xaxis_coords = np.array([10.0, 10.5, 11.0, 11.5])
-        assert plotter._x_to_frame(10.8) == 2.0  # closest to 11.0
-        assert plotter._x_to_frame(10.0) == 0.0
-
-    def test_non_numeric_coords_fall_back_to_x_val(self, plotter):
-        plotter._xaxis_coords = np.array(["feat_A", "feat_B", "feat_C"])
-        assert plotter._x_to_frame(1.0) == 1.0
-
-
-# ---------------------------------------------------------------------------
 # SignalPlotter._on_click
 # ---------------------------------------------------------------------------
 
@@ -79,16 +58,21 @@ class TestSignalPlotterOnClick:
     def test_emits_frame_clicked_on_left_click(self, plotter, signal_spy):
         spy = signal_spy()
         plotter.frame_clicked.connect(spy)
-        plotter._xaxis_coords = np.array([10.0, 10.5, 11.0])
+        plotter._axis_coordinates = np.array([10.0, 10.5, 11.0])
 
         event = _FakeMouseEvent(inaxes=plotter._axes, xdata=10.5)
         plotter._on_click(event)
 
         assert spy.count == 1
 
-    def test_emits_xaxis_value_not_data_index(self, plotter):
+    @pytest.mark.parametrize(
+        "coordinates",
+        [None, np.array([10.0, 10.5, 11.0]), np.array(["A", "B", "C"])],
+        ids=["no-coordinates", "numeric", "categorical-without-reference"],
+    )
+    def test_emits_xaxis_value_not_data_index(self, plotter, coordinates):
         """The signal must emit the x-axis plot coordinate (world value),
-        not the data index returned by _x_to_frame.
+        not a nearest-frame index.
 
         Regression: the old code emitted _x_to_frame(xdata), which is a
         data index.  When a video layer changed dims.range.step, the panel
@@ -97,7 +81,7 @@ class TestSignalPlotterOnClick:
         """
         received = []
         plotter.frame_clicked.connect(lambda v: received.append(v))
-        plotter._xaxis_coords = np.array([10.0, 10.5, 11.0])
+        plotter._axis_coordinates = coordinates
 
         # Click at x=10.5 on the plot — must emit 10.5 (world), not 1 (index).
         event = _FakeMouseEvent(inaxes=plotter._axes, xdata=10.5)
