@@ -123,15 +123,15 @@ class TestFit:
         with pytest.raises(ValueError, match="at least one recording"):
             cap.fit([])
 
-    def test_invalid_metric_raises(self, sample_3dt_volume):
+    def test_invalid_metric_raises(self, sample_voxeldata_3dt):
         cap = CAP(n_clusters=3, metric=cast(Any, "manhattan"))
         with pytest.raises(ValueError, match="metric"):
-            cap.fit([sample_3dt_volume])
+            cap.fit([sample_voxeldata_3dt])
 
-    def test_invalid_update_rule_raises(self, sample_3dt_volume):
+    def test_invalid_update_rule_raises(self, sample_voxeldata_3dt):
         cap = CAP(n_clusters=3, update_rule=cast(Any, "invalid"))
         with pytest.raises(ValueError, match="update_rule"):
-            cap.fit([sample_3dt_volume])
+            cap.fit([sample_voxeldata_3dt])
 
     def test_nan_input_raises(self, rng):
         data = rng.standard_normal((20, 3, 3))
@@ -197,20 +197,20 @@ class TestFit:
         cap_2 = CAP(n_clusters=10, n_init=2, random_state=0).fit(recs)
         assert not np.array_equal(cap_1.labels_[0].values, cap_2.labels_[0].values)
 
-    def test_n_init_integer(self, sample_3dt_volume):
+    def test_n_init_integer(self, sample_voxeldata_3dt):
         """Integer n_init runs multiple restarts without error."""
         cap = CAP(n_clusters=4, metric="cosine", n_init=2, random_state=0)
-        cap.fit([sample_3dt_volume])
+        cap.fit([sample_voxeldata_3dt])
         assert cap.caps_.sizes["cap"] == 4
 
-    def test_invalid_n_init_raises(self, sample_3dt_volume):
+    def test_invalid_n_init_raises(self, sample_voxeldata_3dt):
         cap = CAP(n_clusters=2, metric="cosine", n_init=cast(Any, 0))
         with pytest.raises(ValueError, match="n_init"):
-            cap.fit([sample_3dt_volume])
+            cap.fit([sample_voxeldata_3dt])
 
-    def test_reproducibility(self, sample_3dt_volume):
-        cap1 = CAP(n_clusters=4, random_state=42).fit([sample_3dt_volume])
-        cap2 = CAP(n_clusters=4, random_state=42).fit([sample_3dt_volume])
+    def test_reproducibility(self, sample_voxeldata_3dt):
+        cap1 = CAP(n_clusters=4, random_state=42).fit([sample_voxeldata_3dt])
+        cap2 = CAP(n_clusters=4, random_state=42).fit([sample_voxeldata_3dt])
         npt.assert_array_equal(cap1.labels_[0].values, cap2.labels_[0].values)
 
     def test_streaming_fit_cosine(self, clustered_recording):
@@ -229,9 +229,9 @@ class TestFit:
         npt.assert_array_equal(cap.predict(chunked)[0].values, cap.labels_[0].values)
         assert cap.score_samples(chunked)[0].sizes["time"] == chunked.sizes["time"]
 
-    def test_invalid_batch_size_raises(self, sample_3dt_volume):
+    def test_invalid_batch_size_raises(self, sample_voxeldata_3dt):
         with pytest.raises(ValueError, match="batch_size"):
-            CAP(n_clusters=2, batch_size=0).fit([sample_3dt_volume])
+            CAP(n_clusters=2, batch_size=0).fit([sample_voxeldata_3dt])
 
 
 # ---------------------------------------------------------------------------
