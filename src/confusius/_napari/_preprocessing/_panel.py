@@ -1460,7 +1460,9 @@ class PreprocessingPanel(QWidget):
         signal_id = self._mask_combo.currentData()
         if source_layer is not None and signal_id is not None:
             try:
-                self._mask_preview_raw = self._resolve_raw_signal(signal_id, source_layer)
+                self._mask_preview_raw = self._resolve_raw_signal(
+                    signal_id, source_layer
+                )
             except ValueError:
                 pass
         self._refresh_mask_preview()
