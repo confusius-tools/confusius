@@ -9,6 +9,7 @@ import xarray as xr
 from sklearn.exceptions import NotFittedError
 
 from confusius.connectivity import CAP
+from confusius.validation import validate_voxeldata
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +72,23 @@ def fitted_cap(recordings):
 
 
 class TestFit:
+    def test_caps_preserve_voxeldata_geometry(self, sample_voxeldata_3dt):
+        """CAP maps retain input geometry and contain the fitted cluster means."""
+        recording = sample_voxeldata_3dt
+        cap = CAP(
+            n_clusters=2, metric="euclidean", update_rule="mean", random_state=0
+        ).fit(recording)
+
+        validate_voxeldata(cap.caps_)
+        assert cap.caps_.dims == ("cap", "k", "j", "i")
+        for coord in ("z", "y", "x"):
+            xr.testing.assert_identical(cap.caps_.coords[coord], recording.coords[coord])
+        for cluster in range(2):
+            members = recording.values[cap.labels_[0].values == cluster]
+            npt.assert_allclose(
+                cap.caps_.isel(cap=cluster).values, members.mean(axis=0), atol=1e-7
+            )
+
     def test_labels_time_coords_preserved(self, fitted_cap, recordings):
         for lbl, rec in zip(fitted_cap.labels_, recordings):
             npt.assert_array_equal(lbl.coords["time"].values, rec.coords["time"].values)
