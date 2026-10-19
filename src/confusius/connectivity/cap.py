@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Iterable, Iterator
+from typing import TYPE_CHECKING, Literal, TypeVar
 
 from confusius._utils.stack import find_stack_level
 
@@ -29,30 +30,56 @@ _ALLOWED_UPDATE_RULES = ("mean", "weighted")
 _ALLOWED_SELECTION_METHODS = ("elbow", "silhouette", "davies_bouldin", "variance_ratio")
 
 
+_T = TypeVar("_T")
+"""Item type preserved by optional progress wrapping."""
+
+
 def _maybe_track(
-    iterable: object, *, description: str, total: int, enabled: bool
-) -> object:
-    """Wrap `iterable` in a progress iterator when requested."""
+    iterable: Iterable[_T], *, description: str, total: int, enabled: bool
+) -> Iterable[_T]:
+    """Wrap `iterable` in a progress iterator when requested.
+
+    Parameters
+    ----------
+    iterable : collections.abc.Iterable
+        Items to process.
+    description : str
+        Progress description.
+    total : int
+        Number of items.
+    enabled : bool
+        Whether to show progress.
+
+    Returns
+    -------
+    collections.abc.Iterable
+        Original iterable or its progress-wrapped equivalent.
+    """
     if not enabled:
         return iterable
-    try:
-        from rich.progress import track
+    from rich.progress import track
 
-        return track(iterable, description=description, total=total)
-    except Exception:
-        return iterable
+    return track(iterable, description=description, total=total)
 
 
-def _progress(enabled: bool):
-    """Return a `rich` progress context manager or `None`."""
+def _progress(enabled: bool) -> Progress | None:
+    """Return a progress context manager when requested.
+
+    Parameters
+    ----------
+    enabled : bool
+        Whether to create a progress context manager.
+
+    Returns
+    -------
+    rich.progress.Progress or None
+        Progress context manager, or `None` when disabled.
+    """
     if not enabled:
         return None
-    try:
-        from rich.progress import Progress
+    from rich.progress import Progress
 
-        return Progress()
-    except Exception:
-        return None
+    return Progress()
 
 
 def _resolve_n_init(n_init: int | Literal["auto"]) -> int:
@@ -395,8 +422,32 @@ def _iter_preprocessed_batches(
     spatial_dims: list[str],
     batch_size: int,
     metric: Literal["correlation", "cosine", "euclidean"],
-) -> tuple[str, npt.NDArray[np.float32]]:
-    """Yield preprocessed `(time, space)` batches as float32 arrays."""
+) -> Iterator[tuple[str, npt.NDArray[np.float32]]]:
+    """Yield preprocessed `(time, space)` batches as float32 arrays.
+
+    Parameters
+    ----------
+    recordings : list of xarray.DataArray
+        Recordings to process.
+    spatial_dims : list of str
+        Dimensions to flatten into spatial features.
+    batch_size : int
+        Maximum number of timepoints per batch.
+    metric : {"correlation", "cosine", "euclidean"}
+        Metric determining spatial preprocessing.
+
+    Yields
+    ------
+    batch_id : str
+        Recording and starting-frame identifier.
+    batch : numpy.ndarray
+        Preprocessed float32 batch.
+
+    Raises
+    ------
+    ValueError
+        If a batch contains NaN values.
+    """
     for rec_idx, rec in enumerate(recordings):
         stacked = rec.transpose("time", *spatial_dims).stack(space=spatial_dims)
         n_time = stacked.sizes["time"]
@@ -859,7 +910,7 @@ class CAP(BaseEstimator):
         self.batch_size = batch_size
         self.show_progress = show_progress
 
-    def fit(self, X: list[xr.DataArray] | xr.DataArray, y: None = None) -> "CAP":
+    def fit(self, X: list[xr.DataArray] | xr.DataArray, y: None = None) -> CAP:
         """Fit co-activation patterns by clustering volumes across all recordings.
 
         Parameters
@@ -1363,7 +1414,7 @@ class CAP(BaseEstimator):
             "elbow", "silhouette", "davies_bouldin", "variance_ratio"
         ] = "silhouette",
         show_progress: bool = True,
-        progress: "Progress | None" = None,
+        progress: Progress | None = None,
         return_scores: bool = False,
     ) -> int | tuple[int, list[float]]:
         """Select the optimal number of clusters.
@@ -1446,7 +1497,9 @@ class CAP(BaseEstimator):
             raise ValueError("X must contain at least one recording.")
         for rec in recordings:
             validate_time_series(
-                rec, operation_name="CAP.select_n_clusters", require_unchunked_time=False
+                rec,
+                operation_name="CAP.select_n_clusters",
+                require_unchunked_time=False,
             )
 
         spatial_dims = [str(d) for d in recordings[0].dims if d != "time"]
