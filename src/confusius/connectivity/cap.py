@@ -898,13 +898,11 @@ class CAP(BaseEstimator):
         if not recordings:
             raise ValueError("X must contain at least one recording.")
         for rec in recordings:
-            validate_time_series(rec, operation_name="CAP.fit", check_time_chunks=False)
+            validate_time_series(
+                rec, operation_name="CAP.fit", require_unchunked_time=False
+            )
 
         spatial_dims = [str(d) for d in recordings[0].dims if d != "time"]
-        first_stacked = (
-            recordings[0].transpose("time", *spatial_dims).stack(space=spatial_dims)
-        )
-        space_coords = first_stacked.coords["space"]
 
         if self.batch_size is None:
             # Stack spatial dims to (time, space) and concatenate across recordings.
@@ -988,15 +986,11 @@ class CAP(BaseEstimator):
             labels = None
 
         n_caps = len(centers)
-        caps_stacked = xr.DataArray(
-            centers,
-            dims=["cap", "space"],
-            coords={
-                "cap": np.arange(n_caps),
-                "space": space_coords,
-            },
+        # Reuse the spatial template to preserve its voxel-to-world index.
+        template = recordings[0].isel(time=0, drop=True).transpose(*spatial_dims)
+        caps = template.expand_dims(cap=np.arange(n_caps)).copy(
+            data=centers.reshape((n_caps, *template.shape))
         )
-        caps = caps_stacked.unstack("space")
         caps.attrs.update({"long_name": "CAP", "cmap": "coolwarm"})
         self.caps_: xr.DataArray = caps
         self._spatial_dims: tuple[str, ...] = tuple(
@@ -1130,7 +1124,7 @@ class CAP(BaseEstimator):
 
         for rec in recordings:
             validate_time_series(
-                rec, operation_name="CAP assignment", check_time_chunks=False
+                rec, operation_name="CAP assignment", require_unchunked_time=False
             )
             rec = rec.transpose("time", *self._spatial_dims)
             time_coords = {"time": rec.coords["time"]} if "time" in rec.coords else {}
@@ -1452,7 +1446,7 @@ class CAP(BaseEstimator):
             raise ValueError("X must contain at least one recording.")
         for rec in recordings:
             validate_time_series(
-                rec, operation_name="CAP.select_n_clusters", check_time_chunks=False
+                rec, operation_name="CAP.select_n_clusters", require_unchunked_time=False
             )
 
         spatial_dims = [str(d) for d in recordings[0].dims if d != "time"]
