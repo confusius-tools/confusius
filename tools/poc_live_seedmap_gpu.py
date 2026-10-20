@@ -1,12 +1,12 @@
-"""PoC: live GPU seed-based connectivity map, seed = voxel under the mouse.
+"""PoC: live GPU seed-based connectivity map with a selectable time window.
 
-Standalone demo, independent of the confu napari plugin. Loads one recording, runs
-the smooth/aCompCor/cosine-clean steps once on GPU (the "pre-corrected/denoised"
-recording from the seed-map benchmark), then keeps the cleaned volume resident on
-GPU. Hold Shift and move the mouse over the anatomical image to recompute and
-display the seed-based correlation map in real time.
+Runs smoothing, aCompCor, and cosine cleaning once, then keeps the cleaned recording
+on GPU. Hold Shift and move the mouse over the anatomical image to choose a seed.
+Docked start/end sliders select the cleaned recording period used for correlation.
+Cleaning uses the full recording, not the selected window.
 
-See tools/benchmark_seed_map_gpu.py for the pipeline this reuses and its timings.
+Run with `uv run python tools/poc_live_seedmap_gpu.py` (requires CUDA and a display).
+See tools/benchmark_seed_map_gpu.py for the shared pipeline and CPU/GPU comparison.
 """
 
 from __future__ import annotations
@@ -20,6 +20,9 @@ from benchmark_seed_map_gpu import (
     gpu_smooth,
     prepare_example,
 )
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QLabel, QVBoxLayout, QWidget
+from superqt import QRangeSlider
 
 from confusius.plotting import plot_napari
 
@@ -33,27 +36,24 @@ def main() -> None:
     acompcor, _explained = gpu_compcor(smoothed, np.asarray(white_matter.data))
     cleaned = gpu_clean_cosine(smoothed, acompcor, dt, 0.01)
 
-    _t, k, j, i = cleaned.shape
-    flat = cleaned.reshape(cleaned.shape[0], -1)
-    # Cleaned data is static once computed, so center it and cache the per-voxel
-    # norm once instead of redoing it on every mouse move.
-    x_centered = flat - flat.mean(axis=0)
-    denom_x = cp.sqrt(cp.sum(x_centered * x_centered, axis=0))
+    t, k, j, i = cleaned.shape
+    flat = cleaned.reshape(t, -1)
+    current_start = 0
+    current_stop = t
+    current_x_centered = flat - flat.mean(axis=0)
+    current_denom_x = cp.sqrt(cp.sum(current_x_centered * current_x_centered, axis=0))
 
     def seed_corr_map(vk: int, vj: int, vi: int) -> np.ndarray:
         index = (vk * j + vj) * i + vi
-        seed = x_centered[:, index]
-        numerator = x_centered.T @ seed
-        denom = denom_x * cp.sqrt(cp.sum(seed * seed))
+        seed = current_x_centered[:, index]
+        numerator = current_x_centered.T @ seed
+        denom = current_denom_x * cp.sqrt(cp.sum(seed * seed))
         corr = cp.where(denom == 0, 0.0, numerator / denom)
         return corr.reshape(k, j, i).get()
 
-    # plot_napari carries `moving`'s VoxelToWorldIndex (scale/translate/units) onto the
-    # layers, so the anatomical image and the overlay line up in world coordinates
-    # instead of assuming unit voxel spacing.
     viewer, anatomical_layer = plot_napari(moving, name="anatomical", colormap="gray")
     seed_map = moving.copy(data=np.zeros_like(moving.data))
-    seed_map.name = "live seed map"
+    seed_map.name = "live seed map (time window)"
     _viewer, seed_layer = plot_napari(
         seed_map,
         viewer=viewer,
@@ -64,10 +64,50 @@ def main() -> None:
         blending="translucent",
         opacity=0.7,
     )
-    viewer.text_overlay.visible = True
-    viewer.text_overlay.text = "Hold Shift and move the mouse to set the seed voxel."
+
+    time_values = data.time.values.astype(float)
+    duration_label = QLabel()
+    time_slider = QRangeSlider(Qt.Horizontal)
+    time_slider.setRange(0, t - 1)
+    time_slider.setValue((0, t - 1))
+
+    panel = QWidget()
+    layout = QVBoxLayout(panel)
+    layout.addWidget(duration_label)
+    layout.addWidget(time_slider)
+    viewer.window.add_dock_widget(panel, area="right", name="Seed-map time window")
 
     last_voxel = None
+
+    def update_window(_value: tuple[int, int] | None = None) -> None:
+        nonlocal current_start, current_stop, current_x_centered, current_denom_x
+        start, end = (int(v) for v in time_slider.value())
+        if start >= end:
+            start, end = (end - 1, end) if end == t - 1 else (start, start + 1)
+            time_slider.blockSignals(True)
+            time_slider.setValue((start, end))
+            time_slider.blockSignals(False)
+        current_start = start
+        current_stop = end + 1
+        window = flat[current_start:current_stop]
+        current_x_centered = window - window.mean(axis=0)
+        current_denom_x = cp.sqrt(cp.sum(current_x_centered * current_x_centered, axis=0))
+        duration = float(time_values[current_stop - 1]) - float(time_values[current_start])
+        duration_label.setText(
+            f"Using frames {current_start}..{current_stop - 1} "
+            f"({current_stop - current_start}/{t}, {duration:.1f} s)"
+        )
+        if last_voxel is not None:
+            seed_layer.data = seed_corr_map(*last_voxel)
+
+    time_slider.valuesChanged.connect(update_window)
+    update_window()
+
+    viewer.text_overlay.visible = True
+    viewer.text_overlay.text = (
+        "Drag the start/end sliders to choose the time window; "
+        "hold Shift and move the mouse to set the seed voxel."
+    )
 
     def on_mouse_move(viewer, event) -> None:
         nonlocal last_voxel
