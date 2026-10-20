@@ -66,6 +66,19 @@ _ACQ_DEPTH_START = 1.0
 _POSE = (0.0007, 0.0026, 0.0, 0.0, 0.0, math.pi / 2)
 
 
+def _expected_probe_to_lab() -> np.ndarray:
+    """Return `_POSE` as a ConfUSIus-ordered probe-to-lab affine in mm."""
+    tx, ty, tz, _, _, rz = _POSE
+    cz, sz = math.cos(rz), math.sin(rz)
+    probe_to_lab = np.eye(4)
+    probe_to_lab[:3, :3] = [[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]]
+    probe_to_lab[:3, 3] = (tx, ty, tz)
+    perm = np.asarray(WORLD_TO_PROBE_PERMUTATION)
+    probe_to_lab = perm.T @ probe_to_lab @ perm
+    probe_to_lab[:3, 3] *= 1e3
+    return probe_to_lab
+
+
 # Provenance layout matching the observed on-disk order: sequence, project, subject,
 # session, species, <type>, scan, <unknown>, <unknown>, experimenter, then the two
 # hex-encoded trailing fields (serial, hardware).
@@ -525,9 +538,10 @@ class TestLoadScanV2:
         for dim in ("x", "y", "z"):
             assert scan_v2.coords[dim].attrs["units"] == "mm"
 
-    def test_no_probe_to_lab(self, scan_v2: xr.DataArray) -> None:
-        """v2 carries an empty affines dict (no probe_to_lab yet)."""
-        assert scan_v2.attrs["affines"] == {}
+    def test_affines_hold_world_to_lab(self, scan_v2: xr.DataArray) -> None:
+        """v2 carries only a world_to_lab affine, identity for this zero-pose file."""
+        assert set(scan_v2.attrs["affines"]) == {"world_to_lab"}
+        np.testing.assert_allclose(scan_v2.attrs["affines"]["world_to_lab"], np.eye(4))
 
     def test_scan_format_attr(self, scan_v2: xr.DataArray) -> None:
         """v2 records its on-disk format."""
@@ -688,24 +702,15 @@ class TestLoadScanV2Acquisition:
         assert scan_v2_acq.attrs["svd_low_cutoff"] == _SVD_CUTOFF
         assert scan_v2_acq.attrs["power_doppler_integration_duration"] == _DT
 
-    def test_probe_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
-        """probe_to_lab (folded into the primary affine) is built from the 6DOF pose.
+    def test_world_is_probe_space_despite_rotated_pose(
+        self, scan_v2_acq: xr.DataArray
+    ) -> None:
+        """A rotated 6DOF pose moves world_to_lab, not the world coordinates.
 
-        probe_to_lab is no longer exposed separately in attrs (ConfUSIus world
-        coordinates for SCAN data are already lab space -- it is folded into the
-        primary voxel-to-world affine at construction). This reconstructs the known
-        local (pre-fold) affine from the fixture's own voxel-size/depth-origin
-        constants and checks probe_to_lab @ local == the loaded primary affine.
+        World space is the probe space (`z` elevation, `y` depth, `x` lateral), so the
+        voxel-to-world affine only holds voxel sizes and the depth origin, while the
+        pose (rotated 90 degrees about the vertical axis) goes to `world_to_lab`.
         """
-        tx, ty, tz, _, _, rz = _POSE
-        cz, sz = math.cos(rz), math.sin(rz)
-        probe_to_lab = np.eye(4)
-        probe_to_lab[:3, :3] = [[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]]
-        probe_to_lab[:3, 3] = (tx, ty, tz)
-        perm = np.asarray(WORLD_TO_PROBE_PERMUTATION)
-        probe_to_lab = perm.T @ probe_to_lab @ perm
-        probe_to_lab[:3, 3] *= 1e3
-
         local_affine = np.eye(4)
         local_affine[:3, :3] = np.diag([_DY_M * 1e3, _DZ_M * 1e3, _DX_M * 1e3])
         local_affine[:3, 3] = [
@@ -715,11 +720,13 @@ class TestLoadScanV2Acquisition:
         ]
 
         np.testing.assert_allclose(
-            get_voxel_to_world_affine(scan_v2_acq),
-            probe_to_lab @ local_affine,
+            get_voxel_to_world_affine(scan_v2_acq), local_affine, atol=1e-9
+        )
+        np.testing.assert_allclose(
+            scan_v2_acq.attrs["affines"]["world_to_lab"],
+            _expected_probe_to_lab(),
             atol=1e-9,
         )
-        assert "probe_to_lab" not in scan_v2_acq.attrs.get("affines", {})
 
     def test_implausible_pose_raises(self, tmp_path: Path) -> None:
         """An implausible v2 pose fails loading instead of using probe geometry."""
@@ -744,14 +751,9 @@ class TestLoadScanV2WithBPS:
     def test_world_to_brain_composed(
         self, scan_v2_acq_path: Path, bps_path: Path
     ) -> None:
-        """bps_path adds a world_to_brain affine mapping world (already lab) to brain.
-
-        ConfUSIus world coordinates are already lab space (probe_to_lab is folded
-        into the primary voxel-to-world affine at construction), so world_to_brain
-        no longer composes with a separately stored probe_to_lab.
-        """
+        """bps_path adds world_to_brain = inv(brain_to_lab) @ world_to_lab."""
         da = load_scan(scan_v2_acq_path, bps_path=bps_path)
-        expected = np.linalg.inv(load_bps(bps_path))
+        expected = np.linalg.inv(load_bps(bps_path)) @ _expected_probe_to_lab()
         np.testing.assert_allclose(
             da.attrs["affines"]["world_to_brain"], expected, atol=1e-12
         )

@@ -50,6 +50,9 @@ Current development version for the next ConfUSIus release.
   for regions with no upstream mesh, such as Allen mouse RSPd4. Mesh availability is
   remembered per annotation-set version; available meshes deleted locally are still
   downloaded again ([#508](https://github.com/confusius-tools/confusius/pull/508)).
+- [`load_scan`][confusius.io.load_scan] now expresses world coordinates in the first
+  probe pose's space (`z` elevation, `y` depth, `x` lateral) and stores the Iconeus lab
+  frame as a single `(4, 4)` `attrs["affines"]["world_to_lab"]` affine.
 
 ### :books: Documentation
 

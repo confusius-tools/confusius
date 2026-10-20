@@ -153,9 +153,9 @@ def consolidate_poses(
     Per-`(pose, sweep_dim)` world positions are read directly from `da`'s own world
     coordinates, which requires `da`'s primary voxel-to-world geometry to itself be
     pose-dependent (a `(npose, 4, 4)` affine stack, one affine per pose).
-    This is the case for SCAN data, where lab space (a fixed scanner frame shared by
-    every pose) is the canonical world frame — see
-    [`load_scan`][confusius.io.load_scan] — and for
+    This is the case for SCAN data, where the first pose's probe space (a fixed frame
+    shared by every pose) is the canonical world frame (see
+    [`load_scan`][confusius.io.load_scan]), and for
     [`stack_poses`][confusius.multipose.stack_poses] output. If `da`'s primary
     geometry is instead driven by a *secondary*, named affine in
     `da.attrs["affines"]` (e.g. a stack of NIfTI DataArrays with their
