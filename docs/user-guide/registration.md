@@ -25,6 +25,9 @@ icon: lucide/images
     
     - [`compose_affine`][confusius.registration.compose_affine]: Compose multiple affine transformations into one.
     - [`decompose_affine`][confusius.registration.decompose_affine]: Decompose an affine matrix into translation, rotation, and scaling components.
+    - [`apply_translate`][confusius.registration.apply_translate]: Shift a VoxelData array in world space.
+    - [`apply_rotate`][confusius.registration.apply_rotate]: Rotate a VoxelData array about a world axis, optionally about a pivot point.
+    - [`apply_zoom`][confusius.registration.apply_zoom]: Rescale a VoxelData array's world extent, optionally about a pivot point.
 
     Please refer to the [API Reference](../api/registration.md)
     for more information.

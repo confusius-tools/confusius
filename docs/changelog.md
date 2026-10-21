@@ -10,6 +10,15 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- Add [`apply_translate`][confusius.registration.apply_translate],
+  [`apply_rotate`][confusius.registration.apply_rotate] and
+  [`apply_zoom`][confusius.registration.apply_zoom], plus the matching
+  `.fusi.affine.translate()`, `.rotate()` and `.zoom()` accessor methods, to move
+  VoxelData in world space without resampling
+  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+
 ### :bug: Fixes
 
 - [`apply_affine`][confusius.xarray.apply_affine] and
