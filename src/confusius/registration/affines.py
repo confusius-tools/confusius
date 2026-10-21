@@ -403,6 +403,70 @@ def apply_rotate(
     return apply_affine(data, _about_center(rotation, center), inplace=inplace)
 
 
+def apply_zoom(
+    data: xr.DataArray,
+    zoom: float | npt.ArrayLike,
+    *,
+    center: npt.ArrayLike | None = None,
+    inplace: bool = False,
+) -> xr.DataArray:
+    """Rescale a VoxelData array in world space.
+
+    Only the voxel-to-world geometry changes: data values and voxel coordinates are
+    untouched, and any `attrs["affines"]` entries are re-expressed accordingly.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to rescale.
+    zoom : float or (3,) array-like
+        Scale factor, either a scalar applied to all axes or per-axis factors in world
+        `(z, y, x)` order. Negative factors reflect the volume along that axis.
+    center : (3,) array-like, optional
+        Fixed point of the rescaling in world `(z, y, x)` order, in units of
+        `data.fusi.affine.units`. If not provided, the volume is rescaled about the
+        world origin. Use `data.fusi.affine.bounding_box.mean("bound").values` to
+        rescale about the centre of the volume.
+    inplace : bool, default: False
+        Whether to modify `data` in place instead of returning a copy.
+
+    Returns
+    -------
+    xarray.DataArray
+        The rescaled VoxelData array. This is `data` itself if `inplace` is `True`.
+
+    Raises
+    ------
+    ValueError
+        If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
+        (singular affine), if `center` is not a finite `(3,)` vector, if `data` is not
+        a VoxelData array, or if a per-axis `zoom` is applied to pose-stacked geometry
+        whose poses are not parallel (all pose affines must share equal spatial scale
+        magnitudes).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from confusius.registration import apply_zoom
+    >>> from confusius.xarray import create_voxeldata
+    >>> data = create_voxeldata(
+    ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
+    ... )
+    >>> zoomed = apply_zoom(data, 2.0)
+    >>> np.diag(zoomed.fusi.affine.voxel_to_world)
+    array([2., 2., 2., 1.])
+    """
+    if np.ndim(zoom) == 0:
+        if not np.isfinite(zoom):
+            raise ValueError(f"zoom must be finite, got {zoom}.")
+        factors = np.full(3, zoom, dtype=np.float64)
+    else:
+        factors = _as_world_vector(zoom, "zoom")
+    if np.any(factors == 0):
+        raise ValueError("zoom factors must be non-zero, got a singular scaling.")
+    return apply_affine(data, _about_center(np.diag(factors), center), inplace=inplace)
+
+
 def affine_to_sitk_linear_transform(
     affine: npt.NDArray[np.floating],
 ) -> "AffineTransform":

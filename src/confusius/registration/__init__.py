@@ -4,6 +4,7 @@ from confusius.registration._utils import initialize_single_slice_rigid_transfor
 from confusius.registration.affines import (
     apply_rotate,
     apply_translate,
+    apply_zoom,
     compose_affine,
     decompose_affine,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "VolumewiseProgressReporter",
     "apply_rotate",
     "apply_translate",
+    "apply_zoom",
     "compose_affine",
     "compute_framewise_displacement",
     "create_motion_dataframe",

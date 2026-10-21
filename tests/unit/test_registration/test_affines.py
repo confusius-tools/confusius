@@ -9,7 +9,7 @@ import xarray as xr
 from numpy.testing import assert_allclose, assert_array_almost_equal, assert_array_equal
 from scipy.spatial.transform import Rotation
 
-from confusius.registration import apply_rotate, apply_translate
+from confusius.registration import apply_rotate, apply_translate, apply_zoom
 from confusius.registration.affines import (
     affine_to_sitk_linear_transform,
     compose_affine,
@@ -372,3 +372,50 @@ class TestApplyRotate:
     def test_invalid_center_raises(self, rng):
         with pytest.raises(ValueError, match="center"):
             apply_rotate(_volume(rng), 10.0, "x", center=(1.0, 2.0))
+
+
+class TestApplyZoom:
+    """Tests for apply_zoom."""
+
+    def test_scalar_zoom_scales_spacing(self, rng):
+        result = apply_zoom(_volume(rng), 2)
+        assert result.fusi.affine.voxel_to_world.dtype == np.float64
+        assert result.fusi.spacing == pytest.approx({"k": 1.0, "j": 0.4, "i": 0.2})
+
+    def test_per_axis_zoom(self, rng):
+        result = apply_zoom(_volume(rng), (1.0, 2.0, 4.0))
+        assert result.fusi.spacing == pytest.approx({"k": 0.5, "j": 0.4, "i": 0.4})
+        assert_allclose(result.fusi.affine.voxel_to_world[:3, 3], [1.0, -4.0, 12.0])
+
+    def test_center_is_fixed_point(self, rng):
+        center = np.array([1.0, -2.0, 3.0])
+        result = apply_zoom(_volume(rng), 3.0, center=center)
+        assert_allclose(
+            _world_affine(result) @ [*center, 1.0], [*center, 1.0], atol=1e-12
+        )
+        assert not np.allclose(
+            _world_affine(result) @ [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]
+        )
+
+    def test_negative_factor_flips_direction(self, rng):
+        result = apply_zoom(_volume(rng), (1.0, 1.0, -1.0))
+        assert_allclose(result.fusi.direction[:, 2], [0.0, 0.0, -1.0])
+        assert result.fusi.spacing == pytest.approx({"k": 0.5, "j": 0.2, "i": 0.1})
+
+    def test_scalar_zoom_broadcasts_over_poses(self, rng):
+        result = apply_zoom(_pose_volume(rng), 2.0)
+        assert result.fusi.affine.voxel_to_world.shape == (2, 4, 4)
+        assert_allclose(
+            result.fusi.affine.voxel_to_world[1, :3, :3], 2.0 * ROTATED_POSE[:3, :3]
+        )
+
+    def test_anisotropic_zoom_on_non_parallel_poses_raises(self, rng):
+        with pytest.raises(ValueError, match="equal spatial scale"):
+            apply_zoom(_pose_volume(rng), (1.0, 2.0, 1.0))
+
+    @pytest.mark.parametrize(
+        "zoom", [0.0, (1.0, 0.0, 1.0), (1.0, 2.0), (np.inf, 1.0, 1.0)]
+    )
+    def test_invalid_zoom_raises(self, rng, zoom):
+        with pytest.raises(ValueError, match="zoom"):
+            apply_zoom(_volume(rng), zoom)
