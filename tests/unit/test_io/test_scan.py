@@ -208,6 +208,7 @@ class TestLoadScan2D:
             _build_probe_to_lab(_PROBE_TO_LAB_SINGLE),
             rtol=1e-10,
         )
+        np.testing.assert_array_equal(da.attrs["affines"]["world_to_probe"], np.eye(4))
 
     def test_shape(self, scan_2d: xr.DataArray) -> None:
         """2Dscan shape matches (T, sizeY, sizeZ, sizeX)."""

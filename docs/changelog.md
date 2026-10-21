@@ -52,7 +52,8 @@ Current development version for the next ConfUSIus release.
   downloaded again ([#508](https://github.com/confusius-tools/confusius/pull/508)).
 - [`load_scan`][confusius.io.load_scan] now expresses world coordinates in the first
   probe pose's space (`z` elevation, `y` depth, `x` lateral) and stores the Iconeus lab
-  frame as a single `(4, 4)` `attrs["affines"]["world_to_lab"]` affine.
+  frame as a single `(4, 4)` `attrs["affines"]["world_to_lab"]` affine, next to an
+  identity `attrs["affines"]["world_to_probe"]` affine.
 
 ### :books: Documentation
 

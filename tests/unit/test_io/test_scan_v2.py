@@ -538,9 +538,12 @@ class TestLoadScanV2:
         for dim in ("x", "y", "z"):
             assert scan_v2.coords[dim].attrs["units"] == "mm"
 
-    def test_affines_hold_world_to_lab(self, scan_v2: xr.DataArray) -> None:
-        """v2 carries only a world_to_lab affine, identity for this zero-pose file."""
-        assert set(scan_v2.attrs["affines"]) == {"world_to_lab"}
+    def test_affines_hold_world_to_probe_and_lab(self, scan_v2: xr.DataArray) -> None:
+        """v2 carries identity world_to_probe and world_to_lab for this zero-pose file."""
+        assert set(scan_v2.attrs["affines"]) == {"world_to_probe", "world_to_lab"}
+        np.testing.assert_array_equal(
+            scan_v2.attrs["affines"]["world_to_probe"], np.eye(4)
+        )
         np.testing.assert_allclose(scan_v2.attrs["affines"]["world_to_lab"], np.eye(4))
 
     def test_scan_format_attr(self, scan_v2: xr.DataArray) -> None:
@@ -726,6 +729,23 @@ class TestLoadScanV2Acquisition:
             scan_v2_acq.attrs["affines"]["world_to_lab"],
             _expected_probe_to_lab(),
             atol=1e-9,
+        )
+
+    def test_world_to_probe_restores_probe_space(
+        self, scan_v2_acq: xr.DataArray
+    ) -> None:
+        """Applying world_to_probe after world_to_lab restores the loaded geometry."""
+        loaded = get_voxel_to_world_affine(scan_v2_acq)
+        in_lab = scan_v2_acq.fusi.affine.apply("world_to_lab")
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(in_lab),
+            _expected_probe_to_lab() @ loaded,
+            atol=1e-9,
+        )
+
+        restored = in_lab.fusi.affine.apply("world_to_probe")
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(restored), loaded, atol=1e-9
         )
 
     def test_implausible_pose_raises(self, tmp_path: Path) -> None:
