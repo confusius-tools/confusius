@@ -5,6 +5,9 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import numpy.typing as npt
+import xarray as xr
+
+from confusius.xarray.affine import apply_affine
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
@@ -203,6 +206,69 @@ def decompose_affine(
         Rmat[:, 0] *= -1
 
     return T, Rmat, np.array([sx, sy, sz]), np.array([sxy, sxz, syz])
+
+
+def _as_world_vector(value: npt.ArrayLike, name: str) -> npt.NDArray[np.float64]:
+    """Validate a world-space 3-vector given in `z/y/x` order.
+
+    Parameters
+    ----------
+    value : array-like
+        Candidate vector.
+    name : str
+        Argument name used in error messages.
+
+    Returns
+    -------
+    (3,) numpy.ndarray
+        The vector as a finite `float64` array.
+
+    Raises
+    ------
+    ValueError
+        If `value` is not convertible to a finite float array of shape `(3,)`.
+    """
+    msg = f"{name} must be a (3,) array-like of finite floats in world z/y/x order."
+    try:
+        vector = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError) as error:
+        raise ValueError(msg) from error
+    if vector.shape != (3,) or not np.all(np.isfinite(vector)):
+        raise ValueError(msg)
+    return vector
+
+
+def apply_translate(
+    data: xr.DataArray, translation: npt.ArrayLike, *, inplace: bool = False
+) -> xr.DataArray:
+    """Translate a VoxelData array in world space.
+
+    Only the voxel-to-world geometry changes: data values and voxel coordinates are
+    untouched, and any `attrs["affines"]` entries are re-expressed accordingly.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to translate.
+    translation : (3,) array-like
+        Translation in world `(z, y, x)` order, in units of `data.fusi.affine.units`.
+    inplace : bool, default: False
+        Whether to modify `data` in place instead of returning a copy.
+
+    Returns
+    -------
+    xarray.DataArray
+        The translated VoxelData array. This is `data` itself if `inplace` is `True`.
+
+    Raises
+    ------
+    ValueError
+        If `translation` is not a finite `(3,)` vector, or if `data` is not a
+        VoxelData array.
+    """
+    matrix = np.eye(4)
+    matrix[:3, 3] = _as_world_vector(translation, "translation")
+    return apply_affine(data, matrix, inplace=inplace)
 
 
 def affine_to_sitk_linear_transform(
