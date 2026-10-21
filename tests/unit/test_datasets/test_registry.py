@@ -2,8 +2,31 @@
 
 from __future__ import annotations
 
-from confusius.datasets import list_datasets
+import pytest
+
+from confusius.datasets import is_dataset_cached, list_datasets
 from confusius.datasets._registry import _REGISTRY
+
+# ---------------------------------------------------------------------------
+# is_dataset_cached()
+# ---------------------------------------------------------------------------
+
+
+def test_is_dataset_cached_follows_the_recorded_release_inventory(tmp_path):
+    name, _, root = _REGISTRY[0]
+    assert is_dataset_cached(name, data_dir=tmp_path) is False
+
+    (tmp_path / root).mkdir()
+    assert is_dataset_cached(name, data_dir=tmp_path) is False
+
+    (tmp_path / root / "s3_index.json").write_text("{}")
+    assert is_dataset_cached(name, data_dir=tmp_path) is True
+
+
+def test_is_dataset_cached_unknown_fetcher_raises(tmp_path):
+    with pytest.raises(KeyError, match="Unknown dataset fetcher 'fetch_nope'"):
+        is_dataset_cached("fetch_nope", data_dir=tmp_path)
+
 
 # ---------------------------------------------------------------------------
 # _REGISTRY

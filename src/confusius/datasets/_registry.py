@@ -95,6 +95,48 @@ def _format_bytes(size_bytes: int) -> str:
     return f"{size:.4g} {_SIZE_UNITS[-1]}"
 
 
+def is_dataset_cached(fetcher_name: str, data_dir: str | Path | None = None) -> bool:
+    """Whether a dataset or template is in the local cache.
+
+    True once the fetcher named `fetcher_name` has recorded a complete release in the
+    cache, so calling it again reads from disk without downloading (unless it is
+    called with `refresh=True`).
+
+    Parameters
+    ----------
+    fetcher_name : str
+        Name of a `confusius.datasets` fetcher, e.g.
+        `"fetch_template_pepe_mariani_2026"`.
+    data_dir : str or pathlib.Path, optional
+        Cache directory. Defaults to the directory resolved by
+        [`get_datasets_dir`][confusius.datasets.get_datasets_dir].
+
+    Returns
+    -------
+    bool
+        Whether the fetcher's release inventory is on disk.
+
+    Raises
+    ------
+    KeyError
+        If `fetcher_name` is not a registered fetcher.
+
+    Examples
+    --------
+    >>> is_dataset_cached("fetch_template_pepe_mariani_2026")  # doctest: +SKIP
+    False
+    """
+    roots = {name: root for name, _, root in _REGISTRY}
+    if fetcher_name not in roots:
+        raise KeyError(
+            f"Unknown dataset fetcher {fetcher_name!r}; expected one of "
+            f"{sorted(roots)}."
+        )
+    return (
+        get_datasets_dir(data_dir) / roots[fetcher_name] / _INDEX_FILENAME
+    ).is_file()
+
+
 def list_datasets(data_dir: str | Path | None = None) -> None:
     """Print a table of available datasets.
 
@@ -123,13 +165,11 @@ def list_datasets(data_dir: str | Path | None = None) -> None:
     table.add_column("Size", justify="right")
     table.add_column("On disk", justify="center")
 
-    for fetcher_name, size_bytes, root_dirname in _REGISTRY:
-        path = datasets_dir / root_dirname
-        is_cached = (path / _INDEX_FILENAME).is_file()
+    for fetcher_name, size_bytes, _ in _REGISTRY:
         table.add_row(
             fetcher_name,
             _format_bytes(size_bytes),
-            yes_mark if is_cached else no_mark,
+            yes_mark if is_dataset_cached(fetcher_name, datasets_dir) else no_mark,
         )
 
     console.print(table)
