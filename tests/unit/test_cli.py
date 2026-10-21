@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 class TestBuildParser:
     """The default parser accepts zero, one, or many positional paths."""
@@ -140,15 +142,44 @@ class TestRun:
         layer_names = [layer.name for layer in viewer.layers]
         assert layer_names.index(scan_2d_path.name) < layer_names.index(second.name)
 
-    def test_video_without_data_file_errors(self, make_napari_viewer) -> None:
-        import pytest
+    @pytest.mark.parametrize("with_scan", [True, False])
+    def test_video_opens_video_viewer(
+        self,
+        make_napari_viewer,
+        scan_2d_path: Path,
+        tmp_path: Path,
+        monkeypatch,
+        with_scan: bool,
+    ) -> None:
+        import numpy as np
 
+        import confusius._napari._video._video_panel as panel_module
         from confusius._cli import build_parser, run
 
-        args = build_parser().parse_args(["--video", "v.mp4"])
+        class _FakeVideo:
+            number_of_frames = 10
+            frame_rate = 30.0
+
+            def __getitem__(self, idx):
+                return np.zeros((8, 6, 3), np.uint8)
+
+        video_path = tmp_path / "v.mp4"
+        video_path.touch()
+        monkeypatch.setattr(panel_module, "VideoReaderNP", lambda p, **kw: _FakeVideo())
+
+        paths = [str(scan_2d_path)] if with_scan else []
+        args = build_parser().parse_args([*paths, "--video", str(video_path)])
         viewer = make_napari_viewer()
-        with pytest.raises(SystemExit):
-            run(args, viewer=viewer)
+        run(args, viewer=viewer)
+
+        panel = viewer.window.dock_widgets["ConfUSIus"]._accordion_panels["Video"]
+        try:
+            assert len(viewer.layers) == len(paths)
+            assert [layer.name for layer in panel._video_viewer.model.layers] == [
+                "Video: v"
+            ]
+        finally:
+            panel._video_viewer.close()
 
     def test_integer_nifti_opens_as_labels_layer(
         self, make_napari_viewer, integer_nifti_path: Path

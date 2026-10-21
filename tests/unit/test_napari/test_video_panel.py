@@ -1,25 +1,23 @@
-"""Tests for the VideoPanel widget.
+"""Tests for the VideoPanel widget and its dedicated video viewer.
 
-_VideoArray and _compute_spatial_params are tested as pure-logic units.
-Integration tests for dimension reorder, frame step, and time overlay use
-real napari viewers via `make_napari_viewer`.
+`_VideoArray` is tested as a pure-logic unit.  Panel tests use real napari
+viewers via `make_napari_viewer` with a stubbed `VideoReaderNP`.
 
 See https://napari.org/dev/plugins/testing_and_publishing/test.html
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from qtpy.QtWidgets import QWidget
 
-from confusius._napari._video._video_panel import (
-    _IRREGULAR_TIME_WARNING,
-    VideoPanel,
-    _VideoArray,
-    _VideoEntry,
-)
+import confusius._napari._video._video_panel as panel_module
+from confusius._napari._timeaxis import find_time_dim_index, read_current_time
+from confusius._napari._video._video_panel import VideoPanel
+from confusius._napari._video._video_viewer import _VideoArray
 from confusius.plotting import plot_napari
 
 # ---------------------------------------------------------------------------
@@ -32,48 +30,19 @@ class _FakeVideo:
 
     def __init__(self, n_frames=20, h=48, w=64, rgb=False):
         c = (3,) if rgb else ()
-        self.shape = (n_frames, h, w, *c)
         self.number_of_frames = n_frames
         self.frame_rate = 30.0
-        self.frame_shape = (h, w, 3) if rgb else (h, w)
         self._frames = np.random.default_rng(0).integers(
-            0, 255, size=self.shape, dtype=np.uint8
+            0, 255, size=(n_frames, h, w, *c), dtype=np.uint8
         )
 
     def __getitem__(self, idx):
         return self._frames[idx]
 
 
-def _inject_fake_video(panel, fv, *, frame_step=1, name="Video: test"):
-    """Inject a _FakeVideo into an already-constructed VideoPanel.
-
-    Creates a `_VideoEntry`, appends it to `panel._videos`, and returns
-    it so tests can build/access the layer via `panel._rebuild_entry`.
-    """
-    is_rgb = len(fv.frame_shape) == 3 and fv.frame_shape[2] in (3, 4)
-    entry = _VideoEntry(
-        path=Path(f"{name}.mp4"),
-        video=fv,
-        frame_dtype=np.dtype(np.uint8),
-        frame_shape=fv.frame_shape,
-        video_h=fv.frame_shape[0],
-        video_w=fv.frame_shape[1],
-        is_rgb=is_rgb,
-        fps=fv.frame_rate,
-        name=name,
-    )
-    panel._videos.append(entry)
-    panel._step_spin.setValue(frame_step)
-    return entry
-
-
-def _video_array(fv, *, dtype, frame_shape, **kwargs):
-    return _VideoArray(
-        fv,
-        dtype=np.dtype(dtype),
-        frame_shape=frame_shape,
-        **kwargs,
-    )
+def _arr(fv, **kwargs):
+    """Build a `_VideoArray` over a stub reader (untyped so `ty` accepts it)."""
+    return _VideoArray(fv, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -82,626 +51,547 @@ def _video_array(fv, *, dtype, frame_shape, **kwargs):
 
 
 class TestVideoArray:
-    def test_integer_index(self):
+    def test_integer_index_matches_source_frame(self):
         fv = _FakeVideo(n_frames=5, h=4, w=6)
-        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
-        np.testing.assert_array_equal(arr[2], fv[2])
+        arr = _arr(fv)
+        np.testing.assert_array_equal(arr[3], fv[3])
 
-    def test_slice_index(self):
+    def test_slice_index_stacks_frames(self):
         fv = _FakeVideo(n_frames=10, h=4, w=6)
-        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
-        frames = arr[2:5]
-        assert frames.shape == (3, 4, 6)
-        np.testing.assert_array_equal(frames[0], fv[2])
+        arr = _arr(fv)
+        np.testing.assert_array_equal(arr[2:5], fv[2:5])
 
     def test_tuple_index_with_spatial_slice(self):
         fv = _FakeVideo(n_frames=5, h=8, w=10)
-        arr = _video_array(fv, dtype=np.uint8, frame_shape=(8, 10))
-        result = arr[1, :4, :5]
-        np.testing.assert_array_equal(result, fv[1][:4, :5])
+        arr = _arr(fv)
+        np.testing.assert_array_equal(arr[1, 2:4, 3:7], fv[1, 2:4, 3:7])
 
     def test_shape_dtype_len(self):
-        fv = _FakeVideo(n_frames=8, h=16, w=32)
-        arr = _video_array(fv, dtype=np.float32, frame_shape=(16, 32))
-        assert arr.shape == (8, 16, 32)
-        assert arr.dtype == np.float32
-        assert len(arr) == 8
-        assert arr.ndim == 3
-
-    def test_unsupported_index_raises(self):
-        fv = _FakeVideo(n_frames=3, h=4, w=6)
-        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
-        with pytest.raises(IndexError, match="Unsupported time index type"):
-            arr[[0, 1]]
-
-    def test_dimension_padding(self):
-        fv = _FakeVideo(n_frames=5, h=4, w=6)
-        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6), n_pad=1)
-        assert arr.shape == (5, 1, 4, 6)
-        # Integer index on pad dim should return the frame.
-        np.testing.assert_array_equal(arr[2, 0], fv[2])
-
-    def test_rgb_shape(self):
-        fv = _FakeVideo(n_frames=5, h=4, w=6, rgb=True)
-        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6, 3))
-        assert arr.shape == (5, 4, 6, 3)
-        np.testing.assert_array_equal(arr[1], fv[1])
-
-    def test_rgb_with_padding(self):
-        fv = _FakeVideo(n_frames=5, h=4, w=6, rgb=True)
-        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6, 3), n_pad=1)
-        assert arr.shape == (5, 1, 4, 6, 3)
-        np.testing.assert_array_equal(arr[2, 0], fv[2])
-
-    def test_empty_slice(self):
-        fv = _FakeVideo(n_frames=5, h=4, w=6)
-        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
-        result = arr[3:3]
-        assert result.shape == (0, 4, 6)
-
-    def test_explicit_h_before_w(self):
-        """VideoArray with H at dim 1, W at dim 3 (e.g. displaying z x)."""
-        fv = _FakeVideo(n_frames=5, h=4, w=6)
-        arr = _video_array(
-            fv,
-            dtype=np.uint8,
-            frame_shape=(4, 6),
-            n_pad=1,
-            time_dim=0,
-            h_dim=1,
-            w_dim=3,
-        )
-        assert arr.shape == (5, 4, 1, 6)
-        result = arr[0, :, 0, :]
-        assert result.shape == (4, 6)
-        np.testing.assert_array_equal(result, fv[0])
-
-    def test_explicit_w_before_h(self):
-        """VideoArray with W at dim 1, H at dim 3 (e.g. displaying x z)."""
-        fv = _FakeVideo(n_frames=5, h=4, w=6)
-        arr = _video_array(
-            fv,
-            dtype=np.uint8,
-            frame_shape=(4, 6),
-            n_pad=1,
-            time_dim=0,
-            h_dim=3,
-            w_dim=1,
-        )
-        assert arr.shape == (5, 6, 1, 4)
-        result = arr[0, :, 0, :]
-        assert result.shape == (6, 4)
-        np.testing.assert_array_equal(result, fv[0].T)
-
-    def test_explicit_dims_rgb_with_transpose(self):
-        """RGB video with W before H in layout."""
-        fv = _FakeVideo(n_frames=5, h=4, w=6, rgb=True)
-        arr = _video_array(
-            fv,
-            dtype=np.uint8,
-            frame_shape=(4, 6, 3),
-            n_pad=1,
-            time_dim=0,
-            h_dim=3,
-            w_dim=1,
-        )
-        assert arr.shape == (5, 6, 1, 4, 3)
-        result = arr[0, :, 0, :]
-        assert result.shape == (6, 4, 3)
-        np.testing.assert_array_equal(result, np.swapaxes(fv[0], 0, 1))
-
-    def test_unbounded_time_slice_returns_single_frame(self):
-        """slice(None) on the time axis returns only frame 0.
-
-        This guards against napari decoding all frames when the user
-        drags time into a displayed dimension (the dim-order guard
-        fixes it, but _update_layers fires first with slice(None)).
-        """
-        fv = _FakeVideo(n_frames=1000, h=4, w=6)
-        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
-        result = arr[slice(None), :, :]
-        assert result.shape == (1, 4, 6)
-        np.testing.assert_array_equal(result[0], fv[0])
-
-    def test_bounded_time_slice_still_works(self):
-        """Bounded slices (thick slicing / projections) decode normally."""
-        fv = _FakeVideo(n_frames=20, h=4, w=6)
-        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
-        result = arr[5:10]
-        assert result.shape == (5, 4, 6)
-        np.testing.assert_array_equal(result[0], fv[5])
-        np.testing.assert_array_equal(result[4], fv[9])
-
-
-# ---------------------------------------------------------------------------
-# _compute_spatial_params
-# ---------------------------------------------------------------------------
-
-
-class TestComputeSpatialParams:
-    def test_scale_defaults_without_ref_layer(self, panel):
-        panel._ref_layer = None
-        assert panel._compute_spatial_scale(2, 48) == 1.0
-
-    def test_scale_matches_scan_height(self, panel, sample_voxeldata_3dt):
-        """Scale is isotropic: video height spans the full y extent."""
-        # vertical_dim=2 -> "y" (j).
-        scale = panel._compute_spatial_scale(2, 48)
-
-        expected = (
-            sample_voxeldata_3dt.fusi.spacing["j"] * sample_voxeldata_3dt.sizes["j"]
-        )
-        assert scale * 48 == pytest.approx(expected)
-
-    def test_scale_z_vertical(self, panel, sample_voxeldata_3dt):
-        """When z is the vertical axis, video height spans the z extent."""
-        scale = panel._compute_spatial_scale(1, 48)  # dim 1 = "z" (k).
-
-        expected = (
-            sample_voxeldata_3dt.fusi.spacing["k"] * sample_voxeldata_3dt.sizes["k"]
-        )
-        assert scale * 48 == pytest.approx(expected)
-
-    def test_center_translate_without_ref_layer(self, panel):
-        panel._ref_layer = None
-        assert panel._compute_axis_center_translate(2, 48, 0.5) == 0.0
-
-    def test_center_translate_centers_video_on_fusi(self, panel, sample_voxeldata_3dt):
-        """Video centre pixel lands on the fUSI coordinate midpoint."""
-        scale = panel._compute_spatial_scale(2, 48)
-        translate = panel._compute_axis_center_translate(2, 48, scale)
-
-        y_coords = sample_voxeldata_3dt.coords["y"].values.astype(np.float64)
-        center_y = (float(y_coords.min()) + float(y_coords.max())) / 2
-        assert translate + scale * (48 - 1) / 2 == pytest.approx(center_y)
-
-    def test_center_translate_horizontal_axis(self, panel, sample_voxeldata_3dt):
-        """Horizontal (x) axis centering uses the x-coordinate midpoint."""
-        scale = panel._compute_spatial_scale(2, 48)
-        video_w = 64
-        translate_h = panel._compute_axis_center_translate(3, video_w, scale)
-
-        x_coords = sample_voxeldata_3dt.coords["x"].values.astype(np.float64)
-        center_x = (float(x_coords.min()) + float(x_coords.max())) / 2
-        assert translate_h + scale * (video_w - 1) / 2 == pytest.approx(center_x)
-
-
-# ---------------------------------------------------------------------------
-# Integration fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def viewer(make_napari_viewer):
-    """Real napari viewer for integration tests."""
-    return make_napari_viewer()
-
-
-@pytest.fixture
-def fusi_layer(viewer, sample_voxeldata_3dt):
-    """Add the sample 4D volume to the viewer as a real image layer.
-
-    Returns the napari layer, which carries axis_labels, scale, translate,
-    and xarray metadata -- the same state a real fUSI scan would have.
-    """
-    _, layer = plot_napari(
-        sample_voxeldata_3dt,
-        viewer=viewer,
-        show_colorbar=False,
-        show_scale_bar=False,
-    )
-    return layer
-
-
-@pytest.fixture
-def panel(viewer, fusi_layer, sample_voxeldata_3dt):
-    """VideoPanel wired to a real viewer that already has a fUSI layer."""
-    p = VideoPanel(viewer)
-
-    # Set reference layer and scan metadata (normally done by _add_video).
-    p._ref_layer = fusi_layer
-    p._axis_labels = tuple(sample_voxeldata_3dt.dims)
-    p._units = list(getattr(fusi_layer, "units", [None] * fusi_layer.ndim))
-    p._n_pad = max(fusi_layer.ndim - 3, 0)
-    p._fusi_time_idx = list(sample_voxeldata_3dt.dims).index("time")
-    order = viewer.dims.order
-    p._displayed_dims = (order[-2], order[-1])
-
-    return p
-
-
-@pytest.fixture
-def loaded_panel(panel, viewer):
-    """Panel with a fake RGB video injected and the video layer built.
-
-    This is the closest to "user clicked Add" without actual file I/O.
-    The loaded entry is accessible via `panel._videos[0]`.
-    """
-    fv = _FakeVideo(n_frames=10, h=48, w=64, rgb=True)
-    entry = _inject_fake_video(panel, fv)
-    panel._rebuild_entry(entry)
-
-    # Connect the dimension order guard (normally done at end of _add_video).
-    viewer.dims.events.order.connect(panel._on_dim_order_changed)
-    panel._guarding_order = True
-
-    return panel
-
-
-class TestReferenceWarning:
-    def test_regular_reference_does_not_warn(self, panel, monkeypatch):
-        warnings_seen: list[str] = []
-        monkeypatch.setattr(
-            "confusius._napari._video._video_panel.show_warning",
-            warnings_seen.append,
-        )
-
-        panel._warn_if_irregular_reference(panel._ref_layer)
-
-        assert warnings_seen == []
-
-    def test_irregular_reference_warns(
-        self, panel, viewer, sample_voxeldata_3dt, monkeypatch
-    ):
-        warnings_seen: list[str] = []
-        monkeypatch.setattr(
-            "confusius._napari._video._video_panel.show_warning",
-            warnings_seen.append,
-        )
-        time_values = (
-            sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
-        )
-        time_values[2:] += 0.02
-        irregular = sample_voxeldata_3dt.assign_coords(
-            time=("time", time_values, sample_voxeldata_3dt.coords["time"].attrs)
-        )
-        with pytest.warns(UserWarning, match="non-uniform spacing"):
-            _, irregular_layer = plot_napari(
-                irregular,
-                viewer=viewer,
-                show_colorbar=False,
-                show_scale_bar=False,
-            )
-
-        panel._warn_if_irregular_reference(irregular_layer)
-
-        assert warnings_seen == [_IRREGULAR_TIME_WARNING]
-
-    def test_add_video_warns_for_irregular_reference(
-        self, panel, viewer, sample_voxeldata_3dt, monkeypatch, tmp_path
-    ):
-        warnings_seen: list[str] = []
-        monkeypatch.setattr(
-            "confusius._napari._video._video_panel.show_warning",
-            warnings_seen.append,
-        )
-        monkeypatch.setattr(
-            "confusius._napari._video._video_panel.show_info",
-            lambda *_args, **_kwargs: None,
-        )
-        monkeypatch.setattr(
-            "confusius._napari._video._video_panel.VideoReaderNP",
-            lambda *_args, **_kwargs: _FakeVideo(n_frames=10, h=48, w=64, rgb=True),
-        )
-        time_values = (
-            sample_voxeldata_3dt.coords["time"].values.astype(np.float64).copy()
-        )
-        time_values[2:] += 0.02
-        irregular = sample_voxeldata_3dt.assign_coords(
-            time=("time", time_values, sample_voxeldata_3dt.coords["time"].attrs)
-        )
-        with pytest.warns(UserWarning, match="non-uniform spacing"):
-            _, irregular_layer = plot_napari(
-                irregular,
-                viewer=viewer,
-                show_colorbar=False,
-                show_scale_bar=False,
-            )
-
-        video_path = tmp_path / "video.mp4"
-        video_path.touch()
-        panel._add_video(video_path, irregular_layer)
-
-        assert warnings_seen == [_IRREGULAR_TIME_WARNING]
-
-
-# ---------------------------------------------------------------------------
-# Dimension reorder integration (real viewer)
-# ---------------------------------------------------------------------------
-
-
-class TestDimReorder:
-    def test_rebuild_on_displayed_dims_change(self, loaded_panel, viewer):
-        """Changing displayed dims updates the layer in place."""
-        entry = loaded_panel._videos[0]
-        old_name = entry.layer.name
-        assert old_name in [ly.name for ly in viewer.layers]
-
-        # Change displayed dims: swap y and z in the display axes.
-        # Default order is (0, 1, 2, 3); displayed are last 2: dims 2, 3.
-        # New order (0, 2, 3, 1): displayed dims 3, 1.
-        viewer.dims.order = (0, 2, 3, 1)
-
-        # Video layer should still exist (rebuilt), but displayed_dims updated.
-        assert loaded_panel._displayed_dims == (3, 1)
-        assert entry.layer is not None
-        assert entry.layer.name in [ly.name for ly in viewer.layers]
-
-    def test_no_rebuild_when_displayed_dims_unchanged(self, loaded_panel, viewer):
-        """Reordering only slider dims (not displayed) keeps the same layer."""
-        entry = loaded_panel._videos[0]
-        old_layer = entry.layer
-
-        # Swap slider dims 0 and 1, keep displayed dims 2, 3 the same.
-        viewer.dims.order = (1, 0, 2, 3)
-
-        # Same layer object, no rebuild.
-        assert entry.layer is old_layer
-        assert loaded_panel._displayed_dims == (2, 3)
-
-    def test_time_in_display_gets_corrected(self, loaded_panel, viewer):
-        """If time ends up in displayed dims, the order is fixed."""
-        # Try to put time (dim 0) in a displayed position.
-        viewer.dims.order = (1, 2, 3, 0)
-
-        # The guard should have corrected the order so time is not displayed.
-        # Time (dim 0) should be back in a slider position.
-        order = viewer.dims.order
-        displayed = (order[-2], order[-1])
-        assert 0 not in displayed, (
-            f"Time dim 0 should not be displayed, but order is {order}"
-        )
-
-    def test_rebuild_creates_correct_video_array_shape(self, loaded_panel, viewer):
-        """After dim change, video layer has H and W at new positions."""
-        # Change to display dims 3, 1 (x, z).
-        viewer.dims.order = (0, 2, 3, 1)
-
-        layer = loaded_panel._videos[0].layer
-        # Shape should be (10, 64, 1, 48, 3): time, W, pad, H, C.
-        assert layer.data.shape == (10, 64, 1, 48, 3)
-
-
-# ---------------------------------------------------------------------------
-# Frame step integration (real viewer)
-# ---------------------------------------------------------------------------
-
-
-class TestFrameStep:
-    def test_frame_step_reduces_time_shape(self):
-        """With step=3, time dimension is len(range(0, n_frames, step))."""
-        fv = _FakeVideo(n_frames=12, h=4, w=6)
-        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6), step=3)
-        # 12 frames with step 3: indices 0, 3, 6, 9 -> 4 logical frames.
-        assert arr.shape == (4, 4, 6)
-        # Logical frame 0 -> world frame 0.
-        np.testing.assert_array_equal(arr[0], fv[0])
-        # Logical frame 2 -> world frame 6.
+        arr = _arr(_FakeVideo(n_frames=7, h=4, w=6, rgb=True))
+        assert arr.shape == (7, 4, 6, 3)
+        assert arr.dtype == np.uint8
+        assert arr.ndim == 4
+        assert len(arr) == 7
+
+    def test_step_subsamples_frames(self):
+        fv = _FakeVideo(n_frames=10, h=4, w=6)
+        arr = _arr(fv, step=3)
+        assert arr.shape[0] == 4
         np.testing.assert_array_equal(arr[2], fv[6])
 
-    def test_rebuild_time_scale_reflects_frame_step(self, loaded_panel, viewer):
-        """Time scale must be frame_step / fps."""
-        entry = loaded_panel._videos[0]
-        loaded_panel._step_spin.setValue(3)
-        loaded_panel._rebuild_entry(entry)
+    def test_empty_slice(self):
+        arr = _arr(_FakeVideo(n_frames=5, h=4, w=6))
+        assert arr[3:3].shape == (0, 4, 6)
 
-        layer = entry.layer
-        time_idx = loaded_panel._fusi_time_idx
-        expected = 3.0 / entry.fps
-        np.testing.assert_allclose(layer.scale[time_idx], expected)
+    def test_unbounded_time_slice_returns_single_frame(self):
+        fv = _FakeVideo(n_frames=50, h=4, w=6)
+        arr = _arr(fv)
+        out = arr[:]
+        assert out.shape == (1, 4, 6)
+        np.testing.assert_array_equal(out[0], fv[0])
 
-    def test_frame_step_change_rebuilds_with_smaller_time_dim(
-        self, loaded_panel, viewer
+    def test_unsupported_index_raises(self):
+        arr = _arr(_FakeVideo(n_frames=5, h=4, w=6))
+        with pytest.raises(IndexError):
+            arr[np.array([0, 1])]
+
+
+# ---------------------------------------------------------------------------
+# Panel integration
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def viewer(make_napari_viewer, sample_voxeldata_3dt):
+    """Main viewer with the sample fUSI volume loaded (time axis 10-14.5 s)."""
+    v = make_napari_viewer()
+    plot_napari(
+        sample_voxeldata_3dt, viewer=v, show_colorbar=False, show_scale_bar=False
+    )
+    return v
+
+
+@pytest.fixture
+def panel(viewer):
+    p = VideoPanel(viewer)
+    yield p
+    # napari's fixture fails on any QtViewer alive at teardown.
+    if p._video_viewer is not None:
+        p._video_viewer.close()
+
+
+@pytest.fixture
+def add_video(panel, monkeypatch, tmp_path):
+    """Return a function that adds a stubbed video through the panel UI path."""
+
+    def _add(fv: _FakeVideo, name: str = "clip"):
+        path = tmp_path / f"{name}.mp4"
+        path.touch()
+        monkeypatch.setattr(panel_module, "VideoReaderNP", lambda p, **kw: fv)
+        panel._path_edit.setText(str(path))
+        panel._load_from_path()
+        return panel._videos[-1]
+
+    return _add
+
+
+def _delete_video(panel, name: str) -> None:
+    """Select the video layer called `name` and press the viewer's bin button."""
+    video_viewer = panel._video_viewer
+    layers = video_viewer.model.layers
+    layers.selection = {layers[name]}
+    video_viewer.layer_buttons.deleteButton.click()
+
+
+def test_add_video_opens_dock_and_leaves_main_viewer_alone(viewer, panel, add_video):
+    assert not panel._no_videos_label.isHidden()
+    entry = add_video(_FakeVideo(n_frames=10, rgb=True))
+    assert viewer.window.dock_widgets["Video"] is panel._video_viewer.qt_viewer
+    assert entry.layer.data.shape == (10, 48, 64, 3)
+    assert entry.layer.rgb
+    np.testing.assert_allclose(entry.layer.scale, (1 / 30, 1.0, 1.0))
+    assert len(viewer.layers) == 1
+    assert not viewer.canvas.grid.enabled
+    assert panel._no_videos_label.isHidden()
+    assert panel.isAncestorOf(panel._video_viewer.layer_list)
+
+
+def test_add_video_does_not_move_main_time(viewer, panel, add_video):
+    t_idx = find_time_dim_index(viewer)
+    before = viewer.dims.point[t_idx]
+    add_video(_FakeVideo(n_frames=300))
+    assert viewer.dims.point[t_idx] == before
+
+
+def test_missing_file_shows_error_and_opens_nothing(panel, tmp_path, monkeypatch):
+    errors = []
+    monkeypatch.setattr(panel_module, "show_error", errors.append)
+    panel._path_edit.setText(str(tmp_path / "nope.mp4"))
+    panel._load_from_path()
+    assert errors and "not found" in errors[0]
+    assert panel._video_viewer is None
+
+
+def test_undecodable_video_shows_error_and_opens_nothing(panel, tmp_path, monkeypatch):
+    class _UndecodableVideo(_FakeVideo):
+        def __getitem__(self, idx):
+            raise ValueError("cannot decode frame")
+
+    errors = []
+    monkeypatch.setattr(panel_module, "show_error", errors.append)
+    monkeypatch.setattr(
+        panel_module, "VideoReaderNP", lambda p, **kw: _UndecodableVideo()
+    )
+    path = tmp_path / "truncated.mp4"
+    path.touch()
+    panel._path_edit.setText(str(path))
+    panel._load_from_path()
+    assert errors and "cannot decode frame" in errors[0]
+    assert panel._video_viewer is None
+    assert not panel._no_videos_label.isHidden()
+
+
+def test_video_messages_show_on_video_canvas_within_it(
+    viewer, panel, add_video, tmp_path
+):
+    from napari._qt.dialogs.qt_notification import NapariQtNotification
+
+    add_video(_FakeVideo())
+    canvas = panel._video_viewer.qt_viewer.canvas.native
+    # Narrower than napari's 400 px toast.
+    canvas.resize(300, 200)
+    panel._path_edit.setText(str(tmp_path / "nope.mp4"))
+    panel._load_from_path()
+    panel._video_viewer.frame_step_spin.setValue(2)
+
+    toasts = canvas.findChildren(NapariQtNotification)
+    assert [toast.message.text().split()[0] for toast in toasts] == [
+        "Video",
+        "File",
+        "Frame",
+    ]
+    for toast in toasts[1:]:
+        assert 0 <= toast.x()
+        assert toast.geometry().right() < canvas.width()
+    assert not viewer.window._qt_viewer.canvas.native.findChildren(
+        NapariQtNotification
+    )
+
+
+def test_two_videos_share_video_grid(viewer, panel, add_video):
+    add_video(_FakeVideo(), "a")
+    add_video(_FakeVideo(h=10, w=200), "b")
+    model = panel._video_viewer.model
+    assert [layer.name for layer in model.layers] == ["Video: a", "Video: b"]
+    assert model.canvas.grid.enabled
+    assert panel._video_viewer.layer_list.model().rowCount() == 2
+
+
+def test_remove_last_video_closes_dock(viewer, panel, add_video):
+    add_video(_FakeVideo(), "a")
+    add_video(_FakeVideo(), "b")
+    video_viewer = panel._video_viewer
+    _delete_video(panel, "Video: a")
+    assert [e.name for e in panel._videos] == ["Video: b"]
+    assert [layer.name for layer in video_viewer.model.layers] == ["Video: b"]
+
+    _delete_video(panel, "Video: b")
+    # The viewer is kept (opening another GL canvas later can crash) but hidden.
+    assert panel._video_viewer is video_viewer
+    assert video_viewer.dock.isHidden()
+    assert video_viewer.controls.isHidden()
+    assert not panel._no_videos_label.isHidden()
+
+    add_video(_FakeVideo(), "c")
+    assert panel._video_viewer is video_viewer
+    assert not video_viewer.dock.isHidden()
+    assert not video_viewer.controls.isHidden()
+    assert panel._no_videos_label.isHidden()
+    assert [layer.name for layer in video_viewer.model.layers] == ["Video: c"]
+
+
+def test_layer_removed_from_the_model_is_forgotten(viewer, panel, add_video):
+    a = add_video(_FakeVideo(), "a")
+    add_video(_FakeVideo(), "b")
+    # Any removal path (keyboard Delete, scripting) goes through the model.
+    panel._video_viewer.model.layers.remove(a.layer)
+    assert [e.name for e in panel._videos] == ["Video: b"]
+    assert panel._video_viewer is not None
+
+
+def test_frame_step_persists_across_viewer_reopen(viewer, panel, add_video):
+    add_video(_FakeVideo(n_frames=30), "a")
+    panel._video_viewer.frame_step_spin.setValue(3)
+    _delete_video(panel, "Video: a")
+    assert not panel._videos
+
+    entry = add_video(_FakeVideo(n_frames=30), "b")
+    assert panel._video_viewer.frame_step_spin.value() == 3
+    assert entry.layer.data.shape[0] == 10
+
+
+def test_frame_step_rebuilds_all_videos_and_keeps_time(viewer, panel, add_video):
+    a = add_video(_FakeVideo(n_frames=450), "a")
+    b = add_video(_FakeVideo(n_frames=450), "b")
+    model = panel._video_viewer.model
+    model.dims.set_point(0, 6.0)
+
+    panel._video_viewer.frame_step_spin.setValue(3)
+
+    for entry in (a, b):
+        assert entry.layer.data.shape[0] == 150
+        np.testing.assert_allclose(entry.layer.scale[0], 3 / 30)
+    assert model.dims.point[0] == pytest.approx(6.0, abs=3 / 30)
+
+
+def test_time_sync_main_to_video(viewer, panel, add_video):
+    entry = add_video(_FakeVideo(n_frames=450))
+    t_idx = find_time_dim_index(viewer)
+    viewer.dims.set_point(t_idx, 12.0)
+    model = panel._video_viewer.model
+    assert model.dims.point[0] == pytest.approx(12.0, abs=1 / 30)
+    assert model.dims.current_step[0] == 360
+    assert entry.layer.data.shape[0] == 450
+
+
+def test_time_sync_video_to_main(viewer, panel, add_video):
+    add_video(_FakeVideo(n_frames=450))
+    t_idx = find_time_dim_index(viewer)
+    # 11.2 s falls between the 11.0 s and 11.5 s fUSI frames.
+    panel._video_viewer.model.dims.set_point(0, 11.2)
+    assert viewer.dims.point[t_idx] == pytest.approx(11.2)
+    assert read_current_time(viewer)[0] == pytest.approx(11.0)
+
+
+def test_signal_cursor_follows_video_time(viewer, panel, add_video):
+    from confusius._napari._signals._panel import SignalPanel
+
+    add_video(_FakeVideo(n_frames=450))
+    signals = SignalPanel(viewer)
+    # A stub plotter: the real one docks a Matplotlib canvas this test does not need.
+    signals._plotter = plotter = MagicMock()
+    signals._cursor_check.setChecked(True)
+    panel._video_viewer.model.dims.set_point(0, 11.2)
+    assert plotter.set_xaxis_cursor.call_args.args[0] == pytest.approx(11.2)
+
+
+def test_video_viewer_follows_theme(viewer, panel, add_video):
+    add_video(_FakeVideo())
+    viewer.theme = "light"
+    assert panel._video_viewer.model.theme == "light"
+
+
+def test_main_reset_view_also_resets_video_view(viewer, panel, add_video):
+    from napari.components._viewer_key_bindings import reset_view
+
+    add_video(_FakeVideo())
+    video_viewer = panel._video_viewer
+    camera = video_viewer.model.scene.camera
+    main_camera = viewer.scene.camera
+    camera.zoom = 123.0
+    main_camera.zoom = 456.0
+    # Same entry point as napari's Home button and Ctrl+R.
+    reset_view(viewer)
+    assert camera.zoom != 123.0
+    assert main_camera.zoom != 456.0
+    fitted = camera.zoom
+    video_viewer.model.reset_view()
+    assert camera.zoom == fitted
+
+    # Closing restores the main viewer's own method.
+    video_viewer.close()
+    panel._video_viewer = None
+    assert "reset_view" not in viewer.__dict__
+    camera_zoom_before = main_camera.zoom
+    main_camera.zoom = 456.0
+    viewer.reset_view()
+    assert main_camera.zoom == camera_zoom_before
+
+
+def test_video_view_is_fitted_once_dock_is_laid_out(viewer, panel, add_video, qtbot):
+    add_video(_FakeVideo())
+    model = panel._video_viewer.model
+    qtbot.wait(20)
+    camera = model.scene.camera
+    zoom, center = camera.zoom, camera.center
+    model.reset_view()
+    assert camera.zoom == zoom
+    assert camera.center == center
+
+
+def test_viewer_controls_act_on_video_viewer_only(viewer, panel, add_video):
+    add_video(_FakeVideo(), "a")
+    add_video(_FakeVideo(), "b")
+    video_viewer = panel._video_viewer
+    buttons = video_viewer.buttons
+    controls = video_viewer.controls
+    assert panel.isAncestorOf(controls)
+    # napari's 242 px `min-width` on its button bars and layer list, and its
+    # spin-box width floor, are overridden so the controls fit the sidebar
+    # (issue #183 pattern).
+    for widget in [*controls.findChildren(QWidget), controls]:
+        if widget.layout() is not None:
+            widget.layout().activate()
+    assert controls.minimumSizeHint().width() < 242
+    for hidden in (
+        buttons.consoleButton,
+        buttons.ndisplayButton,
+        buttons.rollDimsButton,
+        buttons.resetViewButton,
+        video_viewer.layer_buttons.newPointsButton,
+        video_viewer.layer_buttons.newShapesButton,
+        video_viewer.layer_buttons.newLabelsButton,
     ):
-        """Changing frame step rebuilds the video layer with fewer time frames."""
-        entry = loaded_panel._videos[0]
-        old_data = entry.layer.data
+        assert hidden.isHidden()
 
-        # Trigger frame step change.
-        loaded_panel._step_spin.setValue(3)
-        loaded_panel._on_frame_step_changed(3)
+    main_order = viewer.dims.order
+    main_grid = viewer.canvas.grid.enabled
+    buttons.transposeDimsButton.click()
+    assert video_viewer.model.dims.order == (0, 2, 1)
+    assert viewer.dims.order == main_order
 
-        layer = entry.layer
-        # Data was replaced (in-place update reuses the layer object).
-        assert layer.data is not old_data
+    assert video_viewer.model.canvas.grid.enabled
+    assert buttons.gridViewButton.isChecked()
+    buttons.gridViewButton.click()
+    assert not video_viewer.model.canvas.grid.enabled
+    assert not buttons.gridViewButton.isChecked()
+    assert viewer.canvas.grid.enabled == main_grid
 
-        # New VideoArray has reduced time dimension.
-        n_frames = entry.video.number_of_frames  # 10
-        expected_time = len(range(0, n_frames, 3))  # 4
-        time_idx = loaded_panel._fusi_time_idx
-        assert layer.data.shape[time_idx] == expected_time
-
-    def test_frame_step_change_preserves_time_position(self, loaded_panel, viewer):
-        """Changing frame step restores the slider to the closest time."""
-        time_idx = loaded_panel._fusi_time_idx
-
-        # Move the slider to a specific world time.
-        viewer.dims.set_point(time_idx, 0.1)
-        world_time_before = float(viewer.dims.point[time_idx])
-
-        loaded_panel._step_spin.setValue(3)
-        loaded_panel._on_frame_step_changed(3)
-
-        # Should restore world time; napari snaps to nearest valid step.
-        world_time_after = float(viewer.dims.point[time_idx])
-        np.testing.assert_allclose(world_time_after, world_time_before, atol=0.2)
+    for name in ("Video: a", "Video: b"):
+        _delete_video(panel, name)
+    assert not panel._no_videos_label.isHidden()
+    assert controls.isHidden()
 
 
-# ---------------------------------------------------------------------------
-# Multi-video support (real viewer)
-# ---------------------------------------------------------------------------
+def test_layer_context_menu_acts_on_video_layers(viewer, panel, add_video):
+    a = add_video(_FakeVideo(), "a")
+    b = add_video(_FakeVideo(), "b")
+    video_viewer = panel._video_viewer
+    fusi = viewer.layers[0]
+    viewer.layers.selection = {fusi}
+    video_viewer.model.layers.selection = {a.layer}
+
+    def trigger(text: str) -> None:
+        menu = video_viewer.build_layer_context_menu()
+        actions = {action.text(): action for action in menu.actions()}
+        actions[text].trigger()
+
+    trigger("Toggle visibility")
+    assert (a.layer.visible, b.layer.visible) == (False, True)
+    trigger("Toggle visibility")
+    trigger("Hide other videos")
+    assert (a.layer.visible, b.layer.visible) == (True, False)
+    trigger("Show all videos")
+    assert (a.layer.visible, b.layer.visible) == (True, True)
+    assert fusi.visible is True
+
+    trigger("Remove selected videos")
+    assert [e.name for e in panel._videos] == ["Video: b"]
+    assert len(viewer.layers) == 1
+
+    # Nothing napari offers that a video cannot run (duplicate, split RGB, ...).
+    menu = video_viewer.build_layer_context_menu()
+    assert [action.text() for action in menu.actions() if not action.isSeparator()] == [
+        "Toggle visibility",
+        "Show all videos",
+        "Hide other videos",
+        "Remove selected videos",
+    ]
 
 
-class TestMultiVideo:
-    def test_add_two_videos_creates_two_layers(self, loaded_panel, viewer):
-        """Adding a second video appends a new entry without removing the first."""
-        first_entry = loaded_panel._videos[0]
-        first_layer = first_entry.layer
+def test_layer_context_menu_is_reused(viewer, panel, add_video, monkeypatch):
+    from qtpy.QtCore import QPoint
+    from qtpy.QtWidgets import QMenu
 
-        fv2 = _FakeVideo(n_frames=8, h=32, w=48, rgb=True)
-        second_entry = _inject_fake_video(loaded_panel, fv2, name="Video: second")
-        loaded_panel._rebuild_entry(second_entry)
-
-        assert len(loaded_panel._videos) == 2
-        assert first_entry.layer is first_layer
-        assert second_entry.layer is not None
-        assert second_entry.layer is not first_layer
-        assert first_layer in viewer.layers
-        assert second_entry.layer in viewer.layers
-
-    def test_remove_video_drops_entry_and_layer(self, loaded_panel, viewer):
-        """Removing a video drops its entry and removes its layer."""
-        fv2 = _FakeVideo(n_frames=8, h=32, w=48, rgb=True)
-        second_entry = _inject_fake_video(loaded_panel, fv2, name="Video: second")
-        loaded_panel._rebuild_entry(second_entry)
-
-        first_entry = loaded_panel._videos[0]
-        loaded_panel._remove_video(first_entry)
-
-        assert len(loaded_panel._videos) == 1
-        assert loaded_panel._videos[0] is second_entry
-        assert first_entry.layer not in viewer.layers
-        assert second_entry.layer in viewer.layers
-
-    def test_frame_step_rebuilds_all_videos(self, loaded_panel, viewer):
-        """Changing frame step rebuilds every loaded video's layer."""
-        fv2 = _FakeVideo(n_frames=12, h=32, w=48, rgb=True)
-        second_entry = _inject_fake_video(loaded_panel, fv2, name="Video: second")
-        loaded_panel._rebuild_entry(second_entry)
-
-        loaded_panel._step_spin.setValue(2)
-        loaded_panel._on_frame_step_changed(2)
-
-        time_idx = loaded_panel._fusi_time_idx
-        # First video: 10 frames with step 2 -> 5 logical frames.
-        assert loaded_panel._videos[0].layer.data.shape[time_idx] == 5
-        # Second video: 12 frames with step 2 -> 6 logical frames.
-        assert second_entry.layer.data.shape[time_idx] == 6
+    add_video(_FakeVideo())
+    shown = []
+    monkeypatch.setattr(QMenu, "exec", lambda menu, *args: shown.append(menu))
+    delegate = panel._video_viewer.layer_list.itemDelegate()
+    for _ in range(2):
+        delegate.show_context_menu(None, None, QPoint(), None)
+    assert len(shown) == 2
+    assert shown[0] is shown[1]
 
 
-# ---------------------------------------------------------------------------
-# Time overlay syncs with video fps (real viewer)
-# ---------------------------------------------------------------------------
+def test_overlay_shows_video_time(viewer, panel, add_video):
+    add_video(_FakeVideo(n_frames=450), "a")
+    add_video(_FakeVideo(n_frames=450), "b")
+    model = panel._video_viewer.model
+    overlay = model.canvas.overlays.text
+    model.dims.set_point(0, 11.0)
+    assert overlay.visible
+    assert overlay.text == "11.00 s"
+
+    _delete_video(panel, "Video: a")
+    assert overlay.visible
+    assert overlay.text == "11.00 s"
 
 
-class TestTimeOverlayVideoSync:
-    def test_overlay_uses_dims_point_for_video_layer(self, viewer, fusi_layer):
-        """For a video layer (no xarray), the overlay uses dims.point which
-        is correct because the layer's time scale encodes the frame step.
+def test_video_dock_sits_between_canvas_and_panel_dock(
+    make_napari_viewer, sample_voxeldata_3dt, monkeypatch, tmp_path
+):
+    from qtpy.QtCore import Qt
+    from qtpy.QtWidgets import QApplication
 
-        With scale = frame_step / fps, napari's world coordinate at
-        `dims.point[time_idx]` is already in world seconds.
-        """
+    from confusius._napari._widget import ConfUSIusWidget
+
+    viewer = make_napari_viewer()
+    plot_napari(
+        sample_voxeldata_3dt, viewer=viewer, show_colorbar=False, show_scale_bar=False
+    )
+    widget = ConfUSIusWidget(viewer)
+    panel_dock = viewer.window.add_dock_widget(widget, name="ConfUSIus", area="right")
+    panel = widget.findChild(VideoPanel)
+
+    window = panel_dock.parentWidget()
+    window.resize(1600, 900)
+
+    def relayout() -> None:
+        window.layout().activate()
+        QApplication.processEvents()
+
+    def assert_video_takes_canvas_space() -> None:
+        # The video gets the panel's width, or all the canvas can spare when
+        # the window is narrower than asked (macOS CI keeps it near 1244 px).
+        central = window.centralWidget()
+        assert video_dock.width() == pytest.approx(panel_width, abs=4) or (
+            central.width() <= central.minimumSizeHint().width()
+        )
+
+    relayout()
+    panel_width = panel_dock.width()
+
+    path = tmp_path / "clip.mp4"
+    path.touch()
+    monkeypatch.setattr(panel_module, "VideoReaderNP", lambda p, **kw: _FakeVideo())
+    panel._path_edit.setText(str(path))
+    panel._load_from_path()
+    video_viewer = panel._video_viewer
+    assert video_viewer is not None
+    video_dock = video_viewer.dock
+
+    relayout()
+    try:
+        assert (
+            window.dockWidgetArea(video_dock) == Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        assert not panel_dock.isHidden()
+        assert video_dock.x() < panel_dock.x()
+        assert video_dock.y() == panel_dock.y()
+        # Full window height, not capped at the initial size hint.
+        assert video_dock.height() >= 0.85 * window.height()
+        # The video takes its space from the canvas, not from the panel.
+        assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+        assert_video_takes_canvas_space()
+
+        # Removing the last video hides the dock and gives its space back to
+        # the canvas, not to the panel; re-adding shows it sized as before.
+        _delete_video(panel, "Video: clip")
+        relayout()
+        assert video_dock.isHidden()
+        assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+        panel._load_from_path()
+        relayout()
+        assert not video_dock.isHidden()
+        assert video_dock.x() < panel_dock.x()
+        assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+        assert_video_takes_canvas_space()
+    finally:
+        video_viewer.close()
+    relayout()
+    assert not panel_dock.isHidden()
+    assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+
+
+def test_closing_panel_dock_closes_video_viewer(
+    make_napari_viewer, sample_voxeldata_3dt, monkeypatch, tmp_path, qtbot
+):
+    from napari.utils._proxies import PublicOnlyProxy
+    from qtpy.QtCore import QCoreApplication, QEvent
+
+    viewer = make_napari_viewer()
+    plot_napari(
+        sample_voxeldata_3dt, viewer=viewer, show_colorbar=False, show_scale_bar=False
+    )
+    # napari hands plugin widgets a proxy of the viewer.
+    panel = VideoPanel(PublicOnlyProxy(viewer))  # ty: ignore[invalid-argument-type]
+    panel_dock = viewer.window.add_dock_widget(panel, name="ConfUSIus")
+    path = tmp_path / "clip.mp4"
+    path.touch()
+    monkeypatch.setattr(panel_module, "VideoReaderNP", lambda p, **kw: _FakeVideo())
+    panel._path_edit.setText(str(path))
+    panel._load_from_path()
+    assert "Video" in viewer.window.dock_widgets
+    assert "reset_view" in viewer.__dict__
+
+    # What the panel dock's close button does.
+    viewer.window.remove_dock_widget(panel_dock)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    qtbot.waitUntil(lambda: "Video" not in viewer.window.dock_widgets)
+    assert "reset_view" not in viewer.__dict__
+
+
+class TestTimeOverlayFallback:
+    def test_overlay_uses_dims_point_for_layer_without_xarray(self, viewer):
+        """A layer with fps metadata but no xarray falls back to `dims.point`."""
         from confusius._napari._time_overlay import _TimeOverlay
 
         overlay = _TimeOverlay(viewer)
         overlay.check()
         assert overlay._active
 
-        # Add a video-like layer with fps metadata but no xarray.
-        video_data = np.zeros((10, 4, 6, 8), dtype=np.uint8)
         fps = 50.0
-        time_scale = 1.0 / fps
-        video_layer = viewer.add_image(
-            video_data,
+        layer = viewer.add_image(
+            np.zeros((10, 4, 6, 8), dtype=np.uint8),
             name="Video: test",
-            scale=(time_scale, 1.0, 1.0, 1.0),
+            scale=(1.0 / fps, 1.0, 1.0, 1.0),
             axis_labels=("time", "z", "y", "x"),
             metadata={"fps": fps, "time_units": "s"},
         )
+        viewer.layers.selection = {layer}
+        assert overlay._ref_layer is layer
 
-        # Select the video layer so the overlay uses it as reference.
-        viewer.layers.selection = {video_layer}
-        assert overlay._ref_layer is video_layer
-
-        # Move to step 3; world time = 3 * time_scale = 0.06s.
         time_idx = overlay._time_idx
         viewer.dims.set_current_step(time_idx, 3)
-
-        # The overlay should fall back to dims.point (no xarray).
-        expected_time = float(viewer.dims.point[time_idx])
-        expected_text = f"{expected_time:.2f} s"
+        expected_text = f"{float(viewer.dims.point[time_idx]):.2f} s"
         assert viewer.canvas.overlays.text.text == expected_text
-
-
-class TestPaddedDimsFollowReference:
-    def test_singleton_k_stays_single_step(self, viewer, monkeypatch, tmp_path):
-        """A single-slice scan whose z origin is nonzero must not grow a k slider.
-
-        Regression test: the video's padded k axis used to sit at world 0 with
-        step 1, so napari merged it with the fUSI slice at z=9 into a 23-step
-        slider.
-        """
-        from confusius.xarray import create_voxeldata
-
-        scan = create_voxeldata(
-            np.random.default_rng(0).random((5, 1, 6, 8)),
-            dims=("time", "k", "j", "i"),
-            dt=0.4,
-            spacing=(0.4, 0.1, 0.1),
-            origin=(9.0, 3.5, -7.0),
-        )
-        _, layer = plot_napari(
-            scan, viewer=viewer, show_colorbar=False, show_scale_bar=False
-        )
-        labels_before = viewer.dims.axis_labels
-        monkeypatch.setattr(
-            "confusius._napari._video._video_panel.show_info",
-            lambda *_a, **_k: None,
-        )
-        monkeypatch.setattr(
-            "confusius._napari._video._video_panel.VideoReaderNP",
-            lambda *_a, **_k: _FakeVideo(n_frames=10, h=48, w=64, rgb=True),
-        )
-        video_path = tmp_path / "video.mp4"
-        video_path.touch()
-
-        VideoPanel(viewer)._add_video(video_path, layer)
-
-        k_idx = list(scan.dims).index("k")
-        assert viewer.dims.nsteps[k_idx] == 1
-        assert viewer.dims.axis_labels == labels_before
-
-    def test_roll_onto_singleton_k_keeps_video_invertible(
-        self, viewer, monkeypatch, tmp_path
-    ):
-        """Rolling displayed dims onto a singleton k axis must not give the video a zero scale.
-
-        Regression test: world coords are 3-D since the VoxelData model, so a
-        median-of-diffs spacing on a constant z came out as 0 and napari raised
-        `LinAlgError: Singular matrix` on the next slice.
-        """
-        from confusius.xarray import create_voxeldata
-
-        scan = create_voxeldata(
-            np.random.default_rng(0).random((5, 1, 6, 8)),
-            dims=("time", "k", "j", "i"),
-            dt=0.4,
-            spacing=(0.4, 0.1, 0.1),
-            origin=(9.0, 3.5, -7.0),
-        )
-        _, layer = plot_napari(
-            scan, viewer=viewer, show_colorbar=False, show_scale_bar=False
-        )
-        monkeypatch.setattr(
-            "confusius._napari._video._video_panel.show_info",
-            lambda *_a, **_k: None,
-        )
-        monkeypatch.setattr(
-            "confusius._napari._video._video_panel.VideoReaderNP",
-            lambda *_a, **_k: _FakeVideo(n_frames=10, h=48, w=64, rgb=True),
-        )
-        video_path = tmp_path / "video.mp4"
-        video_path.touch()
-        panel = VideoPanel(viewer)
-        panel._add_video(video_path, layer)
-
-        viewer.dims.roll()
-
-        video_layer = panel._videos[0].layer
-        assert video_layer is not None
-        video_scale = video_layer.scale
-        assert viewer.dims.displayed == (1, 2)
-        assert all(s > 0 for s in video_scale)
-        # Video height spans the singleton k slice thickness.
-        assert video_scale[1] * 48 == pytest.approx(0.4)

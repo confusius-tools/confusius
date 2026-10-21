@@ -822,26 +822,13 @@ def build_default_tour(
             title="Video",
             body=(
                 "This section lets you load one or more behavioral videos alongside "
-                "your fUSI recording. Each video is overlaid on the reference scan "
-                "and placed in its own grid cell, synchronized frame by frame to the "
-                "acquisition, so you can see what the animal was doing at each time "
-                "point."
+                "your fUSI recording. Videos open in a dedicated Video viewer next "
+                "to the main canvas, synchronized in time with the acquisition, "
+                "so you can see what the animal was doing at each time point. "
+                "Scrubbing either time slider moves the other."
             ),
             anchor="left",
             spotlight_rect=_accordion_tab_rect("Video"),
-            tooltip_target=_dock_widget,
-            pre_action=_expand_section("Video"),
-        ),
-        TourStep(
-            target=_panel_attr("Video", VideoPanel, "_ref_group"),
-            title="Reference Layer",
-            body=(
-                "Pick the fUSI image layer that the videos will synchronize to. "
-                "When you scrub through the image frames, every loaded video follows "
-                "along automatically. You can switch the reference at any time; all "
-                "loaded videos will re-align to the new scan."
-            ),
-            anchor="left",
             tooltip_target=_dock_widget,
             pre_action=_expand_section("Video"),
         ),
@@ -850,9 +837,8 @@ def build_default_tour(
             title="Add a Video",
             body=(
                 "Enter or browse for a video file (.mp4, .mov, .avi), then click "
-                "<b>Add video</b> to import it. The video appears as a new layer in "
-                "its own grid cell, overlaid on the reference scan. Repeat to add "
-                "more videos side by side."
+                "<b>Add video</b> to import it. The video appears in the Video "
+                "viewer; repeat to add more videos side by side."
             ),
             anchor="left",
             spotlight_rect=_panel_attr_rect(
@@ -868,21 +854,13 @@ def build_default_tour(
             target=_panel_attr("Video", VideoPanel, "_videos_group"),
             title="Loaded Videos",
             body=(
-                "All currently loaded videos appear here. Select one and click "
-                "<b>Remove selected</b> to unload it; grid mode is restored to its "
-                "previous state once the last video is removed."
-            ),
-            anchor="left",
-            tooltip_target=_dock_widget,
-            pre_action=_expand_section("Video"),
-        ),
-        TourStep(
-            target=_panel_attr("Video", VideoPanel, "_playback_group"),
-            title="Playback Settings",
-            body=(
-                "Adjust the <b>Frame step</b> to skip frames for lighter playback "
-                "when videos are long or heavy. A step of N shows every N-th frame "
-                "and applies to every loaded video."
+                "Loaded videos are listed here like napari layers: toggle their "
+                "visibility, rename them, or drag to reorder. The buttons above "
+                "transpose the video axes and toggle grid mode (right-click for "
+                "grid options); <b>Frame step</b> shows every N-th frame for "
+                "lighter playback of long or heavy videos; the bin removes the "
+                "selected videos. The Video viewer closes once the last video is "
+                "removed."
             ),
             anchor="left",
             tooltip_target=_dock_widget,
