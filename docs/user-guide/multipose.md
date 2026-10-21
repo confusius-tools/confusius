@@ -290,9 +290,10 @@ Attributes:
     ...
 ```
 
-4 poses × 4 slices = 16 consolidated z positions, spanning 7.875 mm along elevation. The pose-dependent `time` coordinate is reduced to a single whole-volume `time`
-and a `slice_time` coordinate with dims `(time, k)`: each slice retains the timestamp
-of the pose it came from.
+4 poses × 4 slices = 16 consolidated z positions, spanning 7.875 mm along elevation.
+The pose-dependent `time` coordinate is reduced to a single whole-volume `time` and a
+`slice_time` coordinate with dims `(time, k)`: each slice retains the timestamp of the
+pose it came from.
 
 After consolidation, the per-pose affine stack is reduced to a single `(4, 4)` matrix
 representing the consolidated volume's orientation in world space.

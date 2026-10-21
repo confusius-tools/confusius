@@ -202,22 +202,22 @@ class TestConsolidatePoses:
         assert result.coords["slice_time"].attrs.get("units") == "s"
         orig_pt = scan_4d.coords["time"].values  # (T, npose)
         # Recover which original pose each consolidated z-slice came from, reading
-        # exact per-(pose, k) world positions directly from scan_4d's own
-        # (already lab-space) world coordinates -- (pose, k, j, i)-shaped since
+        # exact per-(pose, k) world positions directly from scan_4d's own world
+        # coordinates (first probe pose space) -- (pose, k, j, i)-shaped since
         # scan_4d's primary geometry is itself pose-dependent.
-        lab_pos_flat = np.stack(
+        world_pos_flat = np.stack(
             [
                 scan_4d.coords[name].isel(j=0, i=0).values.reshape(-1)
                 for name in ("z", "y", "x")
             ],
             axis=-1,
         )
-        centered = lab_pos_flat - lab_pos_flat.mean(axis=0)
+        centered = world_pos_flat - world_pos_flat.mean(axis=0)
         _, _, vt = np.linalg.svd(centered, full_matrices=False)
         sweep_axis = vt[0]
         if sweep_axis[np.argmax(np.abs(sweep_axis))] < 0:
             sweep_axis = -sweep_axis
-        proj = lab_pos_flat @ sweep_axis
+        proj = world_pos_flat @ sweep_axis
         sorted_flat = np.argsort(proj)
         pose_idx = sorted_flat // _SIZE_Y
         expected = orig_pt[:, pose_idx]
@@ -271,11 +271,11 @@ class TestConsolidatePoses:
     ) -> None:
         """Consolidating a 3Dscan loaded with BPS preserves world_to_brain unchanged.
 
-        World coordinates are already lab space, so world_to_brain is a single
-        (4, 4) affine independent of pose (see `_add_world_to_brain`); it does not
-        match the (npose, 4, 4) main per-pose stack shape, so
-        `_consolidate_linked_affines` passes it through unchanged rather than
-        treating it as a per-pose-linked affine.
+        Every pose shares the first pose's probe space as world space, so
+        world_to_brain is a single (4, 4) affine independent of pose (see
+        `_add_world_to_brain`); it does not match the (npose, 4, 4) main per-pose
+        stack shape, so `_consolidate_linked_affines` passes it through unchanged
+        rather than treating it as a per-pose-linked affine.
         """
         da = load_scan(scan_3d_path, bps_path=bps_path)
         world_to_brain = da.attrs["affines"]["world_to_brain"]

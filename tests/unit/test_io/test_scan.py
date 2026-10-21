@@ -645,6 +645,7 @@ class TestLoadScanWorldIsFirstProbePose:
                 scan_2d_rotated.coords[name].values,
                 scan_2d.coords[name].values,
                 rtol=1e-10,
+                atol=1e-9,
             )
         np.testing.assert_allclose(
             scan_2d_rotated.attrs["affines"]["world_to_lab"],

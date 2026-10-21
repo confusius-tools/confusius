@@ -331,7 +331,13 @@ def _build_world_geometry(
         in millimeters.
     """
     world_to_lab = probe_to_lab if probe_to_lab.ndim == 2 else probe_to_lab[0]
-    voxel_to_world = np.linalg.inv(world_to_lab) @ probe_to_lab @ voxel_to_probe
+    if probe_to_lab.ndim == 2:
+        # A single pose is world space itself: skip the round-off of inv(P) @ P.
+        voxel_to_world = voxel_to_probe
+    else:
+        voxel_to_world = np.linalg.inv(world_to_lab) @ probe_to_lab @ voxel_to_probe
+        # The first pose defines world space, so keep its affine exact.
+        voxel_to_world[0] = voxel_to_probe
     return voxel_to_world, {"world_to_probe": np.eye(4), "world_to_lab": world_to_lab}
 
 

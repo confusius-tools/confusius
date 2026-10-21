@@ -231,9 +231,9 @@ Coordinates:
   * k        (k) int64 32B 0 1 2 3
   * j        (j) int64 736B 0 1 2 3 4 5 6 7 8 9 ... 83 84 85 86 87 88 89 90 91
   * i        (i) int64 824B 0 1 2 3 4 5 6 7 8 ... 94 95 96 97 98 99 100 101 102
-  * z        (pose, k, j, i) float64 1MB ...
-  * y        (pose, k, j, i) float64 1MB ...
-  * x        (pose, k, j, i) float64 1MB ...
+  * z        (pose, k, j, i) float64 1MB 0.0 0.0 0.0 0.0 ... 7.875 7.875 7.875
+  * y        (pose, k, j, i) float64 1MB 1.0 1.0 1.0 1.0 ... 9.969 9.969 9.969
+  * x        (pose, k, j, i) float64 1MB -5.61 -5.5 -5.39 ... 5.39 5.5 5.61
 Indexes:
   ┌ z        VoxelToWorldIndex
   │ y
