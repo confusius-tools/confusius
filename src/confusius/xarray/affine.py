@@ -1,7 +1,7 @@
 """Xarray accessor for affine transform operations."""
 
 import itertools
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 import xarray as xr
@@ -20,6 +20,8 @@ from confusius._utils.geometry import (
 )
 
 if TYPE_CHECKING:
+    from typing import Literal
+
     import numpy.typing as npt
 
 
@@ -723,8 +725,8 @@ class FUSIAffineAccessor:
         Parameters
         ----------
         translation : (3,) array-like
-            Translation in world `(z, y, x)` order, in units of
-            `self.fusi.affine.units`.
+            Translation in world `(z, y, x)` order, in the DataArray's world units
+            (`.fusi.affine.units`).
         inplace : bool, default: False
             Whether to modify the DataArray in place instead of returning a copy.
 
@@ -781,10 +783,10 @@ class FUSIAffineAccessor:
             Rotation angle.
         axis : {"z", "y", "x"} or (3,) array-like
             Rotation axis, either a world dimension name or a vector in world
-            `(z, y, x)` order. Vectors are normalised.
+            `(z, y, x)` order. Vectors are normalized.
         center : (3,) array-like, optional
-            Fixed point of the rotation in world `(z, y, x)` order, in units of
-            `self.fusi.affine.units`. If not provided, the rotation is about the world
+            Fixed point of the rotation in world `(z, y, x)` order, in the
+            DataArray's world units (`.fusi.affine.units`). If not provided, the rotation is about the world
             origin.
         degrees : bool, default: True
             Whether `angle` is in degrees rather than radians.
@@ -847,8 +849,8 @@ class FUSIAffineAccessor:
             world `(z, y, x)` order. Negative factors reflect the volume along that
             axis.
         center : (3,) array-like, optional
-            Fixed point of the rescaling in world `(z, y, x)` order, in units of
-            `self.fusi.affine.units`. If not provided, the volume is rescaled about
+            Fixed point of the rescaling in world `(z, y, x)` order, in the
+            DataArray's world units (`.fusi.affine.units`). If not provided, the volume is rescaled about
             the world origin.
         inplace : bool, default: False
             Whether to modify the DataArray in place instead of returning a copy.
@@ -862,8 +864,11 @@ class FUSIAffineAccessor:
         Raises
         ------
         ValueError
-            If `zoom` is not a finite scalar or `(3,)` vector, if `center` is not a
-            finite `(3,)` vector, or if the DataArray is not a VoxelData array.
+            If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
+            (singular affine), if `center` is not a finite `(3,)` vector, if the
+            DataArray is not a VoxelData array, or if a per-axis `zoom` is applied to
+            pose-stacked geometry whose poses are not parallel (all pose affines must
+            share equal spatial scale magnitudes).
 
         Examples
         --------

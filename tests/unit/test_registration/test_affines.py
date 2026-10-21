@@ -209,6 +209,8 @@ class TestDecompose44:
 
 
 class TestApplyTranslate:
+    """Tests for `apply_translate`."""
+
     def test_shifts_world_origin(self, rng):
         result = apply_translate(_volume(rng), (1.0, 2.0, 3.0))
         assert_allclose(result.fusi.affine.voxel_to_world[:3, 3], [2.0, 0.0, 6.0])
@@ -365,9 +367,10 @@ class TestApplyRotate:
         with pytest.raises(ValueError, match="axis"):
             apply_rotate(_volume(rng), 10.0, axis)
 
-    def test_non_finite_angle_raises(self, rng):
+    @pytest.mark.parametrize("angle", [np.nan, "90", None, [1.0, 2.0]])
+    def test_invalid_angle_raises(self, rng, angle):
         with pytest.raises(ValueError, match="angle"):
-            apply_rotate(_volume(rng), np.nan, "x")
+            apply_rotate(_volume(rng), angle, "x")
 
     def test_invalid_center_raises(self, rng):
         with pytest.raises(ValueError, match="center"):
@@ -414,7 +417,18 @@ class TestApplyZoom:
             apply_zoom(_pose_volume(rng), (1.0, 2.0, 1.0))
 
     @pytest.mark.parametrize(
-        "zoom", [0.0, (1.0, 0.0, 1.0), (1.0, 2.0), (np.inf, 1.0, 1.0)]
+        "zoom",
+        [
+            0.0,
+            (1.0, 0.0, 1.0),
+            (1.0, 2.0),
+            (np.inf, 1.0, 1.0),
+            np.nan,
+            np.inf,
+            "2",
+            None,
+            {"z": 1.0},
+        ],
     )
     def test_invalid_zoom_raises(self, rng, zoom):
         with pytest.raises(ValueError, match="zoom"):

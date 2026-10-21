@@ -507,7 +507,7 @@ registered_to_qform = pwd.fusi.affine.apply("world_to_qform")
 shifted = pwd.fusi.affine.apply(my_affine)
 ```
 
-For the common moves, build the affine for you: `translate` shifts by a `(z, y, x)`
+For the common moves, three helpers build the affine for you: `translate` shifts by a `(z, y, x)`
 vector in world units, `rotate` turns by an angle (degrees by default) about a world
 axis name or vector, and `zoom` rescales by a scalar or per-axis `(z, y, x)` factors.
 `rotate` and `zoom` take an optional `center` pivot (default: the world origin), and
@@ -516,7 +516,7 @@ in order; the voxel grid and data values never change, only their placement in
 world space:
 
 ```python
-# Shift 1 mm along z, then tilt 5 degrees about x through the volume centre.
+# Shift 1 mm along z, then tilt 5 degrees about x through the volume center.
 center = pwd.fusi.affine.bounding_box.mean("bound").values
 moved = pwd.fusi.affine.translate((1.0, 0.0, 0.0)).fusi.affine.rotate(
     5.0, "x", center=center

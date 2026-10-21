@@ -1,4 +1,4 @@
-"""Affine matrix decomposition and composition utilities."""
+"""Affine matrix utilities and world-space translate, rotate and zoom helpers."""
 
 import math
 from typing import TYPE_CHECKING, Literal, cast
@@ -209,6 +209,36 @@ def decompose_affine(
     return T, Rmat, np.array([sx, sy, sz]), np.array([sxy, sxz, syz])
 
 
+def _as_finite_scalar(value: object, name: str) -> float:
+    """Validate a finite real scalar.
+
+    Parameters
+    ----------
+    value : object
+        Candidate scalar.
+    name : str
+        Argument name used in error messages.
+
+    Returns
+    -------
+    float
+        The value as a finite Python float.
+
+    Raises
+    ------
+    ValueError
+        If `value` cannot be converted to a finite float.
+    """
+    # `float` parses strings, which would silently accept `"2"`.
+    try:
+        result = math.nan if isinstance(value, str) else float(cast(float, value))
+    except (TypeError, ValueError):
+        result = math.nan
+    if not math.isfinite(result):
+        raise ValueError(f"{name} must be a finite number, got {value!r}.")
+    return result
+
+
 def _as_world_vector(value: npt.ArrayLike, name: str) -> npt.NDArray[np.float64]:
     """Validate a world-space 3-vector given in `z/y/x` order.
 
@@ -341,12 +371,13 @@ def apply_rotate(
         Rotation angle.
     axis : {"z", "y", "x"} or (3,) array-like
         Rotation axis, either a world dimension name or a vector in world
-        `(z, y, x)` order. Vectors are normalised.
+        `(z, y, x)` order. Vectors are normalized.
     center : (3,) array-like, optional
         Fixed point of the rotation in world `(z, y, x)` order, in units of
         `data.fusi.affine.units`. If not provided, the rotation is about the world
-        origin. Use `data.fusi.affine.bounding_box.mean("bound").values` to rotate
-        about the centre of the volume.
+        origin. For single-pose data, use
+        `data.fusi.affine.bounding_box.mean("bound").values` to rotate about the
+        center of the volume.
     degrees : bool, default: True
         Whether `angle` is in degrees rather than radians.
     inplace : bool, default: False
@@ -378,8 +409,7 @@ def apply_rotate(
            [-1.,  0.,  0.],
            [ 0.,  0.,  1.]])
     """
-    if not np.isfinite(angle):
-        raise ValueError(f"angle must be finite, got {angle}.")
+    angle = _as_finite_scalar(angle, "angle")
 
     axes = {"z": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "x": (0.0, 0.0, 1.0)}
     if isinstance(axis, str):
@@ -425,8 +455,9 @@ def apply_zoom(
     center : (3,) array-like, optional
         Fixed point of the rescaling in world `(z, y, x)` order, in units of
         `data.fusi.affine.units`. If not provided, the volume is rescaled about the
-        world origin. Use `data.fusi.affine.bounding_box.mean("bound").values` to
-        rescale about the centre of the volume.
+        world origin. For single-pose data, use
+        `data.fusi.affine.bounding_box.mean("bound").values` to rescale about the
+        center of the volume.
     inplace : bool, default: False
         Whether to modify `data` in place instead of returning a copy.
 
@@ -457,9 +488,7 @@ def apply_zoom(
     array([2., 2., 2., 1.])
     """
     if np.ndim(zoom) == 0:
-        if not np.isfinite(zoom):
-            raise ValueError(f"zoom must be finite, got {zoom}.")
-        factors = np.full(3, zoom, dtype=np.float64)
+        factors = np.full(3, _as_finite_scalar(zoom, "zoom"), dtype=np.float64)
     else:
         factors = _as_world_vector(zoom, "zoom")
     if np.any(factors == 0):
