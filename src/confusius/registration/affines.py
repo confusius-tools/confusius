@@ -1,11 +1,12 @@
 """Affine matrix decomposition and composition utilities."""
 
 import math
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from scipy.spatial.transform import Rotation
 
 from confusius.xarray.affine import apply_affine
 
@@ -281,6 +282,125 @@ def apply_translate(
     matrix = np.eye(4)
     matrix[:3, 3] = _as_world_vector(translation, "translation")
     return apply_affine(data, matrix, inplace=inplace)
+
+
+def _about_center(
+    linear: npt.NDArray[np.float64], center: npt.ArrayLike | None
+) -> npt.NDArray[np.float64]:
+    """Embed a linear map in a homogeneous matrix pivoting about `center`.
+
+    This is the closed form of `T(center) @ L @ T(-center)`.
+
+    Parameters
+    ----------
+    linear : (3, 3) numpy.ndarray
+        Linear part, in world `(z, y, x)` order.
+    center : (3,) array-like, optional
+        Fixed point of the map, in world `(z, y, x)` order. If not provided, the map
+        pivots about the world origin.
+
+    Returns
+    -------
+    (4, 4) numpy.ndarray
+        Homogeneous matrix.
+
+    Raises
+    ------
+    ValueError
+        If `center` is not a finite `(3,)` vector.
+    """
+    matrix = np.eye(4)
+    matrix[:3, :3] = linear
+    if center is not None:
+        c = _as_world_vector(center, "center")
+        matrix[:3, 3] = c - linear @ c
+    return matrix
+
+
+def apply_rotate(
+    data: xr.DataArray,
+    angle: float,
+    axis: Literal["z", "y", "x"] | npt.ArrayLike,
+    *,
+    center: npt.ArrayLike | None = None,
+    degrees: bool = True,
+    inplace: bool = False,
+) -> xr.DataArray:
+    """Rotate a VoxelData array in world space.
+
+    Only the voxel-to-world geometry changes: data values and voxel coordinates are
+    untouched, and any `attrs["affines"]` entries are re-expressed accordingly.
+    Rotations follow the right-hand rule in the physical `(x, y, z)` frame, so a
+    rotation of +90 degrees about `x` maps `+y` onto `+z`.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to rotate.
+    angle : float
+        Rotation angle.
+    axis : {"z", "y", "x"} or (3,) array-like
+        Rotation axis, either a world dimension name or a vector in world
+        `(z, y, x)` order. Vectors are normalised.
+    center : (3,) array-like, optional
+        Fixed point of the rotation in world `(z, y, x)` order, in units of
+        `data.fusi.affine.units`. If not provided, the rotation is about the world
+        origin. Use `data.fusi.affine.bounding_box.mean("bound").values` to rotate
+        about the centre of the volume.
+    degrees : bool, default: True
+        Whether `angle` is in degrees rather than radians.
+    inplace : bool, default: False
+        Whether to modify `data` in place instead of returning a copy.
+
+    Returns
+    -------
+    xarray.DataArray
+        The rotated VoxelData array. This is `data` itself if `inplace` is `True`.
+
+    Raises
+    ------
+    ValueError
+        If `angle` is not finite, if `axis` is not a world dimension name or a
+        non-zero finite `(3,)` vector, if `center` is not a finite `(3,)` vector, or
+        if `data` is not a VoxelData array.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from confusius.registration import apply_rotate
+    >>> from confusius.xarray import create_voxeldata
+    >>> data = create_voxeldata(
+    ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
+    ... )
+    >>> rotated = apply_rotate(data, 90.0, "x")
+    >>> np.round(rotated.fusi.affine.voxel_to_world[:3, :3])
+    array([[ 0.,  1.,  0.],
+           [-1.,  0.,  0.],
+           [ 0.,  0.,  1.]])
+    """
+    if not np.isfinite(angle):
+        raise ValueError(f"angle must be finite, got {angle}.")
+
+    axes = {"z": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "x": (0.0, 0.0, 1.0)}
+    if isinstance(axis, str):
+        if axis not in axes:
+            raise ValueError(
+                f"axis must be one of 'z', 'y', 'x' or a vector, got {axis!r}."
+            )
+        unit_axis = np.array(axes[axis])
+    else:
+        unit_axis = _as_world_vector(axis, "axis")
+        norm = np.linalg.norm(unit_axis)
+        if norm == 0:
+            raise ValueError("axis must have non-zero length.")
+        unit_axis = unit_axis / norm
+
+    angle_rad = np.deg2rad(angle) if degrees else float(angle)
+    # (z, y, x) is an odd permutation of (x, y, z), so a rotation vector evaluated in
+    # z/y/x component order rotates the opposite way. Build the matrix in x/y/z order
+    # and permute rows and columns back so +angle follows the right-hand rule.
+    rotation = Rotation.from_rotvec(angle_rad * unit_axis[::-1]).as_matrix()[::-1, ::-1]
+    return apply_affine(data, _about_center(rotation, center), inplace=inplace)
 
 
 def affine_to_sitk_linear_transform(
