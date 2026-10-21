@@ -1,7 +1,7 @@
 """Xarray accessor for affine transform operations."""
 
 import itertools
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import xarray as xr
@@ -479,7 +479,8 @@ class FUSIAffineAccessor:
     """Accessor for affine transform operations on VoxelData arrays.
 
     Provides methods to compute relative transforms between scans and to
-    apply axis-aligned affines to a scan's spatial coordinates.
+    apply affines to a scan's spatial coordinates, including translating, rotating
+    and zooming it in world space.
 
     Parameters
     ----------
@@ -709,6 +710,151 @@ class FUSIAffineAccessor:
         10.0
         """
         return apply_affine(self._obj, affine, inplace=inplace)
+
+    def translate(
+        self, translation: "npt.ArrayLike", *, inplace: bool = False
+    ) -> xr.DataArray:
+        """Translate a DataArray in world space.
+
+        `translation` is given in world `(z, y, x)` order. Only the voxel-to-world
+        geometry changes. See [apply_translate][confusius.registration.apply_translate]
+        for details.
+
+        Parameters
+        ----------
+        translation : (3,) array-like
+            Translation in world `(z, y, x)` order, in units of
+            `self.fusi.affine.units`.
+        inplace : bool, default: False
+            Whether to modify the DataArray in place instead of returning a copy.
+
+        Returns
+        -------
+        xarray.DataArray
+            The translated DataArray. This is the DataArray itself if `inplace` is
+            `True`.
+
+        Raises
+        ------
+        ValueError
+            If `translation` is not a finite `(3,)` vector, or if the DataArray is
+            not a VoxelData array.
+
+        Examples
+        --------
+        >>> moved = data.fusi.affine.translate((1.0, 0.0, 0.0))  # doctest: +SKIP
+        >>> moved = data.fusi.affine.translate((1.0, 0.0, 0.0)).fusi.affine.rotate(
+        ...     5.0, "x"
+        ... )  # doctest: +SKIP
+        """
+        from confusius.registration.affines import apply_translate
+
+        return apply_translate(self._obj, translation, inplace=inplace)
+
+    def rotate(
+        self,
+        angle: float,
+        axis: 'Literal["z", "y", "x"] | npt.ArrayLike',
+        *,
+        center: "npt.ArrayLike | None" = None,
+        degrees: bool = True,
+        inplace: bool = False,
+    ) -> xr.DataArray:
+        """Rotate a DataArray in world space.
+
+        Rotations follow the right-hand rule in the physical `(x, y, z)` frame, so a
+        rotation of +90 degrees about `x` maps `+y` onto `+z`. Only the voxel-to-world
+        geometry changes. See [apply_rotate][confusius.registration.apply_rotate] for
+        details.
+
+        Parameters
+        ----------
+        angle : float
+            Rotation angle.
+        axis : {"z", "y", "x"} or (3,) array-like
+            Rotation axis, either a world dimension name or a vector in world
+            `(z, y, x)` order. Vectors are normalised.
+        center : (3,) array-like, optional
+            Fixed point of the rotation in world `(z, y, x)` order, in units of
+            `self.fusi.affine.units`. If not provided, the rotation is about the world
+            origin.
+        degrees : bool, default: True
+            Whether `angle` is in degrees rather than radians.
+        inplace : bool, default: False
+            Whether to modify the DataArray in place instead of returning a copy.
+
+        Returns
+        -------
+        xarray.DataArray
+            The rotated DataArray. This is the DataArray itself if `inplace` is
+            `True`.
+
+        Raises
+        ------
+        ValueError
+            If `angle` is not finite, if `axis` is not a world dimension name or a
+            non-zero finite `(3,)` vector, if `center` is not a finite `(3,)` vector,
+            or if the DataArray is not a VoxelData array.
+
+        Examples
+        --------
+        >>> rotated = data.fusi.affine.rotate(5.0, "x")  # doctest: +SKIP
+        """
+        from confusius.registration.affines import apply_rotate
+
+        return apply_rotate(
+            self._obj,
+            angle,
+            axis,
+            center=center,
+            degrees=degrees,
+            inplace=inplace,
+        )
+
+    def zoom(
+        self,
+        zoom: "float | npt.ArrayLike",
+        *,
+        center: "npt.ArrayLike | None" = None,
+        inplace: bool = False,
+    ) -> xr.DataArray:
+        """Rescale a DataArray in world space.
+
+        Only the voxel-to-world geometry changes. See
+        [apply_zoom][confusius.registration.apply_zoom] for details.
+
+        Parameters
+        ----------
+        zoom : float or (3,) array-like
+            Scale factor, either a scalar applied to all axes or per-axis factors in
+            world `(z, y, x)` order. Negative factors reflect the volume along that
+            axis.
+        center : (3,) array-like, optional
+            Fixed point of the rescaling in world `(z, y, x)` order, in units of
+            `self.fusi.affine.units`. If not provided, the volume is rescaled about
+            the world origin.
+        inplace : bool, default: False
+            Whether to modify the DataArray in place instead of returning a copy.
+
+        Returns
+        -------
+        xarray.DataArray
+            The rescaled DataArray. This is the DataArray itself if `inplace` is
+            `True`.
+
+        Raises
+        ------
+        ValueError
+            If `zoom` is not a finite scalar or `(3,)` vector, if `center` is not a
+            finite `(3,)` vector, or if the DataArray is not a VoxelData array.
+
+        Examples
+        --------
+        >>> zoomed = data.fusi.affine.zoom(2.0)  # doctest: +SKIP
+        """
+        from confusius.registration.affines import apply_zoom
+
+        return apply_zoom(self._obj, zoom, center=center, inplace=inplace)
 
     def reindex_voxels(self, *, inplace: bool = False) -> xr.DataArray:
         """Rebase voxel coordinates to dense positions without moving world coordinates.
