@@ -742,10 +742,18 @@ class FUSIAffineAccessor:
 
         Examples
         --------
-        >>> moved = data.fusi.affine.translate((1.0, 0.0, 0.0))  # doctest: +SKIP
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
         >>> moved = data.fusi.affine.translate((1.0, 0.0, 0.0)).fusi.affine.rotate(
         ...     5.0, "x"
-        ... )  # doctest: +SKIP
+        ... )
+        >>> box = moved.fusi.affine.bounding_box
+        >>> round(float(box.sel(bound="max", component="x")), 6)
+        2.0
         """
         from confusius.registration.affines import apply_translate
 
@@ -798,7 +806,16 @@ class FUSIAffineAccessor:
 
         Examples
         --------
-        >>> rotated = data.fusi.affine.rotate(5.0, "x")  # doctest: +SKIP
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
+        >>> rotated = data.fusi.affine.rotate(90.0, "z")
+        >>> box = rotated.fusi.affine.bounding_box
+        >>> round(float(box.sel(bound="min", component="x")), 6)
+        -3.0
         """
         from confusius.registration.affines import apply_rotate
 
@@ -850,7 +867,15 @@ class FUSIAffineAccessor:
 
         Examples
         --------
-        >>> zoomed = data.fusi.affine.zoom(2.0)  # doctest: +SKIP
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
+        >>> zoomed = data.fusi.affine.zoom(2.0)
+        >>> float(zoomed.fusi.affine.bounding_box.sel(bound="max", component="x"))
+        4.0
         """
         from confusius.registration.affines import apply_zoom
 
