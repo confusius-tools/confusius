@@ -490,6 +490,14 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
         window.layout().activate()
         QApplication.processEvents()
 
+    def assert_video_takes_canvas_space() -> None:
+        # The video gets the panel's width, or all the canvas can spare when
+        # the window is narrower than asked (macOS CI keeps it near 1244 px).
+        central = window.centralWidget()
+        assert video_dock.width() == pytest.approx(panel_width, abs=4) or (
+            central.width() <= central.minimumSizeHint().width()
+        )
+
     relayout()
     panel_width = panel_dock.width()
 
@@ -514,7 +522,7 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
         assert video_dock.height() >= 0.85 * window.height()
         # The video takes its space from the canvas, not from the panel.
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
-        assert video_dock.width() == pytest.approx(panel_width, abs=4)
+        assert_video_takes_canvas_space()
 
         # Removing the last video hides the dock and gives its space back to
         # the canvas, not to the panel; re-adding shows it sized as before.
@@ -527,7 +535,7 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
         assert not video_dock.isHidden()
         assert video_dock.x() < panel_dock.x()
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
-        assert video_dock.width() == pytest.approx(panel_width, abs=4)
+        assert_video_takes_canvas_space()
     finally:
         video_viewer.close()
     relayout()
