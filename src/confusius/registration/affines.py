@@ -265,6 +265,18 @@ def apply_translate(
     ValueError
         If `translation` is not a finite `(3,)` vector, or if `data` is not a
         VoxelData array.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from confusius.registration import apply_translate
+    >>> from confusius.xarray import create_voxeldata
+    >>> data = create_voxeldata(
+    ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
+    ... )
+    >>> shifted = apply_translate(data, (0.0, 0.0, 1.5))
+    >>> shifted.fusi.affine.voxel_to_world[:3, 3]
+    array([0. , 0. , 1.5])
     """
     matrix = np.eye(4)
     matrix[:3, 3] = _as_world_vector(translation, "translation")
