@@ -799,6 +799,7 @@ def register_volume(
         else:
             initial = pre_transform
 
+    # FixedImage/MovingImage do not drive template inference for metrics or registration.
     if metric == "correlation":
         metric_object = itk.CorrelationImageToImageMetricv4[
             image_type, image_type

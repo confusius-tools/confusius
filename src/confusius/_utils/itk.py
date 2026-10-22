@@ -126,30 +126,25 @@ def resample_itk_image(
         target_type = itk.Image[itk.D, moving.GetImageDimension()]
         if type(moving) is not target_type:
             moving = itk.cast_image_filter(moving, ttype=(type(moving), target_type))
-    image_type = type(moving)
     if interpolation == "nearest":
-        interpolator = itk.NearestNeighborInterpolateImageFunction[
-            image_type, itk.D
-        ].New()
+        interpolator = itk.NearestNeighborInterpolateImageFunction.New(
+            InputImage=moving
+        )
     elif interpolation == "linear":
-        interpolator = itk.LinearInterpolateImageFunction[image_type, itk.D].New()
+        interpolator = itk.LinearInterpolateImageFunction.New(InputImage=moving)
     elif interpolation == "bspline":
-        interpolator = itk.BSplineInterpolateImageFunction[
-            image_type, itk.D, itk.D
-        ].New()
+        interpolator = itk.BSplineInterpolateImageFunction.New(InputImage=moving)
     else:
         raise ValueError(f"Invalid `interpolation`: {interpolation!r}.")
-    resampler = itk.ResampleImageFilter[image_type, image_type].New(
-        Input=moving,
-        ReferenceImage=reference,
-        UseReferenceImage=True,
-        Transform=transform,
-        Interpolator=interpolator,
-        DefaultPixelValue=fill_value,
+    result = itk.resample_image_filter(
+        moving,
+        reference_image=reference,
+        use_reference_image=True,
+        transform=transform,
+        interpolator=interpolator,
+        default_pixel_value=fill_value,
+        number_of_work_units=resolve_itk_threads(itk_threads),
     )
-    resampler.SetNumberOfWorkUnits(resolve_itk_threads(itk_threads))
-    resampler.Update()
-    result = resampler.GetOutput()
     result.DisconnectPipeline()
     return result
 
