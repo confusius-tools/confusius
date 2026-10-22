@@ -234,10 +234,6 @@ def sample_displacement_field(
     direction_array = (
         np.eye(3) if direction is None else np.asarray(direction, dtype=np.float64)
     )
-    if direction_array.shape != (3, 3):
-        raise ValueError(
-            f"direction must have shape (3, 3), got {direction_array.shape}."
-        )
     order = int(transform.attrs["order"])
     if order not in range(4):
         raise ValueError("B-spline order must be between 0 and 3.")

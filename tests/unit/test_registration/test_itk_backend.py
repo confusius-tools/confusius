@@ -3,6 +3,7 @@
 import gc
 import weakref
 from threading import Event
+from types import SimpleNamespace
 
 import itk
 import numpy as np
@@ -23,6 +24,18 @@ from confusius.registration.affines import (
     itk_linear_transform_to_affine,
 )
 from confusius.xarray import create_voxeldata
+
+
+@pytest.fixture
+def bspline_coefficients():
+    """Return a valid zero-displacement cubic coefficient lattice."""
+    return create_voxeldata(
+        np.zeros((3, 5, 5, 5)),
+        dims=["component", "k", "j", "i"],
+        extra_coords={"component": ["k", "j", "i"]},
+        spacing=[1, 1, 1],
+        attrs={"type": "bspline_transform", "order": 3},
+    )
 
 
 @pytest.mark.parametrize(
@@ -252,13 +265,124 @@ def test_db_optimizer_scaling_keeps_zero_power_finite(sample_voxeldata_2d_regist
     assert_allclose(diagnostics.metric_values, -1, atol=1e-6)
 
 
-def test_complex_resampling_is_rejected_without_losing_phase(
+@pytest.mark.parametrize(
+    "function,kwargs",
+    [(register_volume, {}), (resample_like, {"transform": np.eye(4)})],
+)
+def test_complex_data_is_rejected_without_losing_phase(
     sample_voxeldata_2d_registration,
+    function,
+    kwargs,
 ):
     """An unsupported image dtype must not silently discard its imaginary part."""
     source = sample_voxeldata_2d_registration.astype(np.complex64) * (1 + 2j)
     with pytest.raises(TypeError, match="complex"):
-        resample_like(source, source, np.eye(4))
+        function(source, source, fill_value=0, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs,message",
+    [
+        ({"transform_type": "invalid"}, "Invalid transform"),
+        ({"metric": "invalid"}, "Invalid metric"),
+        ({"resample_interpolation": "nearest"}, "Invalid resample_interpolation"),
+        (
+            {"number_of_iterations": 0},
+            "number_of_iterations must be a positive integer",
+        ),
+        (
+            {"convergence_window_size": 0},
+            "convergence_window_size must be a positive integer",
+        ),
+        (
+            {"number_of_histogram_bins": 0},
+            "number_of_histogram_bins must be a positive integer",
+        ),
+        (
+            {"shrink_factors": [2, 1], "smoothing_sigmas": [0]},
+            "must have the same length",
+        ),
+    ],
+)
+def test_registration_rejects_invalid_optimizer_settings(
+    sample_voxeldata_2d_registration,
+    kwargs,
+    message,
+):
+    """Invalid modes and optimizer bounds must fail before backend execution."""
+    source = sample_voxeldata_2d_registration
+    with pytest.raises(ValueError, match=message):
+        register_volume(source, source, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "fixed_scaling,moving_scaling",
+    [("db", "none"), ("none", "db")],
+)
+def test_db_optimizer_scaling_rejects_negative_power(
+    sample_voxeldata_2d_registration,
+    fixed_scaling,
+    moving_scaling,
+):
+    """Negative power must be rejected before it produces NaN optimizer inputs."""
+    source = sample_voxeldata_2d_registration - 1
+    with pytest.raises(ValueError, match="requires nonnegative values"):
+        register_volume(
+            source,
+            source,
+            fixed_intensity_scaling=fixed_scaling,
+            moving_intensity_scaling=moving_scaling,
+        )
+
+
+@pytest.mark.parametrize(
+    "dims,shape",
+    [(["z", "y", "x"], [3, 3, 3]), (["k", "j", "i"], [3, 3])],
+)
+def test_field_sampling_rejects_invalid_output_grid(bspline_coefficients, dims, shape):
+    """An explicit output grid requires three native voxel axes and three sizes."""
+    with pytest.raises(ValueError, match="native voxel dimensions"):
+        sample_displacement_field(
+            bspline_coefficients,
+            dims=dims,
+            shape=shape,
+            spacing=[1, 1, 1],
+            origin=[0, 0, 0],
+        )
+
+
+@pytest.mark.parametrize("order", [-1, 4])
+def test_field_sampling_rejects_unsupported_spline_order(bspline_coefficients, order):
+    """Only the supported polynomial orders can be sampled."""
+    transform = bspline_coefficients.assign_attrs(order=order)
+    with pytest.raises(ValueError, match="order must be between 0 and 3"):
+        sample_displacement_field_like(
+            transform, bspline_coefficients.isel(component=0, drop=True)
+        )
+
+
+@pytest.mark.parametrize(
+    "name,value,message",
+    [
+        ("max_iterations", 0, "max_iterations must be positive"),
+        ("max_error_tolerance", -0.1, "finite and nonnegative"),
+        ("max_error_tolerance", float("nan"), "finite and nonnegative"),
+        ("max_error_tolerance", float("inf"), "finite and nonnegative"),
+    ],
+)
+def test_inverse_field_rejects_invalid_solver_settings(
+    bspline_coefficients,
+    name,
+    value,
+    message,
+):
+    """Invalid solver bounds must be rejected rather than return an unchecked field."""
+    field = sample_displacement_field_like(
+        bspline_coefficients,
+        bspline_coefficients.isel(component=0, drop=True),
+    )
+    with pytest.raises(ValueError, match=message):
+        invert_displacement_field(field, **{name: value})
 
 
 @pytest.mark.parametrize(
@@ -325,6 +449,66 @@ def test_multiresolution_abort_stops_future_levels_and_releases_reporter(
     assert levels == [0, 0]
     assert closed == [True]
     assert reporter_refs[0]() is None
+
+
+@pytest.mark.parametrize("depth", [1, 2, 3, 4])
+def test_thin_optimizer_grid_preserves_interpolation_and_physical_support(
+    sample_voxeldata_2d_registration,
+    depth,
+):
+    """Thin-axis expansion uses linear interpolation without changing voxel support."""
+    values = np.repeat(sample_voxeldata_2d_registration.values, depth, axis=0)
+    values += np.arange(depth, dtype=np.float32)[:, None, None] * 10
+    spacing = np.array([1.7, 0.2, 0.3])
+    origin = np.array([2.5, -3.0, 4.0])
+    direction = Rotation.from_euler("xyz", [0.12, -0.23, 0.34]).as_matrix()
+    source = create_voxeldata(
+        values,
+        dims=["k", "j", "i"],
+        spacing=spacing.tolist(),
+        origin=origin.tolist(),
+        direction=direction,
+    )
+    observed = {}
+
+    def factory(registration, *_images, **_kwargs):
+        """Capture the optimizer image through the public progress-factory hook."""
+        image = registration.GetFixedImage()
+        observed["values"] = itk.array_from_image(image).T
+        observed["spacing"] = np.array(image.GetSpacing())
+        observed["origin"] = np.array(image.GetOrigin())
+        observed["direction"] = itk.array_from_matrix(image.GetDirection())
+        return SimpleNamespace(update=lambda: None, close=lambda: None)
+
+    event = Event()
+    event.set()
+    register_volume(
+        source,
+        source,
+        transform_type="translation",
+        show_progress=True,
+        progress_plotter=factory,
+        plot_metric=False,
+        plot_composite=False,
+        abort_event=event,
+        resample=False,
+    )
+    factors = np.array([(4 + depth - 1) // depth, 1, 1])
+    shape = np.array(source.shape) * factors
+    indices = (np.indices(tuple(shape), dtype=float) + 0.5) / factors[
+        :, None, None, None
+    ] - 0.5
+    expected = map_coordinates(
+        values, indices, order=1, mode="nearest", prefilter=False
+    )
+    assert_allclose(observed["values"], expected, atol=1e-6)
+    assert_allclose(observed["direction"], direction, atol=1e-14)
+    assert_allclose(observed["spacing"] * shape, spacing * source.shape, atol=1e-14)
+    assert_allclose(
+        observed["origin"] - direction @ (observed["spacing"] / 2),
+        origin - direction @ (spacing / 2),
+        atol=1e-14,
+    )
 
 
 def test_zero_worker_count_is_rejected(sample_voxeldata_2d_registration):

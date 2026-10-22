@@ -370,19 +370,18 @@ def abort_on_sigint(
 
 
 def expand_thin_dims(img: "itk.Image", min_size: int = 4) -> "itk.Image":
-    """Expand any image dimension smaller than `min_size` by replication.
+    """Expand thin image dimensions while preserving their physical support.
 
-    ITK's registration, multi-resolution pyramid, and displacement-field
-    inversion fail when a spatial dimension is smaller than a handful of voxels
-    (common for 2D+t fUSI recordings with a 1-voxel depth). This helper replicates
-    thin dimensions so that the image is safe to process, while preserving the
-    world extent (spacing is divided by the expansion factor, keeping
-    `size * spacing` constant).
+    Registration's recursive Gaussian filters require at least four voxels per
+    dimension, including for single-slice fUSI recordings. ITK expands using
+    linear interpolation, divides spacing by each expansion factor, and shifts
+    the origin to preserve voxel-support boundaries (`size * spacing`), rather
+    than the span between the first and last voxel centers.
 
     Parameters
     ----------
     img : itk.Image
-        Input image. May be 2D or 3D, scalar or vector-valued.
+        Input image.
     min_size : int, default: 4
         Minimum acceptable size along each dimension.
 
@@ -394,18 +393,11 @@ def expand_thin_dims(img: "itk.Image", min_size: int = 4) -> "itk.Image":
     """
     import itk
 
-    size = np.array(img.GetLargestPossibleRegion().GetSize())
-    factors = np.ones(len(size), dtype=int)
-    thin = size < min_size
-    if not thin.any():
+    size = img.GetLargestPossibleRegion().GetSize()
+    factors = [max(1, (min_size + int(s) - 1) // int(s)) for s in size]
+    if all(factor == 1 for factor in factors):
         return img
 
-    factors[thin] = np.ceil(min_size / size[thin]).astype(int)
-
-    expand = itk.ExpandImageFilter[type(img), type(img)].New(
-        Input=img, ExpandFactors=factors.tolist()
-    )
-    expand.Update()
-    result = expand.GetOutput()
+    result = itk.expand_image_filter(img, expand_factors=factors)
     result.DisconnectPipeline()
     return result
