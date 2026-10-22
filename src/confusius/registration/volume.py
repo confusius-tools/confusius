@@ -34,8 +34,8 @@ def _validate_register_volume_inputs(
     fixed: xr.DataArray,
     fixed_mask: xr.DataArray | None,
     moving_mask: xr.DataArray | None,
-    transform_type: Literal["translation", "rigid", "affine", "bspline"],
-    metric: Literal["correlation", "mattes_mi"],
+    transform_type: Literal["translation", "rigid", "affine", "bspline", "syn"],
+    metric: Literal["correlation", "mattes_mi", "ants_cc"],
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float,
     number_of_histogram_bins: int,
@@ -63,9 +63,9 @@ def _validate_register_volume_inputs(
         Mask for fixed image. If provided, must have same dimensions as fixed.
     moving_mask : xarray.DataArray or None
         Mask for moving image. If provided, must have same dimensions as moving.
-    transform_type : {"translation", "rigid", "affine", "bspline"}
+    transform_type : {"translation", "rigid", "affine", "bspline", "syn"}
         Transform model name.
-    metric : {"correlation", "mattes_mi"}
+    metric : {"correlation", "mattes_mi", "ants_cc"}
         Similarity metric name.
     fixed_intensity_scaling : {"none", "db", "sqrt"} or float
         Intensity transform applied to `fixed` before optimization.
@@ -141,14 +141,14 @@ def _validate_register_volume_inputs(
         )
 
     # --- Literal-valued parameters ---
-    valid_transform_types = {"translation", "rigid", "affine", "bspline"}
+    valid_transform_types = {"translation", "rigid", "affine", "bspline", "syn"}
     if transform_type not in valid_transform_types:
         raise ValueError(
             f"Invalid transform {transform_type!r}. "
             f"Expected one of {sorted(valid_transform_types)}."
         )
 
-    valid_metrics = {"correlation", "mattes_mi"}
+    valid_metrics = {"correlation", "mattes_mi", "ants_cc"}
     if metric not in valid_metrics:
         raise ValueError(
             f"Invalid metric {metric!r}. Expected one of {sorted(valid_metrics)}."
@@ -289,7 +289,7 @@ def _apply_intensity_scaling(
 def _translate_registration_runtime_error(
     exc: RuntimeError,
     *,
-    transform_type: Literal["translation", "rigid", "affine", "bspline"],
+    transform_type: Literal["translation", "rigid", "affine", "bspline", "syn"],
     learning_rate: float | Literal["auto"],
 ) -> RuntimeError:
     """Return a clearer registration error for known ITK failures.
@@ -298,7 +298,7 @@ def _translate_registration_runtime_error(
     ----------
     exc : RuntimeError
         Exception raised by ITK during optimizer execution.
-    transform_type : {"translation", "rigid", "affine", "bspline"}
+    transform_type : {"translation", "rigid", "affine", "bspline", "syn"}
         Registration model used for the failed run.
     learning_rate : float or "auto"
         User-requested learning rate mode.
@@ -344,7 +344,10 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
     transform_type: Literal["translation", "rigid", "affine"],
-    metric: Literal["correlation", "mattes_mi"] = ...,
+    correlation_radius: int = ...,
+    update_field_variance: float = ...,
+    total_field_variance: float = ...,
+    metric: Literal["correlation", "mattes_mi", "ants_cc"] = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -383,8 +386,11 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     *,
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
-    transform_type: Literal["bspline"],
-    metric: Literal["correlation", "mattes_mi"] = ...,
+    transform_type: Literal["bspline", "syn"],
+    correlation_radius: int = ...,
+    update_field_variance: float = ...,
+    total_field_variance: float = ...,
+    metric: Literal["correlation", "mattes_mi", "ants_cc"] = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -413,7 +419,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, xr.DataArray, RegistrationDiagnostics]":
-    """Overload for bspline transform (returns DataArray transform)."""
+    """Overload for nonlinear transforms (returns DataArray transform)."""
 
 
 @overload
@@ -423,7 +429,10 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     *,
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
-    metric: Literal["correlation", "mattes_mi"] = ...,
+    correlation_radius: int = ...,
+    update_field_variance: float = ...,
+    total_field_variance: float = ...,
+    metric: Literal["correlation", "mattes_mi", "ants_cc"] = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -461,8 +470,13 @@ def register_volume(
     *,
     fixed_mask: xr.DataArray | None = None,
     moving_mask: xr.DataArray | None = None,
-    transform_type: Literal["translation", "rigid", "affine", "bspline"] = "rigid",
-    metric: Literal["correlation", "mattes_mi"] = "correlation",
+    transform_type: Literal[
+        "translation", "rigid", "affine", "bspline", "syn"
+    ] = "rigid",
+    correlation_radius: int = 3,
+    update_field_variance: float = 3.0,
+    total_field_variance: float = 1.0,
+    metric: Literal["correlation", "mattes_mi", "ants_cc"] = "correlation",
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     number_of_histogram_bins: int = 50,
@@ -519,16 +533,27 @@ def register_volume(
         is True are used for computing the similarity metric. This is useful
         when the moving image contains NaN values or regions that should be
         excluded from registration.
-    transform_type : {"translation", "rigid", "affine", "bspline"}, default: "rigid"
+    transform_type : {"translation", "rigid", "affine", "bspline", "syn"}, default: "rigid"
         Transform model to use during registration. `"translation"` allows
         only shifts. `"rigid"` adds rotation. `"affine"` adds scaling and
         shearing. `"bspline"` fits a non-linear deformable transform (see
-        `mesh_size`).
-    metric : {"correlation", "mattes_mi"}, default: "correlation"
+        `mesh_size`). `"syn"` uses symmetric diffeomorphic normalization and
+        returns a dense displacement field on the fixed grid.
+    correlation_radius : int, default: 3
+        Neighborhood radius in voxels along each native axis for `metric="ants_cc"`.
+        Must be a positive integer.
+    update_field_variance : float, default: 3.0
+        Gaussian smoothing variance of SyN update fields, in squared voxel units.
+        Must be finite and nonnegative. Only used for `transform_type="syn"`.
+    total_field_variance : float, default: 1.0
+        Gaussian smoothing variance of accumulated SyN fields, in squared voxel units.
+        Must be finite and nonnegative. Only used for `transform_type="syn"`.
+    metric : {"correlation", "mattes_mi", "ants_cc"}, default: "correlation"
         Similarity metric. `"correlation"` (normalized cross-correlation) is
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
+        `"ants_cc"` uses ANTs neighborhood correlation, recommended for same-modality SyN.
     fixed_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
         Intensity transform applied to `fixed` only for the registration optimizer.
         Floats apply power scaling with that exponent; `"sqrt"` is an alias for `0.5`.
@@ -548,7 +573,8 @@ def register_volume(
     learning_rate : float or "auto", default: "auto"
         Optimizer step size in normalized units. `"auto"` re-estimates the rate at
         every iteration. A float uses that value directly; if registration diverges or
-        fails to converge, reduce it.
+        fails to converge, reduce it. For SyN, this is the maximum update length in
+        voxel units; `"auto"` selects a fixed rate of `0.1`, not automatic estimation.
     number_of_iterations : int, default: 100
         Maximum number of optimizer iterations.
     convergence_minimum_value : float, default: 1e-6
@@ -578,7 +604,7 @@ def register_volume(
         size: `0` freezes a parameter entirely, values in `(0, 1)` slow it down, and
         `1` leaves it unchanged. For the 3D Euler transform the parameter order is
         `[angleX, angleY, angleZ, tx, ty, tz]`; to disable rotations around x and y
-        set weights to `[0, 0, 1, 1, 1, 1]`.
+        set weights to `[0, 0, 1, 1, 1, 1]`. Not supported for SyN.
     mesh_size : tuple of int, default: (10, 10, 10)
         Number of B-spline mesh nodes along each spatial dimension. Only used when
         `transform_type="bspline"`.
@@ -586,7 +612,8 @@ def register_volume(
         Whether to use a multi-resolution pyramid during registration. When `True`,
         registration proceeds from a coarse downsampled version of the images to the
         full resolution, which improves convergence for large displacements and reduces
-        the risk of local minima.
+        the risk of local minima. SyN currently requires `False` because ITK wheels
+        do not wrap the displacement-field parameter adaptors needed for its pyramid.
     shrink_factors : sequence of int, default: (6, 2, 1)
         Downsampling factor at each pyramid level, from coarsest to finest. Must have
         the same length as `smoothing_sigmas`. Only used when
@@ -674,7 +701,13 @@ def register_volume(
         matrix. When an affine `initialization` was also supplied, the DataArray also
         includes `attrs["affines"]["bspline_initialization"]` so that the full
         composite transform (pre-affine + B-spline) can be reconstructed for later
-        resampling.
+        resampling. For `transform_type="syn"`, returns a VoxelData displacement
+        field with dimensions `(component, k, j, i)` and
+        `attrs['type'] = 'displacement_field_transform'`. Components are world
+        `z/y/x` displacements in the input spatial units, labeled `k/j/i` as for
+        existing displacement fields. The fixed-grid geometry is preserved and
+        affine initialization is already included in the field. Reuse it with
+        [resample_like][confusius.registration.resample_like].
     diagnostics : confusius.registration.RegistrationDiagnostics
         Per-iteration metric values, final metric value, iteration count, and the
         optimizer stop condition. Useful for plotting convergence curves, comparing
@@ -704,6 +737,9 @@ def register_volume(
     ValueError
         If an affine `initialization` is provided and its shape does not match the
         image dimensionality.
+    ValueError
+        If the neighborhood radius or SyN variances are invalid, or if SyN is
+        requested with multi-resolution registration or optimizer weights.
     TypeError
         If `fixed_mask` or `moving_mask` is not a boolean DataArray.
     ValueError
@@ -732,6 +768,27 @@ def register_volume(
         smoothing_sigmas=smoothing_sigmas,
         resample_interpolation=resample_interpolation,
     )
+
+    if metric == "ants_cc" and (
+        not isinstance(correlation_radius, int) or correlation_radius < 1
+    ):
+        raise ValueError("correlation_radius must be a positive integer.")
+    if transform_type == "syn":
+        if use_multi_resolution:
+            raise ValueError(
+                "SyN currently supports single-resolution registration only: "
+                "ITK Python wheels do not wrap displacement-field parameter adaptors."
+            )
+        if optimizer_weights is not None:
+            raise ValueError(
+                "optimizer_weights are not supported for SyN registration."
+            )
+        for name, variance in (
+            ("update_field_variance", update_field_variance),
+            ("total_field_variance", total_field_variance),
+        ):
+            if not np.isfinite(variance) or variance < 0:
+                raise ValueError(f"{name} must be finite and nonnegative.")
 
     fixed_itk = voxeldata_to_itk_image(fixed)
     moving_itk = voxeldata_to_itk_image(moving)
@@ -770,6 +827,7 @@ def register_volume(
             "translation": itk.TranslationTransform[itk.D, ndim],
             "rigid": itk.Euler3DTransform[itk.D],
             "affine": itk.AffineTransform[itk.D, ndim],
+            "syn": itk.AffineTransform[itk.D, ndim],
         }[transform_type]
         initial = transform_class.New()
         if (
@@ -804,6 +862,10 @@ def register_volume(
         metric_object = itk.CorrelationImageToImageMetricv4[
             image_type, image_type
         ].New()
+    elif metric == "ants_cc":
+        metric_object = itk.ANTSNeighborhoodCorrelationImageToImageMetricv4[
+            image_type, image_type
+        ].New(Radius=[correlation_radius] * ndim)
     else:
         metric_object = itk.MattesMutualInformationImageToImageMetricv4[
             image_type, image_type
@@ -820,32 +882,49 @@ def register_volume(
             )
             setter(itk.ImageMaskSpatialObject[ndim].New(Image=mask_image))
 
-    optimizer = itk.GradientDescentOptimizerv4.New(
-        LearningRate=1.0 if learning_rate == "auto" else learning_rate,
-        NumberOfIterations=number_of_iterations,
-        MinimumConvergenceValue=convergence_minimum_value,
-        ConvergenceWindowSize=convergence_window_size,
-        DoEstimateLearningRateAtEachIteration=learning_rate == "auto",
-        DoEstimateLearningRateOnce=False,
-    )
-    scales = itk.RegistrationParameterScalesFromPhysicalShift[type(metric_object)].New(
-        Metric=metric_object, TransformForward=True
-    )
-    optimizer.SetScalesEstimator(scales)
-    if optimizer_weights is not None:
-        optimizer.SetWeights(
-            itk.OptimizerParameters[itk.D](
-                np.asarray(optimizer_weights, dtype=np.float64)
-            )
+    if transform_type == "syn":
+        registration = itk.SyNImageRegistrationMethod[image_type, image_type].New(
+            FixedImage=fixed_reg,
+            MovingImage=moving_reg,
+            Metric=metric_object,
+            MovingInitialTransform=initial,
+            LearningRate=0.1 if learning_rate == "auto" else learning_rate,
+            ConvergenceThreshold=convergence_minimum_value,
+            ConvergenceWindowSize=convergence_window_size,
+            GaussianSmoothingVarianceForTheUpdateField=update_field_variance,
+            GaussianSmoothingVarianceForTheTotalField=total_field_variance,
         )
-    registration = itk.ImageRegistrationMethodv4[image_type, image_type].New(
-        FixedImage=fixed_reg,
-        MovingImage=moving_reg,
-        Metric=metric_object,
-        Optimizer=optimizer,
-        InitialTransform=initial,
-        InPlace=True,
-    )
+        # New() unpacks singleton lists, which is unsafe for ITK's array-valued setter.
+        registration.SetNumberOfIterationsPerLevel([number_of_iterations])
+        iteration_source = registration
+    else:
+        optimizer = itk.GradientDescentOptimizerv4.New(
+            LearningRate=1.0 if learning_rate == "auto" else learning_rate,
+            NumberOfIterations=number_of_iterations,
+            MinimumConvergenceValue=convergence_minimum_value,
+            ConvergenceWindowSize=convergence_window_size,
+            DoEstimateLearningRateAtEachIteration=learning_rate == "auto",
+            DoEstimateLearningRateOnce=False,
+        )
+        scales = itk.RegistrationParameterScalesFromPhysicalShift[
+            type(metric_object)
+        ].New(Metric=metric_object, TransformForward=True)
+        optimizer.SetScalesEstimator(scales)
+        if optimizer_weights is not None:
+            optimizer.SetWeights(
+                itk.OptimizerParameters[itk.D](
+                    np.asarray(optimizer_weights, dtype=np.float64)
+                )
+            )
+        registration = itk.ImageRegistrationMethodv4[image_type, image_type].New(
+            FixedImage=fixed_reg,
+            MovingImage=moving_reg,
+            Metric=metric_object,
+            Optimizer=optimizer,
+            InitialTransform=initial,
+            InPlace=True,
+        )
+        iteration_source = optimizer
     registration.SetNumberOfWorkUnits(resolve_itk_threads(itk_threads))
     registration.SetNumberOfLevels(len(shrink_factors) if use_multi_resolution else 1)
     registration.SetShrinkFactorsPerLevel(
@@ -879,13 +958,25 @@ def register_volume(
 
         def _record_iteration() -> None:
             """Record the optimizer metric and honor cancellation at iteration boundaries."""
-            metric_values.append(float(optimizer.GetCurrentMetricValue()))
+            # SyN also emits a level-initialization event before its first iteration.
+            if transform_type == "syn" and registration.GetCurrentIteration() == 0:
+                return
+            metric_values.append(float(iteration_source.GetCurrentMetricValue()))
+            if transform_type == "syn" and plotter is not None:
+                plotter.update()
             if effective_abort_event.is_set():
-                optimizer.StopOptimization()
+                if transform_type == "syn":
+                    registration.SetNumberOfIterationsPerLevel(
+                        [registration.GetCurrentIteration()]
+                    )
+                else:
+                    iteration_source.StopOptimization()
                 # ITK's outer loop otherwise starts the optimizer again at the next pyramid level.
                 registration.SetNumberOfLevels(registration.GetCurrentLevel() + 1)
 
-        observer_tags = [optimizer.AddObserver(itk.IterationEvent(), _record_iteration)]
+        observer_tags = [
+            iteration_source.AddObserver(itk.IterationEvent(), _record_iteration)
+        ]
         plotter = None
         executed = False
         try:
@@ -908,9 +999,12 @@ def register_volume(
                     },
                     max_composite_slices=max_composite_slices,
                 )
-                observer_tags.append(
-                    optimizer.AddObserver(itk.IterationEvent(), plotter.update)
-                )
+                if transform_type != "syn":
+                    observer_tags.append(
+                        iteration_source.AddObserver(
+                            itk.IterationEvent(), plotter.update
+                        )
+                    )
 
             if effective_abort_event.is_set():
                 if transform_type != "bspline":
@@ -931,13 +1025,67 @@ def register_volume(
                     ) from exc
                 executed = True
                 aborted = effective_abort_event.is_set()
-                stop_condition = optimizer.GetStopConditionDescription()
+                if transform_type == "syn":
+                    stop_condition = (
+                        "SyN registration aborted."
+                        if aborted
+                        else "SyN convergence threshold reached."
+                        if registration.GetCurrentConvergenceValue()
+                        < convergence_minimum_value
+                        else "SyN maximum number of iterations reached."
+                    )
+                else:
+                    stop_condition = iteration_source.GetStopConditionDescription()
         finally:
             # C++ observers holding Python closures otherwise retain optimizers and images per frame.
             for tag in observer_tags:
-                optimizer.RemoveObserver(tag)
+                iteration_source.RemoveObserver(tag)
             if plotter is not None:
                 plotter.close()
+
+    if transform_type == "syn":
+        from confusius._utils.geometry import VOXEL_DIMS, WORLD_DIMS
+        from confusius.registration.resampling import resample_like
+        from confusius.xarray import create_voxeldata
+
+        pre_affine = itk_linear_transform_to_affine(initial)
+        displacement = np.zeros((3, *fixed.shape), dtype=np.float64)
+        if executed:
+            native_field = registration.GetTransform().GetDisplacementField()
+            field = create_voxeldata(
+                itk.array_from_image(native_field).transpose(3, 2, 1, 0),
+                dims=("component", *VOXEL_DIMS),
+                extra_coords={"component": list(VOXEL_DIMS)},
+                spacing=list(native_field.GetSpacing()),
+                origin=list(native_field.GetOrigin()),
+                direction=itk.array_from_matrix(native_field.GetDirection()),
+                units=fixed.coords["z"].attrs["units"],
+                attrs={"type": "displacement_field_transform"},
+            )
+            displacement = resample_like(
+                field,
+                fixed,
+                np.eye(4),
+                interpolation="linear",
+                fill_value=0,
+                itk_threads=itk_threads,
+            ).values
+            composite = itk.CompositeTransform[itk.D, ndim].New()
+            composite.AddTransform(initial)
+            composite.AddTransform(registration.GetTransform())
+            initial = composite
+        world = np.stack([fixed.coords[dim].values for dim in WORLD_DIMS])
+        displacement = (
+            np.einsum("ij,j...->i...", pre_affine[:3, :3], world + displacement)
+            + pre_affine[:3, 3, None, None, None]
+            - world
+        )
+        optimized_transform = xr.DataArray(
+            displacement,
+            coords=fixed.coords,
+            dims=("component", *VOXEL_DIMS),
+            attrs={"type": "displacement_field_transform"},
+        ).assign_coords(component=list(VOXEL_DIMS))
 
     if resample:
         from confusius._utils.itk import cast_resampled_values, resample_itk_image
@@ -972,12 +1120,12 @@ def register_volume(
         optimized_transform = itk_bspline_to_dataarray(
             initial, pre_affine=affine_initialization
         )
-    else:
+    elif transform_type != "syn":
         optimized_transform = itk_linear_transform_to_affine(initial)
     final_metric = (
         float(metric_values[-1])
         if metric_values
-        else float(optimizer.GetCurrentMetricValue())
+        else float(iteration_source.GetCurrentMetricValue())
         if executed
         else float("nan")
     )
