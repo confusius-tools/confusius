@@ -242,3 +242,25 @@ def test_default_project_hook_brightens_brand_colors_and_back(figure) -> None:
 
     assert mcolors.to_hex(red.get_color()) == RED_DARK
     assert mcolors.to_hex(label.get_color()) == TURQUOISE_DARK
+
+
+def test_default_project_hook_on_black_figures_uses_light_brand_colors() -> None:
+    """A black figure's bright brand red prints darker on the light page only."""
+    from confusius._utils.colors import RED, RED_DARK
+    from tools.gallery.hooks import gallery_retheme
+
+    fig, ax = plt.subplots(facecolor="black")
+    (line,) = ax.plot([0, 1], color=RED)
+    printed: list[str] = []
+
+    def printer(f):
+        printed.append(mcolors.to_hex(line.get_color()))
+        return retina_figure(f, base64=True)
+
+    try:
+        render_both(fig, printer=printer, hook=gallery_retheme)
+
+        assert printed == [RED_DARK, RED]
+        assert mcolors.to_hex(line.get_color()) == RED
+    finally:
+        plt.close(fig)

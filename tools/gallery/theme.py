@@ -72,7 +72,9 @@ ON_BLACK = Theme(bg="black", axes_bg="black", fg="white", diverging_cmap="berlin
 
 A figure whose background is pure black (e.g. the registration progress plot) is
 drawn under this theme rather than `LIGHT`, so its black is background and its
-white is foreground. Its pure-white data colors are swapped like text.
+white is foreground. Its pure-white data colors are swapped like text. Being a
+dark theme, it is expected to use the hook's dark-page colors (e.g. the brighter
+brand red).
 """
 
 _COLOR_SLOTS = (
@@ -201,8 +203,10 @@ def render_both(
     hook : Callable[[matplotlib.figure.Figure, str], None], optional
         Project hook called with `"dark"` after the swap to dark and with
         `"light"` after the swap back, so it can adjust what the built-in swap
-        does not cover. It must undo in `"light"` what it did in `"dark"`. If
-        not provided, nothing else is adjusted.
+        does not cover. It must undo in `"light"` what it did in `"dark"`, and
+        the reverse: an `ON_BLACK` figure gets `"light"` after its swap to
+        `LIGHT` and `"dark"` after its swap back. If not provided, nothing else
+        is adjusted.
 
     Returns
     -------
@@ -216,11 +220,17 @@ def render_both(
     layout engine is restored before returning.
     """
     if mcolors.to_rgb(fig.get_facecolor()) == mcolors.to_rgb(ON_BLACK.bg):
+        # `ON_BLACK` is a dark theme, so the hook's dark-page colors are undone on
+        # the way to `LIGHT` and redone on the way back.
         retheme(fig, ON_BLACK, LIGHT)
+        if hook is not None:
+            hook(fig, "light")
         try:
             return render_both(fig, printer=printer, hook=hook)
         finally:
             retheme(fig, LIGHT, ON_BLACK)
+            if hook is not None:
+                hook(fig, "dark")
     light = printer(fig)
     if light is None:
         return None

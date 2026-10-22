@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 import numpy as np
 
-from confusius._utils.colors import RED_DARK
+from confusius._utils.colors import RED
 from confusius._utils.plotting import blend_red_cyan, make_mosaic, scale_min_max
 from confusius._utils.stack import find_stack_level
 
@@ -239,7 +239,7 @@ class MatplotlibRegistrationProgressPlotter:
         if plot_metric:
             ax = next(panel)
             ax.set_facecolor("black")
-            (self._metric_line,) = ax.plot([], [], color=RED_DARK)
+            (self._metric_line,) = ax.plot([], [], color=RED)
             ax.set_xlabel("Iteration", color="white")
             ax.set_ylabel("Metric value", color="white")
             ax.set_title("Registration metric", color="white")

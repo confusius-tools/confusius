@@ -53,7 +53,9 @@ What this means when writing an example:
 - A figure whose background is pure black is taken as drawn on confusius's black
   default (the registration progress plot, a plotting call that makes its own
   figure without `bg_color`): its black is swapped as background and its white as
-  text for both pages, pure-white data colors included. This cannot work at a
+  text for both pages, pure-white data colors included. Being dark, such a figure
+  uses the dark-page brand colors (`#e94b5f`, `#3ad9a4`), which the light rendering
+  swaps to the light-page ones. This cannot work at a
   finer grain, since one figure can hold both a library plot (black background,
   white text) and a regular plot (light background, black text), so pass
   `bg_color` whenever a plotting function draws into axes you created.
