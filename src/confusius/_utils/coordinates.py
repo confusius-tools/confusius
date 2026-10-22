@@ -301,7 +301,7 @@ def get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
 
 
 class GridKwargs(TypedDict):
-    """Output grid specification for SimpleITK-based resampling.
+    """Output grid specification for ITK-based resampling.
 
     Bundles the keyword arguments (`shape`, `spacing`, `origin`, `dims`) that
     resampling helpers accept, each a list in DataArray dimension order.

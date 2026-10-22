@@ -4,6 +4,14 @@ icon: lucide/images
 
 # Registration
 
+Registration and resampling use [ITK](https://itk.org)'s Python bindings directly.
+The legacy `sitk_threads` parameter name is retained for compatibility; it now
+controls ITK workers with the same joblib-style thread-count convention.
+
+Transform matrices and displacement fields use a **pull convention**: fixed/output
+world points map to moving/input world points. VoxelData geometry and serialized
+B-spline coefficient grids are unchanged.
+
 !!! info "Coming soon"
     This page is currently under construction. The `registration` module provides tools
     for motion correction and spatial alignment:

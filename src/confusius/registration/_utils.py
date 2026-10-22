@@ -1,6 +1,5 @@
 """Internal utilities shared by registration modules."""
 
-import os
 import signal
 import threading
 from collections.abc import Callable, Generator
@@ -13,14 +12,15 @@ import numpy as np
 import xarray as xr
 from scipy.spatial.transform import Rotation
 
-from confusius._dims import VOXEL_DIMS, WORLD_DIMS
+from confusius._dims import WORLD_DIMS
 from confusius._utils.geometry import get_voxel_to_world_spatial_dims
+from confusius._utils.itk import resolve_itk_threads
 from confusius.validation import ensure_voxeldata
 
 if TYPE_CHECKING:
     from threading import Event
 
-    import SimpleITK as sitk
+    import itk
 
 
 def _raise_undefined_spatial_spacing_error(undefined_dims: list[str]) -> None:
@@ -216,7 +216,7 @@ def validate_intensity_scaling(
 def validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
     """Check that `fill_value` can be stored losslessly in `dtype`.
 
-    SimpleITK resamples into the moving image's pixel type, so a fill value that an
+    ITK resamples into the moving image's pixel type, so a fill value that an
     integer dtype cannot hold (NaN, inf, a fractional value, or one outside the dtype's
     range) would otherwise be silently cast to garbage such as `INT_MIN`.
 
@@ -280,8 +280,8 @@ def replace_affines_attr(result: xr.DataArray, reference: xr.DataArray) -> None:
 
 
 @contextmanager
-def set_sitk_thread_count(n: int) -> Generator[None, None, None]:
-    """Temporarily override SimpleITK's global thread count.
+def set_itk_thread_count(n: int) -> Generator[None, None, None]:
+    """Temporarily override ITK's global thread count.
 
     Follows joblib's `n_jobs` sign convention: positive values are used
     directly; negative values are interpreted as `max(1, n_cpus + 1 + n)`,
@@ -301,17 +301,15 @@ def set_sitk_thread_count(n: int) -> Generator[None, None, None]:
          This is a context manager that does not yield any value; it only manages the
          thread count.
     """
-    import SimpleITK as sitk
+    import itk
 
-    if n < 0:
-        n = max(1, (os.cpu_count() or 1) + 1 + n)
-
-    prev = sitk.ProcessObject.GetGlobalDefaultNumberOfThreads()
-    sitk.ProcessObject.SetGlobalDefaultNumberOfThreads(n)
+    n = resolve_itk_threads(n)
+    prev = itk.MultiThreaderBase.GetGlobalDefaultNumberOfThreads()
+    itk.MultiThreaderBase.SetGlobalDefaultNumberOfThreads(n)
     try:
         yield
     finally:
-        sitk.ProcessObject.SetGlobalDefaultNumberOfThreads(prev)
+        itk.MultiThreaderBase.SetGlobalDefaultNumberOfThreads(prev)
 
 
 @contextmanager
@@ -337,7 +335,7 @@ def abort_on_sigint(
     -----
     On the main thread, the first `SIGINT`/Ctrl+C is converted into
     `abort_event.set()` so long-running registrations can stop cleanly at the
-    next SimpleITK iteration boundary and return their current partial result.
+    next ITK iteration boundary and return their current partial result.
     A second Ctrl+C falls back to the previous signal handler so users can
     still force an immediate interrupt if graceful cancellation stalls.
     """
@@ -371,56 +369,10 @@ def abort_on_sigint(
         signal.signal(signal.SIGINT, previous_handler)
 
 
-def voxeldata_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
-    """Convert a VoxelData array to a SimpleITK image.
-
-    Uses the transpose convention: `da.values.T` is passed to `GetImageFromArray`,
-    so that the first DataArray axis maps to SimpleITK's world x-axis. For data with
-    an `extra` dimension, that dimension is converted to a vector image channel
-    dimension.
-
-    Parameters
-    ----------
-    da : xarray.DataArray
-        Canonical VoxelData array, optionally with an `extra` dimension (produced by
-        stacking `time`/other non-spatial dims together, since SimpleITK only
-        supports one vector channel dimension). Spacing, origin, and direction are
-        derived from its voxel-to-world index.
-
-    Returns
-    -------
-    SimpleITK.Image
-        SimpleITK image with spacing, origin, and direction set from the DataArray's
-        voxel-to-world index. For `extra`-stacked input, returns a vector image where
-        `extra` is the vector dimension.
-    """
-    import SimpleITK as sitk
-
-    has_extra = "extra" in da.dims
-    spacing = [float(da.fusi.spacing[dim]) for dim in VOXEL_DIMS]
-    origin_dict = da.fusi.origin
-    origin = tuple(origin_dict[d] for d in WORLD_DIMS)
-
-    if has_extra:
-        data = da.values
-        extra_idx = da.dims.index("extra")
-        # SimpleITK expects the vector dimension to be the last axis, so move extra
-        # to the start and let the transpose place it last.
-        data = np.moveaxis(data, extra_idx, 0)
-        image = sitk.GetImageFromArray(data.T, isVector=True)
-    else:
-        image = sitk.GetImageFromArray(da.values.T)
-
-    image.SetSpacing(tuple(spacing))
-    image.SetOrigin(tuple(origin))
-    image.SetDirection(np.asarray(da.fusi.direction, dtype=np.float64).ravel().tolist())
-    return image
-
-
-def expand_thin_dims(img: "sitk.Image", min_size: int = 4) -> "sitk.Image":
+def expand_thin_dims(img: "itk.Image", min_size: int = 4) -> "itk.Image":
     """Expand any image dimension smaller than `min_size` by replication.
 
-    SimpleITK's registration, multi-resolution pyramid, and displacement-field
+    ITK's registration, multi-resolution pyramid, and displacement-field
     inversion fail when a spatial dimension is smaller than a handful of voxels
     (common for 2D+t fUSI recordings with a 1-voxel depth). This helper replicates
     thin dimensions so that the image is safe to process, while preserving the
@@ -429,20 +381,20 @@ def expand_thin_dims(img: "sitk.Image", min_size: int = 4) -> "sitk.Image":
 
     Parameters
     ----------
-    img : SimpleITK.Image
+    img : itk.Image
         Input image. May be 2D or 3D, scalar or vector-valued.
     min_size : int, default: 4
         Minimum acceptable size along each dimension.
 
     Returns
     -------
-    SimpleITK.Image
+    itk.Image
         Image with all dimensions >= `min_size`. Returns `img` unchanged if no
         dimension is too small.
     """
-    import SimpleITK as sitk
+    import itk
 
-    size = np.array(img.GetSize())
+    size = np.array(img.GetLargestPossibleRegion().GetSize())
     factors = np.ones(len(size), dtype=int)
     thin = size < min_size
     if not thin.any():
@@ -450,5 +402,10 @@ def expand_thin_dims(img: "sitk.Image", min_size: int = 4) -> "sitk.Image":
 
     factors[thin] = np.ceil(min_size / size[thin]).astype(int)
 
-    # sitk.Expand replicates voxels and halves spacing proportionally.
-    return sitk.Expand(img, factors.tolist())
+    expand = itk.ExpandImageFilter[type(img), type(img)].New(
+        Input=img, ExpandFactors=factors.tolist()
+    )
+    expand.Update()
+    result = expand.GetOutput()
+    result.DisconnectPipeline()
+    return result

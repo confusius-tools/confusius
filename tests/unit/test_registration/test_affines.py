@@ -1,7 +1,6 @@
 """Unit tests for affine matrix decomposition utilities."""
 
 from itertools import permutations
-from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -9,10 +8,10 @@ from numpy.testing import assert_array_almost_equal, assert_array_equal
 from scipy.spatial.transform import Rotation
 
 from confusius.registration.affines import (
-    affine_to_sitk_linear_transform,
+    affine_to_itk_linear_transform,
     compose_affine,
     decompose_affine,
-    sitk_linear_transform_to_affine,
+    itk_linear_transform_to_affine,
 )
 
 
@@ -49,10 +48,10 @@ class TestCompose:
 
 
 class TestSitkLinearTransformToAffine:
-    """Tests for `sitk_linear_transform_to_affine`."""
+    """Tests for `itk_linear_transform_to_affine`."""
 
-    def test_affine_to_sitk_linear_transform_round_trips(self):
-        """Affine matrices round-trip through SimpleITK affine transforms."""
+    def test_affine_to_itk_linear_transform_round_trips(self):
+        """Affine matrices round-trip through ITK affine transforms."""
         affine = np.array(
             [
                 [1.0, 0.1, 0.0, 2.0],
@@ -62,58 +61,47 @@ class TestSitkLinearTransformToAffine:
             ]
         )
 
-        sitk_transform = affine_to_sitk_linear_transform(affine)
+        sitk_transform = affine_to_itk_linear_transform(affine)
 
         assert_array_almost_equal(
-            sitk_linear_transform_to_affine(sitk_transform), affine
+            itk_linear_transform_to_affine(sitk_transform), affine
         )
 
     def test_composite_transform_multiplies_child_affines_in_order(self):
-        """Composite transforms compose child affines in SimpleITK's application order."""
-        import SimpleITK as sitk
+        """Composite transforms compose child affines in ITK's application order."""
+        import itk
 
-        outer = sitk.TranslationTransform(3)
+        outer = itk.TranslationTransform[itk.D, 3].New()
         outer.SetOffset((1.0, 2.0, 3.0))
-        inner = sitk.Euler3DTransform()
+        inner = itk.Euler3DTransform[itk.D].New()
         inner.SetRotation(0.05, 0.0, 0.0)
         inner.SetTranslation((0.5, 0.0, 0.0))
 
-        composite = sitk.CompositeTransform(3)
+        composite = itk.CompositeTransform[itk.D, 3].New()
         composite.AddTransform(outer)
         composite.AddTransform(inner)
 
-        expected = sitk_linear_transform_to_affine(
+        expected = itk_linear_transform_to_affine(
             outer
-        ) @ sitk_linear_transform_to_affine(inner)
+        ) @ itk_linear_transform_to_affine(inner)
 
-        assert_array_almost_equal(sitk_linear_transform_to_affine(composite), expected)
+        assert_array_almost_equal(itk_linear_transform_to_affine(composite), expected)
 
     def test_identity_transform_returns_identity_affine(self):
         """Identity-like transforms convert to identity matrices."""
 
-        class IdentityTransformStub:
-            def GetDimension(self):
-                return 3
+        import itk
 
-            def GetName(self):
-                return "IdentityTransform"
-
-        affine = sitk_linear_transform_to_affine(cast(Any, IdentityTransformStub()))
+        affine = itk_linear_transform_to_affine(itk.IdentityTransform[itk.D, 3].New())
 
         assert_array_equal(affine, np.eye(4))
 
-    def test_unsupported_transform_type_raises(self):
-        """Unexpected transform types raise a clear error."""
+    def test_nonlinear_transform_raises(self):
+        """A nonlinear transform cannot be represented as an affine."""
+        import itk
 
-        class UnsupportedTransformStub:
-            def GetDimension(self):
-                return 3
-
-            def GetName(self):
-                return "ScaleTransform"
-
-        with pytest.raises(ValueError, match="unsupported transform type"):
-            sitk_linear_transform_to_affine(cast(Any, UnsupportedTransformStub()))
+        with pytest.raises(ValueError, match="nonlinear transform"):
+            itk_linear_transform_to_affine(itk.BSplineTransform[itk.D, 3, 3].New())
 
 
 class TestDecompose44:
@@ -137,7 +125,7 @@ class TestDecompose44:
 
     def test_identity_zero_shear(self):
         """Identity matrix decomposes to zero shear vector."""
-        T, R, Z, S = decompose_affine(np.eye(4))
+        _T, _R, _Z, S = decompose_affine(np.eye(4))
         assert_array_equal(S, np.zeros(3))
 
     def test_round_trip_random(self):

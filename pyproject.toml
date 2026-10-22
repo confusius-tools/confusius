@@ -29,6 +29,7 @@ dependencies = [
     "flox>=0.11.1",
     "h5py>=3.15.1",
     "ipython>=9.6.0",
+    "itk>=5.4.7",
     "joblib>=1.5.2",
     "joblib-progress>=1.0.6",
     "matplotlib>=3.11.0",
@@ -42,7 +43,6 @@ dependencies = [
     "rich>=14.2.0",
     "scikit-learn>=1.5.0",
     "scipy>=1.16.3",
-    "simpleitk>=2.5.3",
     # On Python 3.14, macOS Intel cannot satisfy both xarray[accel]'s numba
     # dependency and napari[all]'s numba cap, so fall back to plain
     # xarray there and keep accelerated xarray everywhere else.
@@ -116,6 +116,9 @@ exclude = ["benchmark/*"]
 # Author surnames from cited references that codespell reads as typos.
 ignore-words-list = "hart,portugues"
 
+[tool.ty.environment]
+extra-paths = ["typings"]
+
 [tool.ty.src]
 include = ["src", "tests"]
 
@@ -142,7 +145,7 @@ addopts = [
 ]
 # Ignore deprecation warnings from itertools in Python 3.13 standard library.
 # These are triggered by pytest plugins during test execution.
-# Ignore SWIG-generated type warnings from SimpleITK.
+# Ignore SWIG-generated type warnings from ITK.
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning:copy",

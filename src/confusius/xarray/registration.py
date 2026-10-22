@@ -87,8 +87,8 @@ class FUSIRegistrationAccessor:
             If not provided, all voxels are used without random sampling.
         metric_sampling_seed : int, optional
             Seed for random metric sampling. Only used when
-            `metric_sampling_percentage < 1`. If not provided, SimpleITK's default
-            `sitkWallClock` seed is used.
+            `metric_sampling_percentage < 1`. If not provided, ITK's default
+            wall-clock seed is used.
         learning_rate : float or "auto", default: "auto"
             Optimizer step size in normalised units (after
             `SetOptimizerScalesFromPhysicalShift`). `"auto"` re-estimates the rate at
@@ -141,7 +141,7 @@ class FUSIRegistrationAccessor:
             resampling. If not provided, defaults to the minimum of the moving
             image. See [`register_volume`][confusius.registration.register_volume].
         sitk_threads : int, default: -1
-            Number of threads SimpleITK may use internally.
+            Number of threads ITK may use internally.
         show_progress : bool, default: False
             Whether to display a live progress plot during registration.
         plot_metric : bool, default: True

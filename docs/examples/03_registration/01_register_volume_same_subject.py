@@ -151,7 +151,7 @@ _ = fig.suptitle("Fixed (red) / moving (cyan)")
 # ## Inspect convergence with the registration diagnostics
 #
 # `diagnostics.metric_values` holds the optimizer's similarity-metric value at each
-# iteration. With the default `metric="correlation"`, SimpleITK minimizes the negative
+# iteration. With the default `metric="correlation"`, ITK minimizes the negative
 # normalized cross-correlation, so a lower (more negative) value means a better fit.
 # The curve typically drops sharply at the start and then plateaus.
 #
@@ -265,7 +265,7 @@ local_bspline.attrs = {**local_bspline.attrs, "affines": {}}
 local_field = cf.registration.sample_displacement_field_like(local_bspline, fixed)
 
 # For display, invert the pull fields so the arrows show apparent motion toward
-# `fixed`, rather than the fixed-to-moving lookup direction SimpleITK uses for
+# `fixed`, rather than the fixed-to-moving lookup direction ITK uses for
 # resampling.
 composite_inverse_field = cf.registration.invert_displacement_field(composite_field)
 local_inverse_field = cf.registration.invert_displacement_field(local_field)

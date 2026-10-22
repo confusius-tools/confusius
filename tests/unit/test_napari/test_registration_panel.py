@@ -88,7 +88,7 @@ def _FakeDiagnostics(
 
 def _make_bspline_transform() -> xr.DataArray:
     # fUSI DataArrays always carry all three spatial dims (k singleton for 2D data),
-    # matching what sitk_bspline_to_dataarray produces in practice.
+    # matching what itk_bspline_to_dataarray produces in practice.
     return create_voxeldata(
         np.arange(3 * 1 * 3 * 4, dtype=float).reshape(3, 1, 3, 4),
         dims=("component", "k", "j", "i"),

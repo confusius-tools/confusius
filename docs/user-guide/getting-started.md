@@ -280,9 +280,8 @@ ConfUSIus.
   for analysis of brain volumes and surfaces. While it is mostly geared toward fMRI,
   many fUSI users have found it useful for analyzing fUSI data. ConfUSIus itself
   borrows some of Nilearn's features.
-- [SimpleITK](https://simpleitk.org/): SimpleITK offers a simple wrapper API over ITK,
-  the widely used image segmentation and image registration library. ConfUSIus builds on
-  SimpleITK for image registration.
+- [ITK](https://itk.org/): ITK is a widely used image segmentation and registration
+  library. ConfUSIus uses its Python bindings directly for registration and resampling.
 - [BrainGlobe](https://brainglobe.info/): BrainGlobe is a suite of Python-based software
   tools for computational neuroanatomy. Of particular interest is the [BrainGlobe Atlas
   API](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html), which

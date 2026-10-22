@@ -1,413 +1,342 @@
-"""B-spline transform helpers for fUSI registration.
+"""B-spline and dense displacement pull transforms.
 
-Both transform representations in this module are VoxelData arrays
-(built with [`create_voxeldata`][confusius.xarray.create_voxeldata]) with an
-extra leading `component` dimension:
+Both representations are VoxelData arrays with dims `(component, k, j, i)` and
+components labeled `k/j/i`, storing world `z/y/x` displacement components.
+B-splines store a sparse coefficient lattice (`type='bspline_transform'`, `order`);
+dense fields store one world displacement per voxel
+(`type='displacement_field_transform'`). Geometry belongs to each array's index.
 
-- **dims**: `("component", <spatial dims>)` — e.g. `("component", "k", "j", "i")`.
-- **coords**: `component` is labeled by the spatial dim names, each spatial axis
-  carries its native voxel index, and the derived world `z`/`y`/`x` coordinates give
-  the world mm position of every grid node. The voxel-to-world affine lives on the
-  coordinate index (like any other voxel-to-world-index-backed DataArray), not in
-  `attrs`; orientation is folded into it rather than stored separately, and can be
-  recovered with `.fusi.direction`.
-
-They differ in what grid that index describes:
-
-- A **B-spline control-point grid** (`attrs["type"] == "bspline_transform"`) stores the
-  sparse B-spline coefficient lattice that defines a smooth deformation — its own grid,
-  coarser than and independent from any image's voxel grid. Additional attrs:
-
-  ```python
-  {
-      "transform_type": "bspline_transform",
-      "order":          3,                       # B-spline polynomial order
-      "affines":        {
-          "bspline_initialization": [[...]]     # optional (N+1, N+1) pre-affine;
-                                                 # only present when register_volume
-                                                 # was called with affine initialization.
-      }
-  }
-  ```
-
-  When a pre-affine is stored in `attrs["affines"]["bspline_initialization"]`, the full
-  transform is a `CompositeTransform(pre_affine, bspline)` — i.e. the pre-affine is
-  applied *first* (coarse global alignment) and the B-spline is applied *second* (local
-  deformation refinement). This mirrors the `inPlace=True` composite that SimpleITK
-  optimises during registration.
-
-- A **dense displacement field** (`attrs["type"] == "displacement_field_transform"`)
-  stores one displacement vector per voxel of an explicit output grid, unlike the
-  sparse B-spline coefficient lattice. It is produced by sampling a B-spline (or
-  composite) transform with
-  [`sample_displacement_field`][confusius.registration.bspline.sample_displacement_field]
-  or
-  [`sample_displacement_field_like`][confusius.registration.bspline.sample_displacement_field_like],
-  and can be inverted with
-  [`invert_displacement_field`][confusius.registration.bspline.invert_displacement_field].
+An optional `attrs['affines']['bspline_initialization']` stores the pre-alignment
+matrix. The full pull transform is `pre_affine(bspline(point))`: the B-spline
+acts on a fixed-world point, then the affine maps it into moving world space.
 """
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from scipy.ndimage import map_coordinates
 
-from confusius._dims import VOXEL_DIMS
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.coordinates import get_dim_keyed_origin
-from confusius.registration._utils import (
-    expand_thin_dims,
-    get_defined_spatial_spacing,
-    set_sitk_thread_count,
-)
-from confusius.registration.affines import affine_to_sitk_linear_transform
+from confusius._utils.itk import resolve_itk_threads
+from confusius.registration._utils import get_defined_spatial_spacing
 from confusius.validation import (
     ensure_voxeldata,
     validate_bspline,
     validate_displacement_field,
     validate_matching_spatial_units,
 )
-from confusius.xarray.create import create_voxeldata
+from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
-    import SimpleITK as sitk
-
-_MISSING_FIELD_SPACING_PREFIX = (
-    "Cannot convert displacement field to SimpleITK because spacing is undefined"
-)
-"""Error prefix used when a displacement field dimension has no defined spacing."""
+    import itk
 
 
-def sitk_bspline_to_dataarray(
-    transform: "sitk.Transform",
-    pre_affine: npt.NDArray[np.floating] | None = None,
-) -> xr.DataArray:
-    """Convert a SimpleITK B-spline (or composite) transform to a DataArray.
+def voxeldata_to_itk_bspline(transform: xr.DataArray) -> "itk.Transform":
+    """Convert a cubic B-spline coefficient VoxelData array to an ITK transform.
 
     Parameters
     ----------
-    transform : SimpleITK.Transform
-        A `BSplineTransform` or a `CompositeTransform` whose last sub-transform
-        is a `BSplineTransform`.  Any other type raises `TypeError`.
-    pre_affine : (N+1, N+1) numpy.ndarray, optional
-        Homogeneous affine matrix to store as
-        `attrs["affines"]["bspline_initialization"]`. Pass the affine that was used as
-        the pre-alignment so that `_voxeldata_to_sitk_bspline` can reconstruct the full
-        composite for resampling.  If not provided, no `"affines"` key is written.
+    transform : xarray.DataArray
+        B-spline coefficient array with optional
+        `attrs['affines']['bspline_initialization']` metadata.
 
     Returns
     -------
-    xarray.DataArray
-        B-spline control-point DataArray with
-        `attrs["transform_type"] == "bspline_transform"`.
-
-    Raises
-    ------
-    TypeError
-        If `transform` is not a `BSplineTransform` or a `CompositeTransform`
-        containing a `BSplineTransform` as its last sub-transform.
-    """
-    import SimpleITK as sitk
-
-    bspline = _extract_bspline(transform)
-    ndim = bspline.GetDimension()
-    order = bspline.GetOrder()
-
-    coeff_images = bspline.GetCoefficientImages()
-
-    # .T restores DataArray axis order, the same convention used throughout
-    # confusius.registration (see voxeldata_to_sitk_image): sitk axis i corresponds
-    # directly to DataArray dim i, with no axis reversal. Stack components along a
-    # new leading axis: shape (ndim, *grid_shape).
-    coefficients = np.stack(
-        [sitk.GetArrayFromImage(im).T for im in coeff_images], axis=0
-    )
-
-    # Grid geometry from the first coefficient image (all share the same grid). No
-    # axis reversal: sitk axis i corresponds directly to DataArray dim i.
-    spacing = np.array(coeff_images[0].GetSpacing())
-    origin = np.array(coeff_images[0].GetOrigin())
-    direction = np.array(coeff_images[0].GetDirection()).reshape(ndim, ndim)
-
-    spatial_dims = list(VOXEL_DIMS[-ndim:])
-
-    attrs: dict[str, object] = {
-        "type": "bspline_transform",
-        "transform_type": "bspline_transform",
-        "order": order,
-    }
-    if pre_affine is not None:
-        attrs["affines"] = {"bspline_initialization": np.asarray(pre_affine).tolist()}
-
-    # Direction and spacing compose the same way create_voxeldata's own
-    # `direction` parameter does: each column of the (orthonormal) direction matrix
-    # scaled by the corresponding axis spacing. Building the full affine directly (and
-    # passing it as voxel_to_world) rather than create_voxeldata's separate
-    # spacing/origin/direction lets `spatial_dims` be in any order, not just canonical
-    # z/y/x (see _sitk_displacement_field_to_dataarray, same convention).
-    voxel_to_world = np.eye(ndim + 1, dtype=np.float64)
-    voxel_to_world[:-1, :-1] = direction * spacing
-    voxel_to_world[:-1, -1] = origin
-
-    return create_voxeldata(
-        coefficients,
-        dims=("component", *spatial_dims),
-        extra_coords={"component": np.array(spatial_dims, dtype=np.str_)},
-        voxel_to_world=voxel_to_world,
-        attrs=attrs,
-    )
-
-
-def _voxeldata_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
-    """Reconstruct a SimpleITK transform from a B-spline DataArray.
-
-    If `da.attrs["affines"]["bspline_initialization"]` is present, returns a
-    `CompositeTransform(pre_affine, bspline)`; otherwise returns a plain
-    `BSplineTransform`.
-
-    Parameters
-    ----------
-    da : xarray.DataArray
-        B-spline DataArray as produced by `_sitk_bspline_to_dataarray`.
-
-    Returns
-    -------
-    SimpleITK.Transform
-        A `BSplineTransform` or `CompositeTransform` ready to be passed to
-        `sitk.Resample`.
+    itk.Transform
+        B-spline, optionally composed as `pre_affine(bspline(point))`.
 
     Raises
     ------
     ValueError
-        If `da` does not look like a valid B-spline transform DataArray.
+        If the coefficient array is invalid or its spline order is unsupported.
     """
-    import SimpleITK as sitk
+    import itk
 
-    validate_bspline(da)
+    from confusius.registration.affines import affine_to_itk_linear_transform
 
-    ndim = da.ndim - 1  # subtract the component axis
-    order = int(da.attrs["order"])
-
-    spatial_dims = [str(dim) for dim in da.dims[1:]]  # e.g. ["k", "j", "i"]
-
-    # Recover grid geometry from the voxel-to-world index. No axis reversal needed:
-    # sitk axis i corresponds directly to DataArray dim i (see sitk_bspline_to_dataarray,
-    # which builds the index with the same convention).
-    spacing_dict = da.fusi.spacing
-    origin_dict = get_dim_keyed_origin(da)
-    spacing_sitk = [float(spacing_dict[dim]) for dim in spatial_dims]
-    origin_sitk = [float(origin_dict[dim]) for dim in spatial_dims]
-    node_counts_sitk = [da.sizes[dim] for dim in spatial_dims]
-    direction_sitk = np.asarray(da.fusi.direction, dtype=np.float64)
-
-    # FixedParameters layout (2D, length 10):
-    #   [nodeCount_x, nodeCount_y, origin_x, origin_y, spacing_x, spacing_y,
-    #    dir_00, dir_01, dir_10, dir_11]
-    # For 3D, 13 entries (3 counts + 3 origin + 3 spacing + 9 direction).
-    fixed_params = (
-        node_counts_sitk
-        + origin_sitk
-        + spacing_sitk
-        + direction_sitk.flatten().tolist()
-    )
-
-    bspline = sitk.BSplineTransform(ndim, order)
-    bspline.SetFixedParameters(fixed_params)
-
-    # Parameters vector: coefficient values concatenated across components in the
-    # same flattened order that SimpleITK uses (C-order / row-major per component,
-    # in sitk's own reversed-numpy-axis convention). da.values[d] is in DataArray
-    # axis order, so .T converts back to sitk's native layout, the inverse of the .T
-    # applied in sitk_bspline_to_dataarray.
-    params = np.concatenate(
-        [da.values[d].T.astype(np.float64).ravel() for d in range(ndim)]
-    )
-    bspline.SetParameters(params.tolist())
-
-    pre_affine_list = da.attrs.get("affines", {}).get("bspline_initialization")
-    if pre_affine_list is not None:
-        pre_tx = affine_to_sitk_linear_transform(np.array(pre_affine_list))
-
-        composite = sitk.CompositeTransform(ndim)
-        composite.AddTransform(pre_tx)
-        composite.AddTransform(bspline)
-        return composite
-
-    return bspline
+    validate_bspline(transform)
+    order = int(transform.attrs["order"])
+    if order != 3:
+        raise ValueError(
+            "ITK Python wheels support only cubic B-spline transforms (order=3)."
+        )
+    sizes = [transform.sizes[dim] for dim in VOXEL_DIMS]
+    origin = get_dim_keyed_origin(transform)
+    _, spacing = get_defined_spatial_spacing(transform.isel(component=0, drop=True))
+    fixed = np.concatenate(
+        [
+            sizes,
+            [origin[dim] for dim in VOXEL_DIMS],
+            spacing,
+            transform.fusi.direction.ravel(),
+        ]
+    ).astype(np.float64)
+    tx = itk.BSplineTransform[itk.D, 3, 3].New()
+    tx.SetFixedParameters(itk.OptimizerParameters[itk.D](fixed))
+    params = np.ascontiguousarray(
+        transform.transpose("component", *VOXEL_DIMS).values.transpose(0, 3, 2, 1)
+    ).ravel()
+    tx.SetParameters(itk.OptimizerParameters[itk.D](params.astype(np.float64)))
+    pre_affine = transform.attrs.get("affines", {}).get("bspline_initialization")
+    if pre_affine is None:
+        return tx
+    composite = itk.CompositeTransform[itk.D, 3].New()
+    composite.AddTransform(affine_to_itk_linear_transform(np.asarray(pre_affine)))
+    composite.AddTransform(tx)
+    return composite
 
 
-def _extract_bspline(transform: "sitk.Transform") -> "sitk.BSplineTransform":
-    """Return the BSplineTransform from a transform or its last composite sub-transform.
+def itk_bspline_to_dataarray(
+    transform: "itk.Transform",
+    pre_affine: npt.NDArray[np.floating] | None = None,
+) -> xr.DataArray:
+    """Serialize ITK B-spline coefficients and their lattice geometry.
 
     Parameters
     ----------
-    transform : SimpleITK.Transform
-        A `BSplineTransform` or a `CompositeTransform` whose last sub-transform is
-        a `BSplineTransform`.
+    transform : itk.Transform
+        Cubic B-spline or composite with the B-spline as its innermost transform.
+    pre_affine : (4, 4) numpy.ndarray, optional
+        Affine applied after the B-spline.
 
     Returns
     -------
-    SimpleITK.BSplineTransform
+    xarray.DataArray
+        Coefficient VoxelData in `(component, k, j, i)` order.
 
     Raises
     ------
     TypeError
-        If no `BSplineTransform` can be found.
+        If `transform` does not contain a B-spline.
     """
+    import itk
 
-    name = transform.GetName()
-    if "BSpline" in name:
-        return cast("sitk.BSplineTransform", transform)
-    if name == "CompositeTransform":
-        get_count = getattr(transform, "GetNumberOfTransforms", None)
-        get_nth = getattr(transform, "GetNthTransform", None)
-        if callable(get_count) and callable(get_nth):
-            n = int(get_count())
-            # The B-spline is the last sub-transform (it was added last and is optimised).
-            last = get_nth(n - 1)
-            if "BSpline" in last.GetName():
-                return cast("sitk.BSplineTransform", last)
-    raise TypeError(
-        f"Expected a BSplineTransform or a CompositeTransform ending with a "
-        f"BSplineTransform; got {transform.GetName()!r}."
+    if transform.GetNameOfClass() == "CompositeTransform":
+        transform = itk.down_cast(transform.GetBackTransform())
+    if transform.GetNameOfClass() != "BSplineTransform":
+        raise TypeError("Expected an ITK BSplineTransform.")
+    fixed = np.asarray(transform.GetFixedParameters())
+    shape = tuple(int(v) for v in fixed[:3])
+    values = (
+        np.asarray(transform.GetParameters())
+        .reshape((3, *shape[::-1]))
+        .transpose(0, 3, 2, 1)
+        .copy()
     )
+    affine = np.eye(4)
+    affine[:3, :3] = fixed[9:].reshape(3, 3) @ np.diag(fixed[6:9])
+    affine[:3, 3] = fixed[3:6]
+    attrs = {
+        "type": "bspline_transform",
+        "transform_type": "bspline_transform",
+        "order": 3,
+    }
+    if pre_affine is not None:
+        attrs["affines"] = {"bspline_initialization": np.asarray(pre_affine).tolist()}
+    return create_voxeldata(
+        values,
+        voxel_to_world=affine,
+        dims=["component", *VOXEL_DIMS],
+        extra_coords={"component": list(VOXEL_DIMS)},
+        attrs=attrs,
+    )
+
+
+def voxeldata_to_itk_displacement_field(field: xr.DataArray) -> "itk.Image":
+    """Convert a displacement VoxelData array to an ITK vector image.
+
+    Parameters
+    ----------
+    field : xarray.DataArray
+        Dense world displacement vectors in `(component, k, j, i)` order.
+
+    Returns
+    -------
+    itk.Image
+        Owned double vector image, suitable for `DisplacementFieldTransform`.
+
+    Raises
+    ------
+    ValueError
+        If the displacement field is invalid.
+    """
+    import itk
+
+    validate_displacement_field(field)
+    image = itk.Image[itk.Vector[itk.D, 3], 3].New()
+    image.SetRegions([field.sizes[dim] for dim in VOXEL_DIMS])
+    image.SetSpacing([float(field.fusi.spacing[dim]) for dim in VOXEL_DIMS])
+    image.SetOrigin([float(field.fusi.origin[dim]) for dim in WORLD_DIMS])
+    image.SetDirection(
+        itk.matrix_from_array(np.asarray(field.fusi.direction, dtype=np.float64))
+    )
+    # Double-vector ImageDuplicator is not wrapped; allocate owned ITK memory.
+    image.Allocate()
+    itk.array_view_from_image(image)[:] = field.transpose(
+        "i", "j", "k", "component"
+    ).values
+    return image
 
 
 def sample_displacement_field(
     transform: xr.DataArray,
     *,
+    dims: Sequence[str],
     shape: Sequence[int],
     spacing: Sequence[float],
     origin: Sequence[float],
-    dims: Sequence[str],
     direction: npt.ArrayLike | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
-    """Sample a registration transform onto an explicit output grid.
-
-    Low-level sampling primitive. For the common case of sampling onto the grid of
-    another DataArray, use
-    [`sample_displacement_field_like`][confusius.registration.sample_displacement_field_like]
-    instead.
+    """Sample a B-spline pull transform on an explicit voxel grid.
 
     Parameters
     ----------
     transform : xarray.DataArray
-        Registration transform DataArray to sample. Currently this accepts B-spline
-        control-point DataArrays produced by
-        [`register_volume`][confusius.registration.register_volume].
-    shape : sequence of int
-        Number of voxels along each output axis, in DataArray dimension order.
-    spacing : sequence of float
-        Voxel spacing along each output axis, in DataArray dimension order.
-    origin : sequence of float
-        World origin (first voxel centre) along each output axis, in DataArray
-        dimension order.
+        B-spline coefficient VoxelData, optionally including affine initialization.
     dims : sequence of str
-        Dimension names of the output displacement field.
-    direction : array-like, optional
-        Spatial direction matrix for the output grid, in DataArray spatial-dimension
-        order. If not provided, the output grid is treated as axis-aligned.
+        Native voxel dimensions, `['k', 'j', 'i']`.
+    shape : sequence of int
+        Output grid sizes in native order.
+    spacing : sequence of float
+        Output voxel spacing in native dimension order.
+    origin : sequence of float
+        Output world origin in native dimension order.
+    direction : (3, 3) numpy.ndarray, optional
+        Output direction. If not provided, use the identity direction.
     sitk_threads : int, default: -1
-        Number of threads SimpleITK may use internally. Negative values resolve to
-        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
-        means all minus one, and so on.
+        Number of ITK workers (legacy parameter name), with joblib semantics.
 
     Returns
     -------
     xarray.DataArray
-        Dense displacement field DataArray with `attrs["type"] ==
-        "displacement_field_transform"`, one displacement vector per voxel of the
-        requested grid.
-    """
-    import SimpleITK as sitk
-
-    if direction is not None:
-        direction_array = np.asarray(direction, dtype=np.float64)
-        if direction_array.shape != (len(dims), len(dims)):
-            raise ValueError(
-                f"direction must have shape {(len(dims), len(dims))}, got {direction_array.shape}."
-            )
-    tx = _voxeldata_to_sitk_bspline(transform)
-
-    ref = sitk.Image(list(shape), sitk.sitkFloat32)
-    ref.SetSpacing(list(spacing))
-    ref.SetOrigin(list(origin))
-    if direction is None:
-        ref.SetDirection(np.eye(len(dims), dtype=np.float64).flatten().tolist())
-    else:
-        ref.SetDirection(direction_array.flatten().tolist())
-
-    field_filter = sitk.TransformToDisplacementFieldFilter()
-    field_filter.SetReferenceImage(ref)
-    with set_sitk_thread_count(sitk_threads):
-        field_sitk = field_filter.Execute(tx)
-
-    return _sitk_displacement_field_to_dataarray(
-        field_sitk, shape, spacing, origin, dims, ref.GetDirection()
-    )
-
-
-def sample_displacement_field_like(
-    transform: xr.DataArray, reference: xr.DataArray, *, sitk_threads: int = -1
-) -> xr.DataArray:
-    """Sample a registration transform onto the grid of a reference DataArray.
-
-    Convenience wrapper around
-    [`sample_displacement_field`][confusius.registration.sample_displacement_field] that
-    extracts the output grid from `reference`'s coordinates.
-
-    Parameters
-    ----------
-    transform : xarray.DataArray
-        Registration transform DataArray to sample. Currently this accepts the B-spline
-        control-point DataArrays produced by
-        [`register_volume`][confusius.registration.register_volume].
-    reference : xarray.DataArray
-        DataArray defining the output grid. Must be a 3D spatial volume (no time
-        dimension) with dimensions `k`, `j`, `i`. When spatial coordinate `units`
-        metadata is present on both `transform` and `reference`, they must match.
-    sitk_threads : int, default: -1
-        Number of threads SimpleITK may use internally. Negative values resolve to
-        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2` means
-        all minus one, and so on.
-
-    Returns
-    -------
-    xarray.DataArray
-        Dense displacement field DataArray sampled on `reference`'s grid.
+        Dense world displacement VoxelData, including any affine contribution.
 
     Raises
     ------
     ValueError
-        If `reference` contains a `time` dimension or does not contain the spatial
-        dimensions `k`, `j`, and `i`.
+        If the transform or grid is invalid.
     """
+    if direction is not None and np.asarray(direction).shape != (len(dims), len(dims)):
+        raise ValueError(
+            f"direction must have shape {(len(dims), len(dims))}, got {np.asarray(direction).shape}."
+        )
+    validate_bspline(transform)
+    resolve_itk_threads(sitk_threads)
+    if tuple(dims) != VOXEL_DIMS or len(shape) != 3:
+        raise ValueError(
+            "Output grid must use native voxel dimensions ['k', 'j', 'i']."
+        )
+    direction_array = (
+        np.eye(3) if direction is None else np.asarray(direction, dtype=np.float64)
+    )
+    if direction_array.shape != (3, 3):
+        raise ValueError(
+            f"direction must have shape (3, 3), got {direction_array.shape}."
+        )
+    order = int(transform.attrs["order"])
+    if order not in range(4):
+        raise ValueError("B-spline order must be between 0 and 3.")
+    affine = np.eye(4)
+    affine[:3, :3] = direction_array @ np.diag(spacing)
+    affine[:3, 3] = origin
+    world = (
+        np.einsum("ij,j...->i...", affine[:3, :3], np.indices(shape, dtype=np.float64))
+        + np.asarray(origin)[:, None, None, None]
+    )
+    _, coefficient_spacing = get_defined_spatial_spacing(
+        transform.isel(component=0, drop=True)
+    )
+    coefficient_basis = transform.fusi.direction @ np.diag(coefficient_spacing)
+    coefficient_origin = np.asarray([transform.fusi.origin[dim] for dim in WORLD_DIMS])
+    indices = np.einsum(
+        "ij,j...->i...",
+        np.linalg.inv(coefficient_basis),
+        world - coefficient_origin[:, None, None, None],
+    )
+    # The wheel's sampler outputs only float32; evaluate the same cardinal basis in double precision.
+    coefficients = transform.transpose("component", *VOXEL_DIMS).values.astype(
+        np.float64
+    )
+    displacement = np.stack(
+        [
+            map_coordinates(
+                component, indices, order=order, prefilter=False, mode="nearest"
+            )
+            for component in coefficients
+        ]
+    )
+    inside = np.ones(tuple(shape), dtype=bool)
+    for axis, size in enumerate(coefficients.shape[1:]):
+        inside &= (indices[axis] >= (order - 1) / 2) & (
+            indices[axis] <= size - (order + 1) / 2
+        )
+    if order == 0:
+        # ITK's unsigned (order - 1) support offset makes order-zero transforms identity.
+        inside[:] = False
+    displacement[:, ~inside] = 0
+    pre_affine = transform.attrs.get("affines", {}).get("bspline_initialization")
+    if pre_affine is not None:
+        pre_affine = np.asarray(pre_affine)
+        displacement = (
+            np.einsum("ij,j...->i...", pre_affine[:3, :3], world + displacement)
+            + pre_affine[:3, 3, None, None, None]
+            - world
+        )
+    return create_voxeldata(
+        displacement,
+        voxel_to_world=affine,
+        dims=["component", *VOXEL_DIMS],
+        extra_coords={"component": list(VOXEL_DIMS)},
+        attrs={"type": "displacement_field_transform"},
+    )
+
+
+def sample_displacement_field_like(
+    transform: xr.DataArray,
+    reference: xr.DataArray,
+    *,
+    sitk_threads: int = -1,
+) -> xr.DataArray:
+    """Sample a B-spline pull transform on a reference VoxelData grid.
+
+    Parameters
+    ----------
+    transform : xarray.DataArray
+        B-spline coefficient VoxelData.
+    reference : xarray.DataArray
+        VoxelData defining the output grid.
+    sitk_threads : int, default: -1
+        Number of ITK workers (legacy parameter name), with joblib semantics.
+
+    Returns
+    -------
+    xarray.DataArray
+        Dense displacement VoxelData on the reference grid.
+
+    Raises
+    ------
+    ValueError
+        If either VoxelData array is invalid.
+    """
+    from confusius._utils.coordinates import get_grid_info_from_dataarray
+
     if "time" in reference.dims:
         raise ValueError(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
-
-    transform = ensure_voxeldata(transform, require_time=False, allow_pose=False)
-    reference = ensure_voxeldata(
-        reference,
-        require_time=False,
-        allow_pose=False,
-        allow_extra_dims=False,
-    )
+    transform = ensure_voxeldata(transform, allow_pose=False)
+    reference = ensure_voxeldata(reference, allow_pose=False, allow_extra_dims=False)
     validate_matching_spatial_units(
         (("transform", transform), ("reference", reference))
     )
-
-    dims, spacing = get_defined_spatial_spacing(reference)
-    origin_dict = get_dim_keyed_origin(reference)
     return sample_displacement_field(
         transform,
-        shape=[int(reference.sizes[dim]) for dim in dims],
-        spacing=spacing,
-        origin=[origin_dict[dim] for dim in dims],
-        dims=dims,
+        **get_grid_info_from_dataarray(reference),
         direction=reference.fusi.direction,
         sitk_threads=sitk_threads,
     )
@@ -420,175 +349,67 @@ def invert_displacement_field(
     max_error_tolerance: float = 0.1,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
-    """Invert a dense displacement field DataArray with SimpleITK.
-
-    Uses `InvertDisplacementFieldImageFilter`, a fixed-point iterative solver, on the
-    same grid as `field`. The inverse maps world points in the opposite direction of
-    `field`: if `field` is a fixed-to-moving pull transform, the returned field is
-    (approximately) the corresponding moving-to-fixed pull transform.
+    """Estimate the inverse of a displacement pull field by fixed-point iteration.
 
     Parameters
     ----------
     field : xarray.DataArray
-        Dense displacement field DataArray as produced by
-        [`sample_displacement_field`][confusius.registration.sample_displacement_field]
-        or
-        [`sample_displacement_field_like`][confusius.registration.sample_displacement_field_like].
+        Dense displacement VoxelData to invert on its own grid.
     max_iterations : int, default: 20
-        Maximum number of fixed-point iterations.
+        Maximum number of fixed-point updates.
     max_error_tolerance : float, default: 0.1
-        Maximum error tolerance (mm) at which the solver is considered converged.
+        Stopping threshold for the maximum world-space residual norm.
     sitk_threads : int, default: -1
-        Number of threads SimpleITK may use internally. Negative values resolve to
-        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
-        means all minus one, and so on.
+        Legacy worker-count parameter, validated but unused by the SciPy solver.
 
     Returns
     -------
     xarray.DataArray
-        Inverted displacement field DataArray on the same grid as `field`.
+        Approximate inverse displacement on the original grid. Boundary vectors
+        are zero along axes of at least four voxels, as for ITK's iterative
+        inverter after expansion and cropping of thin axes.
 
     Raises
     ------
     ValueError
-        If `field` does not look like a valid displacement field DataArray.
+        If the field, iteration count, tolerances, or worker count is invalid.
+
+    Notes
+    -----
+    ITK wheels do not wrap its inverse-displacement filters. The same inverse
+    relation is solved here: `v(x) = -u(x + v(x))`, with linear interpolation.
+    As with ITK's inverter, folded or large deformations need not converge.
     """
-    import SimpleITK as sitk
-
-    dims = [str(dim) for dim in field.dims[1:]]
-    shape = [field.sizes[d] for d in dims]
-
-    field_sitk = _voxeldata_to_sitk_displacement_field(field)
-
-    invert_filter = sitk.InvertDisplacementFieldImageFilter()
-    invert_filter.SetMaximumNumberOfIterations(max_iterations)
-    invert_filter.SetMaxErrorToleranceThreshold(max_error_tolerance)
-
-    with set_sitk_thread_count(sitk_threads):
-        # InvertDisplacementFieldImageFilter needs a real spatial neighborhood along
-        # every axis and silently returns an all-zero field otherwise, exactly the
-        # case for fUSI data stored as a single 2D slice, e.g. (1, y, x). Reuse the
-        # same expand-then-crop trick register_volume already uses for its own
-        # thin-dimension images (see expand_thin_dims): a degenerate axis has no
-        # spatial variation to invert against anyway, so replicating its one slice
-        # and cropping back down afterward is lossless.
-        expanded = expand_thin_dims(field_sitk)
-        inverted_expanded = invert_filter.Execute(expanded)
-
-    expanded_shape = list(inverted_expanded.GetSize())
-    if expanded_shape != shape:
-        # Crop from the interior, not the edge: InvertDisplacementFieldImageFilter
-        # has no real neighbor structure beyond the boundary of the (expanded)
-        # domain, so the outermost slices of the replicated axis are themselves
-        # degenerate (they come back all zero). Any interior slice is equally
-        # representative, since expand_thin_dims only replicates a single input
-        # slice along that axis.
-        index = [(s - o) // 2 for s, o in zip(expanded_shape, shape)]
-        inverted_expanded = sitk.RegionOfInterest(
-            inverted_expanded, size=shape, index=index
+    validate_displacement_field(field)
+    resolve_itk_threads(sitk_threads)
+    if max_iterations < 1:
+        raise ValueError("max_iterations must be positive.")
+    if not np.isfinite(max_error_tolerance) or max_error_tolerance < 0:
+        raise ValueError("max_error_tolerance must be finite and nonnegative.")
+    values = field.transpose("component", *VOXEL_DIMS).values.astype(np.float64)
+    shape = values.shape[1:]
+    grid = np.indices(shape, dtype=np.float64)
+    basis = field.fusi.direction @ np.diag(
+        [field.fusi.spacing[dim] for dim in VOXEL_DIMS]
+    )
+    world_to_index = np.linalg.inv(basis)
+    boundary = np.zeros(shape, dtype=bool)
+    for axis, size in enumerate(shape):
+        if size >= 4:
+            boundary |= (grid[axis] == 0) | (grid[axis] == size - 1)
+    inverse = np.zeros_like(values)
+    for _ in range(max_iterations):
+        indices = grid + np.einsum("ij,j...->i...", world_to_index, inverse)
+        sampled = np.stack(
+            [
+                map_coordinates(component, indices, order=1, mode="nearest")
+                for component in values
+            ]
         )
-
-    field_grid = field.isel(component=0, drop=True)
-    _, spacing = get_defined_spatial_spacing(field_grid)
-    origin = [get_dim_keyed_origin(field_grid)[d] for d in dims]
-    direction = np.asarray(field_grid.fusi.direction, dtype=np.float64)
-    return _sitk_displacement_field_to_dataarray(
-        inverted_expanded, shape, spacing, origin, dims, direction.tolist()
-    )
-
-
-def _sitk_displacement_field_to_dataarray(
-    field: "sitk.Image",
-    shape: Sequence[int],
-    spacing: Sequence[float],
-    origin: Sequence[float],
-    dims: Sequence[str],
-    direction: Sequence[float],
-) -> xr.DataArray:
-    """Wrap a SimpleITK vector displacement field image as a DataArray.
-
-    Parameters
-    ----------
-    field : SimpleITK.Image
-        Vector image produced by `TransformToDisplacementFieldFilter` or
-        `InvertDisplacementFieldImageFilter`.
-    shape : sequence of int
-        Number of voxels along each output axis, in DataArray dimension order.
-    spacing : sequence of float
-        Voxel spacing along each output axis, in DataArray dimension order.
-    origin : sequence of float
-        World origin (first voxel centre) along each output axis, in DataArray
-        dimension order.
-    dims : sequence of str
-        Dimension names of the output DataArray.
-    direction : sequence of float
-        Spatial direction matrix in row-major order.
-
-    Returns
-    -------
-    xarray.DataArray
-        Displacement field DataArray with `attrs["type"] ==
-        "displacement_field_transform"`.
-    """
-    import SimpleITK as sitk
-
-    # .T restores DataArray axis order (component first), the inverse of the .T used
-    # in _voxeldata_to_sitk_displacement_field.
-    array = sitk.GetArrayFromImage(field).T
-
-    ndim = len(dims)
-    direction_matrix = np.asarray(direction, dtype=np.float64).reshape(ndim, ndim)
-    # Direction and spacing compose the same way create_voxeldata's own
-    # `direction` parameter does: each column of the (orthonormal) direction matrix
-    # scaled by the corresponding axis spacing. Building the full affine directly (and
-    # passing it as voxel_to_world) rather than create_voxeldata's separate
-    # spacing/origin/direction lets `dims` be in any order, not just canonical z/y/x.
-    voxel_to_world = np.eye(ndim + 1, dtype=np.float64)
-    voxel_to_world[:-1, :-1] = direction_matrix * np.asarray(spacing, dtype=np.float64)
-    voxel_to_world[:-1, -1] = origin
-
-    return create_voxeldata(
-        array,
-        dims=("component", *dims),
-        extra_coords={"component": np.array(dims, dtype=np.str_)},
-        voxel_to_world=voxel_to_world,
-        attrs={"type": "displacement_field_transform"},
-    )
-
-
-def _voxeldata_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
-    """Reconstruct a SimpleITK vector displacement field image from a DataArray.
-
-    Parameters
-    ----------
-    da : xarray.DataArray
-        Displacement field DataArray as produced by
-        `_sitk_displacement_field_to_dataarray`.
-
-    Returns
-    -------
-    SimpleITK.Image
-        Vector image ready to be wrapped in a `DisplacementFieldTransform` or passed
-        to `InvertDisplacementFieldImageFilter`.
-
-    Raises
-    ------
-    ValueError
-        If `da` does not look like a valid displacement field DataArray.
-    """
-    import SimpleITK as sitk
-
-    validate_displacement_field(da)
-
-    field_grid = da.isel(component=0, drop=True)
-    spatial_dims, spacing = get_defined_spatial_spacing(field_grid)
-    origin = [get_dim_keyed_origin(field_grid)[dim] for dim in spatial_dims]
-    direction = np.asarray(field_grid.fusi.direction, dtype=np.float64)
-
-    # .T maps the first DataArray axis to SimpleITK's world x-axis, matching the
-    # convention used throughout confusius.registration (see voxeldata_to_sitk_image).
-    field = sitk.GetImageFromArray(da.values.T, isVector=True)
-    field.SetSpacing(spacing)
-    field.SetOrigin(origin)
-    field.SetDirection(direction.flatten().tolist())
-    return field
+        residual = sampled + inverse
+        residual[:, boundary] = 0
+        inverse -= residual
+        norms = np.linalg.norm(residual[:, ~boundary], axis=0)
+        if norms.size == 0 or norms.max() <= max_error_tolerance:
+            break
+    return field.copy(data=inverse)

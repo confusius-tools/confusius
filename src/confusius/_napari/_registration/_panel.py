@@ -985,13 +985,13 @@ class RegistrationPanel(QWidget):
         self._sitk_threads_spin.setMaximumWidth(56)
         self._sitk_threads_spin.setSpecialValueText("auto")
         self._sitk_threads_spin.setToolTip(
-            "Number of SimpleITK threads used for between-scan registration. -1 uses all CPUs."
+            "Number of ITK threads used for between-scan registration. -1 uses all CPUs."
         )
         self._sitk_threads_row = self._make_advanced_row(
             advanced_layout,
             "ITK Threads",
             self._left_aligned_widget(self._sitk_threads_spin),
-            tooltip="Number of SimpleITK threads used for between-scan registration. -1 uses all CPUs.",
+            tooltip="Number of ITK threads used for between-scan registration. -1 uses all CPUs.",
         )
 
         self._optimizer_weights_check = QCheckBox("Custom")

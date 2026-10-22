@@ -12,15 +12,16 @@ from confusius._utils.geometry import (
     get_voxel_to_world_direction_matrix,
     get_voxel_to_world_units,
 )
+from confusius._utils.itk import resample_voxeldata
 from confusius.registration._utils import (
     replace_affines_attr,
-    set_sitk_thread_count,
     validate_fill_value,
-    voxeldata_to_sitk_image,
 )
+from confusius.registration.affines import affine_to_itk_linear_transform
 from confusius.registration.bspline import (
-    _voxeldata_to_sitk_bspline,
-    _voxeldata_to_sitk_displacement_field,
+    sample_displacement_field,
+    voxeldata_to_itk_bspline,
+    voxeldata_to_itk_displacement_field,
 )
 from confusius.validation import ensure_voxeldata, validate_matching_spatial_units
 from confusius.xarray.affine import reindex_voxels_like
@@ -128,7 +129,7 @@ def resample_volume(
     instead.
 
     The output grid is specified as position-anchored `sizes`/`spacing`/`origin`/
-    `direction` metadata (matching what a SimpleITK image expects), not as a single
+    `direction` metadata (matching what a ITK image expects), not as a single
     affine. A DataArray's `voxel_to_world` affine is defined in terms of its voxel
     coordinate values, which stay unchanged across cropping or striding; it does not
     generally describe where the array's position `(0, ..., 0)` sits, or the world
@@ -184,7 +185,7 @@ def resample_volume(
         for dB data where 0 is maximum intensity). Must be representable in `moving`'s
         dtype: to fill an integer volume with NaN, cast it to float first.
     sitk_threads : int, default: -1
-        Number of threads SimpleITK may use internally. Negative values resolve to
+        Number of threads ITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
         means all minus one, and so on. You may want to set this to a lower value or
         `1` when running multiple registrations in parallel (e.g. with joblib) to
@@ -204,8 +205,6 @@ def resample_volume(
         `output_sizes`, `output_spacing`, or `output_origin` is missing a required
         key.
     """
-    import SimpleITK as sitk
-
     moving = ensure_voxeldata(
         moving,
         require_time=False,
@@ -216,7 +215,7 @@ def resample_volume(
     # pose is rejected above, so every non-voxel dim here is either `time` or a
     # genuine extra dim; both get the same transform and are handled identically.
     extra_dims = [str(dim) for dim in moving.dims if dim not in VOXEL_DIMS]
-    moving_for_sitk = moving.stack(extra=extra_dims) if extra_dims else moving
+    moving_for_itk = moving.stack(extra=extra_dims) if extra_dims else moving
     ndim = len(VOXEL_DIMS)
 
     resolved_output_sizes = _resolve_int_grid_mapping(
@@ -242,60 +241,51 @@ def resample_volume(
                 f"{ndim}D (expected {expected_shape})."
             )
 
-        # Reconstruct a SimpleITK AffineTransform from the homogeneous matrix.
-        # Pull convention: x_moving = A @ x_fixed + t, where A is the linear part
-        # and t is the translation extracted from the last column.
-        tx: sitk.Transform = sitk.AffineTransform(ndim)
-        tx.SetMatrix(transform[:ndim, :ndim].flatten().tolist())
-        tx.SetTranslation(transform[:ndim, ndim].tolist())
-    elif transform.attrs.get("type") == "displacement_field_transform":
-        tx = sitk.DisplacementFieldTransform(
-            _voxeldata_to_sitk_displacement_field(transform)
-        )
-    else:
-        tx = _voxeldata_to_sitk_bspline(transform)
-
-    moving_sitk = voxeldata_to_sitk_image(moving_for_sitk)
-
     resolved_fill_value = fill_value if fill_value is not None else float(moving.min())
     validate_fill_value(resolved_fill_value, moving.dtype)
-
-    # SimpleITK will automatically create a vector output if the input is a vector
-    # image.
-    ref = sitk.Image(resolved_output_sizes, sitk.sitkFloat32)
-    ref.SetSpacing(resolved_output_spacing)
-    ref.SetOrigin(resolved_output_origin)
-    ref.SetDirection(direction.ravel().tolist())
-
     resolved_interpolation = interpolation
     if resolved_interpolation == "auto":
-        # Integer dtypes hold discrete labels (e.g. atlas region masks), where linear
-        # blending would produce nonsense values between labels.
         resolved_interpolation = (
             "nearest" if np.issubdtype(moving.dtype, np.integer) else "linear"
         )
-
-    if resolved_interpolation == "nearest":
-        sitk_interpolation = sitk.sitkNearestNeighbor
-    elif resolved_interpolation == "linear":
-        sitk_interpolation = sitk.sitkLinear
-    elif resolved_interpolation == "bspline":
-        sitk_interpolation = sitk.sitkBSpline
-    else:
+    if resolved_interpolation not in ("nearest", "linear", "bspline"):
         raise ValueError(f"Invalid interpolation: {interpolation}")
 
-    with set_sitk_thread_count(sitk_threads):
-        result_sitk = sitk.Resample(
-            moving_sitk,
-            ref,
-            tx,
-            sitk_interpolation,
-            resolved_fill_value,
-            moving_sitk.GetPixelID(),
+    import itk
+
+    if (
+        isinstance(transform, xr.DataArray)
+        and transform.attrs.get("transform_type", transform.attrs.get("type"))
+        == "bspline_transform"
+        and transform.attrs.get("order") != 3
+    ):
+        transform = sample_displacement_field(
+            transform,
+            dims=VOXEL_DIMS,
+            shape=resolved_output_sizes,
+            spacing=resolved_output_spacing,
+            origin=resolved_output_origin,
+            direction=direction,
+            sitk_threads=sitk_threads,
         )
-        # .T restores DataArray axis order, inverse of the .T used to build the SITK
-        # image.
-        registered_arr = sitk.GetArrayFromImage(result_sitk).T
+    if isinstance(transform, np.ndarray):
+        tx = affine_to_itk_linear_transform(transform)
+    elif transform.attrs.get("type") == "displacement_field_transform":
+        tx = itk.DisplacementFieldTransform[itk.D, 3].New()
+        tx.SetDisplacementField(voxeldata_to_itk_displacement_field(transform))
+    else:
+        tx = voxeldata_to_itk_bspline(transform)
+    registered_arr = resample_voxeldata(
+        moving_for_itk,
+        tx,
+        sizes=resolved_output_sizes,
+        spacing=resolved_output_spacing,
+        origin=resolved_output_origin,
+        direction=direction,
+        interpolation=resolved_interpolation,
+        fill_value=resolved_fill_value,
+        itk_threads=sitk_threads,
+    )
 
     voxel_to_world_arr = np.eye(ndim + 1, dtype=np.float64)
     voxel_to_world_arr[:ndim, :ndim] = direction @ np.diag(resolved_output_spacing)
@@ -308,7 +298,7 @@ def resample_volume(
             xr.DataArray(
                 registered_arr,
                 dims=("extra", *VOXEL_DIMS),
-                coords={"extra": moving_for_sitk.coords["extra"]},
+                coords={"extra": moving_for_itk.coords["extra"]},
             )
             .unstack("extra")
             .transpose(*extra_dims, *VOXEL_DIMS)
@@ -397,7 +387,7 @@ def resample_like(
         Alias for `fill_value` kept for compatibility with older branch code. If both
         values are provided, `fill_value` takes precedence.
     sitk_threads : int, default: -1
-        Number of threads SimpleITK may use internally. Negative values resolve to
+        Number of threads ITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
         means all minus one, and so on. You may want to set this to a lower value or
         `1` when running multiple registrations in parallel (e.g. with joblib) to

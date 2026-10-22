@@ -379,7 +379,7 @@ class AtlasAccessor:
         interpolation : {"linear", "nearest", "bspline"}, default: "linear"
             Interpolation used for the atlas template volume.
         sitk_threads : int, default: -1
-            Number of SimpleITK threads.
+            Number of ITK threads.
 
         Returns
         -------
@@ -455,7 +455,7 @@ class AtlasAccessor:
         interpolation : {"linear", "nearest", "bspline"}, default: "linear"
             Interpolation used for the atlas template volume.
         sitk_threads : int, default: -1
-            Number of SimpleITK threads.
+            Number of ITK threads.
 
         Returns
         -------

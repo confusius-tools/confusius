@@ -13,16 +13,16 @@ from confusius._utils.geometry import (
     get_affine_direction_matrix,
     get_voxel_to_world_affine,
 )
+from confusius._utils.itk import voxeldata_to_itk_image
 from confusius.registration._utils import (
     get_defined_spatial_spacing,
     initialize_single_slice_rigid_transform,
-    voxeldata_to_sitk_image,
 )
 from confusius.registration.bspline import (
     invert_displacement_field,
+    itk_bspline_to_dataarray,
     sample_displacement_field,
     sample_displacement_field_like,
-    sitk_bspline_to_dataarray,
 )
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.resampling import resample_like, resample_volume
@@ -253,12 +253,16 @@ class TestRegisterVolumeValidation:
         metric_sampling_seed,
         expected_args,
     ):
-        """metric_sampling_percentage enables SimpleITK random metric sampling."""
-        import SimpleITK as sitk
+        """metric_sampling_percentage enables ITK random metric sampling."""
+        import itk
 
         calls: dict[str, object] = {}
-        original_strategy = sitk.ImageRegistrationMethod.SetMetricSamplingStrategy
-        original_percentage = sitk.ImageRegistrationMethod.SetMetricSamplingPercentage
+        registration_type = itk.ImageRegistrationMethodv4[
+            itk.Image[itk.F, 3], itk.Image[itk.F, 3]
+        ]
+        original_strategy = registration_type.SetMetricSamplingStrategy
+        original_percentage = registration_type.SetMetricSamplingPercentage
+        original_seed = registration_type.MetricSamplingReinitializeSeed
 
         def spy_strategy(self, strategy):
             calls["strategy"] = strategy
@@ -268,11 +272,18 @@ class TestRegisterVolumeValidation:
             calls["percentage"] = args
             return original_percentage(self, *args)
 
+        def spy_seed(self, *args):
+            calls["seed"] = args
+            return original_seed(self, *args)
+
         monkeypatch.setattr(
-            sitk.ImageRegistrationMethod, "SetMetricSamplingStrategy", spy_strategy
+            registration_type, "SetMetricSamplingStrategy", spy_strategy
         )
         monkeypatch.setattr(
-            sitk.ImageRegistrationMethod, "SetMetricSamplingPercentage", spy_percentage
+            registration_type, "SetMetricSamplingPercentage", spy_percentage
+        )
+        monkeypatch.setattr(
+            registration_type, "MetricSamplingReinitializeSeed", spy_seed
         )
 
         register_volume(
@@ -285,8 +296,12 @@ class TestRegisterVolumeValidation:
             resample=False,
         )
 
-        assert calls["strategy"] == sitk.ImageRegistrationMethod().RANDOM
-        assert calls["percentage"] == expected_args
+        assert (
+            calls["strategy"]
+            == itk.ImageRegistrationMethodv4Enums.MetricSamplingStrategy_RANDOM
+        )
+        assert calls["percentage"] == expected_args[:1]
+        assert calls["seed"] == expected_args[1:]
 
     @pytest.mark.parametrize(
         "name", ["fixed_intensity_scaling", "moving_intensity_scaling"]
@@ -333,16 +348,20 @@ class TestRegisterVolumeValidation:
     def test_unknown_runtime_error_is_passed_through(
         self, sample_voxeldata_2d_registration, monkeypatch
     ):
-        """Unknown SimpleITK runtime errors are re-raised unchanged."""
-        import SimpleITK as sitk
+        """Unknown ITK runtime errors are re-raised unchanged."""
+        import itk
 
         error = RuntimeError("boom")
 
-        def fake_execute(self, fixed, moving):
-            del self, fixed, moving
+        def fake_execute(self):
+            del self
             raise error
 
-        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+        monkeypatch.setattr(
+            itk.ImageRegistrationMethodv4[itk.Image[itk.F, 3], itk.Image[itk.F, 3]],
+            "Update",
+            fake_execute,
+        )
 
         with pytest.raises(RuntimeError) as excinfo:
             register_volume(
@@ -356,18 +375,22 @@ class TestRegisterVolumeValidation:
     def test_bspline_scale_error_raises_clearer_message(
         self, sample_voxeldata_2d_registration, monkeypatch
     ):
-        """Known SimpleITK scale failures are rewritten to actionable errors."""
-        import SimpleITK as sitk
+        """Known ITK scale failures are rewritten to actionable errors."""
+        import itk
 
-        def fake_execute(self, fixed, moving):
-            del self, fixed, moving
+        def fake_execute(self):
+            del self
             raise RuntimeError(
-                "Exception thrown in SimpleITK ImageRegistrationMethod_Execute: "
+                "Exception thrown in ITK ImageRegistrationMethod_Execute: "
                 "ITK ERROR: GradientDescentOptimizerv4Template: "
                 "m_Scales values must be > epsilon.[1e-20, 1e-12]"
             )
 
-        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+        monkeypatch.setattr(
+            itk.ImageRegistrationMethodv4[itk.Image[itk.F, 3], itk.Image[itk.F, 3]],
+            "Update",
+            fake_execute,
+        )
 
         with pytest.raises(
             RuntimeError, match="could not compute valid optimizer scales"
@@ -383,17 +406,21 @@ class TestRegisterVolumeValidation:
         self, sample_voxeldata_2d_registration, monkeypatch
     ):
         """Auto-learning-rate scale failures suggest retrying with a fixed rate."""
-        import SimpleITK as sitk
+        import itk
 
-        def fake_execute(self, fixed, moving):
-            del self, fixed, moving
+        def fake_execute(self):
+            del self
             raise RuntimeError(
-                "Exception thrown in SimpleITK ImageRegistrationMethod_Execute: "
+                "Exception thrown in ITK ImageRegistrationMethod_Execute: "
                 "ITK ERROR: GradientDescentOptimizerv4Template: "
                 "m_Scales values must be > epsilon.[1e-20, 1e-12]"
             )
 
-        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+        monkeypatch.setattr(
+            itk.ImageRegistrationMethodv4[itk.Image[itk.F, 3], itk.Image[itk.F, 3]],
+            "Update",
+            fake_execute,
+        )
 
         with pytest.raises(
             RuntimeError,
@@ -415,14 +442,14 @@ class TestRegisterVolumeValidation:
             register_volume(moving, fixed, transform_type="translation")
 
 
-class TestSimpleITKGeometry:
-    """SimpleITK conversion preserves ConfUSIus spatial geometry."""
+class TestITKGeometry:
+    """ITK conversion preserves ConfUSIus spatial geometry."""
 
-    def test_voxeldata_to_sitk_image_sets_voxel_to_world_origin_spacing_direction(self):
-        """Voxel-to-world DataArrays map to SimpleITK origin/spacing/direction."""
+    def test_voxeldata_to_itk_image_sets_voxel_to_world_origin_spacing_direction(self):
+        """Voxel-to-world DataArrays map to ITK origin/spacing/direction."""
         data = _make_voxel_to_world_2d()
 
-        image = voxeldata_to_sitk_image(data)
+        image = voxeldata_to_itk_image(data)
 
         assert_allclose(image.GetOrigin(), (0.0, 10.0, 20.0))
         assert_allclose(
@@ -430,11 +457,11 @@ class TestSimpleITKGeometry:
             (1.0, np.hypot(0.2, 0.08), np.hypot(0.05, 0.18)),
         )
         assert_allclose(
-            np.array(image.GetDirection()).reshape(3, 3),
+            np.asarray(image.GetDirection()).reshape(3, 3),
             data.fusi.direction,
         )
 
-    def test_voxeldata_to_sitk_image_without_voxel_to_world_index_raises(self):
+    def test_voxeldata_to_itk_image_without_voxel_to_world_index_raises(self):
         """The internal converter assumes canonical VoxelData input."""
         da = xr.DataArray(
             np.zeros((3, 4, 5), dtype=np.float32),
@@ -446,8 +473,8 @@ class TestSimpleITKGeometry:
             },
         )
 
-        with pytest.raises(ValueError, match="voxel-to-world index"):
-            voxeldata_to_sitk_image(da)
+        with pytest.raises(ValueError, match="voxel dimension"):
+            voxeldata_to_itk_image(da)
 
     def test_undefined_voxel_to_world_spacing_raises_repair_hint(self):
         """An irregularly spaced voxel-to-world coordinate raises a repair error."""
@@ -501,10 +528,10 @@ class TestRegisterVolumeOutput:
     def test_bspline_control_point_domain_matches_each_axis_extent(self):
         """Each axis's control-point domain scales with its own world extent.
 
-        Regression test for a bug where `sitk_bspline_to_dataarray` assumed
-        SimpleITK reverses axis order relative to the DataArray (`(x, y, z)` vs.
+        Regression test for a bug where `itk_bspline_to_dataarray` assumed
+        ITK reverses axis order relative to the DataArray (`(x, y, z)` vs.
         `(z, y, x)`), when in fact this codebase's convention (see
-        `voxeldata_to_sitk_image`) never reverses axes: sitk axis `i` maps directly
+        `voxeldata_to_itk_image`) never reverses axes: sitk axis `i` maps directly
         to DataArray dim `i`. On an anisotropic image, the erroneous reversal
         swapped the y/x control-point grids: `y`'s spacing was computed from `x`'s
         world domain and vice versa. Isotropic test fixtures never exposed this
@@ -739,7 +766,7 @@ class TestRegisterVolumeMask:
         """A single-label integer mask registers identically to its boolean form.
 
         Guards against single-label integer masks (e.g. `{0, 512}` from
-        `Atlas.get_masks`) reaching SimpleITK's metric mask uncoerced: 512 wraps to 0
+        `Atlas.get_masks`) reaching ITK's metric mask uncoerced: 512 wraps to 0
         under the `numpy.uint8` cast, which silently empties the mask and turns
         registration into a no-op.
         """
@@ -1230,7 +1257,7 @@ class TestResampleVolume:
         assert_allclose(result_auto.values, result_linear.values)
 
     def test_bspline_interpolation_resamples(self, sample_voxeldata_2d_registration):
-        """`interpolation="bspline"` runs through the SimpleITK B-spline interpolator."""
+        """`interpolation="bspline"` runs through the ITK B-spline interpolator."""
         result = resample_volume(
             sample_voxeldata_2d_registration,
             np.eye(4),
@@ -1489,26 +1516,20 @@ class TestInitialization:
     def test_center_moments_uses_moments_initializer(
         self, sample_voxeldata_2d_registration, monkeypatch
     ):
-        """center_moments uses SimpleITK's moments-based centering initializer."""
-        import SimpleITK as sitk
-
-        original_initializer = sitk.CenteredTransformInitializer
-        calls = []
-
-        def wrapped_initializer(fixed, moving, transform, operation_mode):
-            calls.append(operation_mode)
-            return original_initializer(fixed, moving, transform, operation_mode)
-
-        monkeypatch.setattr(sitk, "CenteredTransformInitializer", wrapped_initializer)
-
-        register_volume(
-            sample_voxeldata_2d_registration,
-            sample_voxeldata_2d_registration,
+        """Moments centering recovers a known feature translation before refinement."""
+        fixed = sample_voxeldata_2d_registration
+        moving = fixed.copy(data=np.roll(fixed.values, 2, axis=2))
+        _, transform, _ = register_volume(
+            moving,
+            fixed,
             transform_type="affine",
             initialization="center_moments",
+            optimizer_weights=[0.0] * 12,
+            number_of_iterations=1,
         )
-
-        assert calls == [sitk.CenteredTransformInitializerFilter.MOMENTS]
+        expected = np.eye(4)
+        expected[2, 3] = 0.2
+        assert_allclose(transform, expected, atol=1e-7)
 
 
 class TestResampleVolumeWithBspline:
@@ -1606,12 +1627,12 @@ class TestResampleVolumeWithBspline:
 class TestDisplacementField:
     """Tests for displacement-field sampling, inversion, and resampling."""
 
-    def test_sitk_bspline_to_dataarray_rejects_non_bspline_transform(self):
-        """Non-B-spline SimpleITK transforms are rejected."""
-        import SimpleITK as sitk
+    def test_itk_bspline_to_dataarray_rejects_non_bspline_transform(self):
+        """Non-B-spline ITK transforms are rejected."""
+        import itk
 
         with pytest.raises(TypeError, match="BSplineTransform"):
-            sitk_bspline_to_dataarray(sitk.AffineTransform(2))
+            itk_bspline_to_dataarray(itk.AffineTransform[itk.D, 2].New())
 
     def test_sample_displacement_field_wrong_type_attr_raises(self):
         """A DataArray with the wrong `type` attr is rejected."""
@@ -2269,7 +2290,7 @@ class TestResampleLike:
         """resample_like matches register_volume(resample=True) when affine initialization is used.
 
         Regression test for a bug where CompositeTransform sub-transforms were
-        composed in the wrong order in _sitk_linear_transform_to_affine, causing
+        composed in the wrong order in _itk_linear_transform_to_affine, causing
         the returned affine matrix to differ from the transform actually applied
         during resampling.
         """
@@ -2350,7 +2371,7 @@ class TestRegisterVolumeDiagnostics:
         assert diagnostics.final_metric_value == pytest.approx(
             float(diagnostics.metric_values[-1])
         )
-        # SimpleITK populates a non-empty stop condition string at the end.
+        # ITK populates a non-empty stop condition string at the end.
         assert isinstance(diagnostics.stop_condition, str)
         assert diagnostics.stop_condition != ""
 
