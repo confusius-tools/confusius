@@ -162,6 +162,22 @@ class TestMatplotlibRegistrationProgressPlotterInstantiation:
         )
         plotter.figure.clf()
 
+    def test_follows_active_matplotlib_style(self, fixed_img_3d, moving_img_3d):
+        """Background and text colors come from rcParams, not a fixed theme."""
+        reg = _make_registration_method()
+        with matplotlib.rc_context(
+            {"figure.facecolor": "#123456", "axes.facecolor": "#abcdef"}
+        ):
+            plotter = MatplotlibRegistrationProgressPlotter(
+                reg, fixed_img_3d, moving_img_3d, plot_composite=False
+            )
+        ax = plotter.figure.axes[0]
+
+        assert matplotlib.colors.to_hex(plotter.figure.get_facecolor()) == "#123456"
+        assert matplotlib.colors.to_hex(ax.get_facecolor()) == "#abcdef"
+        assert ax.title.get_color() == matplotlib.rcParams["text.color"]
+        plotter.figure.clf()
+
 
 class TestMatplotlibRegistrationProgressPlotterUpdate:
     """Tests for metric_values population and composite rendering."""
