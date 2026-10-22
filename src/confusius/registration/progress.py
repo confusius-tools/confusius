@@ -9,6 +9,7 @@ import numpy as np
 
 from confusius._utils.plotting import blend_red_cyan, make_mosaic, scale_min_max
 from confusius._utils.stack import find_stack_level
+from confusius.registration._utils import get_registration_metric_value
 
 if TYPE_CHECKING:
     import itk
@@ -52,10 +53,24 @@ def resample_intermediate(
     """
     from confusius._utils.itk import resample_itk_image
 
-    # In-place registration consumes its initial-transform input during Update.
-    transform = registration_method.GetInitialTransform()
-    if transform is None:
-        transform = registration_method.GetModifiableTransform()
+    if hasattr(registration_method, "GetFixedToMiddleTransform"):
+        import itk
+
+        # SyN assembles its final output only after optimization; preview the live halves.
+        # https://github.com/InsightSoftwareConsortium/ITK/blob/v5.4.0/Modules/Registration/RegistrationMethodsv4/include/itkSyNImageRegistrationMethod.hxx.
+        transform = itk.CompositeTransform[itk.D, 3].New()
+        transform.AddTransform(registration_method.GetMovingInitialTransform())
+        fixed_half = registration_method.GetFixedToMiddleTransform()
+        if fixed_half is not None:
+            transform.AddTransform(
+                registration_method.GetMovingToMiddleTransform().GetInverseTransform()
+            )
+            transform.AddTransform(fixed_half)
+    else:
+        # In-place registration consumes its initial-transform input during Update.
+        transform = registration_method.GetInitialTransform()
+        if transform is None:
+            transform = registration_method.GetModifiableTransform()
     return resample_itk_image(
         moving_img,
         fixed_img,
@@ -223,9 +238,7 @@ class MatplotlibRegistrationProgressPlotter:
         Called at every `itk.IterationEvent`.
         """
         if self._plot_metric:
-            self._metric_values.append(
-                self._method.GetOptimizer().GetCurrentMetricValue()
-            )
+            self._metric_values.append(get_registration_metric_value(self._method))
             n = len(self._metric_values)
             self._metric_line.set_data(range(n), self._metric_values)
             self._metric_ax.relim()

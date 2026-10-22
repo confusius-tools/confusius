@@ -369,6 +369,26 @@ def abort_on_sigint(
         signal.signal(signal.SIGINT, previous_handler)
 
 
+def get_registration_metric_value(
+    registration: "itk.ImageRegistrationMethodv4",
+) -> float:
+    """Read the current metric from a parametric or SyN registration method.
+
+    Parameters
+    ----------
+    registration : itk.ImageRegistrationMethodv4
+        Active registration method.
+
+    Returns
+    -------
+    float
+        Latest metric value. SyN maintains this on the method, not its optimizer.
+    """
+    if hasattr(registration, "GetFixedToMiddleTransform"):
+        return float(registration.GetCurrentMetricValue())
+    return float(registration.GetOptimizer().GetCurrentMetricValue())
+
+
 def expand_thin_dims(img: "itk.Image", min_size: int = 4) -> "itk.Image":
     """Expand thin image dimensions while preserving their physical support.
 
