@@ -43,12 +43,6 @@ Current development version for the next ConfUSIus release.
   colormap stat maps are drawn with, which remembers its source colormap and
   threshold and can be rebuilt on another colormap with `with_source`
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
-- The `show_progress` plot of
-  [`register_volume`][confusius.registration.register_volume] follows the active
-  Matplotlib style instead of always drawing on black, and
-  [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] draws the
-  iteration count in a darker turquoise that stays readable on light backgrounds
-  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 
 ### :zap: Performance
 
@@ -59,6 +53,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] draws the
+  iteration count in a darker turquoise, readable on light backgrounds
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - Labels painted over oblique or sheared data in napari now return to the original
   reference voxel grid using nearest-neighbor interpolation, rather than retaining
   the display grid or being assigned incorrect geometry. The drawing documentation

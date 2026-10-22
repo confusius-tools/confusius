@@ -130,8 +130,7 @@ class MatplotlibRegistrationProgressPlotter:
 
     Displays an optimizer metric curve, a composite fixed/moving overlay, or
     both, updated at every iteration. Works in both a Jupyter notebook and an
-    interactive matplotlib backend (e.g. Qt). Background and text colors follow the
-    active matplotlib style.
+    interactive matplotlib backend (e.g. Qt). Draws on a black background.
 
     Parameters
     ----------
@@ -228,25 +227,34 @@ class MatplotlibRegistrationProgressPlotter:
             plt.ion()
 
         self._fig, axes = plt.subplots(
-            1, n_panels, figsize=(5 * n_panels, 4), squeeze=False
+            1,
+            n_panels,
+            figsize=(5 * n_panels, 4),
+            squeeze=False,
+            facecolor="black",
         )
         axes = axes.ravel()
         panel = iter(axes)
 
         if plot_metric:
             ax = next(panel)
+            ax.set_facecolor("black")
             (self._metric_line,) = ax.plot([], [], color=RED_DARK)
-            ax.set_xlabel("Iteration")
-            ax.set_ylabel("Metric value")
-            ax.set_title("Registration metric")
+            ax.set_xlabel("Iteration", color="white")
+            ax.set_ylabel("Metric value", color="white")
+            ax.set_title("Registration metric", color="white")
+            ax.tick_params(colors="white")
+            for spine in ax.spines.values():
+                spine.set_edgecolor("white")
             self._metric_ax = ax
 
         if plot_composite:
             ax = next(panel)
+            ax.set_facecolor("black")
             # Placeholder image; real data filled on first update.
             self._composite_ax = ax
             self._composite_im = None
-            ax.set_title("Fixed (red) / moving (cyan)")
+            ax.set_title("Fixed (red) / moving (cyan)", color="white")
             ax.axis("off")
 
         self._fig.tight_layout()

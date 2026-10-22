@@ -50,6 +50,13 @@ What this means when writing an example:
   on their `"black"` default. Per-element colors (`scatter(c="black")`,
   collections) are left alone, and any other explicit color, pure white included,
   is kept as is.
+- A figure whose background is pure black is taken as drawn on confusius's black
+  default (the registration progress plot, a plotting call that makes its own
+  figure without `bg_color`): its black is swapped as background and its white as
+  text for both pages, pure-white data colors included. This cannot work at a
+  finer grain, since one figure can hold both a library plot (black background,
+  white text) and a regular plot (light background, black text), so pass
+  `bg_color` whenever a plotting function draws into axes you created.
 - For brand-colored lines, draw with the light-page variants: `#d93a54` (red) and
   `#27906d` (turquoise). The dark rendering switches them to the brighter
   `#e94b5f` and `#3ad9a4`.

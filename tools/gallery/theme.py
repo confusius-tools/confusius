@@ -67,6 +67,14 @@ DARK = Theme(bg="#090c10", axes_bg="#111720", fg="#e6edf3", diverging_cmap="berl
 No value may equal a `LIGHT` value, or swapping back would be ambiguous.
 """
 
+ON_BLACK = Theme(bg="black", axes_bg="black", fg="white", diverging_cmap="berlin")
+"""Theme of figures confusius draws on its default black background.
+
+A figure whose background is pure black (e.g. the registration progress plot) is
+drawn under this theme rather than `LIGHT`, so its black is background and its
+white is foreground. Its pure-white data colors are swapped like text.
+"""
+
 _COLOR_SLOTS = (
     ("get_facecolor", "set_facecolor"),
     ("get_edgecolor", "set_edgecolor"),
@@ -169,8 +177,10 @@ def retheme(fig: Figure, src: Theme, dst: Theme) -> None:
     dst : Theme
         Theme to recolor to.
     """
+    # `bg` comes after `axes_bg` so that it wins when `src` draws both in the same
+    # color (`ON_BLACK`): the whole figure then takes the page background.
     swap_colors(
-        fig, {getattr(src, role): getattr(dst, role) for role in ("bg", "axes_bg", "fg")}
+        fig, {getattr(src, role): getattr(dst, role) for role in ("axes_bg", "bg", "fg")}
     )
     swap_cmaps(fig, {src.diverging_cmap: dst.diverging_cmap})
 
@@ -183,7 +193,9 @@ def render_both(
     Parameters
     ----------
     fig : matplotlib.figure.Figure
-        A figure drawn under the `LIGHT` theme.
+        A figure drawn under the `LIGHT` theme, or under `ON_BLACK` if its
+        background is pure black. An `ON_BLACK` figure is swapped to `LIGHT`
+        first and handed back in `ON_BLACK`.
     printer : Callable[[matplotlib.figure.Figure], tuple[str, dict] or None]
         The figure printer matplotlib_inline registered for `Figure`.
     hook : Callable[[matplotlib.figure.Figure, str], None], optional
@@ -203,6 +215,12 @@ def render_both(
     The layout is frozen only while the dark rendering is printed; the figure's
     layout engine is restored before returning.
     """
+    if mcolors.to_rgb(fig.get_facecolor()) == mcolors.to_rgb(ON_BLACK.bg):
+        retheme(fig, ON_BLACK, LIGHT)
+        try:
+            return render_both(fig, printer=printer, hook=hook)
+        finally:
+            retheme(fig, LIGHT, ON_BLACK)
     light = printer(fig)
     if light is None:
         return None

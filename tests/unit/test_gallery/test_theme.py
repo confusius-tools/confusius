@@ -147,6 +147,29 @@ def test_render_both_passes_through_empty_figure() -> None:
         plt.close(fig)
 
 
+def test_render_both_themes_figures_drawn_on_black() -> None:
+    """A figure on confusius's black default renders for both pages and is restored."""
+    fig, ax = plt.subplots(facecolor="black")
+    ax.set_facecolor("black")
+    title = ax.set_title("title", color="white")
+    try:
+        result = render_both(fig, printer=partial(retina_figure, base64=True))
+
+        assert result is not None
+        data, metadata = result
+        assert _corner_rgb(data) == pytest.approx(
+            mcolors.to_rgb(LIGHT.bg), abs=1 / 255
+        )
+        assert _corner_rgb(metadata["dark"]) == pytest.approx(
+            mcolors.to_rgb(DARK.bg), abs=1 / 255
+        )
+        assert mcolors.to_hex(fig.get_facecolor()) == "#000000"
+        assert mcolors.to_hex(ax.get_facecolor()) == "#000000"
+        assert mcolors.to_hex(title.get_color()) == "#ffffff"
+    finally:
+        plt.close(fig)
+
+
 def test_render_both_calls_hook_after_each_swap(figure) -> None:
     """The project hook sees the figure in dark before printing and in light after."""
     seen: list[tuple[str, tuple[float, ...]]] = []
