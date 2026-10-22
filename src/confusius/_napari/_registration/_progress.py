@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import numpy as np
 from qtpy.QtCore import QObject, Signal
 
-from confusius.registration._utils import get_registration_metric_value
+from confusius._utils.itk import get_registration_metric_value
 from confusius.registration.progress import resample_intermediate
 
 if TYPE_CHECKING:
