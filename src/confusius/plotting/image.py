@@ -42,6 +42,7 @@ from confusius.plotting._utils import (
     materialize_axis_aligned_world_grid_for_display,
     sort_coords_for_plot,
 )
+from confusius.plotting.colormap import ThresholdedColormap
 from confusius.signal import clean
 from confusius.validation import (
     ensure_voxeldata,
@@ -541,101 +542,45 @@ def _resolve_cmap(
     norm: "Normalize",
     threshold: float | None,
     threshold_mode: Literal["lower", "upper"],
-) -> "Colormap":
-    """Build colormap with gray band indicating thresholded regions.
+) -> ThresholdedColormap:
+    """Pick the colormap for a volume and wrap it with the thresholded gray band.
 
-    For `threshold_mode='lower'`: gray between `[-threshold, threshold]`.
-    For `threshold_mode='upper'`: gray outside `[-threshold, threshold]`.
+    Parameters
+    ----------
+    cmap : str or matplotlib.colors.Colormap, optional
+        Colormap requested by the caller. If not provided, `data_attrs_cmap` is
+        used, and `"gray"` when that is missing too.
+    data_attrs_cmap : str or matplotlib.colors.Colormap, optional
+        Colormap carried by the data's `attrs["cmap"]`, if any.
+    norm : matplotlib.colors.Normalize
+        Norm the data is drawn with; positions the gray band.
+    threshold : float, optional
+        Threshold on the absolute data values. If not provided, no band is added.
+    threshold_mode : {"lower", "upper"}
+        Whether values below or above the threshold are grayed out.
+
+    Returns
+    -------
+    ThresholdedColormap
+        The resolved colormap with the gray band applied.
 
     Raises
     ------
     ValueError
         If `norm.vmin` or `norm.vmax` is not finite.
     """
-    import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
 
-    if (
-        norm.vmin is None
-        or norm.vmax is None
-        or not math.isfinite(norm.vmin)
-        or not math.isfinite(norm.vmax)
-    ):
-        raise ValueError(
-            "norm.vmin and norm.vmax must be finite, got "
-            f"vmin={norm.vmin!r}, vmax={norm.vmax!r}."
-        )
-
-    cmap = (
+    resolved = (
         cmap
         if cmap is not None
         else data_attrs_cmap
         if data_attrs_cmap is not None
         else "gray"
     )
-    if isinstance(cmap, str):
-        cmap = plt.get_cmap(cmap)
-
-    cmap_colors = [(i / (cmap.N - 1), cmap(i / (cmap.N - 1))) for i in range(cmap.N)]
-
-    threshold = 0.0 if threshold is None else abs(threshold)
-    gray_low = norm(-threshold)
-    gray_high = norm(threshold)
-    if threshold_mode == "lower":
-        colors_before = [c for c in cmap_colors if c[0] <= gray_low]
-        colors_after = [c for c in cmap_colors if c[0] >= gray_high]
-
-        if gray_low < gray_high:
-            # We clip the gray low/high points to [0, 1] because Matplotlib expects
-            # colormap values in that range.
-            gray_band = [
-                (max(0, gray_low), "gray"),
-                (min(1.0, gray_high), "gray"),
-            ]
-        else:
-            gray_band = []
-        new_colors = colors_before + gray_band + colors_after
-    else:
-        colors_middle = [c for c in cmap_colors if gray_low <= c[0] <= gray_high]
-
-        if gray_low > 0.0:
-            gray_band_low = [(0.0, "gray"), (gray_low, "gray")]
-        else:
-            gray_band_low = []
-
-        if gray_high < 1.0:
-            gray_band_high = [(gray_high, "gray"), (1.0, "gray")]
-        else:
-            gray_band_high = []
-        new_colors = gray_band_low + colors_middle + gray_band_high
-
-    # Matplotlib 3.11+ requires (value, color) pairs passed to `from_list` to be
-    # strictly monotonically increasing in value. Our boundary points can collide
-    # with neighboring cmap entries (e.g. when `gray_low == 0` the first
-    # `colors_before` entry shares its value with the start of `gray_band`).
-    # Collapse duplicates by value, keeping the later entry so gray-band
-    # boundaries take precedence over the underlying cmap at the same value.
-    deduped: dict[float, str | tuple[float, ...] | list[float]] = {}
-    for value, color in new_colors:
-        deduped[value] = color
-    new_colors = list(deduped.items())
-
-    # Preserve the source colormap's resolution. The default N=256 of
-    # `LinearSegmentedColormap.from_list` collapses larger discrete cmaps such as
-    # the atlas `ListedColormap` (N == number of regions, often >256), aliasing
-    # high indices to wrong (or out-of-range) colours. Propagate under/over/bad
-    # colours so the atlas's transparent under-colour for label 0 (background)
-    # survives the rebuild. Cast to tuple because the getters return numpy arrays
-    # but the kwargs expect a color-like. `from_list` accepts these kwargs since
-    # matplotlib 3.11, no need for a separate `with_extremes` round-trip.
-    return mcolors.LinearSegmentedColormap.from_list(
-        f"{cmap.name}_thresholded",
-        new_colors,
-        N=cmap.N,
-        under=tuple(cmap.get_under()),
-        over=tuple(cmap.get_over()),
-        bad=tuple(cmap.get_bad()),
-    )
+    if isinstance(resolved, str):
+        resolved = plt.get_cmap(resolved)
+    return ThresholdedColormap(resolved, norm, threshold, threshold_mode)
 
 
 def _build_axis_label(da: xr.DataArray, dim: str) -> str:
@@ -1949,9 +1894,10 @@ class VolumePlotter:
             - Both positive and negative values: diverging, symmetric `[-m, m]`
               range where `m = max(|vmin|, |vmax|)` over the bounds actually
               provided, falling back to the largest magnitude in `stat_map` when
-              neither is given, with `cmap` defaulting to `"coolwarm"` — the right
-              choice for diverging statistics where the sign is meaningful (e.g.
-              t-statistics, correlation coefficients, PCA/ICA component maps).
+              neither is given, with `cmap` defaulting to `"coolwarm"` on light
+              backgrounds and `"berlin"` on dark ones (judged from `bg_color`),
+              both diverging colormaps for statistics where the sign is meaningful
+              (e.g. t-statistics, correlation coefficients, PCA/ICA component maps).
             - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
               defaulting to `"viridis"` — the right choice for non-diverging
               statistics where only magnitude matters (e.g. R², F-statistics).
@@ -1961,8 +1907,8 @@ class VolumePlotter:
               non-positive cases).
 
             Set to `False` to use the resolved `vmin`/`vmax` directly with no
-            zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of
-            sign).
+            zero-anchoring (`cmap` then defaults to the same background-dependent diverging
+            colormap regardless of sign).
         threshold : float, optional
             Threshold applied to `|stat_map|`. See `threshold_mode` for the masking
             direction. If not provided, no thresholding is applied.
@@ -2040,7 +1986,7 @@ class VolumePlotter:
         """
         stat_map = stat_map.compute()
         resolved_vmin, resolved_vmax, resolved_cmap = _resolve_colormap_style(
-            stat_map, vmin, vmax, cmap, auto_range
+            stat_map, vmin, vmax, cmap, auto_range, bg_color=self._bg_color
         )
         return self.add_volume(
             stat_map,
@@ -3445,9 +3391,10 @@ def plot_stat_map(
         - Both positive and negative values: diverging, symmetric `[-m, m]` range
           where `m = max(|vmin|, |vmax|)` over the bounds actually provided,
           falling back to the largest magnitude in `stat_map` when neither is
-          given, with `cmap` defaulting to `"coolwarm"` — the right choice for
-          diverging statistics where the sign is meaningful (e.g. t-statistics,
-          correlation coefficients, PCA/ICA component maps).
+          given, with `cmap` defaulting to `"coolwarm"` on light backgrounds and
+          `"berlin"` on dark ones (judged from `bg_color`), both diverging
+          colormaps for statistics where the sign is meaningful (e.g.
+          t-statistics, correlation coefficients, PCA/ICA component maps).
         - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
           defaulting to `"viridis"` — the right choice for non-diverging
           statistics where only magnitude matters (e.g. R², F-statistics).
@@ -3457,7 +3404,8 @@ def plot_stat_map(
           non-positive cases).
 
         Set to `False` to use the resolved `vmin`/`vmax` directly with no
-        zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of sign).
+        zero-anchoring (`cmap` then defaults to the same background-dependent diverging
+        colormap regardless of sign).
     alpha : float or xarray.DataArray, optional
         Opacity of the `stat_map` overlay: a single scalar value, or a 3D DataArray
         sharing `stat_map`'s dims, shape, and coordinates (for independent per-slice,
