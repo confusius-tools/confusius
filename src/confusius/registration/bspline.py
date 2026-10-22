@@ -52,18 +52,18 @@ def voxeldata_to_itk_bspline(transform: xr.DataArray) -> "itk.Transform":
     Raises
     ------
     ValueError
-        If the coefficient array is invalid or its spline order is unsupported.
+        If the coefficient array is invalid.
+
+    Notes
+    -----
+    The resampling dispatcher routes non-cubic splines through sampled
+    displacement fields before calling this cubic-only converter.
     """
     import itk
 
     from confusius.registration.affines import affine_to_itk_linear_transform
 
     validate_bspline(transform)
-    order = int(transform.attrs["order"])
-    if order != 3:
-        raise ValueError(
-            "ITK Python wheels support only cubic B-spline transforms (order=3)."
-        )
     sizes = [transform.sizes[dim] for dim in VOXEL_DIMS]
     origin = get_dim_keyed_origin(transform)
     _, spacing = get_defined_spatial_spacing(transform.isel(component=0, drop=True))

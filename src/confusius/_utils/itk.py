@@ -59,15 +59,18 @@ def voxeldata_to_itk_image(data: "xr.DataArray") -> "itk.Image":
     Raises
     ------
     ValueError
-        If `data` is not spatial-only VoxelData.
+        If `data` is not valid VoxelData or has pose or extra dimensions.
     TypeError
         If values are complex; conversion must not discard their phase.
+
+    Notes
+    -----
+    Callers provide spatial-only data: registration rejects time dimensions,
+    while resampling selects one stacked component at a time.
     """
     import itk
 
     data = ensure_voxeldata(data, allow_pose=False, allow_extra_dims=False)
-    if "time" in data.dims:
-        raise ValueError("ITK image conversion requires spatial-only VoxelData.")
     if np.issubdtype(data.dtype, np.complexfloating):
         raise TypeError("ITK requires real-valued data, not complex values.")
     dtype = np.float32 if data.dtype == np.float32 else np.float64
