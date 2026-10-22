@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 import numpy as np
 
+from confusius._utils.itk import get_registration_metric_value
 from confusius._utils.plotting import blend_red_cyan, make_mosaic, scale_min_max
 from confusius._utils.stack import find_stack_level
-from confusius.registration._utils import get_registration_metric_value
 
 if TYPE_CHECKING:
     import itk
