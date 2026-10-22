@@ -44,10 +44,15 @@ What this means when writing an example:
 
 - Read the background from matplotlib rather than hardcoding it, and pass it on
   to the plotting functions: `bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])`.
-  Pure black and pure white are theme colors wherever they appear (text, lines, line
-  markers, and backgrounds); always pass `bg_color` to the plotting functions rather
-  than relying on their `"black"` default. Per-element colors (`scatter(c="black")`,
-  collections) are left alone, and any other explicit color is kept as is.
+  Figures created with `plt.subplots`/`plt.figure` already get this background.
+  Pure black is a theme color wherever it appears (text, lines, line markers, and
+  backgrounds); always pass `bg_color` to the plotting functions rather than relying
+  on their `"black"` default. Per-element colors (`scatter(c="black")`,
+  collections) are left alone, and any other explicit color, pure white included,
+  is kept as is.
+- For brand-colored lines, draw with the light-page variants: `#d93a54` (red) and
+  `#27906d` (turquoise). The dark rendering switches them to the brighter
+  `#e94b5f` and `#3ad9a4`.
 - Do not branch on the theme in the example: there is only one run. Leave `cmap`
   unset on `plot_stat_map` and `plot_matrix` so the library's background-aware
   default applies, or pick a colormap that reads well on both backgrounds.
@@ -58,9 +63,9 @@ When the built-in swap is not enough for the whole gallery, edit `gallery_rethem
 in `tools/gallery/hooks.py`. It runs in the kernel after the swap, with `"dark"`
 before the dark rendering and `"light"` after the figure is swapped back, and must
 undo for `"light"` what it did for `"dark"`. As shipped it flips sequential
-colormaps whose low end should fade into the page: draw with `inferno_r` on the
-light page and the dark page gets `inferno`. Add pairs to `SEQUENTIAL_CMAP_SWAPS`
-there to extend it. Editing the file invalidates the whole gallery cache, like any
+colormaps whose low end should fade into the page (draw with `inferno_r` on the
+light page and the dark page gets `inferno`) and brightens the brand colors. Add
+pairs to `SEQUENTIAL_CMAP_SWAPS` or `BRAND_COLOR_SWAPS` there to extend it. Editing the file invalidates the whole gallery cache, like any
 change to `tools/gallery`.
 
 ## Tips

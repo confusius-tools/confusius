@@ -196,7 +196,6 @@ mapper.maps_
 bg_by_region = atlas_native.template.expand_dims(region=mapper.maps_.region)
 
 fig, axes = plt.subplots(2, 2, figsize=(8, 6), constrained_layout=True)
-fig.patch.set_facecolor(bg_color)
 
 plotter = cf.plotting.plot_stat_map(
     mapper.maps_,

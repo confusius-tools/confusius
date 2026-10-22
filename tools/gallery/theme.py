@@ -54,14 +54,17 @@ class Theme:
     diverging_cmap: str
 
 
-LIGHT = Theme(bg="#f8f9fb", axes_bg="#ffffff", fg="black", diverging_cmap="coolwarm")
-"""Theme every example is executed under."""
+LIGHT = Theme(bg="#f8f9fb", axes_bg="#fefefe", fg="black", diverging_cmap="coolwarm")
+"""Theme every example is executed under.
+
+`axes_bg` is a hair off pure white so that pure white stays free for data colors
+(atlas regions, contours, text drawn over images), which the swap must keep.
+"""
 
 DARK = Theme(bg="#090c10", axes_bg="#111720", fg="#e6edf3", diverging_cmap="berlin")
 """Dark counterpart of `LIGHT`, role by role.
 
-No value may equal a `LIGHT` value (`fg` is off-white, not `white`, because `white`
-is `LIGHT.axes_bg`), or swapping back would be ambiguous.
+No value may equal a `LIGHT` value, or swapping back would be ambiguous.
 """
 
 _COLOR_SLOTS = (
@@ -96,26 +99,23 @@ def _as_rgba(value: Any) -> tuple[float, float, float, float] | None:
         return None
 
 
-def _swap_colors(fig: Figure, src: Theme, dst: Theme) -> None:
-    """Replace every artist color equal to a `src` role color by `dst`'s.
+def swap_colors(fig: Figure, mapping: dict[str, str]) -> None:
+    """Replace every single artist color in `mapping` by its replacement.
 
     Colors are read for all artists before any is written: an Axes and its
     background patch expose the same facecolor, so a read-modify-write loop would
     apply the mapping twice. Matching is on RGB; the artist's alpha is kept.
+    Per-element colors (collections, images) are left alone. Shared by the
+    built-in theme swap and `tools.gallery.hooks`.
 
     Parameters
     ----------
     fig : matplotlib.figure.Figure
         Figure to recolor in place.
-    src : Theme
-        Theme the figure is currently drawn with.
-    dst : Theme
-        Theme to recolor to.
+    mapping : dict[str, str]
+        Colors to replace, mapped to their replacement.
     """
-    table = {
-        mcolors.to_rgb(getattr(src, role)): getattr(dst, role)
-        for role in ("bg", "axes_bg", "fg")
-    }
+    table = {mcolors.to_rgb(src): dst for src, dst in mapping.items()}
     writes: list[tuple[Callable[[Any], Any], tuple[float, float, float, float]]] = []
     for artist in fig.findobj():
         for getter, setter in _COLOR_SLOTS:
@@ -169,7 +169,9 @@ def retheme(fig: Figure, src: Theme, dst: Theme) -> None:
     dst : Theme
         Theme to recolor to.
     """
-    _swap_colors(fig, src, dst)
+    swap_colors(
+        fig, {getattr(src, role): getattr(dst, role) for role in ("bg", "axes_bg", "fg")}
+    )
     swap_cmaps(fig, {src.diverging_cmap: dst.diverging_cmap})
 
 

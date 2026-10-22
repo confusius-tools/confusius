@@ -86,11 +86,13 @@ def test_retheme_recolors_tick_marks(figure) -> None:
 
 def test_retheme_keeps_intentional_colors(figure) -> None:
     figure["fig"].set_facecolor("#123456")
+    (white_line,) = figure["ax1"].plot([0, 1], color="white")
 
     retheme(figure["fig"], LIGHT, DARK)
 
     assert figure["fig"].get_facecolor() == pytest.approx(mcolors.to_rgba("#123456"))
     assert figure["red_line"].get_color() == "tab:red"
+    assert white_line.get_color() == "white"
 
 
 def test_retheme_preserves_alpha(figure) -> None:
@@ -196,3 +198,24 @@ def test_default_project_hook_flips_sequential_cmaps_and_back(figure) -> None:
 
     assert plain.get_cmap().name == "inferno_r"
     assert banded.get_cmap().source.name == "inferno_r"
+
+
+def test_default_project_hook_brightens_brand_colors_and_back(figure) -> None:
+    """The shipped hook swaps the light-page brand colors for the dark-page ones."""
+    from confusius._utils.colors import RED, RED_DARK, TURQUOISE, TURQUOISE_DARK
+    from tools.gallery.hooks import gallery_retheme
+
+    ax = figure["ax1"]
+    (red,) = ax.plot([0, 1], color=RED_DARK)
+    label = ax.set_ylabel("iterations", color=TURQUOISE_DARK)
+
+    gallery_retheme(figure["fig"], "dark")
+
+    assert mcolors.to_hex(red.get_color()) == RED
+    assert mcolors.to_hex(label.get_color()) == TURQUOISE
+    assert figure["red_line"].get_color() == "tab:red"
+
+    gallery_retheme(figure["fig"], "light")
+
+    assert mcolors.to_hex(red.get_color()) == RED_DARK
+    assert mcolors.to_hex(label.get_color()) == TURQUOISE_DARK

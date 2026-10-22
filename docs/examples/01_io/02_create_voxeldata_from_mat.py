@@ -214,7 +214,7 @@ plotter = z_map.fusi.plot.stat_map(
 # %%
 active_signal = scaled.where(active_voxels).mean(("k", "j", "i"))
 mean_signal = scaled.mean(("k", "j", "i"))
-fig, ax = plt.subplots(figsize=(9, 4), facecolor=bg_color)
+fig, ax = plt.subplots(figsize=(9, 4))
 mean_signal.plot(ax=ax, color="#808080", label="Whole-plane mean")
 active_signal.plot(ax=ax, color="#d93a54", label="Top task-positive voxels")
 for idx, event in enumerate(events.itertuples()):
@@ -222,7 +222,7 @@ for idx, event in enumerate(events.itertuples()):
     ax.axvspan(
         event.onset,
         event.onset + event.duration,
-        color="#3ad9a4",
+        color="#27906d",
         alpha=0.12,
         label=label,
     )

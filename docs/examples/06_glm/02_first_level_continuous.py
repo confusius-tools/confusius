@@ -135,7 +135,7 @@ speed = (
 )
 speed = speed.interp(time=data.time, method="linear").ffill("time")
 
-fig, ax = plt.subplots(figsize=(7, 3), facecolor=bg_color)
+fig, ax = plt.subplots(figsize=(7, 3))
 ax.plot(speed.time, speed, color="#d93a54")
 ax.set_xlabel("Time (s)")
 _ = ax.set_ylabel("Animal speed (cm/s)")
