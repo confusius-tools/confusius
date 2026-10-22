@@ -104,7 +104,7 @@ class NapariRegistrationProgressPlotter:
         napari preview always shows the resampled moving image directly.
     resample_kwargs : dict, optional
         Extra keyword arguments for the intermediate resample. Supported keys are
-        `interpolation`, `fill_value`, and `sitk_threads`.
+        `interpolation`, `fill_value`, and `itk_threads`.
     max_composite_slices : int or None, default: 9
         Kept for signature compatibility with the matplotlib plotter factory. The
         napari preview streams the full resampled moving image directly, so no
@@ -133,7 +133,7 @@ class NapariRegistrationProgressPlotter:
             _kw.get("interpolation", "linear"),
         )
         self._fill_value = float(_kw.get("fill_value", 0.0))
-        self._sitk_threads = int(_kw.get("sitk_threads", -1))
+        self._itk_threads = int(_kw.get("itk_threads", -1))
         self._plot_metric = plot_metric
         del plot_composite
         del max_composite_slices
@@ -161,7 +161,7 @@ class NapariRegistrationProgressPlotter:
             self._fixed_img,
             interpolation=self._interpolation,
             fill_value=self._fill_value,
-            sitk_threads=self._sitk_threads,
+            itk_threads=self._itk_threads,
         )
         # .T restores numpy axis order (inverse of the .T used when building
         # the SITK image), matching what `register_volume` produces.
@@ -298,7 +298,7 @@ def make_napari_progress_factory(
             Kept for signature compatibility with the matplotlib plotter factory.
         resample_kwargs : dict, optional
             Extra keyword arguments for the intermediate resample. Supported keys are
-            `interpolation`, `fill_value`, and `sitk_threads`.
+            `interpolation`, `fill_value`, and `itk_threads`.
         max_composite_slices : int or None, default: 9
             Kept for signature compatibility with the matplotlib plotter factory. Has
             no effect on the napari preview.

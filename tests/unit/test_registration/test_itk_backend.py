@@ -245,7 +245,7 @@ def test_db_optimizer_scaling_keeps_zero_power_finite(sample_voxeldata_2d_regist
         fixed_intensity_scaling="db",
         moving_intensity_scaling=2.0,
         learning_rate=0.1,
-        sitk_threads=1,
+        itk_threads=1,
     )
     assert_allclose(transform, np.eye(4), atol=1e-6)
     assert_array_equal(actual.values, source.values)
@@ -317,7 +317,7 @@ def test_multiresolution_abort_stops_future_levels_and_releases_reporter(
         use_multi_resolution=True,
         shrink_factors=[2, 1],
         smoothing_sigmas=[1, 0],
-        sitk_threads=1,
+        itk_threads=1,
     )
     gc.collect()
     assert diagnostics.status == "aborted"
@@ -331,4 +331,4 @@ def test_zero_worker_count_is_rejected(sample_voxeldata_2d_registration):
     """Zero is not a valid joblib-style worker count."""
     source = sample_voxeldata_2d_registration
     with pytest.raises(ValueError, match="must not be zero"):
-        resample_like(source, source, np.eye(4), sitk_threads=0)
+        resample_like(source, source, np.eye(4), itk_threads=0)

@@ -59,7 +59,7 @@ class FUSIRegistrationAccessor:
         resample: bool = False,
         resample_interpolation: Literal["linear", "bspline"] = "linear",
         fill_value: float | None = None,
-        sitk_threads: int = -1,
+        itk_threads: int = -1,
         show_progress: bool = False,
         plot_metric: bool = True,
         plot_composite: bool = True,
@@ -140,7 +140,7 @@ class FUSIRegistrationAccessor:
             Fill value for voxels outside the moving image's field of view after
             resampling. If not provided, defaults to the minimum of the moving
             image. See [`register_volume`][confusius.registration.register_volume].
-        sitk_threads : int, default: -1
+        itk_threads : int, default: -1
             Number of threads ITK may use internally.
         show_progress : bool, default: False
             Whether to display a live progress plot during registration.
@@ -200,7 +200,7 @@ class FUSIRegistrationAccessor:
             resample=resample,
             resample_interpolation=resample_interpolation,
             fill_value=fill_value,
-            sitk_threads=sitk_threads,
+            itk_threads=itk_threads,
             show_progress=show_progress,
             plot_metric=plot_metric,
             plot_composite=plot_composite,

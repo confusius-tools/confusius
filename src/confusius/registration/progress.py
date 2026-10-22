@@ -22,7 +22,7 @@ def resample_intermediate(
     *,
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float = 0.0,
-    sitk_threads: int = -1,
+    itk_threads: int = -1,
 ) -> itk.Image:
     """Resample the moving image onto the fixed grid using the current transform.
 
@@ -42,7 +42,7 @@ def resample_intermediate(
         Interpolator used for the intermediate resample.
     fill_value : float, default: 0.0
         Fill value used outside the moving image field of view.
-    sitk_threads : int, default: -1
+    itk_threads : int, default: -1
         Number of threads ITK may use for the intermediate resample.
 
     Returns
@@ -62,7 +62,7 @@ def resample_intermediate(
         transform,
         interpolation=interpolation or "linear",
         fill_value=fill_value,
-        itk_threads=sitk_threads,
+        itk_threads=itk_threads,
     )
 
 
@@ -105,7 +105,7 @@ class MatplotlibRegistrationProgressPlotter:
         Requires an additional `itk.ResampleImageFilter` call per iteration.
     resample_kwargs : dict, optional
         Extra keyword arguments for the internal resample call at each iteration.
-        Supported keys are `interpolation`, `fill_value`, and `sitk_threads`.
+        Supported keys are `interpolation`, `fill_value`, and `itk_threads`.
     max_composite_slices : int or None, default: 9
         Maximum number of slices to draw in the composite mosaic for 3D volumes,
         evenly spaced along the volume's slice axis. Keeps the mosaic grid readable
@@ -146,7 +146,7 @@ class MatplotlibRegistrationProgressPlotter:
             import itk
 
             self._fill_value = float(itk.array_from_image(moving_img).min())
-        self._sitk_threads = int(_kw.get("sitk_threads", -1))
+        self._itk_threads = int(_kw.get("itk_threads", -1))
 
         # Detect Jupyter notebook environment. A plain IPython terminal shell
         # also has get_ipython() != None, so we check the kernel class name to
@@ -238,7 +238,7 @@ class MatplotlibRegistrationProgressPlotter:
                 self._fixed_img,
                 interpolation=self._interpolation,
                 fill_value=self._fill_value,
-                sitk_threads=self._sitk_threads,
+                itk_threads=self._itk_threads,
             )
 
             import itk

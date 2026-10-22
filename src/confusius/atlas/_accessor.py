@@ -354,7 +354,7 @@ class AtlasAccessor:
         output_origin: Mapping[Hashable, SupportsFloat | SupportsIndex],
         output_direction: npt.ArrayLike,
         interpolation: Literal["linear", "nearest", "bspline"] = "linear",
-        sitk_threads: int = -1,
+        itk_threads: int = -1,
     ) -> xr.Dataset:
         """Resample the atlas onto an explicit output grid.
 
@@ -378,7 +378,7 @@ class AtlasAccessor:
             Unit world-space direction columns for native `k`/`j`/`i` output axes.
         interpolation : {"linear", "nearest", "bspline"}, default: "linear"
             Interpolation used for the atlas template volume.
-        sitk_threads : int, default: -1
+        itk_threads : int, default: -1
             Number of ITK threads.
 
         Returns
@@ -396,7 +396,7 @@ class AtlasAccessor:
             output_direction=output_direction,
             interpolation=interpolation,
             fill_value=0.0,
-            sitk_threads=sitk_threads,
+            itk_threads=itk_threads,
         )
         resampled_ann = resample_volume(
             self.annotation,
@@ -407,7 +407,7 @@ class AtlasAccessor:
             output_direction=output_direction,
             interpolation="nearest",
             fill_value=0,
-            sitk_threads=sitk_threads,
+            itk_threads=itk_threads,
         )
         resampled_ann.attrs = self.annotation.attrs.copy()
         resampled_hemi = resample_volume(
@@ -419,7 +419,7 @@ class AtlasAccessor:
             output_direction=output_direction,
             interpolation="nearest",
             fill_value=0,
-            sitk_threads=sitk_threads,
+            itk_threads=itk_threads,
         )
         composed = _compose_world_to_base_transforms(
             self._world_to_base_transform, transform, resampled_template, self.template
@@ -439,7 +439,7 @@ class AtlasAccessor:
         transform: WorldToBaseTransform,
         *,
         interpolation: Literal["linear", "nearest", "bspline"] = "linear",
-        sitk_threads: int = -1,
+        itk_threads: int = -1,
     ) -> xr.Dataset:
         """Resample the atlas onto `reference`'s VoxelData grid.
 
@@ -454,7 +454,7 @@ class AtlasAccessor:
             coordinates.
         interpolation : {"linear", "nearest", "bspline"}, default: "linear"
             Interpolation used for the atlas template volume.
-        sitk_threads : int, default: -1
+        itk_threads : int, default: -1
             Number of ITK threads.
 
         Returns
@@ -484,7 +484,7 @@ class AtlasAccessor:
             output_origin=grid.origin,
             output_direction=grid.direction,
             interpolation=interpolation,
-            sitk_threads=sitk_threads,
+            itk_threads=itk_threads,
         )
         data_vars = {
             name: output[name].fusi.affine.reindex_voxels_like(reference)

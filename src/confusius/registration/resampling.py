@@ -120,7 +120,7 @@ def resample_volume(
     output_direction: npt.ArrayLike,
     interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
     fill_value: float | None = None,
-    sitk_threads: int = -1,
+    itk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto an explicit output grid using a pre-computed transform.
 
@@ -184,9 +184,9 @@ def resample_volume(
         renders out-of-FOV voxels as background regardless of intensity scale (important
         for dB data where 0 is maximum intensity). Must be representable in `moving`'s
         dtype: to fill an integer volume with NaN, cast it to float first.
-    sitk_threads : int, default: -1
+    itk_threads : int, default: -1
         Number of threads ITK may use internally. Negative values resolve to
-        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
+        `max(1, os.cpu_count() + 1 + itk_threads)`, so `-1` means all CPUs, `-2`
         means all minus one, and so on. You may want to set this to a lower value or
         `1` when running multiple registrations in parallel (e.g. with joblib) to
         avoid over-subscribing the CPU.
@@ -266,7 +266,7 @@ def resample_volume(
             spacing=resolved_output_spacing,
             origin=resolved_output_origin,
             direction=direction,
-            sitk_threads=sitk_threads,
+            itk_threads=itk_threads,
         )
     if isinstance(transform, np.ndarray):
         tx = affine_to_itk_linear_transform(transform)
@@ -284,7 +284,7 @@ def resample_volume(
         direction=direction,
         interpolation=resolved_interpolation,
         fill_value=resolved_fill_value,
-        itk_threads=sitk_threads,
+        itk_threads=itk_threads,
     )
 
     voxel_to_world_arr = np.eye(ndim + 1, dtype=np.float64)
@@ -338,7 +338,7 @@ def resample_like(
     interpolation: Literal["auto", "linear", "nearest", "bspline"] = "auto",
     fill_value: float | None = None,
     default_value: float | None = None,
-    sitk_threads: int = -1,
+    itk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto the grid of a reference DataArray.
 
@@ -386,9 +386,9 @@ def resample_like(
     default_value : float, optional
         Alias for `fill_value` kept for compatibility with older branch code. If both
         values are provided, `fill_value` takes precedence.
-    sitk_threads : int, default: -1
+    itk_threads : int, default: -1
         Number of threads ITK may use internally. Negative values resolve to
-        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
+        `max(1, os.cpu_count() + 1 + itk_threads)`, so `-1` means all CPUs, `-2`
         means all minus one, and so on. You may want to set this to a lower value or
         `1` when running multiple registrations in parallel (e.g. with joblib) to
         avoid over-subscribing the CPU.
@@ -436,7 +436,7 @@ def resample_like(
         output_direction=output_direction,
         interpolation=interpolation,
         fill_value=fill_value if fill_value is not None else default_value,
-        sitk_threads=sitk_threads,
+        itk_threads=itk_threads,
     )
 
     # resample_volume builds a fresh, position-anchored grid (dense zero-based voxel

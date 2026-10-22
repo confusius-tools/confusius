@@ -5,8 +5,9 @@ icon: lucide/images
 # Registration
 
 Registration and resampling use [ITK](https://itk.org)'s Python bindings directly.
-The legacy `sitk_threads` parameter name is retained for compatibility; it now
-controls ITK workers with the same joblib-style thread-count convention.
+The `itk_threads` parameter controls ITK workers with a joblib-style thread-count
+convention: positive values select a worker count, `-1` uses all CPUs, and `-2`
+uses all but one CPU.
 
 Transform matrices and displacement fields use a **pull convention**: fixed/output
 world points map to moving/input world points. VoxelData geometry and serialized

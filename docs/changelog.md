@@ -12,9 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Rename `sitk_threads` to `itk_threads` throughout registration, resampling, and
+  accessors, including progress resampling settings. The old name is no longer
+  accepted ([#528](https://github.com/confusius-tools/confusius/pull/528)).
 - Custom `progress_plotter` factories now receive ITK registration methods and
-  images instead of SimpleITK objects. The legacy `sitk_threads` parameter remains
-  supported and controls ITK workers
+  images instead of SimpleITK objects
   ([#528](https://github.com/confusius-tools/confusius/pull/528)).
 - Use
   [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
@@ -71,7 +73,7 @@ Current development version for the next ConfUSIus release.
 ### :wrench: Maintenance
 
 - Registration and resampling now use ITK directly instead of SimpleITK, preparing
-  for future methods such as SyN while retaining existing registration options and
+  for future methods such as SyN while preserving VoxelData geometry and
   serialized transform formats. No new registration methods are added
   ([#528](https://github.com/confusius-tools/confusius/pull/528)).
 

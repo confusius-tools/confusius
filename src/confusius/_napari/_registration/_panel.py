@@ -158,7 +158,7 @@ class ModeParameters(TypedDict):
     reference_time: int
     volumewise_use_fixed: bool
     n_jobs: int
-    sitk_threads: int
+    itk_threads: int
     optimizer_weights_enabled: bool
     optimizer_weights_values: list[float]
     keep_diagnostics: bool
@@ -196,7 +196,7 @@ class VolumeRegistrationRunPayload(RegistrationRunPayloadBase):
     fixed_layer_name: str
     fixed_mask_layer_name: str | None
     moving_mask_layer_name: str | None
-    sitk_threads: int
+    itk_threads: int
     initial_transform_source: NotRequired[str]
 
 
@@ -980,17 +980,17 @@ class RegistrationPanel(QWidget):
             tooltip="Number of parallel workers used for within-scan registration. -1 uses all CPUs.",
         )
 
-        self._sitk_threads_spin = QSpinBox()
-        self._sitk_threads_spin.setRange(-128, 128)
-        self._sitk_threads_spin.setMaximumWidth(56)
-        self._sitk_threads_spin.setSpecialValueText("auto")
-        self._sitk_threads_spin.setToolTip(
+        self._itk_threads_spin = QSpinBox()
+        self._itk_threads_spin.setRange(-128, 128)
+        self._itk_threads_spin.setMaximumWidth(56)
+        self._itk_threads_spin.setSpecialValueText("auto")
+        self._itk_threads_spin.setToolTip(
             "Number of ITK threads used for between-scan registration. -1 uses all CPUs."
         )
-        self._sitk_threads_row = self._make_advanced_row(
+        self._itk_threads_row = self._make_advanced_row(
             advanced_layout,
             "ITK Threads",
-            self._left_aligned_widget(self._sitk_threads_spin),
+            self._left_aligned_widget(self._itk_threads_spin),
             tooltip="Number of ITK threads used for between-scan registration. -1 uses all CPUs.",
         )
 
@@ -1597,7 +1597,7 @@ class RegistrationPanel(QWidget):
         self._moving_mask_label.setVisible(not is_volumewise)
         self._moving_mask_row.setVisible(not is_volumewise)
         self._n_jobs_row.setVisible(is_volumewise)
-        self._sitk_threads_row.setVisible(not is_volumewise)
+        self._itk_threads_row.setVisible(not is_volumewise)
 
         self._learning_rate_auto_check.setVisible(not is_volumewise)
         self._fill_value_row.setVisible(not is_volumewise)
@@ -1790,7 +1790,7 @@ class RegistrationPanel(QWidget):
                 "fixed_layer_name": fixed_layer.name,
                 "fixed_mask_layer_name": fixed_mask_layer_name,
                 "moving_mask_layer_name": moving_mask_layer_name,
-                "sitk_threads": self._sitk_threads_spin.value(),
+                "itk_threads": self._itk_threads_spin.value(),
             }
             if initial_transform_source is not None:
                 volume_payload["initial_transform_source"] = initial_transform_source
@@ -1843,7 +1843,7 @@ class RegistrationPanel(QWidget):
                 fill_value=volume_payload["fill_value"],
                 fixed_intensity_scaling=volume_payload["fixed_scale"],
                 moving_intensity_scaling=volume_payload["scale"],
-                sitk_threads=volume_payload["sitk_threads"],
+                itk_threads=volume_payload["itk_threads"],
                 show_progress=True,
                 progress_plotter=progress_plotter,
                 abort_event=self._abort_event,

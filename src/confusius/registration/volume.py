@@ -365,7 +365,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
     fill_value: float | None = ...,
-    sitk_threads: int = ...,
+    itk_threads: int = ...,
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
@@ -405,7 +405,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
     fill_value: float | None = ...,
-    sitk_threads: int = ...,
+    itk_threads: int = ...,
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
@@ -444,7 +444,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
     fill_value: float | None = ...,
-    sitk_threads: int = ...,
+    itk_threads: int = ...,
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
@@ -483,7 +483,7 @@ def register_volume(
     resample: bool = True,
     resample_interpolation: Literal["linear", "bspline"] = "linear",
     fill_value: float | None = None,
-    sitk_threads: int = -1,
+    itk_threads: int = -1,
     show_progress: bool = False,
     plot_metric: bool = True,
     plot_composite: bool = True,
@@ -613,9 +613,9 @@ def register_volume(
         `moving`, which renders out-of-FOV regions as background regardless of intensity
         scale (important for dB data where 0 is maximum intensity). Must be representable
         in `moving`'s dtype: to fill an integer volume with NaN, cast it to float first.
-    sitk_threads : int, default: -1
+    itk_threads : int, default: -1
         Number of threads ITK may use internally. Negative values resolve to
-        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
+        `max(1, os.cpu_count() + 1 + itk_threads)`, so `-1` means all CPUs, `-2`
         means all minus one, and so on. You may want to set this to a lower value or
         `1` when running multiple registrations in parallel (e.g. with joblib) to
         avoid over-subscribing the CPU.
@@ -640,7 +640,7 @@ def register_volume(
         Factory that builds the progress reporter, called inside `register_volume` as
         `progress_plotter(registration_method, fixed_img, moving_img, *, plot_metric,
         plot_composite, resample_kwargs, max_composite_slices)`. Here `resample_kwargs`
-        carries `interpolation`, `fill_value`, and `sitk_threads`. The returned object
+        carries `interpolation`, `fill_value`, and `itk_threads`. The returned object
         must implement the
         [`RegistrationProgress`][confusius.registration.RegistrationProgress] protocol
         (`update()` / `close()`). If not provided, the default
@@ -807,7 +807,7 @@ def register_volume(
         metric_object = itk.MattesMutualInformationImageToImageMetricv4[
             image_type, image_type
         ].New(NumberOfHistogramBins=number_of_histogram_bins)
-    metric_object.SetMaximumNumberOfWorkUnits(resolve_itk_threads(sitk_threads))
+    metric_object.SetMaximumNumberOfWorkUnits(resolve_itk_threads(itk_threads))
     for mask, setter in (
         (fixed_mask, metric_object.SetFixedImageMask),
         (moving_mask, metric_object.SetMovingImageMask),
@@ -845,7 +845,7 @@ def register_volume(
         InitialTransform=initial,
         InPlace=True,
     )
-    registration.SetNumberOfWorkUnits(resolve_itk_threads(sitk_threads))
+    registration.SetNumberOfWorkUnits(resolve_itk_threads(itk_threads))
     registration.SetNumberOfLevels(len(shrink_factors) if use_multi_resolution else 1)
     registration.SetShrinkFactorsPerLevel(
         list(shrink_factors) if use_multi_resolution else [1]
@@ -903,7 +903,7 @@ def register_volume(
                     resample_kwargs={
                         "interpolation": resample_interpolation,
                         "fill_value": resolved_fill,
-                        "sitk_threads": sitk_threads,
+                        "itk_threads": itk_threads,
                     },
                     max_composite_slices=max_composite_slices,
                 )
@@ -922,7 +922,7 @@ def register_volume(
                 stop_condition = "Registration aborted before optimisation started."
             else:
                 try:
-                    with set_itk_thread_count(sitk_threads):
+                    with set_itk_thread_count(itk_threads):
                         registration.Update()
                 except RuntimeError as exc:
                     raise _translate_registration_runtime_error(
@@ -948,7 +948,7 @@ def register_volume(
             initial,
             interpolation=resample_interpolation,
             fill_value=resolved_fill,
-            itk_threads=sitk_threads,
+            itk_threads=itk_threads,
         )
         registered_arr = cast_resampled_values(
             itk.array_from_image(image).T, moving.dtype

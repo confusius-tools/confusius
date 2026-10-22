@@ -324,7 +324,7 @@ def register_volumewise(
             fill_value=fill_value,
             # Restrict ITK to 1 thread per worker to avoid
             # over-subscribing the CPU when joblib spawns many workers.
-            sitk_threads=1,
+            itk_threads=1,
             show_progress=False,
             abort_event=abort_event,
         )

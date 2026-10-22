@@ -190,7 +190,7 @@ def sample_displacement_field(
     spacing: Sequence[float],
     origin: Sequence[float],
     direction: npt.ArrayLike | None = None,
-    sitk_threads: int = -1,
+    itk_threads: int = -1,
 ) -> xr.DataArray:
     """Sample a B-spline pull transform on an explicit voxel grid.
 
@@ -208,8 +208,8 @@ def sample_displacement_field(
         Output world origin in native dimension order.
     direction : (3, 3) numpy.ndarray, optional
         Output direction. If not provided, use the identity direction.
-    sitk_threads : int, default: -1
-        Number of ITK workers (legacy parameter name), with joblib semantics.
+    itk_threads : int, default: -1
+        Number of ITK workers, with joblib semantics.
 
     Returns
     -------
@@ -226,7 +226,7 @@ def sample_displacement_field(
             f"direction must have shape {(len(dims), len(dims))}, got {np.asarray(direction).shape}."
         )
     validate_bspline(transform)
-    resolve_itk_threads(sitk_threads)
+    resolve_itk_threads(itk_threads)
     if tuple(dims) != VOXEL_DIMS or len(shape) != 3:
         raise ValueError(
             "Output grid must use native voxel dimensions ['k', 'j', 'i']."
@@ -300,7 +300,7 @@ def sample_displacement_field_like(
     transform: xr.DataArray,
     reference: xr.DataArray,
     *,
-    sitk_threads: int = -1,
+    itk_threads: int = -1,
 ) -> xr.DataArray:
     """Sample a B-spline pull transform on a reference VoxelData grid.
 
@@ -310,8 +310,8 @@ def sample_displacement_field_like(
         B-spline coefficient VoxelData.
     reference : xarray.DataArray
         VoxelData defining the output grid.
-    sitk_threads : int, default: -1
-        Number of ITK workers (legacy parameter name), with joblib semantics.
+    itk_threads : int, default: -1
+        Number of ITK workers, with joblib semantics.
 
     Returns
     -------
@@ -338,7 +338,7 @@ def sample_displacement_field_like(
         transform,
         **get_grid_info_from_dataarray(reference),
         direction=reference.fusi.direction,
-        sitk_threads=sitk_threads,
+        itk_threads=itk_threads,
     )
 
 
@@ -347,7 +347,7 @@ def invert_displacement_field(
     *,
     max_iterations: int = 20,
     max_error_tolerance: float = 0.1,
-    sitk_threads: int = -1,
+    itk_threads: int = -1,
 ) -> xr.DataArray:
     """Estimate the inverse of a displacement pull field by fixed-point iteration.
 
@@ -359,8 +359,8 @@ def invert_displacement_field(
         Maximum number of fixed-point updates.
     max_error_tolerance : float, default: 0.1
         Stopping threshold for the maximum world-space residual norm.
-    sitk_threads : int, default: -1
-        Legacy worker-count parameter, validated but unused by the SciPy solver.
+    itk_threads : int, default: -1
+        Worker count, validated but unused by the single-threaded SciPy solver.
 
     Returns
     -------
@@ -381,7 +381,7 @@ def invert_displacement_field(
     As with ITK's inverter, folded or large deformations need not converge.
     """
     validate_displacement_field(field)
-    resolve_itk_threads(sitk_threads)
+    resolve_itk_threads(itk_threads)
     if max_iterations < 1:
         raise ValueError("max_iterations must be positive.")
     if not np.isfinite(max_error_tolerance) or max_error_tolerance < 0:
