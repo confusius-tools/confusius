@@ -40,6 +40,12 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Choose L-BFGS (`optimizer="lbfgs"`) or seeded 1+1 evolutionary search
+  (`optimizer="one_plus_one"`) for registration, including volumewise registration
+  and xarray accessors. Add mean squares (`metric="mean_squares"`) and
+  joint-histogram mutual information (`metric="joint_mi"`). Evolutionary search
+  supports linear transforms only; SyN retains its own solver
+  ([#532](https://github.com/confusius-tools/confusius/pull/532)).
 - Register a recording with B-spline or SyN deformations using
   [`register_volumewise`][confusius.registration.register_volumewise], including
   per-frame affine initialization, masks, and metric sampling. Estimate transforms
