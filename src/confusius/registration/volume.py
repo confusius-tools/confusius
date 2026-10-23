@@ -7,7 +7,12 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.itk import resolve_itk_threads, voxeldata_to_itk_image
+from confusius._utils.itk import (
+    RegistrationMetric,
+    RegistrationOptimizer,
+    resolve_itk_threads,
+    voxeldata_to_itk_image,
+)
 from confusius.registration._utils import (
     abort_on_sigint,
     expand_thin_dims,
@@ -35,7 +40,7 @@ def _validate_register_volume_inputs(
     fixed_mask: xr.DataArray | None,
     moving_mask: xr.DataArray | None,
     transform_type: Literal["translation", "rigid", "affine", "bspline", "syn"],
-    metric: Literal["correlation", "mattes_mi", "ants_cc"],
+    metric: RegistrationMetric,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float,
     number_of_histogram_bins: int,
@@ -65,14 +70,14 @@ def _validate_register_volume_inputs(
         Mask for moving image. If provided, must have same dimensions as moving.
     transform_type : {"translation", "rigid", "affine", "bspline", "syn"}
         Transform model name.
-    metric : {"correlation", "mattes_mi", "ants_cc"}
+    metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}
         Similarity metric name.
     fixed_intensity_scaling : {"none", "db", "sqrt"} or float
         Intensity transform applied to `fixed` before optimization.
     moving_intensity_scaling : {"none", "db", "sqrt"} or float
         Intensity transform applied to `moving` before optimization.
     number_of_histogram_bins : int
-        Number of histogram bins for Mattes mutual information.
+        Number of histogram bins for Mattes or joint-histogram mutual information.
     metric_sampling_percentage : float, optional
         Random metric sampling percentage in `(0, 1]`. If not provided, all voxels
         are used without random sampling.
@@ -148,7 +153,7 @@ def _validate_register_volume_inputs(
             f"Expected one of {sorted(valid_transform_types)}."
         )
 
-    valid_metrics = {"correlation", "mattes_mi", "ants_cc"}
+    valid_metrics = {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}
     if metric not in valid_metrics:
         raise ValueError(
             f"Invalid metric {metric!r}. Expected one of {sorted(valid_metrics)}."
@@ -344,10 +349,12 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
     transform_type: Literal["translation", "rigid", "affine"],
+    optimizer: RegistrationOptimizer = ...,
+    optimizer_seed: int = ...,
     correlation_radius: int = ...,
     update_field_variance: float = ...,
     total_field_variance: float = ...,
-    metric: Literal["correlation", "mattes_mi", "ants_cc"] = ...,
+    metric: RegistrationMetric = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -387,10 +394,12 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
     transform_type: Literal["bspline", "syn"],
+    optimizer: RegistrationOptimizer = ...,
+    optimizer_seed: int = ...,
     correlation_radius: int = ...,
     update_field_variance: float = ...,
     total_field_variance: float = ...,
-    metric: Literal["correlation", "mattes_mi", "ants_cc"] = ...,
+    metric: RegistrationMetric = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -429,10 +438,12 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     *,
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
+    optimizer: RegistrationOptimizer = ...,
+    optimizer_seed: int = ...,
     correlation_radius: int = ...,
     update_field_variance: float = ...,
     total_field_variance: float = ...,
-    metric: Literal["correlation", "mattes_mi", "ants_cc"] = ...,
+    metric: RegistrationMetric = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -476,7 +487,9 @@ def register_volume(
     correlation_radius: int = 3,
     update_field_variance: float = 3.0,
     total_field_variance: float = 1.0,
-    metric: Literal["correlation", "mattes_mi", "ants_cc"] = "correlation",
+    metric: RegistrationMetric = "correlation",
+    optimizer: RegistrationOptimizer = "gradient_descent",
+    optimizer_seed: int = 0,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     number_of_histogram_bins: int = 50,
@@ -548,12 +561,23 @@ def register_volume(
     total_field_variance : float, default: 1.0
         Gaussian smoothing variance of accumulated SyN fields, in squared voxel units.
         Must be finite and nonnegative. Only used for `transform_type="syn"`.
-    metric : {"correlation", "mattes_mi", "ants_cc"}, default: "correlation"
+    metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}, default: "correlation"
         Similarity metric. `"correlation"` (normalized cross-correlation) is
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
-        `"ants_cc"` uses ANTs neighborhood correlation, recommended for same-modality SyN.
+        `"ants_cc"` uses ANTs neighborhood correlation, recommended for same-modality
+        SyN. `"mean_squares"` minimizes squared intensity differences for similarly
+        scaled images. `"joint_mi"` uses joint-histogram mutual information.
+    optimizer : {"gradient_descent", "lbfgs", "one_plus_one"}, default: "gradient_descent"
+        Solver for parametric transforms. L-BFGS uses a limited-memory quasi-Newton
+        method and supports linear and B-spline transforms. 1+1 evolutionary search
+        supports linear transforms only; its covariance storage is quadratic in
+        parameter count. SyN retains its own solver and rejects non-default choices.
+        Only gradient descent supports `optimizer_weights`.
+    optimizer_seed : int, default: 0
+        Reproducible 1+1 evolutionary random seed in `[0, 2147483647]`, independent
+        of metric sampling. Only used by `optimizer="one_plus_one"`.
     fixed_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
         Intensity transform applied to `fixed` only for the registration optimizer.
         Floats apply power scaling with that exponent; `"sqrt"` is an alias for `0.5`.
@@ -562,8 +586,7 @@ def register_volume(
         with the same options as `fixed_intensity_scaling`. Returned/resampled data
         keeps the original input intensities.
     number_of_histogram_bins : int, default: 50
-        Number of histogram bins used by Mattes mutual information. Only
-        relevant when using `"mattes_mi"` metric.
+        Number of histogram bins for `"mattes_mi"` and `"joint_mi"`.
     metric_sampling_percentage : float, optional
         Percentage of voxels randomly sampled when computing the metric, in `(0, 1]`.
         If not provided, all voxels are used without random sampling.
@@ -575,11 +598,16 @@ def register_volume(
         every iteration. A float uses that value directly; if registration diverges or
         fails to converge, reduce it. For SyN, this is the maximum update length in
         voxel units; `"auto"` selects a fixed rate of `0.1`, not automatic estimation.
+        For L-BFGS, a float is the initial line-search step length; for 1+1 it is
+        the initial search radius in scaled parameter space. Both use `1.0` for `"auto"`.
     number_of_iterations : int, default: 100
         Maximum number of optimizer iterations.
     convergence_minimum_value : float, default: 1e-6
         Value used for convergence checking in conjunction with the energy profile of
-        the similarity metric that is estimated in the given window size.
+        the similarity metric that is estimated in the given window size. For
+        L-BFGS, the gradient convergence tolerance; for 1+1, the minimum search
+        covariance Frobenius norm. The convergence window applies only to gradient
+        descent and SyN.
     convergence_window_size : int, default: 10
         Number of values of the similarity metric which are used to estimate the energy
         profile of the similarity metric.
@@ -723,7 +751,8 @@ def register_volume(
     ValueError
         If `transform_type`, `metric`, `fixed_intensity_scaling`,
         `moving_intensity_scaling`, `initialization`, or `resample_interpolation`
-        is not a recognised value.
+        is not a recognised value, or the optimizer selection/seed is invalid or
+        incompatible with the transform or optimizer weights.
     ValueError
         If `learning_rate` is not a positive finite float or `"auto"`.
     ValueError
@@ -769,6 +798,21 @@ def register_volume(
         resample_interpolation=resample_interpolation,
     )
 
+    if optimizer not in ("gradient_descent", "lbfgs", "one_plus_one"):
+        raise ValueError(f"Invalid optimizer: {optimizer!r}.")
+    if not isinstance(optimizer_seed, int) or not 0 <= optimizer_seed <= 2**31 - 1:
+        raise ValueError("optimizer_seed must be an integer in [0, 2147483647].")
+    if transform_type == "syn" and optimizer != "gradient_descent":
+        raise ValueError(
+            "SyN uses its own solver; optimizer selection is not supported."
+        )
+    if optimizer == "one_plus_one" and transform_type == "bspline":
+        raise ValueError(
+            "one_plus_one supports only linear transforms: its covariance matrix "
+            "grows quadratically with the number of parameters."
+        )
+    if optimizer != "gradient_descent" and optimizer_weights is not None:
+        raise ValueError("optimizer_weights are supported only by gradient_descent.")
     if metric == "ants_cc" and (
         not isinstance(correlation_radius, int) or correlation_radius < 1
     ):
@@ -866,6 +910,14 @@ def register_volume(
         metric_object = itk.ANTSNeighborhoodCorrelationImageToImageMetricv4[
             image_type, image_type
         ].New(Radius=[correlation_radius] * ndim)
+    elif metric == "mean_squares":
+        metric_object = itk.MeanSquaresImageToImageMetricv4[
+            image_type, image_type
+        ].New()
+    elif metric == "joint_mi":
+        metric_object = itk.JointHistogramMutualInformationImageToImageMetricv4[
+            image_type, image_type
+        ].New(NumberOfHistogramBins=number_of_histogram_bins)
     else:
         metric_object = itk.MattesMutualInformationImageToImageMetricv4[
             image_type, image_type
@@ -898,20 +950,38 @@ def register_volume(
         registration.SetNumberOfIterationsPerLevel([number_of_iterations])
         iteration_source = registration
     else:
-        optimizer = itk.GradientDescentOptimizerv4.New(
-            LearningRate=1.0 if learning_rate == "auto" else learning_rate,
-            NumberOfIterations=number_of_iterations,
-            MinimumConvergenceValue=convergence_minimum_value,
-            ConvergenceWindowSize=convergence_window_size,
-            DoEstimateLearningRateAtEachIteration=learning_rate == "auto",
-            DoEstimateLearningRateOnce=False,
-        )
+        if optimizer == "lbfgs":
+            optimizer_object = itk.LBFGSOptimizerv4.New(
+                NumberOfIterations=number_of_iterations,
+                GradientConvergenceTolerance=convergence_minimum_value,
+                DefaultStepLength=1.0 if learning_rate == "auto" else learning_rate,
+            )
+        elif optimizer == "one_plus_one":
+            generator = itk.NormalVariateGenerator.New()
+            generator.Initialize(optimizer_seed)
+            optimizer_object = itk.OnePlusOneEvolutionaryOptimizerv4.New(
+                MaximumIteration=number_of_iterations,
+                Epsilon=convergence_minimum_value,
+                NormalVariateGenerator=generator,
+            )
+            optimizer_object.Initialize(
+                1.0 if learning_rate == "auto" else learning_rate
+            )
+        else:
+            optimizer_object = itk.GradientDescentOptimizerv4.New(
+                LearningRate=1.0 if learning_rate == "auto" else learning_rate,
+                NumberOfIterations=number_of_iterations,
+                MinimumConvergenceValue=convergence_minimum_value,
+                ConvergenceWindowSize=convergence_window_size,
+                DoEstimateLearningRateAtEachIteration=learning_rate == "auto",
+                DoEstimateLearningRateOnce=False,
+            )
         scales = itk.RegistrationParameterScalesFromPhysicalShift[
             type(metric_object)
         ].New(Metric=metric_object, TransformForward=True)
-        optimizer.SetScalesEstimator(scales)
+        optimizer_object.SetScalesEstimator(scales)
         if optimizer_weights is not None:
-            optimizer.SetWeights(
+            optimizer_object.SetWeights(
                 itk.OptimizerParameters[itk.D](
                     np.asarray(optimizer_weights, dtype=np.float64)
                 )
@@ -920,11 +990,11 @@ def register_volume(
             FixedImage=fixed_reg,
             MovingImage=moving_reg,
             Metric=metric_object,
-            Optimizer=optimizer,
+            Optimizer=optimizer_object,
             InitialTransform=initial,
             InPlace=True,
         )
-        iteration_source = optimizer
+        iteration_source = optimizer_object
     registration.SetNumberOfWorkUnits(resolve_itk_threads(itk_threads))
     registration.SetNumberOfLevels(len(shrink_factors) if use_multi_resolution else 1)
     registration.SetShrinkFactorsPerLevel(
@@ -955,28 +1025,61 @@ def register_volume(
         validate_fill_value(resolved_fill, moving.dtype)
 
     with abort_on_sigint(abort_event) as effective_abort_event:
+        cost_event = False
+
+        def _ignore_cost_event() -> None:
+            """Mark L-BFGS cost evaluations, which inherit the iteration event type."""
+            nonlocal cost_event
+            cost_event = True
 
         def _record_iteration() -> None:
             """Record the optimizer metric and honor cancellation at iteration boundaries."""
+            nonlocal cost_event
+            if cost_event:
+                cost_event = False
+                return
             # SyN also emits a level-initialization event before its first iteration.
             if transform_type == "syn" and registration.GetCurrentIteration() == 0:
                 return
-            metric_values.append(float(iteration_source.GetCurrentMetricValue()))
-            if transform_type == "syn" and plotter is not None:
+            metric_values.append(
+                float(
+                    registration.GetCurrentMetricValue()
+                    if transform_type == "syn"
+                    else iteration_source.GetValue()
+                )
+            )
+            if (
+                transform_type == "syn" or optimizer == "lbfgs"
+            ) and plotter is not None:
                 plotter.update()
             if effective_abort_event.is_set():
                 if transform_type == "syn":
                     registration.SetNumberOfIterationsPerLevel(
                         [registration.GetCurrentIteration()]
                     )
+                elif optimizer == "lbfgs":
+                    # ITK's L-BFGS report_iter checks this limit after invoking observers.
+                    # https://github.com/InsightSoftwareConsortium/ITK/blob/v5.4.0/Modules/Numerics/Optimizersv4/include/itkLBFGSOptimizerBasev4.hxx.
+                    iteration_source.SetNumberOfIterations(0)
                 else:
                     iteration_source.StopOptimization()
                 # ITK's outer loop otherwise starts the optimizer again at the next pyramid level.
                 registration.SetNumberOfLevels(registration.GetCurrentLevel() + 1)
 
-        observer_tags = [
+        # Register filters first so cost events are marked before the parent observer.
+        observer_tags = []
+        if optimizer == "lbfgs":
+            observer_tags.extend(
+                iteration_source.AddObserver(event(), _ignore_cost_event)
+                for event in (
+                    itk.FunctionEvaluationIterationEvent,
+                    itk.GradientEvaluationIterationEvent,
+                    itk.FunctionAndGradientEvaluationIterationEvent,
+                )
+            )
+        observer_tags.append(
             iteration_source.AddObserver(itk.IterationEvent(), _record_iteration)
-        ]
+        )
         plotter = None
         executed = False
         try:
@@ -999,7 +1102,7 @@ def register_volume(
                     },
                     max_composite_slices=max_composite_slices,
                 )
-                if transform_type != "syn":
+                if transform_type != "syn" and optimizer != "lbfgs":
                     observer_tags.append(
                         iteration_source.AddObserver(
                             itk.IterationEvent(), plotter.update
@@ -1125,7 +1228,11 @@ def register_volume(
     final_metric = (
         float(metric_values[-1])
         if metric_values
-        else float(iteration_source.GetCurrentMetricValue())
+        else float(
+            registration.GetCurrentMetricValue()
+            if transform_type == "syn"
+            else iteration_source.GetValue()
+        )
         if executed
         else float("nan")
     )

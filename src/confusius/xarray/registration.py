@@ -8,6 +8,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.itk import RegistrationMetric, RegistrationOptimizer
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.progress import RegistrationProgress
 from confusius.registration.volume import register_volume
@@ -45,7 +46,9 @@ class FUSIRegistrationAccessor:
         correlation_radius: int = 3,
         update_field_variance: float = 3.0,
         total_field_variance: float = 1.0,
-        metric: Literal["correlation", "mattes_mi", "ants_cc"] = "correlation",
+        metric: RegistrationMetric = "correlation",
+        optimizer: RegistrationOptimizer = "gradient_descent",
+        optimizer_seed: int = 0,
         number_of_histogram_bins: int = 50,
         metric_sampling_percentage: float | None = None,
         metric_sampling_seed: int | None = None,
@@ -92,10 +95,16 @@ class FUSIRegistrationAccessor:
             SyN update-field Gaussian smoothing variance in squared voxel units.
         total_field_variance : float, default: 1.0
             SyN total-field Gaussian smoothing variance in squared voxel units.
-        metric : {"correlation", "mattes_mi", "ants_cc"}, default: "correlation"
+        metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}, default: "correlation"
             Similarity metric for registration.
+        optimizer : {"gradient_descent", "lbfgs", "one_plus_one"}, default: "gradient_descent"
+            Parametric optimizer. SyN retains its own solver. See
+            [register_volume][confusius.registration.register_volume] for optimizer
+            step-size, convergence, and weight semantics.
+        optimizer_seed : int, default: 0
+            Reproducible seed used by the 1+1 evolutionary optimizer.
         number_of_histogram_bins : int, default: 50
-            Number of histogram bins (only used when `metric="mattes_mi"`).
+            Number of histogram bins for `metric="mattes_mi"` or `"joint_mi"`.
         metric_sampling_percentage : float, optional
             Percentage of voxels randomly sampled when computing the metric, in `(0, 1]`.
             If not provided, all voxels are used without random sampling.
@@ -198,6 +207,8 @@ class FUSIRegistrationAccessor:
             fixed_mask=fixed_mask,
             moving_mask=moving_mask,
             transform_type=transform,
+            optimizer=optimizer,
+            optimizer_seed=optimizer_seed,
             correlation_radius=correlation_radius,
             update_field_variance=update_field_variance,
             total_field_variance=total_field_variance,
@@ -235,7 +246,9 @@ class FUSIRegistrationAccessor:
         transform: Literal[
             "translation", "rigid", "affine", "bspline", "syn"
         ] = "rigid",
-        metric: Literal["correlation", "mattes_mi", "ants_cc"] = "correlation",
+        metric: RegistrationMetric = "correlation",
+        optimizer: RegistrationOptimizer = "gradient_descent",
+        optimizer_seed: int = 0,
         fixed_mask: xr.DataArray | None = None,
         moving_mask: xr.DataArray | None = None,
         mesh_size: tuple[int, int, int] = (10, 10, 10),
@@ -286,8 +299,13 @@ class FUSIRegistrationAccessor:
         transform : {"translation", "rigid", "affine", "bspline", "syn"}, default: "rigid"
             Transform model. Nonlinear methods report convergence summaries rather
             than rigid-motion parameters. SyN supports single-resolution only.
-        metric : {"correlation", "mattes_mi", "ants_cc"}, default: "correlation"
+        metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}, default: "correlation"
             Similarity metric for registration.
+        optimizer : {"gradient_descent", "lbfgs", "one_plus_one"}, default: "gradient_descent"
+            Per-frame optimizer; SyN uses its own solver. See
+            [register_volume][confusius.registration.register_volume] for details.
+        optimizer_seed : int, default: 0
+            Reproducible 1+1 evolutionary seed passed to every frame.
         fixed_mask : xarray.DataArray, optional
             Spatial-only boolean mask on the reference grid.
         moving_mask : xarray.DataArray, optional
@@ -315,7 +333,7 @@ class FUSIRegistrationAccessor:
             alias for `0.5`. Returned/resampled data keeps the original input
             intensities.
         number_of_histogram_bins : int, default: 50
-            Number of histogram bins (only used when `metric="mattes_mi"`).
+            Number of histogram bins for `metric="mattes_mi"` or `"joint_mi"`.
         learning_rate : float or "auto", default: 0.01
             Optimizer step size in normalised units (after
             `SetOptimizerScalesFromPhysicalShift`). `"auto"` re-estimates the rate at
@@ -395,6 +413,8 @@ class FUSIRegistrationAccessor:
             fixed=fixed,
             n_jobs=n_jobs,
             transform=transform,
+            optimizer=optimizer,
+            optimizer_seed=optimizer_seed,
             metric=metric,
             fixed_mask=fixed_mask,
             moving_mask=moving_mask,

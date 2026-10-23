@@ -62,7 +62,9 @@ def test_extract_wrappers_forward_calls(
     monkeypatch.setattr("confusius.extract.reconstruction.unmask", _unmask)
 
     assert (
-        sample_voxeldata_3dt.fusi.extract.with_labels(sample_roi_labels, reduction="sum")
+        sample_voxeldata_3dt.fusi.extract.with_labels(
+            sample_roi_labels, reduction="sum"
+        )
         is expected
     )
     assert calls["labels"] == (sample_voxeldata_3dt, sample_roi_labels, "sum")
@@ -96,7 +98,9 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
     assert sample_voxeldata_3dt.fusi.affine.to(other, via="world_to_lab") is expected_to
     assert calls["to"] == (sample_voxeldata_3dt, other, "world_to_lab")
 
-    assert sample_voxeldata_3dt.fusi.affine.apply(affine, inplace=True) is expected_apply
+    assert (
+        sample_voxeldata_3dt.fusi.affine.apply(affine, inplace=True) is expected_apply
+    )
     assert calls["apply"] == (sample_voxeldata_3dt, affine, True)
 
 
@@ -228,6 +232,8 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d):
             fixed_mask=fixed_mask,
             moving_mask=moving_mask,
             transform="affine",
+            optimizer="lbfgs",
+            optimizer_seed=7,
             correlation_radius=5,
             update_field_variance=2.0,
             total_field_variance=0.5,
@@ -264,6 +270,8 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d):
             "fixed_mask": fixed_mask,
             "moving_mask": moving_mask,
             "transform_type": "affine",
+            "optimizer": "lbfgs",
+            "optimizer_seed": 7,
             "correlation_radius": 5,
             "update_field_variance": 2.0,
             "total_field_variance": 0.5,
@@ -300,6 +308,8 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d):
             reference_time=2,
             n_jobs=1,
             transform="translation",
+            optimizer="one_plus_one",
+            optimizer_seed=23,
             metric="mattes_mi",
             fixed_mask=fixed_mask,
             moving_mask=moving_mask,
@@ -338,6 +348,8 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d):
             "fixed": None,
             "n_jobs": 1,
             "transform": "translation",
+            "optimizer": "one_plus_one",
+            "optimizer_seed": 23,
             "metric": "mattes_mi",
             "fixed_mask": fixed_mask,
             "moving_mask": moving_mask,
@@ -436,7 +448,9 @@ def test_connectivity_seed_map_with_signals_constructs_and_fits(
     }
 
 
-def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_roi_labels):
+def test_plot_wrappers_forward_calls(
+    monkeypatch, sample_voxeldata_3d, sample_roi_labels
+):
     """Plot accessor methods forward all arguments to plotting helpers."""
     calls: dict[str, tuple] = {}
 
