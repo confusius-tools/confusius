@@ -47,7 +47,7 @@ class FUSIRegistrationAccessor:
         update_field_variance: float = 3.0,
         total_field_variance: float = 1.0,
         metric: RegistrationMetric = "correlation",
-        optimizer: RegistrationOptimizer = "gradient_descent",
+        optimizer: RegistrationOptimizer = "auto",
         optimizer_seed: int = 0,
         number_of_histogram_bins: int = 50,
         metric_sampling_percentage: float | None = None,
@@ -97,8 +97,9 @@ class FUSIRegistrationAccessor:
             SyN total-field Gaussian smoothing variance in squared voxel units.
         metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}, default: "correlation"
             Similarity metric for registration.
-        optimizer : {"gradient_descent", "lbfgs", "one_plus_one"}, default: "gradient_descent"
-            Parametric optimizer. SyN retains its own solver. See
+        optimizer : {"auto", "gradient_descent", "lbfgs", "one_plus_one"}, default: "auto"
+            `"auto"` selects gradient descent for parametric transforms or ITK's
+            native SyN solver. SyN requires `optimizer="auto"`. See
             [register_volume][confusius.registration.register_volume] for optimizer
             step-size, convergence, and weight semantics.
         optimizer_seed : int, default: 0
@@ -207,12 +208,12 @@ class FUSIRegistrationAccessor:
             fixed_mask=fixed_mask,
             moving_mask=moving_mask,
             transform_type=transform,
-            optimizer=optimizer,
-            optimizer_seed=optimizer_seed,
             correlation_radius=correlation_radius,
             update_field_variance=update_field_variance,
             total_field_variance=total_field_variance,
             metric=metric,
+            optimizer=optimizer,
+            optimizer_seed=optimizer_seed,
             number_of_histogram_bins=number_of_histogram_bins,
             metric_sampling_percentage=metric_sampling_percentage,
             metric_sampling_seed=metric_sampling_seed,
@@ -240,26 +241,24 @@ class FUSIRegistrationAccessor:
     def volumewise(
         self,
         *,
-        reference_time: int | None = None,
         fixed: xr.DataArray | None = None,
-        n_jobs: int = -1,
+        fixed_mask: xr.DataArray | None = None,
+        moving_mask: xr.DataArray | None = None,
+        reference_time: int | None = None,
         transform: Literal[
             "translation", "rigid", "affine", "bspline", "syn"
         ] = "rigid",
-        metric: RegistrationMetric = "correlation",
-        optimizer: RegistrationOptimizer = "gradient_descent",
-        optimizer_seed: int = 0,
-        fixed_mask: xr.DataArray | None = None,
-        moving_mask: xr.DataArray | None = None,
-        mesh_size: tuple[int, int, int] = (10, 10, 10),
         correlation_radius: int = 3,
         update_field_variance: float = 3.0,
         total_field_variance: float = 1.0,
-        metric_sampling_percentage: float | None = None,
-        metric_sampling_seed: int | None = None,
+        metric: RegistrationMetric = "correlation",
+        optimizer: RegistrationOptimizer = "auto",
+        optimizer_seed: int = 0,
         fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float | None = None,
         moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
         number_of_histogram_bins: int = 50,
+        metric_sampling_percentage: float | None = None,
+        metric_sampling_seed: int | None = None,
         learning_rate: float | Literal["auto"] = 0.01,
         number_of_iterations: int = 100,
         convergence_minimum_value: float = 1e-6,
@@ -268,12 +267,14 @@ class FUSIRegistrationAccessor:
         | npt.NDArray[np.floating]
         | None = "center_geometry",
         optimizer_weights: list[float] | None = None,
+        mesh_size: tuple[int, int, int] = (10, 10, 10),
         use_multi_resolution: bool = False,
         shrink_factors: Sequence[int] = (6, 2, 1),
         smoothing_sigmas: Sequence[int] = (6, 2, 1),
         resample: bool = True,
         resample_interpolation: Literal["linear", "bspline"] = "linear",
         fill_value: float | None = None,
+        n_jobs: int = -1,
         show_progress: bool = True,
         progress_reporter: VolumewiseProgressReporter | None = None,
         abort_event: Event | None = None,
@@ -284,44 +285,36 @@ class FUSIRegistrationAccessor:
 
         Parameters
         ----------
-        reference_time : int, optional
-            Index of the time point to use as registration target. If not
-            provided, and `fixed` is not provided either, the first time point
-            (`0`) is used. Cannot be combined with `fixed`.
         fixed : xarray.DataArray, optional
             Spatial-only VoxelData array on the same voxel grid to register every
             frame to, for example the mean of a few low-motion frames. Must have
             no `time` dimension. If not provided, the frame at `reference_time`
             is used. Cannot be combined with `reference_time`.
-        n_jobs : int, default: -1
-            Number of parallel jobs. -1 uses all available CPUs.
-            Use 1 for serial processing.
-        transform : {"translation", "rigid", "affine", "bspline", "syn"}, default: "rigid"
-            Transform model. Nonlinear methods report convergence summaries rather
-            than rigid-motion parameters. SyN supports single-resolution only.
-        metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}, default: "correlation"
-            Similarity metric for registration.
-        optimizer : {"gradient_descent", "lbfgs", "one_plus_one"}, default: "gradient_descent"
-            Per-frame optimizer; SyN uses its own solver. See
-            [register_volume][confusius.registration.register_volume] for details.
-        optimizer_seed : int, default: 0
-            Reproducible 1+1 evolutionary seed passed to every frame.
         fixed_mask : xarray.DataArray, optional
             Spatial-only boolean mask on the reference grid.
         moving_mask : xarray.DataArray, optional
             Spatial-only mask or a mask with matching input time coordinates.
-        mesh_size : tuple of int, default: (10, 10, 10)
-            B-spline mesh size.
+        reference_time : int, optional
+            Index of the time point to use as registration target. If not
+            provided, and `fixed` is not provided either, the first time point
+            (`0`) is used. Cannot be combined with `fixed`.
+        transform : {"translation", "rigid", "affine", "bspline", "syn"}, default: "rigid"
+            Transform model. Nonlinear methods report convergence summaries rather
+            than rigid-motion parameters. SyN supports single-resolution only.
         correlation_radius : int, default: 3
             ANTs correlation neighborhood radius in voxels.
         update_field_variance : float, default: 3.0
             SyN update-field smoothing variance in squared voxel units.
         total_field_variance : float, default: 1.0
             SyN accumulated-field smoothing variance in squared voxel units.
-        metric_sampling_percentage : float, optional
-            Fraction of voxels randomly sampled per frame.
-        metric_sampling_seed : int, optional
-            Seed passed to each frame's metric sampling.
+        metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}, default: "correlation"
+            Similarity metric for registration.
+        optimizer : {"auto", "gradient_descent", "lbfgs", "one_plus_one"}, default: "auto"
+            Per-frame solver. `"auto"` selects gradient descent for parametric
+            transforms or ITK's native SyN solver. SyN requires `optimizer="auto"`. See
+            [register_volume][confusius.registration.register_volume] for details.
+        optimizer_seed : int, default: 0
+            Reproducible 1+1 evolutionary seed passed to every frame.
         fixed_intensity_scaling : {"none", "db", "sqrt"} or float, optional
             Intensity transform applied to `fixed`, only for the registration
             optimizer. Only allowed together with `fixed`; the reference frame
@@ -334,6 +327,10 @@ class FUSIRegistrationAccessor:
             intensities.
         number_of_histogram_bins : int, default: 50
             Number of histogram bins for `metric="mattes_mi"` or `"joint_mi"`.
+        metric_sampling_percentage : float, optional
+            Fraction of voxels randomly sampled per frame.
+        metric_sampling_seed : int, optional
+            Seed passed to each frame's metric sampling.
         learning_rate : float or "auto", default: 0.01
             Optimizer step size in normalised units (after
             `SetOptimizerScalesFromPhysicalShift`). `"auto"` re-estimates the rate at
@@ -361,6 +358,8 @@ class FUSIRegistrationAccessor:
             it unchanged. For the 3D Euler transform the order is `[angleX, angleY,
             angleZ, tx, ty, tz]`; to disable rotations around x and y use `[0, 0, 1, 1,
             1, 1]`.
+        mesh_size : tuple of int, default: (10, 10, 10)
+            B-spline mesh size.
         use_multi_resolution : bool, default: False
             Whether to use a multi-resolution pyramid during registration.
         shrink_factors : sequence of int, default: (6, 2, 1)
@@ -377,6 +376,9 @@ class FUSIRegistrationAccessor:
         fill_value : float, optional
             Fill value for voxels outside each moving volume's field of view after
             resampling. If not provided, defaults to that volume's minimum value.
+        n_jobs : int, default: -1
+            Number of parallel jobs. -1 uses all available CPUs.
+            Use 1 for serial processing.
         show_progress : bool, default: True
             Whether to display a progress bar while registering volumes.
         progress_reporter : VolumewiseProgressReporter, optional
@@ -409,36 +411,36 @@ class FUSIRegistrationAccessor:
         """
         return register_volumewise(
             self._obj,
-            reference_time=reference_time,
             fixed=fixed,
-            n_jobs=n_jobs,
-            transform=transform,
-            optimizer=optimizer,
-            optimizer_seed=optimizer_seed,
-            metric=metric,
             fixed_mask=fixed_mask,
             moving_mask=moving_mask,
-            mesh_size=mesh_size,
+            reference_time=reference_time,
+            transform=transform,
             correlation_radius=correlation_radius,
             update_field_variance=update_field_variance,
             total_field_variance=total_field_variance,
-            metric_sampling_percentage=metric_sampling_percentage,
-            metric_sampling_seed=metric_sampling_seed,
+            metric=metric,
+            optimizer=optimizer,
+            optimizer_seed=optimizer_seed,
             fixed_intensity_scaling=fixed_intensity_scaling,
             moving_intensity_scaling=moving_intensity_scaling,
             number_of_histogram_bins=number_of_histogram_bins,
+            metric_sampling_percentage=metric_sampling_percentage,
+            metric_sampling_seed=metric_sampling_seed,
             learning_rate=learning_rate,
             number_of_iterations=number_of_iterations,
             convergence_minimum_value=convergence_minimum_value,
             convergence_window_size=convergence_window_size,
             initialization=initialization,
             optimizer_weights=optimizer_weights,
+            mesh_size=mesh_size,
             use_multi_resolution=use_multi_resolution,
             shrink_factors=shrink_factors,
             smoothing_sigmas=smoothing_sigmas,
             resample=resample,
             resample_interpolation=resample_interpolation,
             fill_value=fill_value,
+            n_jobs=n_jobs,
             show_progress=show_progress,
             progress_reporter=progress_reporter,
             abort_event=abort_event,

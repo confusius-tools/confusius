@@ -1,5 +1,6 @@
 """Additional ITK solvers and metrics, exercised through public registration APIs."""
 
+from inspect import signature
 from threading import Event
 from types import SimpleNamespace
 
@@ -8,8 +9,75 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from confusius.registration import register_volume
+from confusius.registration import register_volume, register_volumewise
 from confusius.xarray import create_voxeldata
+from confusius.xarray.registration import FUSIRegistrationAccessor
+
+
+@pytest.mark.parametrize(
+    "left,right",
+    [
+        (register_volume, register_volumewise),
+        (FUSIRegistrationAccessor.to_volume, FUSIRegistrationAccessor.volumewise),
+        (register_volume, FUSIRegistrationAccessor.to_volume),
+        (register_volumewise, FUSIRegistrationAccessor.volumewise),
+    ],
+)
+def test_shared_argument_order(left, right):
+    """Common arguments have the same relative order across the public APIs."""
+    left_names = [
+        name.replace("transform_type", "transform")
+        for name in signature(left).parameters
+    ]
+    right_names = [
+        name.replace("transform_type", "transform")
+        for name in signature(right).parameters
+    ]
+    common = set(left_names) & set(right_names)
+    assert [name for name in left_names if name in common] == [
+        name for name in right_names if name in common
+    ]
+    assert signature(left).parameters["optimizer"].default == "auto"
+    assert signature(right).parameters["optimizer"].default == "auto"
+
+
+@pytest.mark.parametrize(
+    "function", [register_volumewise, FUSIRegistrationAccessor.volumewise]
+)
+def test_volumewise_input_argument_group(function):
+    """Masks immediately follow the fixed reference, before registration settings."""
+    assert list(signature(function).parameters)[1:5] == [
+        "fixed",
+        "fixed_mask",
+        "moving_mask",
+        "reference_time",
+    ]
+
+
+@pytest.mark.parametrize("transform", ["translation", "rigid", "affine", "bspline"])
+def test_auto_selects_parametric_gradient_descent(shifted_gaussian, transform):
+    """Automatic selection preserves the explicit gradient-descent result."""
+    moving, fixed = shifted_gaussian
+    results = [
+        register_volume(
+            moving,
+            fixed,
+            transform_type=transform,
+            optimizer=optimizer,
+            metric="mean_squares",
+            initialization=None,
+            learning_rate=0.05,
+            number_of_iterations=2,
+            mesh_size=(1, 1, 1),
+            itk_threads=1,
+        )
+        for optimizer in ("auto", "gradient_descent")
+    ]
+    assert_allclose(results[0][0], results[1][0], rtol=0, atol=0)
+    assert_allclose(results[0][1], results[1][1], rtol=0, atol=0)
+    assert_allclose(
+        results[0][2].metric_values, results[1][2].metric_values, rtol=0, atol=0
+    )
 
 
 @pytest.fixture
@@ -290,6 +358,14 @@ def test_accessors_and_batch_forward_selection(
             "optimizer_weights",
         ),
         ({"optimizer": "lbfgs", "transform_type": "syn"}, "SyN uses its own solver"),
+        (
+            {"optimizer": "gradient_descent", "transform_type": "syn"},
+            "SyN uses its own solver",
+        ),
+        (
+            {"optimizer": "one_plus_one", "transform_type": "syn"},
+            "SyN uses its own solver",
+        ),
         (
             {"optimizer": "one_plus_one", "transform_type": "bspline"},
             "linear transforms",

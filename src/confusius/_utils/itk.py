@@ -23,8 +23,10 @@ RegistrationMetric: TypeAlias = Literal[
 ]
 """Similarity metrics supported by the ITK registration backend."""
 
-RegistrationOptimizer: TypeAlias = Literal["gradient_descent", "lbfgs", "one_plus_one"]
-"""Optimizers for parametric transforms; SyN uses its own solver."""
+RegistrationOptimizer: TypeAlias = Literal[
+    "auto", "gradient_descent", "lbfgs", "one_plus_one"
+]
+"""Optimizer selection; auto uses gradient descent for parametric models or native SyN."""
 
 
 def resolve_itk_threads(threads: int) -> int:

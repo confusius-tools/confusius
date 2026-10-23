@@ -26,24 +26,22 @@ if TYPE_CHECKING:
 def register_volumewise(
     data: xr.DataArray,
     *,
-    reference_time: int | None = None,
     fixed: xr.DataArray | None = None,
-    n_jobs: int = -1,
-    transform: Literal["translation", "rigid", "affine", "bspline", "syn"] = "rigid",
-    metric: RegistrationMetric = "correlation",
-    optimizer: RegistrationOptimizer = "gradient_descent",
-    optimizer_seed: int = 0,
     fixed_mask: xr.DataArray | None = None,
     moving_mask: xr.DataArray | None = None,
-    mesh_size: tuple[int, int, int] = (10, 10, 10),
+    reference_time: int | None = None,
+    transform: Literal["translation", "rigid", "affine", "bspline", "syn"] = "rigid",
     correlation_radius: int = 3,
     update_field_variance: float = 3.0,
     total_field_variance: float = 1.0,
-    metric_sampling_percentage: float | None = None,
-    metric_sampling_seed: int | None = None,
+    metric: RegistrationMetric = "correlation",
+    optimizer: RegistrationOptimizer = "auto",
+    optimizer_seed: int = 0,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float | None = None,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     number_of_histogram_bins: int = 50,
+    metric_sampling_percentage: float | None = None,
+    metric_sampling_seed: int | None = None,
     learning_rate: float | Literal["auto"] = 0.01,
     number_of_iterations: int = 100,
     convergence_minimum_value: float = 1e-6,
@@ -52,12 +50,14 @@ def register_volumewise(
     | npt.NDArray[np.floating]
     | None = "center_geometry",
     optimizer_weights: list[float] | None = None,
+    mesh_size: tuple[int, int, int] = (10, 10, 10),
     use_multi_resolution: bool = False,
     shrink_factors: Sequence[int] = (6, 2, 1),
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
     resample: bool = True,
     resample_interpolation: Literal["linear", "bspline"] = "linear",
     fill_value: float | None = None,
+    n_jobs: int = -1,
     show_progress: bool = True,
     progress_reporter: "VolumewiseProgressReporter | None" = None,
     abort_event: "Event | None" = None,
@@ -70,10 +70,6 @@ def register_volumewise(
     ----------
     data : xarray.DataArray
         VoxelData array with a `time` dimension to register.
-    reference_time : int, optional
-        Index of the time point of `data` to use as registration target. If not
-        provided, and `fixed` is not provided either, the first time point (`0`)
-        is used. Cannot be combined with `fixed`.
     fixed : xarray.DataArray, optional
         Spatial-only VoxelData array to register every frame to, for example the
         mean of a few low-motion frames of `data`. Must share `data`'s voxel grid
@@ -81,15 +77,26 @@ def register_volumewise(
         `time` dimension. Its own `fixed_intensity_scaling` applies to it. If not
         provided, the frame at `reference_time` is used. Cannot be combined with
         `reference_time`.
-    n_jobs : int, default: -1
-        Number of parallel jobs. Negative values resolve to `max(1, os.cpu_count() + 1
-        + n_jobs)`, so `-1` means all CPUs, `-2` means all minus one, and so on.
-        Use `1` for serial processing.
+    fixed_mask : xarray.DataArray, optional
+        Spatial-only boolean VoxelData mask on the fixed grid.
+    moving_mask : xarray.DataArray, optional
+        Boolean VoxelData mask on the input grid, either spatial-only or with
+        matching time coordinates for a separate mask per frame.
+    reference_time : int, optional
+        Index of the time point of `data` to use as registration target. If not
+        provided, and `fixed` is not provided either, the first time point (`0`)
+        is used. Cannot be combined with `fixed`.
     transform : {"translation", "rigid", "affine", "bspline", "syn"}, default: "rigid"
         Transform model to use during registration. `"translation"` allows
         only shifts. `"rigid"` adds rotation. `"affine"` adds scaling and
         shearing. `"bspline"` and `"syn"` estimate local deformations; SyN
         currently supports single-resolution registration only.
+    correlation_radius : int, default: 3
+        Neighborhood radius in voxels for `metric="ants_cc"`.
+    update_field_variance : float, default: 3.0
+        SyN update-field Gaussian smoothing variance in squared voxel units.
+    total_field_variance : float, default: 1.0
+        SyN accumulated-field smoothing variance in squared voxel units.
     metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}, default: "correlation"
         Similarity metric. `"correlation"` (normalized cross-correlation) is
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
@@ -97,29 +104,13 @@ def register_volumewise(
         when the intensity relationship between images is non-linear.
         `"ants_cc"` uses ANTs neighborhood correlation. `"mean_squares"` measures
         squared intensity differences; `"joint_mi"` uses joint-histogram MI.
-    optimizer : {"gradient_descent", "lbfgs", "one_plus_one"}, default: "gradient_descent"
-        Per-frame optimizer for parametric transforms. SyN uses its own solver.
+    optimizer : {"auto", "gradient_descent", "lbfgs", "one_plus_one"}, default: "auto"
+        Per-frame solver. `"auto"` selects gradient descent for parametric
+        transforms or ITK's native SyN solver. SyN requires `optimizer="auto"`.
         See [register_volume][confusius.registration.register_volume] for step-size,
         convergence, and weight restrictions for each optimizer.
     optimizer_seed : int, default: 0
         Reproducible 1+1 evolutionary seed passed to each frame.
-    fixed_mask : xarray.DataArray, optional
-        Spatial-only boolean VoxelData mask on the fixed grid.
-    moving_mask : xarray.DataArray, optional
-        Boolean VoxelData mask on the input grid, either spatial-only or with
-        matching time coordinates for a separate mask per frame.
-    mesh_size : tuple of int, default: (10, 10, 10)
-        B-spline mesh size, passed to each volume registration.
-    correlation_radius : int, default: 3
-        Neighborhood radius in voxels for `metric="ants_cc"`.
-    update_field_variance : float, default: 3.0
-        SyN update-field Gaussian smoothing variance in squared voxel units.
-    total_field_variance : float, default: 1.0
-        SyN accumulated-field smoothing variance in squared voxel units.
-    metric_sampling_percentage : float, optional
-        Fraction of voxels randomly sampled per frame. If not provided, use all voxels.
-    metric_sampling_seed : int, optional
-        Random sampling seed passed to each frame. If not provided, use ITK's seed.
     fixed_intensity_scaling : {"none", "db", "sqrt"} or float, optional
         Intensity transform applied to `fixed`, only for the registration optimizer.
         Useful when `fixed` comes from another source than `data` and does not share
@@ -133,6 +124,10 @@ def register_volumewise(
         input intensities.
     number_of_histogram_bins : int, default: 50
         Number of histogram bins for `metric="mattes_mi"` or `"joint_mi"`.
+    metric_sampling_percentage : float, optional
+        Fraction of voxels randomly sampled per frame. If not provided, use all voxels.
+    metric_sampling_seed : int, optional
+        Random sampling seed passed to each frame. If not provided, use ITK's seed.
     learning_rate : float or "auto", default: 0.01
         Optimizer step size in normalised units (after `SetOptimizerScalesFromPhysicalShift`).
         `"auto"` re-estimates the rate at every iteration. A float uses that
@@ -168,6 +163,8 @@ def register_volumewise(
         unchanged. For the 3D Euler transform the parameter order is `[angleX, angleY,
         angleZ, tx, ty, tz]`; to disable rotations around x and y set weights to `[0, 0,
         1, 1, 1, 1]`.
+    mesh_size : tuple of int, default: (10, 10, 10)
+        B-spline mesh size, passed to each volume registration.
     use_multi_resolution : bool, default: False
         Whether to use a multi-resolution pyramid during registration. When
         `True`, registration proceeds from a coarse downsampled version of
@@ -193,6 +190,10 @@ def register_volumewise(
     fill_value : float, optional
         Fill value for voxels outside each moving volume's field of view after
         resampling. If not provided, defaults to that volume's minimum value.
+    n_jobs : int, default: -1
+        Number of parallel jobs. Negative values resolve to `max(1, os.cpu_count() + 1
+        + n_jobs)`, so `-1` means all CPUs, `-2` means all minus one, and so on.
+        Use `1` for serial processing.
     show_progress : bool, default: True
         Whether to display a progress bar while registering volumes.
     progress_reporter : VolumewiseProgressReporter, optional
@@ -401,25 +402,24 @@ def register_volumewise(
         registered_da, frame_transform, frame_diag = register_volume(
             volume,
             ref_da,
-            transform_type=transform,
-            optimizer=optimizer,
-            optimizer_seed=optimizer_seed,
-            metric=metric,
             fixed_mask=fixed_mask,
             moving_mask=(
                 moving_mask.isel(time=frame_index)
                 if moving_mask is not None and "time" in moving_mask.dims
                 else moving_mask
             ),
-            mesh_size=mesh_size,
+            transform_type=transform,
             correlation_radius=correlation_radius,
             update_field_variance=update_field_variance,
             total_field_variance=total_field_variance,
-            metric_sampling_percentage=metric_sampling_percentage,
-            metric_sampling_seed=metric_sampling_seed,
+            metric=metric,
+            optimizer=optimizer,
+            optimizer_seed=optimizer_seed,
             fixed_intensity_scaling=ref_intensity_scaling,
             moving_intensity_scaling=moving_intensity_scaling,
             number_of_histogram_bins=number_of_histogram_bins,
+            metric_sampling_percentage=metric_sampling_percentage,
+            metric_sampling_seed=metric_sampling_seed,
             learning_rate=learning_rate,
             number_of_iterations=number_of_iterations,
             convergence_minimum_value=convergence_minimum_value,
@@ -430,6 +430,7 @@ def register_volumewise(
                 else initialization
             ),
             optimizer_weights=optimizer_weights,
+            mesh_size=mesh_size,
             use_multi_resolution=use_multi_resolution,
             shrink_factors=shrink_factors,
             smoothing_sigmas=smoothing_sigmas,
