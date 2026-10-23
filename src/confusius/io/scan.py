@@ -299,6 +299,48 @@ def _build_voxel_to_probe(
     )
 
 
+def _build_world_geometry(
+    voxel_to_probe: npt.NDArray[np.float64],
+    probe_to_lab: npt.NDArray[np.float64],
+) -> tuple[npt.NDArray[np.float64], dict[str, npt.NDArray[np.float64]]]:
+    """Express SCAN geometry in the first probe pose's space.
+
+    ConfUSIus world space for SCAN data is the probe space of the first pose, so that
+    `z`, `y`, and `x` always follow elevation, depth, and lateral. The Iconeus lab frame
+    is not aligned with the probe (IcoScan typically mounts it rotated by 90° about the
+    vertical axis), so it is kept as a secondary `world_to_lab` affine instead. The
+    probe space is also stored, as an identity `world_to_probe` affine, so that it can
+    be restored with `.fusi.affine.apply("world_to_probe")` after switching spaces.
+
+    Parameters
+    ----------
+    voxel_to_probe : (4, 4) numpy.ndarray
+        Affine mapping `(k, j, i)` voxel coordinates to ConfUSIus-ordered probe
+        coordinates in millimeters.
+    probe_to_lab : (4, 4) or (npose, 4, 4) numpy.ndarray
+        ConfUSIus-ordered `probe_to_lab` affine(s) in millimeters, as returned by
+        `_build_probe_to_lab`.
+
+    Returns
+    -------
+    voxel_to_world : (4, 4) or (npose, 4, 4) numpy.ndarray
+        Voxel-to-world affine(s), with the same leading shape as `probe_to_lab`.
+    affines : dict[str, numpy.ndarray]
+        `(4, 4)` affines for `attrs["affines"]`: `world_to_probe` (the identity) and
+        `world_to_lab`, mapping world coordinates to ConfUSIus-ordered lab coordinates
+        in millimeters.
+    """
+    world_to_lab = probe_to_lab if probe_to_lab.ndim == 2 else probe_to_lab[0]
+    if probe_to_lab.ndim == 2:
+        # A single pose is world space itself: skip the round-off of inv(P) @ P.
+        voxel_to_world = voxel_to_probe
+    else:
+        voxel_to_world = np.linalg.inv(world_to_lab) @ probe_to_lab @ voxel_to_probe
+        # The first pose defines world space, so keep its affine exact.
+        voxel_to_world[0] = voxel_to_probe
+    return voxel_to_world, {"world_to_probe": np.eye(4), "world_to_lab": world_to_lab}
+
+
 def _swap_depth_elevation_axes(arr):
     """Swap the last two spatial axes to reach ConfUSIus `(..., k, j, i)` order.
 
@@ -424,13 +466,13 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
 def _add_world_to_brain(affines: dict[str, Any], bps_path: str | Path) -> None:
     """Compose a `world_to_brain` affine from a BPS sidecar and store it in `affines`.
 
-    ConfUSIus world coordinates for SCAN data are already lab space, so
-    `world_to_brain = inv(load_bps(bps_path))`.
+    `world_to_brain = inv(load_bps(bps_path)) @ affines["world_to_lab"]`.
 
     Parameters
     ----------
     affines : dict
-        The DataArray's `affines` attribute; mutated in place to add `world_to_brain`.
+        The DataArray's `affines` attribute, holding `world_to_lab`; mutated in place
+        to add `world_to_brain`.
     bps_path : str or pathlib.Path
         Path to the BPS file (`.bps`).
 
@@ -440,7 +482,7 @@ def _add_world_to_brain(affines: dict[str, Any], bps_path: str | Path) -> None:
         `affines` is updated in place.
     """
     brain_to_lab = load_bps(bps_path)
-    affines["world_to_brain"] = np.linalg.inv(brain_to_lab)
+    affines["world_to_brain"] = np.linalg.inv(brain_to_lab) @ affines["world_to_lab"]
 
 
 def load_scan(
@@ -519,18 +561,25 @@ def load_scan(
     `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `svd_low_cutoff`, and
     `power_doppler_integration_duration` (s).
 
-    ConfUSIus world coordinates `(z, y, x)` for SCAN data are **ConfUSIus-ordered
-    Iconeus lab coordinates** (mm): a fixed scanner frame shared by every pose, used
-    as the canonical world frame because it is the one frame that is physically
-    meaningful across poses. For multi-pose files, `da`'s voxel-to-world geometry is
-    itself pose-dependent (a `(npose, 4, 4)` affine stack, one affine per
-    `da.coords["pose"]` label); world
-    selection therefore requires reducing `pose` to a scalar first, e.g.
+    ConfUSIus world coordinates `(z, y, x)` for SCAN data are the probe space of the
+    first pose (mm): `z` is elevation, `y` is depth (positive, increasing away from
+    the probe surface), and `x` is lateral. For multi-pose files, `da`'s
+    voxel-to-world geometry is itself pose-dependent (a `(npose, 4, 4)` affine stack,
+    one affine per `da.coords["pose"]` label, placing every pose relative to the first
+    one); world selection therefore requires reducing `pose` to a scalar first, e.g.
     `da.isel(pose=0).sel(z=..., y=..., x=...)` or `da.isel(pose=0)`.
 
+    The probe position in the Iconeus lab frame (a fixed scanner frame) is stored as a
+    `(4, 4)` `da.attrs["affines"]["world_to_lab"]` affine that maps world coordinates
+    to **ConfUSIus-ordered** Iconeus lab coordinates `(z_lab, y_lab, x_lab)` in mm.
+    `da.attrs["affines"]["world_to_probe"]` is the `(4, 4)` identity, since world
+    space is the probe space; it lets `da.fusi.affine.apply("world_to_probe")`
+    restore probe space after switching to another space, e.g. with
+    `da.fusi.affine.apply("world_to_lab")`.
+
     If `bps_path` is provided, a `world_to_brain` affine is stored in
-    `da.attrs["affines"]["world_to_brain"]` that maps ConfUSIus world coordinates
-    (already lab space, as above) to Iconeus' brain coordinates. Apply as
+    `da.attrs["affines"]["world_to_brain"]` that maps ConfUSIus world coordinates to
+    Iconeus' brain coordinates. Apply as
     `da.attrs["affines"]["world_to_brain"] @ np.array([z, y, x, 1.0])`.
 
     Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
@@ -618,14 +667,12 @@ def _load_scan_v1(
             h5["/acqMetaData/probeToLab"][()], dtype=np.float64
         )
 
-        voxel_to_probe = _build_voxel_to_probe(voxels_to_probe)
-        probe_to_lab = _build_probe_to_lab(probe_to_lab)
-        # Lab is the canonical VoxelData world frame for SCAN data, so composing these
-        # physical transforms produces the VoxelData geometry directly.
-        voxel_to_world = probe_to_lab @ voxel_to_probe
+        voxel_to_world, affines = _build_world_geometry(
+            _build_voxel_to_probe(voxels_to_probe), _build_probe_to_lab(probe_to_lab)
+        )
 
         attrs: dict[str, Any] = {
-            "affines": {},
+            "affines": affines,
             "device_serial_number": _read_scan_str(h5, "/scanMetaData/Machine_SN"),
             "software_version": _read_scan_str(h5, "/scanMetaData/Neuroscan_version"),
             "iconeus_scan_mode": mode,
@@ -1114,8 +1161,9 @@ def _load_scan_v2(
     attrs = _scan_v2_public_attrs(meta, scan_mode)
     attrs.update(meta["dim6_attrs"])
 
-    voxel_to_probe = _build_scan_v2_voxel_to_probe(meta)
-    voxel_to_world = _build_scan_v2_probe_to_lab(meta) @ voxel_to_probe
+    voxel_to_world, attrs["affines"] = _build_world_geometry(
+        _build_scan_v2_voxel_to_probe(meta), _build_scan_v2_probe_to_lab(meta)
+    )
 
     data_array = create_voxeldata(
         data_lazy,

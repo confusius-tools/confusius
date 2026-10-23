@@ -392,8 +392,10 @@ Several loaders populate `.attrs["affines"]` automatically:
   arguments, defaulting to `"world_to_qform"`/`"world_to_sform"` when not specified.
 - **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] stores a
   `"world_to_lab"` affine mapping ConfUSIus world coordinates to the Iconeus lab
-  coordinate system. For multi-pose acquisitions (`3Dscan`, `4Dscan`), one affine per
-  pose is stored, with shape `(pose, 4, 4)`.
+  coordinate system, and a `"world_to_probe"` affine that is the identity, since the
+  world space is the first pose's probe space. Both are single `(4, 4)` affines, even
+  for multi-pose acquisitions (`3Dscan`, `4Dscan`), since every pose shares the same
+  world space.
 
 Registration transforms are handled separately from `.attrs["affines"]`.
 [`register_volume`][confusius.registration.register_volume] returns the estimated

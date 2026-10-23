@@ -12,6 +12,12 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`load_scan`][confusius.io.load_scan] expresses SCAN world coordinates in the first
+  probe pose's space (`z` elevation, `y` depth, `x` lateral). The Iconeus lab frame is
+  stored as a single `(4, 4)` `attrs["affines"]["world_to_lab"]` affine, next to an
+  identity `world_to_probe` affine, and a BPS `world_to_brain` affine is likewise a
+  single `(4, 4)` matrix for multi-pose files
+  ([#526](https://github.com/confusius-tools/confusius/pull/526)).
 - Use
   [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
   instead of `fetch_template_huang_2025` for the vascular mouse template. The fetcher

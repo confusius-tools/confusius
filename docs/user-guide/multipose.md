@@ -102,7 +102,7 @@ Coordinates:
     y          (pose, k, j, i) float64 1MB ...
     x          (pose, k, j, i) float64 1MB ...
 Attributes:
-    affines:               {}
+    affines:               {'world_to_probe': array([[1., 0., 0., 0.],\n     ...
     device_serial_number:  ASAO0000
     software_version:      IcoScan v.1.9.0
     iconeus_scan_mode:     4Dscan
@@ -280,7 +280,7 @@ Coordinates:
     y           (k, j, i) float64 1MB ...
     x           (k, j, i) float64 1MB ...
 Attributes:
-    affines:               {}
+    affines:               {'world_to_probe': array([[1., 0., 0., 0.],\n     ...
     device_serial_number:  ASAO0000
     software_version:      IcoScan v.1.9.0
     iconeus_scan_mode:     4Dscan
@@ -290,10 +290,10 @@ Attributes:
     ...
 ```
 
-4 poses × 4 slices = 16 consolidated z positions, spanning −4.95 to 2.93 mm in world
-space. The pose-dependent `time` coordinate is reduced to a single whole-volume `time`
-and a `slice_time` coordinate with dims `(time, k)`: each slice retains the timestamp
-of the pose it came from.
+4 poses × 4 slices = 16 consolidated z positions, spanning 7.875 mm along elevation.
+The pose-dependent `time` coordinate is reduced to a single whole-volume `time` and a
+`slice_time` coordinate with dims `(time, k)`: each slice retains the timestamp of the
+pose it came from.
 
 After consolidation, the per-pose affine stack is reduced to a single `(4, 4)` matrix
 representing the consolidated volume's orientation in world space.
