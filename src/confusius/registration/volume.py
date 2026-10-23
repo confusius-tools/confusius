@@ -31,6 +31,8 @@ from confusius.validation import validate_matching_spatial_units
 if TYPE_CHECKING:
     from threading import Event
 
+    import itk
+
     from confusius.registration.progress import RegistrationProgress
 
 
@@ -291,6 +293,253 @@ def _apply_intensity_scaling(
     return power_scale(data, exponent=float(intensity_scaling))
 
 
+def _create_initial_transform(
+    fixed_reg: "itk.Image",
+    moving_reg: "itk.Image",
+    *,
+    transform_type: Literal["translation", "rigid", "affine", "bspline", "syn"],
+    initialization_mode: Literal["center_geometry", "center_moments"] | None,
+    affine_initialization: npt.NDArray[np.floating] | None,
+    mesh_size: tuple[int, int, int],
+) -> "itk.Transform":
+    """Initialize a parametric transform, preserving affine composition and pivots.
+
+    Parameters
+    ----------
+    fixed_reg : itk.Image
+        Expanded, intensity-scaled fixed registration image.
+    moving_reg : itk.Image
+        Expanded, intensity-scaled moving image of the same ITK specialization.
+    transform_type : str
+        Validated transform model; SyN uses an affine initial transform.
+    initialization_mode : str, optional
+        Image geometry or intensity-moment centering mode.
+    affine_initialization : numpy.ndarray, optional
+        Explicit fixed-to-moving affine, composed before a B-spline deformation.
+    mesh_size : tuple of int
+        B-spline mesh size.
+
+    Returns
+    -------
+    initial : itk.Transform
+        Mutable transform, including its pre-affine for B-spline initialization.
+
+    Raises
+    ------
+    ValueError
+        If an explicit affine does not have shape `(4, 4)`.
+    RuntimeError
+        If ITK cannot initialize the transform.
+    """
+    import itk
+
+    image_type = type(fixed_reg)
+    ndim = 3
+    if affine_initialization is not None and affine_initialization.shape != (4, 4):
+        raise ValueError(
+            f"initialization shape {affine_initialization.shape} does not match "
+            "image dimensionality 3D (expected (4, 4))."
+        )
+    if transform_type == "bspline":
+        initial = itk.BSplineTransform[itk.D, ndim, 3].New()
+        initializer = itk.BSplineTransformInitializer[type(initial), image_type].New(
+            Transform=initial, Image=fixed_reg, TransformDomainMeshSize=list(mesh_size)
+        )
+        initializer.InitializeTransform()
+    else:
+        transform_class = {
+            "translation": itk.TranslationTransform[itk.D, ndim],
+            "rigid": itk.Euler3DTransform[itk.D],
+            "affine": itk.AffineTransform[itk.D, ndim],
+            "syn": itk.AffineTransform[itk.D, ndim],
+        }[transform_type]
+        initial = transform_class.New()
+        if (
+            initialization_mode in ("center_geometry", "center_moments")
+            and transform_type != "translation"
+        ):
+            # The wheel wraps 3D centering only for versor transforms; copy its pivot and offset.
+            centered = itk.VersorRigid3DTransform[itk.D].New()
+            initializer = itk.CenteredTransformInitializer[
+                type(centered), image_type, image_type
+            ].New(Transform=centered, FixedImage=fixed_reg, MovingImage=moving_reg)
+            if initialization_mode == "center_geometry":
+                initializer.GeometryOn()
+            else:
+                initializer.MomentsOn()
+            initializer.InitializeTransform()
+            initial.SetCenter(centered.GetCenter())
+            initial.SetTranslation(centered.GetTranslation())
+    if affine_initialization is not None:
+        pre_transform = affine_to_itk_linear_transform(affine_initialization)
+        if transform_type == "bspline":
+            composite = itk.CompositeTransform[itk.D, ndim].New()
+            composite.AddTransform(pre_transform)
+            composite.AddTransform(initial)
+            composite.SetOnlyMostRecentTransformToOptimizeOn()
+            initial = composite
+        else:
+            initial = pre_transform
+    return initial
+
+
+def _create_registration_metric(
+    image_type: type,
+    *,
+    metric: RegistrationMetric,
+    correlation_radius: int,
+    number_of_histogram_bins: int,
+    fixed_mask: xr.DataArray | None,
+    moving_mask: xr.DataArray | None,
+    itk_threads: int,
+) -> "itk.ImageToImageMetricv4":
+    """Create a metric with the requested masks and thread budget.
+
+    Parameters
+    ----------
+    image_type : type
+        Concrete ITK image specialization shared by the registration images.
+    metric : str
+        Validated similarity metric name.
+    correlation_radius : int
+        ANTs neighborhood correlation radius in voxels.
+    number_of_histogram_bins : int
+        Histogram size for mutual-information metrics.
+    fixed_mask : xarray.DataArray, optional
+        Validated boolean VoxelData mask on the fixed grid.
+    moving_mask : xarray.DataArray, optional
+        Validated boolean VoxelData mask on the moving grid.
+    itk_threads : int
+        ITK worker count using joblib's sign convention.
+
+    Returns
+    -------
+    metric_object : itk.ImageToImageMetricv4
+        Configured metric with masks attached as ITK spatial objects.
+
+    Raises
+    ------
+    RuntimeError
+        If ITK cannot construct the metric or its masks.
+    """
+    import itk
+
+    # FixedImage/MovingImage do not drive template inference for metrics.
+    if metric == "correlation":
+        metric_object = itk.CorrelationImageToImageMetricv4[
+            image_type, image_type
+        ].New()
+    elif metric == "ants_cc":
+        metric_object = itk.ANTSNeighborhoodCorrelationImageToImageMetricv4[
+            image_type, image_type
+        ].New(Radius=[correlation_radius] * 3)
+    elif metric == "mean_squares":
+        metric_object = itk.MeanSquaresImageToImageMetricv4[
+            image_type, image_type
+        ].New()
+    elif metric == "joint_mi":
+        metric_object = itk.JointHistogramMutualInformationImageToImageMetricv4[
+            image_type, image_type
+        ].New(NumberOfHistogramBins=number_of_histogram_bins)
+    else:
+        metric_object = itk.MattesMutualInformationImageToImageMetricv4[
+            image_type, image_type
+        ].New(NumberOfHistogramBins=number_of_histogram_bins)
+    metric_object.SetMaximumNumberOfWorkUnits(resolve_itk_threads(itk_threads))
+    for mask, setter in (
+        (fixed_mask, metric_object.SetFixedImageMask),
+        (moving_mask, metric_object.SetMovingImageMask),
+    ):
+        if mask is not None:
+            mask_image = expand_thin_dims(voxeldata_to_itk_image(mask))
+            mask_image = itk.cast_image_filter(
+                mask_image, ttype=(type(mask_image), itk.Image[itk.UC, 3])
+            )
+            setter(itk.ImageMaskSpatialObject[3].New(Image=mask_image))
+    return metric_object
+
+
+def _create_parametric_optimizer(
+    metric_object: "itk.ImageToImageMetricv4",
+    *,
+    optimizer: RegistrationOptimizer,
+    optimizer_seed: int,
+    learning_rate: float | Literal["auto"],
+    number_of_iterations: int,
+    convergence_minimum_value: float,
+    convergence_window_size: int,
+    optimizer_weights: list[float] | None,
+) -> "itk.ObjectToObjectOptimizerBaseTemplate":
+    """Create a concrete parametric solver with physical-shift parameter scales.
+
+    Parameters
+    ----------
+    metric_object : itk.ImageToImageMetricv4
+        Registration metric used to estimate parameter scales.
+    optimizer : str
+        Validated parametric optimizer name, with automatic selection resolved.
+    optimizer_seed : int
+        Seed for evolutionary search.
+    learning_rate : float or "auto"
+        Gradient-descent rate, L-BFGS initial step, or evolutionary search radius.
+    number_of_iterations : int
+        Maximum optimizer iterations.
+    convergence_minimum_value : float
+        Solver-specific convergence tolerance.
+    convergence_window_size : int
+        Gradient-descent convergence window length.
+    optimizer_weights : list of float, optional
+        Validated per-parameter weights for gradient descent.
+
+    Returns
+    -------
+    optimizer_object : itk.ObjectToObjectOptimizerBaseTemplate
+        Concrete solver wrapper, retaining solver-specific cancellation methods.
+
+    Raises
+    ------
+    RuntimeError
+        If ITK cannot configure the optimizer or its parameter scales.
+    """
+    import itk
+
+    if optimizer == "lbfgs":
+        optimizer_object = itk.LBFGSOptimizerv4.New(
+            NumberOfIterations=number_of_iterations,
+            GradientConvergenceTolerance=convergence_minimum_value,
+            DefaultStepLength=1.0 if learning_rate == "auto" else learning_rate,
+        )
+    elif optimizer == "one_plus_one":
+        generator = itk.NormalVariateGenerator.New()
+        generator.Initialize(optimizer_seed)
+        optimizer_object = itk.OnePlusOneEvolutionaryOptimizerv4.New(
+            MaximumIteration=number_of_iterations,
+            Epsilon=convergence_minimum_value,
+            NormalVariateGenerator=generator,
+        )
+        optimizer_object.Initialize(1.0 if learning_rate == "auto" else learning_rate)
+    else:
+        optimizer_object = itk.GradientDescentOptimizerv4.New(
+            LearningRate=1.0 if learning_rate == "auto" else learning_rate,
+            NumberOfIterations=number_of_iterations,
+            MinimumConvergenceValue=convergence_minimum_value,
+            ConvergenceWindowSize=convergence_window_size,
+            DoEstimateLearningRateAtEachIteration=learning_rate == "auto",
+            DoEstimateLearningRateOnce=False,
+        )
+    scales = itk.RegistrationParameterScalesFromPhysicalShift[type(metric_object)].New(
+        Metric=metric_object, TransformForward=True
+    )
+    optimizer_object.SetScalesEstimator(scales)
+    if optimizer_weights is not None:
+        optimizer_object.SetWeights(
+            itk.OptimizerParameters[itk.D](
+                np.asarray(optimizer_weights, dtype=np.float64)
+            )
+        )
+    return optimizer_object
+
+
 def _translate_registration_runtime_error(
     exc: RuntimeError,
     *,
@@ -349,12 +598,12 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
     transform_type: Literal["translation", "rigid", "affine"],
-    optimizer: RegistrationOptimizer = ...,
-    optimizer_seed: int = ...,
     correlation_radius: int = ...,
     update_field_variance: float = ...,
     total_field_variance: float = ...,
     metric: RegistrationMetric = ...,
+    optimizer: RegistrationOptimizer = ...,
+    optimizer_seed: int = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -394,12 +643,12 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
     transform_type: Literal["bspline", "syn"],
-    optimizer: RegistrationOptimizer = ...,
-    optimizer_seed: int = ...,
     correlation_radius: int = ...,
     update_field_variance: float = ...,
     total_field_variance: float = ...,
     metric: RegistrationMetric = ...,
+    optimizer: RegistrationOptimizer = ...,
+    optimizer_seed: int = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -438,12 +687,12 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     *,
     fixed_mask: xr.DataArray | None = ...,
     moving_mask: xr.DataArray | None = ...,
-    optimizer: RegistrationOptimizer = ...,
-    optimizer_seed: int = ...,
     correlation_radius: int = ...,
     update_field_variance: float = ...,
     total_field_variance: float = ...,
     metric: RegistrationMetric = ...,
+    optimizer: RegistrationOptimizer = ...,
+    optimizer_seed: int = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -488,7 +737,7 @@ def register_volume(
     update_field_variance: float = 3.0,
     total_field_variance: float = 1.0,
     metric: RegistrationMetric = "correlation",
-    optimizer: RegistrationOptimizer = "gradient_descent",
+    optimizer: RegistrationOptimizer = "auto",
     optimizer_seed: int = 0,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
@@ -569,11 +818,15 @@ def register_volume(
         `"ants_cc"` uses ANTs neighborhood correlation, recommended for same-modality
         SyN. `"mean_squares"` minimizes squared intensity differences for similarly
         scaled images. `"joint_mi"` uses joint-histogram mutual information.
-    optimizer : {"gradient_descent", "lbfgs", "one_plus_one"}, default: "gradient_descent"
-        Solver for parametric transforms. L-BFGS uses a limited-memory quasi-Newton
+    optimizer : {"auto", "gradient_descent", "lbfgs", "one_plus_one"}, default: "auto"
+        Solver selection. `"auto"` uses gradient descent for parametric transforms
+        and ITK's native SyN solver for `transform_type="syn"`. SyN uses its own
+        gradient-based symmetric displacement updates, not a separate parametric
+        optimizer, and accepts only `optimizer="auto"`.
+        L-BFGS uses a limited-memory quasi-Newton
         method and supports linear and B-spline transforms. 1+1 evolutionary search
         supports linear transforms only; its covariance storage is quadratic in
-        parameter count. SyN retains its own solver and rejects non-default choices.
+        parameter count.
         Only gradient descent supports `optimizer_weights`.
     optimizer_seed : int, default: 0
         Reproducible 1+1 evolutionary random seed in `[0, 2147483647]`, independent
@@ -798,20 +1051,20 @@ def register_volume(
         resample_interpolation=resample_interpolation,
     )
 
-    if optimizer not in ("gradient_descent", "lbfgs", "one_plus_one"):
+    if optimizer not in ("auto", "gradient_descent", "lbfgs", "one_plus_one"):
         raise ValueError(f"Invalid optimizer: {optimizer!r}.")
     if not isinstance(optimizer_seed, int) or not 0 <= optimizer_seed <= 2**31 - 1:
         raise ValueError("optimizer_seed must be an integer in [0, 2147483647].")
-    if transform_type == "syn" and optimizer != "gradient_descent":
-        raise ValueError(
-            "SyN uses its own solver; optimizer selection is not supported."
-        )
+    if transform_type == "syn" and optimizer != "auto":
+        raise ValueError('SyN uses its own solver; use optimizer="auto".')
+    if optimizer == "auto" and transform_type != "syn":
+        optimizer = "gradient_descent"
     if optimizer == "one_plus_one" and transform_type == "bspline":
         raise ValueError(
             "one_plus_one supports only linear transforms: its covariance matrix "
             "grows quadratically with the number of parameters."
         )
-    if optimizer != "gradient_descent" and optimizer_weights is not None:
+    if optimizer in ("lbfgs", "one_plus_one") and optimizer_weights is not None:
         raise ValueError("optimizer_weights are supported only by gradient_descent.")
     if metric == "ants_cc" and (
         not isinstance(correlation_radius, int) or correlation_radius < 1
@@ -850,89 +1103,30 @@ def register_volume(
             moving_reg, ttype=(type(moving_reg), image_type)
         )
     ndim = 3
-    initialization_mode = initialization if isinstance(initialization, str) else None
+    initialization_mode = (
+        None if isinstance(initialization, np.ndarray) else initialization
+    )
     affine_initialization = (
         initialization if isinstance(initialization, np.ndarray) else None
     )
-    if affine_initialization is not None and affine_initialization.shape != (4, 4):
-        raise ValueError(
-            f"initialization shape {affine_initialization.shape} does not match "
-            "image dimensionality 3D (expected (4, 4))."
-        )
+    initial = _create_initial_transform(
+        fixed_reg,
+        moving_reg,
+        transform_type=transform_type,
+        initialization_mode=initialization_mode,
+        affine_initialization=affine_initialization,
+        mesh_size=mesh_size,
+    )
 
-    if transform_type == "bspline":
-        initial = itk.BSplineTransform[itk.D, ndim, 3].New()
-        initializer = itk.BSplineTransformInitializer[type(initial), image_type].New(
-            Transform=initial, Image=fixed_reg, TransformDomainMeshSize=list(mesh_size)
-        )
-        initializer.InitializeTransform()
-    else:
-        transform_class = {
-            "translation": itk.TranslationTransform[itk.D, ndim],
-            "rigid": itk.Euler3DTransform[itk.D],
-            "affine": itk.AffineTransform[itk.D, ndim],
-            "syn": itk.AffineTransform[itk.D, ndim],
-        }[transform_type]
-        initial = transform_class.New()
-        if (
-            initialization_mode in ("center_geometry", "center_moments")
-            and transform_type != "translation"
-        ):
-            # The wheel wraps 3D centering only for versor transforms; copy its pivot and offset.
-            centered = itk.VersorRigid3DTransform[itk.D].New()
-            initializer = itk.CenteredTransformInitializer[
-                type(centered), image_type, image_type
-            ].New(Transform=centered, FixedImage=fixed_reg, MovingImage=moving_reg)
-            if initialization_mode == "center_geometry":
-                initializer.GeometryOn()
-            else:
-                initializer.MomentsOn()
-            initializer.InitializeTransform()
-            initial.SetCenter(centered.GetCenter())
-            initial.SetTranslation(centered.GetTranslation())
-    if affine_initialization is not None:
-        pre_transform = affine_to_itk_linear_transform(affine_initialization)
-        if transform_type == "bspline":
-            composite = itk.CompositeTransform[itk.D, ndim].New()
-            composite.AddTransform(pre_transform)
-            composite.AddTransform(initial)
-            composite.SetOnlyMostRecentTransformToOptimizeOn()
-            initial = composite
-        else:
-            initial = pre_transform
-
-    # FixedImage/MovingImage do not drive template inference for metrics or registration.
-    if metric == "correlation":
-        metric_object = itk.CorrelationImageToImageMetricv4[
-            image_type, image_type
-        ].New()
-    elif metric == "ants_cc":
-        metric_object = itk.ANTSNeighborhoodCorrelationImageToImageMetricv4[
-            image_type, image_type
-        ].New(Radius=[correlation_radius] * ndim)
-    elif metric == "mean_squares":
-        metric_object = itk.MeanSquaresImageToImageMetricv4[
-            image_type, image_type
-        ].New()
-    elif metric == "joint_mi":
-        metric_object = itk.JointHistogramMutualInformationImageToImageMetricv4[
-            image_type, image_type
-        ].New(NumberOfHistogramBins=number_of_histogram_bins)
-    else:
-        metric_object = itk.MattesMutualInformationImageToImageMetricv4[
-            image_type, image_type
-        ].New(NumberOfHistogramBins=number_of_histogram_bins)
-    metric_object.SetMaximumNumberOfWorkUnits(resolve_itk_threads(itk_threads))
-    for mask, setter in (
-        (fixed_mask, metric_object.SetFixedImageMask),
-        (moving_mask, metric_object.SetMovingImageMask),
-    ):
-        if mask is not None:
-            mask_image = expand_thin_dims(voxeldata_to_itk_image(mask))
-            mask_image = itk.cast_image_filter(
-                mask_image, ttype=(type(mask_image), itk.Image[itk.UC, ndim])
-            )
-            setter(itk.ImageMaskSpatialObject[ndim].New(Image=mask_image))
+    metric_object = _create_registration_metric(
+        image_type,
+        metric=metric,
+        correlation_radius=correlation_radius,
+        number_of_histogram_bins=number_of_histogram_bins,
+        fixed_mask=fixed_mask,
+        moving_mask=moving_mask,
+        itk_threads=itk_threads,
+    )
 
     if transform_type == "syn":
         registration = itk.SyNImageRegistrationMethod[image_type, image_type].New(
@@ -950,42 +1144,16 @@ def register_volume(
         registration.SetNumberOfIterationsPerLevel([number_of_iterations])
         iteration_source = registration
     else:
-        if optimizer == "lbfgs":
-            optimizer_object = itk.LBFGSOptimizerv4.New(
-                NumberOfIterations=number_of_iterations,
-                GradientConvergenceTolerance=convergence_minimum_value,
-                DefaultStepLength=1.0 if learning_rate == "auto" else learning_rate,
-            )
-        elif optimizer == "one_plus_one":
-            generator = itk.NormalVariateGenerator.New()
-            generator.Initialize(optimizer_seed)
-            optimizer_object = itk.OnePlusOneEvolutionaryOptimizerv4.New(
-                MaximumIteration=number_of_iterations,
-                Epsilon=convergence_minimum_value,
-                NormalVariateGenerator=generator,
-            )
-            optimizer_object.Initialize(
-                1.0 if learning_rate == "auto" else learning_rate
-            )
-        else:
-            optimizer_object = itk.GradientDescentOptimizerv4.New(
-                LearningRate=1.0 if learning_rate == "auto" else learning_rate,
-                NumberOfIterations=number_of_iterations,
-                MinimumConvergenceValue=convergence_minimum_value,
-                ConvergenceWindowSize=convergence_window_size,
-                DoEstimateLearningRateAtEachIteration=learning_rate == "auto",
-                DoEstimateLearningRateOnce=False,
-            )
-        scales = itk.RegistrationParameterScalesFromPhysicalShift[
-            type(metric_object)
-        ].New(Metric=metric_object, TransformForward=True)
-        optimizer_object.SetScalesEstimator(scales)
-        if optimizer_weights is not None:
-            optimizer_object.SetWeights(
-                itk.OptimizerParameters[itk.D](
-                    np.asarray(optimizer_weights, dtype=np.float64)
-                )
-            )
+        optimizer_object = _create_parametric_optimizer(
+            metric_object,
+            optimizer=optimizer,
+            optimizer_seed=optimizer_seed,
+            learning_rate=learning_rate,
+            number_of_iterations=number_of_iterations,
+            convergence_minimum_value=convergence_minimum_value,
+            convergence_window_size=convergence_window_size,
+            optimizer_weights=optimizer_weights,
+        )
         registration = itk.ImageRegistrationMethodv4[image_type, image_type].New(
             FixedImage=fixed_reg,
             MovingImage=moving_reg,
