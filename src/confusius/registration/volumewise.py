@@ -9,6 +9,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.io import is_h5py_backed
+from confusius._utils.itk import RegistrationMetric, RegistrationOptimizer
 from confusius.registration._utils import validate_intensity_scaling
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
@@ -29,7 +30,9 @@ def register_volumewise(
     fixed: xr.DataArray | None = None,
     n_jobs: int = -1,
     transform: Literal["translation", "rigid", "affine", "bspline", "syn"] = "rigid",
-    metric: Literal["correlation", "mattes_mi", "ants_cc"] = "correlation",
+    metric: RegistrationMetric = "correlation",
+    optimizer: RegistrationOptimizer = "gradient_descent",
+    optimizer_seed: int = 0,
     fixed_mask: xr.DataArray | None = None,
     moving_mask: xr.DataArray | None = None,
     mesh_size: tuple[int, int, int] = (10, 10, 10),
@@ -87,12 +90,19 @@ def register_volumewise(
         only shifts. `"rigid"` adds rotation. `"affine"` adds scaling and
         shearing. `"bspline"` and `"syn"` estimate local deformations; SyN
         currently supports single-resolution registration only.
-    metric : {"correlation", "mattes_mi", "ants_cc"}, default: "correlation"
+    metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}, default: "correlation"
         Similarity metric. `"correlation"` (normalized cross-correlation) is
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
-        `"ants_cc"` uses ANTs neighborhood correlation.
+        `"ants_cc"` uses ANTs neighborhood correlation. `"mean_squares"` measures
+        squared intensity differences; `"joint_mi"` uses joint-histogram MI.
+    optimizer : {"gradient_descent", "lbfgs", "one_plus_one"}, default: "gradient_descent"
+        Per-frame optimizer for parametric transforms. SyN uses its own solver.
+        See [register_volume][confusius.registration.register_volume] for step-size,
+        convergence, and weight restrictions for each optimizer.
+    optimizer_seed : int, default: 0
+        Reproducible 1+1 evolutionary seed passed to each frame.
     fixed_mask : xarray.DataArray, optional
         Spatial-only boolean VoxelData mask on the fixed grid.
     moving_mask : xarray.DataArray, optional
@@ -122,8 +132,7 @@ def register_volumewise(
         `"sqrt"` is an alias for `0.5`. Returned/resampled data keeps the original
         input intensities.
     number_of_histogram_bins : int, default: 50
-        Number of histogram bins used by Mattes mutual information. Only
-        relevant when `metric="mattes_mi"`.
+        Number of histogram bins for `metric="mattes_mi"` or `"joint_mi"`.
     learning_rate : float or "auto", default: 0.01
         Optimizer step size in normalised units (after `SetOptimizerScalesFromPhysicalShift`).
         `"auto"` re-estimates the rate at every iteration. A float uses that
@@ -393,6 +402,8 @@ def register_volumewise(
             volume,
             ref_da,
             transform_type=transform,
+            optimizer=optimizer,
+            optimizer_seed=optimizer_seed,
             metric=metric,
             fixed_mask=fixed_mask,
             moving_mask=(

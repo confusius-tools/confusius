@@ -5,7 +5,7 @@ Only NumPy's array order is reversed at the image boundary.
 """
 
 import os
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import numpy as np
 import numpy.typing as npt
@@ -16,6 +16,15 @@ from confusius.validation import ensure_voxeldata
 if TYPE_CHECKING:
     import itk
     import xarray as xr
+
+
+RegistrationMetric: TypeAlias = Literal[
+    "correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"
+]
+"""Similarity metrics supported by the ITK registration backend."""
+
+RegistrationOptimizer: TypeAlias = Literal["gradient_descent", "lbfgs", "one_plus_one"]
+"""Optimizers for parametric transforms; SyN uses its own solver."""
 
 
 def resolve_itk_threads(threads: int) -> int:
@@ -58,7 +67,8 @@ def get_registration_metric_value(
     """
     if hasattr(registration, "GetFixedToMiddleTransform"):
         return float(registration.GetCurrentMetricValue())
-    return float(registration.GetOptimizer().GetCurrentMetricValue())
+    # The virtual getter includes evolutionary cost caches, unlike GetCurrentMetricValue.
+    return float(registration.GetOptimizer().GetValue())
 
 
 def voxeldata_to_itk_image(data: "xr.DataArray") -> "itk.Image":
