@@ -28,7 +28,7 @@ Connection lifecycle:
   that closes over the bridge and returns a `NapariRegistrationProgressPlotter` instance when called
   by `register_volume`.
 3. `register_volume` instantiates the progress inside the worker thread and wires it to
-  SimpleITK's iteration and end events as usual.
+  ITK's iteration and end events as usual.
 """
 
 from __future__ import annotations
@@ -40,10 +40,10 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import numpy as np
 from qtpy.QtCore import QObject, Signal
 
-from confusius.registration.progress import _resample_intermediate
+from confusius.registration.progress import resample_intermediate
 
 if TYPE_CHECKING:
-    import SimpleITK as sitk
+    import itk
     import xarray as xr
 
     from confusius.registration import RegistrationDiagnostics, RegistrationProgress
@@ -79,9 +79,9 @@ class NapariRegistrationProgressPlotter:
     """Napari-layer progress reporter for `register_volume`.
 
     Implements the [`RegistrationProgress`][confusius.registration.RegistrationProgress]
-    protocol. Stores the registration method and SimpleITK images it needs to resample
+    protocol. Stores the registration method and ITK images it needs to resample
     the moving image at each iteration. The resampled array is forwarded to the bridge
-    via a Qt signal, so this object is safe to call from the SimpleITK command callback
+    via a Qt signal, so this object is safe to call from the ITK command callback
     running on the worker thread.
 
     Parameters
@@ -89,12 +89,12 @@ class NapariRegistrationProgressPlotter:
     bridge : NapariRegistrationProgressPlotterBridge
         GUI-thread signal bridge. Stored by reference; never accessed for GUI APIs from
         this object.
-    registration_method : SimpleITK.ImageRegistrationMethod
+    registration_method : itk.ImageRegistrationMethodv4
         Active registration method whose `GetInitialTransform` is used to resample the
         moving image at each iteration.
-    fixed_img : SimpleITK.Image
+    fixed_img : itk.Image
         Fixed image defining the resample grid.
-    moving_img : SimpleITK.Image
+    moving_img : itk.Image
         Moving image to resample.
     plot_metric : bool, default: True
         Whether to emit `metric_updated` on each iteration. Kept aligned with the
@@ -104,7 +104,7 @@ class NapariRegistrationProgressPlotter:
         napari preview always shows the resampled moving image directly.
     resample_kwargs : dict, optional
         Extra keyword arguments for the intermediate resample. Supported keys are
-        `interpolation`, `fill_value`, and `sitk_threads`.
+        `interpolation`, `fill_value`, and `itk_threads`.
     max_composite_slices : int or None, default: 9
         Kept for signature compatibility with the matplotlib plotter factory. The
         napari preview streams the full resampled moving image directly, so no
@@ -114,9 +114,9 @@ class NapariRegistrationProgressPlotter:
     def __init__(
         self,
         bridge: NapariRegistrationProgressPlotterBridge,
-        registration_method: sitk.ImageRegistrationMethod,
-        fixed_img: sitk.Image,
-        moving_img: sitk.Image,
+        registration_method: itk.ImageRegistrationMethodv4,
+        fixed_img: itk.Image,
+        moving_img: itk.Image,
         *,
         plot_metric: bool = True,
         plot_composite: bool = True,
@@ -133,7 +133,7 @@ class NapariRegistrationProgressPlotter:
             _kw.get("interpolation", "linear"),
         )
         self._fill_value = float(_kw.get("fill_value", 0.0))
-        self._sitk_threads = int(_kw.get("sitk_threads", -1))
+        self._itk_threads = int(_kw.get("itk_threads", -1))
         self._plot_metric = plot_metric
         del plot_composite
         del max_composite_slices
@@ -141,35 +141,37 @@ class NapariRegistrationProgressPlotter:
     def update(self) -> None:
         """Resample the moving image with the current transform and emit it.
 
-        Called at every SimpleITK iteration event from the worker thread. The
+        Called at every ITK iteration event from the worker thread. The
         resampled array is sent to the GUI thread via `bridge.iterated`; the
         emit is thread-safe and does not require this object to live on the
         GUI thread. The current optimizer metric value is also forwarded via
         `bridge.metric_updated` so a metric-curve plotter can track
         convergence.
         """
-        import SimpleITK as sitk
+        import itk
 
         if self._plot_metric:
-            self._bridge.metric_updated.emit(float(self._method.GetMetricValue()))
+            self._bridge.metric_updated.emit(
+                float(self._method.GetOptimizer().GetCurrentMetricValue())
+            )
 
-        resampled = _resample_intermediate(
+        resampled = resample_intermediate(
             self._method,
             self._moving_img,
             self._fixed_img,
             interpolation=self._interpolation,
             fill_value=self._fill_value,
-            sitk_threads=self._sitk_threads,
+            itk_threads=self._itk_threads,
         )
         # .T restores numpy axis order (inverse of the .T used when building
         # the SITK image), matching what `register_volume` produces.
-        arr = np.asarray(sitk.GetArrayFromImage(resampled).T)
+        arr = np.asarray(itk.array_from_image(resampled).T)
         self._bridge.iterated.emit(arr)
 
     def close(self) -> None:
         """Signal that the registration run has ended.
 
-        Called at the SimpleITK end event. The final resampled state is
+        Called at the ITK end event. The final resampled state is
         available on the bridge via the last `iterated` payload; the panel is
         responsible for retrieving/refreshing the layer from `register_volume`'s
         returned DataArray, so this signal is informational (e.g. to stop a
@@ -271,9 +273,9 @@ def make_napari_progress_factory(
     """
 
     def factory(
-        registration_method: sitk.ImageRegistrationMethod,
-        fixed_img: sitk.Image,
-        moving_img: sitk.Image,
+        registration_method: itk.ImageRegistrationMethodv4,
+        fixed_img: itk.Image,
+        moving_img: itk.Image,
         *,
         plot_metric: bool = True,
         plot_composite: bool = True,
@@ -284,11 +286,11 @@ def make_napari_progress_factory(
 
         Parameters
         ----------
-        registration_method : SimpleITK.ImageRegistrationMethod
+        registration_method : itk.ImageRegistrationMethodv4
             Active registration method whose transform is sampled at every iteration.
-        fixed_img : SimpleITK.Image
+        fixed_img : itk.Image
             Fixed reference image defining the resample grid.
-        moving_img : SimpleITK.Image
+        moving_img : itk.Image
             Moving image to resample.
         plot_metric : bool, default: True
             Whether to emit `metric_updated` on each iteration.
@@ -296,7 +298,7 @@ def make_napari_progress_factory(
             Kept for signature compatibility with the matplotlib plotter factory.
         resample_kwargs : dict, optional
             Extra keyword arguments for the intermediate resample. Supported keys are
-            `interpolation`, `fill_value`, and `sitk_threads`.
+            `interpolation`, `fill_value`, and `itk_threads`.
         max_composite_slices : int or None, default: 9
             Kept for signature compatibility with the matplotlib plotter factory. Has
             no effect on the napari preview.
@@ -304,7 +306,7 @@ def make_napari_progress_factory(
         Returns
         -------
         RegistrationProgress
-            Progress reporter ready to be wired to SimpleITK's iteration and
+            Progress reporter ready to be wired to ITK's iteration and
             end events by `register_volume`.
         """
         return NapariRegistrationProgressPlotter(

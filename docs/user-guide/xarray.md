@@ -485,7 +485,7 @@ Model](voxeldata.md#spatial-conventions). The voxel-to-world affine returned by
 `voxel_to_world` below is the same one [Global Helpers](#global-helpers) decomposes
 into `origin`/`spacing`/`direction`—use whichever form suits the task: the `(4, 4)`
 matrix for composing with other affines, the decomposed form for sanity-checking or
-constructing SimpleITK/ITK images.
+constructing ITK images.
 
 #### Reading and applying affines
 

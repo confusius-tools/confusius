@@ -180,7 +180,7 @@ def _compose_world_to_base_transforms(
     # A displacement field is a VoxelData array (voxel-to-world index,
     # always axis-aligned here) with an extra leading `component` dim, matching the
     # convention
-    # `sample_displacement_field`/`_sitk_displacement_field_to_dataarray` already use:
+    # `sample_displacement_field` already uses:
     # `dims`/the array's own dims must be native voxel names, and `component` is
     # labeled by those same voxel names (in the same order the displacement was
     # stacked in above, which is `dims`'/world order -- `voxel_dims` here is just its

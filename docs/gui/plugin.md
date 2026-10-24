@@ -338,7 +338,7 @@ large-scale and local deformation at once.
 | **Metric** | Chooses the similarity criterion (`correlation` or `mattes_mi`). | `correlation` is a good default for power Doppler data; `mattes_mi` is more robust when intensity distributions differ. |
 | **Fixed / Moving intensity scaling** | Applies optional intensity scaling (`decibel`, `square root`, or `none`) to the fixed and moving layers, only for the optimizer; result layers keep their original intensities. | Useful for power Doppler data where large vessels are typically overbright compared to finer structures. Set them differently when the two layers are already on different scales (e.g. a dB atlas and linear power Doppler). |
 | **Initialization** | Sets the starting transform before optimization. | Use `center_geometry` or `center_moments` for coarse setup; reuse a saved/manual affine transform when you already have a good approximate alignment. |
-| **Learning rate** | Sets the optimizer step size. | Leave **Auto** enabled to let SimpleITK estimate it each iteration, or untick it to use a fixed value (default `0.01`). |
+| **Learning rate** | Sets the optimizer step size. | Leave **Auto** enabled to let ITK estimate it each iteration, or untick it to use a fixed value (default `0.01`). |
 | **Iterations** | Maximum number of optimizer steps. | Increase it when alignment is still improving near the end of a run. |
 
 #### Advanced parameters
@@ -353,7 +353,7 @@ large-scale and local deformation at once.
 | **Smoothing sigmas** | Gaussian smoothing at each resolution level. | Helps emphasize global structure before fine alignment. |
 | **Resample interp.** | Interpolation used for the registered output and previews. | `linear` is the usual default; `bspline` can give smoother resampled images. |
 | **Fill value** | Value written outside the moving field of view after resampling. | Useful for controlling the appearance of padded background. |
-| **ITK Threads** | Number of SimpleITK threads used for between-scan registration. | Reduce it when you are running several heavy jobs at once; `-1` uses all CPUs. |
+| **ITK Threads** | Number of ITK threads used for between-scan registration. | Reduce it when you are running several heavy jobs at once; `-1` uses all CPUs. |
 | **Optimizer weights** | Applies per-parameter optimizer weights. | Use it to freeze or down-weight specific affine parameters; not available for B-spline transforms. |
 
 The animation below uses between-session angiography volumes from the same animal across

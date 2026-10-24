@@ -1,8 +1,8 @@
 """Shared fixtures for registration tests."""
 
+import itk
 import numpy as np
 import pytest
-import SimpleITK as sitk
 
 from confusius.xarray import create_voxeldata
 
@@ -106,7 +106,7 @@ def sample_voxeldata_2d_extra_dim_registration(sample_voxeldata_2d_registration)
 @pytest.fixture
 def translation_transform_2d():
     """2D translation transform with known offset (tx=2, ty=3)."""
-    t = sitk.TranslationTransform(2)
+    t = itk.TranslationTransform[itk.D, 2].New()
     t.SetOffset((2.0, 3.0))
     return t
 
@@ -114,7 +114,7 @@ def translation_transform_2d():
 @pytest.fixture
 def euler_transform_2d():
     """2D Euler transform with rotation ~5.7° and translation (1.5, 2.5)."""
-    t = sitk.Euler2DTransform()
+    t = itk.Euler2DTransform[itk.D].New()
     t.SetAngle(0.1)
     t.SetTranslation((1.5, 2.5))
     return t

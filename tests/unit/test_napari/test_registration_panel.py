@@ -88,7 +88,7 @@ def _FakeDiagnostics(
 
 def _make_bspline_transform() -> xr.DataArray:
     # fUSI DataArrays always carry all three spatial dims (k singleton for 2D data),
-    # matching what sitk_bspline_to_dataarray produces in practice.
+    # matching what itk_bspline_to_dataarray produces in practice.
     return create_voxeldata(
         np.arange(3 * 1 * 3 * 4, dtype=float).reshape(3, 1, 3, 4),
         dims=("component", "k", "j", "i"),
@@ -329,18 +329,18 @@ class TestOperationMode:
         assert registration_panel._fixed_combo.isEnabled()
         assert not registration_panel._reference_time_spin.isEnabled()
 
-    def test_between_scan_shows_masks_and_sitk_threads(self, registration_panel):
+    def test_between_scan_shows_masks_and_itk_threads(self, registration_panel):
         registration_panel._advanced_toggle.setChecked(True)
 
         assert not registration_panel._fixed_mask_row.isHidden()
         assert not registration_panel._moving_mask_row.isHidden()
-        assert not registration_panel._sitk_threads_row.isHidden()
+        assert not registration_panel._itk_threads_row.isHidden()
 
         registration_panel._time_series_radio.setChecked(True)
 
         assert registration_panel._fixed_mask_row.isHidden()
         assert registration_panel._moving_mask_row.isHidden()
-        assert registration_panel._sitk_threads_row.isHidden()
+        assert registration_panel._itk_threads_row.isHidden()
 
     def test_volume_shows_fixed_selector(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
@@ -901,7 +901,7 @@ class TestRunRegistration:
             registration_panel._fixed_combo.setCurrentText("fixed")
             registration_panel._fixed_mask_combo.setCurrentText("fixed mask")
             registration_panel._moving_mask_combo.setCurrentText("moving mask")
-            registration_panel._sitk_threads_spin.setValue(3)
+            registration_panel._itk_threads_spin.setValue(3)
             monkeypatch.setattr(
                 "confusius._napari._registration._panel.create_volume_progress_plotter",
                 lambda *_args, **_kwargs: None,
@@ -925,7 +925,7 @@ class TestRunRegistration:
             assert kwargs["fixed"] is None
             assert kwargs["fixed_intensity_scaling"] is None
         else:
-            assert kwargs["sitk_threads"] == 3
+            assert kwargs["itk_threads"] == 3
             assert kwargs["fixed_mask"].dtype == bool
             assert kwargs["moving_mask"].dtype == bool
         assert registration_panel._worker is not None

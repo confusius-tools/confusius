@@ -106,29 +106,29 @@ Or in BibTeX format:
 }
 ```
 
-### SimpleITK
+### ITK
 
 The [`registration`][confusius.registration] module uses
-[SimpleITK](https://simpleitk.org) for image registration and resampling. If you use the
-registration features in your research, please also cite SimpleITK:
+[ITK](https://itk.org) for image registration and resampling. If you use the
+registration features in your research, please also cite ITK:
 
-> Beare, R., Lowekamp, B., & Yaniv, Z. (2018). Image Segmentation, Registration and
-> Characterization in R with SimpleITK. *Journal of Statistical Software*, 86(8), 1–35.
-> https://doi.org/10.18637/jss.v086.i08
+> Avants, B. B., Tustison, N. J., Stauffer, M., Song, G., Wu, B., & Gee, J. C. (2014).
+> The Insight ToolKit image registration framework. *Frontiers in Neuroinformatics*, 8, 44.
+> https://doi.org/10.3389/fninf.2014.00044
 
 Or in BibTeX format:
 
 ```bibtex
-@article{simpleitk,
-  author  = {Beare, Richard and Lowekamp, Bradley and Yaniv, Ziv},
-  title   = {Image Segmentation, Registration and Characterization in {R} with {SimpleITK}},
-  journal = {Journal of Statistical Software},
-  year    = {2018},
-  volume  = {86},
-  number  = {8},
-  pages   = {1--35},
-  doi     = {10.18637/jss.v086.i08},
-  url     = {https://doi.org/10.18637/jss.v086.i08}
+@article{itk,
+  author  = {Avants, Brian B. and Tustison, Nicholas J. and Stauffer, Michael and
+             Song, Gang and Wu, Brian and Gee, James C.},
+  title   = {The {Insight ToolKit} image registration framework},
+  journal = {Frontiers in Neuroinformatics},
+  year    = {2014},
+  volume  = {8},
+  pages   = {44},
+  doi     = {10.3389/fninf.2014.00044},
+  url     = {https://doi.org/10.3389/fninf.2014.00044}
 }
 ```
 

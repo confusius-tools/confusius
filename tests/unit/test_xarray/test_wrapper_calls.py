@@ -248,7 +248,7 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d):
             plot_metric=False,
             plot_composite=False,
             fill_value=-1.0,
-            sitk_threads=2,
+            itk_threads=2,
             progress_plotter=progress_plotter,
             abort_event=abort_event,
         )
@@ -278,7 +278,7 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d):
             "resample": True,
             "resample_interpolation": "bspline",
             "fill_value": -1.0,
-            "sitk_threads": 2,
+            "itk_threads": 2,
             "show_progress": True,
             "plot_metric": False,
             "plot_composite": False,
