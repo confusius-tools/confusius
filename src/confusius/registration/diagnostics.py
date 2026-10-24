@@ -20,10 +20,10 @@ class RegistrationDiagnostics:
 
     Attributes
     ----------
-    metric : {"correlation", "mattes_mi"}
+    metric : {"correlation", "mattes_mi", "ants_cc"}
         Similarity metric used during optimization, echoed from
         `register_volume`'s `metric` argument. Determines the sign and scale
-        of `metric_values` (ITK always minimizes, so both supported
+        of `metric_values` (ITK always minimizes, so all supported
         metrics are recorded as negative values).
     metric_values : (n_iterations,) numpy.ndarray
         Similarity metric value recorded at each optimizer iteration, in
@@ -37,15 +37,15 @@ class RegistrationDiagnostics:
         optimizer converged early.
     stop_condition : str
         Human-readable description of the optimizer stop condition. When the
-        registration completes normally, this is ITK's
-        `GetOptimizerStopConditionDescription`. When the registration is
-        aborted cooperatively, this is a short abort message.
+        parametric registration completes normally, this is ITK's optimizer
+        stop-condition description. SyN reports convergence or its iteration
+        limit. Cooperative cancellation returns a short abort description.
     status : {"completed", "aborted"}
         Whether the registration ran to completion or returned an intermediate
         result after cooperative cancellation.
     """
 
-    metric: Literal["correlation", "mattes_mi"]
+    metric: Literal["correlation", "mattes_mi", "ants_cc"]
     metric_values: npt.NDArray[np.floating]
     final_metric_value: float
     n_iterations: int
