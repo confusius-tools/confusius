@@ -465,7 +465,7 @@ class TestRegisterVolumewise:
             fixed=fixed,
             n_jobs=1,
             transform="translation",
-            learning_rate=2.0,
+            learning_rate=1.0,
             show_progress=False,
         )
 
@@ -612,28 +612,6 @@ class TestRegisterVolumewise:
         assert_allclose(
             result.values, sample_voxeldata_3dt_registration.values, atol=1e-3
         )
-
-    def test_thin_pyramid_warns_once_and_preserves_identical_frames(
-        self, sample_voxeldata_2dt_registration
-    ):
-        """Smoothing is resolved once before registering individual thin frames."""
-        with pytest.warns(UserWarning, match="Gaussian pyramid smoothing") as caught:
-            result = register_volumewise(
-                sample_voxeldata_2dt_registration,
-                n_jobs=1,
-                transform="translation",
-                use_multi_resolution=True,
-                shrink_factors=(2, 1),
-                smoothing_sigmas=(1, 0),
-            )
-        assert len(caught) == 1
-        assert_allclose(
-            result.values, sample_voxeldata_2dt_registration.values, atol=1e-5
-        )
-        assert_allclose(
-            result.attrs["motion_params"]["final_metric_value"], -1, atol=1e-6
-        )
-        assert (result.attrs["motion_params"]["status"] == "completed").all()
 
     def test_keep_diagnostics_toggles_full_trace(
         self, sample_voxeldata_2dt_registration

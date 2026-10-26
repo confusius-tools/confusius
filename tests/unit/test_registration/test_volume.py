@@ -900,7 +900,7 @@ class TestRegisterVolumeResample:
             moving,
             sample_voxeldata_2d_registration,
             transform_type="translation",
-            learning_rate=0.01,
+            learning_rate=1.0,
             number_of_iterations=200,
             resample=True,
         )

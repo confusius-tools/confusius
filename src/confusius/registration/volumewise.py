@@ -9,10 +9,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.io import is_h5py_backed
-from confusius.registration._utils import (
-    resolve_registration_smoothing,
-    validate_intensity_scaling,
-)
+from confusius.registration._utils import validate_intensity_scaling
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
@@ -140,9 +137,7 @@ def register_volumewise(
     smoothing_sigmas : sequence of int, default: (6, 2, 1)
         Gaussian smoothing sigma (in voxels) applied at each pyramid level,
         from coarsest to finest. Must have the same length as
-        `shrink_factors`. Only used when `use_multi_resolution=True`. Disabled with
-        one warning per call if either input has fewer than four voxels along any
-        spatial axis.
+        `shrink_factors`. Only used when `use_multi_resolution=True`.
     resample_interpolation : {"linear", "bspline"}, default: "linear"
         Interpolator used when resampling each volume onto the reference grid.
         `"linear"` is fast and appropriate for motion correction.
@@ -194,18 +189,8 @@ def register_volumewise(
     TypeError
         If `n_jobs != 1` and `data` is backed by an h5py dataset. See Notes.
 
-    Warns
-    -----
-    UserWarning
-        When nonzero pyramid smoothing is overridden for thin inputs.
-
     Notes
     -----
-    Thin inputs retain their original image grids and use central-difference
-    gradients without Gaussian pyramid smoothing, as described in
-    [register_volume][confusius.registration.register_volume]. Downsampling remains
-    enabled when requested; motion is not constrained to the image plane.
-
     SCAN files are HDF5 files loaded lazily via h5py. h5py datasets cannot be pickled,
     so they cannot be passed to joblib workers for parallel processing. Materialize the
     data before calling this function:
@@ -278,9 +263,6 @@ def register_volumewise(
     # lazily loaded recording) would otherwise be recomputed for every frame, and
     # an h5py-backed one cannot be sent to joblib workers at all.
     ref_da = ref_da.compute()
-    _, smoothing_sigmas = resolve_registration_smoothing(
-        data_moved, ref_da, use_multi_resolution, smoothing_sigmas
-    )
 
     progress_context = nullcontext()
     if show_progress:

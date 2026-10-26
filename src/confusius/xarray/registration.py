@@ -130,9 +130,6 @@ class FUSIRegistrationAccessor:
         smoothing_sigmas : sequence of int, default: (6, 2, 1)
             Gaussian smoothing sigma (in voxels) at each pyramid level, from
             coarsest to finest. Only used when `use_multi_resolution=True`.
-            Disabled with a warning for inputs with fewer than four voxels along
-            any spatial axis; those inputs retain their native grids and use
-            central-difference gradients.
         resample : bool, default: False
             Whether to resample the moving volume into the fixed volume's
             space. When `False` (the default), only the transform is
@@ -306,9 +303,6 @@ class FUSIRegistrationAccessor:
         smoothing_sigmas : sequence of int, default: (6, 2, 1)
             Gaussian smoothing sigma (in voxels) at each pyramid level, from
             coarsest to finest. Only used when `use_multi_resolution=True`.
-            Disabled with one warning per call for inputs with fewer than four
-            voxels along any spatial axis; those inputs retain their native grids
-            and use central-difference gradients.
         resample_interpolation : {"linear", "bspline"}, default: "linear"
             Interpolation method used for the final resample step.
         fill_value : float, optional
