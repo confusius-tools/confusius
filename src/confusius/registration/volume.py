@@ -10,8 +10,8 @@ import xarray as xr
 from confusius._utils.itk import resolve_itk_threads, voxeldata_to_itk_image
 from confusius.registration._utils import (
     abort_on_sigint,
-    expand_thin_dims,
     replace_affines_attr,
+    resolve_registration_smoothing,
     set_itk_thread_count,
     validate_fill_value,
     validate_intensity_scaling,
@@ -594,7 +594,8 @@ def register_volume(
     smoothing_sigmas : sequence of int, default: (6, 2, 1)
         Gaussian smoothing sigma (in voxels) applied at each pyramid level, from
         coarsest to finest. Must have the same length as `shrink_factors`. Only used
-        when `use_multi_resolution=True`.
+        when `use_multi_resolution=True`. Disabled with a warning if either input
+        has fewer than four voxels along any spatial axis.
     resample : bool, default: True
         Whether to resample the moving volume onto the fixed grid after estimating the
         transform. When `True`, the output is resampled onto the fixed grid and its
@@ -709,6 +710,24 @@ def register_volume(
     ValueError
         If `fixed_mask` shape does not match `fixed` or `moving_mask` shape does
         not match `moving`.
+
+    Warns
+    -----
+    UserWarning
+        When nonzero pyramid smoothing is overridden for a thin input.
+
+    Notes
+    -----
+    Inputs with fewer than four voxels along any spatial axis, including single
+    slices, retain their original image and mask grids. Gaussian gradient filters
+    are disabled in favor of on-demand central differences, and pyramid smoothing
+    sigmas are set to zero. Downsampling still follows `shrink_factors`, without
+    Gaussian antialiasing. Gradient estimates and convergence can differ from those
+    for thicker volumes, so learning rates may need adjustment.
+
+    Transforms remain three-dimensional: this policy does not constrain motion to
+    the image plane. In particular, through-plane motion in single-slice data is
+    not identifiable and can drift, including for oblique planes.
     """
     import itk
 
@@ -735,13 +754,14 @@ def register_volume(
 
     fixed_itk = voxeldata_to_itk_image(fixed)
     moving_itk = voxeldata_to_itk_image(moving)
-    fixed_reg = expand_thin_dims(
-        voxeldata_to_itk_image(_apply_intensity_scaling(fixed, fixed_intensity_scaling))
+    fixed_reg = voxeldata_to_itk_image(
+        _apply_intensity_scaling(fixed, fixed_intensity_scaling)
     )
-    moving_reg = expand_thin_dims(
-        voxeldata_to_itk_image(
-            _apply_intensity_scaling(moving, moving_intensity_scaling)
-        )
+    moving_reg = voxeldata_to_itk_image(
+        _apply_intensity_scaling(moving, moving_intensity_scaling)
+    )
+    use_gradient_filters, smoothing_sigmas = resolve_registration_smoothing(
+        moving, fixed, use_multi_resolution, smoothing_sigmas
     )
     image_type = type(fixed_reg)
     if type(moving_reg) is not image_type:
@@ -808,13 +828,15 @@ def register_volume(
         metric_object = itk.MattesMutualInformationImageToImageMetricv4[
             image_type, image_type
         ].New(NumberOfHistogramBins=number_of_histogram_bins)
+    metric_object.SetUseFixedImageGradientFilter(use_gradient_filters)
+    metric_object.SetUseMovingImageGradientFilter(use_gradient_filters)
     metric_object.SetMaximumNumberOfWorkUnits(resolve_itk_threads(itk_threads))
     for mask, setter in (
         (fixed_mask, metric_object.SetFixedImageMask),
         (moving_mask, metric_object.SetMovingImageMask),
     ):
         if mask is not None:
-            mask_image = expand_thin_dims(voxeldata_to_itk_image(mask))
+            mask_image = voxeldata_to_itk_image(mask)
             mask_image = itk.cast_image_filter(
                 mask_image, ttype=(type(mask_image), itk.Image[itk.UC, ndim])
             )

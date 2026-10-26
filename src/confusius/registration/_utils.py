@@ -2,7 +2,8 @@
 
 import signal
 import threading
-from collections.abc import Callable, Generator
+import warnings
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from copy import deepcopy
 from types import FrameType
@@ -12,15 +13,13 @@ import numpy as np
 import xarray as xr
 from scipy.spatial.transform import Rotation
 
-from confusius._dims import WORLD_DIMS
+from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.geometry import get_voxel_to_world_spatial_dims
 from confusius._utils.itk import resolve_itk_threads
 from confusius.validation import ensure_voxeldata
 
 if TYPE_CHECKING:
     from threading import Event
-
-    import itk
 
 
 def _raise_undefined_spatial_spacing_error(undefined_dims: list[str]) -> None:
@@ -369,35 +368,51 @@ def abort_on_sigint(
         signal.signal(signal.SIGINT, previous_handler)
 
 
-def expand_thin_dims(img: "itk.Image", min_size: int = 4) -> "itk.Image":
-    """Expand thin image dimensions while preserving their physical support.
-
-    Registration's recursive Gaussian filters require at least four voxels per
-    dimension, including for single-slice fUSI recordings. ITK expands using
-    linear interpolation, divides spacing by each expansion factor, and shifts
-    the origin to preserve voxel-support boundaries (`size * spacing`), rather
-    than the span between the first and last voxel centers.
+def resolve_registration_smoothing(
+    moving: xr.DataArray,
+    fixed: xr.DataArray,
+    use_multi_resolution: bool,
+    smoothing_sigmas: Sequence[int],
+) -> tuple[bool, list[int]]:
+    """Select filters that can operate on the original voxel grids.
 
     Parameters
     ----------
-    img : itk.Image
-        Input image.
-    min_size : int, default: 4
-        Minimum acceptable size along each dimension.
+    moving : xarray.DataArray
+        Moving VoxelData array, optionally with a time dimension.
+    fixed : xarray.DataArray
+        Fixed VoxelData array.
+    use_multi_resolution : bool
+        Whether to use a multi-resolution pyramid.
+    smoothing_sigmas : sequence of int
+        Requested Gaussian smoothing sigmas at each pyramid level.
 
     Returns
     -------
-    itk.Image
-        Image with all dimensions >= `min_size`. Returns `img` unchanged if no
-        dimension is too small.
+    use_gradient_filters : bool
+        Whether to precompute Gaussian image gradients. Thin inputs instead use
+        on-demand central differences.
+    effective_sigmas : list of int
+        Requested sigmas, replaced with zeros for thin multi-resolution inputs.
+
+    Warns
+    -----
+    UserWarning
+        When nonzero pyramid smoothing is disabled because either image has fewer
+        than four voxels along a spatial axis.
     """
-    import itk
-
-    size = img.GetLargestPossibleRegion().GetSize()
-    factors = [max(1, (min_size + int(s) - 1) // int(s)) for s in size]
-    if all(factor == 1 for factor in factors):
-        return img
-
-    result = itk.expand_image_filter(img, expand_factors=factors)
-    result.DisconnectPipeline()
-    return result
+    # Recursive Gaussian filters require four samples on every spatial axis.
+    use_gradient_filters = all(
+        image.sizes[dim] >= 4 for image in (moving, fixed) for dim in VOXEL_DIMS
+    )
+    effective_sigmas = list(smoothing_sigmas)
+    if not use_gradient_filters and use_multi_resolution and any(effective_sigmas):
+        warnings.warn(
+            "Gaussian pyramid smoothing is disabled because a registration input "
+            "has fewer than four voxels along a spatial axis. The original voxel "
+            "grids are preserved; image gradients use central differences.",
+            UserWarning,
+            stacklevel=3,
+        )
+        effective_sigmas = [0] * len(effective_sigmas)
+    return use_gradient_filters, effective_sigmas

@@ -47,6 +47,12 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Registration preserves the original image and mask grids for single-slice and
+  thin-volume inputs instead of expanding them. Inputs with fewer than four voxels
+  on any spatial axis use central-difference gradients; nonzero Gaussian pyramid
+  smoothing is disabled with a warning. Existing learning-rate tuning may need
+  adjustment, and transforms remain three-dimensional
+  ([#528](https://github.com/confusius-tools/confusius/pull/528)).
 - Nearest-neighbor resampling preserves 64-bit integer labels exactly, including
   values beyond float64's exact integer range
   ([#528](https://github.com/confusius-tools/confusius/pull/528)).

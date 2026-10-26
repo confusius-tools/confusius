@@ -70,10 +70,11 @@ data
 # choose any other reference timepoint using the `reference_time`. Alternatively, pass
 # any spatial-only volume on the same grid as `fixed`, for example the mean of a few
 # low-motion frames. Here, we're trying to correct for rigid motion, that is,
-# translation and rotations. The default learning rate is conservative; for this
-# recording, `1.0` recovers the inter-frame shifts better. Depending on the recording,
-# the dynamic range of the data can be quite large, here we use decibel scaling to help
-# the optimizer find the correct alignment.
+# translation and rotations. This single-slice recording uses native-grid
+# central-difference gradients; `learning_rate=0.1` recovers the inter-frame shifts
+# without the overshoot seen with `1.0`. Learning rates tuned for Gaussian gradients
+# may need adjustment for thin inputs. The dynamic range of the data can be quite
+# large, so we use decibel scaling to help the optimizer find the correct alignment.
 
 # %%
 registered = cf.registration.register_volumewise(
@@ -81,7 +82,7 @@ registered = cf.registration.register_volumewise(
     transform="rigid",
     moving_intensity_scaling="db",
     metric="correlation",
-    learning_rate=1.0,
+    learning_rate=0.1,
 )
 
 # %% [markdown]

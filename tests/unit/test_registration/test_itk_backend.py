@@ -1,6 +1,7 @@
 """Backend-independent geometry, precision, and inverse-transform regressions."""
 
 import gc
+import warnings
 import weakref
 from threading import Event
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 from scipy.ndimage import map_coordinates
 from scipy.spatial.transform import Rotation
 
+from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius.registration import (
     invert_displacement_field,
     register_volume,
@@ -261,7 +263,7 @@ def test_db_optimizer_scaling_keeps_zero_power_finite(sample_voxeldata_2d_regist
         itk_threads=1,
     )
     assert_allclose(transform, np.eye(4), atol=1e-6)
-    assert_array_equal(actual.values, source.values)
+    assert_allclose(actual.values, source.values, atol=1e-6)
     assert_allclose(diagnostics.metric_values, -1, atol=1e-6)
 
 
@@ -451,14 +453,25 @@ def test_multiresolution_abort_stops_future_levels_and_releases_reporter(
     assert reporter_refs[0]() is None
 
 
-@pytest.mark.parametrize("depth", [1, 2, 3, 4])
-def test_thin_optimizer_grid_preserves_interpolation_and_physical_support(
+@pytest.mark.parametrize("depths", [(1, 1), (2, 2), (3, 3), (4, 4), (1, 4), (4, 1)])
+@pytest.mark.parametrize("thin_axis", [0, 1, 2])
+@pytest.mark.parametrize("use_multi_resolution", [False, True])
+def test_registration_preserves_native_image_and_mask_grids(
     sample_voxeldata_2d_registration,
-    depth,
+    depths,
+    thin_axis,
+    use_multi_resolution,
 ):
-    """Thin-axis expansion uses linear interpolation without changing voxel support."""
-    values = np.repeat(sample_voxeldata_2d_registration.values, depth, axis=0)
-    values += np.arange(depth, dtype=np.float32)[:, None, None] * 10
+    """Thin grids stay unchanged, with finite-difference gradients and no smoothing."""
+    fixed_depth, moving_depth = depths
+    values = np.repeat(sample_voxeldata_2d_registration.values, fixed_depth, axis=0)
+    values += np.arange(fixed_depth, dtype=np.float32)[:, None, None] * 10
+    values = np.moveaxis(values, 0, thin_axis)
+    moving_values = np.moveaxis(
+        np.repeat(sample_voxeldata_2d_registration.values, moving_depth, axis=0),
+        0,
+        thin_axis,
+    )
     spacing = np.array([1.7, 0.2, 0.3])
     origin = np.array([2.5, -3.0, 4.0])
     direction = Rotation.from_euler("xyz", [0.12, -0.23, 0.34]).as_matrix()
@@ -469,46 +482,128 @@ def test_thin_optimizer_grid_preserves_interpolation_and_physical_support(
         origin=origin.tolist(),
         direction=direction,
     )
+    moving = create_voxeldata(
+        moving_values,
+        dims=("k", "j", "i"),
+        spacing=spacing.tolist(),
+        origin=origin.tolist(),
+        direction=direction,
+    )
+    mask = source.copy(data=np.indices(source.shape).sum(axis=0) % 2 == 0)
+    moving_mask = moving.copy(data=np.indices(moving.shape).sum(axis=0) % 2 == 0)
+    use_gradient_filters = min(depths) >= 4
     observed = {}
 
     def factory(registration, *_images, **_kwargs):
-        """Capture the optimizer image through the public progress-factory hook."""
+        """Inspect the real optimizer inputs through the public progress hook."""
         image = registration.GetFixedImage()
+        metric = itk.down_cast(registration.GetMetric())
         observed["values"] = itk.array_from_image(image).T
+        observed["moving"] = itk.array_from_image(registration.GetMovingImage()).T
         observed["spacing"] = np.array(image.GetSpacing())
         observed["origin"] = np.array(image.GetOrigin())
         observed["direction"] = itk.array_from_matrix(image.GetDirection())
+        observed["fixed_mask"] = itk.array_from_image(
+            itk.down_cast(metric.GetFixedImageMask()).GetImage()
+        ).T
+        observed["moving_mask"] = itk.array_from_image(
+            itk.down_cast(metric.GetMovingImageMask()).GetImage()
+        ).T
+        observed["gradient_filters"] = (
+            metric.GetUseFixedImageGradientFilter(),
+            metric.GetUseMovingImageGradientFilter(),
+        )
+        observed["sigmas"] = list(registration.GetSmoothingSigmasPerLevel())
         return SimpleNamespace(update=lambda: None, close=lambda: None)
 
     event = Event()
     event.set()
-    register_volume(
-        source,
-        source,
-        transform_type="translation",
-        show_progress=True,
-        progress_plotter=factory,
-        plot_metric=False,
-        plot_composite=False,
-        abort_event=event,
-        resample=False,
-    )
-    factors = np.array([(4 + depth - 1) // depth, 1, 1])
-    shape = np.array(source.shape) * factors
-    indices = (np.indices(tuple(shape), dtype=float) + 0.5) / factors[
-        :, None, None, None
-    ] - 0.5
-    expected = map_coordinates(
-        values, indices, order=1, mode="nearest", prefilter=False
-    )
-    assert_allclose(observed["values"], expected, atol=1e-6)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", UserWarning)
+        register_volume(
+            moving,
+            source,
+            fixed_mask=mask,
+            moving_mask=moving_mask,
+            transform_type="translation",
+            use_multi_resolution=use_multi_resolution,
+            shrink_factors=(2, 1),
+            smoothing_sigmas=(1, 0),
+            show_progress=True,
+            progress_plotter=factory,
+            plot_metric=False,
+            plot_composite=False,
+            abort_event=event,
+            resample=False,
+        )
+    assert_array_equal(observed["values"], values)
+    assert_array_equal(observed["moving"], moving_values)
+    assert_array_equal(observed["fixed_mask"], mask.values)
+    assert_array_equal(observed["moving_mask"], moving_mask.values)
     assert_allclose(observed["direction"], direction, atol=1e-14)
-    assert_allclose(observed["spacing"] * shape, spacing * source.shape, atol=1e-14)
-    assert_allclose(
-        observed["origin"] - direction @ (observed["spacing"] / 2),
-        origin - direction @ (spacing / 2),
-        atol=1e-14,
+    assert_allclose(observed["spacing"], spacing, atol=1e-14)
+    assert_allclose(observed["origin"], origin, atol=1e-14)
+    assert observed["gradient_filters"] == (use_gradient_filters, use_gradient_filters)
+    expected_sigmas = [0]
+    if use_multi_resolution:
+        expected_sigmas = [1, 0] if use_gradient_filters else [0, 0]
+    assert observed["sigmas"] == expected_sigmas
+    assert len(caught) == int(use_multi_resolution and not use_gradient_filters)
+    if caught:
+        assert "Gaussian pyramid smoothing" in str(caught[0].message)
+
+
+@pytest.mark.parametrize("depth", [1, 2, 3])
+@pytest.mark.parametrize("oblique", [False, True])
+@pytest.mark.parametrize("use_multi_resolution", [False, True])
+def test_thin_registration_recovers_masked_in_plane_translation(
+    sample_voxeldata_2d_registration, depth, oblique, use_multi_resolution
+):
+    """Masked thin grids recover observable in-plane motion, including oblique planes."""
+    direction = (
+        Rotation.from_euler("xyz", [0.12, -0.23, 0.34]).as_matrix()
+        if oblique
+        else np.eye(3)
     )
+    values = np.repeat(sample_voxeldata_2d_registration.values, depth, axis=0)
+    fixed = create_voxeldata(
+        values,
+        dims=("k", "j", "i"),
+        spacing=(1.7, 0.1, 0.1),
+        origin=(2.5, -3.0, 4.0),
+        direction=direction,
+    )
+    moving = fixed.copy(data=np.roll(values, (2, 2), axis=(1, 2)))
+    region = np.zeros(fixed.shape, dtype=bool)
+    region[:, 4:28, 4:28] = True
+    mask = fixed.copy(data=region)
+    result, affine, diagnostics = register_volume(
+        moving,
+        fixed,
+        fixed_mask=mask,
+        moving_mask=mask,
+        transform_type="translation",
+        initialization=None,
+        use_multi_resolution=use_multi_resolution,
+        shrink_factors=(2, 1),
+        smoothing_sigmas=(0, 0),
+        learning_rate=0.01,
+        number_of_iterations=150,
+        itk_threads=1,
+    )
+    assert_allclose(affine[:3, :3], np.eye(3), atol=1e-12)
+    assert_allclose((direction.T @ affine[:3, 3])[1:], [0.2, 0.2], atol=0.005)
+    # World-coordinate differences can drift along an unobservable oblique normal.
+    if not oblique:
+        assert abs(affine[0, 3]) < 1e-6
+    assert_allclose(
+        get_voxel_to_world_affine(result), get_voxel_to_world_affine(fixed), atol=1e-12
+    )
+    assert np.mean((result.values - fixed.values) ** 2) < 0.02 * np.mean(
+        (moving.values - fixed.values) ** 2
+    )
+    assert np.isfinite(diagnostics.metric_values).all()
+    assert diagnostics.n_iterations > 0
 
 
 def test_zero_worker_count_is_rejected(sample_voxeldata_2d_registration):
