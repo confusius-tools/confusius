@@ -1478,6 +1478,74 @@ class TestInitialization:
 
         assert_allclose(transform, initial_transform)
 
+    @pytest.mark.parametrize("thin", [False, True])
+    @pytest.mark.parametrize("angle", [0.0, 0.3])
+    def test_matrix_initialization_preserves_mapping_at_fixed_center(
+        self,
+        sample_voxeldata_2d_registration,
+        sample_voxeldata_3d_registration,
+        thin,
+        angle,
+        monkeypatch,
+    ):
+        """Matrix seeds retain their mapping with a fixed-image-centered pivot."""
+        import itk
+
+        data = (
+            sample_voxeldata_2d_registration
+            if thin
+            else sample_voxeldata_3d_registration
+        )
+        geometry = np.eye(4)
+        geometry[:3, :3] = [
+            [np.cos(angle), -np.sin(angle), 0.0],
+            [np.sin(angle), np.cos(angle), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+        geometry[:3, 3] = [5.0, -7.0, 11.0]
+        fixed = data.fusi.affine.apply(geometry)
+        voxel_to_world = get_voxel_to_world_affine(fixed)
+        expected_center = (
+            voxel_to_world[:3, :3] @ ((np.array(fixed.shape) - 1) / 2)
+            + voxel_to_world[:3, 3]
+        )
+        seed = np.eye(4)
+        seed[:3, :3] = [
+            [1.0, 0.01, -0.02],
+            [-0.01, 0.99, 0.02],
+            [0.0, 0.01, 1.02],
+        ]
+        seed[:3, 3] = (
+            expected_center - seed[:3, :3] @ expected_center + [0.02, -0.03, 0.01]
+        )
+        registration_type = itk.ImageRegistrationMethodv4[
+            itk.Image[itk.F, 3], itk.Image[itk.F, 3]
+        ]
+        original_update = registration_type.Update
+        centers = []
+
+        def capture_center(self):
+            """Record the initial pivot, then execute the real registration."""
+            transform = itk.down_cast(self.GetInitialTransform())
+            centers.append(np.array(transform.GetCenter()))
+            return original_update(self)
+
+        monkeypatch.setattr(registration_type, "Update", capture_center)
+        _, transform, _ = register_volume(
+            fixed,
+            fixed,
+            transform_type="affine",
+            initialization=seed,
+            optimizer_weights=[0.0] * 12,
+            learning_rate=1.0,
+            number_of_iterations=1,
+            resample=False,
+            itk_threads=1,
+        )
+
+        assert_allclose(centers, [expected_center], rtol=0, atol=1e-12)
+        assert_allclose(transform, seed, rtol=0, atol=1e-12)
+
     def test_bspline_with_affine_initialization_stores_pre_affine(
         self, sample_voxeldata_2d_registration
     ):

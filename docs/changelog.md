@@ -47,6 +47,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Matrix-initialized linear registration now pivots around the fixed image's
+  physical center without changing the supplied initial mapping, improving
+  optimizer conditioning for data away from the world origin
+  ([#528](https://github.com/confusius-tools/confusius/pull/528)).
 - Nearest-neighbor resampling preserves 64-bit integer labels exactly, including
   values beyond float64's exact integer range
   ([#528](https://github.com/confusius-tools/confusius/pull/528)).

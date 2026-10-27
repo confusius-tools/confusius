@@ -563,8 +563,9 @@ def register_volume(
 
         - `"center_geometry"`: aligns image centers.
         - `"center_moments"`: aligns centers of mass.
-        - `(N+1, N+1)` homogeneous affine matrix: uses a precomputed affine
-          transform.
+        - `(N+1, N+1)` homogeneous affine matrix: preserves the supplied world
+          mapping and, for linear registration, uses the fixed image's physical
+          center as the optimizer pivot.
         - `None`: uses the identity transform.
 
         For `transform_type="bspline"`, centering modes are ignored but affine
@@ -797,6 +798,17 @@ def register_volume(
             composite.SetOnlyMostRecentTransformToOptimizeOn()
             initial = composite
         else:
+            region = fixed_reg.GetLargestPossibleRegion()
+            center_index = itk.ContinuousIndex[itk.D, ndim]()
+            for axis in range(ndim):
+                center_index[axis] = (
+                    region.GetIndex()[axis] + (region.GetSize()[axis] - 1) / 2
+                )
+            pre_transform.SetCenter(
+                fixed_reg.TransformContinuousIndexToPhysicalPoint(center_index)
+            )
+            # Restore the world offset after changing the optimizer's pivot.
+            pre_transform.SetOffset(tuple(affine_initialization[:ndim, ndim]))
             initial = pre_transform
 
     # FixedImage/MovingImage do not drive template inference for metrics or registration.
