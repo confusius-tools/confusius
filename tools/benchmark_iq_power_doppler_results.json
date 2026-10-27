@@ -1,0 +1,2003 @@
+{
+  "4_threads": {
+    "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+    "numpy": "2.4.6",
+    "threadpools": [
+      {
+        "user_api": "blas",
+        "internal_api": "openblas",
+        "num_threads": 4,
+        "prefix": "libscipy_openblas",
+        "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+        "version": "0.3.31.188.0",
+        "threading_layer": "pthreads",
+        "architecture": "Haswell"
+      },
+      {
+        "user_api": "blas",
+        "internal_api": "openblas",
+        "num_threads": 4,
+        "prefix": "libscipy_openblas",
+        "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+        "version": "0.3.31.dev",
+        "threading_layer": "pthreads",
+        "architecture": "Haswell"
+      }
+    ],
+    "timing": [
+      {
+        "voxels": 10000,
+        "frames": 300,
+        "low": 20,
+        "high": 300,
+        "subset_fraction": 1.0,
+        "public_pipeline": {
+          "median_ms": 166.04786699463148,
+          "samples_ms": [
+            179.99926098855212,
+            177.48266100534238,
+            166.04786699463148,
+            150.249978993088,
+            151.6961079905741
+          ]
+        },
+        "gram_evd": {
+          "median_ms": 95.92130499368068,
+          "samples_ms": [
+            94.93586099415552,
+            96.9205309957033,
+            95.92130499368068,
+            96.89666499616578,
+            95.69765099149663
+          ]
+        },
+        "post_basis": {
+          "reconstruct": {
+            "median_ms": 49.42672900506295,
+            "samples_ms": [
+              49.42672900506295,
+              50.759053992806,
+              49.74599000706803,
+              49.102824996225536,
+              48.673518002033234
+            ]
+          },
+          "retained": {
+            "median_ms": 71.43046100100037,
+            "samples_ms": [
+              71.40392001019791,
+              71.9576099945698,
+              71.07692999124993,
+              72.33632300631143,
+              71.43046100100037
+            ]
+          },
+          "subtract64": {
+            "median_ms": 20.80888800264802,
+            "samples_ms": [
+              21.15853199211415,
+              20.803056002478115,
+              20.94688000215683,
+              20.80888800264802,
+              20.677890002843924
+            ]
+          },
+          "subtract_native": {
+            "median_ms": 17.383865008014254,
+            "samples_ms": [
+              17.64143600303214,
+              18.06934500928037,
+              17.383865008014254,
+              17.267167000682093,
+              17.275670004892163
+            ]
+          }
+        },
+        "end_to_end": {
+          "reconstruct": {
+            "median_ms": 135.79747900075745,
+            "samples_ms": [
+              139.3014400091488,
+              137.41216900234576,
+              135.45424299081787,
+              135.21651600603946,
+              135.79747900075745
+            ]
+          },
+          "retained": {
+            "median_ms": 165.06347501126584,
+            "samples_ms": [
+              164.1422280081315,
+              163.96593599347398,
+              165.06347501126584,
+              167.71649500878993,
+              166.51338900555857
+            ]
+          },
+          "subtract64": {
+            "median_ms": 113.04902299889363,
+            "samples_ms": [
+              113.04902299889363,
+              113.75138600124046,
+              112.78864000632893,
+              112.8436739963945,
+              114.75875999894924
+            ]
+          }
+        },
+        "errors": {
+          "reconstruct": {
+            "relative_l2": 0.0,
+            "max_relative": 0.0,
+            "negative_voxels": 0
+          },
+          "retained": {
+            "relative_l2": 8.081283585764437e-15,
+            "max_relative": 3.179065651018361e-14,
+            "negative_voxels": 0
+          },
+          "subtract64": {
+            "relative_l2": 7.388268301213807e-11,
+            "max_relative": 4.649451871933568e-10,
+            "negative_voxels": 0
+          },
+          "subtract_native": {
+            "relative_l2": 0.0028013803722772147,
+            "max_relative": 0.013238724999508764,
+            "negative_voxels": 0
+          }
+        }
+      },
+      {
+        "voxels": 10000,
+        "frames": 300,
+        "low": 20,
+        "high": 60,
+        "subset_fraction": 1.0,
+        "public_pipeline": {
+          "median_ms": 237.90456500137225,
+          "samples_ms": [
+            237.90456500137225,
+            238.24553399754222,
+            237.0337980100885,
+            234.83324600965716,
+            248.57152499316726
+          ]
+        },
+        "gram_evd": {
+          "median_ms": 93.64553200430237,
+          "samples_ms": [
+            95.52785400592256,
+            93.64553200430237,
+            96.49271299713291,
+            91.16113100026269,
+            89.67595601279754
+          ]
+        },
+        "post_basis": {
+          "reconstruct": {
+            "median_ms": 133.95107199903578,
+            "samples_ms": [
+              135.88339601119515,
+              133.95107199903578,
+              133.3230540039949,
+              133.5573469987139,
+              134.47615099721588
+            ]
+          },
+          "retained": {
+            "median_ms": 17.93065300444141,
+            "samples_ms": [
+              18.191625000326894,
+              18.884609002270736,
+              17.93065300444141,
+              17.6092680048896,
+              17.507180004031397
+            ]
+          },
+          "subtract64": {
+            "median_ms": 81.02982499985956,
+            "samples_ms": [
+              80.94957600405905,
+              81.12003099813592,
+              80.93240500602406,
+              81.02982499985956,
+              81.03741401282605
+            ]
+          },
+          "subtract_native": {
+            "median_ms": 76.72838598955423,
+            "samples_ms": [
+              75.78967399604153,
+              76.72838598955423,
+              75.48353000311181,
+              78.17844599776436,
+              78.40992200362962
+            ]
+          }
+        },
+        "end_to_end": {
+          "reconstruct": {
+            "median_ms": 237.71940798906144,
+            "samples_ms": [
+              226.70463001122698,
+              228.27332399901934,
+              237.71940798906144,
+              238.08402501163073,
+              244.3398680043174
+            ]
+          },
+          "retained": {
+            "median_ms": 114.20806399837602,
+            "samples_ms": [
+              114.55835698870942,
+              113.59849901054986,
+              113.82868999498896,
+              115.05476199090481,
+              114.20806399837602
+            ]
+          },
+          "subtract64": {
+            "median_ms": 175.15028100751806,
+            "samples_ms": [
+              175.45879998942837,
+              175.15028100751806,
+              174.56750001292676,
+              175.86942300840747,
+              175.02912700001616
+            ]
+          }
+        },
+        "errors": {
+          "reconstruct": {
+            "relative_l2": 0.0,
+            "max_relative": 0.0,
+            "negative_voxels": 0
+          },
+          "retained": {
+            "relative_l2": 2.4208479350864518e-14,
+            "max_relative": 1.0205082043460785e-13,
+            "negative_voxels": 0
+          },
+          "subtract64": {
+            "relative_l2": 4.0611856237295596e-10,
+            "max_relative": 2.721593031972973e-09,
+            "negative_voxels": 0
+          },
+          "subtract_native": {
+            "relative_l2": 0.015302075469358573,
+            "max_relative": 0.08053433678871821,
+            "negative_voxels": 0
+          }
+        }
+      },
+      {
+        "voxels": 10000,
+        "frames": 300,
+        "low": 20,
+        "high": 300,
+        "subset_fraction": 0.25,
+        "public_pipeline": {
+          "median_ms": 99.04037399974186,
+          "samples_ms": [
+            100.15545200440101,
+            96.78220200294163,
+            98.51017300388776,
+            99.04037399974186,
+            99.26288299902808
+          ]
+        },
+        "gram_evd": {
+          "median_ms": 37.53600000345614,
+          "samples_ms": [
+            38.07150200009346,
+            37.53600000345614,
+            37.366440999903716,
+            37.65907599881757,
+            37.40535900578834
+          ]
+        },
+        "post_basis": {
+          "reconstruct": {
+            "median_ms": 48.372631004895084,
+            "samples_ms": [
+              51.72716500237584,
+              49.512486992171034,
+              47.89229900052305,
+              48.372631004895084,
+              48.353303005569614
+            ]
+          },
+          "retained": {
+            "median_ms": 74.67090600403026,
+            "samples_ms": [
+              74.00699199934024,
+              75.19668599707074,
+              74.67090600403026,
+              75.35856100730598,
+              74.41134999680799
+            ]
+          },
+          "subtract64": {
+            "median_ms": 22.262812999542803,
+            "samples_ms": [
+              22.262812999542803,
+              22.49492700502742,
+              23.571910001919605,
+              21.78195099986624,
+              20.138274994678795
+            ]
+          },
+          "subtract_native": {
+            "median_ms": 17.900410006404854,
+            "samples_ms": [
+              18.284780002431944,
+              18.38625500386115,
+              17.900410006404854,
+              17.676130009931512,
+              17.58198101015296
+            ]
+          }
+        },
+        "end_to_end": {
+          "reconstruct": {
+            "median_ms": 87.39086499554105,
+            "samples_ms": [
+              87.36835500167217,
+              87.39086499554105,
+              88.0197299993597,
+              87.88829800323583,
+              86.98459500737954
+            ]
+          },
+          "retained": {
+            "median_ms": 115.79506300040521,
+            "samples_ms": [
+              115.62821299594361,
+              115.79506300040521,
+              116.06438001035713,
+              114.80628998833708,
+              116.39905700576492
+            ]
+          },
+          "subtract64": {
+            "median_ms": 60.02140299824532,
+            "samples_ms": [
+              59.685729996999726,
+              60.02140299824532,
+              59.63308099308051,
+              62.96884200128261,
+              62.33877199701965
+            ]
+          }
+        },
+        "errors": {
+          "reconstruct": {
+            "relative_l2": 0.0,
+            "max_relative": 0.0,
+            "negative_voxels": 0
+          },
+          "retained": {
+            "relative_l2": 8.434589826614366e-15,
+            "max_relative": 3.6554038178347496e-14,
+            "negative_voxels": 0
+          },
+          "subtract64": {
+            "relative_l2": 1.7354577683608896e-11,
+            "max_relative": 7.649156831731693e-11,
+            "negative_voxels": 0
+          },
+          "subtract_native": {
+            "relative_l2": 0.0027846904334710544,
+            "max_relative": 0.01345645137000206,
+            "negative_voxels": 0
+          }
+        }
+      },
+      {
+        "voxels": 100000,
+        "frames": 300,
+        "low": 20,
+        "high": 300,
+        "subset_fraction": 1.0,
+        "public_pipeline": {
+          "median_ms": 1373.2438000006368,
+          "samples_ms": [
+            1320.2053099957993,
+            1460.4938280099304,
+            1497.165015010978,
+            1373.2438000006368,
+            1227.9649109987076
+          ]
+        },
+        "gram_evd": {
+          "median_ms": 842.5727419962641,
+          "samples_ms": [
+            717.7330179983983,
+            728.2337479991838,
+            842.5727419962641,
+            852.3496790003264,
+            869.0225859900238
+          ]
+        },
+        "post_basis": {
+          "reconstruct": {
+            "median_ms": 488.8748710072832,
+            "samples_ms": [
+              490.4713590076426,
+              488.8748710072832,
+              487.5785629992606,
+              487.59066899947356,
+              491.6241940081818
+            ]
+          },
+          "retained": {
+            "median_ms": 752.1401550038718,
+            "samples_ms": [
+              891.3266829913482,
+              867.1936280006776,
+              741.734101990005,
+              752.1401550038718,
+              735.0869439978851
+            ]
+          },
+          "subtract64": {
+            "median_ms": 228.15590500249527,
+            "samples_ms": [
+              235.45643799297977,
+              228.15590500249527,
+              225.08083200955298,
+              220.86871598730795,
+              230.17772298771888
+            ]
+          },
+          "subtract_native": {
+            "median_ms": 205.11008700123057,
+            "samples_ms": [
+              207.9413850005949,
+              206.0526290006237,
+              205.11008700123057,
+              201.1986750003416,
+              199.64733700908255
+            ]
+          }
+        },
+        "end_to_end": {
+          "reconstruct": {
+            "median_ms": 1325.8767999941483,
+            "samples_ms": [
+              1267.3901670059422,
+              1194.3466449884,
+              1325.8767999941483,
+              1454.1406209900742,
+              1419.331509998301
+            ]
+          },
+          "retained": {
+            "median_ms": 1397.8923729882808,
+            "samples_ms": [
+              1504.1508779977448,
+              1397.8923729882808,
+              1373.7359090009704,
+              1423.0394290061668,
+              1375.3588670078898
+            ]
+          },
+          "subtract64": {
+            "median_ms": 1004.788190999534,
+            "samples_ms": [
+              958.3367610030109,
+              940.2495520043885,
+              1014.6874779893551,
+              1060.6087450141786,
+              1004.788190999534
+            ]
+          }
+        },
+        "errors": {
+          "reconstruct": {
+            "relative_l2": 0.0,
+            "max_relative": 0.0,
+            "negative_voxels": 0
+          },
+          "retained": {
+            "relative_l2": 9.703833093584379e-15,
+            "max_relative": 4.415845078739576e-14,
+            "negative_voxels": 0
+          },
+          "subtract64": {
+            "relative_l2": 1.2550133887616585e-10,
+            "max_relative": 8.574138191762149e-10,
+            "negative_voxels": 0
+          },
+          "subtract_native": {
+            "relative_l2": 0.0027862397392374536,
+            "max_relative": 0.01712583071179277,
+            "negative_voxels": 0
+          }
+        }
+      },
+      {
+        "voxels": 100000,
+        "frames": 300,
+        "low": 20,
+        "high": 60,
+        "subset_fraction": 1.0,
+        "public_pipeline": {
+          "median_ms": 2236.2807619938394,
+          "samples_ms": [
+            2357.131989992922,
+            2351.3891019974835,
+            2236.2807619938394,
+            2151.731355988886,
+            2136.969394996413
+          ]
+        },
+        "gram_evd": {
+          "median_ms": 753.209988004528,
+          "samples_ms": [
+            749.224797997158,
+            776.9631760020275,
+            758.4506000130204,
+            753.209988004528,
+            753.1406829948537
+          ]
+        },
+        "post_basis": {
+          "reconstruct": {
+            "median_ms": 1374.8232210054994,
+            "samples_ms": [
+              1330.0934150029207,
+              1388.5620950022712,
+              1381.3158159900922,
+              1374.8232210054994,
+              1328.6747079982888
+            ]
+          },
+          "retained": {
+            "median_ms": 188.33757199172396,
+            "samples_ms": [
+              188.4280270023737,
+              188.33757199172396,
+              188.892632999341,
+              188.0209310038481,
+              187.7891059993999
+            ]
+          },
+          "subtract64": {
+            "median_ms": 805.8202510001138,
+            "samples_ms": [
+              785.3545809921343,
+              812.799029998132,
+              806.0949670034461,
+              805.8202510001138,
+              804.290599990054
+            ]
+          },
+          "subtract_native": {
+            "median_ms": 769.9716900096973,
+            "samples_ms": [
+              788.198114008992,
+              783.9734070003033,
+              769.9716900096973,
+              748.6198940023314,
+              755.7746649981709
+            ]
+          }
+        },
+        "end_to_end": {
+          "reconstruct": {
+            "median_ms": 2086.1521909973817,
+            "samples_ms": [
+              2124.3049719923874,
+              2026.3392119959462,
+              2056.588395003928,
+              2094.0000679984223,
+              2086.1521909973817
+            ]
+          },
+          "retained": {
+            "median_ms": 909.672641006182,
+            "samples_ms": [
+              926.1485940078273,
+              923.4523880004417,
+              908.4020130103454,
+              909.2165949987248,
+              909.672641006182
+            ]
+          },
+          "subtract64": {
+            "median_ms": 1573.2319249946158,
+            "samples_ms": [
+              1607.1639530127868,
+              1573.2319249946158,
+              1534.7574720071862,
+              1554.4224330078578,
+              1619.7260390035808
+            ]
+          }
+        },
+        "errors": {
+          "reconstruct": {
+            "relative_l2": 0.0,
+            "max_relative": 0.0,
+            "negative_voxels": 0
+          },
+          "retained": {
+            "relative_l2": 2.660022657856603e-14,
+            "max_relative": 1.201468258004862e-13,
+            "negative_voxels": 0
+          },
+          "subtract64": {
+            "relative_l2": 8.050143906045222e-10,
+            "max_relative": 6.391976000422139e-09,
+            "negative_voxels": 0
+          },
+          "subtract_native": {
+            "relative_l2": 0.017834106084575824,
+            "max_relative": 0.12557129115464033,
+            "negative_voxels": 0
+          }
+        }
+      },
+      {
+        "voxels": 100000,
+        "frames": 300,
+        "low": 20,
+        "high": 300,
+        "subset_fraction": 0.25,
+        "public_pipeline": {
+          "median_ms": 777.9145120002795,
+          "samples_ms": [
+            785.8581019972917,
+            792.627092989278,
+            769.5653090049746,
+            777.9145120002795,
+            755.4641430033371
+          ]
+        },
+        "gram_evd": {
+          "median_ms": 228.6615909979446,
+          "samples_ms": [
+            228.5682459914824,
+            227.00838099990506,
+            228.6615909979446,
+            238.73938199540135,
+            230.46339700522367
+          ]
+        },
+        "post_basis": {
+          "reconstruct": {
+            "median_ms": 450.4850680095842,
+            "samples_ms": [
+              450.4850680095842,
+              453.54635900002904,
+              440.438859994174,
+              442.20588699681684,
+              455.67302900599316
+            ]
+          },
+          "retained": {
+            "median_ms": 756.2033529975452,
+            "samples_ms": [
+              796.795556001598,
+              783.547326005646,
+              735.2476949890843,
+              724.5861840056023,
+              756.2033529975452
+            ]
+          },
+          "subtract64": {
+            "median_ms": 226.3094310037559,
+            "samples_ms": [
+              226.3094310037559,
+              226.19286901317537,
+              228.54397700575646,
+              226.27546900184825,
+              229.62360800011083
+            ]
+          },
+          "subtract_native": {
+            "median_ms": 210.0381319905864,
+            "samples_ms": [
+              208.63762400404084,
+              210.0381319905864,
+              212.24417600024026,
+              213.93248598906212,
+              205.55137601331808
+            ]
+          }
+        },
+        "end_to_end": {
+          "reconstruct": {
+            "median_ms": 681.277466006577,
+            "samples_ms": [
+              697.2329010022804,
+              680.8180959924357,
+              683.5294729971793,
+              679.5175209990703,
+              681.277466006577
+            ]
+          },
+          "retained": {
+            "median_ms": 1003.8510099984705,
+            "samples_ms": [
+              1017.6085989951389,
+              1038.308169998345,
+              1003.8510099984705,
+              974.9995250022039,
+              972.548771998845
+            ]
+          },
+          "subtract64": {
+            "median_ms": 473.1744470045669,
+            "samples_ms": [
+              465.6648439995479,
+              473.1744470045669,
+              474.82196500641294,
+              470.82588299235795,
+              477.7517229958903
+            ]
+          }
+        },
+        "errors": {
+          "reconstruct": {
+            "relative_l2": 0.0,
+            "max_relative": 0.0,
+            "negative_voxels": 0
+          },
+          "retained": {
+            "relative_l2": 8.098726565566572e-15,
+            "max_relative": 4.240502719873241e-14,
+            "negative_voxels": 0
+          },
+          "subtract64": {
+            "relative_l2": 3.8470900207576774e-11,
+            "max_relative": 2.3304705179635446e-10,
+            "negative_voxels": 0
+          },
+          "subtract_native": {
+            "relative_l2": 0.0027846025341835617,
+            "max_relative": 0.017102749976873218,
+            "negative_voxels": 0
+          }
+        }
+      }
+    ],
+    "precision": [
+      {
+        "dtype": "complex64",
+        "tissue_to_blood_db": 0,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 3.398555071738771e-16,
+              "max_relative": 1.0935701575624463e-15,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.599095145405625e-15,
+              "max_relative": 7.806938591937863e-15,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.6049904624344417e-15,
+              "max_relative": 8.607650242393021e-15,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 1.040945802430576e-15,
+              "max_relative": 4.729693285485642e-15,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.017589921967889e-15,
+              "max_relative": 5.0844202818970636e-15,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 2.5945538040803625e-07,
+              "max_relative": 1.303015644848533e-06,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 2.594553803969878e-07,
+              "max_relative": 1.3030156449832554e-06,
+              "negative_voxels": 0
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex64",
+        "tissue_to_blood_db": 40,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.6914558792794144e-14,
+              "max_relative": 8.836617267031331e-14,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.7324122968861875e-14,
+              "max_relative": 8.519946682376625e-14,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 9.0540458127402e-15,
+              "max_relative": 3.4176183939118484e-14,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 4.0420397661549706e-11,
+              "max_relative": 1.9177923837877474e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 4.042124151302087e-11,
+              "max_relative": 1.9179176147929357e-10,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 0.0013471955152700968,
+              "max_relative": 0.00694750600640691,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0013471955152712664,
+              "max_relative": 0.006947506006391909,
+              "negative_voxels": 0
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex64",
+        "tissue_to_blood_db": 80,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.4578208951522132e-12,
+              "max_relative": 6.290197521285282e-12,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.4723010513363996e-12,
+              "max_relative": 5.964449194554741e-12,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 8.760940592739212e-13,
+              "max_relative": 3.598429835326804e-12,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 1.732428369151358e-07,
+              "max_relative": 9.003355408986107e-07,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.7324278374591613e-07,
+              "max_relative": 9.003366403868302e-07,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 12.860744062029914,
+              "max_relative": 78.0649701552826,
+              "negative_voxels": 472
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 12.860744062029992,
+              "max_relative": 78.06497015559597,
+              "negative_voxels": 472
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex64",
+        "tissue_to_blood_db": 120,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.703523378794371e-10,
+              "max_relative": 7.126322279528665e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.615752214782364e-10,
+              "max_relative": 8.327197885101902e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 9.067975891788523e-11,
+              "max_relative": 4.6129274110898747e-10,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 0.005519252661255237,
+              "max_relative": 0.027255893255864486,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.005519252662733853,
+              "max_relative": 0.02725589369377321,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 136387.4846241048,
+              "max_relative": 943412.2784173721,
+              "negative_voxels": 509
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 136387.48462430268,
+              "max_relative": 943412.2785317954,
+              "negative_voxels": 509
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex128",
+        "tissue_to_blood_db": 0,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 3.452447965651849e-16,
+              "max_relative": 1.1236747467800436e-15,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.845260896056162e-15,
+              "max_relative": 7.4560089602736e-15,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.857169938095202e-15,
+              "max_relative": 7.862700358106703e-15,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 1.1132488388845622e-15,
+              "max_relative": 7.449266825169226e-15,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.1007534710810958e-15,
+              "max_relative": 6.5033281807032855e-15,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 1.1590860972129428e-15,
+              "max_relative": 7.449266825169226e-15,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.139202734509756e-15,
+              "max_relative": 6.802455457970899e-15,
+              "negative_voxels": 0
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex128",
+        "tissue_to_blood_db": 40,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.537890474403029e-14,
+              "max_relative": 6.903751200519277e-14,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.3894875841969098e-14,
+              "max_relative": 6.152081486408295e-14,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 9.114011363052777e-15,
+              "max_relative": 3.38822255454926e-14,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 5.256288232569494e-11,
+              "max_relative": 2.5140750035931365e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 5.256233338321605e-11,
+              "max_relative": 2.5137851833403957e-10,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 5.261532192671836e-11,
+              "max_relative": 2.474993398472971e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 5.26147400192683e-11,
+              "max_relative": 2.4747035782202293e-10,
+              "negative_voxels": 0
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex128",
+        "tissue_to_blood_db": 80,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.42812554711491e-12,
+              "max_relative": 6.399918832226919e-12,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.5135601869944906e-12,
+              "max_relative": 7.1837773532952816e-12,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 7.460714019588245e-13,
+              "max_relative": 3.2336657881218244e-12,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 1.0590323807704481e-06,
+              "max_relative": 5.620634080299815e-06,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.0590323671373692e-06,
+              "max_relative": 5.620633627256684e-06,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 1.058960225319031e-06,
+              "max_relative": 5.620634080299815e-06,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.0589602129050194e-06,
+              "max_relative": 5.620633627256684e-06,
+              "negative_voxels": 0
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex128",
+        "tissue_to_blood_db": 120,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.4843343199522444e-10,
+              "max_relative": 5.77353525144419e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.4727452751510197e-10,
+              "max_relative": 5.892751260061624e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 8.792154318129306e-11,
+              "max_relative": 3.6611365833814944e-10,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 0.004029765115945292,
+              "max_relative": 0.021441376262227245,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.004029765115099348,
+              "max_relative": 0.02144137610412625,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 0.004020585479494915,
+              "max_relative": 0.019867506653194537,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.00402058547887735,
+              "max_relative": 0.01986750649533715,
+              "negative_voxels": 0
+            }
+          }
+        }
+      }
+    ],
+    "short_window": {
+      "quadratic_form": {
+        "relative_l2": 3.454061515611613e-16,
+        "max_relative": 1.210836636566481e-15,
+        "negative_voxels": 0
+      },
+      "incorrect_full_window_identity": {
+        "relative_l2": 0.2764572440316238,
+        "max_relative": 2.277082566881521,
+        "negative_voxels": 0
+      }
+    }
+  },
+  "1_threads": {
+    "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+    "numpy": "2.4.6",
+    "threadpools": [
+      {
+        "user_api": "blas",
+        "internal_api": "openblas",
+        "num_threads": 1,
+        "prefix": "libscipy_openblas",
+        "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+        "version": "0.3.31.188.0",
+        "threading_layer": "pthreads",
+        "architecture": "Haswell"
+      },
+      {
+        "user_api": "blas",
+        "internal_api": "openblas",
+        "num_threads": 1,
+        "prefix": "libscipy_openblas",
+        "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+        "version": "0.3.31.dev",
+        "threading_layer": "pthreads",
+        "architecture": "Haswell"
+      }
+    ],
+    "timing": [
+      {
+        "voxels": 10000,
+        "frames": 300,
+        "low": 20,
+        "high": 300,
+        "subset_fraction": 1.0,
+        "public_pipeline": {
+          "median_ms": 250.51232900295872,
+          "samples_ms": [
+            250.51232900295872,
+            250.95752600464039,
+            249.83720200543758
+          ]
+        },
+        "gram_evd": {
+          "median_ms": 180.24483500630595,
+          "samples_ms": [
+            180.24483500630595,
+            182.14384499879088,
+            178.04194599739276
+          ]
+        },
+        "post_basis": {
+          "reconstruct": {
+            "median_ms": 62.06479099637363,
+            "samples_ms": [
+              61.25266500748694,
+              64.20817899925169,
+              62.06479099637363
+            ]
+          },
+          "retained": {
+            "median_ms": 168.3025490056025,
+            "samples_ms": [
+              168.3025490056025,
+              169.87030500604305,
+              168.11394099204335
+            ]
+          },
+          "subtract64": {
+            "median_ms": 28.39875601057429,
+            "samples_ms": [
+              28.6457370093558,
+              28.28343400324229,
+              28.39875601057429
+            ]
+          },
+          "subtract_native": {
+            "median_ms": 26.870059009524994,
+            "samples_ms": [
+              27.141699989442714,
+              26.870059009524994,
+              25.582867005141452
+            ]
+          }
+        },
+        "end_to_end": {
+          "reconstruct": {
+            "median_ms": 254.79151999752503,
+            "samples_ms": [
+              251.4685949863633,
+              254.79151999752503,
+              256.8495930026984
+            ]
+          },
+          "retained": {
+            "median_ms": 354.0616870013764,
+            "samples_ms": [
+              354.0616870013764,
+              351.84918298909906,
+              355.1889219961595
+            ]
+          },
+          "subtract64": {
+            "median_ms": 223.40594099659938,
+            "samples_ms": [
+              223.40594099659938,
+              224.51794099470135,
+              219.08191501279362
+            ]
+          }
+        },
+        "errors": {
+          "reconstruct": {
+            "relative_l2": 0.0,
+            "max_relative": 0.0,
+            "negative_voxels": 0
+          },
+          "retained": {
+            "relative_l2": 8.325490873207195e-15,
+            "max_relative": 3.951023395500864e-14,
+            "negative_voxels": 0
+          },
+          "subtract64": {
+            "relative_l2": 6.415889257497441e-11,
+            "max_relative": 3.462921990944766e-10,
+            "negative_voxels": 0
+          },
+          "subtract_native": {
+            "relative_l2": 0.002801380371563613,
+            "max_relative": 0.01323872501776685,
+            "negative_voxels": 0
+          }
+        }
+      },
+      {
+        "voxels": 10000,
+        "frames": 300,
+        "low": 20,
+        "high": 60,
+        "subset_fraction": 1.0,
+        "public_pipeline": {
+          "median_ms": 532.1756290068151,
+          "samples_ms": [
+            527.2371159953764,
+            532.1756290068151,
+            561.4556590007851
+          ]
+        },
+        "gram_evd": {
+          "median_ms": 194.46301099378616,
+          "samples_ms": [
+            195.79701399197802,
+            194.46301099378616,
+            193.59004400030244
+          ]
+        },
+        "post_basis": {
+          "reconstruct": {
+            "median_ms": 329.19942199077923,
+            "samples_ms": [
+              329.19942199077923,
+              327.4590660003014,
+              329.2004620016087
+            ]
+          },
+          "retained": {
+            "median_ms": 33.452436997322366,
+            "samples_ms": [
+              34.09195700078271,
+              33.452436997322366,
+              33.323736002785154
+            ]
+          },
+          "subtract64": {
+            "median_ms": 166.05409799376503,
+            "samples_ms": [
+              164.9052809952991,
+              169.15482300100848,
+              166.05409799376503
+            ]
+          },
+          "subtract_native": {
+            "median_ms": 169.49889199167956,
+            "samples_ms": [
+              169.49889199167956,
+              168.04753299220465,
+              173.46132299280725
+            ]
+          }
+        },
+        "end_to_end": {
+          "reconstruct": {
+            "median_ms": 525.6785989913624,
+            "samples_ms": [
+              516.2268970016157,
+              525.6785989913624,
+              550.0336090044584
+            ]
+          },
+          "retained": {
+            "median_ms": 224.27875999710523,
+            "samples_ms": [
+              221.9532250019256,
+              224.27875999710523,
+              235.42752499633934
+            ]
+          },
+          "subtract64": {
+            "median_ms": 376.66377300047316,
+            "samples_ms": [
+              371.1280300049111,
+              378.39656899450347,
+              376.66377300047316
+            ]
+          }
+        },
+        "errors": {
+          "reconstruct": {
+            "relative_l2": 0.0,
+            "max_relative": 0.0,
+            "negative_voxels": 0
+          },
+          "retained": {
+            "relative_l2": 2.356392951886027e-14,
+            "max_relative": 1.376225735783031e-13,
+            "negative_voxels": 0
+          },
+          "subtract64": {
+            "relative_l2": 3.53297032931315e-10,
+            "max_relative": 2.011368925213573e-09,
+            "negative_voxels": 0
+          },
+          "subtract_native": {
+            "relative_l2": 0.015302075465347597,
+            "max_relative": 0.08053433687420611,
+            "negative_voxels": 0
+          }
+        }
+      },
+      {
+        "voxels": 10000,
+        "frames": 300,
+        "low": 20,
+        "high": 300,
+        "subset_fraction": 0.25,
+        "public_pipeline": {
+          "median_ms": 135.39087701065,
+          "samples_ms": [
+            135.56539198907558,
+            135.39087701065,
+            135.05594999878667
+          ]
+        },
+        "gram_evd": {
+          "median_ms": 61.31655799981672,
+          "samples_ms": [
+            62.43163699400611,
+            58.852832997217774,
+            61.31655799981672
+          ]
+        },
+        "post_basis": {
+          "reconstruct": {
+            "median_ms": 65.05603100231383,
+            "samples_ms": [
+              64.2850250005722,
+              65.05603100231383,
+              66.55527700786479
+            ]
+          },
+          "retained": {
+            "median_ms": 174.99728500843048,
+            "samples_ms": [
+              173.50181700021494,
+              177.11943099857308,
+              174.99728500843048
+            ]
+          },
+          "subtract64": {
+            "median_ms": 29.485420003766194,
+            "samples_ms": [
+              29.51792899693828,
+              29.485420003766194,
+              29.054751998046413
+            ]
+          },
+          "subtract_native": {
+            "median_ms": 27.053287994931452,
+            "samples_ms": [
+              25.414588002604432,
+              27.963321990682743,
+              27.053287994931452
+            ]
+          }
+        },
+        "end_to_end": {
+          "reconstruct": {
+            "median_ms": 126.7150070052594,
+            "samples_ms": [
+              126.7150070052594,
+              125.68748599733226,
+              126.77877699024975
+            ]
+          },
+          "retained": {
+            "median_ms": 240.98931800108403,
+            "samples_ms": [
+              239.3615139881149,
+              240.98931800108403,
+              243.06118799722753
+            ]
+          },
+          "subtract64": {
+            "median_ms": 91.73039099550806,
+            "samples_ms": [
+              91.62113998900168,
+              93.51787999912631,
+              91.73039099550806
+            ]
+          }
+        },
+        "errors": {
+          "reconstruct": {
+            "relative_l2": 0.0,
+            "max_relative": 0.0,
+            "negative_voxels": 0
+          },
+          "retained": {
+            "relative_l2": 9.098149119273509e-15,
+            "max_relative": 4.2815809887683793e-14,
+            "negative_voxels": 0
+          },
+          "subtract64": {
+            "relative_l2": 6.129748618797109e-11,
+            "max_relative": 3.8649157901593976e-10,
+            "negative_voxels": 0
+          },
+          "subtract_native": {
+            "relative_l2": 0.002784690433220725,
+            "max_relative": 0.013456451366628156,
+            "negative_voxels": 0
+          }
+        }
+      }
+    ],
+    "precision": [
+      {
+        "dtype": "complex64",
+        "tissue_to_blood_db": 0,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 3.5347746176985085e-16,
+              "max_relative": 1.2116569237370584e-15,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.3747655249386661e-15,
+              "max_relative": 5.2046257279585766e-15,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.3534059410376262e-15,
+              "max_relative": 4.846623225247922e-15,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 2.07288259913511e-15,
+              "max_relative": 1.1233021553028393e-14,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 2.0711006403015416e-15,
+              "max_relative": 1.158774854943982e-14,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 2.5945538046649253e-07,
+              "max_relative": 1.3030156417499165e-06,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 2.5945538044757914e-07,
+              "max_relative": 1.3030156413457497e-06,
+              "negative_voxels": 0
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex64",
+        "tissue_to_blood_db": 40,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.926872018336661e-14,
+              "max_relative": 7.313347889059535e-14,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.7822459375192674e-14,
+              "max_relative": 8.354071614224124e-14,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.1175743743854548e-14,
+              "max_relative": 4.5764109774377246e-14,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 3.9224829817606634e-11,
+              "max_relative": 1.8340748604974313e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 3.922370201028715e-11,
+              "max_relative": 1.8338017376385997e-10,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 0.0013471955130670463,
+              "max_relative": 0.006947506023832215,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0013471955130679063,
+              "max_relative": 0.0069475060238324265,
+              "negative_voxels": 0
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex64",
+        "tissue_to_blood_db": 80,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.4002544005433158e-12,
+              "max_relative": 5.8564921595104726e-12,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.3938315130680911e-12,
+              "max_relative": 5.911863097282e-12,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 7.967367896504468e-13,
+              "max_relative": 3.2078314043598324e-12,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 2.6202794336153587e-07,
+              "max_relative": 1.4024341879944302e-06,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 2.6202804644399067e-07,
+              "max_relative": 1.4024360911994636e-06,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 12.86074403030533,
+              "max_relative": 78.06497142103944,
+              "negative_voxels": 472
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 12.860744030305353,
+              "max_relative": 78.0649714211058,
+              "negative_voxels": 472
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex64",
+        "tissue_to_blood_db": 120,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.7144285617402528e-10,
+              "max_relative": 7.161080383275839e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.5841873504916018e-10,
+              "max_relative": 5.719868799764517e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 8.612169397224927e-11,
+              "max_relative": 3.4167890184666465e-10,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 0.001891266873782823,
+              "max_relative": 0.009060898731696037,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.00189126687503164,
+              "max_relative": 0.009060898773693194,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 136387.48456026858,
+              "max_relative": 943412.2733819,
+              "negative_voxels": 509
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 136387.48456002912,
+              "max_relative": 943412.2731964533,
+              "negative_voxels": 509
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex128",
+        "tissue_to_blood_db": 0,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 3.5660480828523085e-16,
+              "max_relative": 1.1896155002352186e-15,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.4919553141795266e-15,
+              "max_relative": 6.7358458390212594e-15,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.4679928099179041e-15,
+              "max_relative": 5.866704440437876e-15,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 5.275015201046205e-15,
+              "max_relative": 2.9442340309002175e-14,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 5.275124248826697e-15,
+              "max_relative": 2.991530963123513e-14,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 5.289808624768941e-15,
+              "max_relative": 2.9442340309002175e-14,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 5.2920841713344874e-15,
+              "max_relative": 2.991530963123513e-14,
+              "negative_voxels": 0
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex128",
+        "tissue_to_blood_db": 40,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.4297083588058398e-14,
+              "max_relative": 5.944300009338373e-14,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.4936013079028873e-14,
+              "max_relative": 7.783875531858793e-14,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 9.457066576674654e-15,
+              "max_relative": 4.2568949849710747e-14,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 1.2590206976227151e-11,
+              "max_relative": 7.277858898298283e-11,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.2590050456851101e-11,
+              "max_relative": 7.279298762679458e-11,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 1.2662753943265911e-11,
+              "max_relative": 6.510680426120985e-11,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 1.2662495368720762e-11,
+              "max_relative": 6.512120290502149e-11,
+              "negative_voxels": 0
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex128",
+        "tissue_to_blood_db": 80,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.5432712183407569e-12,
+              "max_relative": 6.259987804500807e-12,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.5568432329996868e-12,
+              "max_relative": 6.795636043771349e-12,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 9.451825643060643e-13,
+              "max_relative": 3.99700963879577e-12,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 2.72563211687768e-07,
+              "max_relative": 1.3781380130518794e-06,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 2.725631576270778e-07,
+              "max_relative": 1.3781387188829785e-06,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 2.72213543731353e-07,
+              "max_relative": 1.3781380130518794e-06,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 2.722134914725614e-07,
+              "max_relative": 1.3781387188829785e-06,
+              "negative_voxels": 0
+            }
+          }
+        }
+      },
+      {
+        "dtype": "complex128",
+        "tissue_to_blood_db": 120,
+        "methods": {
+          "reconstruct": {
+            "vs_direct_svd": {
+              "relative_l2": 1.4744495779650826e-10,
+              "max_relative": 7.03755288744813e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0,
+              "max_relative": 0.0,
+              "negative_voxels": 0
+            }
+          },
+          "retained": {
+            "vs_direct_svd": {
+              "relative_l2": 1.385709114961619e-10,
+              "max_relative": 5.700603529628887e-10,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 9.967002336996405e-11,
+              "max_relative": 4.2861101409549476e-10,
+              "negative_voxels": 0
+            }
+          },
+          "subtract64": {
+            "vs_direct_svd": {
+              "relative_l2": 0.000916186480415174,
+              "max_relative": 0.005178056949016034,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0009161864854455,
+              "max_relative": 0.005178056921580149,
+              "negative_voxels": 0
+            }
+          },
+          "subtract_native": {
+            "vs_direct_svd": {
+              "relative_l2": 0.0009205398232684038,
+              "max_relative": 0.004983903890736344,
+              "negative_voxels": 0
+            },
+            "vs_same_basis_reconstruction": {
+              "relative_l2": 0.0009205398285805555,
+              "max_relative": 0.004983903671744757,
+              "negative_voxels": 0
+            }
+          }
+        }
+      }
+    ],
+    "short_window": {
+      "quadratic_form": {
+        "relative_l2": 3.8882629393037194e-16,
+        "max_relative": 1.4025579505305254e-15,
+        "negative_voxels": 0
+      },
+      "incorrect_full_window_identity": {
+        "relative_l2": 0.2764572440316242,
+        "max_relative": 2.277082566881487,
+        "negative_voxels": 0
+      }
+    }
+  }
+}

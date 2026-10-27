@@ -1,0 +1,1880 @@
+{
+  "remove20": {
+    "command": [
+      "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/tools/benchmark_iq_power_doppler_dask.py",
+      "--output",
+      "/tmp/pd-dask-300frames.json",
+      "--schedulers",
+      "threads",
+      "distributed-threads",
+      "distributed-processes",
+      "--workers",
+      "2",
+      "--threads-per-worker",
+      "1",
+      "--blas-threads",
+      "1",
+      "--voxels",
+      "10000",
+      "--frames",
+      "300",
+      "--windows",
+      "4",
+      "--repeats",
+      "5",
+      "--worker-memory",
+      "2GiB"
+    ],
+    "python": "3.14.8 (main, Oct  2 2026, 10:23:31) [GCC 16.2.1 20260810]",
+    "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+    "cpu": "",
+    "logical_cpus": 24,
+    "numpy": "2.4.6",
+    "scipy": "1.18.0",
+    "confusius": "0.9.0.dev0",
+    "dask": "2026.7.0",
+    "distributed": "2026.7.0",
+    "settings": {
+      "output": "/tmp/pd-dask-300frames.json",
+      "schedulers": [
+        "threads",
+        "distributed-threads",
+        "distributed-processes"
+      ],
+      "voxels": 10000,
+      "frames": 300,
+      "windows": 4,
+      "stride": 300,
+      "time_chunk": 300,
+      "low": 20,
+      "high": null,
+      "tissue_rank": 20,
+      "db": 40,
+      "dtype": "complex64",
+      "workers": 2,
+      "threads_per_worker": 1,
+      "blas_threads": 1,
+      "worker_memory": "2GiB",
+      "repeats": 5
+    },
+    "runs": [
+      {
+        "scheduler": "threads",
+        "scheduler_setup_s": 1.2839998817071319e-05,
+        "generation_s": 0.4350865199958207,
+        "input_persist_s": 0.0051178229914512485,
+        "input_shape": [
+          1200,
+          1,
+          1,
+          10000
+        ],
+        "input_chunks": [
+          [
+            300,
+            300,
+            300,
+            300
+          ],
+          [
+            1
+          ],
+          [
+            1
+          ],
+          [
+            10000
+          ]
+        ],
+        "input_bytes": 96000000,
+        "driver_threadpools": [
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+            "version": "0.3.31.188.0",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          },
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+            "version": "0.3.31.dev",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          }
+        ],
+        "workers": null,
+        "worker_memory": null,
+        "summary": {
+          "current": {
+            "build_s": 0.17885729900444858,
+            "compute_s": 0.42213449301198125,
+            "total_s": 0.6072799249959644,
+            "speedup_vs_current": 1.0
+          },
+          "subtract": {
+            "build_s": 0.15193400799762458,
+            "compute_s": 0.3557555470033549,
+            "total_s": 0.506431886984501,
+            "speedup_vs_current": 1.1991344553992307
+          },
+          "retained": {
+            "build_s": 0.24779565399512649,
+            "compute_s": 0.574057948004338,
+            "total_s": 0.8224130450107623,
+            "speedup_vs_current": 0.738412320524436
+          }
+        },
+        "samples": {
+          "current": [
+            {
+              "build_s": 0.1781702730077086,
+              "compute_s": 0.44005724099406507,
+              "total_s": 0.6182275140017737,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.1878940960014006,
+              "compute_s": 0.4193858289945638,
+              "total_s": 0.6072799249959644,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.18740393499319907,
+              "compute_s": 0.42316512401157524,
+              "total_s": 0.6105690590047743,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.17885729900444858,
+              "compute_s": 0.42213449301198125,
+              "total_s": 0.6009917920164298,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.17814563699357677,
+              "compute_s": 0.4214600229897769,
+              "total_s": 0.5996056599833537,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "subtract": [
+            {
+              "build_s": 0.15193400799762458,
+              "compute_s": 0.3557555470033549,
+              "total_s": 0.5076895550009795,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.1472056659986265,
+              "compute_s": 0.35649979999288917,
+              "total_s": 0.5037054659915157,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.15743809400009923,
+              "compute_s": 0.36168283299775794,
+              "total_s": 0.5191209269978572,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.15246289300557692,
+              "compute_s": 0.3517329059977783,
+              "total_s": 0.5041957990033552,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.15137002899427898,
+              "compute_s": 0.35506185799022205,
+              "total_s": 0.506431886984501,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "retained": [
+            {
+              "build_s": 0.2548169660003623,
+              "compute_s": 0.5756964500033064,
+              "total_s": 0.8305134160036687,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2542614600097295,
+              "compute_s": 0.5681515850010328,
+              "total_s": 0.8224130450107623,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2473860479949508,
+              "compute_s": 0.5763536309968913,
+              "total_s": 0.8237396789918421,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.24779565399512649,
+              "compute_s": 0.574057948004338,
+              "total_s": 0.8218536019994644,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.24191860099381302,
+              "compute_s": 0.5734144270099932,
+              "total_s": 0.8153330280038062,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            }
+          ]
+        }
+      },
+      {
+        "scheduler": "distributed-threads",
+        "scheduler_setup_s": 0.021717160008847713,
+        "generation_s": 0.42246475399588235,
+        "input_persist_s": 0.02239647798705846,
+        "input_shape": [
+          1200,
+          1,
+          1,
+          10000
+        ],
+        "input_chunks": [
+          [
+            300,
+            300,
+            300,
+            300
+          ],
+          [
+            1
+          ],
+          [
+            1
+          ],
+          [
+            10000
+          ]
+        ],
+        "input_bytes": 96000000,
+        "driver_threadpools": [
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+            "version": "0.3.31.188.0",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          },
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+            "version": "0.3.31.dev",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          }
+        ],
+        "workers": {
+          "inproc://10.97.91.117/1263927/4": [
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+              "version": "0.3.31.188.0",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            },
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+              "version": "0.3.31.dev",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            }
+          ],
+          "inproc://10.97.91.117/1263927/6": [
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+              "version": "0.3.31.188.0",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            },
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+              "version": "0.3.31.dev",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            }
+          ]
+        },
+        "worker_memory": {
+          "inproc://10.97.91.117/1263927/4": {
+            "limit_bytes": 2147483648,
+            "metrics": {
+              "memory": 829198336,
+              "managed_bytes": 48000000,
+              "spilled_bytes": {
+                "memory": 0,
+                "disk": 0
+              }
+            }
+          },
+          "inproc://10.97.91.117/1263927/6": {
+            "limit_bytes": 2147483648,
+            "metrics": {
+              "memory": 829206528,
+              "managed_bytes": 48000000,
+              "spilled_bytes": {
+                "memory": 0,
+                "disk": 0
+              }
+            }
+          }
+        },
+        "summary": {
+          "current": {
+            "build_s": 0.19531608499528375,
+            "compute_s": 0.4278346060018521,
+            "total_s": 0.6261208280047867,
+            "speedup_vs_current": 1.0
+          },
+          "subtract": {
+            "build_s": 0.16528050300257746,
+            "compute_s": 0.35912826099956874,
+            "total_s": 0.5244087640021462,
+            "speedup_vs_current": 1.1939556906455977
+          },
+          "retained": {
+            "build_s": 0.2600631050008815,
+            "compute_s": 0.575406522009871,
+            "total_s": 0.8385662420187145,
+            "speedup_vs_current": 0.7466563720684732
+          }
+        },
+        "samples": {
+          "current": [
+            {
+              "build_s": 0.20252226700540632,
+              "compute_s": 0.42426875000819564,
+              "total_s": 0.626791017013602,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.19522261999372859,
+              "compute_s": 0.4278346060018521,
+              "total_s": 0.6230572259955807,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.19531608499528375,
+              "compute_s": 0.4275038040068466,
+              "total_s": 0.6228198890021304,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.1973562210041564,
+              "compute_s": 0.42876460700063035,
+              "total_s": 0.6261208280047867,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.1929358589986805,
+              "compute_s": 0.4337356399919372,
+              "total_s": 0.6266714989906177,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "subtract": [
+            {
+              "build_s": 0.17365710399462841,
+              "compute_s": 0.3712440009985585,
+              "total_s": 0.5449011049931869,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.16524764700443484,
+              "compute_s": 0.35011131600185763,
+              "total_s": 0.5153589630062925,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.16335947198967915,
+              "compute_s": 0.36227336499723606,
+              "total_s": 0.5256328369869152,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.16625334200216457,
+              "compute_s": 0.355910086989752,
+              "total_s": 0.5221634289919166,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.16528050300257746,
+              "compute_s": 0.35912826099956874,
+              "total_s": 0.5244087640021462,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "retained": [
+            {
+              "build_s": 0.2600631050008815,
+              "compute_s": 0.5960936699993908,
+              "total_s": 0.8561567750002723,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.25448271399363875,
+              "compute_s": 0.572052783012623,
+              "total_s": 0.8265354970062617,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2631597200088436,
+              "compute_s": 0.575406522009871,
+              "total_s": 0.8385662420187145,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.26059280899062287,
+              "compute_s": 0.5825253130024066,
+              "total_s": 0.8431181219930295,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.25585966899234336,
+              "compute_s": 0.5739621069951681,
+              "total_s": 0.8298217759875115,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            }
+          ]
+        }
+      },
+      {
+        "scheduler": "distributed-processes",
+        "scheduler_setup_s": 0.7336352830025135,
+        "generation_s": 0.4563205689919414,
+        "input_persist_s": 0.057696232994203456,
+        "input_shape": [
+          1200,
+          1,
+          1,
+          10000
+        ],
+        "input_chunks": [
+          [
+            300,
+            300,
+            300,
+            300
+          ],
+          [
+            1
+          ],
+          [
+            1
+          ],
+          [
+            10000
+          ]
+        ],
+        "input_bytes": 96000000,
+        "driver_threadpools": [
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+            "version": "0.3.31.188.0",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          },
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+            "version": "0.3.31.dev",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          }
+        ],
+        "workers": {
+          "tcp://127.0.0.1:37687": [
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+              "version": "0.3.31.188.0",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            },
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+              "version": "0.3.31.dev",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            }
+          ],
+          "tcp://127.0.0.1:44799": [
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+              "version": "0.3.31.188.0",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            },
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+              "version": "0.3.31.dev",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            }
+          ]
+        },
+        "worker_memory": {
+          "tcp://127.0.0.1:37687": {
+            "limit_bytes": 2147483648,
+            "metrics": {
+              "memory": 488583168,
+              "managed_bytes": 48000000,
+              "spilled_bytes": {
+                "memory": 0,
+                "disk": 0
+              }
+            }
+          },
+          "tcp://127.0.0.1:44799": {
+            "limit_bytes": 2147483648,
+            "metrics": {
+              "memory": 490266624,
+              "managed_bytes": 48000000,
+              "spilled_bytes": {
+                "memory": 0,
+                "disk": 0
+              }
+            }
+          }
+        },
+        "summary": {
+          "current": {
+            "build_s": 0.20702079399779905,
+            "compute_s": 0.4380746060051024,
+            "total_s": 0.6450954000029014,
+            "speedup_vs_current": 1.0
+          },
+          "subtract": {
+            "build_s": 0.18031997700745706,
+            "compute_s": 0.3647491320007248,
+            "total_s": 0.5479479729983723,
+            "speedup_vs_current": 1.1772931588248028
+          },
+          "retained": {
+            "build_s": 0.27027314400766045,
+            "compute_s": 0.5726004399912199,
+            "total_s": 0.8428735839988803,
+            "speedup_vs_current": 0.7653524944302423
+          }
+        },
+        "samples": {
+          "current": [
+            {
+              "build_s": 0.21569717899546959,
+              "compute_s": 0.4500597389996983,
+              "total_s": 0.6657569179951679,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.20702079399779905,
+              "compute_s": 0.4380746060051024,
+              "total_s": 0.6450954000029014,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2151025560015114,
+              "compute_s": 0.4408960790024139,
+              "total_s": 0.6559986350039253,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.20332099799998105,
+              "compute_s": 0.42100869500427507,
+              "total_s": 0.6243296930042561,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.203746539002168,
+              "compute_s": 0.4229270330106374,
+              "total_s": 0.6266735720128054,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "subtract": [
+            {
+              "build_s": 0.18886610800109338,
+              "compute_s": 0.36845899000763893,
+              "total_s": 0.5573250980087323,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.17469158400490414,
+              "compute_s": 0.3513456770015182,
+              "total_s": 0.5260372610064223,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.1831988409976475,
+              "compute_s": 0.3647491320007248,
+              "total_s": 0.5479479729983723,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.1762763389997417,
+              "compute_s": 0.38286722599877976,
+              "total_s": 0.5591435649985215,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.18031997700745706,
+              "compute_s": 0.3479999990086071,
+              "total_s": 0.5283199760160642,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.778310030045201e-11,
+                "max_relative": 1.1206741338487961e-10,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "retained": [
+            {
+              "build_s": 0.28239184799895156,
+              "compute_s": 0.586518933007028,
+              "total_s": 0.8689107810059795,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2687613909947686,
+              "compute_s": 0.6025371290015755,
+              "total_s": 0.8712985199963441,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.27027314400766045,
+              "compute_s": 0.5726004399912199,
+              "total_s": 0.8428735839988803,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2677334969921503,
+              "compute_s": 0.5634172370046144,
+              "total_s": 0.8311507339967648,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2705231229920173,
+              "compute_s": 0.5588361350091873,
+              "total_s": 0.8293592580012046,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 9.316526747521551e-15,
+                "max_relative": 4.058376865658239e-14,
+                "negative_voxels": 0
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "retain40": {
+    "command": [
+      "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/tools/benchmark_iq_power_doppler_dask.py",
+      "--output",
+      "/tmp/pd-dask-retain40.json",
+      "--schedulers",
+      "threads",
+      "distributed-threads",
+      "distributed-processes",
+      "--workers",
+      "2",
+      "--threads-per-worker",
+      "1",
+      "--blas-threads",
+      "1",
+      "--voxels",
+      "10000",
+      "--frames",
+      "300",
+      "--windows",
+      "4",
+      "--repeats",
+      "5",
+      "--high",
+      "60",
+      "--worker-memory",
+      "2GiB"
+    ],
+    "python": "3.14.8 (main, Oct  2 2026, 10:23:31) [GCC 16.2.1 20260810]",
+    "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+    "cpu": "",
+    "logical_cpus": 24,
+    "numpy": "2.4.6",
+    "scipy": "1.18.0",
+    "confusius": "0.9.0.dev0",
+    "dask": "2026.7.0",
+    "distributed": "2026.7.0",
+    "settings": {
+      "output": "/tmp/pd-dask-retain40.json",
+      "schedulers": [
+        "threads",
+        "distributed-threads",
+        "distributed-processes"
+      ],
+      "voxels": 10000,
+      "frames": 300,
+      "windows": 4,
+      "stride": 300,
+      "time_chunk": 300,
+      "low": 20,
+      "high": 60,
+      "tissue_rank": 20,
+      "db": 40,
+      "dtype": "complex64",
+      "workers": 2,
+      "threads_per_worker": 1,
+      "blas_threads": 1,
+      "worker_memory": "2GiB",
+      "repeats": 5
+    },
+    "runs": [
+      {
+        "scheduler": "threads",
+        "scheduler_setup_s": 1.2775999493896961e-05,
+        "generation_s": 0.4309951659961371,
+        "input_persist_s": 0.005288036001729779,
+        "input_shape": [
+          1200,
+          1,
+          1,
+          10000
+        ],
+        "input_chunks": [
+          [
+            300,
+            300,
+            300,
+            300
+          ],
+          [
+            1
+          ],
+          [
+            1
+          ],
+          [
+            10000
+          ]
+        ],
+        "input_bytes": 96000000,
+        "driver_threadpools": [
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+            "version": "0.3.31.188.0",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          },
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+            "version": "0.3.31.dev",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          }
+        ],
+        "workers": null,
+        "worker_memory": null,
+        "summary": {
+          "current": {
+            "build_s": 0.3410726730071474,
+            "compute_s": 0.8009958949987777,
+            "total_s": 1.14255698400666,
+            "speedup_vs_current": 1.0
+          },
+          "subtract": {
+            "build_s": 0.237729507003678,
+            "compute_s": 0.5665909599920269,
+            "total_s": 0.8019465509860311,
+            "speedup_vs_current": 1.4247295940132574
+          },
+          "retained": {
+            "build_s": 0.15221578600176144,
+            "compute_s": 0.35315150598762557,
+            "total_s": 0.5058071949897567,
+            "speedup_vs_current": 2.258878472517178
+          }
+        },
+        "samples": {
+          "current": [
+            {
+              "build_s": 0.33793906700157095,
+              "compute_s": 0.7992198190040654,
+              "total_s": 1.1371588860056363,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.3410726730071474,
+              "compute_s": 0.8014843109995127,
+              "total_s": 1.14255698400666,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.33855584599950816,
+              "compute_s": 0.7966703169950051,
+              "total_s": 1.1352261629945133,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.35765673901187256,
+              "compute_s": 0.8009958949987777,
+              "total_s": 1.1586526340106502,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.3560174640006153,
+              "compute_s": 0.8302785800042329,
+              "total_s": 1.1862960440048482,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "subtract": [
+            {
+              "build_s": 0.2356765980075579,
+              "compute_s": 0.5654198760021245,
+              "total_s": 0.8010964740096824,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.23984292699606158,
+              "compute_s": 0.5734097680106061,
+              "total_s": 0.8132526950066676,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.237729507003678,
+              "compute_s": 0.5567017220018897,
+              "total_s": 0.7944312290055677,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.23535559099400416,
+              "compute_s": 0.5665909599920269,
+              "total_s": 0.8019465509860311,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2412791220122017,
+              "compute_s": 0.5716393389884615,
+              "total_s": 0.8129184610006632,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "retained": [
+            {
+              "build_s": 0.15221578600176144,
+              "compute_s": 0.3541041300049983,
+              "total_s": 0.5063199160067597,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.15084619401022792,
+              "compute_s": 0.3507341450022068,
+              "total_s": 0.5015803390124347,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.1485772790038027,
+              "compute_s": 0.35156037799606565,
+              "total_s": 0.5001376569998683,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.1526556890021311,
+              "compute_s": 0.35315150598762557,
+              "total_s": 0.5058071949897567,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.19319227499363478,
+              "compute_s": 0.39006545799202286,
+              "total_s": 0.5832577329856576,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            }
+          ]
+        }
+      },
+      {
+        "scheduler": "distributed-threads",
+        "scheduler_setup_s": 0.018668851989787072,
+        "generation_s": 0.4505013439920731,
+        "input_persist_s": 0.010351859004003927,
+        "input_shape": [
+          1200,
+          1,
+          1,
+          10000
+        ],
+        "input_chunks": [
+          [
+            300,
+            300,
+            300,
+            300
+          ],
+          [
+            1
+          ],
+          [
+            1
+          ],
+          [
+            10000
+          ]
+        ],
+        "input_bytes": 96000000,
+        "driver_threadpools": [
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+            "version": "0.3.31.188.0",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          },
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+            "version": "0.3.31.dev",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          }
+        ],
+        "workers": {
+          "inproc://10.97.91.117/1264045/4": [
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+              "version": "0.3.31.188.0",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            },
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+              "version": "0.3.31.dev",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            }
+          ],
+          "inproc://10.97.91.117/1264045/6": [
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+              "version": "0.3.31.188.0",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            },
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+              "version": "0.3.31.dev",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            }
+          ]
+        },
+        "worker_memory": {
+          "inproc://10.97.91.117/1264045/4": {
+            "limit_bytes": 2147483648,
+            "metrics": {
+              "memory": 703770624,
+              "managed_bytes": 48080000,
+              "spilled_bytes": {
+                "memory": 0,
+                "disk": 0
+              }
+            }
+          },
+          "inproc://10.97.91.117/1264045/6": {
+            "limit_bytes": 2147483648,
+            "metrics": {
+              "memory": 703778816,
+              "managed_bytes": 48080000,
+              "spilled_bytes": {
+                "memory": 0,
+                "disk": 0
+              }
+            }
+          }
+        },
+        "summary": {
+          "current": {
+            "build_s": 0.36762551800347865,
+            "compute_s": 0.8254071470000781,
+            "total_s": 1.187920023992774,
+            "speedup_vs_current": 1.0
+          },
+          "subtract": {
+            "build_s": 0.26198688299336936,
+            "compute_s": 0.5951921320083784,
+            "total_s": 0.8628372789971763,
+            "speedup_vs_current": 1.3767601990649057
+          },
+          "retained": {
+            "build_s": 0.17160221299855039,
+            "compute_s": 0.36912150800344534,
+            "total_s": 0.5398053209937643,
+            "speedup_vs_current": 2.2006452656039985
+          }
+        },
+        "samples": {
+          "current": [
+            {
+              "build_s": 0.3881307889969321,
+              "compute_s": 0.8254071470000781,
+              "total_s": 1.2135379359970102,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.36069246199622285,
+              "compute_s": 0.8272275619965512,
+              "total_s": 1.187920023992774,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.3874789819965372,
+              "compute_s": 0.8537926619901555,
+              "total_s": 1.2412716439866927,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.36762551800347865,
+              "compute_s": 0.8118095100071514,
+              "total_s": 1.17943502801063,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.36295056200469844,
+              "compute_s": 0.8173724520020187,
+              "total_s": 1.1803230140067171,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "subtract": [
+            {
+              "build_s": 0.27558369700273033,
+              "compute_s": 0.5951921320083784,
+              "total_s": 0.8707758290111087,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2575878420029767,
+              "compute_s": 0.592839647011715,
+              "total_s": 0.8504274890146917,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.26198688299336936,
+              "compute_s": 0.600850396003807,
+              "total_s": 0.8628372789971763,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.27065557800233364,
+              "compute_s": 0.5993243389966665,
+              "total_s": 0.8699799169990001,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2603639419976389,
+              "compute_s": 0.5798798489995534,
+              "total_s": 0.8402437909971923,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "retained": [
+            {
+              "build_s": 0.1695362809987273,
+              "compute_s": 0.36912150800344534,
+              "total_s": 0.5386577890021726,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.1661218670051312,
+              "compute_s": 0.3677834480040474,
+              "total_s": 0.5339053150091786,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.18601929899887182,
+              "compute_s": 0.3793014559923904,
+              "total_s": 0.5653207549912622,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.1726100050000241,
+              "compute_s": 0.3671953159937402,
+              "total_s": 0.5398053209937643,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.17160221299855039,
+              "compute_s": 0.38997194000694435,
+              "total_s": 0.5615741530054947,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            }
+          ]
+        }
+      },
+      {
+        "scheduler": "distributed-processes",
+        "scheduler_setup_s": 0.7888219909946201,
+        "generation_s": 0.4292407829925651,
+        "input_persist_s": 0.04828956600977108,
+        "input_shape": [
+          1200,
+          1,
+          1,
+          10000
+        ],
+        "input_chunks": [
+          [
+            300,
+            300,
+            300,
+            300
+          ],
+          [
+            1
+          ],
+          [
+            1
+          ],
+          [
+            10000
+          ]
+        ],
+        "input_bytes": 96000000,
+        "driver_threadpools": [
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+            "version": "0.3.31.188.0",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          },
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 1,
+            "prefix": "libscipy_openblas",
+            "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+            "version": "0.3.31.dev",
+            "threading_layer": "pthreads",
+            "architecture": "Haswell"
+          }
+        ],
+        "workers": {
+          "tcp://127.0.0.1:36155": [
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+              "version": "0.3.31.188.0",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            },
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+              "version": "0.3.31.dev",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            }
+          ],
+          "tcp://127.0.0.1:45917": [
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+              "version": "0.3.31.188.0",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            },
+            {
+              "user_api": "blas",
+              "internal_api": "openblas",
+              "num_threads": 1,
+              "prefix": "libscipy_openblas",
+              "filepath": "/home/sdiebolt/Documents/Work/cortexlab/confusius-tools/confusius/.venv/lib/python3.14/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+              "version": "0.3.31.dev",
+              "threading_layer": "pthreads",
+              "architecture": "Haswell"
+            }
+          ]
+        },
+        "worker_memory": {
+          "tcp://127.0.0.1:36155": {
+            "limit_bytes": 2147483648,
+            "metrics": {
+              "memory": 439672832,
+              "managed_bytes": 48080000,
+              "spilled_bytes": {
+                "memory": 0,
+                "disk": 0
+              }
+            }
+          },
+          "tcp://127.0.0.1:45917": {
+            "limit_bytes": 2147483648,
+            "metrics": {
+              "memory": 437776384,
+              "managed_bytes": 48080000,
+              "spilled_bytes": {
+                "memory": 0,
+                "disk": 0
+              }
+            }
+          }
+        },
+        "summary": {
+          "current": {
+            "build_s": 0.3691367700084811,
+            "compute_s": 0.8166365159995621,
+            "total_s": 1.1857732860080432,
+            "speedup_vs_current": 1.0
+          },
+          "subtract": {
+            "build_s": 0.26989342899469193,
+            "compute_s": 0.5693853599950671,
+            "total_s": 0.8378756739984965,
+            "speedup_vs_current": 1.4152138829252738
+          },
+          "retained": {
+            "build_s": 0.17961068700242322,
+            "compute_s": 0.3617581950093154,
+            "total_s": 0.5413688820117386,
+            "speedup_vs_current": 2.1903240570490192
+          }
+        },
+        "samples": {
+          "current": [
+            {
+              "build_s": 0.37993891299993265,
+              "compute_s": 0.8320754080050392,
+              "total_s": 1.2120143210049719,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.3732878239970887,
+              "compute_s": 0.8161520499998005,
+              "total_s": 1.1894398739968892,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.3683855580020463,
+              "compute_s": 0.81526223399851,
+              "total_s": 1.1836477920005564,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.3676340399979381,
+              "compute_s": 0.8168654259934556,
+              "total_s": 1.1844994659913937,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.3691367700084811,
+              "compute_s": 0.8166365159995621,
+              "total_s": 1.1857732860080432,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 0.0,
+                "max_relative": 0.0,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "subtract": [
+            {
+              "build_s": 0.28346017899457365,
+              "compute_s": 0.5974485610058764,
+              "total_s": 0.88090874000045,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.26833564600383397,
+              "compute_s": 0.5637604079965968,
+              "total_s": 0.8320960540004307,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2684903140034294,
+              "compute_s": 0.5693853599950671,
+              "total_s": 0.8378756739984965,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.26989342899469193,
+              "compute_s": 0.5662827839987585,
+              "total_s": 0.8361762129934505,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.2944550959946355,
+              "compute_s": 0.5775534340064041,
+              "total_s": 0.8720085300010396,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 1.0610456421312204e-10,
+                "max_relative": 7.824330120231008e-10,
+                "negative_voxels": 0
+              }
+            }
+          ],
+          "retained": [
+            {
+              "build_s": 0.1821091159945354,
+              "compute_s": 0.3632544720021542,
+              "total_s": 0.5453635879966896,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.17961068700242322,
+              "compute_s": 0.3617581950093154,
+              "total_s": 0.5413688820117386,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.1789132870035246,
+              "compute_s": 0.35697158800030593,
+              "total_s": 0.5358848750038305,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.17931712900463026,
+              "compute_s": 0.36770834799972363,
+              "total_s": 0.5470254770043539,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            },
+            {
+              "build_s": 0.18173092199140228,
+              "compute_s": 0.35929887599195354,
+              "total_s": 0.5410297979833558,
+              "graph_tasks": 8,
+              "error_vs_current": {
+                "relative_l2": 2.4400493962911062e-14,
+                "max_relative": 1.2363940371821103e-13,
+                "negative_voxels": 0
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
