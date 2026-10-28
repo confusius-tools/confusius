@@ -26,6 +26,15 @@ import numpy as np
 import xarray as xr
 from distributed import Client, LocalCluster, wait
 from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
 from threadpoolctl import threadpool_info, threadpool_limits
 
@@ -93,7 +102,9 @@ def measure_pipeline(
     }
 
 
-def benchmark_scheduler(args: argparse.Namespace, scheduler: str) -> dict[str, Any]:
+def benchmark_scheduler(
+    args: argparse.Namespace, scheduler: str, progress: Progress, task: TaskID
+) -> dict[str, Any]:
     """Benchmark all methods under one local Dask scheduler configuration.
 
     Parameters
@@ -102,6 +113,10 @@ def benchmark_scheduler(args: argparse.Namespace, scheduler: str) -> dict[str, A
         Validated command-line settings.
     scheduler : str
         `threads`, `distributed-threads`, or `distributed-processes`.
+    progress : rich.progress.Progress
+        Shared terminal progress display, refreshed outside measured operations.
+    task : rich.progress.TaskID
+        Overall warmup and sample completion task.
 
     Returns
     -------
@@ -117,6 +132,9 @@ def benchmark_scheduler(args: argparse.Namespace, scheduler: str) -> dict[str, A
     }
     with ExitStack() as stack:
         stack.enter_context(threadpool_limits(limits=args.blas_threads))
+        progress.update(
+            task, description=f"{scheduler}: starting scheduler", refresh=True
+        )
         start = perf_counter()
         client = None
         if scheduler == "threads":
@@ -143,6 +161,7 @@ def benchmark_scheduler(args: argparse.Namespace, scheduler: str) -> dict[str, A
             stack.enter_context(dask.config.set(scheduler=client))
         setup_s = perf_counter() - start
         frames = args.frames + (args.windows - 1) * args.stride
+        progress.update(task, description=f"{scheduler}: generating IQ", refresh=True)
         start = perf_counter()
         values = make_signals(
             args.voxels, frames, args.tissue_rank, args.db, args.dtype
@@ -157,21 +176,35 @@ def benchmark_scheduler(args: argparse.Namespace, scheduler: str) -> dict[str, A
             spacing=(0.1, 0.1, 0.1),
         )
         generation_s = perf_counter() - start
+        progress.update(
+            task, description=f"{scheduler}: persisting input", refresh=True
+        )
         start = perf_counter()
         iq = iq.persist()
         if client is not None:
             wait(iq.data)
         persist_s = perf_counter() - start
         del values
+        progress.update(task, description=f"{scheduler}: warmup current", refresh=True)
         reference, _ = measure_pipeline(iq, "current", options)
         validate_voxeldata(reference)
+        progress.advance(task)
         # Warm every method once; subsequent samples rebuild the graph each time.
         for method in methods[1:]:
+            progress.update(
+                task, description=f"{scheduler}: warmup {method}", refresh=True
+            )
             measure_pipeline(iq, method, options)
+            progress.advance(task)
         samples: dict[str, list] = {method: [] for method in methods}
         rng = np.random.default_rng(2026)
         for repeat in range(args.repeats):
             for method in rng.permutation(methods).tolist():
+                progress.update(
+                    task,
+                    description=f"{scheduler}: {repeat + 1}/{args.repeats} {method}",
+                    refresh=True,
+                )
                 output, sample = measure_pipeline(iq, method, options)
                 validate_voxeldata(output)
                 np.testing.assert_array_equal(output.time, reference.time)
@@ -181,13 +214,7 @@ def benchmark_scheduler(args: argparse.Namespace, scheduler: str) -> dict[str, A
                         f"Non-finite power from {method} under {scheduler}."
                     )
                 samples[method].append(sample)
-                print(
-                    f"{scheduler} repeat={repeat + 1} {method}: "
-                    f"build={sample['build_s']:.3f}s "
-                    f"compute={sample['compute_s']:.3f}s "
-                    f"total={sample['total_s']:.3f}s",
-                    flush=True,
-                )
+                progress.update(task, advance=1, refresh=True)
         summary = {}
         for method in methods:
             summary[method] = {
@@ -364,10 +391,27 @@ def main() -> None:
         "settings": {**vars(args), "output": str(args.output)},
         "runs": [],
     }
-    for scheduler in args.schedulers:
-        run = benchmark_scheduler(args, scheduler)
-        metadata["runs"].append(run)
-        args.output.write_text(json.dumps(metadata, indent=2) + "\n")
+    console = Console(stderr=True)
+    # Manual refresh avoids a rendering thread running during timed computations.
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        auto_refresh=False,
+        transient=True,
+        disable=not console.is_terminal,
+    ) as progress:
+        task = progress.add_task(
+            "Starting benchmark",
+            total=len(args.schedulers) * 3 * (args.repeats + 1),
+        )
+        for scheduler in args.schedulers:
+            run = benchmark_scheduler(args, scheduler, progress, task)
+            metadata["runs"].append(run)
+            args.output.write_text(json.dumps(metadata, indent=2) + "\n")
     print_results(metadata["runs"])
     print(f"Results written to {args.output}")
 

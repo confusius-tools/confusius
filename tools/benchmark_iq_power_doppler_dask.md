@@ -35,6 +35,12 @@ uv run python -m tools.benchmark_iq_power_doppler_dask \
 
 Save both JSON files; they contain the configuration, package/BLAS versions,
 worker thread settings, raw samples, precision metrics, and median summaries.
+An interactive Rich progress bar shows the current scheduler, setup/warmup stage,
+repetition, and method instead of printing every sample. Progress counts completed
+warmups and timed samples, not individual Dask tasks. Rendering happens only between
+measured operations, without a background refresh thread. When output is not an
+interactive terminal, the progress display is disabled; warnings remain visible.
+
 Results are saved after each completed scheduler. A final Rich table compares
 median build, compute, and total time, speedup, and worst observed relative L2
 error and negative voxel count across schedulers. Output files are overwritten,

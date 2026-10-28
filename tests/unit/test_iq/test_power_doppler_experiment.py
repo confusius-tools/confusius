@@ -1,15 +1,17 @@
 """End-to-end checks for the standalone Dask power Doppler experiment."""
 
+import argparse
 import json
 import subprocess
 import sys
 
 import numpy as np
 import pytest
+from rich.progress import Progress
 
 from confusius.iq import process_iq_to_power_doppler as process_reference
 from confusius.validation import validate_voxeldata
-from tools.benchmark_iq_power_doppler_dask import print_results
+from tools.benchmark_iq_power_doppler_dask import benchmark_scheduler, print_results
 from tools.iq_to_power_doppler import process_iq_to_power_doppler
 
 
@@ -84,6 +86,33 @@ def test_voxeldata_matches_reference(
         np.testing.assert_array_equal(actual.coords[name], reference.coords[name])
 
 
+def test_progress_counts_warmups_and_samples(capsys):
+    """Advance for every warmup and sample without printing per-sample timings."""
+    args = argparse.Namespace(
+        frames=8,
+        stride=8,
+        low=2,
+        high=None,
+        workers=1,
+        threads_per_worker=1,
+        blas_threads=1,
+        windows=2,
+        voxels=128,
+        tissue_rank=2,
+        db=40,
+        dtype="complex64",
+        time_chunk=8,
+        repeats=2,
+    )
+    with Progress(disable=True, auto_refresh=False) as progress:
+        task = progress.add_task("test", total=9)
+        run = benchmark_scheduler(args, "threads", progress, task)
+        assert progress.tasks[task].completed == 9
+        assert progress.tasks[task].finished
+    assert all(len(samples) == 2 for samples in run["samples"].values())
+    assert "repeat=" not in capsys.readouterr().out
+
+
 def test_benchmark_all_schedulers(tmp_path):
     """Exercise CLI, worker spawning, overlap, rechunking, precision, and JSON output."""
     output = tmp_path / "results.json"
@@ -124,6 +153,8 @@ def test_benchmark_all_schedulers(tmp_path):
         timeout=120,
     )
     assert "Power Doppler results" in completed.stdout
+    assert "repeat=" not in completed.stdout
+    assert "build=" not in completed.stdout
     result = json.loads(output.read_text())
     assert [run["scheduler"] for run in result["runs"]] == schedulers
     for run in result["runs"]:
