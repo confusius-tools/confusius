@@ -171,7 +171,10 @@ def test_cli_list_and_install(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["confusius", "skills", "list"])
     main()
-    assert f"{SKILL}: {list_skills()[SKILL]}" in capsys.readouterr().out.splitlines()
+    listing = capsys.readouterr().out
+    assert "Available Agent Skills" in listing
+    assert "Name" in listing and "Description" in listing
+    assert SKILL in listing and "Load custom" in listing
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -217,6 +220,35 @@ def test_cli_errors(arguments, monkeypatch, capsys) -> None:
         main()
     assert error.value.code == 2
     assert "error:" in capsys.readouterr().err
+
+
+def test_cli_list_table_wraps_literal_descriptions(monkeypatch, capsys) -> None:
+    """The listing wraps to terminal width without interpreting skill markup."""
+    description = (
+        "Load custom arrays with calibrated coordinates and acquisition metadata. "
+        "Keep [bold]literal[/bold] text."
+    )
+    monkeypatch.setattr(
+        "confusius._utils.skills.list_skills",
+        lambda: {
+            "first-skill": description,
+            "second-skill": "Another import workflow.",
+        },
+    )
+    monkeypatch.setenv("COLUMNS", "72")
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    monkeypatch.setattr("sys.argv", ["confusius", "skills", "list"])
+    main()
+    output = capsys.readouterr().out
+    assert "Available Agent Skills" in output
+    assert "Name" in output and "Description" in output
+    assert "first-skill" in output and "second-skill" in output
+    for word in description.split():
+        assert word in output
+    assert "Another import workflow." in output
+    assert max(len(line) for line in output.splitlines()) <= 72
+    assert "\x1b[" not in output
 
 
 def test_main_help_advertises_skills() -> None:

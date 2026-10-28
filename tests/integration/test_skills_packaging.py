@@ -88,7 +88,9 @@ main()
         text=True,
         timeout=120,
     )
-    assert "confusius-load-data: Load custom" in result.stdout
+    assert "Available Agent Skills" in result.stdout
+    assert "confusius-load-data" in result.stdout
+    assert "Load custom" in result.stdout
     destination = installed / ".agents/skills/confusius-load-data"
     for name, content in expected.items():
         relative = Path(name).relative_to("confusius/_skills/confusius-load-data")

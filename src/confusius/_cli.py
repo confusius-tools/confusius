@@ -177,8 +177,15 @@ def run_skills(args: argparse.Namespace) -> None:
 
     try:
         if args.command == "list":
+            from rich.console import Console
+            from rich.table import Table
+
+            table = Table(title="Available Agent Skills")
+            table.add_column("Name", style="cyan", no_wrap=True)
+            table.add_column("Description")
             for name, description in list_skills().items():
-                print(f"{name}: {description}")
+                table.add_row(name, description)
+            Console(markup=False, highlight=False).print(table)
         else:
             destinations = install_skills(
                 args.name, agent=args.agent, scope=args.scope, force=args.force
