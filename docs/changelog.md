@@ -32,6 +32,16 @@ Current development version for the next ConfUSIus release.
   other data as an image layer. Pass `layer_type="image"` to display integer data
   as an image ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 
+### :sparkles: Enhancements
+
+- Install bundled Agent Skills for Pi, Codex, Claude Code, and Cursor with
+  `confusius skills install --agent ... --scope global|project`. Installation
+  defaults to all skills, supports selecting one by name, and protects existing
+  skills unless `--force` is supplied. `confusius skills list` shows names and
+  descriptions. The first skill, `confusius-load-data`, guides custom imports with
+  VoxelData geometry references and runnable examples
+  ([#539](https://github.com/confusius-tools/confusius/pull/539)).
+
 ### :zap: Performance
 
 - [`plot_napari`][confusius.plotting.plot_napari] opens labels data carrying an
