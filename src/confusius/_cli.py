@@ -92,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
             "with the first fUSI data file. Requires at least one data file."
         ),
     )
-    # The `datasets` namespace is dispatched in `main`, not by this parser, so
+    # Namespaces are dispatched in `main`, not by this parser, so
     # it cannot be a real subparser without clashing with the greedy `path`
     # positional. Advertise it with a display-only pseudo-action (as argparse
     # does internally for subcommand choices) so it is colored and aligned like
@@ -107,7 +107,86 @@ def build_parser() -> argparse.ArgumentParser:
             help="Work with datasets, e.g. `confusius datasets --list`.",
         )
     )
+    namespaces._group_actions.append(
+        argparse.Action(
+            option_strings=[],
+            dest=argparse.SUPPRESS,
+            nargs=0,
+            metavar="skills",
+            help="List and install bundled Agent Skills.",
+        )
+    )
     return parser
+
+
+def build_skills_parser() -> argparse.ArgumentParser:
+    """Build the parser for the `confusius skills` namespace.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser for listing and installing bundled skills.
+    """
+    from confusius._utils.skills import AGENT_SKILL_DIRS
+
+    parser = argparse.ArgumentParser(
+        prog="confusius skills",
+        description="List and install bundled Agent Skills.",
+        add_help=False,
+    )
+    _add_help_option(parser)
+    commands = parser.add_subparsers(dest="command", required=True)
+    listing = commands.add_parser("list", help="List bundled skills.", add_help=False)
+    _add_help_option(listing)
+    install = commands.add_parser(
+        "install", help="Install a bundled skill.", add_help=False
+    )
+    _add_help_option(install)
+    install.add_argument(
+        "name", nargs="?", help="Name of one bundled skill. Defaults to all skills."
+    )
+    install.add_argument(
+        "--agent",
+        required=True,
+        choices=AGENT_SKILL_DIRS,
+        help="Assistant whose skill directory to use.",
+    )
+    install.add_argument(
+        "--scope",
+        required=True,
+        choices=("global", "project"),
+        help="Install in the user's home or current working directory.",
+    )
+    install.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing skill.",
+    )
+    return parser
+
+
+def run_skills(args: argparse.Namespace) -> None:
+    """Handle a parsed `confusius skills` invocation.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Arguments produced by `build_skills_parser`.
+    """
+    from confusius._utils.skills import install_skills, list_skills
+
+    try:
+        if args.command == "list":
+            for name, description in list_skills().items():
+                print(f"{name}: {description}")
+        else:
+            destinations = install_skills(
+                args.name, agent=args.agent, scope=args.scope, force=args.force
+            )
+            for destination in destinations:
+                print(f"Installed {destination.name} to {destination}")
+    except (ValueError, OSError) as error:
+        build_skills_parser().error(str(error))
 
 
 def build_datasets_parser() -> argparse.ArgumentParser:
@@ -195,13 +274,18 @@ def main() -> None:
     """Parse CLI arguments, dispatch the namespace, and run the requested action.
 
     A bare `confusius PATH...` invocation launches the napari plugin, while
-    `confusius datasets ...` routes to the `datasets` namespace.
+    `confusius datasets ...` and `confusius skills ...` route to their respective
+    namespaces.
     """
     import sys
 
     argv = sys.argv[1:]
     if argv and argv[0] == "datasets":
         run_datasets(build_datasets_parser().parse_args(argv[1:]))
+        return
+
+    if argv and argv[0] == "skills":
+        run_skills(build_skills_parser().parse_args(argv[1:]))
         return
 
     args = build_parser().parse_args(argv)

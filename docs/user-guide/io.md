@@ -485,6 +485,37 @@ See the [Create a VoxelData array from a MAT
 file](../examples/_built/io/create_voxeldata_from_mat.md) example for a complete
 walkthrough, from a real lab-specific MAT file to motion correction and a task GLM.
 
+### Agent Skill for Custom Imports
+
+ConfUSIus includes an Agent Skill that teaches coding assistants how to import
+custom arrays with correct VoxelData dimensions, acquisition timing, and affine
+geometry. Install it from your Python environment without a separate download:
+
+```sh
+confusius skills list
+confusius skills install --agent pi --scope global
+confusius skills install --agent codex --scope project
+confusius skills install --agent claude-code --scope project
+confusius skills install --agent cursor --scope global
+
+# Optionally install a single named skill.
+confusius skills install confusius-load-data --agent pi --scope global
+```
+
+`list` prints skill names and descriptions. `install` defaults to every bundled
+skill, checking all destinations for conflicts before copying anything.
+Both `--agent` and `--scope` are required. Project scope uses the **current working
+directory**; global scope uses the user's home. Pi and Codex use `.agents/skills/`,
+Claude Code uses `.claude/skills/`, and Cursor uses `.cursor/skills/`, relative to
+that root. Existing destinations are never replaced without `--force`; forced
+replacement discards local changes and removes stale files in that skill directory.
+
+Restart or reload skill discovery in your assistant if necessary, then ask it to
+use `confusius-load-data`. Each installation includes geometry references and a
+`scripts/examples.py` script with offline, synthetic-data checks. Run it with the
+Python environment containing ConfUSIus. Repository maintenance skills such as the
+release workflow are not distributed.
+
 ## Converting Beamformed IQ Data to Zarr
 
 Beamformed IQ exports are often stored as large binary files together with acquisition
