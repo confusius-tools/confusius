@@ -58,10 +58,25 @@ intensity changes between consecutive time points, averaged across all brain
 voxels[^power2012]. A spike in DVARS typically indicates a motion event, a scanner
 artifact, or another transient disturbance that corrupted one or more volumes.
 
-By default, ConfUSIus computes the **standardized** DVARS[^nichols2017],
-which accounts for the temporal autocorrelation structure of the data and is therefore
-more comparable across acquisitions. Standardized DVARS is approximately 1 for a
-stationary recording; values significantly above 1 indicate outlier volumes.
+By default, ConfUSIus computes **relative DVARS**[^afyouni2018]: raw DVARS divided
+by the square root of its median squared value. The baseline is estimated from
+actual temporal differences, before adding the artificial first sample. This
+empirical normalization puts the median near 1, but does not provide a Z-score or
+an artifact probability. It assumes background fluctuations dominate the recording;
+frequent artifacts or a changing baseline can compromise the estimate.
+
+Nichols originally called the measure *Standardized DVARS*[^nichols2017]; Afyouni
+and Nichols subsequently used the name *relative DVARS*.
+
+!!! warning "DVARS normalization changed in 0.9.0"
+
+    Version 0.8.0 and earlier used the legacy AR(1)-based normalization. The
+    default is now median-based relative DVARS. Numerical values change, so
+    existing thresholds need review. The `standardize` argument was removed,
+    and all options are keyword-only. Use `variant="raw"` instead of
+    `standardize=False`; use `baseline_estimator="legacy"` to reproduce the
+    former `standardize=True` normalization. The legacy estimator is deprecated
+    and will be removed in a future release.
 
 ### Usage
 
@@ -72,15 +87,39 @@ inflate the variance estimate:
 ```python
 from confusius.qc import compute_dvars
 
-# Compute standardized DVARS (default).
+# Compute median-based relative DVARS (default).
 dvars = compute_dvars(signals)
-# dvars has dims (time,).
+# Alternative model-based baseline, using the mean expected difference variance.
+dvars_ar1 = compute_dvars(signals, baseline_estimator="ar1")
+# Raw DVARS in native intensity units.
+dvars_raw = compute_dvars(signals, variant="raw", normalization_factor=None)
+# Each result has dims (time,).
 ```
+
+For relative DVARS, `baseline_estimator` selects one of three denominators:
+
+- `"median"` (default): square root of median squared raw DVARS. No AR(1) fit.
+- `"ar1"`: RMS of expected voxelwise difference SDs,
+  `sqrt(mean(2 * (1 - rho) * sigma**2))`.
+- `"legacy"` (deprecated): arithmetic mean of those SDs,
+  `mean(sqrt(2 * (1 - rho)) * sigma)`.
+
+Both model-based estimators use the same Yule–Walker lag-1 autocorrelations and
+robust temporal SDs (IQR/normal-IQR). Their aggregation differs: heterogeneous
+voxel variability makes legacy values larger than `"ar1"` values. Neither method
+is a drop-in numerical replacement for `"legacy"`. The AR(1) estimates are not
+robust to artifacts. Raw DVARS ignores `baseline_estimator` and optionally scales
+signal intensities to a median of 1000 (`normalization_factor`, default: 1000).
+
+Both variants exclude zero-IQR features by default and accept Dask-backed data,
+but compute eagerly. The first output value is the minimum DVARS value for
+compatibility, not an observed frame difference.
 
 ### Visualizing and Thresholding
 
 DVARS is a time series and is best examined as a line plot. Flagged frames can be marked
-for quick visual inspection:
+for quick visual inspection. The threshold below is illustrative, not calibrated
+for fUSI; changing the estimator requires reviewing the threshold:
 
 ```python
 import matplotlib.pyplot as plt
@@ -90,7 +129,7 @@ flagged = dvars > threshold
 flagged_dvars = dvars.where(flagged, drop=True)
 
 fig, ax = plt.subplots(figsize=(10, 3))
-dvars.plot(ax=ax, linewidth=0.8, label="Standardized DVARS")
+dvars.plot(ax=ax, linewidth=0.8, label="relative DVARS")
 if flagged_dvars.size > 0:
     ax.plot(
         flagged_dvars["time"].values,
@@ -255,6 +294,11 @@ For full parameter documentation, see the [QC API reference](../api/qc.md).
     Connectivity MRI Networks Arise from Subject Motion." NeuroImage, vol. 59, no. 3,
     Feb. 2012, pp. 2142–54. DOI.org (Crossref),
     <https://doi.org/10.1016/j.neuroimage.2011.10.018>.
+
+[^afyouni2018]:
+    Afyouni, Soroosh, and Thomas E. Nichols. "Insight and Inference for DVARS."
+    NeuroImage, 172, 2018, pp. 291–312.
+    <https://doi.org/10.1016/j.neuroimage.2017.12.098>.
 
 [^nichols2017]:
     Nichols, Thomas E. "Notes on Creating a Standardized Version of DVARS." arXiv,
