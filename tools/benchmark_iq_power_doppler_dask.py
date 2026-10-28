@@ -25,6 +25,8 @@ import distributed
 import numpy as np
 import xarray as xr
 from distributed import Client, LocalCluster, wait
+from rich.console import Console
+from rich.table import Table
 from threadpoolctl import threadpool_info, threadpool_limits
 
 from confusius.iq import process_iq_to_power_doppler as process_current
@@ -223,6 +225,55 @@ def benchmark_scheduler(args: argparse.Namespace, scheduler: str) -> dict[str, A
         }
 
 
+def print_results(runs: list[dict[str, Any]]) -> None:
+    """Display scheduler comparisons using median timings and worst observed error.
+
+    Parameters
+    ----------
+    runs : list of dict
+        Completed scheduler benchmarks, including summaries and raw samples.
+
+    Returns
+    -------
+    None
+        A Rich table is printed to the console.
+    """
+    table = Table(
+        title="Power Doppler results",
+        caption=(
+            "Median times in seconds; speedup versus current under the same scheduler. "
+            "Rel. L2 and negative voxel counts are maxima across repetitions."
+        ),
+    )
+    table.add_column("Scheduler")
+    table.add_column("Method")
+    for column in (
+        "Build (s)",
+        "Compute (s)",
+        "Total (s)",
+        "Speedup",
+        "Rel. L2",
+        "Negative",
+    ):
+        table.add_column(column, justify="right")
+    for run in runs:
+        for method, summary in run["summary"].items():
+            errors = [sample["error_vs_current"] for sample in run["samples"][method]]
+            speedup = summary["speedup_vs_current"]
+            table.add_row(
+                run["scheduler"],
+                method,
+                f"{summary['build_s']:.3f}",
+                f"{summary['compute_s']:.3f}",
+                f"{summary['total_s']:.3f}",
+                f"{speedup:.2f}x",
+                f"{max(error['relative_l2'] for error in errors):.2e}",
+                str(max(error["negative_voxels"] for error in errors)),
+            )
+        table.add_section()
+    Console().print(table)
+
+
 def main() -> None:
     """Parse settings, run scheduler comparisons, and save incremental JSON results.
 
@@ -317,12 +368,7 @@ def main() -> None:
         run = benchmark_scheduler(args, scheduler)
         metadata["runs"].append(run)
         args.output.write_text(json.dumps(metadata, indent=2) + "\n")
-        for method, summary in run["summary"].items():
-            print(
-                f"{scheduler} {method}: median total={summary['total_s']:.3f}s, "
-                f"speedup={summary['speedup_vs_current']:.2f}x",
-                flush=True,
-            )
+    print_results(metadata["runs"])
     print(f"Results written to {args.output}")
 
 

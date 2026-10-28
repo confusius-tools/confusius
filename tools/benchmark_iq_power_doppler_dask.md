@@ -35,8 +35,10 @@ uv run python -m tools.benchmark_iq_power_doppler_dask \
 
 Save both JSON files; they contain the configuration, package/BLAS versions,
 worker thread settings, raw samples, precision metrics, and median summaries.
-Results are saved after each completed scheduler. Console output includes the
-same timing summary. Output files are overwritten, so use distinct names per run.
+Results are saved after each completed scheduler. A final Rich table compares
+median build, compute, and total time, speedup, and worst observed relative L2
+error and negative voxel count across schedulers. Output files are overwritten,
+so use distinct names per run.
 
 For a larger workload, change `--voxels 100000 --windows 8` and increase
 `--worker-memory` appropriately, e.g. `8GiB` per worker if the machine has enough

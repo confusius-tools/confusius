@@ -9,7 +9,56 @@ import pytest
 
 from confusius.iq import process_iq_to_power_doppler as process_reference
 from confusius.validation import validate_voxeldata
+from tools.benchmark_iq_power_doppler_dask import print_results
 from tools.iq_to_power_doppler import process_iq_to_power_doppler
+
+
+def test_results_table(capsys, monkeypatch):
+    """Show measured medians and the worst observed error, rather than the last sample."""
+    monkeypatch.setenv("COLUMNS", "180")
+    print_results(
+        [
+            {
+                "scheduler": "threads",
+                "summary": {
+                    "subtract": {
+                        "build_s": 0.123,
+                        "compute_s": 0.456,
+                        "total_s": 0.579,
+                        "speedup_vs_current": 1.42,
+                    }
+                },
+                "samples": {
+                    "subtract": [
+                        {
+                            "error_vs_current": {
+                                "relative_l2": 0.025,
+                                "negative_voxels": 7,
+                            }
+                        },
+                        {
+                            "error_vs_current": {
+                                "relative_l2": 0.001,
+                                "negative_voxels": 0,
+                            }
+                        },
+                    ]
+                },
+            }
+        ]
+    )
+    rendered = capsys.readouterr().out
+    for value in (
+        "threads",
+        "subtract",
+        "0.123",
+        "0.456",
+        "0.579",
+        "1.42x",
+        "2.50e-02",
+        "7",
+    ):
+        assert value in rendered
 
 
 @pytest.mark.parametrize("method", ["subtract", "retained"])
@@ -39,7 +88,7 @@ def test_benchmark_all_schedulers(tmp_path):
     """Exercise CLI, worker spawning, overlap, rechunking, precision, and JSON output."""
     output = tmp_path / "results.json"
     schedulers = ["threads", "distributed-threads", "distributed-processes"]
-    subprocess.run(
+    completed = subprocess.run(
         [
             sys.executable,
             "-m",
@@ -74,6 +123,7 @@ def test_benchmark_all_schedulers(tmp_path):
         text=True,
         timeout=120,
     )
+    assert "Power Doppler results" in completed.stdout
     result = json.loads(output.read_text())
     assert [run["scheduler"] for run in result["runs"]] == schedulers
     for run in result["runs"]:
