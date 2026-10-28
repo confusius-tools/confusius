@@ -9,14 +9,6 @@ from typing import Literal
 
 import yaml
 
-AGENT_SKILL_DIRS = {
-    "pi": ".agents/skills",
-    "codex": ".agents/skills",
-    "claude-code": ".claude/skills",
-    "cursor": ".cursor/skills",
-}
-"""Documented skill directories relative to a project root or user home."""
-
 
 def list_skills() -> dict[str, str]:
     """List bundled Agent Skills and their frontmatter descriptions.
@@ -86,8 +78,8 @@ def _copy_skill(source: Traversable, destination: Path) -> None:
 def install_skills(
     name: str | None = None,
     *,
-    agent: str,
     scope: Literal["global", "project"],
+    claude: bool = False,
     force: bool = False,
 ) -> list[Path]:
     """Install one or all bundled skills in an explicitly chosen scope.
@@ -97,10 +89,11 @@ def install_skills(
     name : str, optional
         Name returned by `list_skills`. If not provided, install every bundled
         skill. All destinations are checked and resources staged before replacement.
-    agent : {"pi", "codex", "claude-code", "cursor"}
-        Assistant whose documented skill directory to use.
     scope : {"global", "project"}
         Installation relative to the user's home or current working directory.
+    claude : bool, default: False
+        Whether to install in `.claude/skills` instead of the shared
+        `.agents/skills` directory supported by Pi, Codex, Cursor, and others.
     force : bool, default: False
         Whether to replace an existing skill, including stale files. An existing
         skill symlink is replaced without modifying its target.
@@ -113,7 +106,7 @@ def install_skills(
     Raises
     ------
     ValueError
-        If the skill, assistant, or scope is unknown.
+        If the skill or scope is unknown.
     FileExistsError
         If the destination exists and replacement was not requested.
     OSError
@@ -122,14 +115,12 @@ def install_skills(
     skills = list_skills()
     if name is not None and name not in skills:
         raise ValueError(f"Unknown bundled skill: {name!r}.")
-    if agent not in AGENT_SKILL_DIRS:
-        raise ValueError(f"Unknown assistant: {agent!r}.")
     if scope not in ("global", "project"):
         raise ValueError(f"Unknown installation scope: {scope!r}.")
 
     names = [name] if name is not None else list(skills)
     root = Path.home() if scope == "global" else Path.cwd()
-    parent = root / AGENT_SKILL_DIRS[agent]
+    parent = root / (".claude" if claude else ".agents") / "skills"
     destinations = [parent / skill for skill in names]
     for destination in destinations:
         if (destination.exists() or destination.is_symlink()) and not force:

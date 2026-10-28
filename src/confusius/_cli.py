@@ -127,8 +127,6 @@ def build_skills_parser() -> argparse.ArgumentParser:
     argparse.ArgumentParser
         Parser for listing and installing bundled skills.
     """
-    from confusius._utils.skills import AGENT_SKILL_DIRS
-
     parser = argparse.ArgumentParser(
         prog="confusius skills",
         description="List and install bundled Agent Skills.",
@@ -146,10 +144,9 @@ def build_skills_parser() -> argparse.ArgumentParser:
         "name", nargs="?", help="Name of one bundled skill. Defaults to all skills."
     )
     install.add_argument(
-        "--agent",
-        required=True,
-        choices=AGENT_SKILL_DIRS,
-        help="Assistant whose skill directory to use.",
+        "--claude",
+        action="store_true",
+        help="Install in .claude/skills instead of the shared .agents/skills directory.",
     )
     install.add_argument(
         "--scope",
@@ -188,7 +185,7 @@ def run_skills(args: argparse.Namespace) -> None:
             Console(markup=False, highlight=False).print(table)
         else:
             destinations = install_skills(
-                args.name, agent=args.agent, scope=args.scope, force=args.force
+                args.name, scope=args.scope, claude=args.claude, force=args.force
             )
             for destination in destinations:
                 print(f"Installed {destination.name} to {destination}")

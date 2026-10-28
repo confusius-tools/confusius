@@ -75,7 +75,7 @@ assert str(Path(sys.argv[1])) in confusius.__file__
 sys.argv = ['confusius', 'skills', 'list']
 main()
 sys.argv = ['confusius', 'skills', 'install',
-            '--agent', 'codex', '--scope', 'project']
+            '--scope', 'project']
 main()
 """
     installed = tmp_path / "installed"

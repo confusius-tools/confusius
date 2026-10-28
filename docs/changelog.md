@@ -34,10 +34,11 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
-- Install bundled Agent Skills for Pi, Codex, Claude Code, and Cursor with
-  `confusius skills install --agent ... --scope global|project`. Installation
-  defaults to all skills, supports selecting one by name, and protects existing
-  skills unless `--force` is supplied. `confusius skills list` shows names and
+- Install bundled Agent Skills to the shared `.agents/skills/` directory for Pi,
+  Codex, Cursor, and other compatible assistants with
+  `confusius skills install --scope global|project`. Use `--claude` for Claude Code's
+  `.claude/skills/` directory instead. Installation defaults to all skills, supports
+  selecting one by name, and protects existing skills unless `--force` is supplied. `confusius skills list` shows names and
   descriptions. The first skill, `confusius-load-data`, guides custom imports with
   VoxelData geometry references and runnable examples
   ([#539](https://github.com/confusius-tools/confusius/pull/539)).

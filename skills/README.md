@@ -6,19 +6,24 @@ in the Python wheel, including references and scripts.
 
 ```sh
 confusius skills list
-confusius skills install --agent pi --scope global
-confusius skills install --agent codex --scope project
-confusius skills install --agent claude-code --scope project
-confusius skills install --agent cursor --scope global
+# Shared installation for Pi, Codex, Cursor, and other compatible agents.
+confusius skills install --scope global
+confusius skills install --scope project
+
+# Claude Code uses a separate discovery directory.
+confusius skills install --claude --scope global
 
 # Install just one skill instead.
-confusius skills install confusius-load-data --agent pi --scope global
+confusius skills install confusius-load-data --scope global
 ```
 
 `list` displays names and descriptions from each skill's YAML frontmatter.
 `install` defaults to all bundled skills, checking all destinations for conflicts
-before copying anything. `--scope project` uses the current working directory; `--scope global` uses the
-user's home. Existing skills require `--force` to replace. See the
+before copying anything. `--scope project` uses the current working directory;
+`--scope global` uses the user's home. Installation uses `.agents/skills/` by
+default; `--claude` selects `.claude/skills/` instead. Shared-directory discovery
+depends on the assistant; it does not guarantee support by every agent.
+Existing skills require `--force` to replace. See the
 [load-data skill README](../src/confusius/_skills/confusius-load-data/README.md)
 for directory locations and executable examples.
 

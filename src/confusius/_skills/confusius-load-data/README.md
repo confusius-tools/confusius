@@ -9,14 +9,16 @@ No host-specific tool names, commands, or frontmatter extensions are required.
 
 ## Install for an assistant
 
-With ConfUSIus installed, choose an assistant and scope explicitly:
+With ConfUSIus installed, choose a scope explicitly. By default, installation uses
+the shared `.agents/skills/` location supported by Pi, Codex, Cursor, and other
+compatible assistants. Use `--claude` for Claude Code's separate discovery directory:
 
 ```sh
 confusius skills list
-confusius skills install --agent pi --scope global
-confusius skills install --agent codex --scope project
-confusius skills install --agent claude-code --scope project
-confusius skills install --agent cursor --scope global
+confusius skills install --scope global
+confusius skills install --scope project
+confusius skills install --claude --scope global
+confusius skills install --claude --scope project
 ```
 
 `list` prints each skill's name and description. `install` defaults to all bundled
@@ -35,13 +37,14 @@ For a manual installation, copy this entire directory to one of these locations:
 | Pi | `.agents/skills/` | `~/.agents/skills/` |
 | Codex | `.agents/skills/` | `~/.agents/skills/` |
 | Claude Code | `.claude/skills/` | `~/.claude/skills/` |
-| Cursor | `.cursor/skills/` | `~/.cursor/skills/` |
+| Cursor | `.agents/skills/` | `~/.agents/skills/` |
 
 Restart/reload your assistant's skill discovery if necessary, then ask it to
 "use confusius-load-data to import my lab's MAT recording." The canonical source is
 `src/confusius/_skills/`, which is bundled in the wheel, not automatically a host
 discovery location. Repository maintenance workflows such as the release skill are
 not distributed.
+Shared-directory discovery depends on the assistant, not the skill format alone.
 Avoid installing duplicate copies in multiple directories scanned by one assistant.
 The same files work in all four hosts; interactive host discovery is not part of
 the Python example checks.

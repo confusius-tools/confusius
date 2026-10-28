@@ -493,21 +493,25 @@ geometry. Install it from your Python environment without a separate download:
 
 ```sh
 confusius skills list
-confusius skills install --agent pi --scope global
-confusius skills install --agent codex --scope project
-confusius skills install --agent claude-code --scope project
-confusius skills install --agent cursor --scope global
+# Shared location for Pi, Codex, Cursor, and other compatible assistants.
+confusius skills install --scope global
+confusius skills install --scope project
+
+# Claude Code uses its own discovery directory.
+confusius skills install --claude --scope global
 
 # Optionally install a single named skill.
-confusius skills install confusius-load-data --agent pi --scope global
+confusius skills install confusius-load-data --scope global
 ```
 
 `list` prints skill names and descriptions. `install` defaults to every bundled
 skill, checking all destinations for conflicts before copying anything.
-Both `--agent` and `--scope` are required. Project scope uses the **current working
-directory**; global scope uses the user's home. Pi and Codex use `.agents/skills/`,
-Claude Code uses `.claude/skills/`, and Cursor uses `.cursor/skills/`, relative to
-that root. Existing destinations are never replaced without `--force`; forced
+`--scope` is required. Project scope uses the **current working directory**;
+global scope uses the user's home. Installation defaults to `.agents/skills/`,
+shared by Pi, Codex, Cursor, and other assistants that discover this directory.
+Use `--claude` to select `.claude/skills/` instead. Shared installation does not
+guarantee discovery by every agent. Existing destinations are never replaced
+without `--force`; forced
 replacement discards local changes and removes stale files in that skill directory.
 
 Restart or reload skill discovery in your assistant if necessary, then ask it to
