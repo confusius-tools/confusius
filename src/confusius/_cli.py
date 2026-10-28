@@ -149,10 +149,10 @@ def build_skills_parser() -> argparse.ArgumentParser:
         help="Install in .claude/skills instead of the shared .agents/skills directory.",
     )
     install.add_argument(
-        "--scope",
-        required=True,
-        choices=("global", "project"),
-        help="Install in the user's home or current working directory.",
+        "--global",
+        dest="global_install",
+        action="store_true",
+        help="Install in the user's home instead of the current working directory.",
     )
     install.add_argument(
         "--force",
@@ -185,7 +185,10 @@ def run_skills(args: argparse.Namespace) -> None:
             Console(markup=False, highlight=False).print(table)
         else:
             destinations = install_skills(
-                args.name, scope=args.scope, claude=args.claude, force=args.force
+                args.name,
+                global_install=args.global_install,
+                claude=args.claude,
+                force=args.force,
             )
             for destination in destinations:
                 print(f"Installed {destination.name} to {destination}")

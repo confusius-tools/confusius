@@ -74,8 +74,7 @@ from confusius._cli import main
 assert str(Path(sys.argv[1])) in confusius.__file__
 sys.argv = ['confusius', 'skills', 'list']
 main()
-sys.argv = ['confusius', 'skills', 'install',
-            '--scope', 'project']
+sys.argv = ['confusius', 'skills', 'install']
 main()
 """
     installed = tmp_path / "installed"

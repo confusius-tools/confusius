@@ -5,7 +5,6 @@ from importlib import resources
 from importlib.resources.abc import Traversable
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Literal
 
 import yaml
 
@@ -78,19 +77,20 @@ def _copy_skill(source: Traversable, destination: Path) -> None:
 def install_skills(
     name: str | None = None,
     *,
-    scope: Literal["global", "project"],
+    global_install: bool = False,
     claude: bool = False,
     force: bool = False,
 ) -> list[Path]:
-    """Install one or all bundled skills in an explicitly chosen scope.
+    """Install one or all bundled skills locally or in the user's home.
 
     Parameters
     ----------
     name : str, optional
         Name returned by `list_skills`. If not provided, install every bundled
         skill. All destinations are checked and resources staged before replacement.
-    scope : {"global", "project"}
-        Installation relative to the user's home or current working directory.
+    global_install : bool, default: False
+        Whether to install relative to the user's home instead of the current
+        working directory.
     claude : bool, default: False
         Whether to install in `.claude/skills` instead of the shared
         `.agents/skills` directory supported by Pi, Codex, Cursor, and others.
@@ -106,7 +106,7 @@ def install_skills(
     Raises
     ------
     ValueError
-        If the skill or scope is unknown.
+        If the skill is unknown.
     FileExistsError
         If the destination exists and replacement was not requested.
     OSError
@@ -115,11 +115,9 @@ def install_skills(
     skills = list_skills()
     if name is not None and name not in skills:
         raise ValueError(f"Unknown bundled skill: {name!r}.")
-    if scope not in ("global", "project"):
-        raise ValueError(f"Unknown installation scope: {scope!r}.")
 
     names = [name] if name is not None else list(skills)
-    root = Path.home() if scope == "global" else Path.cwd()
+    root = Path.home() if global_install else Path.cwd()
     parent = root / (".claude" if claude else ".agents") / "skills"
     destinations = [parent / skill for skill in names]
     for destination in destinations:

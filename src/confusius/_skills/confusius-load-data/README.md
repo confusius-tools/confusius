@@ -9,24 +9,24 @@ No host-specific tool names, commands, or frontmatter extensions are required.
 
 ## Install for an assistant
 
-With ConfUSIus installed, choose a scope explicitly. By default, installation uses
-the shared `.agents/skills/` location supported by Pi, Codex, Cursor, and other
+With ConfUSIus installed, installation defaults to the current working directory.
+It uses the shared `.agents/skills/` location supported by Pi, Codex, Cursor, and other
 compatible assistants. Use `--claude` for Claude Code's separate discovery directory:
 
 ```sh
 confusius skills list
-confusius skills install --scope global
-confusius skills install --scope project
-confusius skills install --claude --scope global
-confusius skills install --claude --scope project
+confusius skills install
+confusius skills install --global
+confusius skills install --claude
+confusius skills install --claude --global
 ```
 
 `list` prints each skill's name and description. `install` defaults to all bundled
 skills; pass `confusius-load-data` before the options to install only this skill.
 All destinations are checked for conflicts before any skill is copied.
 
-Project scope installs relative to the current working directory; global scope uses
-the user's home. Existing skills are refused unless `--force` is supplied; forced
+The default project installation is relative to the current working directory,
+not an automatically detected repository root. `--global` uses the user's home instead. Existing skills are refused unless `--force` is supplied; forced
 replacement removes the old skill directory, including local changes and stale files.
 No assistant configuration is modified and no network access is needed to install.
 
