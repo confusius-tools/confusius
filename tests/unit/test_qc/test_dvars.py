@@ -320,6 +320,6 @@ def test_zero_baseline_without_filtering():
 def test_standardize_removed(signals):
     """The removed argument is not silently accepted."""
     with pytest.raises(TypeError, match="standardize"):
-        compute_dvars(signals, standardize=True)
+        compute_dvars(signals, standardize=True)  # ty: ignore[unknown-argument]
     with pytest.raises(TypeError):
-        compute_dvars(signals, False)
+        compute_dvars(signals, False)  # ty: ignore[too-many-positional-arguments]
