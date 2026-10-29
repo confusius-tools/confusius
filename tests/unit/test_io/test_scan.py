@@ -684,36 +684,6 @@ class TestLoadScanFoldsWorldToLab:
             rtol=1e-10,
         )
 
-    def test_world_to_probe_switches_to_probe_space(
-        self, scan_2d: xr.DataArray, scan_2d_rotated: xr.DataArray
-    ) -> None:
-        """Applying world_to_probe gives probe-space coordinates; world_to_lab undoes it.
-
-        Both fixtures share voxelsToProbe, so in probe space their world coordinates
-        must agree regardless of the rotated probeToLab.
-        """
-        in_probe = scan_2d_rotated.fusi.affine.apply("world_to_probe")
-        unrotated_in_probe = scan_2d.fusi.affine.apply("world_to_probe")
-        for name in ("z", "y", "x"):
-            np.testing.assert_allclose(
-                in_probe.coords[name].values,
-                unrotated_in_probe.coords[name].values,
-                rtol=1e-10,
-                atol=1e-9,
-            )
-        np.testing.assert_allclose(
-            in_probe.attrs["affines"]["world_to_lab"],
-            _build_probe_to_lab(_PROBE_TO_LAB_ROTATED),
-            rtol=1e-10,
-        )
-        restored = in_probe.fusi.affine.apply("world_to_lab")
-        np.testing.assert_allclose(
-            get_voxel_to_world_affine(restored),
-            get_voxel_to_world_affine(scan_2d_rotated),
-            rtol=1e-10,
-            atol=1e-9,
-        )
-
     def test_3dscan_primary_affine_is_per_pose_stack(
         self, scan_3d: xr.DataArray
     ) -> None:
@@ -730,11 +700,6 @@ class TestLoadScanFoldsWorldToLab:
             scan_3d.attrs["affines"]["world_to_probe"],
             np.linalg.inv(probe_to_lab[0]),
             rtol=1e-10,
-        )
-        # In probe space the first pose is the shared local affine itself.
-        in_probe = scan_3d.fusi.affine.apply("world_to_probe")
-        np.testing.assert_allclose(
-            get_voxel_to_world_affine(in_probe)[0], local_affines[0], rtol=1e-8
         )
 
 

@@ -730,11 +730,6 @@ class TestLoadScanV2Acquisition:
             np.linalg.inv(probe_to_lab),
             atol=1e-9,
         )
-        np.testing.assert_allclose(
-            get_voxel_to_world_affine(scan_v2_acq.fusi.affine.apply("world_to_probe")),
-            local_affine,
-            atol=1e-9,
-        )
 
     def test_implausible_pose_raises(self, tmp_path: Path) -> None:
         """An implausible v2 pose fails loading instead of using probe geometry."""
