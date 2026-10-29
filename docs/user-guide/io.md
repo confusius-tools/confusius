@@ -239,7 +239,7 @@ Indexes:
   │ y
   └ x
 Attributes:
-    affines:               {}
+    affines:               {'world_to_lab': array([[1., 0., 0., 0.],\n       ...
     device_serial_number:  XXXXXXXX
     software_version:      IcoScan version 1.0.0
     iconeus_scan_mode:     4Dscan
@@ -313,7 +313,7 @@ Indexes:
   │ y
   └ x
 Attributes: (12/26)
-    affines:                           {}
+    affines:                           {'world_to_lab': array([[1., 0., 0.,...
     iconeus_scan_format:               v2
     iconeus_scan_mode:                 2Dscan
     iconeus_datetime:                  2026-07-14T05:00:00+00:00

@@ -390,10 +390,12 @@ Several loaders populate `.attrs["affines"]` automatically:
   switched between the two. [`save_nifti`][confusius.io.save_nifti] can write any
   named affine in `.attrs["affines"]` back to the header via its `qform=`/`sform=`
   arguments, defaulting to `"world_to_qform"`/`"world_to_sform"` when not specified.
-- **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] expresses world coordinates
-  directly in ConfUSIus-ordered Iconeus lab space, so it stores no `"world_to_lab"`
-  affine. With `bps_path`, it stores a single `"world_to_brain"` affine, even for
-  multi-pose acquisitions (`3Dscan`, `4Dscan`).
+- **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] uses ConfUSIus-ordered
+  Iconeus lab space as world space, so its `"world_to_lab"` entry is the identity. A
+  `"world_to_probe"` entry maps world coordinates to the first pose's probe space
+  (`z` elevation, `y` depth, `x` lateral), so the world space can be switched to the
+  probe and back. Both are single `(4, 4)` affines, also for multi-pose acquisitions
+  (`3Dscan`, `4Dscan`), as is the `"world_to_brain"` affine stored with `bps_path`.
 
 Registration transforms are handled separately from `.attrs["affines"]`.
 [`register_volume`][confusius.registration.register_volume] returns the estimated

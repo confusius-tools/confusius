@@ -525,9 +525,13 @@ class TestLoadScanV2:
         for dim in ("x", "y", "z"):
             assert scan_v2.coords[dim].attrs["units"] == "mm"
 
-    def test_no_probe_to_lab(self, scan_v2: xr.DataArray) -> None:
-        """v2 carries an empty affines dict (no probe_to_lab yet)."""
-        assert scan_v2.attrs["affines"] == {}
+    def test_affines_for_zero_pose(self, scan_v2: xr.DataArray) -> None:
+        """A zero 6DOF pose gives identity world_to_lab and world_to_probe affines."""
+        assert set(scan_v2.attrs["affines"]) == {"world_to_lab", "world_to_probe"}
+        np.testing.assert_array_equal(
+            scan_v2.attrs["affines"]["world_to_lab"], np.eye(4)
+        )
+        np.testing.assert_allclose(scan_v2.attrs["affines"]["world_to_probe"], np.eye(4))
 
     def test_scan_format_attr(self, scan_v2: xr.DataArray) -> None:
         """v2 records its on-disk format."""
@@ -691,11 +695,11 @@ class TestLoadScanV2Acquisition:
     def test_probe_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
         """probe_to_lab (folded into the primary affine) is built from the 6DOF pose.
 
-        probe_to_lab is no longer exposed separately in attrs (ConfUSIus world
-        coordinates for SCAN data are already lab space -- it is folded into the
-        primary voxel-to-world affine at construction). This reconstructs the known
-        local (pre-fold) affine from the fixture's own voxel-size/depth-origin
-        constants and checks probe_to_lab @ local == the loaded primary affine.
+        ConfUSIus world coordinates for SCAN data are lab space, so probe_to_lab is
+        folded into the primary voxel-to-world affine at construction and only its
+        inverse is exposed, as `world_to_probe`. This reconstructs the known local
+        (pre-fold) affine from the fixture's own voxel-size/depth-origin constants and
+        checks probe_to_lab @ local == the loaded primary affine.
         """
         tx, ty, tz, _, _, rz = _POSE
         # The loader negates the stored (MATLAB-convention) angles, so the expected
@@ -721,7 +725,16 @@ class TestLoadScanV2Acquisition:
             probe_to_lab @ local_affine,
             atol=1e-9,
         )
-        assert "probe_to_lab" not in scan_v2_acq.attrs.get("affines", {})
+        np.testing.assert_allclose(
+            scan_v2_acq.attrs["affines"]["world_to_probe"],
+            np.linalg.inv(probe_to_lab),
+            atol=1e-9,
+        )
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(scan_v2_acq.fusi.affine.apply("world_to_probe")),
+            local_affine,
+            atol=1e-9,
+        )
 
     def test_implausible_pose_raises(self, tmp_path: Path) -> None:
         """An implausible v2 pose fails loading instead of using probe geometry."""

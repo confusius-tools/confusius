@@ -32,6 +32,14 @@ Current development version for the next ConfUSIus release.
   other data as an image layer. Pass `layer_type="image"` to display integer data
   as an image ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 
+### :sparkles: Enhancements
+
+- [`load_scan`][confusius.io.load_scan] stores `world_to_lab` (the identity, since
+  lab space is the world space) and `world_to_probe` affines in `attrs["affines"]`,
+  so `da.fusi.affine.apply("world_to_probe")` switches to the first pose's probe
+  space (`z` elevation, `y` depth, `x` lateral) and `apply("world_to_lab")` returns
+  to lab space ([#526](https://github.com/confusius-tools/confusius/pull/526)).
+
 ### :zap: Performance
 
 - [`plot_napari`][confusius.plotting.plot_napari] opens labels data carrying an
