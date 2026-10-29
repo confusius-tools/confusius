@@ -1,6 +1,7 @@
 """Formula-based tests for raw and relative DVARS."""
 
 import warnings
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -186,7 +187,7 @@ def test_dimension_order_and_dask(signals, estimator):
     for data in inputs:
         result = compute_dvars(data, baseline_estimator=estimator)
         assert_allclose(result, reference_dvars(signals.values, estimator))
-        if estimator == "median" and data.chunks is not None:
+        if data.chunks is not None:
             assert result.chunks is not None
         else:
             assert isinstance(result.data, np.ndarray)
@@ -341,9 +342,10 @@ def test_zero_baseline_without_filtering():
         compute_dvars(xr.DataArray(np.ones(5), dims="time"), remove_zero_variance=False)
 
 
+@pytest.mark.parametrize("case", ["median", "ar1", "raw", "raw_normalized"])
 @pytest.mark.parametrize("remove_zero_variance", [True, False])
-def test_median_preserves_laziness_and_reads_blocks_once(
-    signals, remove_zero_variance, monkeypatch
+def test_preserves_laziness_and_reads_blocks_once(
+    signals, case, remove_zero_variance, monkeypatch
 ):
     """Construction runs no tasks and computation reads each input block once."""
     import dask.array as da
@@ -372,20 +374,42 @@ def test_median_preserves_laziness_and_reads_blocks_once(
         axis=1,
     ).rechunk({0: 25})
     lazy_signals = signals.copy(data=values)
+    variant: Literal["raw", "relative"] = (
+        "raw" if case.startswith("raw") else "relative"
+    )
+    estimator: Literal["median", "ar1"] = "ar1" if case == "ar1" else "median"
+    normalization = 1000 if case == "raw_normalized" else None
+    scaled = (
+        signals.values * (1000 / np.median(signals.values))
+        if normalization
+        else signals.values
+    )
+    expected = reference_dvars(scaled, "raw" if variant == "raw" else estimator)
     monkeypatch.setattr("confusius.qc.dvars.sp_stats.iqr", track_iqr)
     tasks = []
     with Callback(pretask=lambda key, graph, state: tasks.append(key)):
-        result = compute_dvars(lazy_signals, remove_zero_variance=remove_zero_variance)
+        result = compute_dvars(
+            lazy_signals,
+            variant=variant,
+            baseline_estimator=estimator,
+            normalization_factor=normalization,
+            remove_zero_variance=remove_zero_variance,
+        )
     assert tasks == []
     assert reads == []
     assert iqr_calls == []
     assert result.chunks is not None
     actual = result.compute(scheduler="synchronous")
-    assert_allclose(actual, reference_dvars(signals.values, "median"), rtol=1e-12)
+    assert_allclose(actual, expected, rtol=1e-12)
     assert actual.name is None
     xr.testing.assert_identical(actual.time, signals.time)
     assert sorted(reads) == [0, 3, 6, 9]
-    assert len(iqr_calls) == (4 if remove_zero_variance else 0)
+    expected_calls = (
+        (1 if case == "raw_normalized" else 4)
+        if remove_zero_variance or case == "ar1"
+        else 0
+    )
+    assert len(iqr_calls) == expected_calls
 
 
 @pytest.mark.parametrize(
@@ -405,13 +429,64 @@ def test_lazy_validation_at_compute(values, remove, message):
         result.compute()
 
 
-def test_lazy_constant_spatial_block(signals):
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("case", ["ar1", "raw", "raw_normalized"])
+def test_lazy_matches_eager_across_precisions(signals, dtype, case):
+    """Lazy model-based and raw paths match eager results for uneven spatial chunks."""
+    data = signals.astype(dtype)
+    variant: Literal["raw", "relative"] = "relative" if case == "ar1" else "raw"
+    normalization = 1000 if case == "raw_normalized" else None
+    expected = compute_dvars(
+        data,
+        variant=variant,
+        baseline_estimator="ar1",
+        normalization_factor=normalization,
+    )
+    lazy = compute_dvars(
+        data.chunk({"time": 13, "region": 5}),
+        variant=variant,
+        baseline_estimator="ar1",
+        normalization_factor=normalization,
+    )
+    assert lazy.chunks is not None
+    assert_allclose(
+        lazy.compute(), expected, rtol=1e-6 if dtype == np.float32 else 1e-12
+    )
+
+
+@pytest.mark.parametrize("normalization_factor", [None, 1000])
+@pytest.mark.parametrize("remove_zero_variance", [False, True])
+def test_lazy_raw_uses_global_retained_intensity_median(
+    signals, normalization_factor, remove_zero_variance
+):
+    """Normalized raw DVARS uses the global median, never a mean of block medians."""
+    values = signals.values.copy()
+    values[:, :3] = 0
+    values[:, 3:6] += 1000
+    retained = values[:, 3:] if remove_zero_variance else values
+    if normalization_factor is not None:
+        retained = retained * (normalization_factor / np.median(retained))
+    expected = reference_dvars(retained, "raw")
+    lazy = signals.copy(data=values).chunk({"time": 25, "region": 5})
+    actual = compute_dvars(
+        lazy,
+        variant="raw",
+        normalization_factor=normalization_factor,
+        remove_zero_variance=remove_zero_variance,
+    )
+    assert actual.chunks is not None
+    assert_allclose(actual.compute(), expected)
+
+
+@pytest.mark.parametrize("estimator", ["median", "ar1"])
+def test_lazy_constant_spatial_block(signals, estimator):
     """An entirely filtered block contributes zero, not an error or biased mean."""
     values = signals.values.copy()
     values[:, :3] = 0
     lazy = signals.copy(data=values).chunk({"time": 25, "region": 3})
     assert_allclose(
-        compute_dvars(lazy).compute(), reference_dvars(values[:, 3:], "median")
+        compute_dvars(lazy, baseline_estimator=estimator).compute(),
+        reference_dvars(values[:, 3:], estimator),
     )
 
 
