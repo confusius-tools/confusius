@@ -140,7 +140,6 @@ print(f"n_iter_: {nmf_t.n_iter_}")
 # %% tags=["thumbnail"]
 n_show = 10
 fig = plt.figure(figsize=(11.5, 12.0), constrained_layout=True)
-fig.patch.set_facecolor(bg_color)
 gs = fig.add_gridspec(n_show, 2, width_ratios=[1.4, 3])
 
 axes_tc = [fig.add_subplot(gs[i, 1]) for i in range(n_show)]
@@ -205,7 +204,6 @@ signals_s
 # %%
 n_show = 10
 fig = plt.figure(figsize=(11.5, 12.0), constrained_layout=True)
-fig.patch.set_facecolor(bg_color)
 gs = fig.add_gridspec(n_show, 2, width_ratios=[1.4, 3])
 
 axes_tc = [fig.add_subplot(gs[i, 1]) for i in range(n_show)]

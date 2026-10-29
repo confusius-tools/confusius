@@ -8,9 +8,8 @@ build depends on. It covers both:
 
 CI uses this file's hash as the dataset cache key, and runs the script before
 the image generators and the gallery builder so every downstream call hits a
-warm cache. That matters for the gallery in particular: the renderer requires
-the light and dark passes to produce identical output, and download progress
-on a cold cache would otherwise show up in one but not the other.
+warm cache. That matters for the gallery in particular: download progress on a
+cold cache would otherwise show up in the rendered example output.
 
 Add an entry here whenever a new image generator or example pulls data. The
 args must match the call site exactly so the S3 release manifest resolves to the same
