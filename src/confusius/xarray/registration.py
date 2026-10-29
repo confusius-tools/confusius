@@ -39,8 +39,13 @@ class FUSIRegistrationAccessor:
         *,
         fixed_mask: xr.DataArray | None = None,
         moving_mask: xr.DataArray | None = None,
-        transform: Literal["translation", "rigid", "affine", "bspline"] = "rigid",
-        metric: Literal["correlation", "mattes_mi"] = "correlation",
+        transform: Literal[
+            "translation", "rigid", "affine", "bspline", "syn"
+        ] = "rigid",
+        correlation_radius: int = 3,
+        update_field_variance: float = 3.0,
+        total_field_variance: float = 1.0,
+        metric: Literal["correlation", "mattes_mi", "ants_cc"] = "correlation",
         number_of_histogram_bins: int = 50,
         metric_sampling_percentage: float | None = None,
         metric_sampling_seed: int | None = None,
@@ -76,9 +81,18 @@ class FUSIRegistrationAccessor:
             Boolean mask for the fixed volume.
         moving_mask : xarray.DataArray, optional
             Boolean mask for this moving volume.
-        transform : {"translation", "rigid", "affine", "bspline"}, default: "rigid"
-            Type of transform to use for registration.
-        metric : {"correlation", "mattes_mi"}, default: "correlation"
+        transform : {"translation", "rigid", "affine", "bspline", "syn"}, default: "rigid"
+            Type of transform to use for registration. SyN returns a dense
+            displacement field and supports single-resolution registration only.
+            For SyN, `learning_rate="auto"` selects a fixed maximum update length
+            of `0.1` voxels, and optimizer weights are not supported.
+        correlation_radius : int, default: 3
+            Neighborhood radius in voxels for `metric="ants_cc"`.
+        update_field_variance : float, default: 3.0
+            SyN update-field Gaussian smoothing variance in squared voxel units.
+        total_field_variance : float, default: 1.0
+            SyN total-field Gaussian smoothing variance in squared voxel units.
+        metric : {"correlation", "mattes_mi", "ants_cc"}, default: "correlation"
             Similarity metric for registration.
         number_of_histogram_bins : int, default: 50
             Number of histogram bins (only used when `metric="mattes_mi"`).
@@ -166,7 +180,8 @@ class FUSIRegistrationAccessor:
         affine : (N+1, N+1) numpy.ndarray or xarray.DataArray or None
             Estimated registration transform.  For linear transforms, a
             homogeneous affine matrix.  For `transform="bspline"`, a DataArray
-            encoding the B-spline control-point grid.
+            encoding the B-spline control-point grid. For `transform="syn"`, a
+            fixed-grid VoxelData displacement field including affine initialization.
         diagnostics : confusius.registration.RegistrationDiagnostics
             Per-iteration metric values and optimizer stop condition. See
             [`register_volume`][confusius.registration.register_volume].
@@ -183,6 +198,9 @@ class FUSIRegistrationAccessor:
             fixed_mask=fixed_mask,
             moving_mask=moving_mask,
             transform_type=transform,
+            correlation_radius=correlation_radius,
+            update_field_variance=update_field_variance,
+            total_field_variance=total_field_variance,
             metric=metric,
             number_of_histogram_bins=number_of_histogram_bins,
             metric_sampling_percentage=metric_sampling_percentage,

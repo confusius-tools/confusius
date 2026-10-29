@@ -41,6 +41,26 @@ def resolve_itk_threads(threads: int) -> int:
     return threads if threads > 0 else max(1, (os.cpu_count() or 1) + 1 + threads)
 
 
+def get_registration_metric_value(
+    registration: "itk.ImageRegistrationMethodv4",
+) -> float:
+    """Read the current metric from a parametric or SyN registration method.
+
+    Parameters
+    ----------
+    registration : itk.ImageRegistrationMethodv4
+        Active registration method.
+
+    Returns
+    -------
+    float
+        Latest metric value. SyN maintains this on the method, not its optimizer.
+    """
+    if hasattr(registration, "GetFixedToMiddleTransform"):
+        return float(registration.GetCurrentMetricValue())
+    return float(registration.GetOptimizer().GetCurrentMetricValue())
+
+
 def voxeldata_to_itk_image(data: "xr.DataArray") -> "itk.Image":
     """Convert spatial-only VoxelData to a real scalar ITK image.
 
