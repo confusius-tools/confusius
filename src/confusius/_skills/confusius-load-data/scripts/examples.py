@@ -41,6 +41,24 @@ assert power.time.attrs["volume_acquisition_duration"] == 0.2
 
 with TemporaryDirectory(prefix="confusius-load-data-") as temporary:
     root = Path(temporary)
+    # The concise skill example: a confirmed (i, j, k, time) NPY export.
+    recording_raw = np.arange(4 * 3 * 2 * 5, dtype=np.float32).reshape(4, 3, 2, 5)
+    np.save(root / "recording.npy", recording_raw, allow_pickle=False)
+    recording = cf.create_voxeldata(
+        np.load(root / "recording.npy", allow_pickle=False),
+        dims=("i", "j", "k", "time"),
+        dt=0.4,
+        spacing=(0.4, 0.05, 0.1),
+        origin=(0.0, 0.0, 0.0),
+        units="mm",
+    )
+    validate_voxeldata(recording)
+    assert_array_equal(recording.data, recording_raw.transpose(3, 2, 1, 0))
+    assert_allclose(recording.time, np.arange(5) * 0.4)
+    point = recording.isel(time=2, k=1, j=2, i=3)
+    assert point.item() == recording_raw[3, 2, 1, 2]
+    assert_allclose([point.z.item(), point.y.item(), point.x.item()], [0.4, 0.1, 0.3])
+
     np.save(root / "power.npy", raw, allow_pickle=False)
     savemat(root / "power.mat", {"doppler": raw})
     with h5py.File(root / "power.h5", "w") as handle:

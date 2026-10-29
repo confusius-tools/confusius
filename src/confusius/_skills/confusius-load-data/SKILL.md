@@ -1,144 +1,87 @@
 ---
 name: confusius-load-data
-description: Load custom functional ultrasound, power Doppler, beamformed IQ, atlas, or other voxel arrays into ConfUSIus. Use when importing NumPy, MATLAB MAT, HDF5, binary, or lab-specific exports; assigning time and voxel dimensions; converting voxel-to-world affines; or debugging VoxelData geometry and validation.
-compatibility: Requires Python with ConfUSIus and NumPy. Custom file readers may require SciPy or h5py. Instructions are agent-neutral; no MCP server, network access, or editor-specific tools required.
+description: Load custom or supported ultrasound data into ConfUSIus. Use for file imports, VoxelData dimensions, acquisition timing, and voxel-to-world geometry.
+compatibility: Requires Python and ConfUSIus; custom readers may need NumPy, SciPy, or h5py.
 ---
 
-# Load custom data into ConfUSIus
+# Load data into ConfUSIus
 
-Turn the source array and its acquisition metadata into a **VoxelData array** using
-`confusius.xarray.create_voxeldata` (also exported as `confusius.create_voxeldata`).
-Do not write a new loader when an existing ConfUSIus reader handles the format.
-Do not guess physical calibration from array shape or silently accept a plain
-DataArray as spatial data.
+## 1. Choose the existing loader or a custom import
 
-Resolve bundled paths relative to this skill's directory, not the working directory.
-Read [the geometry reference](references/geometry.md) before adapting an affine,
-flipping axes, handling cropped data, or importing multiple probe poses.
-See [installation and verification](README.md) for setup and supporting sources.
+For **supported formats, use ConfUSIus I/O**, not `create_voxeldata`:
 
-## 1. Establish the source contract
+| Source | Entry point |
+|---|---|
+| NIfTI, Iconeus SCAN, VoxelData-convention Zarr | `confusius.load(path)` |
+| EchoFrame DAT + metadata MAT | `confusius.io.load_echoframe_dat(dat_path, meta_path=...)` |
+| AUTC DAT folder | `confusius.io.convert_autc_dats_to_zarr(...)`, then `confusius.load(...)` |
 
-Inspect the file with its appropriate reader and record:
+AUTC conversion requires spatial calibration from the user. Do not infer the vendor
+from `.dat` alone: the generic DAT loader handles EchoFrame, not AUTC.
+For other supported formats, check `confusius.io` before implementing an import.
 
-- Dataset/variable name, shape, dtype, and the meaning and order of **every** axis.
-  Check acquisition metadata or export code; MATLAB/HDF5 layouts are not universal.
-- Which axes are elevation, depth, lateral, time, probe pose, or extra features.
-- Spatial spacing, origin, orientation, units, and whether positions describe voxel
-  centers or edges. If an affine is supplied, establish its input/output axis order,
-  handedness, coordinate frame, and whether it maps voxel labels or array positions.
-- Frame timestamps or sampling rate, their units and reference (start/center/end),
-  and actual acquisition duration. A frame period need not equal acquisition duration.
-- Whether IQ is already complex or stored as separate real/imaginary channels.
+For **custom formats** (lab-specific MATLAB, NPY, HDF5, foreign Zarr, etc.), read the
+array with the appropriate library, then use `confusius.create_voxeldata`.
+Use `scipy.io.loadmat` for pre-v7.3 MAT, `h5py` for v7.3/HDF5, or
+`np.load(path, allow_pickle=False)` for numeric NPY.
 
-Ask for missing calibration or explicitly state an uncalibrated assumption before
-proceeding. Never invent atlas alignment. Do not overwrite the source file.
+## 2. Help the user establish the metadata
 
-Prefer `cf.load(path)` for supported NIfTI, Zarr, and SCAN inputs; use the appropriate
-`confusius.io` reader/converter for supported vendor exports. For unsupported inputs,
-read only the needed array: `np.load(path, allow_pickle=False)` for numeric NPY,
-`scipy.io.loadmat(path)[variable]` for pre-v7.3 MAT, or `h5py.File(path, "r")` for
-HDF5/v7.3 MAT. Inspect keys and metadata instead of assuming a variable name. Keep
-lazy HDF5-backed readers open until computation finishes; `dataset[()]` is eager.
-Never enable pickle or execute code embedded in an untrusted file.
+Inspect file variables, sidecars, acquisition settings, and export code first.
+Ask the user to confirm anything missing or ambiguous; do not guess from shape:
 
-## 2. Name the input axes; let the constructor canonicalize
+- **Axis order:** What does each stored axis represent? `(i, j, k, time)` is common,
+  but not universal. Pass `dims` in the actual raw order. Typically `i` is lateral,
+  `j` is depth, and `k` is elevation; confirm this for their export.
+- **Spatial calibration:** What are the voxel spacings, units, and first voxel-center
+  position? Are rotations, direction vectors, or a full affine already available?
+  Establish their axis order and physical frame rather than discarding orientation.
+- **Timing:** Is sampling regular? Use `dt` in seconds (or `1 / rate_hz`) and `t0`.
+  For irregular sampling, pass exact increasing timestamps through `time`; preserve
+  jitter and convert to seconds. If available, supply `volume_acquisition_reference`
+  (`start`, `center`, `end`) and `volume_acquisition_duration`; duration need not equal `dt`.
+- **Other axes/data:** Identify probe poses versus extra dimensions; preserve complex
+  IQ values. Use `extra_coords` for extra-axis labels and `attrs` for data metadata.
 
-VoxelData always has dimensions `(...extra, time, pose, k, j, i)` in that order.
-`time` and `pose` are optional; `k`, `j`, and `i` are always present in the result.
-Typical probe axes are `k` = elevation, `j` = depth, `i` = lateral, but verify the
-source. Extra dimensions (e.g. `component`) precede the core dimensions.
+## 3. Construct custom VoxelData with the correct geometry
 
-Pass `dims` in the **actual raw array order**. The constructor transposes by name
-and inserts missing spatial dimensions as singletons. Do not relabel a reversed
-axis or reshape to pretend its samples are in a different order. `z`, `y`, and `x`
-are derived world coordinates, **never dimension names**.
+Choose **one** geometry representation:
 
-## 3. Supply geometry and time explicitly
+- `spacing=(dz, dy, dx)`, optionally `origin=(z0, y0, x0)` and a 3×3 `direction`;
+  direction rows are world `z/y/x`, columns voxel `k/j/i`. Use positive spacing.
+- `voxel_to_world=A`, mapping `[k_label, j_label, i_label, 1]` to `[z, y, x, 1]`;
+  do not also pass `spacing`, `origin`, or `direction`.
 
-Choose exactly one geometry representation:
+Units label geometry; they do not convert it. Do not copy an external `ijk → xyz`
+affine unchanged. Read [geometry details](references/geometry.md) for basis conversion,
+rotations, cropping, defaults, or multiple poses. A `pose` dimension requires one
+4×4 affine per pose, even for a single pose; recordings also need pose-dependent timestamps.
 
-- `spacing=(dz, dy, dx)`, optionally `origin=(z0, y0, x0)` and a 3×3 `direction`.
-  Supply all three positive spacings even for a 2D slice. Any singleton-axis spacing
-  must be documented if it is merely a placeholder, not measured slice thickness.
-- `voxel_to_world=A`, a 4×4 homogeneous affine mapping
-  `[k_label, j_label, i_label, 1]` to `[z, y, x, 1]`.
-  Do **not** also supply `spacing`, `origin`, or `direction`.
-
-Set `units="mm"` only after converting the numeric geometry to millimeters.
-Units are labels, not conversions. The constructor creates the lazy
-`VoxelToWorldIndex` on `z/y/x`; do not manually store world coordinate grids or call
-private index-attachment helpers.
-
-For time, use `dt=1 / frame_rate_hz` and `t0`, or actual increasing `time=` values
-in seconds. Preserve jitter; do not replace measured timestamps with a synthetic
-regular grid. Supply `volume_acquisition_reference` and
-`volume_acquisition_duration` from metadata when known. These become attributes of
-`time`, not the array. Defaults are `"start"` and an inferred sample interval;
-these are conveniences, not evidence of acquisition timing. For one timestamp,
-supply a duration explicitly (or a known `dt`). See the reference for per-pose time.
-
-## 4. Build and verify
-
-Example source contract: a calibrated 2D recording stored as `(lateral, depth, time)`,
-2.5 Hz sampling, first voxel center at `(z, y, x) = (0, 0.025, -0.15)` mm.
-The singleton elevation spacing below is a **placeholder**, not slice thickness.
+Example **after confirming** an NPY export is `(i, j, k, time)`, sampled every 0.4 s,
+with spacings `(dz, dy, dx) = (0.4, 0.05, 0.1)` mm and voxel-zero center at the origin:
 
 ```python
 import numpy as np
 import confusius as cf
 from confusius.validation import validate_voxeldata
 
-raw = np.arange(4 * 3 * 5, dtype=np.float32).reshape(4, 3, 5)
-power = cf.create_voxeldata(
+raw = np.load("recording.npy", allow_pickle=False)
+data = cf.create_voxeldata(
     raw,
-    dims=("i", "j", "time"),
-    dt=0.4,
-    spacing=(1.0, 0.05, 0.1),
-    origin=(0.0, 0.025, -0.15),
+    dims=("i", "j", "k", "time"),
+    dt=0.4,  # For irregular sampling, replace with time=timestamps_seconds.
+    spacing=(0.4, 0.05, 0.1),  # Or use voxel_to_world=calibrated_affine.
+    origin=(0.0, 0.0, 0.0),
     units="mm",
-    volume_acquisition_reference="start",
-    volume_acquisition_duration=0.2,
-    name="power_doppler",
 )
-validate_voxeldata(power, require_time=True)
-np.testing.assert_array_equal(power.data[:, 0], raw.transpose(2, 1, 0))
-np.testing.assert_allclose(power.time, np.arange(5) * 0.4)
-point = power.isel(time=2, k=0, j=1, i=3)
-np.testing.assert_allclose(
-    [point.z.item(), point.y.item(), point.x.item()], [0.0, 0.075, 0.15]
-)
-assert point.item() == raw[3, 1, 2]
+validate_voxeldata(data)
 ```
 
-For a static volume omit `time`/`dt`. For extra dimensions use
-`extra_coords={"component": ["a", "b"]}` and include `component` in `dims`.
-For beamformed IQ preserve the complex dtype and use this same constructor; put
-`transmit_frequency` (Hz) and `beamforming_sound_velocity` (m/s) in `attrs`.
-Validate those only when needed with `require_velocity_attrs=True`, and check
-complex data with `require_dtype=np.complexfloating`. There is no separate IQ
-geometry model.
+The constructor returns `(...extra, time, pose, k, j, i)`, omitting unused `time`/`pose`
+and adding missing singleton spatial axes. `z/y/x` are derived world coordinates,
+never dimension names. Do not manually attach world-coordinate grids.
 
-Run [the executable examples](scripts/examples.py) using the Python environment
-where ConfUSIus is installed. They include the example above, NPY/MAT/HDF5 imports,
-oblique affines, axis-order conversion, cropping/flips, IQ, multiple poses, and a
-Zarr round-trip. They use temporary synthetic files and need no downloads.
-
-## 5. Finish with evidence
-
-- Call `validate_voxeldata` on the result. Add flags such as
-  `require_uniform_time` or `require_unchunked_time` only for a consumer that needs
-  them. Validation does not prove that the physical calibration is correct.
-- Check a known raw sample against its VoxelData sample and verify world positions
-  at the first voxel and at least one other landmark against acquisition metadata.
-- If a prior scalar selection removed a spatial dimension, use
-  `ensure_voxeldata` to canonicalize and validate. It cannot turn an unindexed plain
-  `z/y/x` array into VoxelData or recover unknown geometry.
-- For large arrays keep Dask data lazy; avoid `.values`, eager casts, and materializing
-  full world grids. Choose chunks for the intended algorithm, not merely the import.
-- If persistence is requested, use `cf.save(data, new_path)` and `cf.load(new_path)`
-  for supported formats. Verify values, timestamps, units, and geometry after reload;
-  generic xarray serialization alone is not an index-restoration workflow.
-- Report axis mapping, units, geometry/timing source, assumptions, validation, and
-  any unverified physical landmarks. Stop at loading; do not add registration,
-  filtering, resampling, or analysis unless requested.
+Verify a raw sample and its physical position against the result; structural
+validation cannot prove calibration. Report unresolved metadata, not invented values.
+Run [tested examples](scripts/examples.py) for regular/irregular timing, affines, poses,
+IQ, and file round-trips. Bundled paths are relative to this skill's directory.
