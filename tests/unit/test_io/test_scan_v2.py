@@ -69,7 +69,9 @@ _POSE = (0.0007, 0.0026, 0.0, 0.0, 0.0, math.pi / 2)
 def _expected_probe_to_lab() -> np.ndarray:
     """Return `_POSE` as a ConfUSIus-ordered probe-to-lab affine in mm."""
     tx, ty, tz, _, _, rz = _POSE
-    cz, sz = math.cos(rz), math.sin(rz)
+    # The loader negates the stored (MATLAB-convention) angles, so the expected
+    # rotation is about -rz.
+    cz, sz = math.cos(-rz), math.sin(-rz)
     probe_to_lab = np.eye(4)
     probe_to_lab[:3, :3] = [[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]]
     probe_to_lab[:3, 3] = (tx, ty, tz)

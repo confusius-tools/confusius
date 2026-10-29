@@ -1216,6 +1216,9 @@ def _build_rotation_matrix(rx: float, ry: float, rz: float) -> npt.NDArray[np.fl
 def _build_scan_v2_probe_to_lab(meta: dict[str, Any]) -> npt.NDArray[np.float64]:
     """Build `probe_to_lab` affine(s) from SCAN v2 6DOF pose arrays.
 
+    The stored Euler angles are negated before composing each rotation, as Iconeus
+    readers do, so that the lab frame matches SCAN v1 for the same acquisition.
+
     Parameters
     ----------
     meta : dict
@@ -1239,7 +1242,10 @@ def _build_scan_v2_probe_to_lab(meta: dict[str, Any]) -> npt.NDArray[np.float64]
 
     probe_to_lab = np.repeat(np.eye(4)[None, :, :], meta["npose"], axis=0)
     for pose, (translation, rotation) in enumerate(zip(translations, rotations)):
-        probe_to_lab[pose, :3, :3] = _build_rotation_matrix(*rotation)
+        # SCAN v2 files are written from MATLAB, whose Euler-angle convention is the
+        # opposite of the C++ reader's, so Iconeus negates the stored angles when
+        # reading them back (Iconeus, personal communication, October 2026).
+        probe_to_lab[pose, :3, :3] = _build_rotation_matrix(*(-rotation))
         probe_to_lab[pose, :3, 3] = translation
     converted = _build_probe_to_lab(probe_to_lab)
     return converted[0] if meta["npose"] == 1 else converted

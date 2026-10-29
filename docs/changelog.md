@@ -47,6 +47,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- SCAN v2 probe poses negate the stored Euler angles when loading, as Iconeus readers
+  do, so `world_to_lab` matches SCAN v1 geometry for the same acquisition
+  ([#526](https://github.com/confusius-tools/confusius/pull/526)).
 - Labels painted over oblique or sheared data in napari now return to the original
   reference voxel grid using nearest-neighbor interpolation, rather than retaining
   the display grid or being assigned incorrect geometry. The drawing documentation
