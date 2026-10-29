@@ -8,6 +8,8 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
+from confusius._utils.itk import RegistrationMetric
+
 
 @dataclass(frozen=True)
 class RegistrationDiagnostics:
@@ -20,11 +22,11 @@ class RegistrationDiagnostics:
 
     Attributes
     ----------
-    metric : {"correlation", "mattes_mi", "ants_cc"}
+    metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}
         Similarity metric used during optimization, echoed from
         `register_volume`'s `metric` argument. Determines the sign and scale
-        of `metric_values` (ITK always minimizes, so all supported
-        metrics are recorded as negative values).
+        of `metric_values`. ITK minimizes every objective: correlation and
+        mutual information are negated, while mean squares is nonnegative.
     metric_values : (n_iterations,) numpy.ndarray
         Similarity metric value recorded at each optimizer iteration, in
         chronological order.
@@ -45,7 +47,7 @@ class RegistrationDiagnostics:
         result after cooperative cancellation.
     """
 
-    metric: Literal["correlation", "mattes_mi", "ants_cc"]
+    metric: RegistrationMetric
     metric_values: npt.NDArray[np.floating]
     final_metric_value: float
     n_iterations: int

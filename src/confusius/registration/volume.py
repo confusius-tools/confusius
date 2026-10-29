@@ -7,7 +7,12 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.itk import resolve_itk_threads, voxeldata_to_itk_image
+from confusius._utils.itk import (
+    RegistrationMetric,
+    RegistrationOptimizer,
+    resolve_itk_threads,
+    voxeldata_to_itk_image,
+)
 from confusius.registration._utils import (
     abort_on_sigint,
     expand_thin_dims,
@@ -26,6 +31,8 @@ from confusius.validation import validate_matching_spatial_units
 if TYPE_CHECKING:
     from threading import Event
 
+    import itk
+
     from confusius.registration.progress import RegistrationProgress
 
 
@@ -35,7 +42,7 @@ def _validate_register_volume_inputs(
     fixed_mask: xr.DataArray | None,
     moving_mask: xr.DataArray | None,
     transform_type: Literal["translation", "rigid", "affine", "bspline", "syn"],
-    metric: Literal["correlation", "mattes_mi", "ants_cc"],
+    metric: RegistrationMetric,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float,
     number_of_histogram_bins: int,
@@ -65,14 +72,14 @@ def _validate_register_volume_inputs(
         Mask for moving image. If provided, must have same dimensions as moving.
     transform_type : {"translation", "rigid", "affine", "bspline", "syn"}
         Transform model name.
-    metric : {"correlation", "mattes_mi", "ants_cc"}
+    metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}
         Similarity metric name.
     fixed_intensity_scaling : {"none", "db", "sqrt"} or float
         Intensity transform applied to `fixed` before optimization.
     moving_intensity_scaling : {"none", "db", "sqrt"} or float
         Intensity transform applied to `moving` before optimization.
     number_of_histogram_bins : int
-        Number of histogram bins for Mattes mutual information.
+        Number of histogram bins for Mattes or joint-histogram mutual information.
     metric_sampling_percentage : float, optional
         Random metric sampling percentage in `(0, 1]`. If not provided, all voxels
         are used without random sampling.
@@ -148,7 +155,7 @@ def _validate_register_volume_inputs(
             f"Expected one of {sorted(valid_transform_types)}."
         )
 
-    valid_metrics = {"correlation", "mattes_mi", "ants_cc"}
+    valid_metrics = {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}
     if metric not in valid_metrics:
         raise ValueError(
             f"Invalid metric {metric!r}. Expected one of {sorted(valid_metrics)}."
@@ -286,6 +293,264 @@ def _apply_intensity_scaling(
     return power_scale(data, exponent=float(intensity_scaling))
 
 
+def _create_initial_transform(
+    fixed_reg: "itk.Image",
+    moving_reg: "itk.Image",
+    *,
+    transform_type: Literal["translation", "rigid", "affine", "bspline", "syn"],
+    initialization_mode: Literal["center_geometry", "center_moments"] | None,
+    affine_initialization: npt.NDArray[np.floating] | None,
+    mesh_size: tuple[int, int, int],
+) -> "itk.Transform":
+    """Initialize a parametric transform, preserving affine composition and pivots.
+
+    Parameters
+    ----------
+    fixed_reg : itk.Image
+        Expanded, intensity-scaled fixed registration image.
+    moving_reg : itk.Image
+        Expanded, intensity-scaled moving image of the same ITK specialization.
+    transform_type : str
+        Validated transform model; SyN uses an affine initial transform.
+    initialization_mode : str, optional
+        Image geometry or intensity-moment centering mode.
+    affine_initialization : numpy.ndarray, optional
+        Explicit fixed-to-moving affine, composed before a B-spline deformation.
+    mesh_size : tuple of int
+        B-spline mesh size.
+
+    Returns
+    -------
+    initial : itk.Transform
+        Mutable transform, including its pre-affine for B-spline initialization.
+
+    Raises
+    ------
+    ValueError
+        If an explicit affine does not have shape `(4, 4)`.
+    RuntimeError
+        If ITK cannot initialize the transform.
+    """
+    import itk
+
+    image_type = type(fixed_reg)
+    ndim = 3
+    if affine_initialization is not None and affine_initialization.shape != (4, 4):
+        raise ValueError(
+            f"initialization shape {affine_initialization.shape} does not match "
+            "image dimensionality 3D (expected (4, 4))."
+        )
+    if transform_type == "bspline":
+        initial = itk.BSplineTransform[itk.D, ndim, 3].New()
+        initializer = itk.BSplineTransformInitializer[type(initial), image_type].New(
+            Transform=initial, Image=fixed_reg, TransformDomainMeshSize=list(mesh_size)
+        )
+        initializer.InitializeTransform()
+    else:
+        transform_class = {
+            "translation": itk.TranslationTransform[itk.D, ndim],
+            "rigid": itk.Euler3DTransform[itk.D],
+            "affine": itk.AffineTransform[itk.D, ndim],
+            "syn": itk.AffineTransform[itk.D, ndim],
+        }[transform_type]
+        initial = transform_class.New()
+        if (
+            initialization_mode in ("center_geometry", "center_moments")
+            and transform_type != "translation"
+        ):
+            # The wheel wraps 3D centering only for versor transforms; copy its pivot and offset.
+            centered = itk.VersorRigid3DTransform[itk.D].New()
+            initializer = itk.CenteredTransformInitializer[
+                type(centered), image_type, image_type
+            ].New(Transform=centered, FixedImage=fixed_reg, MovingImage=moving_reg)
+            if initialization_mode == "center_geometry":
+                initializer.GeometryOn()
+            else:
+                initializer.MomentsOn()
+            initializer.InitializeTransform()
+            initial.SetCenter(centered.GetCenter())
+            initial.SetTranslation(centered.GetTranslation())
+    if affine_initialization is not None:
+        pre_transform = affine_to_itk_linear_transform(affine_initialization)
+        if transform_type == "bspline":
+            composite = itk.CompositeTransform[itk.D, ndim].New()
+            composite.AddTransform(pre_transform)
+            composite.AddTransform(initial)
+            composite.SetOnlyMostRecentTransformToOptimizeOn()
+            initial = composite
+        else:
+            region = fixed_reg.GetLargestPossibleRegion()
+            center_index = itk.ContinuousIndex[itk.D, ndim]()
+            for axis in range(ndim):
+                center_index[axis] = (
+                    region.GetIndex()[axis] + (region.GetSize()[axis] - 1) / 2
+                )
+            pre_transform.SetCenter(
+                fixed_reg.TransformContinuousIndexToPhysicalPoint(center_index)
+            )
+            # Restore the world offset after changing the optimizer's pivot.
+            pre_transform.SetOffset(tuple(affine_initialization[:ndim, ndim]))
+            initial = pre_transform
+    return initial
+
+
+def _create_registration_metric(
+    image_type: type,
+    *,
+    metric: RegistrationMetric,
+    correlation_radius: int,
+    number_of_histogram_bins: int,
+    fixed_mask: xr.DataArray | None,
+    moving_mask: xr.DataArray | None,
+    itk_threads: int,
+) -> "itk.ImageToImageMetricv4":
+    """Create a metric with the requested masks and thread budget.
+
+    Parameters
+    ----------
+    image_type : type
+        Concrete ITK image specialization shared by the registration images.
+    metric : str
+        Validated similarity metric name.
+    correlation_radius : int
+        ANTs neighborhood correlation radius in voxels.
+    number_of_histogram_bins : int
+        Histogram size for mutual-information metrics.
+    fixed_mask : xarray.DataArray, optional
+        Validated boolean VoxelData mask on the fixed grid.
+    moving_mask : xarray.DataArray, optional
+        Validated boolean VoxelData mask on the moving grid.
+    itk_threads : int
+        ITK worker count using joblib's sign convention.
+
+    Returns
+    -------
+    metric_object : itk.ImageToImageMetricv4
+        Configured metric with masks attached as ITK spatial objects.
+
+    Raises
+    ------
+    RuntimeError
+        If ITK cannot construct the metric or its masks.
+    """
+    import itk
+
+    # FixedImage/MovingImage do not drive template inference for metrics.
+    if metric == "correlation":
+        metric_object = itk.CorrelationImageToImageMetricv4[
+            image_type, image_type
+        ].New()
+    elif metric == "ants_cc":
+        metric_object = itk.ANTSNeighborhoodCorrelationImageToImageMetricv4[
+            image_type, image_type
+        ].New(Radius=[correlation_radius] * 3)
+    elif metric == "mean_squares":
+        metric_object = itk.MeanSquaresImageToImageMetricv4[
+            image_type, image_type
+        ].New()
+    elif metric == "joint_mi":
+        metric_object = itk.JointHistogramMutualInformationImageToImageMetricv4[
+            image_type, image_type
+        ].New(NumberOfHistogramBins=number_of_histogram_bins)
+    else:
+        metric_object = itk.MattesMutualInformationImageToImageMetricv4[
+            image_type, image_type
+        ].New(NumberOfHistogramBins=number_of_histogram_bins)
+    metric_object.SetMaximumNumberOfWorkUnits(resolve_itk_threads(itk_threads))
+    for mask, setter in (
+        (fixed_mask, metric_object.SetFixedImageMask),
+        (moving_mask, metric_object.SetMovingImageMask),
+    ):
+        if mask is not None:
+            mask_image = expand_thin_dims(voxeldata_to_itk_image(mask))
+            mask_image = itk.cast_image_filter(
+                mask_image, ttype=(type(mask_image), itk.Image[itk.UC, 3])
+            )
+            setter(itk.ImageMaskSpatialObject[3].New(Image=mask_image))
+    return metric_object
+
+
+def _create_parametric_optimizer(
+    metric_object: "itk.ImageToImageMetricv4",
+    *,
+    optimizer: RegistrationOptimizer,
+    optimizer_seed: int,
+    learning_rate: float | Literal["auto"],
+    number_of_iterations: int,
+    convergence_minimum_value: float,
+    convergence_window_size: int,
+    optimizer_weights: list[float] | None,
+) -> "itk.ObjectToObjectOptimizerBaseTemplate":
+    """Create a concrete parametric solver with physical-shift parameter scales.
+
+    Parameters
+    ----------
+    metric_object : itk.ImageToImageMetricv4
+        Registration metric used to estimate parameter scales.
+    optimizer : str
+        Validated parametric optimizer name, with automatic selection resolved.
+    optimizer_seed : int
+        Seed for evolutionary search.
+    learning_rate : float or "auto"
+        Gradient-descent rate, L-BFGS initial step, or evolutionary search radius.
+    number_of_iterations : int
+        Maximum optimizer iterations.
+    convergence_minimum_value : float
+        Solver-specific convergence tolerance.
+    convergence_window_size : int
+        Gradient-descent convergence window length.
+    optimizer_weights : list of float, optional
+        Validated per-parameter weights for gradient descent.
+
+    Returns
+    -------
+    optimizer_object : itk.ObjectToObjectOptimizerBaseTemplate
+        Concrete solver wrapper, retaining solver-specific cancellation methods.
+
+    Raises
+    ------
+    RuntimeError
+        If ITK cannot configure the optimizer or its parameter scales.
+    """
+    import itk
+
+    if optimizer == "lbfgs":
+        optimizer_object = itk.LBFGSOptimizerv4.New(
+            NumberOfIterations=number_of_iterations,
+            GradientConvergenceTolerance=convergence_minimum_value,
+            DefaultStepLength=1.0 if learning_rate == "auto" else learning_rate,
+        )
+    elif optimizer == "one_plus_one":
+        generator = itk.NormalVariateGenerator.New()
+        generator.Initialize(optimizer_seed)
+        optimizer_object = itk.OnePlusOneEvolutionaryOptimizerv4.New(
+            MaximumIteration=number_of_iterations,
+            Epsilon=convergence_minimum_value,
+            NormalVariateGenerator=generator,
+        )
+        optimizer_object.Initialize(1.0 if learning_rate == "auto" else learning_rate)
+    else:
+        optimizer_object = itk.GradientDescentOptimizerv4.New(
+            LearningRate=1.0 if learning_rate == "auto" else learning_rate,
+            NumberOfIterations=number_of_iterations,
+            MinimumConvergenceValue=convergence_minimum_value,
+            ConvergenceWindowSize=convergence_window_size,
+            DoEstimateLearningRateAtEachIteration=learning_rate == "auto",
+            DoEstimateLearningRateOnce=False,
+        )
+    scales = itk.RegistrationParameterScalesFromPhysicalShift[type(metric_object)].New(
+        Metric=metric_object, TransformForward=True
+    )
+    optimizer_object.SetScalesEstimator(scales)
+    if optimizer_weights is not None:
+        optimizer_object.SetWeights(
+            itk.OptimizerParameters[itk.D](
+                np.asarray(optimizer_weights, dtype=np.float64)
+            )
+        )
+    return optimizer_object
+
+
 def _translate_registration_runtime_error(
     exc: RuntimeError,
     *,
@@ -347,7 +612,9 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     correlation_radius: int = ...,
     update_field_variance: float = ...,
     total_field_variance: float = ...,
-    metric: Literal["correlation", "mattes_mi", "ants_cc"] = ...,
+    metric: RegistrationMetric = ...,
+    optimizer: RegistrationOptimizer = ...,
+    optimizer_seed: int = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -390,7 +657,9 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     correlation_radius: int = ...,
     update_field_variance: float = ...,
     total_field_variance: float = ...,
-    metric: Literal["correlation", "mattes_mi", "ants_cc"] = ...,
+    metric: RegistrationMetric = ...,
+    optimizer: RegistrationOptimizer = ...,
+    optimizer_seed: int = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -432,7 +701,9 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     correlation_radius: int = ...,
     update_field_variance: float = ...,
     total_field_variance: float = ...,
-    metric: Literal["correlation", "mattes_mi", "ants_cc"] = ...,
+    metric: RegistrationMetric = ...,
+    optimizer: RegistrationOptimizer = ...,
+    optimizer_seed: int = ...,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = ...,
     number_of_histogram_bins: int = ...,
@@ -476,7 +747,9 @@ def register_volume(
     correlation_radius: int = 3,
     update_field_variance: float = 3.0,
     total_field_variance: float = 1.0,
-    metric: Literal["correlation", "mattes_mi", "ants_cc"] = "correlation",
+    metric: RegistrationMetric = "correlation",
+    optimizer: RegistrationOptimizer = "auto",
+    optimizer_seed: int = 0,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     number_of_histogram_bins: int = 50,
@@ -548,12 +821,27 @@ def register_volume(
     total_field_variance : float, default: 1.0
         Gaussian smoothing variance of accumulated SyN fields, in squared voxel units.
         Must be finite and nonnegative. Only used for `transform_type="syn"`.
-    metric : {"correlation", "mattes_mi", "ants_cc"}, default: "correlation"
+    metric : {"correlation", "mattes_mi", "ants_cc", "mean_squares", "joint_mi"}, default: "correlation"
         Similarity metric. `"correlation"` (normalized cross-correlation) is
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
-        `"ants_cc"` uses ANTs neighborhood correlation, recommended for same-modality SyN.
+        `"ants_cc"` uses ANTs neighborhood correlation, recommended for same-modality
+        SyN. `"mean_squares"` minimizes squared intensity differences for similarly
+        scaled images. `"joint_mi"` uses joint-histogram mutual information.
+    optimizer : {"auto", "gradient_descent", "lbfgs", "one_plus_one"}, default: "auto"
+        Solver selection. `"auto"` uses gradient descent for parametric transforms
+        and ITK's native SyN solver for `transform_type="syn"`. SyN uses its own
+        gradient-based symmetric displacement updates, not a separate parametric
+        optimizer, and accepts only `optimizer="auto"`.
+        L-BFGS uses a limited-memory quasi-Newton
+        method and supports linear and B-spline transforms. 1+1 evolutionary search
+        supports linear transforms only; its covariance storage is quadratic in
+        parameter count.
+        Only gradient descent supports `optimizer_weights`.
+    optimizer_seed : int, default: 0
+        Reproducible 1+1 evolutionary random seed in `[0, 2147483647]`, independent
+        of metric sampling. Only used by `optimizer="one_plus_one"`.
     fixed_intensity_scaling : {"none", "db", "sqrt"} or float, default: "none"
         Intensity transform applied to `fixed` only for the registration optimizer.
         Floats apply power scaling with that exponent; `"sqrt"` is an alias for `0.5`.
@@ -562,8 +850,7 @@ def register_volume(
         with the same options as `fixed_intensity_scaling`. Returned/resampled data
         keeps the original input intensities.
     number_of_histogram_bins : int, default: 50
-        Number of histogram bins used by Mattes mutual information. Only
-        relevant when using `"mattes_mi"` metric.
+        Number of histogram bins for `"mattes_mi"` and `"joint_mi"`.
     metric_sampling_percentage : float, optional
         Percentage of voxels randomly sampled when computing the metric, in `(0, 1]`.
         If not provided, all voxels are used without random sampling.
@@ -575,11 +862,16 @@ def register_volume(
         every iteration. A float uses that value directly; if registration diverges or
         fails to converge, reduce it. For SyN, this is the maximum update length in
         voxel units; `"auto"` selects a fixed rate of `0.1`, not automatic estimation.
+        For L-BFGS, a float is the initial line-search step length; for 1+1 it is
+        the initial search radius in scaled parameter space. Both use `1.0` for `"auto"`.
     number_of_iterations : int, default: 100
         Maximum number of optimizer iterations.
     convergence_minimum_value : float, default: 1e-6
         Value used for convergence checking in conjunction with the energy profile of
-        the similarity metric that is estimated in the given window size.
+        the similarity metric that is estimated in the given window size. For
+        L-BFGS, the gradient convergence tolerance; for 1+1, the minimum search
+        covariance Frobenius norm. The convergence window applies only to gradient
+        descent and SyN.
     convergence_window_size : int, default: 10
         Number of values of the similarity metric which are used to estimate the energy
         profile of the similarity metric.
@@ -724,7 +1016,8 @@ def register_volume(
     ValueError
         If `transform_type`, `metric`, `fixed_intensity_scaling`,
         `moving_intensity_scaling`, `initialization`, or `resample_interpolation`
-        is not a recognised value.
+        is not a recognised value, or the optimizer selection/seed is invalid or
+        incompatible with the transform or optimizer weights.
     ValueError
         If `learning_rate` is not a positive finite float or `"auto"`.
     ValueError
@@ -770,6 +1063,21 @@ def register_volume(
         resample_interpolation=resample_interpolation,
     )
 
+    if optimizer not in ("auto", "gradient_descent", "lbfgs", "one_plus_one"):
+        raise ValueError(f"Invalid optimizer: {optimizer!r}.")
+    if not isinstance(optimizer_seed, int) or not 0 <= optimizer_seed <= 2**31 - 1:
+        raise ValueError("optimizer_seed must be an integer in [0, 2147483647].")
+    if transform_type == "syn" and optimizer != "auto":
+        raise ValueError('SyN uses its own solver; use optimizer="auto".')
+    if optimizer == "auto" and transform_type != "syn":
+        optimizer = "gradient_descent"
+    if optimizer == "one_plus_one" and transform_type == "bspline":
+        raise ValueError(
+            "one_plus_one supports only linear transforms: its covariance matrix "
+            "grows quadratically with the number of parameters."
+        )
+    if optimizer in ("lbfgs", "one_plus_one") and optimizer_weights is not None:
+        raise ValueError("optimizer_weights are supported only by gradient_descent.")
     if metric == "ants_cc" and (
         not isinstance(correlation_radius, int) or correlation_radius < 1
     ):
@@ -807,92 +1115,30 @@ def register_volume(
             moving_reg, ttype=(type(moving_reg), image_type)
         )
     ndim = 3
-    initialization_mode = initialization if isinstance(initialization, str) else None
+    initialization_mode = (
+        None if isinstance(initialization, np.ndarray) else initialization
+    )
     affine_initialization = (
         initialization if isinstance(initialization, np.ndarray) else None
     )
-    if affine_initialization is not None and affine_initialization.shape != (4, 4):
-        raise ValueError(
-            f"initialization shape {affine_initialization.shape} does not match "
-            "image dimensionality 3D (expected (4, 4))."
-        )
+    initial = _create_initial_transform(
+        fixed_reg,
+        moving_reg,
+        transform_type=transform_type,
+        initialization_mode=initialization_mode,
+        affine_initialization=affine_initialization,
+        mesh_size=mesh_size,
+    )
 
-    if transform_type == "bspline":
-        initial = itk.BSplineTransform[itk.D, ndim, 3].New()
-        initializer = itk.BSplineTransformInitializer[type(initial), image_type].New(
-            Transform=initial, Image=fixed_reg, TransformDomainMeshSize=list(mesh_size)
-        )
-        initializer.InitializeTransform()
-    else:
-        transform_class = {
-            "translation": itk.TranslationTransform[itk.D, ndim],
-            "rigid": itk.Euler3DTransform[itk.D],
-            "affine": itk.AffineTransform[itk.D, ndim],
-            "syn": itk.AffineTransform[itk.D, ndim],
-        }[transform_type]
-        initial = transform_class.New()
-        if (
-            initialization_mode in ("center_geometry", "center_moments")
-            and transform_type != "translation"
-        ):
-            # The wheel wraps 3D centering only for versor transforms; copy its pivot and offset.
-            centered = itk.VersorRigid3DTransform[itk.D].New()
-            initializer = itk.CenteredTransformInitializer[
-                type(centered), image_type, image_type
-            ].New(Transform=centered, FixedImage=fixed_reg, MovingImage=moving_reg)
-            if initialization_mode == "center_geometry":
-                initializer.GeometryOn()
-            else:
-                initializer.MomentsOn()
-            initializer.InitializeTransform()
-            initial.SetCenter(centered.GetCenter())
-            initial.SetTranslation(centered.GetTranslation())
-    if affine_initialization is not None:
-        pre_transform = affine_to_itk_linear_transform(affine_initialization)
-        if transform_type == "bspline":
-            composite = itk.CompositeTransform[itk.D, ndim].New()
-            composite.AddTransform(pre_transform)
-            composite.AddTransform(initial)
-            composite.SetOnlyMostRecentTransformToOptimizeOn()
-            initial = composite
-        else:
-            region = fixed_reg.GetLargestPossibleRegion()
-            center_index = itk.ContinuousIndex[itk.D, ndim]()
-            for axis in range(ndim):
-                center_index[axis] = (
-                    region.GetIndex()[axis] + (region.GetSize()[axis] - 1) / 2
-                )
-            pre_transform.SetCenter(
-                fixed_reg.TransformContinuousIndexToPhysicalPoint(center_index)
-            )
-            # Restore the world offset after changing the optimizer's pivot.
-            pre_transform.SetOffset(tuple(affine_initialization[:ndim, ndim]))
-            initial = pre_transform
-
-    # FixedImage/MovingImage do not drive template inference for metrics or registration.
-    if metric == "correlation":
-        metric_object = itk.CorrelationImageToImageMetricv4[
-            image_type, image_type
-        ].New()
-    elif metric == "ants_cc":
-        metric_object = itk.ANTSNeighborhoodCorrelationImageToImageMetricv4[
-            image_type, image_type
-        ].New(Radius=[correlation_radius] * ndim)
-    else:
-        metric_object = itk.MattesMutualInformationImageToImageMetricv4[
-            image_type, image_type
-        ].New(NumberOfHistogramBins=number_of_histogram_bins)
-    metric_object.SetMaximumNumberOfWorkUnits(resolve_itk_threads(itk_threads))
-    for mask, setter in (
-        (fixed_mask, metric_object.SetFixedImageMask),
-        (moving_mask, metric_object.SetMovingImageMask),
-    ):
-        if mask is not None:
-            mask_image = expand_thin_dims(voxeldata_to_itk_image(mask))
-            mask_image = itk.cast_image_filter(
-                mask_image, ttype=(type(mask_image), itk.Image[itk.UC, ndim])
-            )
-            setter(itk.ImageMaskSpatialObject[ndim].New(Image=mask_image))
+    metric_object = _create_registration_metric(
+        image_type,
+        metric=metric,
+        correlation_radius=correlation_radius,
+        number_of_histogram_bins=number_of_histogram_bins,
+        fixed_mask=fixed_mask,
+        moving_mask=moving_mask,
+        itk_threads=itk_threads,
+    )
 
     if transform_type == "syn":
         registration = itk.SyNImageRegistrationMethod[image_type, image_type].New(
@@ -910,33 +1156,25 @@ def register_volume(
         registration.SetNumberOfIterationsPerLevel([number_of_iterations])
         iteration_source = registration
     else:
-        optimizer = itk.GradientDescentOptimizerv4.New(
-            LearningRate=1.0 if learning_rate == "auto" else learning_rate,
-            NumberOfIterations=number_of_iterations,
-            MinimumConvergenceValue=convergence_minimum_value,
-            ConvergenceWindowSize=convergence_window_size,
-            DoEstimateLearningRateAtEachIteration=learning_rate == "auto",
-            DoEstimateLearningRateOnce=False,
+        optimizer_object = _create_parametric_optimizer(
+            metric_object,
+            optimizer=optimizer,
+            optimizer_seed=optimizer_seed,
+            learning_rate=learning_rate,
+            number_of_iterations=number_of_iterations,
+            convergence_minimum_value=convergence_minimum_value,
+            convergence_window_size=convergence_window_size,
+            optimizer_weights=optimizer_weights,
         )
-        scales = itk.RegistrationParameterScalesFromPhysicalShift[
-            type(metric_object)
-        ].New(Metric=metric_object, TransformForward=True)
-        optimizer.SetScalesEstimator(scales)
-        if optimizer_weights is not None:
-            optimizer.SetWeights(
-                itk.OptimizerParameters[itk.D](
-                    np.asarray(optimizer_weights, dtype=np.float64)
-                )
-            )
         registration = itk.ImageRegistrationMethodv4[image_type, image_type].New(
             FixedImage=fixed_reg,
             MovingImage=moving_reg,
             Metric=metric_object,
-            Optimizer=optimizer,
+            Optimizer=optimizer_object,
             InitialTransform=initial,
             InPlace=True,
         )
-        iteration_source = optimizer
+        iteration_source = optimizer_object
     registration.SetNumberOfWorkUnits(resolve_itk_threads(itk_threads))
     registration.SetNumberOfLevels(len(shrink_factors) if use_multi_resolution else 1)
     registration.SetShrinkFactorsPerLevel(
@@ -967,28 +1205,61 @@ def register_volume(
         validate_fill_value(resolved_fill, moving.dtype)
 
     with abort_on_sigint(abort_event) as effective_abort_event:
+        cost_event = False
+
+        def _ignore_cost_event() -> None:
+            """Mark L-BFGS cost evaluations, which inherit the iteration event type."""
+            nonlocal cost_event
+            cost_event = True
 
         def _record_iteration() -> None:
             """Record the optimizer metric and honor cancellation at iteration boundaries."""
+            nonlocal cost_event
+            if cost_event:
+                cost_event = False
+                return
             # SyN also emits a level-initialization event before its first iteration.
             if transform_type == "syn" and registration.GetCurrentIteration() == 0:
                 return
-            metric_values.append(float(iteration_source.GetCurrentMetricValue()))
-            if transform_type == "syn" and plotter is not None:
+            metric_values.append(
+                float(
+                    registration.GetCurrentMetricValue()
+                    if transform_type == "syn"
+                    else iteration_source.GetValue()
+                )
+            )
+            if (
+                transform_type == "syn" or optimizer == "lbfgs"
+            ) and plotter is not None:
                 plotter.update()
             if effective_abort_event.is_set():
                 if transform_type == "syn":
                     registration.SetNumberOfIterationsPerLevel(
                         [registration.GetCurrentIteration()]
                     )
+                elif optimizer == "lbfgs":
+                    # ITK's L-BFGS report_iter checks this limit after invoking observers.
+                    # https://github.com/InsightSoftwareConsortium/ITK/blob/v5.4.0/Modules/Numerics/Optimizersv4/include/itkLBFGSOptimizerBasev4.hxx.
+                    iteration_source.SetNumberOfIterations(0)
                 else:
                     iteration_source.StopOptimization()
                 # ITK's outer loop otherwise starts the optimizer again at the next pyramid level.
                 registration.SetNumberOfLevels(registration.GetCurrentLevel() + 1)
 
-        observer_tags = [
+        # Register filters first so cost events are marked before the parent observer.
+        observer_tags = []
+        if optimizer == "lbfgs":
+            observer_tags.extend(
+                iteration_source.AddObserver(event(), _ignore_cost_event)
+                for event in (
+                    itk.FunctionEvaluationIterationEvent,
+                    itk.GradientEvaluationIterationEvent,
+                    itk.FunctionAndGradientEvaluationIterationEvent,
+                )
+            )
+        observer_tags.append(
             iteration_source.AddObserver(itk.IterationEvent(), _record_iteration)
-        ]
+        )
         plotter = None
         executed = False
         try:
@@ -1011,7 +1282,7 @@ def register_volume(
                     },
                     max_composite_slices=max_composite_slices,
                 )
-                if transform_type != "syn":
+                if transform_type != "syn" and optimizer != "lbfgs":
                     observer_tags.append(
                         iteration_source.AddObserver(
                             itk.IterationEvent(), plotter.update
@@ -1137,7 +1408,11 @@ def register_volume(
     final_metric = (
         float(metric_values[-1])
         if metric_values
-        else float(iteration_source.GetCurrentMetricValue())
+        else float(
+            registration.GetCurrentMetricValue()
+            if transform_type == "syn"
+            else iteration_source.GetValue()
+        )
         if executed
         else float("nan")
     )
