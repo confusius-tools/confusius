@@ -12,12 +12,6 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
-- [`load_scan`][confusius.io.load_scan] expresses SCAN world coordinates in the first
-  probe pose's space (`z` elevation, `y` depth, `x` lateral). The Iconeus lab frame is
-  stored as a single `(4, 4)` `attrs["affines"]["world_to_lab"]` affine, next to an
-  identity `world_to_probe` affine, and a BPS `world_to_brain` affine is likewise a
-  single `(4, 4)` matrix for multi-pose files
-  ([#526](https://github.com/confusius-tools/confusius/pull/526)).
 - Use
   [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
   instead of `fetch_template_huang_2025` for the vascular mouse template. The fetcher
@@ -47,9 +41,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
-- SCAN v2 probe poses negate the stored Euler angles when loading, as Iconeus readers
-  do, so `world_to_lab` matches SCAN v1 geometry for the same acquisition
-  ([#526](https://github.com/confusius-tools/confusius/pull/526)).
+- SCAN v2 files negate the stored probe-pose Euler angles when loading, as Iconeus
+  readers do, so their lab-space world coordinates match SCAN v1 for the same
+  acquisition ([#526](https://github.com/confusius-tools/confusius/pull/526)).
 - Labels painted over oblique or sheared data in napari now return to the original
   reference voxel grid using nearest-neighbor interpolation, rather than retaining
   the display grid or being assigned incorrect geometry. The drawing documentation

@@ -231,15 +231,15 @@ Coordinates:
   * k        (k) int64 32B 0 1 2 3
   * j        (j) int64 736B 0 1 2 3 4 5 6 7 8 9 ... 83 84 85 86 87 88 89 90 91
   * i        (i) int64 824B 0 1 2 3 4 5 6 7 8 ... 94 95 96 97 98 99 100 101 102
-  * z        (pose, k, j, i) float64 1MB 0.0 0.0 0.0 0.0 ... 7.875 7.875 7.875
-  * y        (pose, k, j, i) float64 1MB 1.0 1.0 1.0 1.0 ... 9.969 9.969 9.969
-  * x        (pose, k, j, i) float64 1MB -5.61 -5.5 -5.39 ... 5.39 5.5 5.61
+  * z        (pose, k, j, i) float64 1MB -0.19 -0.3 -0.41 ... -11.3 -11.41
+  * y        (pose, k, j, i) float64 1MB 20.3 20.3 20.3 ... 29.27 29.27 29.27
+  * x        (pose, k, j, i) float64 1MB -3.851 -3.851 -3.851 ... 4.024 4.024
 Indexes:
   ┌ z        VoxelToWorldIndex
   │ y
   └ x
 Attributes:
-    affines:               {'world_to_probe': array([[1., 0., 0., 0.],\n     ...
+    affines:               {}
     device_serial_number:  XXXXXXXX
     software_version:      IcoScan version 1.0.0
     iconeus_scan_mode:     4Dscan
@@ -287,12 +287,12 @@ world coordinates are derived from voxel indices and affines.
 #### SCAN v2 (binary format)
 
 SCAN v2 files preserve the recording's data, acquisition timing, and VoxelData
-geometry. Metadata recovered into `da.attrs` include the `world_to_lab` affine,
-provenance (`iconeus_*` attrs), acquisition datetime, and BIDS-corresponding
-acquisition settings (`probe_model`, `probe_center_frequency`, `probe_aperture`,
-`transmit_frequency`, `pulse_repetition_frequency`, `plane_wave_angles`,
-`svd_low_cutoff`, …). For multi-pose recordings, see the
-[multi-pose user guide](multipose.md#scan-v2-binary).
+geometry (world coordinates in ConfUSIus-ordered Iconeus lab space, as for SCAN v1).
+Metadata recovered into `da.attrs` include provenance (`iconeus_*` attrs), acquisition
+datetime, and BIDS-corresponding acquisition settings (`probe_model`,
+`probe_center_frequency`, `probe_aperture`, `transmit_frequency`,
+`pulse_repetition_frequency`, `plane_wave_angles`, `svd_low_cutoff`, …). For
+multi-pose recordings, see the [multi-pose user guide](multipose.md#scan-v2-binary).
 
 ```pycon
 >>> import confusius as cf
@@ -305,15 +305,15 @@ Coordinates:
   * k        (k) int64 8B 0
   * j        (j) int64 736B 0 1 2 3 4 5 6 7 8 9 ... 83 84 85 86 87 88 89 90 91
   * i        (i) int64 1kB 0 1 2 3 4 5 6 7 8 ... 120 121 122 123 124 125 126 127
-  * z        (k, j, i) float64 94kB 0.0 0.0 0.0 0.0 0.0 ... 0.0 0.0 0.0 0.0 0.0
+  * z        (k, j, i) float64 94kB 9.585 9.475 9.365 ... -4.165 -4.275 -4.385
   * y        (k, j, i) float64 94kB 1.0 1.0 1.0 1.0 ... 9.969 9.969 9.969 9.969
-  * x        (k, j, i) float64 94kB -6.985 -6.875 -6.765 ... 6.765 6.875 6.985
+  * x        (k, j, i) float64 94kB 0.7 0.7 0.7 0.7 0.7 ... 0.7 0.7 0.7 0.7 0.7
 Indexes:
   ┌ z        VoxelToWorldIndex
   │ y
   └ x
 Attributes: (12/26)
-    affines:                           {'world_to_probe': array([[1., 0., 0.,...
+    affines:                           {}
     iconeus_scan_format:               v2
     iconeus_scan_mode:                 2Dscan
     iconeus_datetime:                  2026-07-14T05:00:00+00:00
@@ -335,12 +335,11 @@ They contain an affine matrix that maps Iconeus brain coordinates `(x_brain, y_b
 z_brain, 1)` to Iconeus lab coordinates `(x_lab, y_lab, z_lab, 1)` in meters. The
 Iconeus lab frame is a fixed scanner space defined by Iconeus. ConfUSIus re-expresses
 this space as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)` in millimeters:
-that is the target space of the `world_to_lab` affine stored when loading SCAN files.
+that is the world space used when loading SCAN files.
 
 The affine matrix in the BPS file can be loaded with
-[`confusius.io.load_bps`][confusius.io.load_bps]. Compose its inverse with
-`world_to_lab` to map world coordinates to brain coordinates. It is generally a good
-idea to store the result in the `.attrs["affines"]` attribute of the DataArray:
+[`confusius.io.load_bps`][confusius.io.load_bps]. It is generally a good idea to store
+it in the `.attrs["affines"]` attribute of the DataArray:
 
 ```python
 import confusius as cf
@@ -348,10 +347,8 @@ import numpy as np
 
 da = cf.load("sub-01_task-awake_pwd.source.scan")
 
-brain_to_lab = cf.io.load_bps("sub-01_task-awake_pwd.bps")
-da.attrs["affines"]["world_to_brain"] = (
-    np.linalg.inv(brain_to_lab) @ da.attrs["affines"]["world_to_lab"]
-)
+brain_to_world = cf.io.load_bps("sub-01_task-awake_pwd.bps")
+da.attrs["affines"]["world_to_brain"] = np.linalg.inv(brain_to_world)
 ```
 
 Passing the BPS file path using the `bps_path` argument when loading a SCAN file offers
@@ -367,9 +364,8 @@ da = cf.load(
 ```
 
 Compose it with brain-side affines (e.g. brain-to-CCFv3 from a brain atlas) to register
-fUSI data into atlas space directly. Like `world_to_lab`, it is a single `(4, 4)` affine,
-even for multi-pose files (`3Dscan`, `4Dscan`), since every pose shares the same world
-space.
+fUSI data into atlas space directly. It is a single `(4, 4)` affine, even for multi-pose
+files (`3Dscan`, `4Dscan`), since lab space is shared by every pose.
 
 #### Converting SCAN Data to NIfTI
 
