@@ -1,37 +1,13 @@
 """Affine matrix decomposition and composition utilities."""
 
 import math
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
-    import SimpleITK as sitk
-    from SimpleITK import (
-        AffineTransform,
-        Euler2DTransform,
-        Euler3DTransform,
-        Similarity3DTransform,
-        VersorRigid3DTransform,
-    )
-
-    _MatrixTransform = (
-        AffineTransform
-        | Euler2DTransform
-        | Euler3DTransform
-        | Similarity3DTransform
-        | VersorRigid3DTransform
-    )
-
-_MATRIX_TRANSFORMS = {
-    "AffineTransform",
-    "Euler2DTransform",
-    "Euler3DTransform",
-    "Similarity3DTransform",
-    "VersorRigid3DTransform",
-}
-"""SimpleITK linear transform types that expose `GetMatrix`, `GetCenter`, and `GetTranslation`."""
+    import itk
 
 
 def _striu2mat(
@@ -205,10 +181,10 @@ def decompose_affine(
     return T, Rmat, np.array([sx, sy, sz]), np.array([sxy, sxz, syz])
 
 
-def affine_to_sitk_linear_transform(
+def affine_to_itk_linear_transform(
     affine: npt.NDArray[np.floating],
-) -> "AffineTransform":
-    """Convert a homogeneous affine matrix to a SimpleITK `AffineTransform`.
+) -> "itk.Transform":
+    """Convert a homogeneous affine matrix to an ITK affine transform.
 
     Parameters
     ----------
@@ -217,23 +193,27 @@ def affine_to_sitk_linear_transform(
 
     Returns
     -------
-    AffineTransform
-        SimpleITK affine transform with the matrix and translation set from
+    itk.Transform
+        ITK affine transform with the matrix and translation set from
         `affine`. The rotation centre is left at the origin.
     """
-    import SimpleITK as sitk
+    import itk
 
     ndim = affine.shape[0] - 1
-    tx = sitk.AffineTransform(ndim)
-    tx.SetMatrix(affine[:ndim, :ndim].flatten().tolist())
-    tx.SetTranslation(affine[:ndim, ndim].tolist())
+    tx = itk.AffineTransform[itk.D, ndim].New()
+    tx.SetMatrix(
+        itk.matrix_from_array(
+            np.ascontiguousarray(affine[:ndim, :ndim], dtype=np.float64)
+        )
+    )
+    tx.SetTranslation(tuple(float(v) for v in affine[:ndim, ndim]))
     return tx
 
 
-def sitk_linear_transform_to_affine(
-    transform: "sitk.Transform",
+def itk_linear_transform_to_affine(
+    transform: "itk.Transform",
 ) -> npt.NDArray[np.floating]:
-    """Convert a SimpleITK linear transform to a homogeneous affine matrix.
+    """Convert a ITK linear transform to a homogeneous affine matrix.
 
     Handles `TranslationTransform`, `Euler3DTransform`, `AffineTransform`,
     `VersorRigid3DTransform`, and `CompositeTransform` (by composing each
@@ -242,14 +222,14 @@ def sitk_linear_transform_to_affine(
 
     Parameters
     ----------
-    transform : SimpleITK.Transform
-        Estimated registration transform returned by SimpleITK.
+    transform : itk.Transform
+        Estimated registration transform returned by ITK.
 
     Returns
     -------
     (N+1, N+1) numpy.ndarray
         Homogeneous affine matrix in world space mapping fixed-space points
-        to moving-space points (pull/inverse convention used by SimpleITK's
+        to moving-space points (pull/inverse convention used by ITK's
         `Resample`).
 
     Raises
@@ -259,7 +239,7 @@ def sitk_linear_transform_to_affine(
 
     Notes
     -----
-    SimpleITK uses a pull (inverse-mapping) convention: `Resample` iterates
+    ITK uses a pull (inverse-mapping) convention: `Resample` iterates
     over fixed-grid points and applies the transform to look up the
     corresponding moving-image location. For linear transforms, the stored
     parameters encode:
@@ -275,55 +255,25 @@ def sitk_linear_transform_to_affine(
         A_full[:N, :N] = A
         A_full[:N,  N] = -A @ center + center + translation
     """
-    ndim = transform.GetDimension()
+    import itk
 
-    name = transform.GetName()
-
-    # Non-linear transforms cannot be represented as affine matrices. This
-    # branch is unreachable from the current codebase: volume.py only calls
-    # this function on the non-bspline path.
-    assert "BSpline" not in name and "DisplacementField" not in name, (
-        f"_sitk_linear_transform_to_affine called with non-linear transform '{name}'"
-    )
-
-    if name == "CompositeTransform":
-        import SimpleITK as sitk
-
-        # SimpleITK's CompositeTransform applies the last-added transform first
-        # (outermost first). GetNthTransform(0) is the outermost, so the full
-        # composite is T_0(T_1(...(T_n(p)))) = A_0 @ A_1 @ ... @ A_n @ p.
-        # Right-multiply in forward order to build A_total = A_0 @ A_1 @ ... @ A_n.
-        assert isinstance(transform, sitk.CompositeTransform)
-        A = np.eye(ndim + 1)
-        for i in range(transform.GetNumberOfTransforms()):
-            A = A @ sitk_linear_transform_to_affine(transform.GetNthTransform(i))
-        return A
-
-    if name == "IdentityTransform":
-        return np.eye(ndim + 1)
-
-    if "Translation" in name:
-        # TranslationTransform has no matrix, only an offset vector.
-        A = np.eye(ndim + 1)
-        A[:ndim, ndim] = np.array(transform.GetParameters())
-        return A
-
-    # All remaining supported linear transforms expose GetMatrix(), GetCenter(), and
-    # GetTranslation(). Raise on anything unexpected. Cast to the _MatrixTransform
-    # union: SimpleITK's stubs don't expose MatrixOffsetTransformBase as a Python class
-    # so there is no common supertype to narrow to.
-    if name not in _MATRIX_TRANSFORMS:
+    transform = itk.down_cast(transform)
+    if not transform.IsLinear():
         raise ValueError(
-            f"_sitk_linear_transform_to_affine: unsupported transform type {name!r}."
+            f"Cannot represent nonlinear transform {transform.GetNameOfClass()!r} as an affine."
         )
-    linear = cast("_MatrixTransform", transform)
-    mat = np.array(linear.GetMatrix()).reshape(ndim, ndim)
-    center = np.array(linear.GetCenter())
-    translation = np.array(linear.GetTranslation())
-
-    A = np.eye(ndim + 1)
-    A[:ndim, :ndim] = mat
-    # Combine rotation-centre offset with translation:
-    # t_full = -mat @ center + center + translation
-    A[:ndim, ndim] = -mat @ center + center + translation
-    return A
+    ndim = transform.GetInputSpaceDimension()
+    affine = np.eye(ndim + 1)
+    name = transform.GetNameOfClass()
+    if name == "CompositeTransform":
+        for index in range(transform.GetNumberOfTransforms()):
+            affine = affine @ itk_linear_transform_to_affine(
+                transform.GetNthTransform(index)
+            )
+    elif name == "TranslationTransform":
+        affine[:ndim, ndim] = np.asarray(transform.GetParameters())
+    elif name != "IdentityTransform":
+        # Read matrix/offset directly; subtracting transformed points loses precision at large origins.
+        affine[:ndim, :ndim] = itk.array_from_matrix(transform.GetMatrix())
+        affine[:ndim, ndim] = transform.GetOffset()
+    return affine

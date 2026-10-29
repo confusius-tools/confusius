@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import itk
 import numpy as np
 import pytest
-import SimpleITK as sitk
 
 from confusius._napari._registration._progress import (
     NapariRegistrationProgressPlotter,
@@ -20,10 +20,10 @@ from confusius.registration import RegistrationDiagnostics
 
 @pytest.fixture
 def fixed_img_2d():
-    """Small 2D SimpleITK image with a bright square."""
+    """Small 2D ITK image with a bright square."""
     arr = np.zeros((16, 16), dtype=np.float32)
     arr[6:10, 6:10] = 1.0
-    img = sitk.GetImageFromArray(arr.T)
+    img = itk.image_from_array(np.ascontiguousarray(arr.T))
     img.SetSpacing((1.0, 1.0))
     return img
 
@@ -31,28 +31,32 @@ def fixed_img_2d():
 @pytest.fixture
 def moving_img_2d(fixed_img_2d):
     """Same image shifted by one pixel."""
-    arr = sitk.GetArrayFromImage(fixed_img_2d).T
+    arr = itk.array_from_image(fixed_img_2d).T
     shifted = np.roll(arr, 1, axis=0).astype(np.float32)
-    img = sitk.GetImageFromArray(shifted.T)
+    img = itk.image_from_array(np.ascontiguousarray(shifted.T))
     img.SetSpacing(fixed_img_2d.GetSpacing())
     return img
 
 
-def _make_registration_method(ndim: int = 2) -> sitk.ImageRegistrationMethod:
+def _make_registration_method(ndim: int = 2) -> itk.ImageRegistrationMethodv4:
     """Return a minimally configured ImageRegistrationMethod."""
-    reg = sitk.ImageRegistrationMethod()
-    reg.SetMetricAsCorrelation()
-    reg.SetInterpolator(sitk.sitkLinear)
-    reg.SetOptimizerAsGradientDescent(
-        learningRate=0.5,
-        numberOfIterations=5,
-        convergenceMinimumValue=1e-7,
-        convergenceWindowSize=3,
+    image_type = itk.Image[itk.F, ndim]
+    reg = itk.ImageRegistrationMethodv4[image_type, image_type].New()
+    reg.SetMetric(itk.CorrelationImageToImageMetricv4[image_type, image_type].New())
+    reg.SetOptimizer(
+        itk.GradientDescentOptimizerv4.New(
+            LearningRate=0.5,
+            NumberOfIterations=5,
+            MinimumConvergenceValue=1e-7,
+            ConvergenceWindowSize=3,
+            DoEstimateLearningRateOnce=False,
+        )
     )
-    reg.SetShrinkFactorsPerLevel(shrinkFactors=[1])
-    reg.SetSmoothingSigmasPerLevel(smoothingSigmas=[0])
-    reg.SmoothingSigmasAreSpecifiedInPhysicalUnitsOff()
-    reg.SetInitialTransform(sitk.TranslationTransform(ndim), inPlace=True)
+    reg.SetNumberOfLevels(1)
+    reg.SetShrinkFactorsPerLevel([1])
+    reg.SetSmoothingSigmasPerLevel([0])
+    reg.SetInitialTransform(itk.TranslationTransform[itk.D, ndim].New())
+    reg.InPlaceOn()
     return reg
 
 
@@ -107,7 +111,7 @@ class TestNapariRegistrationProgressPlotter:
             resample_kwargs={"fill_value": 0.0},
         )
 
-        expected_metric = float(reg.GetMetricValue())
+        expected_metric = float(reg.GetOptimizer().GetCurrentMetricValue())
 
         with qtbot.waitSignal(bridge.metric_updated, timeout=2000):
             reporter.update()

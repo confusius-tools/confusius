@@ -118,7 +118,7 @@ def register_volumewise(
     optimizer_weights : list of float, optional
         Per-parameter weights applied on top of the auto-estimated world shift
         scales. If not provided, identity weights are used. A list is passed directly to
-        SimpleITK's `SetOptimizerWeights`; its length must match the number of transform
+        ITK's `SetWeights`; its length must match the number of transform
         parameters (3 for 2D rigid, 6 for 3D rigid, 6 for 2D affine, 12 for 3D affine).
         The weight for each parameter is multiplied into the effective step size: `0`
         freezes a parameter entirely, values in `(0, 1)` slow it down, and `1` leaves it
@@ -290,7 +290,7 @@ def register_volumewise(
         frame_index: int,
         volume: xr.DataArray,
     ) -> tuple[int, xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]:
-        # Once aborted, skip cheaply: building SimpleITK images and resampling is
+        # Once aborted, skip cheaply: building ITK images and resampling is
         # pure-Python/GIL-bound work that, multiplied across joblib threads, starves the
         # GUI thread. Return the original frame with a zero-iteration "aborted"
         # diagnostic instead.
@@ -322,9 +322,9 @@ def register_volumewise(
             resample=True,
             resample_interpolation=resample_interpolation,
             fill_value=fill_value,
-            # Restrict SimpleITK to 1 thread per worker to avoid
+            # Restrict ITK to 1 thread per worker to avoid
             # over-subscribing the CPU when joblib spawns many workers.
-            sitk_threads=1,
+            itk_threads=1,
             show_progress=False,
             abort_event=abort_event,
         )

@@ -198,7 +198,7 @@ def compute_oblique_axis_aligned_grid_geometry(
     data = ensure_voxeldata(data)
     # QR only needs the affine, not the data's own per-voxel-dim coordinate
     # spacing -- but `resample_volume` (the eventual consumer of this geometry)
-    # builds a regular-grid SimpleITK image from *all 3* native voxel dims
+    # builds a regular-grid ITK image from *all 3* native voxel dims
     # regardless of which one QR picks as dominant for a given world axis, so an
     # irregularly spaced dim anywhere still breaks it downstream with an opaque
     # error. Check all 3 up front for a clear message instead.

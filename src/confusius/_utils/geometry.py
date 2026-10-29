@@ -1630,7 +1630,7 @@ def get_voxel_to_world_direction_matrix(
     the returned direction matrix is expressed in dense-position terms: paired with
     [get_voxel_to_world_index_spacing][confusius._utils.geometry.get_voxel_to_world_index_spacing]
     (a magnitude) and origin, it reconstructs a position-space affine that correctly
-    represents a flipped voxel dimension, as SimpleITK's own `(origin, spacing,
+    represents a flipped voxel dimension, as ITK's own `(origin, spacing,
     direction)` grid convention expects.
 
     Parameters

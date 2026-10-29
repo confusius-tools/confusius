@@ -7,18 +7,18 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.itk import resolve_itk_threads, voxeldata_to_itk_image
 from confusius.registration._utils import (
     abort_on_sigint,
     expand_thin_dims,
     replace_affines_attr,
-    set_sitk_thread_count,
+    set_itk_thread_count,
     validate_fill_value,
     validate_intensity_scaling,
-    voxeldata_to_sitk_image,
 )
 from confusius.registration.affines import (
-    affine_to_sitk_linear_transform,
-    sitk_linear_transform_to_affine,
+    affine_to_itk_linear_transform,
+    itk_linear_transform_to_affine,
 )
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.validation import validate_matching_spatial_units
@@ -129,13 +129,13 @@ def _validate_register_volume_inputs(
     # --- NaN checks ---
     if np.any(np.isnan(moving.values)):
         raise ValueError(
-            "'moving' contains NaN values. SimpleITK treats NaN as a regular float, "
+            "'moving' contains NaN values. ITK treats NaN as a regular float, "
             "which corrupts the similarity metric. Replace NaN values before "
             "registering (e.g. fill with zero or a background value)."
         )
     if np.any(np.isnan(fixed.values)):
         raise ValueError(
-            "'fixed' contains NaN values. SimpleITK treats NaN as a regular float, "
+            "'fixed' contains NaN values. ITK treats NaN as a regular float, "
             "which corrupts the similarity metric. Replace NaN values before "
             "registering (e.g. fill with zero or a background value)."
         )
@@ -274,7 +274,13 @@ def _apply_intensity_scaling(
     from confusius.xarray.scale import db_scale, power_scale
 
     if intensity_scaling == "db":
-        return db_scale(data)
+        if bool((data < 0).any()):
+            raise ValueError(
+                "Decibel registration scaling requires nonnegative values."
+            )
+        # Zero power must remain finite in optimizer images, not become -inf.
+        floor = np.finfo(np.result_type(data.dtype, np.float32)).tiny
+        return db_scale(data.clip(min=floor))
     if intensity_scaling == "sqrt":
         return power_scale(data, exponent=0.5)
     return power_scale(data, exponent=float(intensity_scaling))
@@ -286,12 +292,12 @@ def _translate_registration_runtime_error(
     transform_type: Literal["translation", "rigid", "affine", "bspline"],
     learning_rate: float | Literal["auto"],
 ) -> RuntimeError:
-    """Return a clearer registration error for known SimpleITK failures.
+    """Return a clearer registration error for known ITK failures.
 
     Parameters
     ----------
     exc : RuntimeError
-        Exception raised by SimpleITK during optimizer execution.
+        Exception raised by ITK during optimizer execution.
     transform_type : {"translation", "rigid", "affine", "bspline"}
         Registration model used for the failed run.
     learning_rate : float or "auto"
@@ -307,7 +313,7 @@ def _translate_registration_runtime_error(
         return exc
 
     parts = [
-        "SimpleITK could not compute valid optimizer scales for this registration.",
+        "ITK could not compute valid optimizer scales for this registration.",
         "Some transform parameters have near-zero world effect, so the gradient-descent optimizer cannot choose a stable step size.",
     ]
     if transform_type == "bspline":
@@ -359,7 +365,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
     fill_value: float | None = ...,
-    sitk_threads: int = ...,
+    itk_threads: int = ...,
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
@@ -399,7 +405,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
     fill_value: float | None = ...,
-    sitk_threads: int = ...,
+    itk_threads: int = ...,
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
@@ -438,7 +444,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
     fill_value: float | None = ...,
-    sitk_threads: int = ...,
+    itk_threads: int = ...,
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
@@ -477,7 +483,7 @@ def register_volume(
     resample: bool = True,
     resample_interpolation: Literal["linear", "bspline"] = "linear",
     fill_value: float | None = None,
-    sitk_threads: int = -1,
+    itk_threads: int = -1,
     show_progress: bool = False,
     plot_metric: bool = True,
     plot_composite: bool = True,
@@ -538,7 +544,7 @@ def register_volume(
         If not provided, all voxels are used without random sampling.
     metric_sampling_seed : int, optional
         Seed for random metric sampling. Only used when `metric_sampling_percentage < 1`.
-        If not provided, SimpleITK's default `sitkWallClock` seed is used.
+        If not provided, ITK's default wall-clock seed is used.
     learning_rate : float or "auto", default: "auto"
         Optimizer step size in normalized units. `"auto"` re-estimates the rate at
         every iteration. A float uses that value directly; if registration diverges or
@@ -557,8 +563,9 @@ def register_volume(
 
         - `"center_geometry"`: aligns image centers.
         - `"center_moments"`: aligns centers of mass.
-        - `(N+1, N+1)` homogeneous affine matrix: uses a precomputed affine
-          transform.
+        - `(N+1, N+1)` homogeneous affine matrix: preserves the supplied world
+          mapping and, for linear registration, uses the fixed image's physical
+          center as the optimizer pivot.
         - `None`: uses the identity transform.
 
         For `transform_type="bspline"`, centering modes are ignored but affine
@@ -566,7 +573,7 @@ def register_volume(
     optimizer_weights : list of float, optional
         Per-parameter weights applied on top of the auto-estimated world shift
         scales. `None` uses identity weights (all ones). A list is passed directly to
-        SimpleITK's `SetOptimizerWeights`; its length must match the number of
+        ITK's `SetWeights`; its length must match the number of
         transform parameters (6 for rigid, 12 for affine). The weight for each
         parameter is multiplied into the effective step
         size: `0` freezes a parameter entirely, values in `(0, 1)` slow it down, and
@@ -607,9 +614,9 @@ def register_volume(
         `moving`, which renders out-of-FOV regions as background regardless of intensity
         scale (important for dB data where 0 is maximum intensity). Must be representable
         in `moving`'s dtype: to fill an integer volume with NaN, cast it to float first.
-    sitk_threads : int, default: -1
-        Number of threads SimpleITK may use internally. Negative values resolve to
-        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
+    itk_threads : int, default: -1
+        Number of threads ITK may use internally. Negative values resolve to
+        `max(1, os.cpu_count() + 1 + itk_threads)`, so `-1` means all CPUs, `-2`
         means all minus one, and so on. You may want to set this to a lower value or
         `1` when running multiple registrations in parallel (e.g. with joblib) to
         avoid over-subscribing the CPU.
@@ -634,7 +641,7 @@ def register_volume(
         Factory that builds the progress reporter, called inside `register_volume` as
         `progress_plotter(registration_method, fixed_img, moving_img, *, plot_metric,
         plot_composite, resample_kwargs, max_composite_slices)`. Here `resample_kwargs`
-        carries `interpolation`, `fill_value`, and `sitk_threads`. The returned object
+        carries `interpolation`, `fill_value`, and `itk_threads`. The returned object
         must implement the
         [`RegistrationProgress`][confusius.registration.RegistrationProgress] protocol
         (`update()` / `close()`). If not provided, the default
@@ -644,7 +651,7 @@ def register_volume(
         thread-safe primitives such as Qt signals.
     abort_event : threading.Event, optional
         Cooperative cancellation flag. If set before or during optimisation, the
-        registration stops at the next SimpleITK iteration boundary and returns
+        registration stops at the next ITK iteration boundary and returns
         the current intermediate result with `diagnostics.status="aborted"`.
 
     Returns
@@ -657,7 +664,7 @@ def register_volume(
     transform : (4, 4) numpy.ndarray or xarray.DataArray or None
         Estimated registration transform. For linear transforms (`"translation"`,
         `"rigid"`, `"affine"`), returns a homogeneous `(4, 4)` affine matrix in world
-        space. Follows SimpleITK's pull/inverse convention: the matrix maps fixed-space
+        space. Follows ITK's pull/inverse convention: the matrix maps fixed-space
         coordinates to moving-space coordinates. For `transform_type="bspline"`,
         returns an `xarray.DataArray` containing the B-spline control-point grid, not a
         dense deformation field. The first dimension is `component` with length 3,
@@ -704,7 +711,7 @@ def register_volume(
         If `fixed_mask` shape does not match `fixed` or `moving_mask` shape does
         not match `moving`.
     """
-    import SimpleITK as sitk
+    import itk
 
     moving, fixed, fixed_mask, moving_mask = _validate_register_volume_inputs(
         moving=moving,
@@ -727,286 +734,242 @@ def register_volume(
         resample_interpolation=resample_interpolation,
     )
 
-    fixed_sitk = voxeldata_to_sitk_image(fixed)
-    moving_sitk = voxeldata_to_sitk_image(moving)
-    fixed_optimizer_sitk = voxeldata_to_sitk_image(
-        _apply_intensity_scaling(fixed, fixed_intensity_scaling)
+    fixed_itk = voxeldata_to_itk_image(fixed)
+    moving_itk = voxeldata_to_itk_image(moving)
+    fixed_reg = expand_thin_dims(
+        voxeldata_to_itk_image(_apply_intensity_scaling(fixed, fixed_intensity_scaling))
     )
-    moving_optimizer_sitk = voxeldata_to_sitk_image(
-        _apply_intensity_scaling(moving, moving_intensity_scaling)
+    moving_reg = expand_thin_dims(
+        voxeldata_to_itk_image(
+            _apply_intensity_scaling(moving, moving_intensity_scaling)
+        )
     )
-
-    # SimpleITK's multi-resolution pyramid and interpolation fail when any spatial
-    # dimension is smaller than 4 voxels (common for single-slice fUSI recordings with
-    # a 1-voxel depth). We thus expand thin dimensions before registration; the
-    # originals are kept as the resample source/reference so the output grid is never
-    # affected.
-    fixed_reg = expand_thin_dims(fixed_optimizer_sitk)
-    moving_reg = expand_thin_dims(moving_optimizer_sitk)
-
-    # CenteredTransformInitializer (and the registration method) require both images to
-    # have the same pixel type. Cast moving to fixed's type when they differ.
-    if moving_reg.GetPixelID() != fixed_reg.GetPixelID():
-        moving_reg = sitk.Cast(moving_reg, fixed_reg.GetPixelID())
-
-    ndim = fixed_reg.GetDimension()
-
-    # Validate affine initialization shape now that ndim is known.
+    image_type = type(fixed_reg)
+    if type(moving_reg) is not image_type:
+        moving_reg = itk.cast_image_filter(
+            moving_reg, ttype=(type(moving_reg), image_type)
+        )
+    ndim = 3
     initialization_mode = initialization if isinstance(initialization, str) else None
     affine_initialization = (
         initialization if isinstance(initialization, np.ndarray) else None
     )
-    if affine_initialization is not None:
-        expected_shape = (ndim + 1, ndim + 1)
-        if affine_initialization.shape != expected_shape:
-            raise ValueError(
-                f"initialization shape {affine_initialization.shape} does not match "
-                f"image dimensionality {ndim}D (expected {expected_shape})."
-            )
-
-    requested_learning_rate = learning_rate
-
-    registration = sitk.ImageRegistrationMethod()
-
-    # --- Metric ---
-    if metric == "correlation":
-        registration.SetMetricAsCorrelation()
-    else:
-        registration.SetMetricAsMattesMutualInformation(
-            numberOfHistogramBins=number_of_histogram_bins
+    if affine_initialization is not None and affine_initialization.shape != (4, 4):
+        raise ValueError(
+            f"initialization shape {affine_initialization.shape} does not match "
+            "image dimensionality 3D (expected (4, 4))."
         )
 
-    if metric_sampling_percentage is not None and metric_sampling_percentage < 1:
-        registration.SetMetricSamplingStrategy(registration.RANDOM)
-        if metric_sampling_seed is None:
-            registration.SetMetricSamplingPercentage(metric_sampling_percentage)
-        else:
-            registration.SetMetricSamplingPercentage(
-                metric_sampling_percentage, metric_sampling_seed
-            )
-
-    registration.SetInterpolator(sitk.sitkLinear)
-
-    # --- Masks ---
-    if fixed_mask is not None:
-        # Convert boolean mask to uint8 for SimpleITK
-        fixed_mask_uint8 = fixed_mask.astype(np.uint8)
-        fixed_mask_sitk = voxeldata_to_sitk_image(fixed_mask_uint8)
-        # Expand mask if image was expanded
-        fixed_mask_sitk = expand_thin_dims(fixed_mask_sitk)
-        registration.SetMetricFixedMask(fixed_mask_sitk)
-    if moving_mask is not None:
-        # Convert boolean mask to uint8 for SimpleITK
-        moving_mask_uint8 = moving_mask.astype(np.uint8)
-        moving_mask_sitk = voxeldata_to_sitk_image(moving_mask_uint8)
-        # Expand mask if image was expanded
-        moving_mask_sitk = expand_thin_dims(moving_mask_sitk)
-        registration.SetMetricMovingMask(moving_mask_sitk)
-
-    # --- Optimizer ---
-    estimate_learning_rate = registration.Never
-    if learning_rate == "auto":
-        learning_rate = 1.0
-        estimate_learning_rate = registration.EachIteration
-
-    registration.SetOptimizerAsGradientDescent(
-        learningRate=learning_rate,
-        numberOfIterations=number_of_iterations,
-        convergenceMinimumValue=convergence_minimum_value,
-        convergenceWindowSize=convergence_window_size,
-        estimateLearningRate=estimate_learning_rate,
-    )
-
-    # Normalise parameter scales so that a unit step in each parameter produces the same
-    # world displacement. This is always applied regardless of learning_rate, so a
-    # user-supplied float is interpreted in these normalised units. If registration
-    # diverges, reduce learning_rate accordingly.
-    registration.SetOptimizerScalesFromPhysicalShift()
-
-    if optimizer_weights is not None:
-        registration.SetOptimizerWeights(optimizer_weights)
-
-    # --- Multi-resolution pyramid ---
-    if use_multi_resolution:
-        registration.SetShrinkFactorsPerLevel(shrinkFactors=list(shrink_factors))
-        registration.SetSmoothingSigmasPerLevel(smoothingSigmas=list(smoothing_sigmas))
-        registration.SmoothingSigmasAreSpecifiedInPhysicalUnitsOff()
-    else:
-        registration.SetShrinkFactorsPerLevel(shrinkFactors=[1])
-        registration.SetSmoothingSigmasPerLevel(smoothingSigmas=[0])
-        registration.SmoothingSigmasAreSpecifiedInPhysicalUnitsOff()
-
-    # --- Transform and centering initialization ---
     if transform_type == "bspline":
-        sitk_centering_transform: sitk.Transform = sitk.BSplineTransformInitializer(
-            fixed_reg, transformDomainMeshSize=list(mesh_size)
+        initial = itk.BSplineTransform[itk.D, ndim, 3].New()
+        initializer = itk.BSplineTransformInitializer[type(initial), image_type].New(
+            Transform=initial, Image=fixed_reg, TransformDomainMeshSize=list(mesh_size)
         )
+        initializer.InitializeTransform()
     else:
-        if transform_type == "translation":
-            sitk_centering_transform = sitk.TranslationTransform(ndim)
-        elif transform_type == "rigid":
-            sitk_centering_transform = (
-                sitk.Euler2DTransform() if ndim == 2 else sitk.Euler3DTransform()
-            )
-        else:
-            sitk_centering_transform = sitk.AffineTransform(ndim)
-
-        # When a precomputed affine initialization is supplied, place the transform
-        # centre at the fixed image centre so rigid/affine refinement rotates around
-        # a sensible pivot. Centering modes (center_geometry/center_moments) are
-        # skipped in that case, since the affine is treated as the full starting
-        # alignment.
-        if affine_initialization is not None and isinstance(
-            sitk_centering_transform,
-            (sitk.Euler2DTransform, sitk.Euler3DTransform, sitk.AffineTransform),
+        transform_class = {
+            "translation": itk.TranslationTransform[itk.D, ndim],
+            "rigid": itk.Euler3DTransform[itk.D],
+            "affine": itk.AffineTransform[itk.D, ndim],
+        }[transform_type]
+        initial = transform_class.New()
+        if (
+            initialization_mode in ("center_geometry", "center_moments")
+            and transform_type != "translation"
         ):
-            fixed_center_index = [0.5 * (size - 1) for size in fixed_reg.GetSize()]
-            fixed_center = fixed_reg.TransformContinuousIndexToPhysicalPoint(
-                fixed_center_index
-            )
-            sitk_centering_transform.SetCenter(fixed_center)
-        elif (
-            initialization_mode == "center_geometry" and transform_type != "translation"
-        ):
-            # CenteredTransformInitializer requires a transform with a center
-            # parameter (e.g. Euler, Affine). TranslationTransform has no center, so
-            # centering initialization is always skipped for translation.
-            sitk_centering_transform = sitk.CenteredTransformInitializer(
-                fixed_reg,
-                moving_reg,
-                sitk_centering_transform,
-                sitk.CenteredTransformInitializerFilter.GEOMETRY,
-            )
-        elif (
-            initialization_mode == "center_moments" and transform_type != "translation"
-        ):
-            sitk_centering_transform = sitk.CenteredTransformInitializer(
-                fixed_reg,
-                moving_reg,
-                sitk_centering_transform,
-                sitk.CenteredTransformInitializerFilter.MOMENTS,
-            )
-
+            # The wheel wraps 3D centering only for versor transforms; copy its pivot and offset.
+            centered = itk.VersorRigid3DTransform[itk.D].New()
+            initializer = itk.CenteredTransformInitializer[
+                type(centered), image_type, image_type
+            ].New(Transform=centered, FixedImage=fixed_reg, MovingImage=moving_reg)
+            if initialization_mode == "center_geometry":
+                initializer.GeometryOn()
+            else:
+                initializer.MomentsOn()
+            initializer.InitializeTransform()
+            initial.SetCenter(centered.GetCenter())
+            initial.SetTranslation(centered.GetTranslation())
     if affine_initialization is not None:
-        pre_tx = affine_to_sitk_linear_transform(affine_initialization)
+        pre_transform = affine_to_itk_linear_transform(affine_initialization)
         if transform_type == "bspline":
-            sitk_initial_transform = sitk.CompositeTransform(ndim)
-            sitk_initial_transform.AddTransform(pre_tx)
-            sitk_initial_transform.AddTransform(sitk_centering_transform)
+            composite = itk.CompositeTransform[itk.D, ndim].New()
+            composite.AddTransform(pre_transform)
+            composite.AddTransform(initial)
+            composite.SetOnlyMostRecentTransformToOptimizeOn()
+            initial = composite
         else:
-            sitk_initial_transform = pre_tx
+            region = fixed_reg.GetLargestPossibleRegion()
+            center_index = itk.ContinuousIndex[itk.D, ndim]()
+            for axis in range(ndim):
+                center_index[axis] = (
+                    region.GetIndex()[axis] + (region.GetSize()[axis] - 1) / 2
+                )
+            pre_transform.SetCenter(
+                fixed_reg.TransformContinuousIndexToPhysicalPoint(center_index)
+            )
+            # Restore the world offset after changing the optimizer's pivot.
+            pre_transform.SetOffset(tuple(affine_initialization[:ndim, ndim]))
+            initial = pre_transform
+
+    # FixedImage/MovingImage do not drive template inference for metrics or registration.
+    if metric == "correlation":
+        metric_object = itk.CorrelationImageToImageMetricv4[
+            image_type, image_type
+        ].New()
     else:
-        sitk_initial_transform = sitk_centering_transform
+        metric_object = itk.MattesMutualInformationImageToImageMetricv4[
+            image_type, image_type
+        ].New(NumberOfHistogramBins=number_of_histogram_bins)
+    metric_object.SetMaximumNumberOfWorkUnits(resolve_itk_threads(itk_threads))
+    for mask, setter in (
+        (fixed_mask, metric_object.SetFixedImageMask),
+        (moving_mask, metric_object.SetMovingImageMask),
+    ):
+        if mask is not None:
+            mask_image = expand_thin_dims(voxeldata_to_itk_image(mask))
+            mask_image = itk.cast_image_filter(
+                mask_image, ttype=(type(mask_image), itk.Image[itk.UC, ndim])
+            )
+            setter(itk.ImageMaskSpatialObject[ndim].New(Image=mask_image))
 
-    registration.SetInitialTransform(sitk_initial_transform, inPlace=True)
+    optimizer = itk.GradientDescentOptimizerv4.New(
+        LearningRate=1.0 if learning_rate == "auto" else learning_rate,
+        NumberOfIterations=number_of_iterations,
+        MinimumConvergenceValue=convergence_minimum_value,
+        ConvergenceWindowSize=convergence_window_size,
+        DoEstimateLearningRateAtEachIteration=learning_rate == "auto",
+        DoEstimateLearningRateOnce=False,
+    )
+    scales = itk.RegistrationParameterScalesFromPhysicalShift[type(metric_object)].New(
+        Metric=metric_object, TransformForward=True
+    )
+    optimizer.SetScalesEstimator(scales)
+    if optimizer_weights is not None:
+        optimizer.SetWeights(
+            itk.OptimizerParameters[itk.D](
+                np.asarray(optimizer_weights, dtype=np.float64)
+            )
+        )
+    registration = itk.ImageRegistrationMethodv4[image_type, image_type].New(
+        FixedImage=fixed_reg,
+        MovingImage=moving_reg,
+        Metric=metric_object,
+        Optimizer=optimizer,
+        InitialTransform=initial,
+        InPlace=True,
+    )
+    registration.SetNumberOfWorkUnits(resolve_itk_threads(itk_threads))
+    registration.SetNumberOfLevels(len(shrink_factors) if use_multi_resolution else 1)
+    registration.SetShrinkFactorsPerLevel(
+        list(shrink_factors) if use_multi_resolution else [1]
+    )
+    registration.SetSmoothingSigmasPerLevel(
+        list(smoothing_sigmas) if use_multi_resolution else [0]
+    )
+    registration.SmoothingSigmasAreSpecifiedInPhysicalUnitsOff()
+    if metric_sampling_percentage is not None and metric_sampling_percentage < 1:
+        registration.SetMetricSamplingStrategy(
+            itk.ImageRegistrationMethodv4Enums.MetricSamplingStrategy_RANDOM
+        )
+        registration.SetMetricSamplingPercentage(metric_sampling_percentage)
+        if metric_sampling_seed is None:
+            registration.MetricSamplingReinitializeSeed()
+        else:
+            registration.MetricSamplingReinitializeSeed(metric_sampling_seed)
 
-    # Always collect per-iteration metric values so callers get convergence
-    # diagnostics regardless of whether the live progress plot is enabled.
     metric_values: list[float] = []
-
-    def _record_iteration() -> None:
-        metric_value = float(registration.GetMetricValue())
-        metric_values.append(metric_value)
-
     needs_fill_value = resample or (show_progress and plot_composite)
-    _fill_value = (
+    resolved_fill = (
         fill_value
         if fill_value is not None
         else (float(moving.min()) if needs_fill_value else None)
     )
-    if _fill_value is not None:
-        validate_fill_value(_fill_value, moving.dtype)
+    if resolved_fill is not None:
+        validate_fill_value(resolved_fill, moving.dtype)
 
     with abort_on_sigint(abort_event) as effective_abort_event:
-        registration.AddCommand(sitk.sitkIterationEvent, _record_iteration)
-        registration.AddCommand(
-            sitk.sitkIterationEvent,
-            lambda: (
-                registration.StopRegistration()
-                if effective_abort_event.is_set()
-                else None
-            ),
-        )
 
-        if show_progress:
-            from confusius.registration.progress import (
-                MatplotlibRegistrationProgressPlotter,
-            )
+        def _record_iteration() -> None:
+            """Record the optimizer metric and honor cancellation at iteration boundaries."""
+            metric_values.append(float(optimizer.GetCurrentMetricValue()))
+            if effective_abort_event.is_set():
+                optimizer.StopOptimization()
+                # ITK's outer loop otherwise starts the optimizer again at the next pyramid level.
+                registration.SetNumberOfLevels(registration.GetCurrentLevel() + 1)
 
-            resample_kwargs: dict[str, object] = {
-                "interpolation": resample_interpolation,
-                "fill_value": _fill_value,
-                "sitk_threads": sitk_threads,
-            }
-
-            plotter_factory = progress_plotter or MatplotlibRegistrationProgressPlotter
-            plotter = plotter_factory(
-                registration,
-                fixed_sitk,
-                moving_sitk,
-                plot_metric=plot_metric,
-                plot_composite=plot_composite,
-                resample_kwargs=resample_kwargs,
-                max_composite_slices=max_composite_slices,
-            )
-            registration.AddCommand(sitk.sitkIterationEvent, plotter.update)
-            registration.AddCommand(sitk.sitkEndEvent, plotter.close)
-
+        observer_tags = [optimizer.AddObserver(itk.IterationEvent(), _record_iteration)]
+        plotter = None
         executed = False
-        if effective_abort_event.is_set():
-            if transform_type == "bspline":
-                sitk_optimized_transform = sitk_initial_transform
-            elif affine_initialization is not None:
-                sitk_optimized_transform = affine_to_sitk_linear_transform(
-                    affine_initialization
+        try:
+            if show_progress:
+                from confusius.registration.progress import (
+                    MatplotlibRegistrationProgressPlotter,
                 )
-            else:
-                sitk_optimized_transform = sitk.TranslationTransform(ndim)
-            aborted = True
-            stop_condition = "Registration aborted before optimisation started."
-        else:
-            try:
-                with set_sitk_thread_count(sitk_threads):
-                    sitk_optimized_transform = registration.Execute(
-                        fixed_reg, moving_reg
-                    )
-            except RuntimeError as exc:
-                raise _translate_registration_runtime_error(
-                    exc,
-                    transform_type=transform_type,
-                    learning_rate=requested_learning_rate,
-                ) from exc
-            executed = True
-            aborted = effective_abort_event.is_set()
-            stop_condition = registration.GetOptimizerStopConditionDescription()
-            if aborted and not stop_condition.strip():
-                stop_condition = "Registration aborted."
 
-    # When resampling, the output lives on the fixed grid; otherwise the moving volume
-    # is returned unchanged and its own coordinates are preserved.
-    if resample:
-        interp = (
-            sitk.sitkLinear if resample_interpolation == "linear" else sitk.sitkBSpline
-        )
-        assert _fill_value is not None
-        with set_sitk_thread_count(sitk_threads):
-            # .T restores numpy axis order, inverse of the .T used to build the SITK
-            # image.
-            registered_arr = sitk.GetArrayFromImage(
-                sitk.Resample(
-                    moving_sitk,
-                    fixed_sitk,
-                    sitk_optimized_transform,
-                    interp,
-                    _fill_value,
-                    moving_sitk.GetPixelID(),
+                factory = progress_plotter or MatplotlibRegistrationProgressPlotter
+                plotter = factory(
+                    registration,
+                    fixed_itk,
+                    moving_itk,
+                    plot_metric=plot_metric,
+                    plot_composite=plot_composite,
+                    resample_kwargs={
+                        "interpolation": resample_interpolation,
+                        "fill_value": resolved_fill,
+                        "itk_threads": itk_threads,
+                    },
+                    max_composite_slices=max_composite_slices,
                 )
-            ).T
+                observer_tags.append(
+                    optimizer.AddObserver(itk.IterationEvent(), plotter.update)
+                )
+
+            if effective_abort_event.is_set():
+                if transform_type != "bspline":
+                    initial = (
+                        affine_to_itk_linear_transform(affine_initialization)
+                        if affine_initialization is not None
+                        else itk.TranslationTransform[itk.D, ndim].New()
+                    )
+                aborted = True
+                stop_condition = "Registration aborted before optimisation started."
+            else:
+                try:
+                    with set_itk_thread_count(itk_threads):
+                        registration.Update()
+                except RuntimeError as exc:
+                    raise _translate_registration_runtime_error(
+                        exc, transform_type=transform_type, learning_rate=learning_rate
+                    ) from exc
+                executed = True
+                aborted = effective_abort_event.is_set()
+                stop_condition = optimizer.GetStopConditionDescription()
+        finally:
+            # C++ observers holding Python closures otherwise retain optimizers and images per frame.
+            for tag in observer_tags:
+                optimizer.RemoveObserver(tag)
+            if plotter is not None:
+                plotter.close()
+
+    if resample:
+        from confusius._utils.itk import cast_resampled_values, resample_itk_image
+
+        assert resolved_fill is not None
+        image = resample_itk_image(
+            moving_itk,
+            fixed_itk,
+            initial,
+            interpolation=resample_interpolation,
+            fill_value=resolved_fill,
+            itk_threads=itk_threads,
+        )
+        registered_arr = cast_resampled_values(
+            itk.array_from_image(image).T, moving.dtype
+        )
         reference = fixed
     else:
         registered_arr = moving.values
         reference = moving
-
     result = xr.DataArray(
         registered_arr,
         coords=reference.coords,
@@ -1014,35 +977,28 @@ def register_volume(
         attrs=moving.attrs.copy(),
     )
     if resample:
-        # result already carries fixed's own VoxelToWorldIndex (reused from
-        # fixed.coords above), so only the unrelated attrs["affines"] metadata --
-        # fixed's relationship to other world reference frames -- needs swapping
-        # in for moving's.
         replace_affines_attr(result, fixed)
-
     if transform_type == "bspline":
-        from confusius.registration.bspline import sitk_bspline_to_dataarray
+        from confusius.registration.bspline import itk_bspline_to_dataarray
 
-        optimized_transform = sitk_bspline_to_dataarray(
-            sitk_optimized_transform, pre_affine=affine_initialization
+        optimized_transform = itk_bspline_to_dataarray(
+            initial, pre_affine=affine_initialization
         )
     else:
-        optimized_transform = sitk_linear_transform_to_affine(sitk_optimized_transform)
-
-    final_metric_value: float
-    if metric_values:
-        final_metric_value = float(metric_values[-1])
-    elif executed:
-        final_metric_value = float(registration.GetMetricValue())
-    else:
-        final_metric_value = float("nan")
+        optimized_transform = itk_linear_transform_to_affine(initial)
+    final_metric = (
+        float(metric_values[-1])
+        if metric_values
+        else float(optimizer.GetCurrentMetricValue())
+        if executed
+        else float("nan")
+    )
     diagnostics = RegistrationDiagnostics(
         metric=metric,
         metric_values=np.asarray(metric_values, dtype=float),
-        final_metric_value=final_metric_value,
+        final_metric_value=final_metric,
         n_iterations=len(metric_values),
         stop_condition=stop_condition,
         status="aborted" if aborted else "completed",
     )
-
     return result, optimized_transform, diagnostics

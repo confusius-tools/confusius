@@ -23,7 +23,7 @@ class RegistrationDiagnostics:
     metric : {"correlation", "mattes_mi"}
         Similarity metric used during optimization, echoed from
         `register_volume`'s `metric` argument. Determines the sign and scale
-        of `metric_values` (SimpleITK always minimizes, so both supported
+        of `metric_values` (ITK always minimizes, so both supported
         metrics are recorded as negative values).
     metric_values : (n_iterations,) numpy.ndarray
         Similarity metric value recorded at each optimizer iteration, in
@@ -37,7 +37,7 @@ class RegistrationDiagnostics:
         optimizer converged early.
     stop_condition : str
         Human-readable description of the optimizer stop condition. When the
-        registration completes normally, this is SimpleITK's
+        registration completes normally, this is ITK's
         `GetOptimizerStopConditionDescription`. When the registration is
         aborted cooperatively, this is a short abort message.
     status : {"completed", "aborted"}

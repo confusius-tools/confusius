@@ -59,7 +59,7 @@ class FUSIRegistrationAccessor:
         resample: bool = False,
         resample_interpolation: Literal["linear", "bspline"] = "linear",
         fill_value: float | None = None,
-        sitk_threads: int = -1,
+        itk_threads: int = -1,
         show_progress: bool = False,
         plot_metric: bool = True,
         plot_composite: bool = True,
@@ -87,8 +87,8 @@ class FUSIRegistrationAccessor:
             If not provided, all voxels are used without random sampling.
         metric_sampling_seed : int, optional
             Seed for random metric sampling. Only used when
-            `metric_sampling_percentage < 1`. If not provided, SimpleITK's default
-            `sitkWallClock` seed is used.
+            `metric_sampling_percentage < 1`. If not provided, ITK's default
+            wall-clock seed is used.
         learning_rate : float or "auto", default: "auto"
             Optimizer step size in normalised units (after
             `SetOptimizerScalesFromPhysicalShift`). `"auto"` re-estimates the rate at
@@ -140,8 +140,8 @@ class FUSIRegistrationAccessor:
             Fill value for voxels outside the moving image's field of view after
             resampling. If not provided, defaults to the minimum of the moving
             image. See [`register_volume`][confusius.registration.register_volume].
-        sitk_threads : int, default: -1
-            Number of threads SimpleITK may use internally.
+        itk_threads : int, default: -1
+            Number of threads ITK may use internally.
         show_progress : bool, default: False
             Whether to display a live progress plot during registration.
         plot_metric : bool, default: True
@@ -200,7 +200,7 @@ class FUSIRegistrationAccessor:
             resample=resample,
             resample_interpolation=resample_interpolation,
             fill_value=fill_value,
-            sitk_threads=sitk_threads,
+            itk_threads=itk_threads,
             show_progress=show_progress,
             plot_metric=plot_metric,
             plot_composite=plot_composite,

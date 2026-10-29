@@ -50,7 +50,7 @@ def get_default_registration_parameters(
         "reference_time": 0,
         "volumewise_use_fixed": False,
         "n_jobs": -1,
-        "sitk_threads": -1,
+        "itk_threads": -1,
         "optimizer_weights_enabled": False,
         "optimizer_weights_values": [],
         "keep_diagnostics": False,
@@ -97,7 +97,7 @@ def get_registration_parameters(panel: RegistrationPanel) -> ModeParameters:
         "reference_time": panel._reference_time_spin.value(),
         "volumewise_use_fixed": panel._fixed_layer_radio.isChecked(),
         "n_jobs": panel._n_jobs_spin.value(),
-        "sitk_threads": panel._sitk_threads_spin.value(),
+        "itk_threads": panel._itk_threads_spin.value(),
         "optimizer_weights_enabled": panel._optimizer_weights_check.isChecked(),
         "optimizer_weights_values": panel._optimizer_weight_values(),
         "keep_diagnostics": panel._keep_diagnostics_check.isChecked(),
@@ -176,7 +176,7 @@ def set_registration_parameters(
     else:
         panel._reference_time_radio.setChecked(True)
     panel._n_jobs_spin.setValue(params["n_jobs"])
-    panel._sitk_threads_spin.setValue(params["sitk_threads"])
+    panel._itk_threads_spin.setValue(params["itk_threads"])
     panel._keep_diagnostics_check.setChecked(params["keep_diagnostics"])
     panel._advanced_toggle.setChecked(params["advanced_open"])
     panel._on_advanced_toggled(panel._advanced_toggle.isChecked())

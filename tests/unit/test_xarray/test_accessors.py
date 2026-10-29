@@ -341,7 +341,7 @@ class TestOrigin:
         dense array positions -- `.fusi.direction` must fold that sign in itself so
         it's directly usable, paired with `.fusi.spacing` (a magnitude) and
         `.fusi.origin`, as a dense-position `(origin, spacing, direction)` grid (the
-        convention SimpleITK and `reindex_voxels` both expect).
+        convention ITK and `reindex_voxels` both expect).
         """
         base = xr.DataArray(
             np.zeros((2, 3, 4)),
