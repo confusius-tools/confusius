@@ -17,37 +17,56 @@ ConfUSIus provides three QC metrics, divided into two categories:
 | Temporal SNR | [`compute_tsnr`][confusius.qc.compute_tsnr] | Spatial | — see note below |
 
 
-??? example "Example dataset setup (Nunez-Elizalde *et al.*, 2022)"
-    The figures on this page are generated using the Nunez-Elizalde *et al.* (2022)
-    dataset[^nunez2022] obtained with
-    [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022]. The
-    code below shows how to load the power Doppler and Allen atlas segmentation for one
-    acquisition. You can run this code in a Jupyter notebook to follow along and
-    generate the same figures as you read through the guide.
+??? example "Example dataset setup (Landemard *et al.*, 2026)"
+    The figures on this page are generated using the Landemard *et al.* (2026)
+    dataset[^landemard2026] obtained with
+    [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]. The code below
+    loads the power Doppler and the per-session Allen region map for subject `ALD001`,
+    acquisition `ref20`. The scans table maps the acquisition to the anatomy session
+    key used by the region-map derivative. You can run this code in a Jupyter notebook
+    to follow along and generate the same figures as you read through the guide.
 
     ```python
+    import csv
+    from pathlib import Path
+
+    import numpy as np
+
     import confusius as cf
-    from confusius.datasets import fetch_nunez_elizalde_2022
+    from confusius.datasets import fetch_landemard_2026
 
-    bids_root = fetch_nunez_elizalde_2022(
-        subjects=["CR022"],
-        sessions=["20201011"],
-        tasks=["spontaneous"],
-        acqs=["slice03"],
+    subject, acq = "ALD001", "ref20"
+    bids_root = fetch_landemard_2026(
+        datasets=["rawdata", "atlas_mapping"],
+        subjects=subject,
+        acqs=acq,
+        datatypes=["fusi"],
     )
 
-    pwd = cf.load(
+    fusi_path = (
         bids_root
-        / "sub-CR022/ses-20201011/fusi"
-        / "sub-CR022_ses-20201011_task-spontaneous_acq-slice03_pwd.nii.gz"
+        / f"sub-{subject}/fusi"
+        / f"sub-{subject}_task-awake_acq-{acq}_pwd.nii.gz"
     )
-    atlas_labels = cf.load(
+    pwd = cf.load(fusi_path)
+
+    scans_path = bids_root / f"sub-{subject}/sub-{subject}_scans.tsv"
+    with scans_path.open(newline="") as file:
+        scan = next(
+            row
+            for row in csv.DictReader(file, delimiter="\t")
+            if Path(row["filename"]).name == fusi_path.name
+        )
+    session = f"{scan['acq_time'].split('T')[0]}_{int(scan['experiment_id'])}"
+
+    region_matches_path = (
         bids_root
-        / "derivatives/allenccf_align/sub-CR022/ses-20201011/fusi"
-        / "sub-CR022_ses-20201011_space-fusi_desc-allenccf_dseg.nii.gz"
+        / f"derivatives/atlas_mapping/sub-{subject}"
+        / f"AnatomyRegionMatches_{subject}.npz"
     )
-    atlas_labels = atlas_labels.sel(z=pwd["z"], method="nearest").assign_coords(z=pwd["z"])
-    brain_mask = atlas_labels > 0
+    with np.load(region_matches_path, allow_pickle=True) as region_matches:
+        region_map = region_matches[session]
+    brain_mask = pwd.isel(time=0, drop=True).copy(data=(region_map != 0)[None])
     signals = pwd.fusi.extract.with_mask(brain_mask)
     ```
 
@@ -334,8 +353,8 @@ For full parameter documentation, see the [QC API reference](../api/qc.md).
     and Behaving Brain: A Systematic Framework for Motion Artifact Removal." bioRxiv,
     17 June 2025. DOI.org (Crossref), <https://doi.org/10.1101/2025.06.16.659882>.
 
-[^nunez2022]:
-    Nunez-Elizalde, A. O., et al. "A Neurophysiological fUSI-BIDS dataset from awake,
-    behaving mice." figshare dataset, 2022. DOI.org (Datacite),
-    <https://doi.org/10.6084/m9.figshare.19316228>; the fUSI-BIDS re-export is hosted
+[^landemard2026]:
+    Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. "Brainwide blood volume
+    reflects opposing neural populations." *Nature*, 2026. DOI.org (Crossref),
+    <https://doi.org/10.1038/s41586-026-10350-9>; the fUSI-BIDS re-export is hosted
     in the [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).
