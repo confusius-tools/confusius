@@ -21,6 +21,7 @@ nav = [
     { "User Guide" = [
         { "Getting Started" = "user-guide/getting-started.md" },
         { "Installation" = "user-guide/installation.md" },
+        { "Agents" = "user-guide/agents.md" },
         { "Input/Output" = "user-guide/io.md" },
         { "The VoxelData Model" = "user-guide/voxeldata.md" },
         { "Working with Xarray" = "user-guide/xarray.md" },
@@ -295,6 +296,7 @@ This file describes ConfUSIus version 0.9.0.dev0. ConfUSIus is a Python library 
 "User guide" = [
     "user-guide/getting-started.md",
     "user-guide/installation.md",
+    "user-guide/agents.md",
     "user-guide/io.md",
     "user-guide/voxeldata.md",
     "user-guide/xarray.md",

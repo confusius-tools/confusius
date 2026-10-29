@@ -485,42 +485,6 @@ See the [Create a VoxelData array from a MAT
 file](../examples/_built/io/create_voxeldata_from_mat.md) example for a complete
 walkthrough, from a real lab-specific MAT file to motion correction and a task GLM.
 
-### Agent Skill for Custom Imports
-
-ConfUSIus includes an Agent Skill that teaches coding assistants how to import
-custom arrays with correct VoxelData dimensions, acquisition timing, and affine
-geometry. Install it from your Python environment without a separate download:
-
-```sh
-confusius skills list
-# Shared location for Pi, Codex, Cursor, and other compatible assistants.
-confusius skills install
-confusius skills install --global
-
-# Claude Code uses its own discovery directory.
-confusius skills install --claude --global
-
-# Optionally install a single named skill.
-confusius skills install confusius-load-data
-```
-
-`list` prints skill names and descriptions. `install` defaults to every bundled
-skill, checking all destinations for conflicts before copying anything.
-Installation defaults to the **current working directory**, not an automatically
-detected repository root. Use `--global` to install in the user's home instead.
-The default directory is `.agents/skills/`,
-shared by Pi, Codex, Cursor, and other assistants that discover this directory.
-Use `--claude` to select `.claude/skills/` instead. Shared installation does not
-guarantee discovery by every agent. Existing destinations are never replaced
-without `--force`; forced
-replacement discards local changes and removes stale files in that skill directory.
-
-Restart or reload skill discovery in your assistant if necessary, then ask it to
-use `confusius-load-data`. Each installation includes geometry references and a
-`scripts/examples.py` script with offline, synthetic-data checks. Run it with the
-Python environment containing ConfUSIus. Repository maintenance skills such as the
-release workflow are not distributed.
-
 ## Converting Beamformed IQ Data to Zarr
 
 Beamformed IQ exports are often stored as large binary files together with acquisition
