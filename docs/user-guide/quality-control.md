@@ -53,30 +53,44 @@ ConfUSIus provides three QC metrics, divided into two categories:
 
 ## DVARS
 
-DVARS (temporal **D**erivative of **VAR**iance**S**) measures how much the signal
-intensity changes between consecutive time points, averaged across all brain
-voxels[^power2012]. A spike in DVARS typically indicates a motion event, a scanner
-artifact, or another transient disturbance that corrupted one or more volumes.
+DVARS (temporal **D**erivative of **VAR**iance**S**) quantifies changes in signal
+intensity between consecutive time points, computed as the root mean square of temporal
+differences across brain voxels[^power2012]. Large DVARS values indicate abrupt signal
+changes, which may arise from motion, acquisition artifacts, or strong physiological
+fluctuations. DVARS is sensitive to both global and strong local changes, making it a
+useful metric for identifying potentially problematic time points that warrant further
+inspection or exclusion from further analysis.
 
-By default, ConfUSIus computes **relative DVARS**[^afyouni2018]: raw DVARS divided
-by the square root of its median squared value. The baseline is estimated from
-actual temporal differences, before adding the artificial first sample. This
-empirical normalization puts the median near 1, but does not provide a Z-score or
-an artifact probability. It assumes background fluctuations dominate the recording;
-frequent artifacts or a changing baseline can compromise the estimate.
+Mathematically, raw DVARS is defined as
 
-Nichols originally called the measure *Standardized DVARS*[^nichols2017]; Afyouni
-and Nichols subsequently used the name *relative DVARS*.
+$$
+\mathrm{DVARS}_t = \sqrt{\frac{1}{N} \sum_{i=1}^{N} (x_{i,t} - x_{i,t-1})^2},
+$$
 
-!!! warning "DVARS normalization changed in 0.9.0"
+where $x_{i,t}$ is the signal intensity at voxel $i$ and time point $t$, and
+$N$ is the number of included voxels.
 
-    Version 0.8.0 and earlier used the legacy AR(1)-based normalization. The
-    default is now median-based relative DVARS. Numerical values change, so
-    existing thresholds need review. The `standardize` argument was removed,
-    and all options are keyword-only. Use `variant="raw"` instead of
-    `standardize=False`; use `baseline_estimator="legacy"` to reproduce the
-    former `standardize=True` normalization. The legacy estimator is deprecated
-    and will be removed in a future release.
+For a recording with $T$ time points, DVARS is defined for $T-1$
+consecutive pairs. Since there is no preceding frame for $t=0$, its DVARS is
+undefined. ConfUSIus returns `NaN` at that position to preserve the input time
+coordinates and length.
+
+By default, ConfUSIus computes **relative DVARS**[^afyouni2018]: raw DVARS divided by
+the square root of its median squared value. This empirical normalization puts the
+median near 1 and assumes background fluctuations dominate the recording; frequent
+artifacts or a changing baseline can compromise the estimate.
+
+Nichols originally called the measure *standardized DVARS*[^nichols2017]; Afyouni and
+Nichols subsequently used the name *relative DVARS*.
+
+!!! warning "DVARS normalization changed in ConfUSIus 0.9.0"
+
+    ConfUSIus 0.8.0 and earlier used a mean-SD AR(1)-based normalization, which has been
+    removed. The default is now median-based relative DVARS, following recommendations
+    by Afyouni and Nichols[^afyouni2018]. The median is less sensitive to unusually
+    large DVARS values, and their simulations found it reliable under heterogeneous
+    voxel variances. **Existing outlier thresholds must be adjusted for the new
+    normalization**.
 
 ### Usage
 
@@ -96,24 +110,35 @@ dvars_raw = compute_dvars(signals, variant="raw", normalization_factor=None)
 # Each result has dims (time,).
 ```
 
-For relative DVARS, `baseline_estimator` selects one of three denominators:
+For relative DVARS, `baseline_estimator` selects one of two denominators:
 
 - `"median"` (default): square root of median squared raw DVARS. No AR(1) fit.
 - `"ar1"`: RMS of expected voxelwise difference SDs,
   `sqrt(mean(2 * (1 - rho) * sigma**2))`.
-- `"legacy"` (deprecated): arithmetic mean of those SDs,
-  `mean(sqrt(2 * (1 - rho)) * sigma)`.
 
-Both model-based estimators use the same Yule–Walker lag-1 autocorrelations and
-robust temporal SDs (IQR/normal-IQR). Their aggregation differs: heterogeneous
-voxel variability makes legacy values larger than `"ar1"` values. Neither method
-is a drop-in numerical replacement for `"legacy"`. The AR(1) estimates are not
-robust to artifacts. Raw DVARS ignores `baseline_estimator` and optionally scales
-signal intensities to a median of 1000 (`normalization_factor`, default: 1000).
+The AR(1) estimator uses robust temporal SDs, but its autocorrelation estimates remain
+sensitive to artifacts. Raw DVARS ignores `baseline_estimator` and scales intensities to
+a median of 1000 by default; set `normalization_factor=None` to retain native units.
+Both variants exclude zero-IQR features by default.
 
-Both variants exclude zero-IQR features by default and accept Dask-backed data,
-but compute eagerly. The first output value is the minimum DVARS value for
-compatibility, not an observed frame difference.
+Only median-based relative DVARS preserves Dask laziness. Each spatial chunk's full
+time series must fit in memory; data-dependent validation occurs at computation time.
+
+### Sample Masks
+
+Creating a boolean mask of good samples is straightforward: simply threshold the DVARS
+time series. The threshold below is illustrative: you should review the DVARS plot on
+your own dataset to determine an appropriate threshold for your paradigm.
+
+```python
+import confusius as cf
+
+threshold = 2.5
+# The first frame has no preceding frame, so its DVARS is NaN. Thresholding will produce
+# a False value for that frame.
+sample_mask = (dvars < threshold).compute()  # True means keep.
+cleaned = cf.signal.clean(signals, sample_mask=sample_mask)
+```
 
 ### Visualizing and Thresholding
 

@@ -4,10 +4,10 @@ Portions of this file are derived from Nipype, which is licensed under the Apach
 License 2.0. See `NOTICE` file for details.
 """
 
-import warnings
 from typing import Literal
 
 import numpy as np
+import numpy.typing as npt
 import xarray as xr
 from scipy import stats as sp_stats
 
@@ -19,35 +19,34 @@ def compute_dvars(
     signals: xr.DataArray,
     *,
     variant: Literal["raw", "relative"] = "relative",
-    baseline_estimator: Literal["median", "ar1", "legacy"] = "median",
+    baseline_estimator: Literal["median", "ar1"] = "median",
     normalization_factor: float | None = 1000,
     remove_zero_variance: bool = True,
     variance_tolerance: float = 0.0,
 ) -> xr.DataArray:
-    """Compute raw or relative DVARS from temporal signal differences.
+    """Compute the DVARS quality control metric.
 
-    DVARS measures the root mean square signal change between consecutive time
-    points. Relative DVARS divides this trace by an estimated background baseline.
-    The raw and legacy calculations were adapted from
+    DVARS measures the root mean square signal change between consecutive time points.
+    Relative DVARS divides this trace by an estimated background baseline.
+
+    This function was originally adapted from
     `nipype.algorithms.confounds.compute_dvars`.
 
     Parameters
     ----------
     signals : (time, ...) xarray.DataArray
-        Real, finite signals with a `time` dimension containing at least two
-        samples. Any other dimensions are flattened into features, regardless of
-        their names or ordering. A single time series is also supported.
+        Real, finite signals with a `time` dimension containing at least two samples.
+        Any other dimensions are flattened into features, regardless of their names or
+        ordering.
     variant : {"raw", "relative"}, default: "relative"
-        Whether to return raw RMS temporal differences or dimensionless Relative
-        DVARS. Relative DVARS uses the selected `baseline_estimator`.
-    baseline_estimator : {"median", "ar1", "legacy"}, default: "median"
-        Baseline for relative DVARS; ignored for raw DVARS. `"median"` uses the
-        square root of median squared raw DVARS, excluding the artificial first
-        sample. `"ar1"` uses the RMS of expected voxelwise difference standard
-        deviations, estimated from robust temporal SDs and lag-1 autocorrelations.
-        `"legacy"` uses their arithmetic mean instead, preserving the normalization
-        used in ConfUSIus 0.8.0 and earlier. The legacy estimator is deprecated and
-        will be removed in a future release.
+        DVARS variant to compute. Raw DVARS is the root mean square of temporal
+        differences, while relative DVARS divides raw DVARS by a recording-wide
+        baseline, selected by `baseline_estimator`.
+    baseline_estimator : {"median", "ar1"}, default: "median"
+        Baseline for relative DVARS. `"median"` uses the square root of median squared
+        raw DVARS, excluding the artificial first sample. `"ar1"` uses the RMS of
+        expected voxelwise difference standard deviations, estimated from robust
+        temporal SDs and lag-1 autocorrelations. Ignored for raw DVARS.
     normalization_factor : float or None, default: 1000
         Positive target median signal intensity for raw DVARS.
         If not provided, no intensity normalization is performed. Ignored for
@@ -62,9 +61,8 @@ def compute_dvars(
     Returns
     -------
     (time,) xarray.DataArray
-        DVARS with the input time coordinates. The first value is the minimum
-        resulting DVARS, following the existing FSL convention. Relative DVARS
-        has units `"1"`; raw DVARS has arbitrary intensity units (`"a.u."`).
+        DVARS with the input time coordinates. The first value is `NaN` because the
+        first frame has no preceding frame.
 
     Raises
     ------
@@ -75,11 +73,6 @@ def compute_dvars(
         parameters are invalid, all features are removed, or a required intensity
         normalization or relative DVARS baseline is zero or nonfinite.
 
-    Warns
-    -----
-    DeprecationWarning
-        When relative DVARS uses `baseline_estimator="legacy"`.
-
     See Also
     --------
     confusius.qc.compute_cv : Compute voxelwise coefficients of variation.
@@ -87,39 +80,30 @@ def compute_dvars(
 
     Notes
     -----
-    For features indexed by i, raw DVARS is `sqrt(mean_i(diff(Y_i)**2))`.
-    Relative DVARS divides raw DVARS by one of these recording-wide baselines:
+    Raw DVARS is `sqrt(mean_i(diff(Y_i)**2))`. Relative DVARS divides it by a
+    recording-wide baseline estimated using either:
 
     - `median`: `sqrt(median_t(raw_dvars_t**2))`.
     - `ar1`: `sqrt(mean_i(2 * (1 - rho_i) * sigma_i**2))`.
-    - `legacy`: `mean_i(sqrt(2 * (1 - rho_i)) * sigma_i)`.
 
-    Here `sigma_i` is the robust temporal SD and `rho_i` is the Yule-Walker
-    lag-1 autocorrelation estimate. The RMS baseline is at least as large as the
-    legacy mean-SD baseline, with equality only for identical difference SDs.
-    Lower-interpolated IQRs preserve the historical estimator but can change
-    slightly under sign reversal; exact negative-scale invariance is guaranteed
-    only for the median baseline when zero-variance selection is unchanged.
+    Here `sigma_i` is the robust temporal SD and `rho_i` the Yule-Walker lag-1
+    autocorrelation. Originally called *standardized DVARS* by Nichols (2013), the
+    measure was renamed *relative DVARS* by Afyouni and Nichols (2018).
 
-    Nichols originally called this normalization Standardized DVARS; Afyouni and
-    Nichols (2018) subsequently used the name relative DVARS. Their empirical
-    median-squared estimator avoids AR(1) fitting, but assumes the recording's
-    background dominates the temporal distribution. Frequent artifacts or a
-    nonstationary baseline can compromise it. The AR(1)-based estimators assume
-    stationary variance and lag-1 covariance; their autocorrelation estimates
-    are not robust to artifacts. Relative DVARS is not a Z-score or a calibrated
-    cross-recording artifact probability, regardless of estimator.
+    The `median` estimator avoids AR(1) fitting but assumes most time points reflect
+    baseline activity. The `ar1` estimator assumes stationarity and is sensitive to
+    artifacts. Neither yields a z-score or calibrated artifact probability. Due to IQR
+    interpolation, exact invariance to signal sign reversal is guaranteed only for
+    `median` when feature selection is unchanged.
 
-    **Changed in 0.9.0:** The default is median-based relative DVARS, rather than
-    the legacy normalization used in 0.8.0 and earlier. Numerical results and
-    suitable thresholds change. The `standardize` argument was removed: use
-    `variant="raw"` for the former `standardize=False`, or explicitly select
-    `baseline_estimator="legacy"` for the former `standardize=True`. All options
-    are now keyword-only.
+    **Precision:** Float32/float64 inputs retain their precision during differencing;
+    float16 and integer inputs are promoted to float32 and float64, respectively.
+    Spatial sums accumulate in float64.
 
-    **Laziness:** Dask-backed inputs are accepted but computed eagerly. Robust
-    SDs are computed only for zero-variance filtering or AR(1)-based baselines;
-    AR(1) coefficients are computed only for relative `ar1` and `legacy`.
+    **Laziness:** Median-based relative DVARS is Dask-lazy, rechunking each spatial
+    block along the full time axis before reducing to a DVARS trace. Spatial chunks must
+    fit in memory, and data-dependent errors occur at compute time. Raw DVARS and `ar1`
+    remain eager. Robust SDs are computed only when needed for filtering or `ar1`.
 
     References
     ----------
@@ -159,20 +143,59 @@ def compute_dvars(
     )
     if variant not in ("raw", "relative"):
         raise ValueError("variant must be 'raw' or 'relative'.")
-    if baseline_estimator not in ("median", "ar1", "legacy"):
-        raise ValueError("baseline_estimator must be 'median', 'ar1', or 'legacy'.")
+    if baseline_estimator not in ("median", "ar1"):
+        raise ValueError("baseline_estimator must be 'median' or 'ar1'.")
     if not np.isfinite(variance_tolerance) or variance_tolerance < 0:
         raise ValueError("variance_tolerance must be finite and nonnegative.")
     if not np.issubdtype(signals.dtype, np.number) or np.iscomplexobj(signals):
         raise TypeError("signals must contain real numeric data.")
 
-    # Convert before differencing to avoid integer overflow and repeated Dask work.
-    values = np.asarray(signals.transpose("time", ...).values, dtype=np.float64)
+    if signals.size == 0:
+        raise ValueError("signals must contain nonempty, finite features.")
+    if (
+        signals.chunks is not None
+        and variant == "relative"
+        and baseline_estimator == "median"
+    ):
+        import dask.array as da
+        from dask import delayed
+
+        # Finish each full-time spatial block before combining small summaries.
+        blocks = signals.transpose("time", ...).data.rechunk({0: -1}).to_delayed()
+        summaries = [
+            delayed(_summarize_dvars_block)(
+                block, remove_zero_variance, variance_tolerance
+            )
+            for block in blocks.ravel()
+        ]
+        combined = da.stack(
+            [
+                da.from_delayed(summary, shape=(signals.sizes["time"],), dtype=float)
+                for summary in summaries
+            ]
+        ).sum(axis=0)
+        result = delayed(_finish_median_dvars)(combined)
+        dvars = xr.DataArray(
+            da.from_delayed(result, shape=(signals.sizes["time"],), dtype=float),
+            dims=["time"],
+            coords={"time": signals.coords["time"]},
+            attrs={"long_name": "relative DVARS", "units": "1"},
+        )
+        dvars.name = None
+        return dvars
+
+    # Promote integers before differencing without doubling float32 recordings.
+    dtype = (
+        np.result_type(signals.dtype, np.float32)
+        if np.issubdtype(signals.dtype, np.floating)
+        else np.dtype(np.float64)
+    )
+    values = np.asarray(signals.transpose("time", ...).values, dtype=dtype)
     values = values.reshape(signals.sizes["time"], -1)
     if values.shape[1] == 0 or not np.isfinite(values).all():
         raise ValueError("signals must contain nonempty, finite features.")
 
-    needs_ar1 = variant == "relative" and baseline_estimator in ("ar1", "legacy")
+    needs_ar1 = variant == "relative" and baseline_estimator == "ar1"
     if remove_zero_variance or needs_ar1:
         signals_sd = sp_stats.iqr(values, axis=0, scale="normal", interpolation="lower")
         if remove_zero_variance:
@@ -193,33 +216,21 @@ def compute_dvars(
             raise ValueError("Median signal intensity must be finite and nonzero.")
         values = values * (normalization_factor / median_intensity)
 
-    dvars = np.sqrt(np.mean(np.diff(values, axis=0) ** 2, axis=1))
+    dvars = np.sqrt(np.mean(np.diff(values, axis=0) ** 2, axis=1, dtype=np.float64))
     if variant == "relative":
         if baseline_estimator == "median":
             # Estimate the baseline before inserting the artificial first sample.
             baseline = np.sqrt(np.median(dvars**2))
         else:
-            if baseline_estimator == "legacy":
-                warnings.warn(
-                    'baseline_estimator="legacy" is deprecated and will be removed '
-                    'in a future release. Use "median" or "ar1" instead; neither '
-                    "preserves legacy numerical values.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
             ar1, _ = estimate_ar_coeffs(values, order=1)
             diff_sd = np.sqrt(2 * (1 - ar1.reshape(-1))) * signals_sd
-            baseline = (
-                np.mean(diff_sd)
-                if baseline_estimator == "legacy"
-                else np.sqrt(np.mean(diff_sd**2))
-            )
+            baseline = np.sqrt(np.mean(diff_sd**2))
         if not np.isfinite(baseline) or baseline <= 0:
             raise ValueError("Relative DVARS baseline must be finite and positive.")
         dvars = dvars / baseline
 
     return xr.DataArray(
-        np.insert(dvars, 0, dvars.min()),
+        np.insert(dvars, 0, np.nan),
         dims=["time"],
         coords={"time": signals.coords["time"]},
         attrs={
@@ -227,3 +238,80 @@ def compute_dvars(
             "units": "1" if variant == "relative" else "a.u.",
         },
     )
+
+
+def _summarize_dvars_block(
+    block: npt.NDArray[np.number],
+    remove_zero_variance: bool,
+    variance_tolerance: float,
+) -> npt.NDArray[np.float64]:
+    """Reduce one full-time spatial block without retaining voxelwise outputs.
+
+    Parameters
+    ----------
+    block : (time, ...) numpy.ndarray
+        Real input signals for one spatial block.
+    remove_zero_variance : bool
+        Whether to exclude features with low robust temporal SD.
+    variance_tolerance : float
+        Threshold for robust temporal SD.
+
+    Returns
+    -------
+    (time,) numpy.ndarray
+        Sum of squared differences at each real transition, followed by the
+        retained feature count. Packing both into one summary keeps Dask from
+        independently optimizing and duplicating their shared upstream work.
+
+    Raises
+    ------
+    ValueError
+        If the block contains nonfinite signals.
+    """
+    dtype = (
+        np.result_type(block.dtype, np.float32)
+        if np.issubdtype(block.dtype, np.floating)
+        else np.dtype(np.float64)
+    )
+    values = np.asarray(block, dtype=dtype).reshape(block.shape[0], -1)
+    if not np.isfinite(values).all():
+        raise ValueError("signals must contain nonempty, finite features.")
+    if remove_zero_variance:
+        sd = sp_stats.iqr(values, axis=0, scale="normal", interpolation="lower")
+        values = values[:, sd > variance_tolerance]
+    return np.append(
+        np.sum(np.diff(values, axis=0) ** 2, axis=1, dtype=np.float64), values.shape[1]
+    )
+
+
+def _finish_median_dvars(summary: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Normalize the reduced temporal trace and prepend an undefined first value.
+
+    Parameters
+    ----------
+    summary : (time,) numpy.ndarray
+        Sum of squared differences across all retained features, followed by
+        the total retained feature count.
+
+    Returns
+    -------
+    (time,) numpy.ndarray
+        Median-based relative DVARS, including the artificial first sample.
+
+    Raises
+    ------
+    ValueError
+        If no features remain or the baseline is nonfinite or nonpositive.
+    """
+    count = summary[-1]
+    if count == 0:
+        raise ValueError(
+            "All signals have variance below tolerance. Check input data or "
+            "adjust 'variance_tolerance'."
+        )
+    dvars = np.sqrt(summary[:-1] / count)
+    baseline = np.sqrt(np.median(dvars**2))
+    if not np.isfinite(baseline) or baseline <= 0:
+        raise ValueError("Relative DVARS baseline must be finite and positive.")
+    dvars /= baseline
+    return np.insert(dvars, 0, np.nan)

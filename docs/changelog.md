@@ -12,13 +12,17 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
-- [`compute_dvars`][confusius.qc.compute_dvars] now defaults to median-based
-  relative DVARS. Choose `baseline_estimator="ar1"` for the RMS-based model
-  baseline, or the deprecated `"legacy"` estimator for the normalization used in
-  0.8.0 and earlier. Existing thresholds need review. The `standardize` argument
-  was removed: use `variant="raw"` instead of `standardize=False`, or explicitly
-  select `baseline_estimator="legacy"` for the former `standardize=True` behavior.
-  All options are now keyword-only.
+- [`compute_dvars`][confusius.qc.compute_dvars] now defaults to median-based relative
+  DVARS, following the empirical baseline estimator recommended by Afyouni and Nichols
+  (2018). The median is less sensitive to unusually large DVARS values, and their
+  simulations found it reliable under heterogeneous voxel variances. The previous
+  mean-SD normalization used in 0.8.0 and earlier has been removed. Choose
+  `baseline_estimator="ar1"` for the alternative RMS-based model baseline. **Existing
+  DVARS thresholds must be adjusted for the new normalization**. The `standardize`
+  argument was removed: use `variant="raw"` instead of `standardize=False`. The first
+  output value is now `NaN` for all variants and estimators. Median-based relative DVARS
+  preserves Dask laziness, reducing spatial blocks before estimating the recording-wide
+  baseline ([#540](https://github.com/confusius-tools/confusius/pull/540)).
 - Use
   [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
   instead of `fetch_template_huang_2025` for the vascular mouse template. The fetcher

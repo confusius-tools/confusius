@@ -1,7 +1,6 @@
 """Formula-based tests for raw and relative DVARS."""
 
 import warnings
-from contextlib import nullcontext
 
 import numpy as np
 import pytest
@@ -10,6 +9,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 from scipy.stats import iqr
 
 from confusius.qc import compute_dvars
+from confusius.signal import censor_samples
 from confusius.xarray import create_voxeldata
 
 
@@ -41,10 +41,10 @@ def reference_dvars(values, estimator):
     numpy.ndarray
         Expected DVARS including its artificial first sample.
     """
-    raw = np.sqrt(np.mean(np.diff(values, axis=0) ** 2, axis=1))
+    raw = np.sqrt(np.mean(np.diff(values, axis=0) ** 2, axis=1, dtype=np.float64))
     if estimator == "median":
         raw /= np.sqrt(np.median(raw**2))
-    elif estimator in ("ar1", "legacy"):
+    elif estimator == "ar1":
         sd = iqr(values, axis=0, scale="normal", interpolation="lower")
         rho = []
         for column in values.T:
@@ -52,29 +52,23 @@ def reference_dvars(values, estimator):
             # The library uses the biased Yule-Walker autocovariance convention.
             rho.append(np.dot(centered[:-1], centered[1:]) / np.dot(centered, centered))
         diff_sd = sd * np.sqrt(2 * (1 - np.array(rho)))
-        denominator = (
-            np.mean(diff_sd) if estimator == "legacy" else np.sqrt(np.mean(diff_sd**2))
-        )
+        denominator = np.sqrt(np.mean(diff_sd**2))
         raw /= denominator
-    return np.insert(raw, 0, raw.min())
+    return np.insert(raw, 0, np.nan)
 
 
-@pytest.mark.parametrize("estimator", ["raw", "median", "ar1", "legacy"])
+@pytest.mark.parametrize("estimator", ["raw", "median", "ar1"])
 @pytest.mark.parametrize("features", [1, 12])
 def test_matches_independent_formula(signals, estimator, features):
     """Both variants and all baselines match independently calculated values."""
     signals = signals.isel(region=slice(features))
-    context = (
-        pytest.warns(DeprecationWarning, match="legacy")
-        if estimator == "legacy"
-        else nullcontext()
-    )
     kwargs = (
         {"variant": "raw"} if estimator == "raw" else {"baseline_estimator": estimator}
     )
-    with context:
-        actual = compute_dvars(signals, normalization_factor=None, **kwargs)
+    actual = compute_dvars(signals, normalization_factor=None, **kwargs)
     assert_allclose(actual, reference_dvars(signals.values, estimator), rtol=1e-10)
+    assert np.isnan(actual.values[0])
+    assert np.isfinite(actual.values[1:]).all()
     xr.testing.assert_identical(actual.time, signals.time)
     assert actual.attrs == {
         "long_name": "DVARS" if estimator == "raw" else "relative DVARS",
@@ -103,17 +97,33 @@ def test_median_excludes_artificial_sample():
     """A deterministic asymmetric example catches estimating after padding."""
     signals = xr.DataArray([0.0, 1.0, 4.0, 14.0], dims="time")
     # Differences are 1, 3, 10; sqrt(median(square(differences))) is 3.
-    assert_allclose(compute_dvars(signals), np.array([1, 1, 3, 10]) / 3)
+    assert_allclose(compute_dvars(signals), np.array([np.nan, 1, 3, 10]) / 3)
 
 
-def test_ar1_and_legacy_differ_for_heterogeneous_variance(signals):
-    """RMS aggregation gives a smaller trace than legacy mean-SD aggregation."""
-    with pytest.warns(DeprecationWarning, match="legacy"):
-        legacy = compute_dvars(signals, baseline_estimator="legacy")
-    ar1 = compute_dvars(signals, baseline_estimator="ar1")
-    assert_allclose(legacy, reference_dvars(signals.values, "legacy"))
-    assert_allclose(ar1, reference_dvars(signals.values, "ar1"))
-    assert np.all(legacy.values > ar1.values * 1.1)
+def test_median_baseline_resists_an_isolated_spike():
+    """Two extreme differences do not change a majority unit-change baseline."""
+    values = np.arange(101, dtype=float)
+    values[50] += 1000
+    expected = np.ones(101)
+    expected[0] = np.nan
+    expected[50:52] = [1001, 999]
+    assert_allclose(compute_dvars(xr.DataArray(values, dims="time")), expected)
+
+
+@pytest.mark.parametrize("lazy", [False, True])
+@pytest.mark.parametrize("keep_first", [False, True])
+def test_sample_mask_first_frame_policy(signals, lazy, keep_first):
+    """An explicit first-frame policy gives an aligned boolean censoring mask."""
+    data = signals.chunk({"time": 25, "region": 5}) if lazy else signals
+    dvars = compute_dvars(data)
+    mask = (dvars < 1.2).compute()
+    assert not mask.values[0]
+    mask[{"time": 0}] = keep_first
+    expected = reference_dvars(signals.values, "median") < 1.2
+    expected[0] = keep_first
+    xr.testing.assert_identical(
+        censor_samples(signals, mask), signals.isel(time=expected)
+    )
 
 
 def test_estimators_agree_for_homogeneous_stationary_noise():
@@ -122,37 +132,25 @@ def test_estimators_agree_for_homogeneous_stationary_noise():
         np.random.default_rng(7).normal(size=(4000, 100)), dims=("time", "region")
     )
     expected = reference_dvars(signals.values, "median")
-    for estimator in ("median", "ar1", "legacy"):
-        context = (
-            pytest.warns(DeprecationWarning) if estimator == "legacy" else nullcontext()
-        )
-        with context:
-            actual = compute_dvars(signals, baseline_estimator=estimator)
+    for estimator in ("median", "ar1"):
+        actual = compute_dvars(signals, baseline_estimator=estimator)
         assert_allclose(actual, expected, rtol=0.03)
 
 
-@pytest.mark.parametrize("estimator", ["median", "ar1", "legacy"])
+@pytest.mark.parametrize("estimator", ["median", "ar1"])
 @pytest.mark.parametrize("scale", [7.0, 0.1])
 def test_relative_scale_invariance(signals, estimator, scale):
     """Positive global scaling leaves relative DVARS unchanged."""
-    context = (
-        pytest.warns(DeprecationWarning) if estimator == "legacy" else nullcontext()
-    )
-    with context:
-        actual = compute_dvars(signals * scale, baseline_estimator=estimator)
-        expected = compute_dvars(signals, baseline_estimator=estimator)
+    actual = compute_dvars(signals * scale, baseline_estimator=estimator)
+    expected = compute_dvars(signals, baseline_estimator=estimator)
     assert_allclose(actual, expected, rtol=1e-12)
 
 
-@pytest.mark.parametrize("estimator", ["median", "ar1", "legacy"])
+@pytest.mark.parametrize("estimator", ["median", "ar1"])
 def test_zero_variance_filtering(signals, estimator):
     """Constant features are excluded before normalization and differencing."""
     padded = xr.concat([signals, xr.zeros_like(signals.isel(region=[0]))], dim="region")
-    context = (
-        pytest.warns(DeprecationWarning) if estimator == "legacy" else nullcontext()
-    )
-    with context:
-        actual = compute_dvars(padded, baseline_estimator=estimator)
+    actual = compute_dvars(padded, baseline_estimator=estimator)
     assert_allclose(actual, reference_dvars(signals.values, estimator))
 
 
@@ -169,7 +167,7 @@ def test_variance_tolerance(signals):
     assert_allclose(actual, reference_dvars(values[:, 1:], "median"))
 
 
-@pytest.mark.parametrize("estimator", ["median", "ar1", "legacy"])
+@pytest.mark.parametrize("estimator", ["median", "ar1"])
 def test_dimension_order_and_dask(signals, estimator):
     """Flattening supports arbitrary feature names, axis order, and Dask chunks."""
     spatial = create_voxeldata(
@@ -178,14 +176,19 @@ def test_dimension_order_and_dask(signals, estimator):
         time=signals.time.values,
         spacing=(1, 1, 1),
     )
-    inputs = [signals.transpose("region", "time"), spatial, spatial.chunk({"time": 20})]
-    context = (
-        pytest.warns(DeprecationWarning) if estimator == "legacy" else nullcontext()
-    )
-    with context:
-        for data in inputs:
-            result = compute_dvars(data, baseline_estimator=estimator)
-            assert_allclose(result, reference_dvars(signals.values, estimator))
+    inputs = [
+        signals.transpose("region", "time"),
+        signals.transpose("region", "time").chunk({"time": 13, "region": 5}),
+        spatial,
+        spatial.chunk({"time": 20}),
+        spatial.chunk({"time": 13, "k": 1, "j": 1, "i": 2}),
+    ]
+    for data in inputs:
+        result = compute_dvars(data, baseline_estimator=estimator)
+        assert_allclose(result, reference_dvars(signals.values, estimator))
+        if estimator == "median" and data.chunks is not None:
+            assert result.chunks is not None
+        else:
             assert isinstance(result.data, np.ndarray)
 
 
@@ -207,12 +210,42 @@ def test_no_filter_keeps_constant_features(signals):
     assert_allclose(actual, reference_dvars(values, "raw"))
 
 
-def test_integer_differences_do_not_overflow():
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("lazy", [False, True])
+def test_floating_precision_and_spatial_accumulation(signals, dtype, lazy, monkeypatch):
+    """Keep input precision for differences while accumulating spatially in float64."""
+    data = signals.astype(dtype)
+    expected = reference_dvars(data.values, "median")
+    difference_dtypes = []
+    original_diff = np.diff
+
+    def track_diff(values, *args, **kwargs):
+        """Record the precision used by temporal differencing."""
+        difference_dtypes.append(values.dtype)
+        return original_diff(values, *args, **kwargs)
+
+    monkeypatch.setattr("confusius.qc.dvars.np.diff", track_diff)
+    if lazy:
+        data = data.chunk({"time": 25, "region": 5})
+    actual = compute_dvars(data).compute(scheduler="synchronous")
+    assert difference_dtypes
+    assert all(observed == np.dtype(dtype) for observed in difference_dtypes)
+    assert actual.dtype == np.float64
+    assert_allclose(actual, expected, rtol=1e-12)
+
+
+@pytest.mark.parametrize("lazy", [False, True])
+def test_integer_differences_do_not_overflow(lazy):
     """Conversion to float occurs before differencing fixed-width integers."""
     data = xr.DataArray(np.array([0, 200, 0, 200], dtype=np.uint8), dims="time")
-    assert_array_equal(
-        compute_dvars(data, variant="raw", normalization_factor=None), [200] * 4
-    )
+    if lazy:
+        data = data.chunk({"time": 2})
+        assert_array_equal(compute_dvars(data).compute(), [np.nan, 1, 1, 1])
+    else:
+        assert_array_equal(
+            compute_dvars(data, variant="raw", normalization_factor=None),
+            [np.nan, 200, 200, 200],
+        )
 
 
 @pytest.mark.parametrize(
@@ -247,21 +280,12 @@ def test_ar1_does_not_warn(signals):
         compute_dvars(signals, baseline_estimator="ar1")
 
 
-def test_legacy_warning_points_to_caller(signals):
-    """Legacy emits exactly one actionable warning attributed to the caller."""
-    with pytest.warns(
-        DeprecationWarning, match="neither preserves legacy numerical values"
-    ) as caught:
-        compute_dvars(signals, baseline_estimator="legacy")
-    assert len(caught) == 1
-    assert caught[0].filename == __file__
-
-
 @pytest.mark.parametrize(
     "kwargs, message",
     [
         ({"variant": "unknown"}, "variant"),
         ({"baseline_estimator": "unknown"}, "baseline_estimator"),
+        ({"baseline_estimator": "legacy"}, "baseline_estimator"),
         ({"variance_tolerance": -1}, "variance_tolerance"),
         ({"variance_tolerance": np.nan}, "variance_tolerance"),
         ({"variant": "raw", "normalization_factor": 0}, "normalization_factor"),
@@ -315,6 +339,80 @@ def test_zero_baseline_without_filtering():
     """Constant data without filtering still fails on its relative baseline."""
     with pytest.raises(ValueError, match="baseline must be finite and positive"):
         compute_dvars(xr.DataArray(np.ones(5), dims="time"), remove_zero_variance=False)
+
+
+@pytest.mark.parametrize("remove_zero_variance", [True, False])
+def test_median_preserves_laziness_and_reads_blocks_once(
+    signals, remove_zero_variance, monkeypatch
+):
+    """Construction runs no tasks and computation reads each input block once."""
+    import dask.array as da
+    from dask import delayed
+    from dask.callbacks import Callback
+
+    reads = []
+    iqr_calls = []
+    original_iqr = iqr
+
+    def load_block(index):
+        """Track materialization of a source block."""
+        reads.append(index)
+        return signals.values[:, index : index + 3]
+
+    def track_iqr(*args, **kwargs):
+        """Track expensive temporal quantile estimation."""
+        iqr_calls.append(1)
+        return original_iqr(*args, **kwargs)
+
+    values = da.concatenate(
+        [
+            da.from_delayed(delayed(load_block)(i), shape=(200, 3), dtype=float)
+            for i in range(0, 12, 3)
+        ],
+        axis=1,
+    ).rechunk({0: 25})
+    lazy_signals = signals.copy(data=values)
+    monkeypatch.setattr("confusius.qc.dvars.sp_stats.iqr", track_iqr)
+    tasks = []
+    with Callback(pretask=lambda key, graph, state: tasks.append(key)):
+        result = compute_dvars(lazy_signals, remove_zero_variance=remove_zero_variance)
+    assert tasks == []
+    assert reads == []
+    assert iqr_calls == []
+    assert result.chunks is not None
+    actual = result.compute(scheduler="synchronous")
+    assert_allclose(actual, reference_dvars(signals.values, "median"), rtol=1e-12)
+    assert actual.name is None
+    xr.testing.assert_identical(actual.time, signals.time)
+    assert sorted(reads) == [0, 3, 6, 9]
+    assert len(iqr_calls) == (4 if remove_zero_variance else 0)
+
+
+@pytest.mark.parametrize(
+    "values, remove, message",
+    [
+        ([1.0, np.nan, 2, 3], True, "finite"),
+        ([1.0, 1, 1, 1], True, "All signals have variance"),
+        ([1.0, 1, 1, 1], False, "baseline must be finite and positive"),
+        ([0.0, 0, 0, 1, 1, 1], True, "baseline must be finite and positive"),
+    ],
+)
+def test_lazy_validation_at_compute(values, remove, message):
+    """Data-dependent validation is deferred but not omitted."""
+    signals = xr.DataArray(values, dims="time").chunk({"time": 2})
+    result = compute_dvars(signals, remove_zero_variance=remove)
+    with pytest.raises(ValueError, match=message):
+        result.compute()
+
+
+def test_lazy_constant_spatial_block(signals):
+    """An entirely filtered block contributes zero, not an error or biased mean."""
+    values = signals.values.copy()
+    values[:, :3] = 0
+    lazy = signals.copy(data=values).chunk({"time": 25, "region": 3})
+    assert_allclose(
+        compute_dvars(lazy).compute(), reference_dvars(values[:, 3:], "median")
+    )
 
 
 def test_standardize_removed(signals):
