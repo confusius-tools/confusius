@@ -13,7 +13,7 @@ from confusius.registration._utils import validate_intensity_scaling
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
-from confusius.validation import ensure_voxeldata
+from confusius.validation import ensure_mask, ensure_voxeldata
 from confusius.validation.mask import check_spatial_alignment
 
 if TYPE_CHECKING:
@@ -28,8 +28,16 @@ def register_volumewise(
     reference_time: int | None = None,
     fixed: xr.DataArray | None = None,
     n_jobs: int = -1,
-    transform: Literal["translation", "rigid", "affine"] = "rigid",
-    metric: Literal["correlation", "mattes_mi"] = "correlation",
+    transform: Literal["translation", "rigid", "affine", "bspline", "syn"] = "rigid",
+    metric: Literal["correlation", "mattes_mi", "ants_cc"] = "correlation",
+    fixed_mask: xr.DataArray | None = None,
+    moving_mask: xr.DataArray | None = None,
+    mesh_size: tuple[int, int, int] = (10, 10, 10),
+    correlation_radius: int = 3,
+    update_field_variance: float = 3.0,
+    total_field_variance: float = 1.0,
+    metric_sampling_percentage: float | None = None,
+    metric_sampling_seed: int | None = None,
     fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float | None = None,
     moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
     number_of_histogram_bins: int = 50,
@@ -38,17 +46,20 @@ def register_volumewise(
     convergence_minimum_value: float = 1e-6,
     convergence_window_size: int = 10,
     initialization: Literal["center_geometry", "center_moments"]
+    | npt.NDArray[np.floating]
     | None = "center_geometry",
     optimizer_weights: list[float] | None = None,
     use_multi_resolution: bool = False,
     shrink_factors: Sequence[int] = (6, 2, 1),
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
+    resample: bool = True,
     resample_interpolation: Literal["linear", "bspline"] = "linear",
     fill_value: float | None = None,
     show_progress: bool = True,
     progress_reporter: "VolumewiseProgressReporter | None" = None,
     abort_event: "Event | None" = None,
     keep_diagnostics: bool = False,
+    keep_transforms: bool = False,
 ) -> xr.DataArray:
     """Register all volumes to a reference time point or a reference volume.
 
@@ -71,15 +82,34 @@ def register_volumewise(
         Number of parallel jobs. Negative values resolve to `max(1, os.cpu_count() + 1
         + n_jobs)`, so `-1` means all CPUs, `-2` means all minus one, and so on.
         Use `1` for serial processing.
-    transform : {"translation", "rigid", "affine"}, default: "rigid"
+    transform : {"translation", "rigid", "affine", "bspline", "syn"}, default: "rigid"
         Transform model to use during registration. `"translation"` allows
         only shifts. `"rigid"` adds rotation. `"affine"` adds scaling and
-        shearing. B-spline is not available for motion correction.
-    metric : {"correlation", "mattes_mi"}, default: "correlation"
+        shearing. `"bspline"` and `"syn"` estimate local deformations; SyN
+        currently supports single-resolution registration only.
+    metric : {"correlation", "mattes_mi", "ants_cc"}, default: "correlation"
         Similarity metric. `"correlation"` (normalized cross-correlation) is
         appropriate for same-modality registration. `"mattes_mi"` (Mattes
         mutual information) is better suited for multi-modal registration or
         when the intensity relationship between images is non-linear.
+        `"ants_cc"` uses ANTs neighborhood correlation.
+    fixed_mask : xarray.DataArray, optional
+        Spatial-only boolean VoxelData mask on the fixed grid.
+    moving_mask : xarray.DataArray, optional
+        Boolean VoxelData mask on the input grid, either spatial-only or with
+        matching time coordinates for a separate mask per frame.
+    mesh_size : tuple of int, default: (10, 10, 10)
+        B-spline mesh size, passed to each volume registration.
+    correlation_radius : int, default: 3
+        Neighborhood radius in voxels for `metric="ants_cc"`.
+    update_field_variance : float, default: 3.0
+        SyN update-field Gaussian smoothing variance in squared voxel units.
+    total_field_variance : float, default: 1.0
+        SyN accumulated-field smoothing variance in squared voxel units.
+    metric_sampling_percentage : float, optional
+        Fraction of voxels randomly sampled per frame. If not provided, use all voxels.
+    metric_sampling_seed : int, optional
+        Random sampling seed passed to each frame. If not provided, use ITK's seed.
     fixed_intensity_scaling : {"none", "db", "sqrt"} or float, optional
         Intensity transform applied to `fixed`, only for the registration optimizer.
         Useful when `fixed` comes from another source than `data` and does not share
@@ -98,7 +128,8 @@ def register_volumewise(
         Optimizer step size in normalised units (after `SetOptimizerScalesFromPhysicalShift`).
         `"auto"` re-estimates the rate at every iteration. A float uses that
         value directly; increase it for large inter-volume shifts, or reduce it if
-        registration creates motion in otherwise stable data.
+        registration creates motion in otherwise stable data. For SyN, `"auto"`
+        selects a fixed maximum update length of `0.1` voxels.
     number_of_iterations : int, default: 100
         Maximum number of optimizer iterations.
     convergence_minimum_value : float, default: 1e-6
@@ -107,12 +138,15 @@ def register_volumewise(
     convergence_window_size : int, default: 10
         Number of recent metric values used to estimate the energy profile
         for convergence checking.
-    initialization : {"center_geometry", "center_moments"}, default: "center_geometry"
+    initialization : {"center_geometry", "center_moments"} or numpy.ndarray, default: "center_geometry"
         Initial transform mapping `fixed` to `moving` coordinates, applied before
         optimization:
 
         - `"center_geometry"`: aligns image centers.
         - `"center_moments"`: aligns centers of mass.
+        - A `(4, 4)` affine matrix initializes every frame with the same transform.
+        - A `(time, 4, 4)` array supplies one affine per input frame, enabling
+          rigid-to-deformable pipelines without resampling the signal twice.
         - `None`: uses the identity transform.
 
     optimizer_weights : list of float, optional
@@ -138,6 +172,10 @@ def register_volumewise(
         Gaussian smoothing sigma (in voxels) applied at each pyramid level,
         from coarsest to finest. Must have the same length as
         `shrink_factors`. Only used when `use_multi_resolution=True`.
+    resample : bool, default: True
+        Whether to resample the signal after estimating each transform. With
+        `False`, return the original signal, including skipped frames; use
+        `keep_transforms=True` to retain transforms for a later registration pass.
     resample_interpolation : {"linear", "bspline"}, default: "linear"
         Interpolator used when resampling each volume onto the reference grid.
         `"linear"` is fast and appropriate for motion correction.
@@ -167,6 +205,14 @@ def register_volumewise(
         (`final_metric_value`, `n_iterations`) are always added to
         `motion_params` regardless of this flag.
 
+    keep_transforms : bool, default: False
+        Whether to retain estimated transforms in `attrs['registration_transforms']`,
+        ordered by input frame. Entries are affine matrices, B-spline VoxelData
+        coefficient arrays, or SyN VoxelData displacement fields. Frames skipped
+        by cancellation have `None` entries. Dense fields can consume substantial
+        memory; nothing is retained by default. Save retained VoxelData transforms
+        separately with the I/O API rather than serializing this in-memory list.
+
     Returns
     -------
     xarray.DataArray
@@ -174,7 +220,9 @@ def register_volumewise(
         and added motion metadata in `attrs["reference_time"]` (the index of the
         frame used as target, or `None` when `fixed` was given) and
         `attrs["motion_params"]`. `motion_params` always carries per-frame
-        `final_metric_value`, `n_iterations`, and `status` columns. When
+        `final_metric_value`, `n_iterations`, and `status` columns. Rotation,
+        translation, and framewise displacement columns are present only for
+        linear methods, not for B-spline or SyN fields. When
         `keep_diagnostics=True`, `attrs["registration_diagnostics"]` also
         carries a list of
         [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
@@ -259,6 +307,20 @@ def register_volumewise(
         # Output reuses `data`'s shape and coordinates, so the target must live on
         # the same voxel grid.
         check_spatial_alignment(ref_da, data_moved, "'fixed'")
+    if isinstance(initialization, np.ndarray) and initialization.shape not in (
+        (4, 4),
+        (n_frames, 4, 4),
+    ):
+        raise ValueError("initialization must have shape (4, 4) or (time, 4, 4).")
+    if fixed_mask is not None:
+        fixed_mask = ensure_mask(
+            fixed_mask, ref_da, mask_name="fixed_mask", require_exact_dims=True
+        ).compute()
+    if moving_mask is not None:
+        moving_mask = ensure_mask(
+            moving_mask, data_moved, mask_name="moving_mask"
+        ).compute()
+    linear = transform in ("translation", "rigid", "affine")
     # Materialize the target once: a lazy `fixed` (for example a dask mean of a
     # lazily loaded recording) would otherwise be recomputed for every frame, and
     # an h5py-backed one cannot be sent to joblib workers at all.
@@ -289,7 +351,32 @@ def register_volumewise(
     def _register_one(
         frame_index: int,
         volume: xr.DataArray,
-    ) -> tuple[int, xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]:
+    ) -> tuple[
+        int,
+        xr.DataArray,
+        npt.NDArray[np.floating] | xr.DataArray | None,
+        RegistrationDiagnostics,
+    ]:
+        """Register one frame and return its indexed result.
+
+        Parameters
+        ----------
+        frame_index : int
+            Position in the input time axis.
+        volume : xarray.DataArray
+            Spatial-only VoxelData frame.
+
+        Returns
+        -------
+        frame_index : int
+            Original frame position, preserving order under parallel execution.
+        registered : xarray.DataArray
+            Registered or unchanged frame.
+        transform : numpy.ndarray or xarray.DataArray or None
+            Pull transform, or no transform if the frame was skipped.
+        diagnostics : confusius.registration.RegistrationDiagnostics
+            Per-frame optimization outcome.
+        """
         # Once aborted, skip cheaply: building ITK images and resampling is
         # pure-Python/GIL-bound work that, multiplied across joblib threads, starves the
         # GUI thread. Return the original frame with a zero-iteration "aborted"
@@ -298,15 +385,27 @@ def register_volumewise(
             return (
                 frame_index,
                 volume,
-                aborted_affine.copy(),
+                None,
                 aborted_diagnostics,
             )
 
-        registered_da, frame_affine, frame_diag = register_volume(
+        registered_da, frame_transform, frame_diag = register_volume(
             volume,
             ref_da,
             transform_type=transform,
             metric=metric,
+            fixed_mask=fixed_mask,
+            moving_mask=(
+                moving_mask.isel(time=frame_index)
+                if moving_mask is not None and "time" in moving_mask.dims
+                else moving_mask
+            ),
+            mesh_size=mesh_size,
+            correlation_radius=correlation_radius,
+            update_field_variance=update_field_variance,
+            total_field_variance=total_field_variance,
+            metric_sampling_percentage=metric_sampling_percentage,
+            metric_sampling_seed=metric_sampling_seed,
             fixed_intensity_scaling=ref_intensity_scaling,
             moving_intensity_scaling=moving_intensity_scaling,
             number_of_histogram_bins=number_of_histogram_bins,
@@ -314,12 +413,16 @@ def register_volumewise(
             number_of_iterations=number_of_iterations,
             convergence_minimum_value=convergence_minimum_value,
             convergence_window_size=convergence_window_size,
-            initialization=initialization,
+            initialization=(
+                initialization[frame_index]
+                if isinstance(initialization, np.ndarray) and initialization.ndim == 3
+                else initialization
+            ),
             optimizer_weights=optimizer_weights,
             use_multi_resolution=use_multi_resolution,
             shrink_factors=shrink_factors,
             smoothing_sigmas=smoothing_sigmas,
-            resample=True,
+            resample=resample,
             resample_interpolation=resample_interpolation,
             fill_value=fill_value,
             # Restrict ITK to 1 thread per worker to avoid
@@ -328,16 +431,19 @@ def register_volumewise(
             show_progress=False,
             abort_event=abort_event,
         )
-        return frame_index, registered_da, frame_affine, frame_diag
+        return frame_index, registered_da, frame_transform, frame_diag
 
     arr = data_moved.values
     # Aborted/un-started frames are left blank (filled with the data minimum,
     # i.e. background) rather than copying the unregistered input, so the partial
     # result visibly shows which frames were skipped.
-    output = np.full_like(arr, arr.min())
-    affines: list[npt.NDArray[np.floating]] = [
-        aborted_affine.copy() for _ in range(n_frames)
-    ]
+    output = np.full_like(arr, arr.min()) if resample else arr.copy()
+    affines: list[npt.NDArray[np.floating]] = (
+        [aborted_affine.copy() for _ in range(n_frames)] if linear else []
+    )
+    transforms: list[npt.NDArray[np.floating] | xr.DataArray | None] | None = (
+        [None] * n_frames if keep_transforms else None
+    )
     final_metric_values = [float("nan")] * n_frames
     n_iterations_per_frame = [0] * n_frames
     statuses = ["aborted"] * n_frames
@@ -350,13 +456,17 @@ def register_volumewise(
                 for t, volume in enumerate(data_moved)
                 if abort_event is None or not abort_event.is_set()
             )
-            for t, registered_da, frame_affine, frame_diag in results:
+            for t, registered_da, frame_transform, frame_diag in results:
                 skipped = (
                     frame_diag.status == "aborted" and frame_diag.n_iterations == 0
                 )
                 if not skipped:
                     output[t] = registered_da.values
-                affines[t] = frame_affine
+                    if linear:
+                        assert isinstance(frame_transform, np.ndarray)
+                        affines[t] = frame_transform
+                    if transforms is not None:
+                        transforms[t] = frame_transform
                 final_metric_values[t] = frame_diag.final_metric_value
                 n_iterations_per_frame[t] = frame_diag.n_iterations
                 statuses[t] = frame_diag.status
@@ -370,9 +480,14 @@ def register_volumewise(
     time_coords = (
         data_moved.coords["time"].values if "time" in data_moved.coords else None
     )
-    motion_df = create_motion_dataframe(
-        affines=affines, reference=ref_da, time_coords=time_coords
-    )
+    if linear:
+        motion_df = create_motion_dataframe(
+            affines=affines, reference=ref_da, time_coords=time_coords
+        )
+    else:
+        import pandas as pd
+
+        motion_df = pd.DataFrame(index=time_coords)
 
     # Per-frame summary columns are cheap (one float / int each) and useful
     # for spotting frames that failed to converge, so we always keep them.
@@ -389,6 +504,10 @@ def register_volumewise(
 
     result.attrs["reference_time"] = reference_time
     result.attrs["motion_params"] = motion_df
+    result.attrs.pop("registration_transforms", None)
+    if transforms is not None:
+        result.attrs["registration_transforms"] = transforms
+    result.attrs.pop("registration_diagnostics", None)
     if keep_diagnostics:
         # The full diagnostics list carries every frame's optimizer metric
         # trace, which adds up over long recordings, so it is gated behind the flag.

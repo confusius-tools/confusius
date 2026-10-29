@@ -232,8 +232,18 @@ class FUSIRegistrationAccessor:
         reference_time: int | None = None,
         fixed: xr.DataArray | None = None,
         n_jobs: int = -1,
-        transform: Literal["translation", "rigid", "affine"] = "rigid",
-        metric: Literal["correlation", "mattes_mi"] = "correlation",
+        transform: Literal[
+            "translation", "rigid", "affine", "bspline", "syn"
+        ] = "rigid",
+        metric: Literal["correlation", "mattes_mi", "ants_cc"] = "correlation",
+        fixed_mask: xr.DataArray | None = None,
+        moving_mask: xr.DataArray | None = None,
+        mesh_size: tuple[int, int, int] = (10, 10, 10),
+        correlation_radius: int = 3,
+        update_field_variance: float = 3.0,
+        total_field_variance: float = 1.0,
+        metric_sampling_percentage: float | None = None,
+        metric_sampling_seed: int | None = None,
         fixed_intensity_scaling: Literal["none", "db", "sqrt"] | float | None = None,
         moving_intensity_scaling: Literal["none", "db", "sqrt"] | float = "none",
         number_of_histogram_bins: int = 50,
@@ -242,17 +252,20 @@ class FUSIRegistrationAccessor:
         convergence_minimum_value: float = 1e-6,
         convergence_window_size: int = 10,
         initialization: Literal["center_geometry", "center_moments"]
+        | npt.NDArray[np.floating]
         | None = "center_geometry",
         optimizer_weights: list[float] | None = None,
         use_multi_resolution: bool = False,
         shrink_factors: Sequence[int] = (6, 2, 1),
         smoothing_sigmas: Sequence[int] = (6, 2, 1),
+        resample: bool = True,
         resample_interpolation: Literal["linear", "bspline"] = "linear",
         fill_value: float | None = None,
         show_progress: bool = True,
         progress_reporter: VolumewiseProgressReporter | None = None,
         abort_event: Event | None = None,
         keep_diagnostics: bool = False,
+        keep_transforms: bool = False,
     ) -> xr.DataArray:
         """Register all volumes to a reference time point or a reference volume.
 
@@ -270,10 +283,27 @@ class FUSIRegistrationAccessor:
         n_jobs : int, default: -1
             Number of parallel jobs. -1 uses all available CPUs.
             Use 1 for serial processing.
-        transform : {"translation", "rigid", "affine"}, default: "rigid"
-            Type of transform to use for registration.
-        metric : {"correlation", "mattes_mi"}, default: "correlation"
+        transform : {"translation", "rigid", "affine", "bspline", "syn"}, default: "rigid"
+            Transform model. Nonlinear methods report convergence summaries rather
+            than rigid-motion parameters. SyN supports single-resolution only.
+        metric : {"correlation", "mattes_mi", "ants_cc"}, default: "correlation"
             Similarity metric for registration.
+        fixed_mask : xarray.DataArray, optional
+            Spatial-only boolean mask on the reference grid.
+        moving_mask : xarray.DataArray, optional
+            Spatial-only mask or a mask with matching input time coordinates.
+        mesh_size : tuple of int, default: (10, 10, 10)
+            B-spline mesh size.
+        correlation_radius : int, default: 3
+            ANTs correlation neighborhood radius in voxels.
+        update_field_variance : float, default: 3.0
+            SyN update-field smoothing variance in squared voxel units.
+        total_field_variance : float, default: 1.0
+            SyN accumulated-field smoothing variance in squared voxel units.
+        metric_sampling_percentage : float, optional
+            Fraction of voxels randomly sampled per frame.
+        metric_sampling_seed : int, optional
+            Seed passed to each frame's metric sampling.
         fixed_intensity_scaling : {"none", "db", "sqrt"} or float, optional
             Intensity transform applied to `fixed`, only for the registration
             optimizer. Only allowed together with `fixed`; the reference frame
@@ -297,7 +327,7 @@ class FUSIRegistrationAccessor:
             Convergence threshold for early stopping.
         convergence_window_size : int, default: 10
             Window size for convergence check.
-        initialization : {"center_geometry", "center_moments"}, default: "center_geometry"
+        initialization : {"center_geometry", "center_moments"} or numpy.ndarray, default: "center_geometry"
             Initial transform mapping `fixed` to `moving` coordinates, applied before
             optimization:
 
@@ -321,6 +351,9 @@ class FUSIRegistrationAccessor:
         smoothing_sigmas : sequence of int, default: (6, 2, 1)
             Gaussian smoothing sigma (in voxels) at each pyramid level, from
             coarsest to finest. Only used when `use_multi_resolution=True`.
+        resample : bool, default: True
+            Whether to resample the signal. With `False`, return the original data
+            and optionally retain transforms for a later registration pass.
         resample_interpolation : {"linear", "bspline"}, default: "linear"
             Interpolation method used for the final resample step.
         fill_value : float, optional
@@ -338,6 +371,11 @@ class FUSIRegistrationAccessor:
             See
             [`register_volumewise`][confusius.registration.register_volumewise]
             for the full description.
+        keep_transforms : bool, default: False
+            Whether to retain per-frame affine matrices or VoxelData transforms in
+            `attrs['registration_transforms']`. Skipped frames contain `None`.
+            A `(time, 4, 4)` affine `initialization` can use the retained transforms
+            from an earlier rigid/affine pass, without resampling the signal twice.
 
         Returns
         -------
@@ -358,6 +396,14 @@ class FUSIRegistrationAccessor:
             n_jobs=n_jobs,
             transform=transform,
             metric=metric,
+            fixed_mask=fixed_mask,
+            moving_mask=moving_mask,
+            mesh_size=mesh_size,
+            correlation_radius=correlation_radius,
+            update_field_variance=update_field_variance,
+            total_field_variance=total_field_variance,
+            metric_sampling_percentage=metric_sampling_percentage,
+            metric_sampling_seed=metric_sampling_seed,
             fixed_intensity_scaling=fixed_intensity_scaling,
             moving_intensity_scaling=moving_intensity_scaling,
             number_of_histogram_bins=number_of_histogram_bins,
@@ -370,10 +416,12 @@ class FUSIRegistrationAccessor:
             use_multi_resolution=use_multi_resolution,
             shrink_factors=shrink_factors,
             smoothing_sigmas=smoothing_sigmas,
+            resample=resample,
             resample_interpolation=resample_interpolation,
             fill_value=fill_value,
             show_progress=show_progress,
             progress_reporter=progress_reporter,
             abort_event=abort_event,
             keep_diagnostics=keep_diagnostics,
+            keep_transforms=keep_transforms,
         )
