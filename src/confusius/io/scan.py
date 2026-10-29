@@ -1232,7 +1232,8 @@ def _build_scan_v2_probe_to_lab(meta: dict[str, Any]) -> npt.NDArray[np.float64]
     for pose, (translation, rotation) in enumerate(zip(translations, rotations)):
         # SCAN v2 files are written from MATLAB, whose Euler-angle convention is the
         # opposite of the C++ reader's, so Iconeus negates the stored angles when
-        # reading them back (Iconeus, personal communication, October 2026).
+        # reading them back. See Iconeus' explanation in
+        # https://github.com/confusius-tools/confusius/issues/524#issuecomment-6351099909.
         probe_to_lab[pose, :3, :3] = _build_rotation_matrix(*(-rotation))
         probe_to_lab[pose, :3, 3] = translation
     converted = _build_probe_to_lab(probe_to_lab)
