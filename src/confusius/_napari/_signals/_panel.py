@@ -430,12 +430,10 @@ class SignalPanel(QWidget):
     def _on_cursor_toggled(self, checked: bool) -> None:
         """Connect or disconnect the x-axis step event and update the plotter."""
         if checked:
-            self._viewer.dims.events.current_step.connect(self._on_xaxis_step_changed)
+            self._viewer.dims.events.point.connect(self._on_xaxis_step_changed)
         else:
             try:
-                self._viewer.dims.events.current_step.disconnect(
-                    self._on_xaxis_step_changed
-                )
+                self._viewer.dims.events.point.disconnect(self._on_xaxis_step_changed)
             except RuntimeError:
                 pass
         if self._plotter is not None:
