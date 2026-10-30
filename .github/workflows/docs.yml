@@ -58,6 +58,12 @@ jobs:
           path: ~/.cache/confusius/nunez-elizalde-2022-bids
           key: ${{ runner.os }}-s3-nunez-elizalde-bids-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
 
+      - name: Cache Landemard dataset
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/confusius/landemard-2026-bids
+          key: ${{ runner.os }}-s3-landemard-2026-bids-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'tools/prefetch_doc_datasets.py') }}
+
       - name: Cache Cybis Pereira dataset
         uses: actions/cache@v6
         with:

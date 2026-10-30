@@ -558,7 +558,7 @@ def register_volume(
         - `"center_geometry"`: aligns image centers.
         - `"center_moments"`: aligns centers of mass.
         - `(N+1, N+1)` homogeneous affine matrix: uses a precomputed affine
-          transform.
+          transform, held fixed while optimizing the requested `transform_type`.
         - `None`: uses the identity transform.
 
         For `transform_type="bspline"`, centering modes are ignored but affine
@@ -567,7 +567,8 @@ def register_volume(
         Per-parameter weights applied on top of the auto-estimated world shift
         scales. `None` uses identity weights (all ones). A list is passed directly to
         SimpleITK's `SetOptimizerWeights`; its length must match the number of
-        transform parameters (6 for rigid, 12 for affine). The weight for each
+        refinement parameters (3 for translation, 6 for rigid, 12 for affine in
+        3D), including with matrix initialization. The weight for each
         parameter is multiplied into the effective step
         size: `0` freezes a parameter entirely, values in `(0, 1)` slow it down, and
         `1` leaves it unchanged. For the 3D Euler transform the parameter order is
@@ -851,23 +852,7 @@ def register_volume(
         else:
             sitk_centering_transform = sitk.AffineTransform(ndim)
 
-        # When a precomputed affine initialization is supplied, place the transform
-        # centre at the fixed image centre so rigid/affine refinement rotates around
-        # a sensible pivot. Centering modes (center_geometry/center_moments) are
-        # skipped in that case, since the affine is treated as the full starting
-        # alignment.
-        if affine_initialization is not None and isinstance(
-            sitk_centering_transform,
-            (sitk.Euler2DTransform, sitk.Euler3DTransform, sitk.AffineTransform),
-        ):
-            fixed_center_index = [0.5 * (size - 1) for size in fixed_reg.GetSize()]
-            fixed_center = fixed_reg.TransformContinuousIndexToPhysicalPoint(
-                fixed_center_index
-            )
-            sitk_centering_transform.SetCenter(fixed_center)
-        elif (
-            initialization_mode == "center_geometry" and transform_type != "translation"
-        ):
+        if initialization_mode == "center_geometry" and transform_type != "translation":
             # CenteredTransformInitializer requires a transform with a center
             # parameter (e.g. Euler, Affine). TranslationTransform has no center, so
             # centering initialization is always skipped for translation.
@@ -889,12 +874,18 @@ def register_volume(
 
     if affine_initialization is not None:
         pre_tx = affine_to_sitk_linear_transform(affine_initialization)
-        if transform_type == "bspline":
-            sitk_initial_transform = sitk.CompositeTransform(ndim)
-            sitk_initial_transform.AddTransform(pre_tx)
-            sitk_initial_transform.AddTransform(sitk_centering_transform)
-        else:
-            sitk_initial_transform = pre_tx
+        if isinstance(
+            sitk_centering_transform,
+            (sitk.Euler2DTransform, sitk.Euler3DTransform, sitk.AffineTransform),
+        ):
+            fixed_center_index = [0.5 * (size - 1) for size in fixed_reg.GetSize()]
+            sitk_centering_transform.SetCenter(
+                fixed_reg.TransformContinuousIndexToPhysicalPoint(fixed_center_index)
+            )
+        # Only the refinement is optimized; the initial transform is applied last.
+        sitk_initial_transform = sitk.CompositeTransform(ndim)
+        sitk_initial_transform.AddTransform(pre_tx)
+        sitk_initial_transform.AddTransform(sitk_centering_transform)
     else:
         sitk_initial_transform = sitk_centering_transform
 
