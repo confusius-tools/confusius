@@ -468,36 +468,12 @@ def test_overlay_shows_video_time(viewer, panel, add_video):
 
 
 def test_video_dock_sits_between_canvas_and_panel_dock(
-    make_napari_viewer, sample_voxeldata_3dt, monkeypatch, tmp_path, capsys
+    make_napari_viewer, sample_voxeldata_3dt, monkeypatch, tmp_path
 ):
     from qtpy.QtCore import Qt
-    from qtpy.QtWidgets import QApplication, QDockWidget
+    from qtpy.QtWidgets import QApplication
 
     from confusius._napari._widget import ConfUSIusWidget
-
-    def diag(label: str) -> None:
-        # TODO: temporary CI diagnostic of the macOS window width; remove.
-        screen = window.screen()
-        central = window.centralWidget()
-        left = [
-            (dock.width(), dock.minimumSizeHint().width())
-            for dock in window.findChildren(QDockWidget)
-            if window.dockWidgetArea(dock) == Qt.DockWidgetArea.LeftDockWidgetArea
-            and not dock.isHidden()
-        ]
-        video = getattr(panel._video_viewer, "dock", None)
-        with capsys.disabled():
-            print(
-                f"\nVIDEO-DIAG {label}: platform={QApplication.platformName()} "
-                f"screen={screen.geometry().getRect() if screen else None} "
-                f"avail={screen.availableGeometry().getRect() if screen else None} "
-                f"window={window.width()}x{window.height()} "
-                f"window_min={window.minimumSizeHint().width()} "
-                f"visible={window.isVisible()} left(width,min)={left} "
-                f"central={central.width()} central_min="
-                f"{central.minimumSizeHint().width()} panel={panel_dock.width()} "
-                f"video={video.width() if video is not None else None}"
-            )
 
     viewer = make_napari_viewer()
     plot_napari(
@@ -508,23 +484,19 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
     panel = widget.findChild(VideoPanel)
 
     window = panel_dock.parentWidget()
-    window.resize(1600, 900)
 
     def relayout() -> None:
-        window.layout().activate()
+        # The window stays hidden, so Qt holds back its resize events and the
+        # layout does not follow a resize by itself; on macOS, pending window
+        # events can even undo a first resize back to Qt's default 640 x 480.
+        # Flush them, then lay the window out at 1600 x 900 explicitly.
         QApplication.processEvents()
-
-    def assert_video_takes_canvas_space() -> None:
-        # The video gets the panel's width, or all the canvas can spare when
-        # the window is narrower than asked (macOS CI keeps it near 1244 px).
-        central = window.centralWidget()
-        assert video_dock.width() == pytest.approx(panel_width, abs=4) or (
-            central.width() <= central.minimumSizeHint().width()
-        )
+        window.resize(1600, 900)
+        window.layout().invalidate()
+        window.layout().activate()
 
     relayout()
     panel_width = panel_dock.width()
-    diag("before video")
 
     path = tmp_path / "clip.mp4"
     path.touch()
@@ -535,12 +507,6 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
     assert video_viewer is not None
     video_dock = video_viewer.dock
 
-    relayout()
-    diag("after video")
-    window.resize(2400, 900)
-    relayout()
-    diag("asked 2400")
-    window.resize(1600, 900)
     relayout()
     try:
         assert (
@@ -553,7 +519,7 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
         assert video_dock.height() >= 0.85 * window.height()
         # The video takes its space from the canvas, not from the panel.
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
-        assert_video_takes_canvas_space()
+        assert video_dock.width() == pytest.approx(panel_width, abs=4)
 
         # Removing the last video hides the dock and gives its space back to
         # the canvas, not to the panel; re-adding shows it sized as before.
@@ -566,7 +532,7 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
         assert not video_dock.isHidden()
         assert video_dock.x() < panel_dock.x()
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
-        assert_video_takes_canvas_space()
+        assert video_dock.width() == pytest.approx(panel_width, abs=4)
     finally:
         video_viewer.close()
     relayout()
