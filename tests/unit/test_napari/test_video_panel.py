@@ -468,12 +468,36 @@ def test_overlay_shows_video_time(viewer, panel, add_video):
 
 
 def test_video_dock_sits_between_canvas_and_panel_dock(
-    make_napari_viewer, sample_voxeldata_3dt, monkeypatch, tmp_path
+    make_napari_viewer, sample_voxeldata_3dt, monkeypatch, tmp_path, capsys
 ):
     from qtpy.QtCore import Qt
-    from qtpy.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication, QDockWidget
 
     from confusius._napari._widget import ConfUSIusWidget
+
+    def diag(label: str) -> None:
+        # TODO: temporary CI diagnostic of the macOS window width; remove.
+        screen = window.screen()
+        central = window.centralWidget()
+        left = [
+            (dock.width(), dock.minimumSizeHint().width())
+            for dock in window.findChildren(QDockWidget)
+            if window.dockWidgetArea(dock) == Qt.DockWidgetArea.LeftDockWidgetArea
+            and not dock.isHidden()
+        ]
+        video = getattr(panel._video_viewer, "dock", None)
+        with capsys.disabled():
+            print(
+                f"\nVIDEO-DIAG {label}: platform={QApplication.platformName()} "
+                f"screen={screen.geometry().getRect() if screen else None} "
+                f"avail={screen.availableGeometry().getRect() if screen else None} "
+                f"window={window.width()}x{window.height()} "
+                f"window_min={window.minimumSizeHint().width()} "
+                f"visible={window.isVisible()} left(width,min)={left} "
+                f"central={central.width()} central_min="
+                f"{central.minimumSizeHint().width()} panel={panel_dock.width()} "
+                f"video={video.width() if video is not None else None}"
+            )
 
     viewer = make_napari_viewer()
     plot_napari(
@@ -500,6 +524,7 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
 
     relayout()
     panel_width = panel_dock.width()
+    diag("before video")
 
     path = tmp_path / "clip.mp4"
     path.touch()
@@ -510,6 +535,12 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
     assert video_viewer is not None
     video_dock = video_viewer.dock
 
+    relayout()
+    diag("after video")
+    window.resize(2400, 900)
+    relayout()
+    diag("asked 2400")
+    window.resize(1600, 900)
     relayout()
     try:
         assert (
