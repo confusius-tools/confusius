@@ -223,17 +223,17 @@ iq = cf.load("path/to/acquisition.raw")
 
 Acquisition blocks are preserved as Dask chunks (one chunk per block along `time`), so
 `iq.chunks[0]` gives the number of frames per block. IQ metadata is attached to
-`iq.attrs` using fUSI-BIDS field names where they exist, including `transmit_frequency`
-(in hertz), `beamforming_sound_velocity`, `pulse_repetition_frequency`,
-`compound_sampling_frequency`, `plane_wave_angles`, `receive_aperture`, and `depth`.
-Iconeus-specific provenance is stored as `iconeus_acquisition_mode` and
-`iconeus_legacy_format`. Only compounded acquisitions with a single stored compound
-image per frame are currently supported.
+`iq.attrs` using fUSI-BIDS field names where they exist. Icconeus-specific metadata is
+stored with the `iconeus_` prefix.
 
-The `time` coordinate is **theoretical**: RAW/HRAW files do not store measured
-per-frame timestamps, so ConfUSIus computes it as frame index divided by the HRAW
-`frame_rate`, assuming consecutive blocks are contiguous. If you know the real
-acquisition timing, override it with `iq.assign_coords(time=...)`.
+!!! warning "Iconeus RAW timestamps are theoretical"
+    Iconeus RAW files do not store acquisition timestamps, so the `time` coordinate is
+    computed from the compound sampling frequency metadata in the HRAW file. If you 
+    know the real acquisition timings (e.g. from external triggers), override the `time`
+    coordinate with `iq.assign_coords(time=...)` after loading.
+
+When you expect to process the same recording repeatedly, [convert it to
+Zarr](#converting-beamformed-iq-data-to-zarr) instead for better performance.
 
 ### Loading Iconeus SCAN Files
 
