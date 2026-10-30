@@ -14,6 +14,7 @@ from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius.bids import to_bids
 from confusius.io.scan import (
     _SCAN_V2_OFFSETS,
+    ICONEUS_LAB_MOTOR_COMPENSATION,
     SCAN_V2_MAGIC,
     WORLD_TO_PROBE_PERMUTATION,
     load_bps,
@@ -209,10 +210,12 @@ def _write_scan_v2(
     translations = np.zeros((npose, 3), dtype="<f8")
     rotations = np.zeros((npose, 3), dtype="<f8")
     for pose in range(npose):
+        # Every real file carries the standard mount rotation; only the acquisition
+        # block adds a translation.
+        rotations[pose] = _POSE[3:]
         if acquisition:
             translations[pose] = _POSE[:3]
             translations[pose, 1] += pose * 0.001
-            rotations[pose] = _POSE[3:]
     if corrupt_acquisition == "pose":
         translations[0, 0] = 5.0
     header += translations.tobytes()
@@ -525,13 +528,15 @@ class TestLoadScanV2:
         for dim in ("x", "y", "z"):
             assert scan_v2.coords[dim].attrs["units"] == "mm"
 
-    def test_affines_for_zero_pose(self, scan_v2: xr.DataArray) -> None:
-        """A zero 6DOF pose gives identity world_to_lab and world_to_probe affines."""
+    def test_affines_for_untranslated_pose(self, scan_v2: xr.DataArray) -> None:
+        """A standard mount with no translation gives identity world_to_lab/probe."""
         assert set(scan_v2.attrs["affines"]) == {"world_to_lab", "world_to_probe"}
         np.testing.assert_array_equal(
             scan_v2.attrs["affines"]["world_to_lab"], np.eye(4)
         )
-        np.testing.assert_allclose(scan_v2.attrs["affines"]["world_to_probe"], np.eye(4))
+        np.testing.assert_allclose(
+            scan_v2.attrs["affines"]["world_to_probe"], np.eye(4), atol=1e-12
+        )
 
     def test_scan_format_attr(self, scan_v2: xr.DataArray) -> None:
         """v2 records its on-disk format."""
@@ -711,6 +716,7 @@ class TestLoadScanV2Acquisition:
         perm = np.asarray(WORLD_TO_PROBE_PERMUTATION)
         probe_to_lab = perm.T @ probe_to_lab @ perm
         probe_to_lab[:3, 3] *= 1e3
+        probe_to_lab = ICONEUS_LAB_MOTOR_COMPENSATION @ probe_to_lab
 
         local_affine = np.eye(4)
         local_affine[:3, :3] = np.diag([_DY_M * 1e3, _DZ_M * 1e3, _DX_M * 1e3])
@@ -723,6 +729,13 @@ class TestLoadScanV2Acquisition:
         np.testing.assert_allclose(
             get_voxel_to_world_affine(scan_v2_acq),
             probe_to_lab @ local_affine,
+            atol=1e-9,
+        )
+        # The fixture's pose is the standard mount, so the compensated world axes
+        # align with the voxel grid.
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(scan_v2_acq)[:3, :3],
+            local_affine[:3, :3],
             atol=1e-9,
         )
         np.testing.assert_allclose(

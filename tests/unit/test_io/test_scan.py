@@ -10,8 +10,10 @@ import xarray as xr
 
 from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius.io.scan import (
+    ICONEUS_LAB_MOTOR_COMPENSATION,
     WORLD_TO_PROBE_PERMUTATION,
     _build_probe_to_lab,
+    _build_voxel_to_probe,
     load_bps,
     load_scan,
 )
@@ -55,13 +57,25 @@ _VOXELS_TO_PROBE = np.array(
     dtype=np.float64,
 )
 
+# Standard IcoScan motor mount, as conftest.py's _SCAN_MOUNT: composed in front of
+# every probeToLab fixture so the compensated world axes align with the voxel grid.
+_MOUNT = np.array(
+    [
+        [0.0, 1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+
 _PROBE_TO_LAB_SINGLE = np.eye(4, dtype=np.float64)
 _PROBE_TO_LAB_SINGLE[:3, 3] = [0.001, 0.002, 0.003]
+_PROBE_TO_LAB_SINGLE = _MOUNT @ _PROBE_TO_LAB_SINGLE
 
-_PROBE_TO_LAB_MULTI = np.stack(
+_PROBE_TO_LAB_MULTI = _MOUNT @ np.stack(
     [
         # Kept in sync with conftest.py's _SCAN_PROBE_TO_LAB_MULTI (row 1 lands on
-        # ConfUSIus's k/elevation axis after the world/probe permutation).
+        # ConfUSIus's k/elevation axis after the mount compensation).
         np.eye(4, dtype=np.float64)
         + np.array([[0, 0, 0, 0], [0, 0, 0, i * 0.001], [0, 0, 0, 0], [0, 0, 0, 0]])
         for i in range(_NPOSE)
@@ -72,15 +86,15 @@ _PROBE_TO_LAB_MULTI = np.stack(
 def _probe_to_lab_single_translation() -> np.ndarray:
     """Return `_PROBE_TO_LAB_SINGLE`'s folded translation, in ConfUSIus (z, y, x) mm.
 
-    `_PROBE_TO_LAB_SINGLE`'s rotation block is identity, so folding probe_to_lab
-    into the local voxel-to-world affine (`probe_to_lab @ local`) only shifts the
-    translation column by this amount; the local affine's own rotation/scale is
-    otherwise unchanged.
+    `_PROBE_TO_LAB_SINGLE` is the standard mount, which load_scan compensates, so
+    folding probe_to_lab into the local voxel-to-world affine (`probe_to_lab @ local`)
+    only shifts the translation column by this amount; the local affine's own
+    rotation/scale is otherwise unchanged.
     """
     return _build_probe_to_lab(_PROBE_TO_LAB_SINGLE)[:3, 3]
 
 
-_PROBE_TO_LAB_ROTATED = np.array(
+_PROBE_TO_LAB_ROTATED = _MOUNT @ np.array(
     [
         [0.0, 0.0, 1.0, 0.005],
         [0.0, 1.0, 0.0, 0.002],
@@ -624,12 +638,14 @@ class TestWorldToLab:
         """probe_to_lab maps (z_mm, y_mm, x_mm) to ConfUSIus-ordered lab space (mm)."""
         A = _build_probe_to_lab(_PROBE_TO_LAB_SINGLE)
 
-        # probe_to_lab = P^T @ probeToLab @ P, with output in ConfUSIus axis order.
+        # probe_to_lab = M @ P^T @ probeToLab @ P: ConfUSIus axis order, with M the
+        # mount compensation.
         P = np.array(
             [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
         )
         expected = P.T @ _PROBE_TO_LAB_SINGLE @ P
         expected[:3, 3] *= 1e3
+        expected = ICONEUS_LAB_MOTOR_COMPENSATION @ expected
 
         np.testing.assert_allclose(A, expected, rtol=1e-10)
 
@@ -642,14 +658,16 @@ class TestWorldToLab:
         for i in range(_NPOSE):
             expected = P.T @ _PROBE_TO_LAB_MULTI[i] @ P
             expected[:3, 3] *= 1e3
+            expected = ICONEUS_LAB_MOTOR_COMPENSATION @ expected
             np.testing.assert_allclose(A[i], expected, rtol=1e-10)
 
     def test_probe_to_lab_non_identity_rotation(self) -> None:
         """probe_to_lab correctly applies P^T @ R @ P for a non-trivial rotation.
 
         With a 90° Y-rotation in probeToLab, the rotation block of probe_to_lab
-        must equal P^T @ R_y90 @ P, confirming that non-identity rotations are handled
-        correctly and the output remains in ConfUSIus axis order.
+        must equal M @ P^T @ R_y90 @ P (M the mount compensation), confirming that
+        non-identity rotations are handled correctly and the output remains in
+        ConfUSIus axis order.
         """
         A = _build_probe_to_lab(_PROBE_TO_LAB_ROTATED)
 
@@ -658,6 +676,7 @@ class TestWorldToLab:
         )
         expected = P.T @ _PROBE_TO_LAB_ROTATED @ P
         expected[:3, 3] *= 1e3
+        expected = ICONEUS_LAB_MOTOR_COMPENSATION @ expected
 
         np.testing.assert_allclose(A, expected, rtol=1e-10)
 
@@ -702,6 +721,59 @@ class TestLoadScanFoldsWorldToLab:
             rtol=1e-10,
         )
 
+    def test_standard_mount_aligns_world_with_voxel_axes(
+        self, scan_2d: xr.DataArray
+    ) -> None:
+        """The compensated world axes of a standard-mount file follow the voxel grid."""
+        affine = get_voxel_to_world_affine(scan_2d)
+        np.testing.assert_allclose(
+            affine[:3, :3], np.diag(np.diag(affine[:3, :3])), atol=1e-12
+        )
+        assert (np.diag(affine[:3, :3]) > 0).all()
+
+    def test_non_standard_mount_keeps_residual_rotation(self, tmp_path: Path) -> None:
+        """A probe mounted without the -90 degree turn loads turned by +90 degrees."""
+        path = tmp_path / "unmounted_2dscan.scan"
+        time_data = _end_referenced_times(_T, _FRAME_DURATION).reshape(1, _T)
+        data = _RNG.random((_T, _SIZE_Z, _SIZE_Y, _SIZE_X), dtype=np.float64)
+        with h5py.File(path, "w") as f:
+            f.create_dataset("/Data", data=data)
+            _write_scan_metadata(
+                f,
+                mode="2Dscan",
+                size_x=_SIZE_X,
+                size_y=_SIZE_Y,
+                size_z=_SIZE_Z,
+                npose=1,
+                nscan_repeat=None,
+                nblock_repeat=_T,
+                voxels_to_probe=_VOXELS_TO_PROBE,
+                probe_to_lab=np.linalg.inv(_MOUNT) @ _PROBE_TO_LAB_SINGLE,
+                time_data=time_data,
+            )
+        da = load_scan(path)
+        local = _build_voxel_to_probe(_VOXELS_TO_PROBE)
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(da)[:3, :3],
+            ICONEUS_LAB_MOTOR_COMPENSATION[:3, :3] @ local[:3, :3],
+            atol=1e-12,
+        )
+
+    def test_constant_inverse_recovers_iconeus_lab(self, scan_2d: xr.DataArray) -> None:
+        """Undoing the constant gives the raw ConfUSIus-ordered Iconeus lab geometry."""
+        raw_probe_to_lab = (
+            WORLD_TO_PROBE_PERMUTATION.T
+            @ _PROBE_TO_LAB_SINGLE
+            @ WORLD_TO_PROBE_PERMUTATION
+        )
+        raw_probe_to_lab[:3, 3] *= 1e3
+        np.testing.assert_allclose(
+            np.linalg.inv(ICONEUS_LAB_MOTOR_COMPENSATION)
+            @ get_voxel_to_world_affine(scan_2d),
+            raw_probe_to_lab @ _build_voxel_to_probe(_VOXELS_TO_PROBE),
+            rtol=1e-10,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Tests: BPS sidecar (world_to_brain affine)
@@ -715,10 +787,14 @@ class TestLoadScanWithBPS:
     def _expected_brain_to_lab(
         brain_to_lab: np.ndarray,
     ) -> np.ndarray:
-        """Re-express a BrainToLab affine on the lab side in ConfUSIus zyx mm."""
+        """Re-express a BrainToLab affine's lab side in ConfUSIus zyx mm, mount compensated."""
         mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
         confusius_lab_to_iconeus_lab = mm_to_m @ WORLD_TO_PROBE_PERMUTATION
-        return np.linalg.inv(confusius_lab_to_iconeus_lab) @ brain_to_lab
+        return (
+            ICONEUS_LAB_MOTOR_COMPENSATION
+            @ np.linalg.inv(confusius_lab_to_iconeus_lab)
+            @ brain_to_lab
+        )
 
     @classmethod
     def _expected_world_to_brain(cls, brain_to_lab: np.ndarray) -> np.ndarray:
@@ -731,6 +807,32 @@ class TestLoadScanWithBPS:
         """
         brain_to_lab = cls._expected_brain_to_lab(brain_to_lab)
         return np.linalg.inv(brain_to_lab)
+
+    def test_world_to_brain_independent_of_mount_compensation(
+        self, scan_2d_path: Path, bps_path: Path, brain_to_lab: np.ndarray
+    ) -> None:
+        """Brain coordinates of a voxel do not depend on the lab-side compensation."""
+        da = load_scan(scan_2d_path, bps_path=bps_path)
+        voxel = np.array([0.0, 3.0, 5.0, 1.0])
+        brain = (
+            da.attrs["affines"]["world_to_brain"]
+            @ get_voxel_to_world_affine(da)
+            @ voxel
+        )
+        # Everything below is in raw ConfUSIus-ordered Iconeus lab space, no constant.
+        raw_probe_to_lab = (
+            WORLD_TO_PROBE_PERMUTATION.T
+            @ _PROBE_TO_LAB_SINGLE
+            @ WORLD_TO_PROBE_PERMUTATION
+        )
+        raw_probe_to_lab[:3, 3] *= 1e3
+        raw_voxel_to_lab = raw_probe_to_lab @ _build_voxel_to_probe(_VOXELS_TO_PROBE)
+        mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
+        raw_brain_to_lab = (
+            np.linalg.inv(mm_to_m @ WORLD_TO_PROBE_PERMUTATION) @ brain_to_lab
+        )
+        expected = np.linalg.inv(raw_brain_to_lab) @ raw_voxel_to_lab @ voxel
+        np.testing.assert_allclose(brain, expected, atol=1e-9)
 
     def test_load_bps_reexpresses_lab_side(
         self, bps_path: Path, brain_to_lab: np.ndarray
