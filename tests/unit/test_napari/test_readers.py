@@ -15,6 +15,7 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 from dask.callbacks import Callback
+from napari.layers import Image
 
 from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
 from confusius._utils.geometry import (
@@ -23,6 +24,7 @@ from confusius._utils.geometry import (
     has_voxel_to_world_index,
 )
 from confusius.io.loadsave import save
+from confusius.xarray import create_voxeldata
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -376,6 +378,60 @@ class TestReaderLayerData:
                 [0.0, 0.0, 0.0, 0.0],
             ],
         )
+
+    def test_complex_data_is_displayed_as_magnitude(self, tmp_path: Path) -> None:
+        """Complex IQ data opens as its magnitude instead of crashing napari."""
+        data = (np.arange(24).reshape(2, 3, 4) * (3 + 4j)).astype(np.complex64)
+        path = tmp_path / "iq.zarr"
+        save(
+            create_voxeldata(data, name="iq", dims=("k", "j", "i"), spacing=(1, 1, 1)),
+            path,
+        )
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        layer_data, _, layer_type = reader(str(path))[0]
+
+        assert layer_type == "image"
+        # |n * (3 + 4j)| = 5 * n.
+        npt.assert_allclose(
+            np.asarray(layer_data), 5.0 * np.arange(24).reshape(2, 3, 4), rtol=1e-6
+        )
+
+    def test_length_three_spatial_axis_not_treated_as_rgb(self, tmp_path: Path) -> None:
+        """A last spatial axis of length 3 stays spatial instead of becoming RGB."""
+        # napari guesses RGB when the last axis has length 3 or 4 and both displayed
+        # axes before it are longer than 30.
+        data = np.random.default_rng(0).random((31, 31, 3)).astype(np.float32)
+        path = tmp_path / "three_wide.zarr"
+        save(
+            create_voxeldata(data, name="pwd", dims=("k", "j", "i"), spacing=(1, 1, 1)),
+            path,
+        )
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        layer_data, kwargs, _ = reader(str(path))[0]
+
+        assert not Image(layer_data, **kwargs).rgb
+
+    def test_reversed_spatial_coords_are_sorted(
+        self, tmp_path: Path, sample_voxeldata_3d: xr.DataArray
+    ) -> None:
+        """Reversed voxel axes are displayed in ascending world order."""
+        reversed_data = sample_voxeldata_3d.isel(
+            j=slice(None, None, -1), i=slice(None, None, -1)
+        )
+        path = tmp_path / "reversed.zarr"
+        save(reversed_data, path)
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        layer_data, kwargs, _ = reader(str(path))[0]
+
+        # Ascending world coordinates start at the fixture origin.
+        npt.assert_allclose(kwargs["translate"], [1.0, 2.0, 3.0], rtol=1e-5)
+        npt.assert_allclose(np.asarray(layer_data), sample_voxeldata_3d.values)
 
     def test_integer_dtype_is_labels_layer(self, integer_zarr_path: Path) -> None:
         """Integer-dtype arrays are returned as a 'labels' layer, not 'image'."""
