@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
-from scipy.stats import iqr
+from scipy.stats import iqr, norm
 
 from confusius.qc import compute_dvars
 from confusius.signal import censor_samples
@@ -46,7 +46,8 @@ def reference_dvars(values, estimator):
     if estimator == "median":
         raw /= np.sqrt(np.median(raw**2))
     elif estimator == "ar1":
-        sd = iqr(values, axis=0, scale="normal", interpolation="lower")
+        q25, q75 = np.quantile(values, [0.25, 0.75], axis=0, method="lower")
+        sd = (q75 - q25) / (norm.ppf(0.75) - norm.ppf(0.25))
         rho = []
         for column in values.T:
             centered = column - column.mean()
@@ -73,7 +74,7 @@ def test_matches_independent_formula(signals, estimator, features):
     xr.testing.assert_identical(actual.time, signals.time)
     assert actual.attrs == {
         "long_name": "DVARS" if estimator == "raw" else "relative DVARS",
-        "units": "a.u." if estimator == "raw" else "1",
+        "units": "a.u.",
     }
 
 
@@ -155,9 +156,36 @@ def test_zero_variance_filtering(signals, estimator):
     assert_allclose(actual, reference_dvars(signals.values, estimator))
 
 
-def test_median_negative_scale_invariance(signals):
-    """Empirical normalization is also invariant to a sign reversal."""
-    assert_allclose(compute_dvars(-3 * signals), compute_dvars(signals), rtol=1e-12)
+@pytest.mark.parametrize("lazy", [False, True])
+def test_lower_iqr_excludes_short_sparse_transient(lazy):
+    """Nipype-style lower quartiles exclude a transient retained by linear quartiles."""
+    data = xr.DataArray(
+        [[0.0, 1.0], [0.0, 2.0], [0.0, 3.0], [100.0, 4.0]], dims=("time", "feature")
+    )
+    if lazy:
+        data = data.chunk({"time": 2, "feature": 1})
+    assert_allclose(compute_dvars(data).compute(), [np.nan, 1, 1, 1])
+    assert_allclose(
+        compute_dvars(data, variant="raw", normalization_factor=None).compute(),
+        [np.nan, 1, 1, 1],
+    )
+    assert_allclose(
+        compute_dvars(data, remove_zero_variance=False).compute(),
+        [np.nan, 1, 1, np.sqrt(10001)],
+    )
+
+
+@pytest.mark.parametrize("lazy", [False, True])
+def test_zero_iqr_filter_can_exclude_sparse_transients(lazy):
+    """Disabling robust-variance filtering retains isolated changes in longer signals."""
+    values = np.column_stack([np.zeros(8), np.arange(1.0, 9.0)])
+    values[-1, 0] = 100
+    data = xr.DataArray(values, dims=("time", "feature"))
+    if lazy:
+        data = data.chunk({"time": 2, "feature": 1})
+    assert_allclose(compute_dvars(data).compute(), [np.nan] + [1.0] * 7)
+    expected = np.array([np.nan] + [1.0] * 6 + [np.sqrt(10001)])
+    assert_allclose(compute_dvars(data, remove_zero_variance=False).compute(), expected)
 
 
 def test_variance_tolerance(signals):

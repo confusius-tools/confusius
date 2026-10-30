@@ -59,8 +59,9 @@ def compute_dvars(
         If not provided, no intensity normalization is performed. Ignored for
         relative DVARS, which is invariant to positive global intensity scaling.
     remove_zero_variance : bool, default: True
-        Whether to exclude features whose robust temporal SD is less than or
-        equal to `variance_tolerance`, before computing either variant.
+        Whether to exclude features whose robust temporal SD is less than or equal to
+        `variance_tolerance`, before computing either variant. Mostly constant features
+        with isolated transients can also have zero IQR.
     variance_tolerance : float, default: 0.0
         Finite, nonnegative threshold for robust temporal SD, estimated as
         IQR divided by the standard normal IQR using lower interpolation.
@@ -99,10 +100,7 @@ def compute_dvars(
 
     The `median` estimator avoids AR(1) fitting but assumes most time points reflect
     baseline activity. The `ar1` estimator assumes stationarity and is sensitive to
-    artifacts. Neither yields a z-score or calibrated artifact probability. The
-    lower IQR interpolation follows Nipype's implementation (itself based on FSL).
-    As a consequence, exact invariance to signal sign reversal is guaranteed only
-    for `median` when feature selection is unchanged.
+    artifacts. Neither yields a z-score or calibrated artifact probability.
 
     **Precision:** Float32/float64 inputs retain their precision during differencing;
     float16 and integer inputs are promoted to float32 and float64, respectively.
@@ -192,7 +190,7 @@ def compute_dvars(
             requires_global_median=target_median_intensity is not None,
         )
 
-    return xr.DataArray(
+    dvars = xr.DataArray(
         result,
         dims=["time"],
         coords={"time": signals.coords["time"]},
@@ -201,6 +199,8 @@ def compute_dvars(
             "units": "a.u.",
         },
     )
+    dvars.name = None
+    return dvars
 
 
 def _compute_dvars_dask(
@@ -301,7 +301,9 @@ def _compute_dvars_block_statistics(
         raise ValueError("signals must contain nonempty, finite features.")
 
     if remove_zero_variance or estimate_ar1_difference_variance:
-        robust_sd = sp_stats.iqr(values, axis=0, scale="normal")
+        # Match Nipype's FSL-compatible quartiles, also used by fMRIPrep:
+        # https://github.com/nipy/nipype/blob/master/nipype/algorithms/confounds.py.
+        robust_sd = sp_stats.iqr(values, axis=0, scale="normal", interpolation="lower")
         if remove_zero_variance:
             retained = robust_sd > variance_tolerance
             values, robust_sd = values[:, retained], robust_sd[retained]

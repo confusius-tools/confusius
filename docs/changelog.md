@@ -20,8 +20,10 @@ Current development version for the next ConfUSIus release.
   `baseline_estimator="ar1"` for the alternative RMS-based model baseline. **Existing
   DVARS thresholds must be adjusted for the new normalization**. The `standardize`
   argument was removed: use `variant="raw"` instead of `standardize=False`. The first
-  output value is now `NaN` for all variants and estimators. All variants preserve Dask
-  laziness. Relative DVARS and unnormalized raw DVARS reduce spatial blocks; raw
+  output value is now `NaN` for all variants and estimators. Robust SDs retain lower
+  IQR interpolation, following Nipype's FSL-compatible convention also used by
+  fMRIPrep. All variants preserve Dask laziness. Relative DVARS and unnormalized raw
+  DVARS reduce spatial blocks; raw
   intensity normalization gathers the full recording at compute time to preserve the
   exact global median ([#540](https://github.com/confusius-tools/confusius/pull/540)).
 - Use
