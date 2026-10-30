@@ -285,9 +285,9 @@ Different loaders derive them in different ways:
   probe-centered, surface-referenced position when omitted.
 - **Iconeus SCAN**: Coordinates are derived from the `voxelsToProbe` and `probeToLab`
   affines embedded in the SCAN file, expressed in the Iconeus lab frame turned by a
-  constant +90 degrees about the axial axis so that coronal acquisitions, by far the
-  most common, have `z` elevation, `y` depth and `x` lateral. The axial axis is flipped
-  so that it is always positive and increases with depth.
+  constant +90 degrees about the axial axis to undo the standard IcoScan probe mount,
+  so that `z` is elevation, `y` depth and `x` lateral for a standard acquisition. The
+  axial axis is flipped so that it is always positive and increases with depth.
 - **NIfTI**: Coordinates are derived from the "best" affine transformation found in the
   file header, or from whichever one [`load_nifti`][confusius.io.load_nifti]'s
   `coordinate_affine` argument selects explicitly.
@@ -393,8 +393,8 @@ Several loaders populate `.attrs["affines"]` automatically:
   named affine in `.attrs["affines"]` back to the header via its `qform=`/`sform=`
   arguments, defaulting to `"world_to_qform"`/`"world_to_sform"` when not specified.
 - **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] uses the ConfUSIus
-  representation of the Iconeus lab frame (re-ordered and turned to align coronal
-  acquisitions) as world space, so its `"world_to_lab"` entry is the identity. A
+  representation of the Iconeus lab frame (re-ordered and compensated for the standard
+  probe mount) as world space, so its `"world_to_lab"` entry is the identity. A
   `"world_to_probe"` entry maps world coordinates to the first pose's probe space
   (`z` elevation, `y` depth, `x` lateral), so the world space can be switched to the
   probe and back. Both are single `(4, 4)` affines, also for multi-pose acquisitions

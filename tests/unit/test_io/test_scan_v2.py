@@ -210,8 +210,8 @@ def _write_scan_v2(
     translations = np.zeros((npose, 3), dtype="<f8")
     rotations = np.zeros((npose, 3), dtype="<f8")
     for pose in range(npose):
-        # Every pose is a coronal orientation, like most real files; only the
-        # acquisition block adds a translation.
+        # Every real file carries the standard mount rotation; only the acquisition
+        # block adds a translation.
         rotations[pose] = _POSE[3:]
         if acquisition:
             translations[pose] = _POSE[:3]
@@ -529,7 +529,7 @@ class TestLoadScanV2:
             assert scan_v2.coords[dim].attrs["units"] == "mm"
 
     def test_affines_for_untranslated_pose(self, scan_v2: xr.DataArray) -> None:
-        """A coronal pose with no translation gives identity world_to_lab/probe."""
+        """A standard mount with no translation gives identity world_to_lab/probe."""
         assert set(scan_v2.attrs["affines"]) == {"world_to_lab", "world_to_probe"}
         np.testing.assert_array_equal(
             scan_v2.attrs["affines"]["world_to_lab"], np.eye(4)
@@ -731,8 +731,8 @@ class TestLoadScanV2Acquisition:
             probe_to_lab @ local_affine,
             atol=1e-9,
         )
-        # The fixture's pose is coronal, so the loaded world axes align with the
-        # voxel grid.
+        # The fixture's pose is the standard mount, so the compensated world axes
+        # align with the voxel grid.
         np.testing.assert_allclose(
             get_voxel_to_world_affine(scan_v2_acq)[:3, :3],
             local_affine[:3, :3],

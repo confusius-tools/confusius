@@ -162,25 +162,24 @@ world (z_conf, y_conf, x_conf, 1):
 ICONEUS_LAB_MOTOR_COMPENSATION: npt.NDArray[np.float64] = np.array(
     [[0, 0, 1, 0], [0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 0, 1]], dtype=float
 )
-"""Quarter turn about the depth axis aligning Iconeus lab space with coronal imaging.
+"""Quarter turn about the depth axis that compensates the standard IcoScan motor mount.
 
-The Iconeus lab frame follows the motors' initial (centered) position, in which the
-probe images sagittal slices. Coronal imaging, by far the most common use, has the
-probe turned by -90 degrees about the axial (`z`) axis, so in raw lab coordinates a
-coronal acquisition's lateral axis lands on ConfUSIus `z` (flipped) and its elevation
-axis on `x`. ConfUSIus deliberately represents the Iconeus lab frame turned by a
-constant +90 degrees about that axis, origin unchanged, so that coronal acquisitions
-have `z` elevation, `y` depth and `x` lateral, which keeps visualization and
-registration simple, while every scan of a session still shares one fixed scanner
-frame. From ConfUSIus-ordered Iconeus lab coordinates `(z_iconeus_lab,
-y_iconeus_lab, x_iconeus_lab, 1)`:
+IcoScan's motor holds the probe turned by -90 degrees about the axial (`z`) axis of the
+Iconeus lab frame, so in raw lab coordinates the probe's lateral axis lands on ConfUSIus
+`z` (flipped) and its elevation axis on `x`. The ConfUSIus representation of the
+Iconeus lab frame undoes that fixed mount orientation, and only that: per-pose motor
+sweeps are kept. It applies a constant +90 degree turn about the same axis, origin
+unchanged, so that a standard acquisition has `z` elevation, `y` depth and `x` lateral
+while every scan of a session still shares one fixed scanner frame. From
+ConfUSIus-ordered Iconeus lab coordinates `(z_iconeus_lab, y_iconeus_lab,
+x_iconeus_lab, 1)`:
 
-  z_confusius =  x_iconeus_lab    (elevation for a coronal acquisition)
+  z_confusius =  x_iconeus_lab    (elevation for a standard mount)
   y_confusius =  y_iconeus_lab    (depth)
-  x_confusius = -z_iconeus_lab    (lateral for a coronal acquisition)
+  x_confusius = -z_iconeus_lab    (lateral for a standard mount)
 
-The turn is the same for every file: a sagittal or otherwise rotated acquisition keeps
-its rotation in the loaded geometry. See
+The turn is the same for every file: a probe mounted at another angle keeps its
+residual rotation in the loaded geometry. See
 https://github.com/confusius-tools/confusius/issues/524.
 """
 
@@ -266,8 +265,8 @@ def _build_probe_to_lab(
     `probe_to_lab` maps ConfUSIus-ordered probe coordinates `(z_probe, y_probe, x_probe,
     1)` (elevation, depth, lateral) to the ConfUSIus representation of the Iconeus lab
     frame, `(z, y, x)` in millimeters: the Iconeus lab frame re-ordered with the
-    permutation `P` and turned by `ICONEUS_LAB_MOTOR_COMPENSATION` so that coronal
-    acquisitions align with the voxel grid:
+    permutation `P` and turned by `ICONEUS_LAB_MOTOR_COMPENSATION` to undo the standard
+    IcoScan probe mount:
 
     ```python
     probe_to_lab = (
@@ -438,7 +437,7 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     To compose this affine with the rest of the ConfUSIus pipeline we re-express the lab
     side in the ConfUSIus representation of the Iconeus lab frame: **ConfUSIus-ordered**
     `(z_lab, y_lab, x_lab)` in millimeters, turned by `ICONEUS_LAB_MOTOR_COMPENSATION`
-    to align coronal acquisitions with the voxel grid, exactly as
+    to undo the standard IcoScan probe mount, exactly as
     [`load_scan`][confusius.io.load_scan] does for world coordinates. The brain side is
     left in its original axis order (the brain coordinate units are not declared by the
     BPS format and are therefore not converted).
@@ -586,11 +585,10 @@ def load_scan(
     representation of Iconeus lab coordinates** (mm): the Iconeus lab frame, a fixed
     scanner frame shared by every pose and every scan of a session, re-ordered to
     `(z, y, x)` and turned by a constant +90 degrees about the axial axis
-    (`ICONEUS_LAB_MOTOR_COMPENSATION`), a deliberate choice so that coronal
-    acquisitions, by far the most common, have `z` elevation, `y` depth and `x` lateral
-    for simpler visualization and registration; a sagittal or otherwise rotated
-    acquisition keeps its rotation in the loaded geometry. The frame is the same for
-    SCAN v1 and SCAN v2 files. For multi-pose files, `da`'s voxel-to-world
+    (`ICONEUS_LAB_MOTOR_COMPENSATION`) to undo the standard IcoScan probe mount. A
+    standard acquisition therefore has `z` elevation, `y` depth and `x` lateral; a probe
+    mounted at another angle keeps its rotation in the loaded geometry. The frame is the
+    same for SCAN v1 and SCAN v2 files. For multi-pose files, `da`'s voxel-to-world
     geometry is itself pose-dependent (a `(npose, 4, 4)` affine stack, one affine per
     `da.coords["pose"]` label); world selection therefore requires reducing `pose` to a
     scalar first, e.g. `da.isel(pose=0).sel(z=..., y=..., x=...)` or `da.isel(pose=0)`.
