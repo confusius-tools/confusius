@@ -17,6 +17,21 @@ Current development version for the next ConfUSIus release.
   in 3D, use 6 rigid or 3 translation optimizer weights instead of 12. Results may differ
   ([#547](https://github.com/confusius-tools/confusius/pull/547)).
 - Matrix-initialized rigid/affine registration now optimizes around the fixed image's
+- [`compute_dvars`][confusius.qc.compute_dvars] now defaults to median-based relative
+  DVARS, following the empirical baseline estimator recommended by Afyouni and Nichols
+  (2018). The median is less sensitive to unusually large DVARS values, and their
+  simulations found it reliable under heterogeneous voxel variances. The previous
+  mean-SD normalization used in 0.8.0 and earlier has been removed. Choose
+  `baseline_estimator="ar1"` for the alternative RMS-based model baseline. **Existing
+  DVARS thresholds must be adjusted for the new normalization**. The `standardize`
+  argument was removed: use `variant="raw"` instead of `standardize=False`. The first
+  output value is now `NaN` for all variants and estimators. Robust SDs retain lower
+  IQR interpolation, following Nipype's FSL-compatible convention also used by
+  fMRIPrep. All variants preserve Dask laziness. Relative DVARS and unnormalized raw
+  DVARS reduce spatial blocks; raw
+  intensity normalization gathers the full recording at compute time to preserve the
+  exact global median ([#540](https://github.com/confusius-tools/confusius/pull/540)).
+- Matrix-seeded rigid/affine registration now optimizes around the fixed image's
   physical center rather than the world origin. Initial alignment is unchanged,
   but convergence and final results may differ; recheck tuned optimizer settings
   ([#543](https://github.com/confusius-tools/confusius/pull/543)).
