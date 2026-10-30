@@ -16,6 +16,10 @@ List the bundled skills:
 confusius skills list
 ```
 
+| Skill | Description |
+|---|---|
+| `confusius-load-data` | Load custom or supported ultrasound data into ConfUSIus. Use for file imports, VoxelData dimensions, acquisition timing, and voxel-to-world geometry. |
+
 ## Install Skills
 
 Install all bundled skills in your project:
@@ -38,7 +42,8 @@ You can also install skills globally or choose a different destination:
 | `confusius skills install --global --target .claude/skills` | `~/.claude/skills/` |
 
 Relative paths resolve from the current directory, or your home directory with
-`--global`. Absolute paths and `~` are also supported.
+`--global`. Absolute paths and `~` are also supported. Existing skills are preserved
+unless `--force` is specified, which replaces them and discards local changes.
 
 To install a specific skill:
 

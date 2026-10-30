@@ -1,90 +1,146 @@
 ---
 name: confusius-load-data
-description: Load custom or supported ultrasound data into ConfUSIus. Use for file imports, VoxelData dimensions, acquisition timing, and voxel-to-world geometry.
-compatibility: Requires Python and ConfUSIus; custom readers may need NumPy, SciPy, or h5py.
+description: Load any spatially referenced voxel array into ConfUSIus, including fUSI recordings, derived maps, anatomical images, and atlases. Use when importing data from files or arrays, choosing loaders, or constructing VoxelData with correct dimensions, coordinates, timing, and spatial geometry.
+compatibility: Requires Python and ConfUSIus; custom readers may need SciPy, h5py, or other libraries.
 ---
 
-# Load data into ConfUSIus
+# Load spatial data into ConfUSIus
 
-Prefer the installed ConfUSIus API and version-matched documentation over examples
-from newer releases.
+Prefer the installed ConfUSIus API and version-matched documentation.
 
-## 1. Choose the existing loader or a custom import
+## 1. Choose an existing loader or custom import
 
-For **supported formats, use ConfUSIus I/O**, not `create_voxeldata`:
+Use existing ConfUSIus loaders whenever possible:
 
 | Source | Entry point |
 |---|---|
-| NIfTI, Iconeus SCAN, VoxelData-convention Zarr | `confusius.load(path)` |
-| EchoFrame DAT + metadata MAT | `confusius.io.load_echoframe_dat(dat_path, meta_path=...)` |
+| NIfTI, Iconeus SCAN, ConfUSIus Zarr, EchoFrame DAT | `confusius.load(path)` |
 | AUTC DAT folder | `confusius.io.convert_autc_dats_to_zarr(...)`, then `confusius.load(...)` |
+| BrainGlobe atlas | `confusius.datasets.fetch_brainglobe_atlas(name)` |
+| Saved ConfUSIus atlas | `confusius.io.load_atlas(path)` |
 
-AUTC conversion requires spatial calibration from the user. Do not infer the vendor
-from `.dat` alone: the generic DAT loader handles EchoFrame, not AUTC.
-For other supported formats, check `confusius.io` before implementing an import.
+For EchoFrame DAT files, `confusius.load` uses the adjacent `ScanParameters.mat` by
+default, or accepts an explicit `meta_path`. AUTC DAT files require conversion and
+spatial calibration. Do not infer the DAT format from its extension alone. Check
+`confusius.io` for additional loaders.
 
-For **custom formats** (lab-specific MATLAB, NPY, HDF5, foreign Zarr, etc.), read the
-array with the appropriate library, then use `confusius.create_voxeldata`.
-Use `scipy.io.loadmat` for pre-v7.3 MAT, `h5py` for v7.3/HDF5, or
-`np.load(path, allow_pickle=False)` for numeric NPY.
+For **custom formats** (MATLAB, NPY, HDF5, foreign Zarr, etc.), read the array with an
+appropriate library, then use `confusius.create_voxeldata`. Use `scipy.io.loadmat` for
+pre-v7.3 MAT files, `h5py` for v7.3/HDF5, or `np.load(..., allow_pickle=False)` for
+numeric NPY.
 
-## 2. Help the user establish the metadata
+## 2. Help the user identify dimensions and metadata
 
-Inspect file variables, sidecars, acquisition settings, and export code first.
-Ask the user to confirm anything missing or ambiguous; do not guess from shape:
+`VoxelData` represents any spatially referenced voxel array, including fUSI recordings
+(IQ, power Doppler, velocity), derived maps (correlation, statistics, decomposition
+components), anatomical images, displacement fields, masks, and atlas labels.
 
-- **Axis order:** What does each stored axis represent? `(i, j, k, time)` is common,
-  but not universal. Pass `dims` in the actual raw order. Typically `i` is lateral,
-  `j` is depth, and `k` is elevation; confirm this for their export.
-- **Spatial calibration:** What are the voxel spacings, units, and first voxel-center
-  position? Are rotations, direction vectors, or a full affine already available?
-  Establish their axis order and physical frame rather than discarding orientation.
-- **Timing:** Is sampling regular? Use `dt` in seconds (or `1 / rate_hz`) and `t0`.
-  For irregular sampling, pass exact increasing timestamps through `time`; preserve
-  jitter and convert to seconds. If available, supply `volume_acquisition_reference`
-  (`start`, `center`, `end`) and `volume_acquisition_duration`; duration need not equal `dt`.
-- **Other axes/data:** Identify probe poses versus extra dimensions; preserve complex
-  IQ values. Use `extra_coords` for extra-axis labels and `attrs` for data metadata.
+A complete brain atlas is instead an `xarray.Dataset` containing anatomical reference
+and annotation volumes, hemisphere labels, and region metadata. Preserve this structure
+when loading atlases.
 
-## 3. Construct custom VoxelData with the correct geometry
+Inspect source metadata, sidecars, acquisition settings, and export code. Confirm
+missing or ambiguous information with the user rather than guessing:
+
+- **Dimensions:** Identify the stored axis order and pass `dims` accordingly. Typically
+  `i` is lateral, `j` is depth, and `k` is elevation, but conventions vary. Distinguish
+  probe poses from extra dimensions (components, seeds, channels, etc.).
+- **Geometry:** Determine voxel spacing, origin, orientation, units, and coordinate
+  frame. Preserve existing affines rather than approximating geometry.
+- **Timing (if applicable):** Use `dt` and `t0` for regular sampling, or `time` for
+  irregular timestamps (all in seconds). Determine `volume_acquisition_duration`
+  (typically the integration window for power Doppler) and
+  `volume_acquisition_reference` (`start`, `center`, `end`) from the acquisition or
+  processing protocol. Duration may differ from `dt`.
+- **Data semantics:** Preserve complex IQ, signed velocities, integer atlas labels, and
+  boolean masks. Use `extra_coords` for extra-axis labels and `attrs` for metadata.
+
+Static images and maps do not require a `time` dimension. Do not add one artificially.
+Region-by-time signal tables without spatial dimensions are not `VoxelData`.
+
+## 3. Construct and validate VoxelData
 
 Choose **one** geometry representation:
 
-- `spacing=(dz, dy, dx)`, optionally `origin=(z0, y0, x0)` and a 3×3 `direction`;
-  direction rows are world `z/y/x`, columns voxel `k/j/i`. Use positive spacing.
-- `voxel_to_world=A`, mapping `[k_label, j_label, i_label, 1]` to `[z, y, x, 1]`;
-  do not also pass `spacing`, `origin`, or `direction`.
+- `spacing=(dz, dy, dx)`, optionally `origin=(z0, y0, x0)` and a 3×3 `direction`.
+- `voxel_to_world=A`, a 4×4 affine mapping voxel `[k, j, i, 1]` to world
+  `[z, y, x, 1]`. Do not combine it with `spacing`, `origin`, or `direction`.
 
-Units label geometry; they do not convert it. Do not copy an external `ijk → xyz`
-affine unchanged. Read [geometry details](references/geometry.md) for basis conversion,
-rotations, cropping, defaults, or multiple poses. A `pose` dimension requires one
-4×4 affine per pose, even for a single pose; recordings also need pose-dependent timestamps.
+Spacing must be positive. Units label coordinates but do not convert them.
+Do not copy an external `ijk → xyz` affine unchanged.
 
-Example **after confirming** an NPY export is `(i, j, k, time)`, sampled every 0.4 s,
-with spacings `(dz, dy, dx) = (0.4, 0.05, 0.1)` mm and voxel-zero center at the origin:
+See [geometry details](references/geometry.md) for affine conversions, rotations,
+cropping, defaults, and multi-pose acquisitions. A `pose` dimension requires one affine
+per pose and, for recordings, pose-dependent timestamps.
+
+## 3. Construct and validate VoxelData
+
+Pass the raw array unchanged and specify its axis order with `dims`. Geometry parameters
+follow ConfUSIus conventions, regardless of the input array's order.
+
+Choose **one** geometry representation:
+
+- `spacing=(dz, dy, dx)`, optionally `origin=(z0, y0, x0)` and a 3×3 `direction`. These
+  follow world `(z, y, x)` order; direction rows correspond to world `(z, y, x)` and
+  columns to voxel `(k, j, i)` axes.
+- `voxel_to_world=A`, a 4×4 affine mapping voxel `[k, j, i, 1]` to world `[z, y, x, 1]`.
+  Do not combine it with `spacing`, `origin`, or `direction`.
+
+If source metadata follows the raw `(i, j, k)` order, convert it to ConfUSIus
+conventions. For axis-aligned data with `i → x`, `j → y`, `k → z`, this
+simply means reversing the spacing and origin tuples. For other orientations,
+convert the full affine instead.
+
+Spacing must be positive. Units label coordinates but do not convert them. See [geometry
+details](references/geometry.md) for affine conversions, rotations, cropping, defaults,
+and multi-pose acquisitions. A `pose` dimension requires one affine per pose and, for
+recordings, pose-dependent timestamps.
+
+For example, suppose two NPY exports share a spatial grid stored in
+`(i, j, k)` order, with spacing and origin metadata in `(x, y, z)` order:
 
 ```python
 import numpy as np
 import confusius as cf
 from confusius.validation import validate_voxeldata
 
-raw = np.load("recording.npy", allow_pickle=False)
-data = cf.create_voxeldata(
-    raw,
+# Source calibration in (x, y, z) order, with i → x, j → y, k → z.
+spacing_xyz = (0.1, 0.05, 0.4)  # mm
+origin_xyz = (1.0, 2.0, 3.0)   # mm, first voxel center
+
+geometry = {
+    "spacing": spacing_xyz[::-1],  # (dz, dy, dx)
+    "origin": origin_xyz[::-1],    # (z0, y0, x0)
+    "units": "mm",
+}
+
+# Time-series recording: (i, j, k, time)
+power = cf.create_voxeldata(
+    np.load("power.npy", allow_pickle=False),
     dims=("i", "j", "k", "time"),
-    dt=0.4,  # For irregular sampling, replace with time=timestamps_seconds.
-    spacing=(0.4, 0.05, 0.1),  # Or use voxel_to_world=calibrated_affine.
-    origin=(0.0, 0.0, 0.0),
-    units="mm",
+    dt=0.4,
+    **geometry,
 )
-validate_voxeldata(data)
+
+# Static seed-correlation map: (i, j, k)
+seed_map = cf.create_voxeldata(
+    np.load("seed_map.npy", allow_pickle=False),
+    dims=("i", "j", "k"),
+    **geometry,
+)
+
+validate_voxeldata(power)
+validate_voxeldata(seed_map)
 ```
 
-The constructor returns `(...extra, time, pose, k, j, i)`, omitting unused `time`/`pose`
-and adding missing singleton spatial axes. `z/y/x` are derived world coordinates,
-never dimension names. Do not manually attach world-coordinate grids.
+The constructor reorders dimensions to `(...extra, time, pose, k, j, i)`,
+omitting unused `time`/`pose` axes and adding missing singleton spatial axes.
+World coordinates `z/y/x` are derived from the affine, not used as dimension names.
 
-Verify a raw sample and its physical position against the result; structural
-validation cannot prove calibration. Report unresolved metadata, not invented values.
-Run [tested examples](scripts/examples.py) for regular/irregular timing, affines, poses,
-IQ, and file round-trips. Bundled paths are relative to this skill's directory.
+Verify array values, dimensions, timing (if present), and physical positions
+against the source. Structural validation cannot prove physical calibration.
+Report unresolved metadata rather than inventing values.
+
+See [runnable examples](scripts/examples.py) for irregular timing, affine
+conversions, multiple poses, complex IQ, and file round-trips. Bundled paths
+are relative to this skill's directory.
