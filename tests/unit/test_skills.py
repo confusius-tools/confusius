@@ -460,6 +460,8 @@ def test_failed_replacement_restores_non_directory(
             destination.symlink_to(link_target, target_is_directory=True)
         except OSError:
             pytest.skip("Creating symlinks is unavailable on this platform.")
+        # Windows may add an extended-length prefix to the stored symlink target.
+        link_target = destination.readlink()
     original_rename = Path.rename
 
     def fail_replacement(source: Path, target: Path) -> Path:
