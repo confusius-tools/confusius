@@ -31,6 +31,11 @@ Current development version for the next ConfUSIus release.
   DVARS reduce spatial blocks; raw
   intensity normalization gathers the full recording at compute time to preserve the
   exact global median ([#540](https://github.com/confusius-tools/confusius/pull/540)).
+- Iconeus SCAN metadata now uses fUSI-BIDS field names and units:
+  `iconeus_scan_mode` becomes `iconeus_acquisition_mode`, `imaging_depth` becomes
+  `depth`, and `probe_center_frequency`/`transmit_frequency` are reported in hertz
+  ([#548](https://github.com/confusius-tools/confusius/pull/548)).
+>>>>>>> 5cf6c4ed (docs(changelog): record Iconeus RAW loader)
 - Matrix-seeded rigid/affine registration now optimizes around the fixed image's
   physical center rather than the world origin. Initial alignment is unchanged,
   but convergence and final results may differ; recheck tuned optimizer settings
@@ -60,6 +65,9 @@ Current development version for the next ConfUSIus release.
 - Add Agent Skills support with `confusius skills list` and `confusius skills install`.
   The first skill, `confusius-load-data`, helps agents load custom data into `VoxelData`
   ([#539](https://github.com/confusius-tools/confusius/pull/539)).
+- [`confusius.load`][confusius.load] now loads compounded Iconeus RAW/HRAW
+  beamformed IQ files as lazy VoxelData arrays, preserving acquisition blocks as
+  Dask chunks ([#548](https://github.com/confusius-tools/confusius/pull/548)).
 
 ### :zap: Performance
 
