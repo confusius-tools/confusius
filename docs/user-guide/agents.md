@@ -33,15 +33,18 @@ The default destination is `.agents/skills/` in the **current working directory*
 not an automatically detected repository root. Pi, Codex, Cursor, and other
 assistants support this shared location; discovery depends on your assistant.
 
-Use `--global` to install in your home directory, or `--claude` to use Claude Code's
-`.claude/skills/` directory instead:
+Use `--global` to install in your home directory. Use `--target` to choose another
+skills directory, such as Claude Code's `.claude/skills/`:
 
 | Command | Destination |
 |---|---|
 | `confusius skills install` | `.agents/skills/` |
 | `confusius skills install --global` | `~/.agents/skills/` |
-| `confusius skills install --claude` | `.claude/skills/` |
-| `confusius skills install --claude --global` | `~/.claude/skills/` |
+| `confusius skills install --target .claude/skills` | `.claude/skills/` |
+| `confusius skills install --global --target .claude/skills` | `~/.claude/skills/` |
+
+Relative targets resolve against the current directory, or your home with
+`--global`. Absolute targets are used directly; a leading `~` is expanded.
 
 To install only one named skill:
 
@@ -49,8 +52,12 @@ To install only one named skill:
 confusius skills install confusius-load-data
 ```
 
-Existing destinations are refused unless you pass `--force`. Forced replacement
-removes the whole installed skill, including local changes and stale files.
+Existing destinations are refused unless you pass `--force`. Successful replacement
+discards local changes and stale files. The installer stages all resources and keeps
+originals as backups until every replacement succeeds. Filesystem errors trigger
+rollback; if restoration also fails, backups are retained and their location is
+reported for manual recovery.
+
 Installation includes all references and scripts and needs no separate download.
 Repository maintenance skills, such as the release workflow, are not distributed.
 

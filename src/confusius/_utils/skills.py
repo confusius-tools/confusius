@@ -4,7 +4,7 @@ import shutil
 from importlib import resources
 from importlib.resources.abc import Traversable
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import mkdtemp
 
 import yaml
 
@@ -78,7 +78,7 @@ def install_skills(
     name: str | None = None,
     *,
     global_install: bool = False,
-    claude: bool = False,
+    target: str | Path = ".agents/skills",
     force: bool = False,
 ) -> list[Path]:
     """Install one or all bundled skills locally or in the user's home.
@@ -88,12 +88,14 @@ def install_skills(
     name : str, optional
         Name returned by `list_skills`. If not provided, install every bundled
         skill. All destinations are checked and resources staged before replacement.
+        Existing installations are backed up and restored on filesystem errors.
     global_install : bool, default: False
         Whether to install relative to the user's home instead of the current
         working directory.
-    claude : bool, default: False
-        Whether to install in `.claude/skills` instead of the shared
-        `.agents/skills` directory supported by Pi, Codex, Cursor, and others.
+    target : str or pathlib.Path, default: ".agents/skills"
+        Skills directory. Relative paths resolve against the current working
+        directory, or the user's home with `global_install`. Absolute paths are
+        used directly; a leading `~` is expanded.
     force : bool, default: False
         Whether to replace an existing skill, including stale files. An existing
         skill symlink is replaced without modifying its target.
@@ -110,7 +112,8 @@ def install_skills(
     FileExistsError
         If the destination exists and replacement was not requested.
     OSError
-        If resources cannot be copied or filesystem operations fail.
+        If resources cannot be copied or filesystem operations fail. If rollback
+        also fails, the error reports where backups are preserved for recovery.
     """
     skills = list_skills()
     if name is not None and name not in skills:
@@ -118,7 +121,7 @@ def install_skills(
 
     names = [name] if name is not None else list(skills)
     root = Path.home() if global_install else Path.cwd()
-    parent = root / (".claude" if claude else ".agents") / "skills"
+    parent = root / Path(target).expanduser()
     destinations = [parent / skill for skill in names]
     for destination in destinations:
         if (destination.exists() or destination.is_symlink()) and not force:
@@ -130,19 +133,42 @@ def install_skills(
 
     source = resources.files("confusius").joinpath("_skills")
     parent.mkdir(parents=True, exist_ok=True)
-    # Stage all resources before replacing anything, so read errors preserve old skills.
-    with TemporaryDirectory(prefix=".confusius-skill-", dir=parent) as staging:
+    # Keep backups on the same filesystem, and retain them if restoration fails.
+    staging = Path(mkdtemp(prefix=".confusius-skill-", dir=parent))
+    backups: dict[Path, Path] = {}
+    installed: list[Path] = []
+    try:
+        (staging / "new").mkdir()
+        (staging / "backups").mkdir()
         for skill in names:
-            _copy_skill(source.joinpath(skill), Path(staging) / skill)
+            _copy_skill(source.joinpath(skill), staging / "new" / skill)
         for destination in destinations:
             if destination.exists() or destination.is_symlink():
                 if not force:
                     raise FileExistsError(
                         f"Skill already exists at {destination}. Use --force to replace it."
                     )
-                if destination.is_symlink() or not destination.is_dir():
-                    destination.unlink()
-                else:
+                backup = staging / "backups" / destination.name
+                destination.rename(backup)
+                backups[destination] = backup
+            (staging / "new" / destination.name).rename(destination)
+            installed.append(destination)
+    except OSError as error:
+        rollback_errors = []
+        for destination in reversed(destinations):
+            try:
+                if destination in installed:
                     shutil.rmtree(destination)
-            (Path(staging) / destination.name).rename(destination)
+                if destination in backups:
+                    backups[destination].rename(destination)
+            except OSError as rollback_error:
+                rollback_errors.append(str(rollback_error))
+        if rollback_errors:
+            raise OSError(
+                f"Installation failed ({error}); rollback incomplete "
+                f"({'; '.join(rollback_errors)}). Recover backups from {staging}."
+            ) from error
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    shutil.rmtree(staging, ignore_errors=True)
     return destinations

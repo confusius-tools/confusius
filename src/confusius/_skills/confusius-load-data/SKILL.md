@@ -6,6 +6,9 @@ compatibility: Requires Python and ConfUSIus; custom readers may need NumPy, Sci
 
 # Load data into ConfUSIus
 
+Prefer the installed ConfUSIus API and version-matched documentation over examples
+from newer releases.
+
 ## 1. Choose the existing loader or a custom import
 
 For **supported formats, use ConfUSIus I/O**, not `create_voxeldata`:

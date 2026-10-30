@@ -37,10 +37,11 @@ Current development version for the next ConfUSIus release.
 - Install bundled Agent Skills to the shared `.agents/skills/` directory for Pi,
   Codex, Cursor, and other compatible assistants with
   `confusius skills install`. Installation is project-local by default; use
-  `--global` for the user's home or `--claude` for Claude Code's `.claude/skills/`
-  directory instead. Installation defaults to all skills, supports
-  selecting one by name, and protects existing skills unless `--force` is supplied. `confusius skills list` shows names and
-  descriptions. The first skill, `confusius-load-data`, guides custom imports with
+  `--global` for the user's home or `--target` for a custom skills directory.
+  Installation defaults to all skills, supports selecting one by name, and protects
+  existing skills unless `--force` is supplied. Failed replacements roll back prior
+  changes, retaining backups for manual recovery if restoration fails.
+  `confusius skills list` shows names and descriptions. The first skill, `confusius-load-data`, guides custom imports with
   VoxelData geometry references and runnable examples
   ([#539](https://github.com/confusius-tools/confusius/pull/539)).
 

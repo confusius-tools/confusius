@@ -144,9 +144,13 @@ def build_skills_parser() -> argparse.ArgumentParser:
         "name", nargs="?", help="Name of one bundled skill. Defaults to all skills."
     )
     install.add_argument(
-        "--claude",
-        action="store_true",
-        help="Install in .claude/skills instead of the shared .agents/skills directory.",
+        "--target",
+        type=Path,
+        default=Path(".agents/skills"),
+        help=(
+            "Skills directory (default: .agents/skills). Relative paths use the current "
+            "working directory, or the user's home with --global."
+        ),
     )
     install.add_argument(
         "--global",
@@ -187,7 +191,7 @@ def run_skills(args: argparse.Namespace) -> None:
             destinations = install_skills(
                 args.name,
                 global_install=args.global_install,
-                claude=args.claude,
+                target=args.target,
                 force=args.force,
             )
             for destination in destinations:

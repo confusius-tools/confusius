@@ -40,24 +40,28 @@ def test_discovery_requires_skill_file(tmp_path: Path, monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("claude", "directory"),
-    [(False, ".agents"), (True, ".claude")],
+    ("target", "directory"),
+    [
+        (".agents/skills", ".agents"),
+        (".claude/skills", ".claude"),
+        ("custom/skills", "custom"),
+    ],
 )
 @pytest.mark.parametrize("global_install", [False, True])
 def test_install_complete_skill(
     tmp_path: Path,
     monkeypatch,
-    claude: bool,
+    target: str,
     directory: str,
     global_install: bool,
 ) -> None:
-    """Shared and Claude installations in both scopes receive the entire skill."""
+    """Relative targets in both scopes receive the complete skill."""
     home, project = tmp_path / "home", tmp_path / "project"
     home.mkdir()
     project.mkdir()
     monkeypatch.setattr(Path, "home", lambda: home)
     monkeypatch.chdir(project)
-    (destination,) = install_skills(SKILL, global_install=global_install, claude=claude)
+    (destination,) = install_skills(SKILL, global_install=global_install, target=target)
     expected_root = home if global_install else project
     assert destination == expected_root / directory / "skills" / SKILL
     source = Path(str(resources.files("confusius").joinpath("_skills", SKILL)))
@@ -76,7 +80,7 @@ def test_install_complete_skill(
     assert Path("scripts/examples.py") in actual
     other_root = project if global_install else home
     assert not (other_root / directory).exists()
-    other_directory = ".agents" if claude else ".claude"
+    other_directory = ".claude" if directory == ".agents" else ".agents"
     assert not (expected_root / other_directory).exists()
 
 
@@ -168,7 +172,8 @@ def test_cli_list_and_install(tmp_path: Path, monkeypatch, capsys) -> None:
             "skills",
             "install",
             SKILL,
-            "--claude",
+            "--target",
+            ".claude/skills",
         ],
     )
     main()
@@ -190,6 +195,8 @@ def test_cli_list_and_install(tmp_path: Path, monkeypatch, capsys) -> None:
         [],
         ["install", SKILL, "--agent", "pi"],
         ["install", SKILL, "--scope", "project"],
+        ["install", "--claude"],
+        ["install", "--target"],
         ["install", "missing"],
     ],
 )
@@ -298,31 +305,32 @@ def two_skills(tmp_path: Path, monkeypatch) -> Path:
 
 
 @pytest.mark.parametrize("global_install", [False, True])
-@pytest.mark.parametrize("claude", [False, True])
+@pytest.mark.parametrize("target", [None, ".claude/skills", "custom/skills"])
 def test_default_installs_all_skills(
     two_skills: Path,
     tmp_path: Path,
     monkeypatch,
     capsys,
     global_install: bool,
-    claude: bool,
+    target: str | None,
 ) -> None:
-    """The CLI defaults to the project and supports global and Claude overrides."""
+    """The CLI defaults to the project and supports global and target overrides."""
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: home)
     arguments = ["confusius", "skills", "install"]
     if global_install:
         arguments.append("--global")
-    if claude:
-        arguments.append("--claude")
+    if target is not None:
+        arguments.extend(["--target", target])
     monkeypatch.setattr("sys.argv", arguments)
     main()
     root = home if global_install else two_skills
-    parent = root / (".claude" if claude else ".agents") / "skills"
+    parent = root / (target or ".agents/skills")
     other_root = two_skills if global_install else home
     assert not (other_root / ".agents").exists()
     assert not (other_root / ".claude").exists()
+    assert not (other_root / "custom").exists()
     assert sorted(path.name for path in parent.iterdir()) == ["a-example", "z-example"]
     for name in ("a-example", "z-example"):
         assert (parent / name / "reference.txt").read_text(encoding="utf-8") == name
@@ -365,6 +373,202 @@ def test_bulk_stages_before_replacement(two_skills: Path, tmp_path: Path) -> Non
         install_skills(force=True)
     for destination in destinations:
         assert (destination / "custom.txt").read_text(encoding="utf-8") == "original"
+
+
+@pytest.mark.parametrize("failure_phase", ["backup", "install"])
+def test_bulk_replacement_failure_restores_originals(
+    two_skills: Path, monkeypatch, failure_phase: str
+) -> None:
+    """A failed second backup or replacement restores local changes in both skills."""
+    destinations = install_skills()
+    for destination in destinations:
+        (destination / "custom.txt").write_text(destination.name, encoding="utf-8")
+    originals = {
+        destination: {
+            file.relative_to(destination): file.read_bytes()
+            for file in destination.rglob("*")
+            if file.is_file()
+        }
+        for destination in destinations
+    }
+    original_rename = Path.rename
+
+    def fail_second_replacement(source: Path, target: Path) -> Path:
+        failing_parent = "new" if failure_phase == "install" else "skills"
+        if source.name == "z-example" and source.parent.name == failing_parent:
+            raise OSError("simulated replacement failure")
+        return original_rename(source, target)
+
+    monkeypatch.setattr(Path, "rename", fail_second_replacement)
+    with pytest.raises(OSError, match="simulated replacement failure"):
+        install_skills(force=True)
+    for destination in destinations:
+        assert {
+            file.relative_to(destination): file.read_bytes()
+            for file in destination.rglob("*")
+            if file.is_file()
+        } == originals[destination]
+    assert sorted(path.name for path in destinations[0].parent.iterdir()) == [
+        "a-example",
+        "z-example",
+    ]
+
+
+@pytest.mark.parametrize("existing", [None, "a-example", "z-example"])
+def test_failed_bulk_install_removes_new_skills(
+    two_skills: Path, monkeypatch, existing: str | None
+) -> None:
+    """Rollback removes fresh installs and restores any previously existing skill."""
+    parent = two_skills / ".agents/skills"
+    if existing is not None:
+        (destination,) = install_skills(existing)
+        (destination / "custom.txt").write_text("original", encoding="utf-8")
+    original_rename = Path.rename
+
+    def fail_second_replacement(source: Path, target: Path) -> Path:
+        if source.name == "z-example" and source.parent.name == "new":
+            raise OSError("simulated replacement failure")
+        return original_rename(source, target)
+
+    monkeypatch.setattr(Path, "rename", fail_second_replacement)
+    with pytest.raises(OSError, match="simulated replacement failure"):
+        install_skills(force=True)
+    expected = [] if existing is None else [existing]
+    assert sorted(path.name for path in parent.iterdir()) == expected
+    if existing is not None:
+        assert (parent / existing / "custom.txt").read_text(
+            encoding="utf-8"
+        ) == "original"
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink", "broken-symlink"])
+def test_failed_replacement_restores_non_directory(
+    two_skills: Path, tmp_path: Path, monkeypatch, kind: str
+) -> None:
+    """Rollback restores files and symlinks exactly, without following symlink targets."""
+    parent = two_skills / ".agents/skills"
+    parent.mkdir(parents=True)
+    destination = parent / "z-example"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("keep", encoding="utf-8")
+    link_target = outside if kind == "symlink" else tmp_path / "missing"
+    if kind == "file":
+        destination.write_bytes(b"original file")
+    else:
+        try:
+            destination.symlink_to(link_target, target_is_directory=True)
+        except OSError:
+            pytest.skip("Creating symlinks is unavailable on this platform.")
+    original_rename = Path.rename
+
+    def fail_replacement(source: Path, target: Path) -> Path:
+        if source.name == "z-example" and source.parent.name == "new":
+            raise OSError("simulated replacement failure")
+        return original_rename(source, target)
+
+    monkeypatch.setattr(Path, "rename", fail_replacement)
+    with pytest.raises(OSError, match="simulated replacement failure"):
+        install_skills(force=True)
+    assert list(parent.iterdir()) == [destination]
+    if kind == "file":
+        assert destination.read_bytes() == b"original file"
+    else:
+        assert destination.is_symlink()
+        assert destination.readlink() == link_target
+    assert (outside / "keep.txt").read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.parametrize("rollback_failure", ["restore", "remove"])
+def test_rollback_failure_preserves_backups(
+    two_skills: Path, monkeypatch, rollback_failure: str
+) -> None:
+    """Failed restoration preserves recovery files and still restores other skills."""
+    destinations = install_skills()
+    for destination in destinations:
+        (destination / "custom.txt").write_text(destination.name, encoding="utf-8")
+    original_rename = Path.rename
+    original_rmtree = shutil.rmtree
+    failed_name = "z-example" if rollback_failure == "restore" else "a-example"
+
+    def fail_rename(source: Path, target: Path) -> Path:
+        if source.name == "z-example" and source.parent.name == "new":
+            raise OSError("simulated install failure")
+        if (
+            rollback_failure == "restore"
+            and source.parent.name == "backups"
+            and source.name == failed_name
+        ):
+            raise OSError("simulated restore failure")
+        return original_rename(source, target)
+
+    def fail_remove(path, *args, **kwargs) -> None:
+        if rollback_failure == "remove" and Path(path) == destinations[0]:
+            raise OSError("simulated removal failure")
+        original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "rename", fail_rename)
+    monkeypatch.setattr(shutil, "rmtree", fail_remove)
+    with pytest.raises(OSError, match="rollback incomplete") as error:
+        install_skills(force=True)
+    parent = destinations[0].parent
+    (recovery,) = parent.glob(".confusius-skill-*")
+    assert str(recovery) in str(error.value)
+    assert "simulated install failure" in str(error.value)
+    assert (recovery / "backups" / failed_name / "custom.txt").read_text(
+        encoding="utf-8"
+    ) == failed_name
+    restored_name = "a-example" if rollback_failure == "restore" else "z-example"
+    assert (parent / restored_name / "custom.txt").read_text(
+        encoding="utf-8"
+    ) == restored_name
+
+
+def test_late_destination_is_preserved(two_skills: Path, monkeypatch) -> None:
+    """A destination appearing after preflight is protected and earlier installs roll back."""
+    parent = two_skills / ".agents/skills"
+    destination = parent / "z-example"
+    original_copy = shutil.copyfileobj
+
+    def create_late_destination(reader, writer) -> None:
+        original_copy(reader, writer)
+        if not destination.exists():
+            destination.mkdir()
+            (destination / "custom.txt").write_text(
+                "created concurrently", encoding="utf-8"
+            )
+
+    monkeypatch.setattr(shutil, "copyfileobj", create_late_destination)
+    with pytest.raises(FileExistsError, match="z-example"):
+        install_skills()
+    assert list(parent.iterdir()) == [destination]
+    assert (destination / "custom.txt").read_text(
+        encoding="utf-8"
+    ) == "created concurrently"
+
+
+@pytest.mark.parametrize("global_install", [False, True])
+@pytest.mark.parametrize("use_tilde", [False, True])
+def test_absolute_targets(
+    tmp_path: Path, monkeypatch, global_install: bool, use_tilde: bool
+) -> None:
+    """Absolute and home-expanded targets are used directly, with either scope flag."""
+    home = tmp_path / "home"
+    home.mkdir()
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.chdir(project)
+    target = "~/custom/skills" if use_tilde else tmp_path / "absolute/skills"
+    expected = home / "custom/skills" if use_tilde else target
+    assert install_skills(SKILL, target=target, global_install=global_install) == [
+        Path(expected) / SKILL
+    ]
+    assert (Path(expected) / SKILL / "SKILL.md").is_file()
+    assert not (project / ".agents").exists()
+    assert not (home / ".agents").exists()
 
 
 def test_empty_bundle(tmp_path: Path, monkeypatch) -> None:
