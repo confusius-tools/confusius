@@ -12,6 +12,10 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Matrix-seeded rigid/affine registration now optimizes around the fixed image's
+  physical center rather than the world origin. Initial alignment is unchanged,
+  but convergence and final results may differ; recheck tuned optimizer settings
+  ([#543](https://github.com/confusius-tools/confusius/pull/543)).
 - Use
   [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
   instead of `fetch_template_huang_2025` for the vascular mouse template. The fetcher

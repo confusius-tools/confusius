@@ -851,23 +851,7 @@ def register_volume(
         else:
             sitk_centering_transform = sitk.AffineTransform(ndim)
 
-        # When a precomputed affine initialization is supplied, place the transform
-        # centre at the fixed image centre so rigid/affine refinement rotates around
-        # a sensible pivot. Centering modes (center_geometry/center_moments) are
-        # skipped in that case, since the affine is treated as the full starting
-        # alignment.
-        if affine_initialization is not None and isinstance(
-            sitk_centering_transform,
-            (sitk.Euler2DTransform, sitk.Euler3DTransform, sitk.AffineTransform),
-        ):
-            fixed_center_index = [0.5 * (size - 1) for size in fixed_reg.GetSize()]
-            fixed_center = fixed_reg.TransformContinuousIndexToPhysicalPoint(
-                fixed_center_index
-            )
-            sitk_centering_transform.SetCenter(fixed_center)
-        elif (
-            initialization_mode == "center_geometry" and transform_type != "translation"
-        ):
+        if initialization_mode == "center_geometry" and transform_type != "translation":
             # CenteredTransformInitializer requires a transform with a center
             # parameter (e.g. Euler, Affine). TranslationTransform has no center, so
             # centering initialization is always skipped for translation.
@@ -894,6 +878,21 @@ def register_volume(
             sitk_initial_transform.AddTransform(pre_tx)
             sitk_initial_transform.AddTransform(sitk_centering_transform)
         else:
+            if transform_type in ("rigid", "affine"):
+                fixed_center_index = [0.5 * (size - 1) for size in fixed_reg.GetSize()]
+                center = np.asarray(
+                    fixed_reg.TransformContinuousIndexToPhysicalPoint(
+                        fixed_center_index
+                    )
+                )
+                # Changing the pivot must preserve the seed's world mapping.
+                pre_tx.SetCenter(center.tolist())
+                pre_tx.SetTranslation(
+                    (
+                        affine_initialization[:ndim, ndim]
+                        + (affine_initialization[:ndim, :ndim] - np.eye(ndim)) @ center
+                    ).tolist()
+                )
             sitk_initial_transform = pre_tx
     else:
         sitk_initial_transform = sitk_centering_transform
