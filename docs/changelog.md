@@ -14,7 +14,8 @@ Current development version for the next ConfUSIus release.
 
 - SCAN world coordinates are now the ConfUSIus representation of the Iconeus lab frame:
   re-ordered to `(z, y, x)` and turned by a constant +90 degrees about the axial axis so
-  a standard IcoScan probe mount gives `z` elevation, `y` depth and `x` lateral.
+  coronal acquisitions, by far the most common, have `z` elevation, `y` depth and `x`
+  lateral, for simpler visualization and registration.
   [`load_bps`][confusius.io.load_bps] applies the same turn, so `inv(load_bps(...))`
   remains the `world_to_brain` affine, and
   `confusius.io.scan.ICONEUS_LAB_MOTOR_COMPENSATION` is the turn itself, for anyone

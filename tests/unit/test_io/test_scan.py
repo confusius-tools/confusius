@@ -57,9 +57,9 @@ _VOXELS_TO_PROBE = np.array(
     dtype=np.float64,
 )
 
-# Standard IcoScan motor mount, as conftest.py's _SCAN_MOUNT: composed in front of
-# every probeToLab fixture so the compensated world axes align with the voxel grid.
-_MOUNT = np.array(
+# Coronal probe orientation, as conftest.py's _SCAN_CORONAL: composed in front of
+# every probeToLab fixture so the loaded world axes align with the voxel grid.
+_CORONAL = np.array(
     [
         [0.0, 1.0, 0.0, 0.0],
         [-1.0, 0.0, 0.0, 0.0],
@@ -70,12 +70,12 @@ _MOUNT = np.array(
 
 _PROBE_TO_LAB_SINGLE = np.eye(4, dtype=np.float64)
 _PROBE_TO_LAB_SINGLE[:3, 3] = [0.001, 0.002, 0.003]
-_PROBE_TO_LAB_SINGLE = _MOUNT @ _PROBE_TO_LAB_SINGLE
+_PROBE_TO_LAB_SINGLE = _CORONAL @ _PROBE_TO_LAB_SINGLE
 
-_PROBE_TO_LAB_MULTI = _MOUNT @ np.stack(
+_PROBE_TO_LAB_MULTI = _CORONAL @ np.stack(
     [
         # Kept in sync with conftest.py's _SCAN_PROBE_TO_LAB_MULTI (row 1 lands on
-        # ConfUSIus's k/elevation axis after the mount compensation).
+        # ConfUSIus's k/elevation axis in the lab representation).
         np.eye(4, dtype=np.float64)
         + np.array([[0, 0, 0, 0], [0, 0, 0, i * 0.001], [0, 0, 0, 0], [0, 0, 0, 0]])
         for i in range(_NPOSE)
@@ -86,15 +86,15 @@ _PROBE_TO_LAB_MULTI = _MOUNT @ np.stack(
 def _probe_to_lab_single_translation() -> np.ndarray:
     """Return `_PROBE_TO_LAB_SINGLE`'s folded translation, in ConfUSIus (z, y, x) mm.
 
-    `_PROBE_TO_LAB_SINGLE` is the standard mount, which load_scan compensates, so
-    folding probe_to_lab into the local voxel-to-world affine (`probe_to_lab @ local`)
-    only shifts the translation column by this amount; the local affine's own
-    rotation/scale is otherwise unchanged.
+    `_PROBE_TO_LAB_SINGLE` is a coronal orientation, which load_scan's lab
+    representation turns back, so folding probe_to_lab into the local voxel-to-world
+    affine (`probe_to_lab @ local`) only shifts the translation column by this amount;
+    the local affine's own rotation/scale is otherwise unchanged.
     """
     return _build_probe_to_lab(_PROBE_TO_LAB_SINGLE)[:3, 3]
 
 
-_PROBE_TO_LAB_ROTATED = _MOUNT @ np.array(
+_PROBE_TO_LAB_ROTATED = _CORONAL @ np.array(
     [
         [0.0, 0.0, 1.0, 0.005],
         [0.0, 1.0, 0.0, 0.002],
@@ -639,7 +639,7 @@ class TestWorldToLab:
         A = _build_probe_to_lab(_PROBE_TO_LAB_SINGLE)
 
         # probe_to_lab = M @ P^T @ probeToLab @ P: ConfUSIus axis order, with M the
-        # mount compensation.
+        # coronal-alignment turn.
         P = np.array(
             [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
         )
@@ -665,7 +665,7 @@ class TestWorldToLab:
         """probe_to_lab correctly applies P^T @ R @ P for a non-trivial rotation.
 
         With a 90° Y-rotation in probeToLab, the rotation block of probe_to_lab
-        must equal M @ P^T @ R_y90 @ P (M the mount compensation), confirming that
+        must equal M @ P^T @ R_y90 @ P (M the coronal-alignment turn), confirming that
         non-identity rotations are handled correctly and the output remains in
         ConfUSIus axis order.
         """
@@ -721,19 +721,19 @@ class TestLoadScanFoldsWorldToLab:
             rtol=1e-10,
         )
 
-    def test_standard_mount_aligns_world_with_voxel_axes(
+    def test_coronal_orientation_aligns_world_with_voxel_axes(
         self, scan_2d: xr.DataArray
     ) -> None:
-        """The compensated world axes of a standard-mount file follow the voxel grid."""
+        """A coronal acquisition's world axes follow the voxel grid."""
         affine = get_voxel_to_world_affine(scan_2d)
         np.testing.assert_allclose(
             affine[:3, :3], np.diag(np.diag(affine[:3, :3])), atol=1e-12
         )
         assert (np.diag(affine[:3, :3]) > 0).all()
 
-    def test_non_standard_mount_keeps_residual_rotation(self, tmp_path: Path) -> None:
-        """A probe mounted without the -90 degree turn loads turned by +90 degrees."""
-        path = tmp_path / "unmounted_2dscan.scan"
+    def test_sagittal_orientation_keeps_rotation(self, tmp_path: Path) -> None:
+        """A probe left in the motors' initial (sagittal) position loads turned by +90."""
+        path = tmp_path / "sagittal_2dscan.scan"
         time_data = _end_referenced_times(_T, _FRAME_DURATION).reshape(1, _T)
         data = _RNG.random((_T, _SIZE_Z, _SIZE_Y, _SIZE_X), dtype=np.float64)
         with h5py.File(path, "w") as f:
@@ -748,7 +748,7 @@ class TestLoadScanFoldsWorldToLab:
                 nscan_repeat=None,
                 nblock_repeat=_T,
                 voxels_to_probe=_VOXELS_TO_PROBE,
-                probe_to_lab=np.linalg.inv(_MOUNT) @ _PROBE_TO_LAB_SINGLE,
+                probe_to_lab=np.linalg.inv(_CORONAL) @ _PROBE_TO_LAB_SINGLE,
                 time_data=time_data,
             )
         da = load_scan(path)
@@ -787,7 +787,7 @@ class TestLoadScanWithBPS:
     def _expected_brain_to_lab(
         brain_to_lab: np.ndarray,
     ) -> np.ndarray:
-        """Re-express a BrainToLab affine's lab side in ConfUSIus zyx mm, mount compensated."""
+        """Re-express a BrainToLab affine's lab side in ConfUSIus zyx mm, coronal-aligned."""
         mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
         confusius_lab_to_iconeus_lab = mm_to_m @ WORLD_TO_PROBE_PERMUTATION
         return (
@@ -808,10 +808,10 @@ class TestLoadScanWithBPS:
         brain_to_lab = cls._expected_brain_to_lab(brain_to_lab)
         return np.linalg.inv(brain_to_lab)
 
-    def test_world_to_brain_independent_of_mount_compensation(
+    def test_world_to_brain_independent_of_lab_turn(
         self, scan_2d_path: Path, bps_path: Path, brain_to_lab: np.ndarray
     ) -> None:
-        """Brain coordinates of a voxel do not depend on the lab-side compensation."""
+        """Brain coordinates of a voxel do not depend on the lab-side turn."""
         da = load_scan(scan_2d_path, bps_path=bps_path)
         voxel = np.array([0.0, 3.0, 5.0, 1.0])
         brain = (

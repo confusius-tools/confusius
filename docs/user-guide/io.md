@@ -265,10 +265,12 @@ acquisitions with external events.
 World coordinates are the ConfUSIus representation of the Iconeus lab frame: a fixed
 scanner frame shared by every pose and every scan of a session, re-ordered to
 `(z, y, x)` in millimeters and turned by a constant +90 degrees about the axial axis
-(`confusius.io.scan.ICONEUS_LAB_MOTOR_COMPENSATION`) to undo the standard IcoScan probe
-mount. A standard acquisition therefore has `z` elevation, `y` depth and `x` lateral,
-as in the listing above; a probe mounted at another angle keeps its rotation in the
-loaded geometry. `attrs["affines"]` holds `world_to_lab` (the identity) and
+(`confusius.io.scan.ICONEUS_LAB_MOTOR_COMPENSATION`). The Iconeus lab frame follows the
+motors' initial position, which images sagittal slices; ConfUSIus deliberately turns it
+so that coronal acquisitions, by far the most common, have `z` elevation, `y` depth and
+`x` lateral, as in the listing above, which keeps visualization and registration
+simple. A sagittal or otherwise rotated acquisition keeps its rotation in the loaded
+geometry. `attrs["affines"]` holds `world_to_lab` (the identity) and
 `world_to_probe`, which maps world coordinates to the first pose's probe space.
 
 Additionally, each pose has its own voxel-to-world affine transformation, meaning the
@@ -345,8 +347,8 @@ They contain an affine matrix that maps Iconeus brain coordinates `(x_brain, y_b
 z_brain, 1)` to Iconeus lab coordinates `(x_lab, y_lab, z_lab, 1)` in meters. The
 Iconeus lab frame is a fixed scanner space defined by Iconeus. ConfUSIus re-expresses
 this space as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)` in millimeters,
-turned by the same constant that compensates the IcoScan probe mount when loading SCAN
-files: that is the world space of SCAN data, so the recipe below needs no extra step.
+turned by the same coronal-aligning constant used when loading SCAN files: that is the
+world space of SCAN data, so the recipe below needs no extra step.
 
 The affine matrix in the BPS file can be loaded with
 [`confusius.io.load_bps`][confusius.io.load_bps]. It is generally a good idea to store

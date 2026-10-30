@@ -46,10 +46,11 @@ _SCAN_VOXELS_TO_PROBE = np.array(
     dtype=np.float64,
 )
 
-# Standard IcoScan motor mount: the probe turned by -90 degrees about the Iconeus axial
-# axis, which load_scan compensates. Composed in front of every probeToLab fixture so
-# that the loaded world axes align with the voxel grid, as they do for real files.
-_SCAN_MOUNT = np.array(
+# Coronal probe orientation: -90 degrees about the Iconeus axial axis from the motors'
+# initial (sagittal) position, which load_scan's lab representation turns back.
+# Composed in front of every probeToLab fixture so the loaded world axes align with
+# the voxel grid, as for real coronal acquisitions.
+_SCAN_CORONAL = np.array(
     [
         [0.0, 1.0, 0.0, 0.0],
         [-1.0, 0.0, 0.0, 0.0],
@@ -60,21 +61,21 @@ _SCAN_MOUNT = np.array(
 
 _SCAN_PROBE_TO_LAB_SINGLE = np.eye(4, dtype=np.float64)
 _SCAN_PROBE_TO_LAB_SINGLE[:3, 3] = [0.001, 0.002, 0.003]
-_SCAN_PROBE_TO_LAB_SINGLE = _SCAN_MOUNT @ _SCAN_PROBE_TO_LAB_SINGLE
+_SCAN_PROBE_TO_LAB_SINGLE = _SCAN_CORONAL @ _SCAN_PROBE_TO_LAB_SINGLE
 
-_SCAN_PROBE_TO_LAB_MULTI = _SCAN_MOUNT @ np.stack(
+_SCAN_PROBE_TO_LAB_MULTI = _SCAN_CORONAL @ np.stack(
     [
-        # Translation lives in row 1 (probe elevation): the mount moves it to lab x
-        # and the compensation back onto ConfUSIus's k (elevation) axis, matching a
-        # real translational probe sweep -- see consolidate_poses's sweep_dim
-        # auto-detection.
+        # Translation lives in row 1 (probe elevation): the coronal orientation
+        # moves it to lab x and the lab representation back onto ConfUSIus's k
+        # (elevation) axis, matching a real translational probe sweep -- see
+        # consolidate_poses's sweep_dim auto-detection.
         np.eye(4, dtype=np.float64)
         + np.array([[0, 0, 0, 0], [0, 0, 0, i * 0.001], [0, 0, 0, 0], [0, 0, 0, 0]])
         for i in range(_SCAN_NPOSE)
     ]
 )
 
-_SCAN_PROBE_TO_LAB_ROTATED = _SCAN_MOUNT @ np.array(
+_SCAN_PROBE_TO_LAB_ROTATED = _SCAN_CORONAL @ np.array(
     [
         [0.0, 0.0, 1.0, 0.005],
         [0.0, 1.0, 0.0, 0.002],
@@ -84,10 +85,10 @@ _SCAN_PROBE_TO_LAB_ROTATED = _SCAN_MOUNT @ np.array(
     dtype=np.float64,
 )
 
-_SCAN_PROBE_TO_LAB_IRREGULAR = _SCAN_MOUNT @ np.stack(
+_SCAN_PROBE_TO_LAB_IRREGULAR = _SCAN_CORONAL @ np.stack(
     [
-        # Row 1, like _SCAN_PROBE_TO_LAB_MULTI: lands on k (elevation) after the
-        # mount compensation.
+        # Row 1, like _SCAN_PROBE_TO_LAB_MULTI: lands on k (elevation) in the lab
+        # representation.
         np.eye(4, dtype=np.float64)
         + np.array([[0, 0, 0, 0], [0, 0, 0, t], [0, 0, 0, 0], [0, 0, 0, 0]])
         for t in [0.0, 0.001, 0.005]
@@ -95,7 +96,7 @@ _SCAN_PROBE_TO_LAB_IRREGULAR = _SCAN_MOUNT @ np.stack(
 )
 
 _SCAN_ANGLE = np.pi / 6
-_SCAN_PROBE_TO_LAB_VARYING_ROTATION = _SCAN_MOUNT @ np.stack(
+_SCAN_PROBE_TO_LAB_VARYING_ROTATION = _SCAN_CORONAL @ np.stack(
     [
         np.array(
             [
@@ -110,7 +111,7 @@ _SCAN_PROBE_TO_LAB_VARYING_ROTATION = _SCAN_MOUNT @ np.stack(
     ]
 )
 
-_SCAN_PROBE_TO_LAB_2D_SWEEP = _SCAN_MOUNT @ np.stack(
+_SCAN_PROBE_TO_LAB_2D_SWEEP = _SCAN_CORONAL @ np.stack(
     [
         np.eye(4, dtype=np.float64)
         + np.array(
