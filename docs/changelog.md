@@ -12,6 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Fix matrix initialization incorrectly allowing full affine optimization for
+  rigid/translation registration. Refinement now respects the requested transform;
+  in 3D, use 6 rigid or 3 translation optimizer weights instead of 12. Results may differ
+  ([#547](https://github.com/confusius-tools/confusius/pull/547)).
+- Matrix-initialized rigid/affine registration now optimizes around the fixed image's
 - [`compute_dvars`][confusius.qc.compute_dvars] now defaults to median-based relative
   DVARS, following the empirical baseline estimator recommended by Afyouni and Nichols
   (2018). The median is less sensitive to unusually large DVARS values, and their
