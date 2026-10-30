@@ -271,6 +271,14 @@ as in the listing above; a probe mounted at another angle keeps its rotation in 
 loaded geometry. `attrs["affines"]` holds `world_to_lab` (the identity) and
 `world_to_probe`, which maps world coordinates to the first pose's probe space.
 
+!!! note "Why the 90 degree turn"
+    After centering and initializing the motors, the probe sits in the majority of
+    cases in a position that images a sagittal slice, and the Iconeus lab frame
+    follows that position. Most fUSI acquisitions are coronal, so ConfUSIus chooses to
+    represent the lab frame turned by 90 degrees: coronal data then typically align
+    with the voxel grid, which tends to keep visualization and registration simpler,
+    while the lab frame stays shared by every scan of a session.
+
 Additionally, each pose has its own voxel-to-world affine transformation, meaning the
 `z`/`y`/`x` world coordinates are **pose-dependent**. The `pose` coordinate indexes the
 pose dimension, and the `z`/`y`/`x` coordinates are derived from the corresponding
