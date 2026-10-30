@@ -12,6 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Matrix-initialized registration now keeps the affine seed fixed and optimizes
+  only the requested refinement type, rather than always optimizing a full affine.
+  In 3D, use 3 optimizer weights for translation, 6 for rigid, or 12 for affine;
+  results may change. Scaling/shearing in the seed is retained with rigid refinement
+  ([#547](https://github.com/confusius-tools/confusius/pull/547)).
 - Matrix-seeded rigid/affine registration now optimizes around the fixed image's
   physical center rather than the world origin. Initial alignment is unchanged,
   but convergence and final results may differ; recheck tuned optimizer settings
