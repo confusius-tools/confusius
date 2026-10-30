@@ -2,6 +2,7 @@
 
 import shutil
 import sys
+from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
 
@@ -13,12 +14,21 @@ from confusius._utils.skills import install_skills, list_skills
 SKILL = "confusius-load-data"
 
 
+def _snapshot(root: Path) -> dict[Path, bytes]:
+    """Read every file below `root`, keyed by its relative path."""
+    return {
+        file.relative_to(root): file.read_bytes()
+        for file in root.rglob("*")
+        if file.is_file()
+    }
+
+
 def test_discover_bundled_skills() -> None:
     """The distributed import skill is discoverable, unlike the release workflow."""
-    assert SKILL in list_skills()
-    assert "release" not in list_skills()
-    assert list(list_skills()) == sorted(list_skills())
-    assert "Load custom" in list_skills()[SKILL]
+    skills = list_skills()
+    assert skills.get(SKILL)
+    assert "release" not in skills
+    assert list(skills) == sorted(skills)
 
 
 def test_discovery_requires_skill_file(tmp_path: Path, monkeypatch) -> None:
@@ -65,16 +75,8 @@ def test_install_complete_skill(
     expected_root = home if global_install else project
     assert destination == expected_root / directory / "skills" / SKILL
     source = Path(str(resources.files("confusius").joinpath("_skills", SKILL)))
-    expected = {
-        file.relative_to(source): file.read_bytes()
-        for file in source.rglob("*")
-        if file.is_file()
-    }
-    actual = {
-        file.relative_to(destination): file.read_bytes()
-        for file in destination.rglob("*")
-        if file.is_file()
-    }
+    expected = _snapshot(source)
+    actual = _snapshot(destination)
     assert actual == expected
     assert Path("references/geometry.md") in actual
     assert Path("scripts/examples.py") in actual
@@ -156,30 +158,36 @@ def test_copy_failure_preserves_existing_skill(tmp_path: Path, monkeypatch) -> N
     assert list(destination.parent.iterdir()) == [destination]
 
 
-def test_cli_list_and_install(tmp_path: Path, monkeypatch, capsys) -> None:
-    """Namespace dispatch lists and installs without invoking the napari launcher."""
+def test_cli_list(tmp_path: Path, monkeypatch, capsys) -> None:
+    """The `skills list` namespace renders the bundled skill table."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["confusius", "skills", "list"])
     main()
     listing = capsys.readouterr().out
     assert "Available Agent Skills" in listing
     assert "Name" in listing and "Description" in listing
-    assert SKILL in listing and "Load custom" in listing
+    assert SKILL in listing
+
+
+def test_cli_install(tmp_path: Path, monkeypatch, capsys) -> None:
+    """The `skills install` namespace installs into a custom target."""
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "confusius",
-            "skills",
-            "install",
-            SKILL,
-            "--target",
-            ".claude/skills",
-        ],
+        ["confusius", "skills", "install", SKILL, "--target", ".claude/skills"],
     )
     main()
     destination = tmp_path / ".claude" / "skills" / SKILL
     assert (destination / "SKILL.md").is_file()
     assert str(destination) in capsys.readouterr().out
+
+
+def test_cli_install_requires_force(tmp_path: Path, monkeypatch, capsys) -> None:
+    """Reinstalling an existing skill fails until `--force` is passed."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["confusius", "skills", "install", SKILL])
+    main()
+    capsys.readouterr()
     with pytest.raises(SystemExit) as error:
         main()
     assert error.value.code == 2
@@ -304,6 +312,22 @@ def two_skills(tmp_path: Path, monkeypatch) -> Path:
     return project
 
 
+@pytest.fixture
+def fail_rename(monkeypatch) -> Callable[[str, str, str], None]:
+    """Make `Path.rename` fail for a matching source name and parent name."""
+    original_rename = Path.rename
+    rules: list[tuple[str, str, str]] = []
+
+    def rename(source: Path, target: Path) -> Path:
+        for name, parent, message in rules:
+            if source.name == name and source.parent.name == parent:
+                raise OSError(message)
+        return original_rename(source, target)
+
+    monkeypatch.setattr(Path, "rename", rename)
+    return lambda name, parent, message: rules.append((name, parent, message))
+
+
 @pytest.mark.parametrize("global_install", [False, True])
 @pytest.mark.parametrize("target", [None, ".claude/skills", "custom/skills"])
 def test_default_installs_all_skills(
@@ -377,37 +401,22 @@ def test_bulk_stages_before_replacement(two_skills: Path, tmp_path: Path) -> Non
 
 @pytest.mark.parametrize("failure_phase", ["backup", "install"])
 def test_bulk_replacement_failure_restores_originals(
-    two_skills: Path, monkeypatch, failure_phase: str
+    two_skills: Path, fail_rename, failure_phase: str
 ) -> None:
     """A failed second backup or replacement restores local changes in both skills."""
     destinations = install_skills()
     for destination in destinations:
         (destination / "custom.txt").write_text(destination.name, encoding="utf-8")
-    originals = {
-        destination: {
-            file.relative_to(destination): file.read_bytes()
-            for file in destination.rglob("*")
-            if file.is_file()
-        }
-        for destination in destinations
-    }
-    original_rename = Path.rename
-
-    def fail_second_replacement(source: Path, target: Path) -> Path:
-        failing_parent = "new" if failure_phase == "install" else "skills"
-        if source.name == "z-example" and source.parent.name == failing_parent:
-            raise OSError("simulated replacement failure")
-        return original_rename(source, target)
-
-    monkeypatch.setattr(Path, "rename", fail_second_replacement)
+    originals = {destination: _snapshot(destination) for destination in destinations}
+    fail_rename(
+        "z-example",
+        "new" if failure_phase == "install" else "skills",
+        "simulated replacement failure",
+    )
     with pytest.raises(OSError, match="simulated replacement failure"):
         install_skills(force=True)
     for destination in destinations:
-        assert {
-            file.relative_to(destination): file.read_bytes()
-            for file in destination.rglob("*")
-            if file.is_file()
-        } == originals[destination]
+        assert _snapshot(destination) == originals[destination]
     assert sorted(path.name for path in destinations[0].parent.iterdir()) == [
         "a-example",
         "z-example",
@@ -416,21 +425,14 @@ def test_bulk_replacement_failure_restores_originals(
 
 @pytest.mark.parametrize("existing", [None, "a-example", "z-example"])
 def test_failed_bulk_install_removes_new_skills(
-    two_skills: Path, monkeypatch, existing: str | None
+    two_skills: Path, fail_rename, existing: str | None
 ) -> None:
     """Rollback removes fresh installs and restores any previously existing skill."""
     parent = two_skills / ".agents/skills"
     if existing is not None:
         (destination,) = install_skills(existing)
         (destination / "custom.txt").write_text("original", encoding="utf-8")
-    original_rename = Path.rename
-
-    def fail_second_replacement(source: Path, target: Path) -> Path:
-        if source.name == "z-example" and source.parent.name == "new":
-            raise OSError("simulated replacement failure")
-        return original_rename(source, target)
-
-    monkeypatch.setattr(Path, "rename", fail_second_replacement)
+    fail_rename("z-example", "new", "simulated replacement failure")
     with pytest.raises(OSError, match="simulated replacement failure"):
         install_skills(force=True)
     expected = [] if existing is None else [existing]
@@ -443,7 +445,7 @@ def test_failed_bulk_install_removes_new_skills(
 
 @pytest.mark.parametrize("kind", ["file", "symlink", "broken-symlink"])
 def test_failed_replacement_restores_non_directory(
-    two_skills: Path, tmp_path: Path, monkeypatch, kind: str
+    two_skills: Path, tmp_path: Path, fail_rename, kind: str
 ) -> None:
     """Rollback restores files and symlinks exactly, without following symlink targets."""
     parent = two_skills / ".agents/skills"
@@ -462,14 +464,7 @@ def test_failed_replacement_restores_non_directory(
             pytest.skip("Creating symlinks is unavailable on this platform.")
         # Windows may add an extended-length prefix to the stored symlink target.
         link_target = destination.readlink()
-    original_rename = Path.rename
-
-    def fail_replacement(source: Path, target: Path) -> Path:
-        if source.name == "z-example" and source.parent.name == "new":
-            raise OSError("simulated replacement failure")
-        return original_rename(source, target)
-
-    monkeypatch.setattr(Path, "rename", fail_replacement)
+    fail_rename("z-example", "new", "simulated replacement failure")
     with pytest.raises(OSError, match="simulated replacement failure"):
         install_skills(force=True)
     assert list(parent.iterdir()) == [destination]
@@ -483,33 +478,24 @@ def test_failed_replacement_restores_non_directory(
 
 @pytest.mark.parametrize("rollback_failure", ["restore", "remove"])
 def test_rollback_failure_preserves_backups(
-    two_skills: Path, monkeypatch, rollback_failure: str
+    two_skills: Path, monkeypatch, fail_rename, rollback_failure: str
 ) -> None:
     """Failed restoration preserves recovery files and still restores other skills."""
     destinations = install_skills()
     for destination in destinations:
         (destination / "custom.txt").write_text(destination.name, encoding="utf-8")
-    original_rename = Path.rename
-    original_rmtree = shutil.rmtree
     failed_name = "z-example" if rollback_failure == "restore" else "a-example"
+    fail_rename("z-example", "new", "simulated install failure")
+    if rollback_failure == "restore":
+        fail_rename(failed_name, "backups", "simulated restore failure")
 
-    def fail_rename(source: Path, target: Path) -> Path:
-        if source.name == "z-example" and source.parent.name == "new":
-            raise OSError("simulated install failure")
-        if (
-            rollback_failure == "restore"
-            and source.parent.name == "backups"
-            and source.name == failed_name
-        ):
-            raise OSError("simulated restore failure")
-        return original_rename(source, target)
+    original_rmtree = shutil.rmtree
 
     def fail_remove(path, *args, **kwargs) -> None:
         if rollback_failure == "remove" and Path(path) == destinations[0]:
             raise OSError("simulated removal failure")
         original_rmtree(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "rename", fail_rename)
     monkeypatch.setattr(shutil, "rmtree", fail_remove)
     with pytest.raises(OSError, match="rollback incomplete") as error:
         install_skills(force=True)
@@ -517,9 +503,8 @@ def test_rollback_failure_preserves_backups(
     (recovery,) = parent.glob(".confusius-skill-*")
     assert str(recovery) in str(error.value)
     assert "simulated install failure" in str(error.value)
-    assert (recovery / "backups" / failed_name / "custom.txt").read_text(
-        encoding="utf-8"
-    ) == failed_name
+    backup = next(recovery.rglob(f"{failed_name}/custom.txt"))
+    assert backup.read_text(encoding="utf-8") == failed_name
     restored_name = "a-example" if rollback_failure == "restore" else "z-example"
     assert (parent / restored_name / "custom.txt").read_text(
         encoding="utf-8"

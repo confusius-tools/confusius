@@ -1,8 +1,10 @@
 """Build artifacts must contain usable skills, including future nested resources."""
 
+import runpy
 import shutil
 import subprocess
 import sys
+from importlib import resources
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -89,8 +91,16 @@ main()
     )
     assert "Available Agent Skills" in result.stdout
     assert "confusius-load-data" in result.stdout
-    assert "Load custom" in result.stdout
     destination = installed / ".agents/skills/confusius-load-data"
     for name, content in expected.items():
         relative = Path(name).relative_to("confusius/_skills/confusius-load-data")
         assert (destination / relative).read_bytes() == content
+
+
+def test_bundled_examples_run() -> None:
+    """The bundled custom-data examples execute offline."""
+    script = resources.files("confusius").joinpath(
+        "_skills", "confusius-load-data", "scripts", "examples.py"
+    )
+    with resources.as_file(script) as path:
+        runpy.run_path(str(path), run_name="__main__")

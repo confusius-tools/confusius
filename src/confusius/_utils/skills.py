@@ -27,8 +27,10 @@ def list_skills() -> dict[str, str]:
     root = resources.files("confusius").joinpath("_skills")
     skills = {}
     for child in sorted(root.iterdir(), key=lambda child: child.name):
+        if not child.is_dir():
+            continue
         document = child.joinpath("SKILL.md")
-        if not child.is_dir() or not document.is_file():
+        if not document.is_file():
             continue
         lines = document.read_text(encoding="utf-8").splitlines()
         try:
@@ -154,6 +156,8 @@ def install_skills(
             (staging / "new" / destination.name).rename(destination)
             installed.append(destination)
     except OSError as error:
+        # A destination that appeared after preflight raises FileExistsError, which
+        # is an OSError: route it through rollback to remove earlier installs.
         rollback_errors = []
         for destination in reversed(destinations):
             try:
