@@ -8,6 +8,7 @@ import numpy as np
 import xarray as xr
 
 import confusius.io.echoframe as _echoframe
+import confusius.io.iconeus_raw as _iconeus_raw
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
 from confusius._dims import WORLD_DIMS
@@ -37,6 +38,10 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
       [`load_echoframe_dat`][confusius.io.load_echoframe_dat]. If no metadata path is
       provided, [`load_echoframe_dat`][confusius.io.load_echoframe_dat] looks for
       `ScanParameters.mat` next to the DAT file.
+    - **Iconeus RAW** (`.raw`): loaded via
+      [`load_iconeus_raw`][confusius.io.load_iconeus_raw]. If no metadata path is
+      provided, [`load_iconeus_raw`][confusius.io.load_iconeus_raw] looks for the
+      matching `.hraw` sidecar next to the RAW file.
     - **Zarr** (`.zarr`): opened via [`xarray.open_zarr`][xarray.open_zarr] and a single
       variable is extracted. Must be a store previously written by
       [`save`][confusius.io.save] (identified by `attrs["voxel_to_world"]`); for an
@@ -93,6 +98,8 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         data_array = _scan.load_scan(path, **kwargs)
     elif name.endswith(".dat"):
         data_array = _echoframe.load_echoframe_dat(path, **kwargs)
+    elif name.endswith(".raw"):
+        data_array = _iconeus_raw.load_iconeus_raw(path, **kwargs)
     elif name.endswith(".zarr"):
         ds = xr.open_zarr(path, **kwargs)
         data_array = (
@@ -114,7 +121,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     else:
         raise ValueError(
             f"Unsupported file extension in {name!r}. Supported"
-            " extensions are: .nii, .nii.gz, .scan, .dat, .zarr."
+            " extensions are: .nii, .nii.gz, .scan, .dat, .raw, .zarr."
         )
 
     restore_atlas_cmap_and_norm(data_array)

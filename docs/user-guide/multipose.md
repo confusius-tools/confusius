@@ -102,13 +102,13 @@ Coordinates:
     y          (pose, k, j, i) float64 1MB ...
     x          (pose, k, j, i) float64 1MB ...
 Attributes:
-    affines:               {}
-    device_serial_number:  ASAO0000
-    software_version:      IcoScan v.1.9.0
-    iconeus_scan_mode:     4Dscan
-    iconeus_subject:       sub-01
-    iconeus_session:       task-awake
-    iconeus_scan:          sub-01_task-awake_pwd
+    affines:                    {}
+    device_serial_number:       ASAO0000
+    software_version:           IcoScan v.1.9.0
+    iconeus_acquisition_mode:   4Dscan
+    iconeus_subject:            sub-01
+    iconeus_session:            task-awake
+    iconeus_scan:               sub-01_task-awake_pwd
     ...
 ```
 
@@ -140,7 +140,7 @@ Coordinates:
 Attributes:
     probe_model:                         IcoPrime 4D MultiArray
     iconeus_scan_format:                 v2
-    iconeus_scan_mode:                   4Dscan
+    iconeus_acquisition_mode:            4Dscan
     ...
 ```
 
@@ -280,13 +280,13 @@ Coordinates:
     y           (k, j, i) float64 1MB ...
     x           (k, j, i) float64 1MB ...
 Attributes:
-    affines:               {}
-    device_serial_number:  ASAO0000
-    software_version:      IcoScan v.1.9.0
-    iconeus_scan_mode:     4Dscan
-    iconeus_subject:       sub-01
-    iconeus_session:       task-awake
-    iconeus_scan:          sub-01_task-awake_pwd
+    affines:                    {}
+    device_serial_number:       ASAO0000
+    software_version:           IcoScan v.1.9.0
+    iconeus_acquisition_mode:   4Dscan
+    iconeus_subject:            sub-01
+    iconeus_session:            task-awake
+    iconeus_scan:               sub-01_task-awake_pwd
     ...
 ```
 

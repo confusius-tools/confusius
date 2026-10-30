@@ -4,6 +4,7 @@ __all__ = [
     "AUTCDAT",
     "AUTCDATsLoader",
     "EchoFrameMetadata",
+    "IconeusRawMetadata",
     "check_path",
     "convert_autc_dats_to_zarr",
     "convert_echoframe_dat_to_zarr",
@@ -12,6 +13,8 @@ __all__ = [
     "load_bps",
     "load_echoframe_dat",
     "load_echoframe_metadata",
+    "load_iconeus_raw",
+    "load_iconeus_raw_metadata",
     "load_nifti",
     "load_scan",
     "save",
@@ -26,6 +29,11 @@ from confusius.io.echoframe import (
     convert_echoframe_dat_to_zarr,
     load_echoframe_dat,
     load_echoframe_metadata,
+)
+from confusius.io.iconeus_raw import (
+    IconeusRawMetadata,
+    load_iconeus_raw,
+    load_iconeus_raw_metadata,
 )
 from confusius.io.loadsave import load, save
 from confusius.io.nifti import load_nifti, save_nifti

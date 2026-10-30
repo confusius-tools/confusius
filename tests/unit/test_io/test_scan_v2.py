@@ -535,7 +535,7 @@ class TestLoadScanV2:
 
     def test_scan_mode_attr(self, scan_v2: xr.DataArray) -> None:
         """Single-pose v2 is reported as 2Dscan."""
-        assert scan_v2.attrs["iconeus_scan_mode"] == "2Dscan"
+        assert scan_v2.attrs["iconeus_acquisition_mode"] == "2Dscan"
 
     def test_provenance_fields_mapped(self, scan_v2: xr.DataArray) -> None:
         """Header strings map to v1-style provenance fields."""
@@ -581,7 +581,7 @@ class TestLoadScanV2Multipose:
         )
         da = load_scan(path)
         assert da.dims == ("pose", "k", "j", "i")
-        assert da.attrs["iconeus_scan_mode"] == "3Dscan"
+        assert da.attrs["iconeus_acquisition_mode"] == "3Dscan"
 
 
 class TestLoadScanV2Multiblock:
@@ -679,7 +679,7 @@ class TestLoadScanV2Acquisition:
         assert scan_v2_acq.attrs["pulse_repetition_frequency"] == pytest.approx(_PRF)
         np.testing.assert_allclose(scan_v2_acq.attrs["plane_wave_angles"], _ANGLES)
         np.testing.assert_allclose(
-            scan_v2_acq.attrs["imaging_depth"],
+            scan_v2_acq.attrs["depth"],
             (_ACQ_DEPTH_START, _ACQ_DEPTH_START + (_SIZE_Z - 1) * _DZ_M * 1e3),
         )
 

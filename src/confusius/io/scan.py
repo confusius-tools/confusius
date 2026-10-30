@@ -515,7 +515,7 @@ def load_scan(
     Acquisition settings that correspond to fUSI-BIDS fields are also surfaced as
     attributes, in native header units: `probe_model`, `probe_center_frequency` (MHz),
     `probe_pitch` (mm), `probe_aperture` (mm), `probe_focal_depth` (mm),
-    `imaging_depth` (mm start/end), `transmit_frequency` (MHz),
+    `depth` (mm start/end), `transmit_frequency` (MHz),
     `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `svd_low_cutoff`, and
     `power_doppler_integration_duration` (s).
 
@@ -535,7 +535,7 @@ def load_scan(
 
     Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
     (`device_serial_number`, `software_version`) and Iconeus-specific fields
-    (`iconeus_scan_mode`, `iconeus_subject`, `iconeus_session`, `iconeus_scan`,
+    (`iconeus_acquisition_mode`, `iconeus_subject`, `iconeus_session`, `iconeus_scan`,
     `iconeus_project`, `iconeus_datetime`). `iconeus_datetime` is the acquisition
     date and time in ISO 8601 format, e.g. `"2021-10-22T14:14:12+00:00"`. SCAN v1
     stores it without a time zone, so ConfUSIus treats it as UTC. SCAN v2 files
@@ -628,7 +628,7 @@ def _load_scan_v1(
             "affines": {},
             "device_serial_number": _read_scan_str(h5, "/scanMetaData/Machine_SN"),
             "software_version": _read_scan_str(h5, "/scanMetaData/Neuroscan_version"),
-            "iconeus_scan_mode": mode,
+            "iconeus_acquisition_mode": mode,
             "iconeus_subject": _read_scan_str(h5, "/scanMetaData/Subject_tag"),
             "iconeus_session": _read_scan_str(h5, "/scanMetaData/Session_tag"),
             "iconeus_scan": _read_scan_str(h5, "/scanMetaData/Scan_tag"),
@@ -979,7 +979,7 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
             "probe_radius_of_curvature": float(radius),
             "probe_number_of_elements": int(n_elements),
             "depth_start_mm": float(depth_near),
-            "imaging_depth": (float(depth_near), float(depth_far)),
+            "depth": (float(depth_near), float(depth_far)),
             "transmit_frequency": float(transmit_frequency),
             "pulse_repetition_frequency": float(prf),
             "ultrafast_sampling_frequency": float(sampling_frequency),
@@ -1242,7 +1242,7 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
         "probe_focal_depth",
         "probe_radius_of_curvature",
         "probe_number_of_elements",
-        "imaging_depth",
+        "depth",
         "transmit_frequency",
         "pulse_repetition_frequency",
         "ultrafast_sampling_frequency",
@@ -1281,7 +1281,7 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
         {
             "affines": {},
             "iconeus_scan_format": "v2",
-            "iconeus_scan_mode": scan_mode,
+            "iconeus_acquisition_mode": scan_mode,
         }
     )
     return attrs
