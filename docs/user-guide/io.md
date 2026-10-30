@@ -317,7 +317,14 @@ geometry. Metadata recovered into `da.attrs` include the `world_to_lab` affine,
 provenance (`iconeus_*` attrs), acquisition datetime, and BIDS-corresponding
 acquisition settings in BIDS units (`probe_model`, `probe_center_frequency`,
 `probe_aperture`, `transmit_frequency`, `pulse_repetition_frequency`,
-`plane_wave_angles`, `svd_low_cutoff`, …); frequencies are in hertz. For multi-pose
+`plane_wave_angles`, …); frequencies are in hertz. Nonstandard imported metadata
+uses the `iconeus_` prefix, including `iconeus_probe_model_number`,
+`iconeus_ultrafast_sampling_frequency` (ADC sampling rate in MHz, not the compound
+sampling frequency),
+`iconeus_stimulation_toggle_times`, `iconeus_clutter_filter_type`,
+`iconeus_svd_low_cutoff`, `iconeus_svd_high_cutoff`, and velocity-band limits
+`iconeus_velocity_min`/`iconeus_velocity_max`. The `affines` attribute is ConfUSIus
+geometry rather than imported scanner metadata and remains unprefixed. For multi-pose
 recordings, see the
 [multi-pose user guide](multipose.md#scan-v2-binary).
 

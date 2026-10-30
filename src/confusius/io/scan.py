@@ -516,8 +516,10 @@ def load_scan(
     attributes in BIDS units: `probe_model`, `probe_center_frequency` (Hz),
     `probe_pitch` (mm), `probe_aperture` (mm), `probe_focal_depth` (mm),
     `depth` (mm start/end), `transmit_frequency` (Hz),
-    `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `svd_low_cutoff`, and
-    `power_doppler_integration_duration` (s).
+    `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `iconeus_svd_low_cutoff`, and
+    `power_doppler_integration_duration` (s). The Iconeus-specific
+    `iconeus_ultrafast_sampling_frequency` is the ADC sampling rate in MHz, not the
+    compound sampling frequency.
 
     ConfUSIus world coordinates `(z, y, x)` for SCAN data are **ConfUSIus-ordered
     Iconeus lab coordinates** (mm): a fixed scanner frame shared by every pose, used
@@ -801,10 +803,10 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
             high, offset = _read_scan_v2_struct(header, offset, cutoff_fmt)
             dim6_attrs.update(
                 {
-                    "clutter_filter_type": int(filter_type),
+                    "iconeus_clutter_filter_type": int(filter_type),
                     "clutter_filter_window_duration": float(window),
-                    "svd_low_cutoff": low,
-                    "svd_high_cutoff": high,
+                    "iconeus_svd_low_cutoff": low,
+                    "iconeus_svd_high_cutoff": high,
                 }
             )
         elif intent == 2:  # VelocityBandFiltering.
@@ -812,7 +814,10 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
             vmax, offset = _read_scan_v2_struct(header, offset, "<f")
             offset += 12
             dim6_attrs.update(
-                {"velocity_min": float(vmin), "velocity_max": float(vmax)}
+                {
+                    "iconeus_velocity_min": float(vmin),
+                    "iconeus_velocity_max": float(vmax),
+                }
             )
         else:
             raise ValueError(f"Unsupported SCAN v2 dim6 intent: {intent}.")
@@ -928,8 +933,8 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
     delay_after_trigger, offset = _read_scan_v2_struct(header, offset, "<d")
     skip_count, offset = _read_scan_v2_struct(header, offset, "<L")
     offset += int(skip_count) * 8
-    is_multiplane, offset = _read_scan_v2_struct(header, offset, "<?")
-    offset += 1
+    # Skip the unused multiplane flag and its padding byte.
+    offset += 2
     integration_window, offset = _read_scan_v2_struct(header, offset, "<d")
 
     sequence_name, offset = _read_scan_v2_binary_string(header, offset)
@@ -987,7 +992,6 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
             "plane_wave_angles": plane_wave_angles.tolist(),
             "transmit_voltage": float(transmit_voltage),
             "delay_after_trigger": float(delay_after_trigger),
-            "is_multiplane": bool(is_multiplane),
             "power_doppler_integration_duration": float(integration_window),
             "iconeus_sequence": sequence_name,
             "iconeus_project": project,
@@ -1250,7 +1254,6 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
         "plane_wave_angles",
         "transmit_voltage",
         "delay_after_trigger",
-        "is_multiplane",
         "power_doppler_integration_duration",
         "iconeus_sequence",
         "iconeus_project",
@@ -1277,7 +1280,16 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
         "stimulation_toggle_times",
         "software_version",
     )
-    attrs = {key: meta[key] for key in keys if key in meta}
+    iconeus_fields = {
+        "probe_model_number",
+        "ultrafast_sampling_frequency",
+        "stimulation_toggle_times",
+    }
+    attrs = {
+        f"iconeus_{key}" if key in iconeus_fields else key: meta[key]
+        for key in keys
+        if key in meta
+    }
     attrs.update(
         {
             "affines": {},

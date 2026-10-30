@@ -4,11 +4,12 @@ from pathlib import Path
 
 import h5py
 import numpy as np
-import numpy.typing as npt
 import numpy.testing as nptest
+import numpy.typing as npt
 import pytest
 import xarray as xr
 
+from confusius.bids import FUSI_BIDS_FIELDS, from_bids
 from confusius.io.iconeus_raw import load_iconeus_raw, load_iconeus_raw_metadata
 
 
@@ -135,6 +136,80 @@ class TestLoadIconeusRawMetadata:
         assert meta["is_legacy_format"] is False
         assert meta["acquisition_mode"] == "2Dscan"
 
+    @pytest.mark.parametrize("bound", ["depth_near", "depth_far"])
+    @pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+    def test_nonfinite_depth_raises(self, tmp_path, bound, value):
+        """Non-finite near and far depth bounds are rejected."""
+        _, meta_path, _ = _create_iconeus_raw_files(tmp_path, **{bound: value})
+
+        with pytest.raises(ValueError, match="HRAW depth bounds must be finite"):
+            load_iconeus_raw_metadata(meta_path)
+
+    @pytest.mark.parametrize("dimension", range(6))
+    @pytest.mark.parametrize("value", [0, -1, 3.5, np.nan, np.inf, -np.inf])
+    def test_invalid_dimensions_raise(self, tmp_path, dimension, value):
+        """Every dimension and the block count must be finite positive integers."""
+        _, meta_path, _ = _create_iconeus_raw_files(tmp_path)
+        with h5py.File(meta_path, "a") as f:
+            field = 9 if dimension < 5 else 11
+            values = (f[f"F{field}"][()] - 72) / (1005 * field)
+            values.reshape(-1)[dimension if dimension < 5 else 0] = value
+            f[f"F{field}"][...] = _encrypt(values, field)
+
+        with pytest.raises(ValueError, match="finite positive integers"):
+            load_iconeus_raw_metadata(meta_path)
+
+    def test_nearly_integer_dimensions_are_rounded(self, tmp_path):
+        """Floating-point decoding noise does not truncate whole-number counts."""
+        _, meta_path, _ = _create_iconeus_raw_files(tmp_path)
+        with h5py.File(meta_path, "a") as f:
+            f["F9"][...] = _encrypt([[3 - 1e-10], [2 + 1e-10], [4], [1], [5]], 9)
+            f["F11"][...] = _encrypt([[2 - 1e-10]], 11)
+
+        meta = load_iconeus_raw_metadata(meta_path)
+
+        assert tuple(
+            meta[key]
+            for key in (
+                "size_x",
+                "size_y",
+                "size_z",
+                "n_compound",
+                "n_frames_per_block",
+                "n_blocks",
+            )
+        ) == (3, 2, 4, 1, 5, 2)
+
+    @pytest.mark.parametrize(
+        ("field", "values", "message"),
+        [
+            (1, [], "F1 is empty"),
+            (6, [1], "depth must contain"),
+            (8, [1, 2], "spacing must contain"),
+            (9, [1, 2, 3, 4], "dimensions must contain"),
+            (1, [0], "transmit frequency must be positive"),
+            (6, [10, 1], "far depth must be greater"),
+        ],
+    )
+    def test_invalid_metadata_raises(self, tmp_path, field, values, message):
+        """Malformed fields fail at the metadata boundary with specific errors."""
+        _, meta_path, _ = _create_iconeus_raw_files(tmp_path)
+        with h5py.File(meta_path, "a") as f:
+            del f[f"F{field}"]
+            f.create_dataset(f"F{field}", data=_encrypt(values, field))
+
+        with pytest.raises(ValueError, match=message):
+            load_iconeus_raw_metadata(meta_path)
+
+    def test_unicode_acquisition_mode(self, tmp_path):
+        """Variable-length UTF-8 strings are decoded without byte conversion."""
+        _, meta_path, _ = _create_iconeus_raw_files(tmp_path)
+        with h5py.File(meta_path, "a") as f:
+            del f["F13"]
+            f.create_dataset("F13", data="2Dscan", dtype=h5py.string_dtype())
+
+        assert load_iconeus_raw_metadata(meta_path)["acquisition_mode"] == "2Dscan"
+
     def test_missing_field_raises(self, tmp_path):
         """A HRAW file missing a required field is rejected."""
         _, meta_path, _ = _create_iconeus_raw_files(tmp_path)
@@ -203,6 +278,16 @@ class TestLoadIconeusRaw:
         nptest.assert_allclose(data.coords["y"].isel(k=0, j=0, i=0).values, 1.0)
         nptest.assert_allclose(data.coords["x"].isel(k=0, j=0, i=0).values, -0.11)
         nptest.assert_allclose(data.coords["x"].isel(k=0, j=0, i=2).values, 0.11)
+
+    def test_metadata_names_follow_bids_or_iconeus_namespace(self, tmp_path):
+        """Imported metadata uses standard BIDS names or the Iconeus namespace."""
+        raw_path, _, _ = _create_iconeus_raw_files(tmp_path)
+        data = load_iconeus_raw(raw_path)
+        bids_names = from_bids(dict.fromkeys(FUSI_BIDS_FIELDS))
+
+        assert all(
+            key in bids_names or key.startswith("iconeus_") for key in data.attrs
+        )
 
     def test_discovers_hraw_sidecar(self, tmp_path):
         """Omitting meta_path finds the matching .hraw file next to the payload."""

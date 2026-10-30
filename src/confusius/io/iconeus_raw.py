@@ -158,14 +158,10 @@ def _read_hraw_string(dataset: h5.Dataset) -> str:
     str
         Decoded, whitespace-trimmed string.
     """
-    value = dataset[()]
+    value = dataset.asstr()[()]
     if isinstance(value, np.ndarray):
-        value = value.reshape(-1)[0] if value.size else b""
-    if isinstance(value, np.bytes_):
-        value = value.tobytes()
-    if isinstance(value, bytes):
-        return value.decode("utf-8").rstrip("\x00").strip()
-    return str(value).rstrip("\x00").strip()
+        value = value.reshape(-1)[0] if value.size else ""
+    return value.rstrip("\x00").strip()
 
 
 def load_iconeus_raw_metadata(meta_path: str | Path) -> IconeusRawMetadata:
@@ -185,7 +181,7 @@ def load_iconeus_raw_metadata(meta_path: str | Path) -> IconeusRawMetadata:
     ------
     ValueError
         If `meta_path` is not a file, a required field is missing, or the stored
-        dimensions are invalid.
+        dimensions are invalid, or the depth bounds are non-finite or reversed.
     """
     meta_path = check_path(meta_path, label="meta_path", type="file")
 
@@ -206,7 +202,7 @@ def load_iconeus_raw_metadata(meta_path: str | Path) -> IconeusRawMetadata:
         voxel_spacing = _decrypt_hraw_values(f["F8"], 8).reshape(-1)
         block_dimensions = _decrypt_hraw_values(f["F9"], 9).reshape(-1)
         compound = bool(_first_hraw_scalar(f["F10"], 10))
-        n_blocks = int(_first_hraw_scalar(f["F11"], 11))
+        n_blocks_value = _first_hraw_scalar(f["F11"], 11)
         is_legacy_format = bool(_first_hraw_scalar(f["F12"], 12))
         acquisition_mode = _read_hraw_string(f["F13"])
 
@@ -218,19 +214,19 @@ def load_iconeus_raw_metadata(meta_path: str | Path) -> IconeusRawMetadata:
         raise ValueError("HRAW block dimensions must contain five values.")
 
     # PyIconeus stores block dimensions as (sizeX, sizeY, sizeZ, compound, frames).
-    size_x, size_y, size_z, n_compound, n_frames_per_block = (
-        int(value) for value in block_dimensions[:5]
+    dimension_values = np.append(block_dimensions[:5], n_blocks_value)
+    rounded_dimensions = np.rint(dimension_values)
+    if (
+        not np.isfinite(dimension_values).all()
+        or not np.allclose(dimension_values, rounded_dimensions, rtol=0, atol=1e-8)
+        or (rounded_dimensions <= 0).any()
+    ):
+        raise ValueError(
+            f"HRAW dimensions must be finite positive integers, got {dimension_values}."
+        )
+    size_x, size_y, size_z, n_compound, n_frames_per_block, n_blocks = (
+        int(value) for value in rounded_dimensions
     )
-    dimensions = (
-        size_x,
-        size_y,
-        size_z,
-        n_compound,
-        n_frames_per_block,
-        n_blocks,
-    )
-    if min(dimensions) <= 0:
-        raise ValueError(f"HRAW dimensions must be positive, got {dimensions}.")
 
     lateral_spacing, elevation_spacing, axial_spacing = (
         float(value) for value in voxel_spacing[:3]
@@ -249,6 +245,11 @@ def load_iconeus_raw_metadata(meta_path: str | Path) -> IconeusRawMetadata:
     for name, value in positive_fields.items():
         if not np.isfinite(value) or value <= 0:
             raise ValueError(f"HRAW {name} must be positive, got {value}.")
+    # NaN bounds bypass the ordering check below.
+    if not np.isfinite([depth_near, depth_far]).all():
+        raise ValueError(
+            f"HRAW depth bounds must be finite, got near={depth_near}, far={depth_far}."
+        )
     if depth_far < depth_near:
         raise ValueError(
             "HRAW far depth must be greater than or equal to near depth, got "

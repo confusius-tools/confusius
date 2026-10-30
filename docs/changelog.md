@@ -33,7 +33,11 @@ Current development version for the next ConfUSIus release.
   exact global median ([#540](https://github.com/confusius-tools/confusius/pull/540)).
 - Iconeus SCAN metadata now uses fUSI-BIDS field names and units:
   `iconeus_scan_mode` becomes `iconeus_acquisition_mode`, `imaging_depth` becomes
-  `depth`, and `probe_center_frequency`/`transmit_frequency` are reported in hertz
+  `depth`, and `probe_center_frequency`/`transmit_frequency` are reported in hertz.
+  Nonstandard scanner metadata now consistently uses the `iconeus_` prefix,
+  including probe model numbers, ADC sampling frequency (in native MHz),
+  stimulation toggle times, filter types, SVD cutoffs, and velocity-band limits.
+  The unused `is_multiplane` flag is no longer exported
   ([#548](https://github.com/confusius-tools/confusius/pull/548)).
 >>>>>>> 5cf6c4ed (docs(changelog): record Iconeus RAW loader)
 - Matrix-seeded rigid/affine registration now optimizes around the fixed image's
