@@ -6,6 +6,7 @@ scale/translate/axis_labels/units/colormap values produced for napari are physic
 correct.
 """
 
+import pkgutil
 from pathlib import Path
 
 import dask.array as da
@@ -16,8 +17,14 @@ import pytest
 import xarray as xr
 from dask.callbacks import Callback
 from napari.layers import Image
+from npe2 import PluginManager, PluginManifest
 
-from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
+from confusius._napari._io._readers import (
+    read_iconeus_raw,
+    read_nifti,
+    read_scan,
+    read_zarr,
+)
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     has_axis_aligned_voxel_to_world_index,
@@ -139,6 +146,48 @@ class TestReadZarrGating:
         xr.Dataset({"data": xr.DataArray(np.zeros((4, 6)))}).to_zarr(path)
 
         assert read_zarr(str(path)) is None
+
+
+class TestReadIconeusRawGating:
+    """read_iconeus_raw returns a callable only for RAW files with an HRAW sidecar."""
+
+    def test_returns_none_for_list(self, make_iconeus_raw_files) -> None:
+        """Path list is rejected."""
+        raw_path, _, _ = make_iconeus_raw_files()
+        assert read_iconeus_raw([str(raw_path)]) is None
+
+    def test_returns_none_for_missing_file(self, tmp_path: Path) -> None:
+        """Non-existent path is rejected."""
+        assert read_iconeus_raw(str(tmp_path / "missing.raw")) is None
+
+    def test_returns_none_without_hraw_sidecar(self, tmp_path: Path) -> None:
+        """A `.raw` file from another format defers to other plugins."""
+        path = tmp_path / "foreign.raw"
+        path.write_bytes(bytes(16))
+        assert read_iconeus_raw(str(path)) is None
+
+    def test_returns_callable_for_raw_with_hraw_sidecar(
+        self, make_iconeus_raw_files
+    ) -> None:
+        """A `.raw` file next to its `.hraw` sidecar returns a reader function."""
+        raw_path, _, _ = make_iconeus_raw_files()
+        assert callable(read_iconeus_raw(str(raw_path)))
+
+    def test_manifest_routes_raw_files_to_reader(self) -> None:
+        """napari offers this reader for `.raw` files."""
+        manifest = PluginManifest.from_file("src/confusius/_napari/napari.yaml")
+        plugin_manager = PluginManager()
+        plugin_manager.register(manifest)
+
+        readers = list(plugin_manager.iter_compatible_readers("data.raw"))
+
+        assert [reader.command for reader in readers] == ["confusius.read_iconeus_raw"]
+        command = next(
+            command
+            for command in manifest.contributions.commands or []
+            if command.id == "confusius.read_iconeus_raw"
+        )
+        assert pkgutil.resolve_name(command.python_name) is read_iconeus_raw
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +446,20 @@ class TestReaderLayerData:
         npt.assert_allclose(
             np.asarray(layer_data), 5.0 * np.arange(24).reshape(2, 3, 4), rtol=1e-6
         )
+
+    def test_iconeus_raw_is_displayed_as_iq_magnitude(
+        self, make_iconeus_raw_files
+    ) -> None:
+        """Iconeus RAW IQ opens as an image layer of its magnitude."""
+        raw_path, _, expected_iq = make_iconeus_raw_files()
+
+        reader = read_iconeus_raw(str(raw_path))
+        assert reader is not None
+        layer_data, kwargs, layer_type = reader(str(raw_path))[0]
+
+        assert layer_type == "image"
+        assert kwargs["name"] == "sample.raw"
+        npt.assert_allclose(np.asarray(layer_data), np.abs(expected_iq), rtol=1e-6)
 
     def test_length_three_spatial_axis_not_treated_as_rgb(self, tmp_path: Path) -> None:
         """A last spatial axis of length 3 stays spatial instead of becoming RGB."""

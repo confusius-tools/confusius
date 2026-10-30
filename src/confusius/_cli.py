@@ -71,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="PATH",
         help=(
-            "Path to a fUSI data file (.nii, .nii.gz, .scan, .zarr) to open on "
+            "Path to a fUSI data file (.nii, .nii.gz, .scan, .raw, .zarr) to open on "
             "launch. May be passed multiple times to open several layers at "
             "once, e.g. `confusius fixed.nii moving.nii`."
         ),
