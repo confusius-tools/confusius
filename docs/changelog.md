@@ -12,6 +12,14 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- SCAN world coordinates are now the ConfUSIus representation of the Iconeus lab frame:
+  re-ordered to `(z, y, x)` and turned by a constant +90 degrees about the axial axis so
+  a standard IcoScan probe mount gives `z` elevation, `y` depth and `x` lateral.
+  [`load_bps`][confusius.io.load_bps] applies the same turn, so `inv(load_bps(...))`
+  remains the `world_to_brain` affine, and
+  `confusius.io.scan.ICONEUS_LAB_MOTOR_COMPENSATION` is the turn itself, for anyone
+  who needs Iconeus' own frame
+  ([#526](https://github.com/confusius-tools/confusius/pull/526)).
 - Use
   [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
   instead of `fetch_template_huang_2025` for the vascular mouse template. The fetcher

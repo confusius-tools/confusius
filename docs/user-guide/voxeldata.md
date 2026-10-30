@@ -283,9 +283,11 @@ Different loaders derive them in different ways:
   [`convert_autc_dats_to_zarr`][confusius.io.convert_autc_dats_to_zarr]—AUTC files carry
   no spacing metadata of their own. Origin is optional and defaults to a
   probe-centered, surface-referenced position when omitted.
-- **Iconeus SCAN**: Coordinates are derived from the `voxelsToProbe` affine embedded in
-  the SCAN file. The axial axis is flipped so that it is always positive and increases
-  with depth.
+- **Iconeus SCAN**: Coordinates are derived from the `voxelsToProbe` and `probeToLab`
+  affines embedded in the SCAN file, expressed in the Iconeus lab frame turned by a
+  constant +90 degrees about the axial axis to undo the standard IcoScan probe mount,
+  so that `z` is elevation, `y` depth and `x` lateral for a standard acquisition. The
+  axial axis is flipped so that it is always positive and increases with depth.
 - **NIfTI**: Coordinates are derived from the "best" affine transformation found in the
   file header, or from whichever one [`load_nifti`][confusius.io.load_nifti]'s
   `coordinate_affine` argument selects explicitly.
@@ -390,8 +392,9 @@ Several loaders populate `.attrs["affines"]` automatically:
   switched between the two. [`save_nifti`][confusius.io.save_nifti] can write any
   named affine in `.attrs["affines"]` back to the header via its `qform=`/`sform=`
   arguments, defaulting to `"world_to_qform"`/`"world_to_sform"` when not specified.
-- **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] uses ConfUSIus-ordered
-  Iconeus lab space as world space, so its `"world_to_lab"` entry is the identity. A
+- **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] uses the ConfUSIus
+  representation of the Iconeus lab frame (re-ordered and compensated for the standard
+  probe mount) as world space, so its `"world_to_lab"` entry is the identity. A
   `"world_to_probe"` entry maps world coordinates to the first pose's probe space
   (`z` elevation, `y` depth, `x` lateral), so the world space can be switched to the
   probe and back. Both are single `(4, 4)` affines, also for multi-pose acquisitions

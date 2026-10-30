@@ -231,15 +231,16 @@ Coordinates:
   * k        (k) int64 32B 0 1 2 3
   * j        (j) int64 736B 0 1 2 3 4 5 6 7 8 9 ... 83 84 85 86 87 88 89 90 91
   * i        (i) int64 824B 0 1 2 3 4 5 6 7 8 ... 94 95 96 97 98 99 100 101 102
-  * z        (pose, k, j, i) float64 1MB -0.19 -0.3 -0.41 ... -11.3 -11.41
+  * z        (pose, k, j, i) float64 1MB -3.851 -3.851 -3.851 ... 4.024 4.024
   * y        (pose, k, j, i) float64 1MB 20.3 20.3 20.3 ... 29.27 29.27 29.27
-  * x        (pose, k, j, i) float64 1MB -3.851 -3.851 -3.851 ... 4.024 4.024
+  * x        (pose, k, j, i) float64 1MB 0.19 0.3 0.41 0.52 ... 11.19 11.3 11.41
 Indexes:
   ┌ z        VoxelToWorldIndex
   │ y
   └ x
 Attributes:
-    affines:               {'world_to_lab': array([[1., 0., 0., 0.],\n       ...
+    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
+       ...
     device_serial_number:  XXXXXXXX
     software_version:      IcoScan version 1.0.0
     iconeus_scan_mode:     4Dscan
@@ -260,6 +261,15 @@ Note that for recordings consisting of multiple probe poses (e.g., `3Dscan`, `4D
 the `time` coordinate is **pose-dependent**, giving the acquisition time of each volume
 for each pose. This is useful for volume-timing corrections and for aligning multi-pose
 acquisitions with external events. 
+
+World coordinates are the ConfUSIus representation of the Iconeus lab frame: a fixed
+scanner frame shared by every pose and every scan of a session, re-ordered to
+`(z, y, x)` in millimeters and turned by a constant +90 degrees about the axial axis
+(`confusius.io.scan.ICONEUS_LAB_MOTOR_COMPENSATION`) to undo the standard IcoScan probe
+mount. A standard acquisition therefore has `z` elevation, `y` depth and `x` lateral,
+as in the listing above; a probe mounted at another angle keeps its rotation in the
+loaded geometry. `attrs["affines"]` holds `world_to_lab` (the identity) and
+`world_to_probe`, which maps world coordinates to the first pose's probe space.
 
 Additionally, each pose has its own voxel-to-world affine transformation, meaning the
 `z`/`y`/`x` world coordinates are **pose-dependent**. The `pose` coordinate indexes the
@@ -287,7 +297,7 @@ world coordinates are derived from voxel indices and affines.
 #### SCAN v2 (binary format)
 
 SCAN v2 files preserve the recording's data, acquisition timing, and VoxelData
-geometry (world coordinates in ConfUSIus-ordered Iconeus lab space, as for SCAN v1).
+geometry (world coordinates in the same compensated Iconeus lab frame as SCAN v1).
 Metadata recovered into `da.attrs` include provenance (`iconeus_*` attrs), acquisition
 datetime, and BIDS-corresponding acquisition settings (`probe_model`,
 `probe_center_frequency`, `probe_aperture`, `transmit_frequency`,
@@ -305,9 +315,9 @@ Coordinates:
   * k        (k) int64 8B 0
   * j        (j) int64 736B 0 1 2 3 4 5 6 7 8 9 ... 83 84 85 86 87 88 89 90 91
   * i        (i) int64 1kB 0 1 2 3 4 5 6 7 8 ... 120 121 122 123 124 125 126 127
-  * z        (k, j, i) float64 94kB 9.585 9.475 9.365 ... -4.165 -4.275 -4.385
+  * z        (k, j, i) float64 94kB 0.7 0.7 0.7 0.7 0.7 ... 0.7 0.7 0.7 0.7 0.7
   * y        (k, j, i) float64 94kB 1.0 1.0 1.0 1.0 ... 9.969 9.969 9.969 9.969
-  * x        (k, j, i) float64 94kB 0.7 0.7 0.7 0.7 0.7 ... 0.7 0.7 0.7 0.7 0.7
+  * x        (k, j, i) float64 94kB -9.585 -9.475 -9.365 ... 4.165 4.275 4.385
 Indexes:
   ┌ z        VoxelToWorldIndex
   │ y
@@ -334,8 +344,9 @@ Iconeus' BPS files are HDF5 containers produced by Iconeus' Brain Positioning Sy
 They contain an affine matrix that maps Iconeus brain coordinates `(x_brain, y_brain,
 z_brain, 1)` to Iconeus lab coordinates `(x_lab, y_lab, z_lab, 1)` in meters. The
 Iconeus lab frame is a fixed scanner space defined by Iconeus. ConfUSIus re-expresses
-this space as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)` in millimeters:
-that is the world space used when loading SCAN files.
+this space as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)` in millimeters,
+turned by the same constant that compensates the IcoScan probe mount when loading SCAN
+files: that is the world space of SCAN data, so the recipe below needs no extra step.
 
 The affine matrix in the BPS file can be loaded with
 [`confusius.io.load_bps`][confusius.io.load_bps]. It is generally a good idea to store
