@@ -1451,6 +1451,72 @@ class TestInitialization:
 
         assert_allclose(transform, initial_transform)
 
+    @pytest.mark.parametrize("transform_type", ["rigid", "affine"])
+    def test_affine_seed_preserves_mapping_and_fixed_center(
+        self, transform_type, monkeypatch
+    ):
+        """A nonidentity matrix seed keeps its mapping and the fixed physical pivot."""
+        import SimpleITK as sitk
+
+        geometry = np.array(
+            [
+                [0.0, -0.5, 0.0, 12.0],
+                [0.8, 0.0, 0.0, -7.0],
+                [0.0, 0.0, 1.2, 3.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        fixed = create_voxeldata(
+            np.random.default_rng(0).random((5, 6, 7)).astype(np.float32),
+            dims=("k", "j", "i"),
+            voxel_to_world=geometry,
+        )
+        angle = np.deg2rad(5.0)
+        seed = np.array(
+            [
+                [np.cos(angle), -np.sin(angle), 0.0, 0.3],
+                [np.sin(angle), np.cos(angle), 0.0, -0.2],
+                [0.0, 0.0, 1.0, 0.1],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        initial_transforms = []
+        original_set_initial_transform = (
+            sitk.ImageRegistrationMethod.SetInitialTransform
+        )
+
+        def capture_initial_transform(registration, transform, inPlace):
+            initial_transforms.append(sitk.AffineTransform(transform))
+            return original_set_initial_transform(registration, transform, inPlace)
+
+        monkeypatch.setattr(
+            sitk.ImageRegistrationMethod,
+            "SetInitialTransform",
+            capture_initial_transform,
+        )
+        _, result, _ = register_volume(
+            fixed,
+            fixed,
+            transform_type=transform_type,
+            initialization=seed,
+            optimizer_weights=[0.0] * 12,
+            learning_rate=1.0,
+            number_of_iterations=1,
+            use_multi_resolution=False,
+            resample=False,
+        )
+
+        (initial_transform,) = initial_transforms
+        expected_center = (geometry @ [2.0, 2.5, 3.0, 1.0])[:3]
+        assert_allclose(initial_transform.GetCenter(), expected_center)
+        for point in [np.zeros(3), expected_center, np.array([2.0, -3.0, 4.0])]:
+            assert_allclose(
+                initial_transform.TransformPoint(point),
+                seed[:3, :3] @ point + seed[:3, 3],
+                atol=1e-12,
+            )
+        assert_allclose(result, seed, atol=1e-12)
+
     def test_bspline_with_affine_initialization_stores_pre_affine(
         self, sample_voxeldata_2d_registration
     ):
