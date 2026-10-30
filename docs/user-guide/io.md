@@ -223,17 +223,21 @@ iq = cf.load("path/to/acquisition.raw")
 
 Acquisition blocks are preserved as Dask chunks (one chunk per block along `time`), so
 `iq.chunks[0]` gives the number of frames per block. IQ metadata is attached to
-`iq.attrs` using fUSI-BIDS field names where they exist. Icconeus-specific metadata is
+`iq.attrs` using fUSI-BIDS field names where they exist. Iconeus-specific metadata is
 stored with the `iconeus_` prefix.
 
 !!! warning "Iconeus RAW timestamps are theoretical"
     Iconeus RAW files do not store acquisition timestamps, so the `time` coordinate is
-    computed from the compound sampling frequency metadata in the HRAW file. If you 
+    computed from the compound sampling frequency metadata in the HRAW file. If you
     know the real acquisition timings (e.g. from external triggers), override the `time`
     coordinate with `iq.assign_coords(time=...)` after loading.
 
-When you expect to process the same recording repeatedly, [convert it to
-Zarr](#converting-beamformed-iq-data-to-zarr) instead for better performance.
+When you expect to process the same recording repeatedly, [save it to
+Zarr](#saving-data) once for better performance:
+
+```python
+cf.save(iq, "path/to/acquisition.zarr")
+```
 
 ### Loading Iconeus SCAN Files
 
