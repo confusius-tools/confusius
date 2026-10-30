@@ -4,8 +4,11 @@ Portions of this file are derived from Nipype, which is licensed under the Apach
 License 2.0. See `NOTICE` file for details.
 """
 
+from __future__ import annotations
+
+from collections.abc import Callable
 from functools import partial
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -14,6 +17,9 @@ from scipy import stats as sp_stats
 
 from confusius.glm._utils import estimate_ar_coeffs
 from confusius.validation import validate_time_series
+
+if TYPE_CHECKING:
+    import dask.array as da
 
 
 def compute_dvars(
@@ -93,9 +99,10 @@ def compute_dvars(
 
     The `median` estimator avoids AR(1) fitting but assumes most time points reflect
     baseline activity. The `ar1` estimator assumes stationarity and is sensitive to
-    artifacts. Neither yields a z-score or calibrated artifact probability. Due to IQR
-    interpolation, exact invariance to signal sign reversal is guaranteed only for
-    `median` when feature selection is unchanged.
+    artifacts. Neither yields a z-score or calibrated artifact probability. The
+    lower IQR interpolation follows Nipype's implementation (itself based on FSL).
+    As a consequence, exact invariance to signal sign reversal is guaranteed only
+    for `median` when feature selection is unchanged.
 
     **Precision:** Float32/float64 inputs retain their precision during differencing;
     float16 and integer inputs are promoted to float32 and float64, respectively.
@@ -150,63 +157,95 @@ def compute_dvars(
         raise ValueError("variance_tolerance must be finite and nonnegative.")
     if not np.issubdtype(signals.dtype, np.number) or np.iscomplexobj(signals):
         raise TypeError("signals must contain real numeric data.")
-
     if signals.size == 0:
         raise ValueError("signals must contain nonempty, finite features.")
-    normalization = normalization_factor if variant == "raw" else None
-    if normalization is not None and (
-        not np.isfinite(normalization) or normalization <= 0
+
+    # Relative DVARS is invariant to global intensity scaling. Conversely, the baseline
+    # estimator has no effect on raw DVARS.
+    target_median_intensity = normalization_factor if variant == "raw" else None
+    selected_baseline_estimator = baseline_estimator if variant == "relative" else None
+    if target_median_intensity is not None and (
+        not np.isfinite(target_median_intensity) or target_median_intensity <= 0
     ):
         raise ValueError("normalization_factor must be finite and positive.")
-    baseline = baseline_estimator if variant == "relative" else None
-    values = signals.transpose("time", ...).data
-    compute_block_statistics = partial(
+
+    # Both eager and lazy paths use the same block computation. The AR(1) fit is skipped
+    # unless that particular relative-DVARS baseline is requested.
+    summarize_block = partial(
         _compute_dvars_block_statistics,
         remove_zero_variance=remove_zero_variance,
         variance_tolerance=variance_tolerance,
-        estimate_difference_variance=baseline == "ar1",
-        normalization_factor=normalization,
+        estimate_ar1_difference_variance=selected_baseline_estimator == "ar1",
+        target_median_intensity=target_median_intensity,
     )
+    values = signals.transpose("time", ...).data
 
-    if signals.chunks is not None:
-        import dask.array as da
-        from dask import delayed
-
-        if normalization is not None:
-            # An exact global intensity median cannot be recovered from block medians.
-            statistics = delayed(compute_block_statistics)(values)
-        else:
-            blocks = values.rechunk({0: -1}).to_delayed().ravel()
-            block_statistics = [
-                da.from_delayed(
-                    delayed(compute_block_statistics)(block),
-                    shape=(signals.sizes["time"] + 1,),
-                    dtype=float,
-                )
-                for block in blocks
-            ]
-            statistics = da.stack(block_statistics).sum(axis=0)
-        result = da.from_delayed(
-            delayed(_compute_dvars_from_statistics)(statistics, baseline),
-            shape=(signals.sizes["time"],),
-            dtype=float,
+    if signals.chunks is None:
+        result = _compute_dvars_from_block_statistics(
+            summarize_block(values), selected_baseline_estimator
         )
     else:
-        result = _compute_dvars_from_statistics(
-            compute_block_statistics(values), baseline
+        result = _compute_dvars_dask(
+            values,
+            summarize_block=summarize_block,
+            baseline_estimator=selected_baseline_estimator,
+            requires_global_median=target_median_intensity is not None,
         )
 
-    dvars = xr.DataArray(
+    return xr.DataArray(
         result,
         dims=["time"],
         coords={"time": signals.coords["time"]},
         attrs={
             "long_name": "relative DVARS" if variant == "relative" else "DVARS",
-            "units": "1" if variant == "relative" else "a.u.",
+            "units": "a.u.",
         },
     )
-    dvars.name = None
-    return dvars
+
+
+def _compute_dvars_dask(
+    values: da.Array,
+    *,
+    summarize_block: Callable[[npt.NDArray[np.number]], npt.NDArray[np.float64]],
+    baseline_estimator: Literal["median", "ar1"] | None,
+    requires_global_median: bool,
+) -> da.Array:
+    """Build a lazy DVARS computation from full-time spatial blocks."""
+    import dask.array as da
+    from dask import delayed
+
+    n_timepoints = values.shape[0]
+
+    if requires_global_median:
+        # Exact intensity normalization needs the median of *all retained values*. Block
+        # medians cannot be combined into that median, so this branch loads the full
+        # recording in one task instead of processing spatial blocks.
+        combined_summary = delayed(summarize_block)(values)
+    else:
+        # Each block must contain the entire time axis to compute temporal differences,
+        # robust SDs, and (optionally) AR(1) coefficients correctly. The remaining
+        # spatial blocks are processed independently, then their additive summaries are
+        # summed without materializing the full recording.
+        spatial_blocks = values.rechunk({0: -1}).to_delayed().ravel()
+        block_summaries = [
+            da.from_delayed(
+                delayed(summarize_block)(block),
+                shape=(n_timepoints + 1,),
+                dtype=np.float64,
+            )
+            for block in spatial_blocks
+        ]
+        combined_summary = da.stack(block_summaries).sum(axis=0)
+
+    # The small combined summary determines the baseline and final DVARS trace.
+    # Errors depending on input values are raised only when this graph executes.
+    return da.from_delayed(
+        delayed(_compute_dvars_from_block_statistics)(
+            combined_summary, baseline_estimator
+        ),
+        shape=(n_timepoints,),
+        dtype=np.float64,
+    )
 
 
 def _compute_dvars_block_statistics(
@@ -214,40 +253,44 @@ def _compute_dvars_block_statistics(
     *,
     remove_zero_variance: bool,
     variance_tolerance: float,
-    estimate_difference_variance: bool,
-    normalization_factor: float | None,
+    estimate_ar1_difference_variance: bool,
+    target_median_intensity: float | None,
 ) -> npt.NDArray[np.float64]:
-    """Compute additive DVARS statistics for one full-time spatial block.
+    """Return additive DVARS statistics for a full-time spatial block.
+
+    The float64 summary contains `(time - 1)` sums of squared differences, followed by
+    the number of retained features and the summed expected difference variance for the
+    AR(1) baseline (zero when unused). Using one array lets Dask aggregate blocks with a
+    simple sum, including when blocks contain different numbers of retained features.
 
     Parameters
     ----------
     block : (time, ...) numpy.ndarray
-        Real input signals for one spatial block.
+        Real, finite signals with a time axis of length at least two. Any other axes
+        are flattened into features.
     remove_zero_variance : bool
-        Whether to exclude features with low robust temporal SD.
+        Whether to exclude features whose robust temporal SD is less than or
+        equal to `variance_tolerance`, before computing either variant.
     variance_tolerance : float
-        Threshold for robust temporal SD.
-    estimate_difference_variance : bool
-        Whether to estimate voxelwise difference variances using AR(1).
-    normalization_factor : float or None
-        Target median intensity for raw DVARS. When provided, `block` must contain
-        the entire recording so normalization uses the global retained median.
+        Finite, nonnegative threshold for robust temporal SD, estimated as
+        IQR divided by the standard normal IQR using lower interpolation.
+    estimate_ar1_difference_variance : bool
+        Whether to compute the sum of expected difference variances for the AR(1)
+        baseline. Ignored if `baseline_estimator` is `"median"` or `None`.
+    target_median_intensity : float or None
+        Positive target median signal intensity for raw DVARS. If not provided, no
+        intensity normalization is performed. Ignored for relative DVARS, which is
+        invariant to positive global intensity scaling.
 
     Returns
     -------
-    (time + 1,) numpy.ndarray
-        Additive summary: `time - 1` squared-difference sums, then the retained
-        feature count and summed AR(1) difference variance (zero when unused).
-        Keeping these together avoids duplicate reads and IQR/AR(1) calculations
-        when Dask optimizes the graph. Summing summaries weights features equally,
-        even when spatial blocks retain different numbers of features.
-
-    Raises
-    ------
-    ValueError
-        If the block contains nonfinite signals or its required intensity median
-        is zero or nonfinite.
+    (time + 1,) numpy.ndarray[float64]
+        The first `(time - 1)` entries are sums of squared temporal differences across
+        all retained features. The last two entries are the total number of retained
+        features and the sum of expected difference variances for the AR(1) baseline.
     """
+    # Differencing preserves float32/float64 precision. Float16 is promoted to float32,
+    # and integers to float64 to avoid integer subtraction overflow.
     dtype = (
         np.result_type(block.dtype, np.float32)
         if np.issubdtype(block.dtype, np.floating)
@@ -256,67 +299,86 @@ def _compute_dvars_block_statistics(
     values = np.asarray(block, dtype=dtype).reshape(block.shape[0], -1)
     if not np.isfinite(values).all():
         raise ValueError("signals must contain nonempty, finite features.")
-    if remove_zero_variance or estimate_difference_variance:
-        sd = sp_stats.iqr(values, axis=0, scale="normal", interpolation="lower")
+
+    if remove_zero_variance or estimate_ar1_difference_variance:
+        robust_sd = sp_stats.iqr(values, axis=0, scale="normal")
         if remove_zero_variance:
-            keep = sd > variance_tolerance
-            values, sd = values[:, keep], sd[keep]
+            retained = robust_sd > variance_tolerance
+            values, robust_sd = values[:, retained], robust_sd[retained]
+
     if values.shape[1] == 0:
+        # An individual block may be empty after filtering; only the aggregate should
+        # fail if *all* blocks have no retained features.
         return np.zeros(block.shape[0] + 1, dtype=np.float64)
 
-    if normalization_factor is not None:
+    if target_median_intensity is not None:
         median_intensity = np.median(values)
         if not np.isfinite(median_intensity) or median_intensity == 0:
             raise ValueError("Median signal intensity must be finite and nonzero.")
-        values = values * (normalization_factor / median_intensity)
+        values = values * (target_median_intensity / median_intensity)
 
-    variance_sum = 0.0
-    if estimate_difference_variance:
+    expected_difference_variance_sum = 0.0
+    if estimate_ar1_difference_variance:
+        # Under an AR(1) model, Var(Y[t] - Y[t-1]) = 2(1 - rho) * sigma**2.
         ar1, _ = estimate_ar_coeffs(values, order=1)
-        diff_sd = np.sqrt(2 * (1 - ar1.reshape(-1))) * sd
-        variance_sum = np.sum(diff_sd**2, dtype=np.float64)
-    squared_sum = np.sum(np.diff(values, axis=0) ** 2, axis=1, dtype=np.float64)
-    return np.append(squared_sum, [values.shape[1], variance_sum])
+        difference_sd = np.sqrt(2 * (1 - ar1.reshape(-1))) * robust_sd
+        expected_difference_variance_sum = np.sum(difference_sd**2, dtype=np.float64)
+
+    squared_difference_sums = np.sum(
+        np.diff(values, axis=0) ** 2, axis=1, dtype=np.float64
+    )
+
+    # Packed layout: [squared_difference_sums..., feature_count, AR1_variance_sum]. All
+    # entries are additive across feature blocks, unlike the final RMS and median
+    # baseline. Keeping them together avoids separate Dask reductions.
+    return np.append(
+        squared_difference_sums,
+        [values.shape[1], expected_difference_variance_sum],
+    )
 
 
-def _compute_dvars_from_statistics(
-    statistics: npt.NDArray[np.float64],
+def _compute_dvars_from_block_statistics(
+    summary: npt.NDArray[np.float64],
     baseline_estimator: Literal["median", "ar1"] | None,
 ) -> npt.NDArray[np.float64]:
-    """Convert aggregated statistics to raw or relative DVARS.
+    """Turn an aggregated block summary into a raw or relative DVARS trace.
 
     Parameters
     ----------
-    statistics : (time + 1,) numpy.ndarray
-        Combined squared-difference sums, followed by the retained feature count
-        and summed AR(1) difference variance.
+    summary : (time + 1,) numpy.ndarray[float64]
+        The first `(time - 1)` entries are sums of squared temporal differences across
+        all retained features. The last two entries are the total number of retained
+        features and the sum of expected difference variances for the AR(1) baseline.
     baseline_estimator : {"median", "ar1"} or None
-        Relative DVARS baseline, or `None` for raw DVARS.
+        Baseline for relative DVARS. Ignored for raw DVARS.
 
     Returns
     -------
-    (time,) numpy.ndarray
-        DVARS with `NaN` at the undefined first time point.
-
-    Raises
-    ------
-    ValueError
-        If no features remain or the baseline is nonfinite or nonpositive.
+    (time,) numpy.ndarray[float64]
+        Raw or relative DVARS, with the first value set to `NaN` because the first frame
+        has no preceding frame.
     """
-    count, variance_sum = statistics[-2:]
-    if count == 0:
+    squared_difference_sums = summary[:-2]
+    feature_count, expected_difference_variance_sum = summary[-2:]
+    if feature_count == 0:
         raise ValueError(
             "All signals have variance below tolerance. Check input data or "
             "adjust 'variance_tolerance'."
         )
-    dvars = np.sqrt(statistics[:-2] / count)
+
+    # Divide by the *total number of retained features*, rather than taking an average
+    # of blockwise DVARS values (which would weight small blocks equally).
+    dvars = np.sqrt(squared_difference_sums / feature_count)
     if baseline_estimator is not None:
-        baseline = np.sqrt(
-            np.median(dvars**2)
-            if baseline_estimator == "median"
-            else variance_sum / count
-        )
+        if baseline_estimator == "median":
+            # This median is over genuine temporal differences only.
+            baseline_squared = np.median(dvars**2)
+        else:
+            baseline_squared = expected_difference_variance_sum / feature_count
+        baseline = np.sqrt(baseline_squared)
         if not np.isfinite(baseline) or baseline <= 0:
             raise ValueError("Relative DVARS baseline must be finite and positive.")
         dvars /= baseline
+
+    # The first frame has no predecessor; prepend NaN after baseline estimation.
     return np.insert(dvars, 0, np.nan)
