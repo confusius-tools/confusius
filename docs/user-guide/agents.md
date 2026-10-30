@@ -18,7 +18,7 @@ confusius skills list
 
 | Skill | Description |
 |---|---|
-| `confusius-load-data` | Load custom or supported ultrasound data into ConfUSIus. Use for file imports, VoxelData dimensions, acquisition timing, and voxel-to-world geometry. |
+| `confusius-load-data` | Load any spatially referenced voxel array into ConfUSIus, including fUSI recordings, derived maps, anatomical images, and atlases. Use when importing data from files or arrays, choosing loaders, or constructing VoxelData with correct dimensions, coordinates, timing, and spatial geometry. |
 
 ## Install Skills
 
