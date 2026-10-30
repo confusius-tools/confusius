@@ -315,9 +315,10 @@ world coordinates are derived from voxel indices and affines.
 SCAN v2 files preserve the recording's data, acquisition timing, and VoxelData
 geometry. Metadata recovered into `da.attrs` include the `world_to_lab` affine,
 provenance (`iconeus_*` attrs), acquisition datetime, and BIDS-corresponding
-acquisition settings (`probe_model`, `probe_center_frequency`, `probe_aperture`,
-`transmit_frequency`, `pulse_repetition_frequency`, `plane_wave_angles`,
-`svd_low_cutoff`, …). For multi-pose recordings, see the
+acquisition settings in BIDS units (`probe_model`, `probe_center_frequency`,
+`probe_aperture`, `transmit_frequency`, `pulse_repetition_frequency`,
+`plane_wave_angles`, `svd_low_cutoff`, …); frequencies are in hertz. For multi-pose
+recordings, see the
 [multi-pose user guide](multipose.md#scan-v2-binary).
 
 ```pycon
@@ -349,7 +350,7 @@ Attributes: (12/26)
     probe_pitch:                       0.11
     probe_focal_depth:                 8.0
     depth:                             (1.0, 10.0)
-    transmit_frequency:                15.625
+    transmit_frequency:                15625000.0
     pulse_repetition_frequency:        5500.0
     plane_wave_angles:                 [-10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 2...
 ```

@@ -54,6 +54,8 @@ _PD_WINDOW = 200
 _PROBE_MODEL = "IcoPrime"
 _CENTER_FREQ = 15.625
 _TRANSMIT_FREQ = 9.0
+_CENTER_FREQ_HZ = _CENTER_FREQ * 1e6
+_TRANSMIT_FREQ_HZ = _TRANSMIT_FREQ * 1e6
 _PITCH = 0.11
 _ELEVATION_APERTURE = 1.5
 _FOCAL_DEPTH = 8.0
@@ -641,7 +643,7 @@ class TestLoadScanV2Acquisition:
         """Probe model, frequency, pitch, elevation aperture, and focal depth are read."""
         assert scan_v2_acq.attrs["probe_model"] == _PROBE_MODEL
         assert scan_v2_acq.attrs["probe_center_frequency"] == pytest.approx(
-            _CENTER_FREQ
+            _CENTER_FREQ_HZ
         )
         assert scan_v2_acq.attrs["probe_pitch"] == pytest.approx(_PITCH)
         assert scan_v2_acq.attrs["probe_aperture"] == pytest.approx(_ELEVATION_APERTURE)
@@ -671,8 +673,10 @@ class TestLoadScanV2Acquisition:
 
     def test_transmit_distinct_from_center(self, scan_v2_acq: xr.DataArray) -> None:
         """Transmit frequency is read from its own field, distinct from center freq."""
-        assert scan_v2_acq.attrs["transmit_frequency"] == pytest.approx(_TRANSMIT_FREQ)
-        assert scan_v2_acq.attrs["transmit_frequency"] != pytest.approx(_CENTER_FREQ)
+        assert scan_v2_acq.attrs["transmit_frequency"] == pytest.approx(
+            _TRANSMIT_FREQ_HZ
+        )
+        assert scan_v2_acq.attrs["transmit_frequency"] != pytest.approx(_CENTER_FREQ_HZ)
 
     def test_sequence_fields(self, scan_v2_acq: xr.DataArray) -> None:
         """PRF, plane-wave angles, and imaging depth are recovered."""

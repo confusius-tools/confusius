@@ -513,9 +513,9 @@ def load_scan(
     functions must copy them first.
 
     Acquisition settings that correspond to fUSI-BIDS fields are also surfaced as
-    attributes, in native header units: `probe_model`, `probe_center_frequency` (MHz),
+    attributes in BIDS units: `probe_model`, `probe_center_frequency` (Hz),
     `probe_pitch` (mm), `probe_aperture` (mm), `probe_focal_depth` (mm),
-    `depth` (mm start/end), `transmit_frequency` (MHz),
+    `depth` (mm start/end), `transmit_frequency` (Hz),
     `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `svd_low_cutoff`, and
     `power_doppler_integration_duration` (s).
 
@@ -967,12 +967,13 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
     minor, offset = _read_scan_v2_struct(header, offset, "<L")
     patch, _ = _read_scan_v2_struct(header, offset, "<L")
 
+    # SCAN v2 stores probe and transmit frequencies in MHz; fUSI-BIDS expects Hz.
     result.update(
         {
             "probe_type": int(probe_type),
             "probe_model": probe_name,
             "probe_model_number": probe_model,
-            "probe_center_frequency": float(center_frequency),
+            "probe_center_frequency": float(center_frequency) * 1e6,
             "probe_pitch": float(pitch),
             "probe_aperture": float(elevation_aperture),
             "probe_focal_depth": float(focal_depth),
@@ -980,7 +981,7 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
             "probe_number_of_elements": int(n_elements),
             "depth_start_mm": float(depth_near),
             "depth": (float(depth_near), float(depth_far)),
-            "transmit_frequency": float(transmit_frequency),
+            "transmit_frequency": float(transmit_frequency) * 1e6,
             "pulse_repetition_frequency": float(prf),
             "ultrafast_sampling_frequency": float(sampling_frequency),
             "plane_wave_angles": plane_wave_angles.tolist(),
