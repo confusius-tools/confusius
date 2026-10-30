@@ -1,41 +1,47 @@
 # VoxelData geometry reference
 
-## One spatial model
+## Spatial coordinates
 
-A VoxelData array is an `xarray.DataArray` with canonical dimensions
-`(...extra, time, pose, k, j, i)` and a `VoxelToWorldIndex` attached to `z/y/x`.
-`time` and `pose` are optional; all three spatial dimensions remain present even
-for a slice or line. An already-reduced `(time, region)` signals table is not a
-spatial array and should not be wrapped as one.
+`VoxelData` is an `xarray.DataArray` with canonical dimensions `(...extra, time, pose,
+k, j, i)` and a `VoxelToWorldIndex` defining world coordinates `z/y/x`. `time` and
+`pose` are optional; all three spatial dimensions are required, including for slices and
+lines.
 
-`k/j/i` are integer voxel **labels**, initially `arange(size)`; they are not mm.
-`isel` selects dense array positions; `sel(k=..., j=..., i=...)` selects labels.
-World coordinates are lazily derived by the index, not independent input arrays.
-Oblique affines can make every world coordinate depend on all three voxel axes.
+Distinguish three coordinate spaces:
+
+- **Array space:** Dense zero-based positions, selected with `isel`.
+- **Voxel space:** Integer `k/j/i` labels, selected with `sel`. Initially
+  `arange(size)`, but preserved through cropping and striding.
+- **World space:** Physical `z/y/x` coordinates derived from voxel labels
+  through the affine. They are not independent input coordinates.
+
+World coordinates may depend on all three voxel axes for oblique grids.
+A non-spatial `(time, region)` signals table is not `VoxelData`.
 
 ## Affine convention
 
-For a single grid:
+The voxel-to-world affine maps **voxel labels to world coordinates**:
 
 ```text
-[z, y, x, 1]^T = A @ [k_label, j_label, i_label, 1]^T
+[z, y, x, 1]^T = A @ [k, j, i, 1]^T
+
 A[:3, :3] = direction @ diag(spacing)
 A[:3, 3] = origin
 A[3, :] = [0, 0, 0, 1]
 ```
 
-Rows are world `z/y/x`; columns are voxel `k/j/i`. Direction columns specify the
-world direction of each voxel axis. Spacing is positive; encode reflection in the
-direction/affine, not negative spacing. Require finite, physically meaningful,
-invertible geometry; a homogeneous bottom row alone is not sufficient calibration.
-An oblique grid cannot be represented by three independent 1D world axes.
+- `spacing=(dz, dy, dx)` and `origin=(z0, y0, x0)` follow ConfUSIus
+  `(z, y, x)` conventions, regardless of raw array order.
+- `direction` has world `(z, y, x)` rows and voxel `(k, j, i)` columns.
+  Its columns specify the physical directions of the voxel axes.
+- Spacing must be positive; represent axis reversals in the direction matrix. Geometry
+  must be finite and invertible.
 
-The origin is the position of **voxel label zero**, which equals the first stored
-voxel only for zero-based labels. Geometry maps voxel centers. If metadata describes
-an outer corner, translate by half a voxel along each relevant direction column.
-Do not apply a half-voxel correction unless the source convention warrants it.
+The origin is the world position of **voxel label zero**, not necessarily the first
+stored voxel after cropping. Geometry refers to voxel centers; convert corner-based
+coordinates with the appropriate half-voxel offset.
 
-With omitted `origin`, probe defaults for dense zero-based labels are:
+When `origin` is omitted, ConfUSIus uses probe-centered defaults:
 
 ```text
 z0 = -(nk - 1) * dz / 2
@@ -43,38 +49,48 @@ y0 = dy / 2
 x0 = -(ni - 1) * dx / 2
 ```
 
-Thus depth starts half a voxel below the probe surface, and elevation/lateral are
-centered. These defaults are not universal scanner or atlas origins. Prefer explicit
-calibrated origins for custom imports.
+These center the elevation/lateral axes and place the first depth voxel half a voxel
+below the probe surface in the standard axis-aligned case. Prefer calibrated origins for
+custom imports, especially anatomical data.
 
-### Converting an external xyz/ijk affine
+### Converting external geometry
 
-If `B` maps `[i, j, k, 1]` to `[x, y, z, 1]`, reverse **both** orders:
+Pass raw arrays unchanged, with `dims` describing their stored axis order. Convert the
+source geometry separately.
+
+For axis-aligned data with `i → x`, `j → y`, `k → z`, metadata stored in `(i, j, k)`
+order must be reversed:
+
+```python
+spacing_ijk = (0.1, 0.05, 0.4)
+spacing = spacing_ijk[::-1]  # (dz, dy, dx)
+```
+
+For a general external affine `B` mapping `[i, j, k, 1]` to `[x, y, z, 1]`, permute both
+its input and output coordinate orders:
 
 ```python
 P = np.eye(4)[[2, 1, 0, 3]]
 A = P @ B @ P
 ```
 
-This is a basis permutation only, not an RAS↔LPS conversion, registration, or an
-instruction to flip the data. Determine physical handedness separately. Use the
-built-in NIfTI reader for NIfTI files rather than reproducing header/sform/qform
-handling. An affine mapping the opposite direction must first be inverted.
+This changes coordinate conventions, **not the array data**. It does not perform
+registration, spatial flipping, or RAS↔LPS conversion. Invert an external affine first
+if it maps world to voxel coordinates.
 
-### Reordering, cropping, and flipping
+Use ConfUSIus's NIfTI loader rather than manually interpreting NIfTI header affines.
 
-Naming `dims` in raw order lets the constructor reorder storage correctly. It does
-not infer the physical meaning of an axis. If metadata uses a different voxel-axis
-order, its affine columns need the corresponding basis conversion as well.
+### Cropping, striding, and flipping
 
-After a VoxelData crop or stride, labels retain their original values and the affine
-still maps those labels. Do not reset labels to zero without updating the affine.
-`confusius.xarray.reindex_voxels(data)` returns dense zero-based labels with an updated
-affine preserving world locations. This is useful before exporting an array-space
-affine to another package.
+Spatial selections preserve voxel labels, so the affine continues to map them correctly.
+Do not reset labels without updating the affine.
 
-If a raw array is flipped and then assigned fresh dense labels, compose the affine
-with the index transform. For a reversed `i` axis of length `ni`:
+Use `confusius.xarray.reindex_voxels(data)` to restore dense zero-based labels while
+preserving world positions, particularly before exporting array-space affines to other
+packages.
+
+If a **raw array** is reversed along `i` and assigned new zero-based labels, update its
+affine accordingly:
 
 ```python
 F = np.eye(4)
@@ -83,54 +99,60 @@ F[2, 3] = ni - 1
 A_flipped = A @ F
 ```
 
-Do not copy another dataset's display flip without checking orientation. When
-flipping an existing VoxelData array with `isel(i=slice(None, None, -1))`, the index
-already tracks the reversed labels; do not apply this correction a second time.
-Use length-one slices such as `isel(k=slice(0, 1))` to retain all spatial dims, or
-`ensure_voxeldata` after scalar selection.
+When reversing an **existing VoxelData** with `data.isel(i=slice(None, None, -1))`,
+labels already track the reversal; do not modify the affine again.
 
-Read geometry from `data.fusi.affine.voxel_to_world` and
-`data.fusi.affine.units`. Change it through `set_voxel_to_world`/`set_units`, not by
-editing `z/y/x` coordinate attributes or adding a geometry-looking array attribute.
-Changing the units string does not rescale numbers. `data.fusi.origin`, `.spacing`,
-and `.direction` describe the sampled array grid, taking voxel-label strides and
-reversals into account; they need not equal the original affine parameters.
+Read geometry through `data.fusi.affine.voxel_to_world` and `data.fusi.affine.units`;
+modify it using `set_voxel_to_world` and `set_units`. Do not edit `z/y/x` coordinate
+attributes directly. Changing units metadata does not rescale coordinates.
+
+`data.fusi.origin`, `.spacing`, and `.direction` describe the sampled **array-space
+grid**, accounting for voxel-label offsets, strides, and reversals. They may differ from
+the original affine parameters.
 
 ## Multiple probe poses
 
-A `pose` dimension means distinct probe positions, not components or repetitions.
-It **always** requires `voxel_to_world` with shape `(npose, 4, 4)`, even for one
-pose. A shared 4×4 affine or `spacing` alone is invalid with `pose`. Without `pose`,
-use a single 4×4 affine. Pose labels are increasing integers. Pose affines must have
-equal spatial scale magnitudes; origins/orientations can differ. Do not silently
-resample differing grids to make them fit this model.
+A `pose` dimension represents distinct probe positions, not components or repetitions.
+It requires one affine per pose, with `voxel_to_world.shape == (npose, 4, 4)`, even for
+a single pose. Spatial scale magnitudes must agree across poses; origins and
+orientations may differ. Do not silently resample mismatched grids.
 
-For recordings with time, use pose-dependent `time` of shape `(ntime, npose)`:
+For recordings, timestamps must be pose-dependent with shape `(ntime, npose)`:
 
-- Supply measured `time=timestamps_seconds` for irregular acquisition.
-- Or supply shared `dt` (repeat period of the **same pose**) and one `t0` per pose.
-  This generates `time[t, p] = t0[p] + t * dt`.
-- Explicitly repeat equal timestamps across pose columns for simultaneous poses.
-- `volume_acquisition_duration` describes one pose's acquisition, not the full sweep.
-  If not supplied, duration is inferred from the smallest nonzero inter-pose gap
-  where possible. Set the measured duration instead of relying on that inference.
+- Provide measured `time` for irregular acquisitions.
+- For regular acquisitions, provide `dt` (repeat interval of the **same pose**) and one
+  `t0` per pose, giving `time[t, p] = t0[p] + t * dt`.
+- For simultaneous poses, repeat equal timestamps across pose columns.
 
-World coordinates then depend on `(pose, k, j, i)`. Select a scalar pose before
-world-coordinate selection. For time-label lookup on a pose's 2D-derived time,
-use `one = data.isel(pose=0).set_xindex("time")` before `one.sel(time=...)`.
-Do not confuse `pose` with an extra component axis or concatenate positions into
-`k` without representing their true geometry.
+`volume_acquisition_duration` describes each pose's acquisition window, not the entire
+sweep. Determine it from the acquisition protocol rather than relying on the fallback
+inferred from inter-pose timing.
 
-## Time and validation
+World coordinates depend on `(pose, k, j, i)`. Select one pose before world-coordinate
+selection. For time-label selection:
 
-Time coordinates need `units`, `volume_acquisition_reference` (`start`, `center`,
-`end`), and positive `volume_acquisition_duration`. Use seconds consistently;
-constructor-generated time has `units="s"`. For plain explicit timestamps, an
-interval may be inferred from their differences, including the median for jittered
-times, but that is not necessarily the actual acquisition duration.
+```python
+one = data.isel(pose=0).set_xindex("time")
+one.sel(time=...)
+```
 
-Use `validate_voxeldata(data)` as the universal check. It validates structure, index,
-coordinates, canonical ordering, and metadata; it does not inspect the experiment's
-true orientation. `require_time=True` additionally requires more than one timepoint;
-a static map or a single timestamp can still be valid VoxelData without that flag.
-Dtype and IQ-velocity metadata checks are optional, consumer-specific requirements.
+Do not combine separate probe positions into a spatial dimension without representing
+their actual geometry.
+
+## Timing and validation
+
+Time coordinates require `units`, `volume_acquisition_reference` (`start`, `center`,
+`end`), and positive `volume_acquisition_duration`. Use seconds consistently.
+
+Acquisition duration is distinct from the sampling interval (`dt`). For power Doppler,
+it typically represents the integration window, which may overlap between consecutive
+frames. Inferred durations may not reflect the actual acquisition or processing
+protocol.
+
+Run `validate_voxeldata(data)` to check dimensions, coordinates, geometry, index
+structure, and metadata. It cannot verify physical calibration or orientation against
+the source.
+
+Use `require_time=True` when multiple timepoints are required; static volumes and
+single-timepoint arrays can otherwise be valid `VoxelData`. Dtype and IQ-velocity
+metadata requirements depend on the downstream operation.
