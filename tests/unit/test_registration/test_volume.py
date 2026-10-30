@@ -1462,7 +1462,7 @@ class TestInitialization:
     def test_affine_seed_preserves_mapping_and_fixed_center(
         self, transform_type, transform_name, n_parameters, monkeypatch
     ):
-        """A nonidentity matrix seed keeps its mapping and the fixed physical pivot."""
+        """A nonidentity initial transform keeps its mapping and the fixed physical pivot."""
         import SimpleITK as sitk
 
         geometry = np.array(

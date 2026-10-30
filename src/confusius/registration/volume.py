@@ -558,7 +558,7 @@ def register_volume(
         - `"center_geometry"`: aligns image centers.
         - `"center_moments"`: aligns centers of mass.
         - `(N+1, N+1)` homogeneous affine matrix: uses a precomputed affine
-          transform as a fixed seed for refinement of the requested `transform_type`.
+          transform, held fixed while optimizing the requested `transform_type`.
         - `None`: uses the identity transform.
 
         For `transform_type="bspline"`, centering modes are ignored but affine
@@ -882,7 +882,7 @@ def register_volume(
             sitk_centering_transform.SetCenter(
                 fixed_reg.TransformContinuousIndexToPhysicalPoint(fixed_center_index)
             )
-        # Only the last-added transform is optimized: seed(refinement(x)).
+        # Only the refinement is optimized; the initial transform is applied last.
         sitk_initial_transform = sitk.CompositeTransform(ndim)
         sitk_initial_transform.AddTransform(pre_tx)
         sitk_initial_transform.AddTransform(sitk_centering_transform)
