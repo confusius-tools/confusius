@@ -121,7 +121,7 @@ Attributes:
     beamforming_sound_velocity:   1540.0
 ```
 
-ConfUSIus loads AUTC DAT, EchoFrame DAT, and Iconeus RAW beamformed IQ exports directly;
+ConfUSIus loads AUTC DAT, EchoFrame DAT, and Iconeus RAW beamformed IQ files directly;
 see the [I/O guide](io.md) for more details. If your acquisition system isn't directly
 supported, see [Other Systems](io.md#other-systems) for how to wrap a custom complex
 array as an IQ DataArray.

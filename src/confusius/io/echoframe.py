@@ -1,27 +1,16 @@
-"""Utilities for loading and converting EchoFrame DAT files."""
+"""Utilities for loading EchoFrame DAT files."""
 
-import shutil
-import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TypedDict
 
 import dask.array as da
 import h5py as h5
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
-import zarr
-
-if TYPE_CHECKING:
-    from rich.progress import Progress
 
 from confusius._dims import TIME_DIM, VOXEL_DIMS
-from confusius._utils.geometry import (
-    get_voxel_to_world_affine,
-    get_voxel_to_world_units,
-)
-from confusius._utils.stack import find_stack_level
-from confusius.io._utils import make_attrs_zarr_safe, map_binary_array
+from confusius.io._utils import map_binary_array
 from confusius.io.utils import check_path
 from confusius.xarray.create import create_voxeldata
 
@@ -259,9 +248,8 @@ def load_echoframe_dat(
         Lazy VoxelData array with dimensions `(time, k, j, i)`, where
         `k` is a singleton
         elevation dimension. Data is wrapped in a Dask array, chunked so that each
-        chunk corresponds to one acquisition block's volumes; individual blocks
-        remain accessible via `data.isel(time=slice(i * n, (i + 1) * n))`, where `n`
-        is `data.attrs["n_volumes_per_block"]`.
+        chunk corresponds to one acquisition block's volumes; the size of each block
+        is available in `data.chunks[0]`.
 
     Raises
     ------
@@ -271,8 +259,7 @@ def load_echoframe_dat(
 
     Notes
     -----
-    Acquisition metadata is stored in `da.attrs`, including `n_volumes_per_block`
-    (number of volumes per acquisition block).
+    Acquisition metadata is stored in `da.attrs`.
     """
     dat_path = check_path(dat_path, label="dat_path", type="file")
     if meta_path is None:
@@ -317,7 +304,6 @@ def load_echoframe_dat(
         "compound_sampling_frequency": meta["compound_sampling_frequency"],
         "pulse_repetition_frequency": meta["pulse_repetition_frequency"],
         "beamforming_method": meta["beamforming_method"],
-        "n_volumes_per_block": n_volumes_per_block,
         "transmit_frequency": meta["transmit_frequency"],
         "beamforming_sound_velocity": meta["beamforming_sound_velocity"],
     }
@@ -330,272 +316,3 @@ def load_echoframe_dat(
         voxel_to_world=voxel_to_world,
         attrs=attrs,
     )
-
-
-def convert_echoframe_dat_to_zarr(
-    dat_path: str | Path,
-    meta_path: str | Path,
-    output_path: str | Path,
-    dat_dtype: npt.DTypeLike = np.complex64,
-    header_dtype: npt.DTypeLike = np.uint64,
-    n_header_items: int = 5,
-    volumes_per_chunk: int | None = None,
-    chunks_per_shard: int | None = None,
-    batch_size: int = 100,
-    overwrite: bool = False,
-    zarr_kwargs: dict[str, Any] | None = None,
-    skip_first_blocks: int = 0,
-    skip_last_blocks: int = 0,
-    block_times: npt.ArrayLike | None = None,
-    show_progress: bool = True,
-    progress: "Progress | None" = None,
-    track_kwargs: dict[str, Any] | None = None,
-) -> "zarr.Group":
-    """Convert an EchoFrame DAT file to Zarr format compatible with Xarray.
-
-    Beamformed IQ data is converted to a Zarr group with an `iq` array of shape
-    `(time, k, j, i)` chunked along the first dimension. Voxel-to-world geometry is
-    stored as `attrs["voxel_to_world"]` on the `iq` array rather than dense `z`/`y`/`x`
-    coordinate arrays, matching [`confusius.io.save`][confusius.io.save]'s Zarr
-    convention. Coordinates are stored as separate Zarr arrays following Xarray
-    conventions, allowing the data to be opened directly with `xarray.open_zarr()`.
-
-    Parameters
-    ----------
-    dat_path : str or pathlib.Path
-        Path to the EchoFrame DAT file containing beamformed IQ data.
-    meta_path : str or pathlib.Path
-        Path to the EchoFrame sequence parameter file (MAT v7.3 / HDF5 format).
-    output_path : str or pathlib.Path
-        Path where the Zarr group will be saved.
-    dat_dtype : dtype_like, default: numpy.complex64
-        Data type of the beamformed IQ data in the DAT file.
-    header_dtype : dtype_like, default: numpy.uint64
-        Data type of the DAT file header.
-    n_header_items : int, default: 5
-        Number of items in the DAT file header.
-    volumes_per_chunk : int, optional
-        Number of volumes to include in each Zarr chunk. If not provided, defaults to
-        the number of volumes per block from the raw file.
-    chunks_per_shard : int, optional
-        Number of chunks to bundle into each shard. If provided, enables Zarr v3
-        sharding to reduce the number of files on disk. If not provided, sharding is
-        disabled.
-    batch_size : int, default: 100
-        Number of blocks to process in each batch.
-    overwrite : bool, default: False
-        Whether to overwrite existing Zarr group at the output path.
-    zarr_kwargs : dict, optional
-        Additional keyword arguments to pass to `zarr.create_array` for the main data
-        array.
-    skip_first_blocks : int, default: 0
-        Number of blocks to skip from the beginning of the acquisition. This is useful
-        when the first blocks are known to be corrupted or unusable.
-    skip_last_blocks : int, default: 0
-        Number of blocks to skip from the end of the acquisition. This is useful
-        when the last blocks are known to be corrupted or unusable.
-    block_times : (n_blocks_after_skip,) array_like, optional
-        Start time of each IQ block in seconds, for the retained blocks only. If
-        provided, individual volume times will be computed and stored as a time
-        coordinate. Requires `compound_sampling_frequency` to be provided. If not
-        provided, time coordinate will be computed based on
-        `compound_sampling_frequency` or set to frame indices.
-    show_progress : bool, default: True
-        Whether to show progress during conversion. If `False`, no progress bars are
-        displayed.
-    progress : rich.progress.Progress, optional
-        External `rich.progress.Progress` instance to add tasks to. If provided and
-        `show_progress` is `True`, a task will be added to this
-        `rich.progress.Progress` instance instead of creating a new progress bar with
-        `rich.progress.track`.
-    track_kwargs : dict, optional
-        Additional keyword arguments to pass to `rich.progress.track` if using internal
-        progress tracking (only used if `show_progress` is `True` and `progress` is
-        `None`).
-
-    Returns
-    -------
-    zarr.Group
-        The created Zarr group containing the `iq` data array and coordinate arrays.
-        Can be opened directly with `xarray.open_zarr()`.
-
-    Notes
-    -----
-    The output Zarr group follows Xarray conventions and can be opened with::
-
-        import xarray as xr
-        ds = xr.open_zarr("output.zarr")
-        iq = ds["iq"]
-
-    `iq` above carries plain `k`/`j`/`i` voxel dims, not a VoxelData array --
-    [`xarray.open_zarr`][xarray.open_zarr] doesn't know how to rebuild a
-    `VoxelToWorldIndex` from `attrs["voxel_to_world"]`. Load with
-    [`confusius.io.load`][confusius.io.load] instead to get the world coordinates back:
-
-        import confusius as cf
-        iq = cf.io.load("output.zarr")
-
-    Metadata attributes (e.g., `transmit_frequency`, `beamforming_sound_velocity`) are stored
-    on the `iq` DataArray (accessible via `iq.attrs`), consistent with how
-    reduction functions return DataArrays with attributes.
-
-    The group contains:
-
-    - `iq`: The main data array with dimensions `(time, k, j, i)`. Voxel-to-world
-      geometry is stored as `attrs["voxel_to_world"]`/`attrs["voxel_to_world_units"]`
-      rather than dense `z`/`y`/`x` coordinate arrays.
-    - `time`: Time coordinate array.
-    - `k`: Elevation voxel coordinate array (always `[0]` for 2D data).
-    - `j`: Axial (depth) voxel coordinate array.
-    - `i`: Lateral voxel coordinate array.
-    """
-    from rich.progress import track
-
-    iq_da = load_echoframe_dat(
-        dat_path=dat_path,
-        meta_path=meta_path,
-        dat_dtype=dat_dtype,
-        header_dtype=header_dtype,
-        n_header_items=n_header_items,
-    )
-
-    n_volumes = iq_da.attrs["n_volumes_per_block"]
-    n_total_volumes_full = iq_da.sizes["time"]
-    n_blocks = n_total_volumes_full // n_volumes
-
-    total_skip = skip_first_blocks + skip_last_blocks
-    if total_skip >= n_blocks:
-        raise ValueError(
-            f"Cannot skip {total_skip} blocks (skip_first_blocks={skip_first_blocks}, "
-            f"skip_last_blocks={skip_last_blocks}) from {n_blocks} total blocks."
-        )
-
-    iq_da = iq_da.isel(
-        time=slice(
-            skip_first_blocks * n_volumes,
-            n_total_volumes_full - skip_last_blocks * n_volumes,
-        )
-    )
-    n_blocks_after_skip = n_blocks - total_skip
-    n_total_volumes = iq_da.sizes["time"]
-    n_j, n_i = iq_da.sizes["j"], iq_da.sizes["i"]
-
-    if volumes_per_chunk is None:
-        volumes_per_chunk = n_volumes
-
-    output_shape = (n_total_volumes, 1, n_j, n_i)
-    chunks = (volumes_per_chunk, 1, n_j, n_i)
-
-    if chunks_per_shard is not None:
-        shards = (volumes_per_chunk * chunks_per_shard, 1, n_j, n_i)
-    else:
-        shards = None
-
-    # Dimension names required for Zarr v3 / Xarray compatibility.
-    dim_names = [TIME_DIM, *VOXEL_DIMS]
-
-    create_array_kwargs = zarr_kwargs.copy() if zarr_kwargs else {}
-    handled_keys = {"shape", "chunks", "shards", "dtype", "dimension_names"}
-    overridden_keys = handled_keys & create_array_kwargs.keys()
-    if overridden_keys:
-        warnings.warn(
-            f"zarr_kwargs contains keys that are handled by function parameters and "
-            f"will be overridden: {overridden_keys}.",
-            stacklevel=find_stack_level(),
-        )
-    create_array_kwargs["shape"] = output_shape
-    create_array_kwargs["chunks"] = chunks
-    create_array_kwargs["dtype"] = iq_da.dtype
-    create_array_kwargs["dimension_names"] = dim_names
-
-    if shards is not None:
-        create_array_kwargs["shards"] = shards
-
-    if block_times is not None:
-        block_times_array = np.asarray(block_times)
-        if block_times_array.size != n_blocks_after_skip:
-            raise ValueError(
-                f"block_times length ({block_times_array.size}) does not match "
-                f"number of blocks after skipping ({n_blocks_after_skip})."
-            )
-
-        time_values = np.concatenate(
-            [
-                block_start
-                + np.arange(n_volumes) / iq_da.attrs["compound_sampling_frequency"]
-                for block_start in block_times_array
-            ]
-        )
-        iq_da = iq_da.assign_coords(
-            time=xr.DataArray(
-                time_values,
-                dims=[TIME_DIM],
-                attrs=iq_da.coords[TIME_DIM].attrs,
-            )
-        )
-
-    zarr_group = zarr.open_group(output_path, mode="w" if overwrite else "w-")
-    zarr_iq = zarr_group.create_array("iq", **create_array_kwargs)
-
-    for dim in (TIME_DIM, *VOXEL_DIMS):
-        zarr_group.create_array(
-            dim, data=iq_da.coords[dim].values, dimension_names=[dim]
-        )
-        zarr_group[dim].attrs.update(iq_da.coords[dim].attrs)
-
-    iq_attrs = {
-        key: value for key, value in iq_da.attrs.items() if key != "n_volumes_per_block"
-    }
-    iq_attrs["voxel_to_world"] = get_voxel_to_world_affine(iq_da)
-    iq_attrs["voxel_to_world_units"] = get_voxel_to_world_units(iq_da)
-    zarr_iq.attrs.update(make_attrs_zarr_safe(iq_attrs))
-
-    first_block = skip_first_blocks
-    last_block = n_blocks - skip_last_blocks
-
-    n_batches = (n_blocks_after_skip + batch_size - 1) // batch_size
-    batches = range(first_block, last_block, batch_size)
-    task_id = None
-
-    if not show_progress:
-        iterable = batches
-    elif progress is not None:
-        task_id = progress.add_task(
-            "Converting EchoFrame DAT to Zarr...", total=n_batches
-        )
-        iterable = batches
-    else:
-        kwargs = track_kwargs or {}
-        kwargs.setdefault("description", "Converting EchoFrame DAT to Zarr...")
-        iterable = track(batches, **kwargs)
-
-    try:
-        for idx, start_block in enumerate(iterable):
-            end_block = min(start_block + batch_size, last_block)
-
-            output_start = (start_block - skip_first_blocks) * n_volumes
-            output_end = (end_block - skip_first_blocks) * n_volumes
-            batch_data = iq_da.data[output_start:output_end].compute()
-
-            zarr_iq[output_start:output_end] = batch_data
-
-            if progress is not None and task_id is not None:
-                progress.update(task_id, advance=1)
-
-        # Consolidate metadata for faster opening with Xarray.
-        # Suppress warning about consolidated metadata not being in Zarr v3 spec yet.
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="Consolidated metadata")
-            zarr.consolidate_metadata(output_path)
-
-    except Exception:
-        # Clean up incomplete zarr store to avoid leaving unconsolidated data.
-        output_path = Path(output_path)
-        if output_path.exists():
-            shutil.rmtree(output_path)
-        raise
-
-    if progress is not None and task_id is not None:
-        progress.update(task_id, visible=False)
-
-    return zarr_group

@@ -7,7 +7,6 @@ __all__ = [
     "IconeusRawMetadata",
     "check_path",
     "convert_autc_dats_to_zarr",
-    "convert_echoframe_dat_to_zarr",
     "load",
     "load_atlas",
     "load_bps",
@@ -26,7 +25,6 @@ from confusius.io.atlas import load_atlas, save_atlas
 from confusius.io.autc import AUTCDAT, AUTCDATsLoader, convert_autc_dats_to_zarr
 from confusius.io.echoframe import (
     EchoFrameMetadata,
-    convert_echoframe_dat_to_zarr,
     load_echoframe_dat,
     load_echoframe_metadata,
 )
