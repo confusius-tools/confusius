@@ -55,6 +55,12 @@ Current development version for the next ConfUSIus release.
   other data as an image layer. Pass `layer_type="image"` to display integer data
   as an image ([#504](https://github.com/confusius-tools/confusius/pull/504)).
 
+### :sparkles: Enhancements
+
+- Add Agent Skills support with `confusius skills list` and `confusius skills install`.
+  The first skill, `confusius-load-data`, helps agents load custom data into `VoxelData`
+  ([#539](https://github.com/confusius-tools/confusius/pull/539)).
+
 ### :zap: Performance
 
 - [`plot_napari`][confusius.plotting.plot_napari] opens labels data carrying an
