@@ -209,7 +209,9 @@ iq = cf.load("path/to/data.dat", meta_path="path/to/metadata.mat")
 When you expect to process the same recording repeatedly, [convert it to
 Zarr](#converting-beamformed-iq-data-to-zarr) instead for better performance.
 
-### Loading Iconeus SCAN Files
+### Loading Iconeus Files
+
+#### SCAN Files
 
 Iconeus SCAN files use two formats depending on the IcoScan version: **SCAN v1**
 (HDF5, before IcoScan 2.0) and **SCAN v2** (binary, IcoScan 2.0 and later).
@@ -254,24 +256,6 @@ acquisition timing, spatial geometry, and provenance metadata in `.attrs`. SCAN 
 additionally provides more detailed acquisition parameters, such as probe
 specifications, transmit frequency, and plane-wave angles.
 
-World coordinates `(z, y, x)` are expressed in millimeters in a fixed Iconeus laboratory
-frame, rotated by 90° about the axial axis. For typical coronal acquisitions, this gives
-`z` elevation, `y` depth, and `x` lateral. `.attrs["affines"]` contains `world_to_lab`
-(identity) and `world_to_probe` (the transformation to the first pose's probe frame).
-
-!!! note "Why the 90° rotation?"
-    The Iconeus laboratory frame follows the motors' initial position, which typically
-    corresponds to sagittal slices. Since most fUSI acquisitions are coronal, ConfUSIus
-    rotates this frame by 90° so that coronal images align with the voxel grid,
-    simplifying visualization and registration.
-
-    This rotation is constant across recordings, preserving their relative positions and
-    orientations, including those acquired at other probe angles.
-
-For multi-pose recordings, ConfUSIus preserves the acquisition timing and spatial
-geometry of each pose. See [Multi-Pose Imaging](multipose.md) for details on handling
-these recordings and the differences between SCAN v1 and v2.
-
 !!! warning "Parallel processing with SCAN v1"
     SCAN v1 files are HDF5-backed, and h5py datasets **cannot be pickled**. Operations
     using separate worker processes, such as
@@ -285,47 +269,25 @@ these recordings and the differences between SCAN v1 and v2.
     Alternatively, use `n_jobs=1` for serial processing. This limitation does not apply
     to SCAN v2.
 
-#### Loading a BPS File
+World coordinates `(z, y, x)` are expressed in millimeters in the Iconeus laboratory
+frame, rotated by 90° about the axial axis. For typical coronal acquisitions, this gives
+`z` elevation, `y` depth, and `x` lateral. `.attrs["affines"]` contains `world_to_lab`
+(identity) and `world_to_probe` (the transformation to the first pose's probe frame).
 
-Iconeus' BPS files are HDF5 containers produced by Iconeus' Brain Positioning System.
-They contain an affine matrix that maps Iconeus brain coordinates `(x_brain, y_brain,
-z_brain, 1)` to Iconeus lab coordinates `(x_lab, y_lab, z_lab, 1)` in meters. The
-Iconeus lab frame is a fixed scanner space defined by Iconeus. ConfUSIus re-expresses
-this space as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)` in millimeters,
-turned by the same constant that compensates the IcoScan probe mount when loading SCAN
-files: that is the world space of SCAN data, so the recipe below needs no extra step.
+!!! note "Why the 90° rotation?"
+    The Iconeus laboratory frame is defined relative to the motors' initial position,
+    which typically corresponds to sagittal slices. Since most fUSI acquisitions are
+    coronal, ConfUSIus rotates this frame by 90° so that coronal images align with the
+    voxel grid, simplifying visualization and registration.
 
-The affine matrix in the BPS file can be loaded with
-[`confusius.io.load_bps`][confusius.io.load_bps]. It is generally a good idea to store
-it in the `.attrs["affines"]` attribute of the DataArray:
+    This rotation is constant across recordings, preserving their relative positions and
+    orientations, including those acquired at other probe angles.
 
-```python
-import confusius as cf
-import numpy as np
+For multi-pose recordings, ConfUSIus preserves the acquisition timing and spatial
+geometry of each pose. See [Multi-Pose Imaging](multipose.md) for details on handling
+these recordings and the differences between SCAN v1 and v2.
 
-da = cf.load("sub-01_task-awake_pwd.source.scan")
-
-brain_to_world = cf.io.load_bps("sub-01_task-awake_pwd.bps")
-da.attrs["affines"]["world_to_brain"] = np.linalg.inv(brain_to_world)
-```
-
-Passing the BPS file path using the `bps_path` argument when loading a SCAN file offers
-a convenient shortcut:
-
-```python
-import confusius as cf
-
-da = cf.load(
-    "sub-01_task-awake_pwd.source.scan",
-    bps_path="sub-01_task-awake_pwd.bps",
-)
-```
-
-Compose it with brain-side affines (e.g. brain-to-CCFv3 from a brain atlas) to register
-fUSI data into atlas space directly. It is a single `(4, 4)` affine, even for multi-pose
-files (`3Dscan`, `4Dscan`), since lab space is shared by every pose.
-
-#### Converting SCAN Data to NIfTI
+#### Converting SCAN to NIfTI
 
 Since [`load`][confusius.load] returns a VoxelData array, you can save it directly to
 NIfTI using [`save`][confusius.save] or the Xarray accessor.
@@ -366,6 +328,45 @@ acquisitions.
         pose_da = anat.sel(pose=pose)
         cf.save(pose_da, f"sub-01_acq-anat_pose-{pose.values}.nii.gz")
     ```
+
+#### BPS Files
+
+Iconeus' BPS files are HDF5 containers produced by Iconeus' Brain Positioning System.
+They contain an affine matrix that maps Iconeus "brain frame" coordinates `(x_brain,
+y_brain, z_brain, 1)` to Iconeus "laboratory frame" coordinates `(x_lab, y_lab, z_lab,
+1)` in meters. ConfUSIus transforms the laboratory frame by reordering it to `(z_lab,
+y_lab, x_lab)` (in millimeters), and rotating it by 90 degrees about the axial axis (see
+[Why the 90° rotation?](#scan-files)).
+
+The affine matrix in the BPS file can be loaded with
+[`confusius.io.load_bps`][confusius.io.load_bps]. It is generally a good idea to store
+it in the `.attrs["affines"]` attribute of the DataArray:
+
+```python
+import confusius as cf
+import numpy as np
+
+da = cf.load("sub-01_task-awake_pwd.source.scan")
+
+brain_to_world = cf.io.load_bps("sub-01_task-awake_pwd.bps")
+da.attrs["affines"]["world_to_brain"] = np.linalg.inv(brain_to_world)
+```
+
+Passing the BPS file path using the `bps_path` argument when loading a SCAN file offers
+a convenient shortcut:
+
+```python
+import confusius as cf
+
+da = cf.load(
+    "sub-01_task-awake_pwd.source.scan",
+    bps_path="sub-01_task-awake_pwd.bps",
+)
+```
+
+Compose it with brain-side affines (e.g. brain-to-CCFv3 from a brain atlas) to register
+fUSI data into atlas space directly. It is a single `(4, 4)` affine, even for multi-pose
+files (`3Dscan`, `4Dscan`), since lab space is shared by every pose.
 
 ### Loading NIfTI Files
 
