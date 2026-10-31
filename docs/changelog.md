@@ -12,6 +12,14 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Iconeus SCAN metadata now uses fUSI-BIDS field names and units:
+  `iconeus_scan_mode` becomes `iconeus_acquisition_mode`, `imaging_depth` becomes
+  `depth`, and `probe_center_frequency`/`transmit_frequency` are reported in hertz.
+  Nonstandard scanner metadata now consistently uses the `iconeus_` prefix,
+  including probe model numbers, ADC sampling frequency (in native MHz),
+  stimulation toggle times, filter types, SVD cutoffs, and velocity-band limits.
+  The unused `is_multiplane` flag is no longer exported
+  ([#548](https://github.com/confusius-tools/confusius/pull/548)).
 - Fix matrix initialization incorrectly allowing full affine optimization for
   rigid/translation registration. Refinement now respects the requested transform;
   in 3D, use 6 rigid or 3 translation optimizer weights instead of 12. Results may differ
@@ -31,15 +39,6 @@ Current development version for the next ConfUSIus release.
   DVARS reduce spatial blocks; raw
   intensity normalization gathers the full recording at compute time to preserve the
   exact global median ([#540](https://github.com/confusius-tools/confusius/pull/540)).
-- Iconeus SCAN metadata now uses fUSI-BIDS field names and units:
-  `iconeus_scan_mode` becomes `iconeus_acquisition_mode`, `imaging_depth` becomes
-  `depth`, and `probe_center_frequency`/`transmit_frequency` are reported in hertz.
-  Nonstandard scanner metadata now consistently uses the `iconeus_` prefix,
-  including probe model numbers, ADC sampling frequency (in native MHz),
-  stimulation toggle times, filter types, SVD cutoffs, and velocity-band limits.
-  The unused `is_multiplane` flag is no longer exported
-  ([#548](https://github.com/confusius-tools/confusius/pull/548)).
->>>>>>> 5cf6c4ed (docs(changelog): record Iconeus RAW loader)
 - Matrix-seeded rigid/affine registration now optimizes around the fixed image's
   physical center rather than the world origin. Initial alignment is unchanged,
   but convergence and final results may differ; recheck tuned optimizer settings
