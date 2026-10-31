@@ -513,11 +513,13 @@ def load_scan(
     functions must copy them first.
 
     Acquisition settings that correspond to fUSI-BIDS fields are also surfaced as
-    attributes, in native header units: `probe_model`, `probe_center_frequency` (MHz),
+    attributes in BIDS units: `probe_model`, `probe_center_frequency` (Hz),
     `probe_pitch` (mm), `probe_aperture` (mm), `probe_focal_depth` (mm),
-    `imaging_depth` (mm start/end), `transmit_frequency` (MHz),
-    `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `svd_low_cutoff`, and
-    `power_doppler_integration_duration` (s).
+    `depth` (mm start/end), `transmit_frequency` (Hz),
+    `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `iconeus_svd_low_cutoff`, and
+    `power_doppler_integration_duration` (s). The Iconeus-specific
+    `iconeus_ultrafast_sampling_frequency` is the ADC sampling rate in MHz, not the
+    compound sampling frequency.
 
     ConfUSIus world coordinates `(z, y, x)` for SCAN data are **ConfUSIus-ordered
     Iconeus lab coordinates** (mm): a fixed scanner frame shared by every pose, used
@@ -535,7 +537,7 @@ def load_scan(
 
     Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
     (`device_serial_number`, `software_version`) and Iconeus-specific fields
-    (`iconeus_scan_mode`, `iconeus_subject`, `iconeus_session`, `iconeus_scan`,
+    (`iconeus_acquisition_mode`, `iconeus_subject`, `iconeus_session`, `iconeus_scan`,
     `iconeus_project`, `iconeus_datetime`). `iconeus_datetime` is the acquisition
     date and time in ISO 8601 format, e.g. `"2021-10-22T14:14:12+00:00"`. SCAN v1
     stores it without a time zone, so ConfUSIus treats it as UTC. SCAN v2 files
@@ -628,7 +630,7 @@ def _load_scan_v1(
             "affines": {},
             "device_serial_number": _read_scan_str(h5, "/scanMetaData/Machine_SN"),
             "software_version": _read_scan_str(h5, "/scanMetaData/Neuroscan_version"),
-            "iconeus_scan_mode": mode,
+            "iconeus_acquisition_mode": mode,
             "iconeus_subject": _read_scan_str(h5, "/scanMetaData/Subject_tag"),
             "iconeus_session": _read_scan_str(h5, "/scanMetaData/Session_tag"),
             "iconeus_scan": _read_scan_str(h5, "/scanMetaData/Scan_tag"),
@@ -801,10 +803,10 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
             high, offset = _read_scan_v2_struct(header, offset, cutoff_fmt)
             dim6_attrs.update(
                 {
-                    "clutter_filter_type": int(filter_type),
+                    "iconeus_clutter_filter_type": int(filter_type),
                     "clutter_filter_window_duration": float(window),
-                    "svd_low_cutoff": low,
-                    "svd_high_cutoff": high,
+                    "iconeus_svd_low_cutoff": low,
+                    "iconeus_svd_high_cutoff": high,
                 }
             )
         elif intent == 2:  # VelocityBandFiltering.
@@ -812,7 +814,10 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
             vmax, offset = _read_scan_v2_struct(header, offset, "<f")
             offset += 12
             dim6_attrs.update(
-                {"velocity_min": float(vmin), "velocity_max": float(vmax)}
+                {
+                    "iconeus_velocity_min": float(vmin),
+                    "iconeus_velocity_max": float(vmax),
+                }
             )
         else:
             raise ValueError(f"Unsupported SCAN v2 dim6 intent: {intent}.")
@@ -928,8 +933,8 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
     delay_after_trigger, offset = _read_scan_v2_struct(header, offset, "<d")
     skip_count, offset = _read_scan_v2_struct(header, offset, "<L")
     offset += int(skip_count) * 8
-    is_multiplane, offset = _read_scan_v2_struct(header, offset, "<?")
-    offset += 1
+    # Skip the unused multiplane flag and its padding byte.
+    offset += 2
     integration_window, offset = _read_scan_v2_struct(header, offset, "<d")
 
     sequence_name, offset = _read_scan_v2_binary_string(header, offset)
@@ -967,26 +972,26 @@ def _read_scan_v2_tail(header: bytes, offset: int) -> dict[str, Any]:
     minor, offset = _read_scan_v2_struct(header, offset, "<L")
     patch, _ = _read_scan_v2_struct(header, offset, "<L")
 
+    # SCAN v2 stores probe and transmit frequencies in MHz; fUSI-BIDS expects Hz.
     result.update(
         {
             "probe_type": int(probe_type),
             "probe_model": probe_name,
             "probe_model_number": probe_model,
-            "probe_center_frequency": float(center_frequency),
+            "probe_center_frequency": float(center_frequency) * 1e6,
             "probe_pitch": float(pitch),
             "probe_aperture": float(elevation_aperture),
             "probe_focal_depth": float(focal_depth),
             "probe_radius_of_curvature": float(radius),
             "probe_number_of_elements": int(n_elements),
             "depth_start_mm": float(depth_near),
-            "imaging_depth": (float(depth_near), float(depth_far)),
-            "transmit_frequency": float(transmit_frequency),
+            "depth": (float(depth_near), float(depth_far)),
+            "transmit_frequency": float(transmit_frequency) * 1e6,
             "pulse_repetition_frequency": float(prf),
             "ultrafast_sampling_frequency": float(sampling_frequency),
             "plane_wave_angles": plane_wave_angles.tolist(),
             "transmit_voltage": float(transmit_voltage),
             "delay_after_trigger": float(delay_after_trigger),
-            "is_multiplane": bool(is_multiplane),
             "power_doppler_integration_duration": float(integration_window),
             "iconeus_sequence": sequence_name,
             "iconeus_project": project,
@@ -1242,14 +1247,13 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
         "probe_focal_depth",
         "probe_radius_of_curvature",
         "probe_number_of_elements",
-        "imaging_depth",
+        "depth",
         "transmit_frequency",
         "pulse_repetition_frequency",
         "ultrafast_sampling_frequency",
         "plane_wave_angles",
         "transmit_voltage",
         "delay_after_trigger",
-        "is_multiplane",
         "power_doppler_integration_duration",
         "iconeus_sequence",
         "iconeus_project",
@@ -1276,12 +1280,21 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
         "stimulation_toggle_times",
         "software_version",
     )
-    attrs = {key: meta[key] for key in keys if key in meta}
+    iconeus_fields = {
+        "probe_model_number",
+        "ultrafast_sampling_frequency",
+        "stimulation_toggle_times",
+    }
+    attrs = {
+        f"iconeus_{key}" if key in iconeus_fields else key: meta[key]
+        for key in keys
+        if key in meta
+    }
     attrs.update(
         {
             "affines": {},
             "iconeus_scan_format": "v2",
-            "iconeus_scan_mode": scan_mode,
+            "iconeus_acquisition_mode": scan_mode,
         }
     )
     return attrs

@@ -12,6 +12,14 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Iconeus SCAN metadata now uses fUSI-BIDS field names and units:
+  `iconeus_scan_mode` becomes `iconeus_acquisition_mode`, `imaging_depth` becomes
+  `depth`, and `probe_center_frequency`/`transmit_frequency` are reported in hertz.
+  Nonstandard scanner metadata now consistently uses the `iconeus_` prefix,
+  including probe model numbers, ADC sampling frequency (in native MHz),
+  stimulation toggle times, filter types, SVD cutoffs, and velocity-band limits.
+  The unused `is_multiplane` flag is no longer exported
+  ([#548](https://github.com/confusius-tools/confusius/pull/548)).
 - Fix matrix initialization incorrectly allowing full affine optimization for
   rigid/translation registration. Refinement now respects the requested transform;
   in 3D, use 6 rigid or 3 translation optimizer weights instead of 12. Results may differ
@@ -60,6 +68,9 @@ Current development version for the next ConfUSIus release.
 - Add Agent Skills support with `confusius skills list` and `confusius skills install`.
   The first skill, `confusius-load-data`, helps agents load custom data into `VoxelData`
   ([#539](https://github.com/confusius-tools/confusius/pull/539)).
+- [`confusius.load`][confusius.load] now loads compounded Iconeus RAW/HRAW
+  beamformed IQ files as lazy VoxelData arrays, preserving acquisition blocks as
+  Dask chunks ([#548](https://github.com/confusius-tools/confusius/pull/548)).
 
 ### :zap: Performance
 

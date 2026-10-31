@@ -11,7 +11,7 @@ import pytest
 import xarray as xr
 
 from confusius._utils.geometry import get_voxel_to_world_affine
-from confusius.bids import to_bids
+from confusius.bids import FUSI_BIDS_FIELDS, from_bids, to_bids
 from confusius.io.scan import (
     _SCAN_V2_OFFSETS,
     SCAN_V2_MAGIC,
@@ -54,6 +54,8 @@ _PD_WINDOW = 200
 _PROBE_MODEL = "IcoPrime"
 _CENTER_FREQ = 15.625
 _TRANSMIT_FREQ = 9.0
+_CENTER_FREQ_HZ = _CENTER_FREQ * 1e6
+_TRANSMIT_FREQ_HZ = _TRANSMIT_FREQ * 1e6
 _PITCH = 0.11
 _ELEVATION_APERTURE = 1.5
 _FOCAL_DEPTH = 8.0
@@ -535,7 +537,7 @@ class TestLoadScanV2:
 
     def test_scan_mode_attr(self, scan_v2: xr.DataArray) -> None:
         """Single-pose v2 is reported as 2Dscan."""
-        assert scan_v2.attrs["iconeus_scan_mode"] == "2Dscan"
+        assert scan_v2.attrs["iconeus_acquisition_mode"] == "2Dscan"
 
     def test_provenance_fields_mapped(self, scan_v2: xr.DataArray) -> None:
         """Header strings map to v1-style provenance fields."""
@@ -581,7 +583,7 @@ class TestLoadScanV2Multipose:
         )
         da = load_scan(path)
         assert da.dims == ("pose", "k", "j", "i")
-        assert da.attrs["iconeus_scan_mode"] == "3Dscan"
+        assert da.attrs["iconeus_acquisition_mode"] == "3Dscan"
 
 
 class TestLoadScanV2Multiblock:
@@ -623,8 +625,8 @@ class TestLoadScanV2Multiblock:
         path = tmp_path / "scan_v2_velocity_dim6.scan"
         _write_scan_v2(path, _raw_payload(), dim6_intents=[2])
         da = load_scan(path)
-        assert da.attrs["velocity_min"] == pytest.approx(-1.5)
-        assert da.attrs["velocity_max"] == pytest.approx(2.5)
+        assert da.attrs["iconeus_velocity_min"] == pytest.approx(-1.5)
+        assert da.attrs["iconeus_velocity_max"] == pytest.approx(2.5)
 
 
 class TestLoadScanV2Acquisition:
@@ -637,11 +639,39 @@ class TestLoadScanV2Acquisition:
         _write_scan_v2(path, _raw_payload(), acquisition=True)
         return load_scan(path)
 
+    def test_metadata_namespace(self, scan_v2_acq: xr.DataArray) -> None:
+        """Imported metadata is BIDS-standard or explicitly Iconeus-specific."""
+        bids_names = from_bids(dict.fromkeys(FUSI_BIDS_FIELDS))
+        assert all(
+            key in bids_names or key.startswith("iconeus_") or key == "affines"
+            for key in scan_v2_acq.attrs
+        )
+        for key in (
+            "probe_model_number",
+            "ultrafast_sampling_frequency",
+            "stimulation_toggle_times",
+            "clutter_filter_type",
+            "svd_low_cutoff",
+            "svd_high_cutoff",
+        ):
+            assert f"iconeus_{key}" in scan_v2_acq.attrs
+            assert key not in scan_v2_acq.attrs
+
+    def test_adc_frequency_and_unused_multiplane_flag(
+        self, scan_v2_acq: xr.DataArray
+    ) -> None:
+        """ADC frequency retains native MHz units; the unused flag is not exported."""
+        assert scan_v2_acq.attrs["iconeus_ultrafast_sampling_frequency"] == _ADC
+        assert "compound_sampling_frequency" not in scan_v2_acq.attrs
+        assert "is_multiplane" not in scan_v2_acq.attrs
+        assert "iconeus_is_multiplane" not in scan_v2_acq.attrs
+
     def test_probe_fields(self, scan_v2_acq: xr.DataArray) -> None:
         """Probe model, frequency, pitch, elevation aperture, and focal depth are read."""
         assert scan_v2_acq.attrs["probe_model"] == _PROBE_MODEL
+        assert scan_v2_acq.attrs["iconeus_probe_model_number"] == "2392"
         assert scan_v2_acq.attrs["probe_center_frequency"] == pytest.approx(
-            _CENTER_FREQ
+            _CENTER_FREQ_HZ
         )
         assert scan_v2_acq.attrs["probe_pitch"] == pytest.approx(_PITCH)
         assert scan_v2_acq.attrs["probe_aperture"] == pytest.approx(_ELEVATION_APERTURE)
@@ -671,21 +701,23 @@ class TestLoadScanV2Acquisition:
 
     def test_transmit_distinct_from_center(self, scan_v2_acq: xr.DataArray) -> None:
         """Transmit frequency is read from its own field, distinct from center freq."""
-        assert scan_v2_acq.attrs["transmit_frequency"] == pytest.approx(_TRANSMIT_FREQ)
-        assert scan_v2_acq.attrs["transmit_frequency"] != pytest.approx(_CENTER_FREQ)
+        assert scan_v2_acq.attrs["transmit_frequency"] == pytest.approx(
+            _TRANSMIT_FREQ_HZ
+        )
+        assert scan_v2_acq.attrs["transmit_frequency"] != pytest.approx(_CENTER_FREQ_HZ)
 
     def test_sequence_fields(self, scan_v2_acq: xr.DataArray) -> None:
         """PRF, plane-wave angles, and imaging depth are recovered."""
         assert scan_v2_acq.attrs["pulse_repetition_frequency"] == pytest.approx(_PRF)
         np.testing.assert_allclose(scan_v2_acq.attrs["plane_wave_angles"], _ANGLES)
         np.testing.assert_allclose(
-            scan_v2_acq.attrs["imaging_depth"],
+            scan_v2_acq.attrs["depth"],
             (_ACQ_DEPTH_START, _ACQ_DEPTH_START + (_SIZE_Z - 1) * _DZ_M * 1e3),
         )
 
     def test_filter_fields(self, scan_v2_acq: xr.DataArray) -> None:
         """SVD low cutoff and power-Doppler window come from fixed offsets."""
-        assert scan_v2_acq.attrs["svd_low_cutoff"] == _SVD_CUTOFF
+        assert scan_v2_acq.attrs["iconeus_svd_low_cutoff"] == _SVD_CUTOFF
         assert scan_v2_acq.attrs["power_doppler_integration_duration"] == _DT
 
     def test_probe_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
