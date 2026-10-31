@@ -102,6 +102,14 @@ Current development version for the next ConfUSIus release.
 
 - Boolean arrays open as labels layers
   ([#504](https://github.com/confusius-tools/confusius/pull/504)).
+- Files opened with **File > Open** or by drag-and-drop now display the same way as
+  with [`plot_napari`][confusius.plotting.plot_napari]: complex data shows its
+  magnitude, reversed axes are shown in ascending order, a last axis of length 3 or 4
+  is never read as RGB colors, and image layers use napari's default blending
+  ([#549](https://github.com/confusius-tools/confusius/pull/549)).
+- Iconeus RAW files open from the Data I/O panel, the `confusius` command, **File >
+  Open**, or by drag-and-drop, when their `.hraw` metadata file is in the same folder
+  ([#549](https://github.com/confusius-tools/confusius/pull/549)).
 
 ## 0.8.0
 

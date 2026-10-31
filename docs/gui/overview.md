@@ -92,10 +92,12 @@ confusius --lazy path/to/data.zarr
 
 ### Alternative: napari file readers
 
-ConfUSIus also registers native napari file readers for NIfTI, Iconeus SCAN, and Zarr
-files. These let you open files by dragging them onto the canvas or using **File >
-Open** (++ctrl+o++) without switching to the Data Panel. Like the Data Panel and CLI,
-integer-dtype files are added as a `Labels` layer.
+ConfUSIus also registers native napari file readers for NIfTI, Iconeus SCAN and RAW,
+and Zarr files. These let you open files by dragging them onto the canvas or using
+**File > Open** (++ctrl+o++) without switching to the Data Panel. Like the Data Panel
+and CLI, integer-dtype files are added as a `Labels` layer. An Iconeus RAW file opens
+only when its `.hraw` metadata file is in the same folder, and its complex IQ data is
+shown as its magnitude.
 
 !!! warning "Axis labels are not propagated to the viewer"
     Due to a current napari limitation, files opened through the native readers have

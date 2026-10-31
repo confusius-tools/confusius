@@ -9,7 +9,6 @@ resampled onto an axis-aligned world grid first, since napari's `scale`/`transla
 model can't represent oblique geometry; axis-aligned data needs no resampling.
 """
 
-import warnings
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import napari
@@ -22,16 +21,8 @@ from confusius._utils.geometry import (
     get_voxel_to_world_units,
 )
 from confusius._utils.napari import (
-    build_direct_label_colormap,
-    build_roi_labels_features,
+    build_napari_layer_data,
     get_napari_layer_geometry,
-    infer_layer_type,
-)
-from confusius._utils.plotting import resample_to_axis_aligned_world_grid
-from confusius._utils.stack import find_stack_level
-from confusius.plotting._utils import (
-    coerce_complex_to_magnitude,
-    sort_coords_for_plot,
 )
 from confusius.registration import resample_like
 from confusius.validation import ensure_voxeldata
@@ -161,28 +152,17 @@ def plot_napari(
     >>> viewer, layer = plot_napari(data)
     >>> viewer, layer = plot_napari(roi_mask, viewer=viewer, layer_type="labels")
     """
-    resolved_layer_type = layer_type
-    if resolved_layer_type == "auto":
-        resolved_layer_type = infer_layer_type(data.dtype)
-    if resolved_layer_type not in ("image", "labels"):
-        raise ValueError(
-            f"Unknown layer_type: {layer_type!r}. Expected 'image', 'labels' or 'auto'."
-        )
-    data = ensure_voxeldata(data)
-
-    resolved_interpolation = resample_interpolation or (
-        "nearest" if resolved_layer_type == "labels" else "linear"
+    plot_data, built_kwargs, resolved_layer_type = build_napari_layer_data(
+        data,
+        layer_type=layer_type,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
     )
-    source_data = data
-    data = resample_to_axis_aligned_world_grid(
-        data, interpolation=resolved_interpolation, fill_value=resample_fill_value
-    )
+    data = built_kwargs["metadata"]["xarray"]
 
     all_dims = [str(dim) for dim in data.dims]
     time_dim = TIME_DIM if TIME_DIM in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
-
-    data = sort_coords_for_plot(data, spatial_dims)
 
     if dim_order is not None:
         if set(dim_order) != set(spatial_dims):
@@ -199,61 +179,28 @@ def plot_napari(
         # regardless of how the voxel-to-world affine maps them.
         dim_order = tuple(sorted(spatial_dims, key=lambda d: data.sizes[d] != 1))
 
-    scale, coord_translates, axis_labels, all_units, non_uniform, spacing = (
-        get_napari_layer_geometry(data)
-    )
-    for dim in non_uniform:
-        warnings.warn(
-            f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
-            "(positions along this axis may be approximate).",
-            stacklevel=find_stack_level(),
-        )
-
-    layer_kwargs.setdefault("name", data.name)
-    if any(u is not None for u in all_units):
-        layer_kwargs.setdefault("units", all_units)
-
-    # Layers are always positioned in world space (scale/translate are real
-    # physical spacing/origin, and oblique input is resampled onto an
-    # axis-aligned world grid), so axis_labels shows world names (z/y/x) to
-    # honestly reflect what the dims slider actually scrubs through, even
-    # though `data` itself stays on its native voxel dims with its index intact.
-    layer_kwargs.setdefault("axis_labels", axis_labels)
-
-    layer_kwargs.setdefault("translate", coord_translates)
-
-    # Pass the underlying array to avoid modest per-slice xarray overhead.
-    layer_kwargs.setdefault("metadata", {})["xarray"] = data
-    layer_kwargs["metadata"].setdefault("source_xarray", source_data)
+    # Caller-provided layer kwargs take precedence over the built ones, except for
+    # `metadata["xarray"]`, which always holds the displayed DataArray.
+    built_metadata = built_kwargs.pop("metadata")
+    for key, value in built_kwargs.items():
+        layer_kwargs.setdefault(key, value)
+    layer_kwargs["metadata"] = {
+        **built_metadata,
+        **layer_kwargs.get("metadata", {}),
+        "xarray": data,
+    }
 
     if resolved_layer_type == "image":
-        plot_data = coerce_complex_to_magnitude(data, caller="plot_napari")
-
         # The last 2 (2D) or 3 (3D) dimensions are the displayed spatial axes.
-        if dim_order is not None:
-            order = []
-            if time_dim:
-                order.append(all_dims.index(time_dim))
-            for dim in dim_order:
-                if dim in all_dims:
-                    order.append(all_dims.index(dim))
-            layer_kwargs["order"] = tuple(order)
+        order = []
+        if time_dim:
+            order.append(all_dims.index(time_dim))
+        for dim in dim_order:
+            if dim in all_dims:
+                order.append(all_dims.index(dim))
+        layer_kwargs["order"] = tuple(order)
 
-        if "colormap" not in layer_kwargs:
-            cmap_attr = data.attrs.get("cmap")
-            if cmap_attr is not None:
-                layer_kwargs["colormap"] = cmap_attr
-
-        # VoxelData arrays are scalar fields; prevent napari from auto-interpreting a
-        # trailing axis of length 3/4 as RGB channels.
-        layer_kwargs.setdefault("rgb", False)
-
-        viewer, layer = napari.imshow(
-            plot_data.data,
-            scale=scale,
-            viewer=viewer,
-            **layer_kwargs,
-        )
+        viewer, layer = napari.imshow(plot_data, viewer=viewer, **layer_kwargs)
         # napari.imshow stubs declare list[Image] but at runtime returns Image
         # directly: cast to silence the type checker.
         layer = cast("Image", layer)
@@ -272,30 +219,10 @@ def plot_napari(
         if show_colorbar:
             layer.colorbar.visible = True
 
-    elif resolved_layer_type == "labels":
+    else:
         if viewer is None:
             viewer = napari.Viewer()
-
-        # Keep label conversion lazy for Dask-backed data.
-        if not np.issubdtype(data.dtype, np.integer):
-            data = data.astype(np.int32)
-
-        # Build a DirectLabelColormap from attrs when the caller has not already
-        # supplied one. This lets atlas annotations and masks carry their colormap
-        # automatically into the viewer.
-        if "colormap" not in layer_kwargs:
-            colormap = build_direct_label_colormap(data)
-            if colormap is not None:
-                layer_kwargs["colormap"] = colormap
-
-        layer = viewer.add_labels(  # type: ignore
-            data.data,
-            scale=scale,
-            **layer_kwargs,
-        )
-
-        if (roi_labels := data.attrs.get("roi_labels")) is not None:
-            layer.features = build_roi_labels_features(roi_labels)
+        layer = viewer.add_labels(plot_data, **layer_kwargs)  # type: ignore
 
     assert viewer is not None
     viewer.canvas.overlays.scale_bar.visible = show_scale_bar
