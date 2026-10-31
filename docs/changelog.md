@@ -12,19 +12,26 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- `convert_echoframe_dat_to_zarr` was removed. EchoFrame DAT files load lazily with
+  [`confusius.load`][confusius.load], so save them with
+  [`confusius.save`][confusius.save] using the I/O guide's conversion recipes for block
+  selection, measured time coordinates, and sharding
+  ([#551](https://github.com/confusius-tools/confusius/pull/551)).
 - Iconeus SCAN metadata now uses fUSI-BIDS field names and units:
   `iconeus_scan_mode` becomes `iconeus_acquisition_mode`, `imaging_depth` becomes
   `depth`, and `probe_center_frequency`/`transmit_frequency` are reported in hertz.
   Nonstandard scanner metadata now consistently uses the `iconeus_` prefix,
   including probe model numbers, ADC sampling frequency (in native MHz),
-  stimulation toggle times, filter types, SVD cutoffs, and velocity-band limits.
-  The unused `is_multiplane` flag is no longer exported
+  stimulation toggle times, filter types, SVD cutoffs, and velocity-band limits
   ([#548](https://github.com/confusius-tools/confusius/pull/548)).
 - Fix matrix initialization incorrectly allowing full affine optimization for
   rigid/translation registration. Refinement now respects the requested transform;
   in 3D, use 6 rigid or 3 translation optimizer weights instead of 12. Results may differ
   ([#547](https://github.com/confusius-tools/confusius/pull/547)).
 - Matrix-initialized rigid/affine registration now optimizes around the fixed image's
+  physical center rather than the world origin. Initial alignment is unchanged,
+  but convergence and final results may differ; recheck tuned optimizer settings
+  ([#543](https://github.com/confusius-tools/confusius/pull/543)).
 - [`compute_dvars`][confusius.qc.compute_dvars] now defaults to median-based relative
   DVARS, following the empirical baseline estimator recommended by Afyouni and Nichols
   (2018). The median is less sensitive to unusually large DVARS values, and their
@@ -39,10 +46,6 @@ Current development version for the next ConfUSIus release.
   DVARS reduce spatial blocks; raw
   intensity normalization gathers the full recording at compute time to preserve the
   exact global median ([#540](https://github.com/confusius-tools/confusius/pull/540)).
-- Matrix-seeded rigid/affine registration now optimizes around the fixed image's
-  physical center rather than the world origin. Initial alignment is unchanged,
-  but convergence and final results may differ; recheck tuned optimizer settings
-  ([#543](https://github.com/confusius-tools/confusius/pull/543)).
 - Use
   [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
   instead of `fetch_template_huang_2025` for the vascular mouse template. The fetcher
@@ -93,6 +96,10 @@ Current development version for the next ConfUSIus release.
 
 ### :books: Documentation
 
+- Document how to convert EchoFrame DAT and Iconeus RAW recordings to Zarr with
+  [`confusius.load`][confusius.load] and [`confusius.save`][confusius.save], including
+  block selection, measured time coordinates, sharding, and memory-bounded writes
+  ([#551](https://github.com/confusius-tools/confusius/pull/551)).
 - The documentation site publishes [`llms.txt`](https://confusius.tools/latest/llms.txt)
   and `llms-full.txt` for AI assistants, along with a Markdown copy of every page
   and a "Copy as Markdown" button in the page header
