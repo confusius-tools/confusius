@@ -7,6 +7,7 @@ correct.
 """
 
 import pkgutil
+import warnings
 from pathlib import Path
 
 import dask.array as da
@@ -391,6 +392,31 @@ class TestReaderLayerData:
         assert kwargs["colormap"] == "gray"
         assert len(warnings_seen) == 1
         assert "not a valid napari colormap" in warnings_seen[0]
+
+    def test_non_user_warning_is_reemitted(
+        self, zarr_3d_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Non-UserWarnings are re-emitted instead of shown as notifications."""
+        import confusius._utils.napari as napari_utils
+
+        warnings_seen: list[str] = []
+        monkeypatch.setattr(napari_utils, "show_warning", warnings_seen.append)
+        build_layer_data = napari_utils.build_napari_layer_data
+
+        def build_with_runtime_warning(*args, **kwargs):
+            warnings.warn("dependency warning", RuntimeWarning)
+            return build_layer_data(*args, **kwargs)
+
+        monkeypatch.setattr(
+            napari_utils, "build_napari_layer_data", build_with_runtime_warning
+        )
+
+        reader = read_zarr(str(zarr_3d_path))
+        assert reader is not None
+        with pytest.warns(RuntimeWarning, match="dependency warning"):
+            reader(str(zarr_3d_path))
+
+        assert warnings_seen == []
 
     def test_xarray_stored_in_metadata(self, zarr_3d_path: Path) -> None:
         """The original DataArray is stored in metadata for downstream access."""
