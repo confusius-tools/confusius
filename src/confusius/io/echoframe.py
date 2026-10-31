@@ -248,9 +248,8 @@ def load_echoframe_dat(
         Lazy VoxelData array with dimensions `(time, k, j, i)`, where
         `k` is a singleton
         elevation dimension. Data is wrapped in a Dask array, chunked so that each
-        chunk corresponds to one acquisition block's volumes; individual blocks
-        remain accessible via `data.isel(time=slice(i * n, (i + 1) * n))`, where `n`
-        is `data.attrs["n_volumes_per_block"]`.
+        chunk corresponds to one acquisition block's volumes; the size of each block
+        is available in `data.chunks[0]`.
 
     Raises
     ------
@@ -260,8 +259,7 @@ def load_echoframe_dat(
 
     Notes
     -----
-    Acquisition metadata is stored in `da.attrs`, including `n_volumes_per_block`
-    (number of volumes per acquisition block).
+    Acquisition metadata is stored in `da.attrs`.
     """
     dat_path = check_path(dat_path, label="dat_path", type="file")
     if meta_path is None:
@@ -306,7 +304,6 @@ def load_echoframe_dat(
         "compound_sampling_frequency": meta["compound_sampling_frequency"],
         "pulse_repetition_frequency": meta["pulse_repetition_frequency"],
         "beamforming_method": meta["beamforming_method"],
-        "n_volumes_per_block": n_volumes_per_block,
         "transmit_frequency": meta["transmit_frequency"],
         "beamforming_sound_velocity": meta["beamforming_sound_velocity"],
     }

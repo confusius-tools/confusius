@@ -14,8 +14,9 @@ Current development version for the next ConfUSIus release.
 
 - `convert_echoframe_dat_to_zarr` was removed. EchoFrame DAT files load lazily with
   [`confusius.load`][confusius.load], so save them with
-  [`confusius.save`][confusius.save] using the I/O guide's conversion recipes for block
-  selection, measured time coordinates, and sharding
+  [`confusius.save`][confusius.save] using the I/O guide's conversion recipes for
+  measured time coordinates and sharding. The EchoFrame loader no longer stores
+  `n_volumes_per_block` in attrs; use `data.chunks[0]` for acquisition block sizes
   ([#551](https://github.com/confusius-tools/confusius/pull/551)).
 - Iconeus SCAN metadata now uses fUSI-BIDS field names and units:
   `iconeus_scan_mode` becomes `iconeus_acquisition_mode`, `imaging_depth` becomes
@@ -98,7 +99,7 @@ Current development version for the next ConfUSIus release.
 
 - Document how to convert EchoFrame DAT and Iconeus RAW recordings to Zarr with
   [`confusius.load`][confusius.load] and [`confusius.save`][confusius.save], including
-  block selection, measured time coordinates, sharding, and memory-bounded writes
+  measured time coordinates, sharding, and memory-bounded writes
   ([#551](https://github.com/confusius-tools/confusius/pull/551)).
 - The documentation site publishes [`llms.txt`](https://confusius.tools/latest/llms.txt)
   and `llms-full.txt` for AI assistants, along with a Markdown copy of every page
