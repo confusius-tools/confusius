@@ -68,6 +68,9 @@ Current development version for the next ConfUSIus release.
   so `da.fusi.affine.apply("world_to_probe")` switches to the first pose's probe
   space (`z` elevation, `y` depth, `x` lateral) and `apply("world_to_lab")` returns
   to lab space ([#526](https://github.com/confusius-tools/confusius/pull/526)).
+- Add Agent Skills support with `confusius skills list` and `confusius skills install`.
+  The first skill, `confusius-load-data`, helps agents load custom data into `VoxelData`
+  ([#539](https://github.com/confusius-tools/confusius/pull/539)).
 
 ### :zap: Performance
 
