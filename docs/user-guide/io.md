@@ -211,106 +211,9 @@ Zarr](#converting-beamformed-iq-data-to-zarr) instead for better performance.
 
 ### Loading Iconeus SCAN Files
 
-Iconeus SCAN files come in two flavors, depending on your version of IcoScan: IcoScan
-versions before 2.0 output SCAN files using the HDF5-based SCAN v1 format, while
-versions 2.0 and after use the newer binary SCAN v2 format.
-[`confusius.load`][confusius.load] automatically detects the format and dispatches to
-the appropriate loader.
-
-#### SCAN v1 (HDF5 format)
-
-```pycon
->>> import confusius as cf
->>> da = cf.load("sub-01_task-awake_pwd.source.scan")
->>> da
-<xarray.DataArray 'sub-01_task-awake_pwd' (time: 500, pose: 4, k: 4, j: 92, i: 103)> Size: 606MB
-dask.array<transpose, shape=(500, 4, 4, 92, 103), dtype=float64, chunksize=(110, 4, 4, 92, 103), chunktype=numpy.ndarray>
-Coordinates:
-    time     (time, pose) float64 16kB 0.4 2.2 1.0 ... 1.199e+03 1.199e+03
-  * pose     (pose) int64 32B 0 1 2 3
-  * k        (k) int64 32B 0 1 2 3
-  * j        (j) int64 736B 0 1 2 3 4 5 6 7 8 9 ... 83 84 85 86 87 88 89 90 91
-  * i        (i) int64 824B 0 1 2 3 4 5 6 7 8 ... 94 95 96 97 98 99 100 101 102
-  * z        (pose, k, j, i) float64 1MB -3.851 -3.851 -3.851 ... 4.024 4.024
-  * y        (pose, k, j, i) float64 1MB 20.3 20.3 20.3 ... 29.27 29.27 29.27
-  * x        (pose, k, j, i) float64 1MB 0.19 0.3 0.41 0.52 ... 11.19 11.3 11.41
-Indexes:
-  ┌ z        VoxelToWorldIndex
-  │ y
-  └ x
-Attributes:
-    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
-       ...
-    device_serial_number:  XXXXXXXX
-    software_version:      IcoScan version 1.0.0
-    iconeus_scan_mode:     4Dscan
-    iconeus_subject:       Mouse01
-    iconeus_session:       Session01
-    iconeus_scan:          sub-01_task-awake_pwd
-    iconeus_project:       Project01
-    iconeus_datetime:      2021-10-22T14:14:12+00:00
-```
-
-Provenance metadata from the file is stored in `da.attrs`, including
-`iconeus_scan_mode`, `iconeus_subject`, `iconeus_session`, `iconeus_scan`,
-`iconeus_project`, `iconeus_datetime`, `software_version`, and
-`device_serial_number`. `iconeus_datetime` uses ISO 8601 format for both SCAN v1 and
-SCAN v2. SCAN v1 stores the date without a time zone, so ConfUSIus treats it as UTC.
-
-Note that for recordings consisting of multiple probe poses (e.g., `3Dscan`, `4Dscan`),
-the `time` coordinate is **pose-dependent**, giving the acquisition time of each volume
-for each pose. This is useful for volume-timing corrections and for aligning multi-pose
-acquisitions with external events. 
-
-World coordinates are the ConfUSIus representation of the Iconeus lab frame: a fixed
-scanner frame shared by every pose and every scan of a session, re-ordered to
-`(z, y, x)` in millimeters and turned by a constant +90 degrees about the axial axis
-(`confusius.io.scan.ICONEUS_LAB_MOTOR_COMPENSATION`) to undo the standard IcoScan probe
-mount. A standard acquisition therefore has `z` elevation, `y` depth and `x` lateral,
-as in the listing above; a probe mounted at another angle keeps its rotation in the
-loaded geometry. `attrs["affines"]` holds `world_to_lab` (the identity) and
-`world_to_probe`, which maps world coordinates to the first pose's probe space.
-
-!!! note "Why the 90 degree turn"
-    After centering and initializing the motors, the probe sits in the majority of
-    cases in a position that images a sagittal slice, and the Iconeus lab frame
-    follows that position. Most fUSI acquisitions are coronal, so ConfUSIus chooses to
-    represent the lab frame turned by 90 degrees: coronal data then typically align
-    with the voxel grid, which tends to keep visualization and registration simpler,
-    while the lab frame stays shared by every scan of a session.
-
-Additionally, each pose has its own voxel-to-world affine transformation, meaning the
-`z`/`y`/`x` world coordinates are **pose-dependent**. The `pose` coordinate indexes the
-pose dimension, and the `z`/`y`/`x` coordinates are derived from the corresponding
-pose's affine. See [The VoxelData Model](voxeldata.md) for details on how
-world coordinates are derived from voxel indices and affines.
-
-!!! warning "SCAN files and parallel processing"
-    SCAN v1 files are HDF5 files, and h5py datasets **cannot be pickled**. This means
-    lazy SCAN DataArrays cannot be passed to functions that use parallel workers (e.g.,
-    [`register_volumewise`][confusius.registration.register_volumewise] with `n_jobs !=
-    1`). Call `.compute()` to load the data into memory before running any parallel
-    operation:
-
-    ```python
-    import confusius as cf
-
-    fusi = cf.load("recording.scan").compute()  # materialize first
-    fusi = cf.registration.register_volumewise(fusi)
-    ```
-
-    Alternatively, use `n_jobs=1` for serial processing (slower but works with lazy
-    SCAN data).
-
-#### SCAN v2 (binary format)
-
-SCAN v2 files preserve the recording's data, acquisition timing, and VoxelData
-geometry (world coordinates in the same compensated Iconeus lab frame as SCAN v1).
-Metadata recovered into `da.attrs` include provenance (`iconeus_*` attrs), acquisition
-datetime, and BIDS-corresponding acquisition settings (`probe_model`,
-`probe_center_frequency`, `probe_aperture`, `transmit_frequency`,
-`pulse_repetition_frequency`, `plane_wave_angles`, `svd_low_cutoff`, …). For
-multi-pose recordings, see the [multi-pose user guide](multipose.md#scan-v2-binary).
+Iconeus SCAN files use two formats depending on the IcoScan version: **SCAN v1**
+(HDF5, before IcoScan 2.0) and **SCAN v2** (binary, IcoScan 2.0 and later).
+[`confusius.load`][confusius.load] automatically detects the format:
 
 ```pycon
 >>> import confusius as cf
@@ -345,6 +248,42 @@ Attributes: (12/26)
     pulse_repetition_frequency:        5500.0
     plane_wave_angles:                 [-10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 2...
 ```
+
+Both formats are loaded lazily as [VoxelData](voxeldata.md) arrays, preserving
+acquisition timing, spatial geometry, and provenance metadata in `.attrs`. SCAN v2
+additionally provides more detailed acquisition parameters, such as probe
+specifications, transmit frequency, and plane-wave angles.
+
+World coordinates `(z, y, x)` are expressed in millimeters in a fixed Iconeus laboratory
+frame, rotated by 90° about the axial axis. For typical coronal acquisitions, this gives
+`z` elevation, `y` depth, and `x` lateral. `.attrs["affines"]` contains `world_to_lab`
+(identity) and `world_to_probe` (the transformation to the first pose's probe frame).
+
+!!! note "Why the 90° rotation?"
+    The Iconeus laboratory frame follows the motors' initial position, which typically
+    corresponds to sagittal slices. Since most fUSI acquisitions are coronal, ConfUSIus
+    rotates this frame by 90° so that coronal images align with the voxel grid,
+    simplifying visualization and registration.
+
+    This rotation is constant across recordings, preserving their relative positions and
+    orientations, including those acquired at other probe angles.
+
+For multi-pose recordings, ConfUSIus preserves the acquisition timing and spatial
+geometry of each pose. See [Multi-Pose Imaging](multipose.md) for details on handling
+these recordings and the differences between SCAN v1 and v2.
+
+!!! warning "Parallel processing with SCAN v1"
+    SCAN v1 files are HDF5-backed, and h5py datasets **cannot be pickled**. Operations
+    using separate worker processes, such as
+    [`register_volumewise`][confusius.registration.register_volumewise] with `n_jobs >
+    1`, therefore require loading the data into memory first:
+
+    ```python
+    da = cf.load("recording.scan").compute()
+    ```
+
+    Alternatively, use `n_jobs=1` for serial processing. This limitation does not apply
+    to SCAN v2.
 
 #### Loading a BPS File
 
