@@ -241,8 +241,8 @@ def _build_probe_to_lab(
     is a fixed scanner space; `probeToLab` carries any translation and rotation of the
     probe within it.
 
-    `probe_to_lab` is a modified version of `probeToLab` obtained by permuting axes to
-    ConfUSIus order `(z, y, x)` with increasing depth along `+y`, scaling the
+    `probe_to_lab` is a modified version of Iconeus `probeToLab` obtained by permuting
+    axes to ConfUSIus order `(z, y, x)` with increasing depth along `+y`, scaling the
     translation to millimeters, and rotating about `y` by 90° so that typical coronal
     recordings have `z` elevation, `y` depth, and `x` lateral.
 
