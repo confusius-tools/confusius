@@ -46,21 +46,36 @@ _SCAN_VOXELS_TO_PROBE = np.array(
     dtype=np.float64,
 )
 
+# Raw laboratory-frame rotation typical coronal acquisitions carry: the probe turned by
+# -90 degrees about the Iconeus axial axis, which load_scan rotates back by +90 degrees.
+# Composed in front of every probeToLab fixture so that the loaded world axes align with
+# the voxel grid, as they do for real coronal files.
+_SCAN_RAW_CORONAL_ROTATION = np.array(
+    [
+        [0.0, 1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+
 _SCAN_PROBE_TO_LAB_SINGLE = np.eye(4, dtype=np.float64)
 _SCAN_PROBE_TO_LAB_SINGLE[:3, 3] = [0.001, 0.002, 0.003]
+_SCAN_PROBE_TO_LAB_SINGLE = _SCAN_RAW_CORONAL_ROTATION @ _SCAN_PROBE_TO_LAB_SINGLE
 
-_SCAN_PROBE_TO_LAB_MULTI = np.stack(
+_SCAN_PROBE_TO_LAB_MULTI = _SCAN_RAW_CORONAL_ROTATION @ np.stack(
     [
-        # Translation lives in row 1: through the world/probe permutation this
-        # lands on ConfUSIus's k (elevation) axis, matching a real translational
-        # probe sweep -- see consolidate_poses's sweep_dim auto-detection.
+        # Translation lives in row 1 (probe elevation): the raw coronal rotation moves
+        # it to lab x and the constant rotation brings it back onto ConfUSIus's k
+        # (elevation) axis, matching a real translational probe sweep -- see
+        # consolidate_poses's sweep_dim auto-detection.
         np.eye(4, dtype=np.float64)
         + np.array([[0, 0, 0, 0], [0, 0, 0, i * 0.001], [0, 0, 0, 0], [0, 0, 0, 0]])
         for i in range(_SCAN_NPOSE)
     ]
 )
 
-_SCAN_PROBE_TO_LAB_ROTATED = np.array(
+_SCAN_PROBE_TO_LAB_ROTATED = _SCAN_RAW_CORONAL_ROTATION @ np.array(
     [
         [0.0, 0.0, 1.0, 0.005],
         [0.0, 1.0, 0.0, 0.002],
@@ -70,10 +85,10 @@ _SCAN_PROBE_TO_LAB_ROTATED = np.array(
     dtype=np.float64,
 )
 
-_SCAN_PROBE_TO_LAB_IRREGULAR = np.stack(
+_SCAN_PROBE_TO_LAB_IRREGULAR = _SCAN_RAW_CORONAL_ROTATION @ np.stack(
     [
         # Row 1, like _SCAN_PROBE_TO_LAB_MULTI: lands on k (elevation) after the
-        # world/probe permutation.
+        # coronal rotation.
         np.eye(4, dtype=np.float64)
         + np.array([[0, 0, 0, 0], [0, 0, 0, t], [0, 0, 0, 0], [0, 0, 0, 0]])
         for t in [0.0, 0.001, 0.005]
@@ -81,7 +96,7 @@ _SCAN_PROBE_TO_LAB_IRREGULAR = np.stack(
 )
 
 _SCAN_ANGLE = np.pi / 6
-_SCAN_PROBE_TO_LAB_VARYING_ROTATION = np.stack(
+_SCAN_PROBE_TO_LAB_VARYING_ROTATION = _SCAN_RAW_CORONAL_ROTATION @ np.stack(
     [
         np.array(
             [
@@ -96,7 +111,7 @@ _SCAN_PROBE_TO_LAB_VARYING_ROTATION = np.stack(
     ]
 )
 
-_SCAN_PROBE_TO_LAB_2D_SWEEP = np.stack(
+_SCAN_PROBE_TO_LAB_2D_SWEEP = _SCAN_RAW_CORONAL_ROTATION @ np.stack(
     [
         np.eye(4, dtype=np.float64)
         + np.array(

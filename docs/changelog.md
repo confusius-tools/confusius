@@ -12,6 +12,12 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Iconeus SCAN world coordinates are now computed from a modified Iconeus laboratory
+  frame, reordered to `(z, y, x)` and rotated by 90 degrees about the axial axis. This
+  aligns typical coronal recordings have `z` elevation, `y` depth, and `x` lateral.
+  [`load_bps`][confusius.io.load_bps] applies the same modification so the resulting
+  affine can be composed with the modified laboratory space
+  ([#526](https://github.com/confusius-tools/confusius/pull/526)).
 - `convert_echoframe_dat_to_zarr` was removed. EchoFrame DAT files load lazily with
   [`confusius.load`][confusius.load], so save them with
   [`confusius.save`][confusius.save] using the I/O guide's conversion recipes for
@@ -69,6 +75,11 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- [`load_scan`][confusius.io.load_scan] stores `world_to_lab` (the identity, since
+  lab space is the world space) and `world_to_probe` affines in `attrs["affines"]`,
+  so `da.fusi.affine.apply("world_to_probe")` switches to the first pose's probe
+  space (`z` elevation, `y` depth, `x` lateral) and `apply("world_to_lab")` returns
+  to lab space ([#526](https://github.com/confusius-tools/confusius/pull/526)).
 - Add Agent Skills support with `confusius skills list` and `confusius skills install`.
   The first skill, `confusius-load-data`, helps agents load custom data into `VoxelData`
   ([#539](https://github.com/confusius-tools/confusius/pull/539)).
@@ -85,6 +96,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- SCAN v2 files negate the stored probe-pose Euler angles when loading
+  so their lab-space world coordinates match SCAN v1 for the same
+  acquisition ([#526](https://github.com/confusius-tools/confusius/pull/526)).
 - Labels painted over oblique or sheared data in napari now return to the original
   reference voxel grid using nearest-neighbor interpolation, rather than retaining
   the display grid or being assigned incorrect geometry. The drawing documentation

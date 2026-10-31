@@ -65,6 +65,7 @@ optogenetics
 parcellations
 preclinical
 pulsatility
+sagittal
 scikit
 spatiotemporal
 spatiotemporally

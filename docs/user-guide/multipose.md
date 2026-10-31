@@ -102,13 +102,14 @@ Coordinates:
     y          (pose, k, j, i) float64 1MB ...
     x          (pose, k, j, i) float64 1MB ...
 Attributes:
-    affines:                    {}
-    device_serial_number:       ASAO0000
-    software_version:           IcoScan v.1.9.0
-    iconeus_acquisition_mode:   4Dscan
-    iconeus_subject:            sub-01
-    iconeus_session:            task-awake
-    iconeus_scan:               sub-01_task-awake_pwd
+    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
+       ...
+    device_serial_number:  ASAO0000
+    software_version:      IcoScan v.1.9.0
+    iconeus_scan_mode:     4Dscan
+    iconeus_subject:       sub-01
+    iconeus_session:       task-awake
+    iconeus_scan:          sub-01_task-awake_pwd
     ...
 ```
 
@@ -280,20 +281,21 @@ Coordinates:
     y           (k, j, i) float64 1MB ...
     x           (k, j, i) float64 1MB ...
 Attributes:
-    affines:                    {}
-    device_serial_number:       ASAO0000
-    software_version:           IcoScan v.1.9.0
-    iconeus_acquisition_mode:   4Dscan
-    iconeus_subject:            sub-01
-    iconeus_session:            task-awake
-    iconeus_scan:               sub-01_task-awake_pwd
+    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
+       ...
+    device_serial_number:  ASAO0000
+    software_version:      IcoScan v.1.9.0
+    iconeus_scan_mode:     4Dscan
+    iconeus_subject:       sub-01
+    iconeus_session:       task-awake
+    iconeus_scan:          sub-01_task-awake_pwd
     ...
 ```
 
-4 poses × 4 slices = 16 consolidated z positions, spanning −4.95 to 2.93 mm in world
-space. The pose-dependent `time` coordinate is reduced to a single whole-volume `time`
-and a `slice_time` coordinate with dims `(time, k)`: each slice retains the timestamp
-of the pose it came from.
+4 poses × 4 slices = 16 consolidated z positions, spanning −3.85 to 4.02 mm along
+elevation. The pose-dependent `time` coordinate is reduced to a single whole-volume
+`time` and a `slice_time` coordinate with dims `(time, k)`: each slice retains the
+timestamp of the pose it came from.
 
 After consolidation, the per-pose affine stack is reduced to a single `(4, 4)` matrix
 representing the consolidated volume's orientation in world space.

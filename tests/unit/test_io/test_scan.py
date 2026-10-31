@@ -10,8 +10,10 @@ import xarray as xr
 
 from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius.io.scan import (
-    WORLD_TO_PROBE_PERMUTATION,
+    CONFUSIUS_TO_ICONEUS_AXES,
+    ICONEUS_LAB_CORONAL_ROTATION,
     _build_probe_to_lab,
+    _build_voxel_to_probe,
     load_bps,
     load_scan,
 )
@@ -55,13 +57,26 @@ _VOXELS_TO_PROBE = np.array(
     dtype=np.float64,
 )
 
+# Raw laboratory-frame rotation typical coronal acquisitions carry, as conftest.py's
+# _SCAN_RAW_CORONAL_ROTATION: composed in front of every probeToLab fixture so the
+# rotated world axes align with the voxel grid.
+_SCAN_RAW_CORONAL_ROTATION = np.array(
+    [
+        [0.0, 1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+
 _PROBE_TO_LAB_SINGLE = np.eye(4, dtype=np.float64)
 _PROBE_TO_LAB_SINGLE[:3, 3] = [0.001, 0.002, 0.003]
+_PROBE_TO_LAB_SINGLE = _SCAN_RAW_CORONAL_ROTATION @ _PROBE_TO_LAB_SINGLE
 
-_PROBE_TO_LAB_MULTI = np.stack(
+_PROBE_TO_LAB_MULTI = _SCAN_RAW_CORONAL_ROTATION @ np.stack(
     [
         # Kept in sync with conftest.py's _SCAN_PROBE_TO_LAB_MULTI (row 1 lands on
-        # ConfUSIus's k/elevation axis after the world/probe permutation).
+        # ConfUSIus's k/elevation axis after the coronal rotation).
         np.eye(4, dtype=np.float64)
         + np.array([[0, 0, 0, 0], [0, 0, 0, i * 0.001], [0, 0, 0, 0], [0, 0, 0, 0]])
         for i in range(_NPOSE)
@@ -72,15 +87,15 @@ _PROBE_TO_LAB_MULTI = np.stack(
 def _probe_to_lab_single_translation() -> np.ndarray:
     """Return `_PROBE_TO_LAB_SINGLE`'s folded translation, in ConfUSIus (z, y, x) mm.
 
-    `_PROBE_TO_LAB_SINGLE`'s rotation block is identity, so folding probe_to_lab
-    into the local voxel-to-world affine (`probe_to_lab @ local`) only shifts the
-    translation column by this amount; the local affine's own rotation/scale is
-    otherwise unchanged.
+    `_PROBE_TO_LAB_SINGLE` includes the raw coronal rotation, which load_scan rotates
+    back by a constant +90 degrees, so folding probe_to_lab into the local
+    voxel-to-world affine (`probe_to_lab @ local`) only shifts the translation column by
+    this amount; the local affine's own rotation/scale is otherwise unchanged.
     """
     return _build_probe_to_lab(_PROBE_TO_LAB_SINGLE)[:3, 3]
 
 
-_PROBE_TO_LAB_ROTATED = np.array(
+_PROBE_TO_LAB_ROTATED = _SCAN_RAW_CORONAL_ROTATION @ np.array(
     [
         [0.0, 0.0, 1.0, 0.005],
         [0.0, 1.0, 0.0, 0.002],
@@ -218,7 +233,12 @@ class TestLoadScan2D:
             + t[0],
             rtol=1e-10,
         )
-        assert "probe_to_lab" not in da.attrs.get("affines", {})
+        np.testing.assert_array_equal(da.attrs["affines"]["world_to_lab"], np.eye(4))
+        np.testing.assert_allclose(
+            da.attrs["affines"]["world_to_probe"],
+            np.linalg.inv(_build_probe_to_lab(_PROBE_TO_LAB_SINGLE)),
+            rtol=1e-10,
+        )
 
     def test_shape(self, scan_2d: xr.DataArray) -> None:
         """2Dscan shape matches (T, sizeY, sizeZ, sizeX)."""
@@ -617,44 +637,52 @@ class TestWorldToLab:
 
     def test_probe_to_lab_maps_coords_to_lab(self) -> None:
         """probe_to_lab maps (z_mm, y_mm, x_mm) to ConfUSIus-ordered lab space (mm)."""
-        A = _build_probe_to_lab(_PROBE_TO_LAB_SINGLE)
+        actual = _build_probe_to_lab(_PROBE_TO_LAB_SINGLE)
 
-        # probe_to_lab = P^T @ probeToLab @ P, with output in ConfUSIus axis order.
-        P = np.array(
-            [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
+        # probe_to_lab = R @ A^T @ probeToLab @ A: ConfUSIus axis order plus the
+        # constant coronal rotation.
+        expected = (
+            CONFUSIUS_TO_ICONEUS_AXES.T
+            @ _PROBE_TO_LAB_SINGLE
+            @ CONFUSIUS_TO_ICONEUS_AXES
         )
-        expected = P.T @ _PROBE_TO_LAB_SINGLE @ P
         expected[:3, 3] *= 1e3
+        expected = ICONEUS_LAB_CORONAL_ROTATION @ expected
 
-        np.testing.assert_allclose(A, expected, rtol=1e-10)
+        np.testing.assert_allclose(actual, expected, rtol=1e-10)
 
     def test_probe_to_lab_per_pose_values(self) -> None:
         """Each per-pose probe_to_lab slice matches the corresponding probeToLab."""
-        A = _build_probe_to_lab(_PROBE_TO_LAB_MULTI)
-        P = np.array(
-            [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
-        )
+        actual = _build_probe_to_lab(_PROBE_TO_LAB_MULTI)
         for i in range(_NPOSE):
-            expected = P.T @ _PROBE_TO_LAB_MULTI[i] @ P
+            expected = (
+                CONFUSIUS_TO_ICONEUS_AXES.T
+                @ _PROBE_TO_LAB_MULTI[i]
+                @ CONFUSIUS_TO_ICONEUS_AXES
+            )
             expected[:3, 3] *= 1e3
-            np.testing.assert_allclose(A[i], expected, rtol=1e-10)
+            expected = ICONEUS_LAB_CORONAL_ROTATION @ expected
+            np.testing.assert_allclose(actual[i], expected, rtol=1e-10)
 
     def test_probe_to_lab_non_identity_rotation(self) -> None:
-        """probe_to_lab correctly applies P^T @ R @ P for a non-trivial rotation.
+        """probe_to_lab correctly applies A^T @ R @ A for a non-trivial rotation.
 
-        With a 90° Y-rotation in probeToLab, the rotation block of probe_to_lab
-        must equal P^T @ R_y90 @ P, confirming that non-identity rotations are handled
-        correctly and the output remains in ConfUSIus axis order.
+        With a 90° Y-rotation in probeToLab, the rotation block of probe_to_lab must
+        equal R @ A^T @ R_y90 @ A (R the constant coronal rotation), confirming that
+        non-identity rotations are handled correctly and the output remains in
+        ConfUSIus axis order.
         """
-        A = _build_probe_to_lab(_PROBE_TO_LAB_ROTATED)
+        actual = _build_probe_to_lab(_PROBE_TO_LAB_ROTATED)
 
-        P = np.array(
-            [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
+        expected = (
+            CONFUSIUS_TO_ICONEUS_AXES.T
+            @ _PROBE_TO_LAB_ROTATED
+            @ CONFUSIUS_TO_ICONEUS_AXES
         )
-        expected = P.T @ _PROBE_TO_LAB_ROTATED @ P
         expected[:3, 3] *= 1e3
+        expected = ICONEUS_LAB_CORONAL_ROTATION @ expected
 
-        np.testing.assert_allclose(A, expected, rtol=1e-10)
+        np.testing.assert_allclose(actual, expected, rtol=1e-10)
 
 
 class TestLoadScanFoldsWorldToLab:
@@ -673,7 +701,11 @@ class TestLoadScanFoldsWorldToLab:
             probe_to_lab @ local_affine,
             rtol=1e-10,
         )
-        assert "probe_to_lab" not in scan_2d_rotated.attrs.get("affines", {})
+        np.testing.assert_allclose(
+            scan_2d_rotated.attrs["affines"]["world_to_probe"],
+            np.linalg.inv(probe_to_lab),
+            rtol=1e-10,
+        )
 
     def test_3dscan_primary_affine_is_per_pose_stack(
         self, scan_3d: xr.DataArray
@@ -687,7 +719,67 @@ class TestLoadScanFoldsWorldToLab:
         local_affines = np.linalg.inv(probe_to_lab) @ primary
         for i in range(1, _NPOSE):
             np.testing.assert_allclose(local_affines[i], local_affines[0], rtol=1e-8)
-        assert "probe_to_lab" not in scan_3d.attrs.get("affines", {})
+        np.testing.assert_allclose(
+            scan_3d.attrs["affines"]["world_to_probe"],
+            np.linalg.inv(probe_to_lab[0]),
+            rtol=1e-10,
+        )
+
+    def test_coronal_acquisition_aligns_world_with_voxel_axes(
+        self, scan_2d: xr.DataArray
+    ) -> None:
+        """The rotated world axes of a typical coronal file follow the voxel grid."""
+        affine = get_voxel_to_world_affine(scan_2d)
+        np.testing.assert_allclose(
+            affine[:3, :3], np.diag(np.diag(affine[:3, :3])), atol=1e-12
+        )
+        assert (np.diag(affine[:3, :3]) > 0).all()
+
+    def test_acquisition_without_coronal_rotation_keeps_residual_rotation(
+        self, tmp_path: Path
+    ) -> None:
+        """A scan without the typical coronal lab rotation loads turned by +90 degrees."""
+        path = tmp_path / "unrotated_2dscan.scan"
+        time_data = _end_referenced_times(_T, _FRAME_DURATION).reshape(1, _T)
+        data = _RNG.random((_T, _SIZE_Z, _SIZE_Y, _SIZE_X), dtype=np.float64)
+        with h5py.File(path, "w") as f:
+            f.create_dataset("/Data", data=data)
+            _write_scan_metadata(
+                f,
+                mode="2Dscan",
+                size_x=_SIZE_X,
+                size_y=_SIZE_Y,
+                size_z=_SIZE_Z,
+                npose=1,
+                nscan_repeat=None,
+                nblock_repeat=_T,
+                voxels_to_probe=_VOXELS_TO_PROBE,
+                probe_to_lab=np.linalg.inv(_SCAN_RAW_CORONAL_ROTATION)
+                @ _PROBE_TO_LAB_SINGLE,
+                time_data=time_data,
+            )
+        da = load_scan(path)
+        local = _build_voxel_to_probe(_VOXELS_TO_PROBE)
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(da)[:3, :3],
+            ICONEUS_LAB_CORONAL_ROTATION[:3, :3] @ local[:3, :3],
+            atol=1e-12,
+        )
+
+    def test_constant_inverse_recovers_iconeus_lab(self, scan_2d: xr.DataArray) -> None:
+        """Undoing the constant gives the raw ConfUSIus-ordered Iconeus lab geometry."""
+        raw_probe_to_lab = (
+            CONFUSIUS_TO_ICONEUS_AXES.T
+            @ _PROBE_TO_LAB_SINGLE
+            @ CONFUSIUS_TO_ICONEUS_AXES
+        )
+        raw_probe_to_lab[:3, 3] *= 1e3
+        np.testing.assert_allclose(
+            np.linalg.inv(ICONEUS_LAB_CORONAL_ROTATION)
+            @ get_voxel_to_world_affine(scan_2d),
+            raw_probe_to_lab @ _build_voxel_to_probe(_VOXELS_TO_PROBE),
+            rtol=1e-10,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -702,10 +794,14 @@ class TestLoadScanWithBPS:
     def _expected_brain_to_lab(
         brain_to_lab: np.ndarray,
     ) -> np.ndarray:
-        """Re-express a BrainToLab affine on the lab side in ConfUSIus zyx mm."""
+        """Re-express a BrainToLab affine's lab side in ConfUSIus zyx mm, coronal-rotated."""
         mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
-        confusius_lab_to_iconeus_lab = mm_to_m @ WORLD_TO_PROBE_PERMUTATION
-        return np.linalg.inv(confusius_lab_to_iconeus_lab) @ brain_to_lab
+        confusius_lab_to_iconeus_lab = mm_to_m @ CONFUSIUS_TO_ICONEUS_AXES
+        return (
+            ICONEUS_LAB_CORONAL_ROTATION
+            @ np.linalg.inv(confusius_lab_to_iconeus_lab)
+            @ brain_to_lab
+        )
 
     @classmethod
     def _expected_world_to_brain(cls, brain_to_lab: np.ndarray) -> np.ndarray:
@@ -718,6 +814,32 @@ class TestLoadScanWithBPS:
         """
         brain_to_lab = cls._expected_brain_to_lab(brain_to_lab)
         return np.linalg.inv(brain_to_lab)
+
+    def test_world_to_brain_independent_of_coronal_rotation(
+        self, scan_2d_path: Path, bps_path: Path, brain_to_lab: np.ndarray
+    ) -> None:
+        """Brain coordinates of a voxel do not depend on the lab-side coronal rotation."""
+        da = load_scan(scan_2d_path, bps_path=bps_path)
+        voxel = np.array([0.0, 3.0, 5.0, 1.0])
+        brain = (
+            da.attrs["affines"]["world_to_brain"]
+            @ get_voxel_to_world_affine(da)
+            @ voxel
+        )
+        # Everything below is in raw ConfUSIus-ordered Iconeus lab space, no constant.
+        raw_probe_to_lab = (
+            CONFUSIUS_TO_ICONEUS_AXES.T
+            @ _PROBE_TO_LAB_SINGLE
+            @ CONFUSIUS_TO_ICONEUS_AXES
+        )
+        raw_probe_to_lab[:3, 3] *= 1e3
+        raw_voxel_to_lab = raw_probe_to_lab @ _build_voxel_to_probe(_VOXELS_TO_PROBE)
+        mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
+        raw_brain_to_lab = (
+            np.linalg.inv(mm_to_m @ CONFUSIUS_TO_ICONEUS_AXES) @ brain_to_lab
+        )
+        expected = np.linalg.inv(raw_brain_to_lab) @ raw_voxel_to_lab @ voxel
+        np.testing.assert_allclose(brain, expected, atol=1e-9)
 
     def test_load_bps_reexpresses_lab_side(
         self, bps_path: Path, brain_to_lab: np.ndarray
