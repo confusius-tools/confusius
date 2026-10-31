@@ -76,6 +76,27 @@ def _copy_skill(source: Traversable, destination: Path) -> None:
                 shutil.copyfileobj(reader, writer)
 
 
+def _ensure_replaceable(destination: Path, force: bool) -> None:
+    """Raise if an existing destination cannot be replaced.
+
+    Parameters
+    ----------
+    destination : pathlib.Path
+        Skill directory to install into.
+    force : bool
+        Whether to replace an existing skill.
+
+    Raises
+    ------
+    FileExistsError
+        If the destination exists and replacement was not requested.
+    """
+    if (destination.exists() or destination.is_symlink()) and not force:
+        raise FileExistsError(
+            f"Skill already exists at {destination}. Use --force to replace it."
+        )
+
+
 def install_skills(
     name: str | None = None,
     *,
@@ -124,24 +145,25 @@ def install_skills(
     root = Path.home() if global_install else Path.cwd()
     parent = root / Path(target).expanduser()
     destinations = [parent / skill for skill in names]
+    if not destinations:
+        return []
     for destination in destinations:
-        if (destination.exists() or destination.is_symlink()) and not force:
-            raise FileExistsError(
-                f"Skill already exists at {destination}. Use --force to replace it."
-            )
+        _ensure_replaceable(destination, force)
 
     source = resources.files("confusius").joinpath("_skills")
     parent.mkdir(parents=True, exist_ok=True)
     # Stage on the destination filesystem so a failed copy leaves existing skills
     # untouched and the final move is a rename.
     with TemporaryDirectory(prefix=".confusius-skill-", dir=parent) as staging:
+        staged = Path(staging)
         for skill in names:
-            _copy_skill(source.joinpath(skill), Path(staging) / skill)
+            _copy_skill(source.joinpath(skill), staged / skill)
         for destination in destinations:
-            # Unlink files and symlinks so a symlinked skill's target is never touched.
+            # Recheck: another process may have created the destination while staging.
+            _ensure_replaceable(destination, force)
             if destination.is_symlink() or destination.is_file():
                 destination.unlink()
             elif destination.exists():
                 shutil.rmtree(destination)
-            (Path(staging) / destination.name).rename(destination)
+            (staged / destination.name).rename(destination)
     return destinations

@@ -1,5 +1,6 @@
 """Tests for bundled skill discovery and installation."""
 
+import shutil
 import sys
 from importlib import resources
 from pathlib import Path
@@ -211,7 +212,9 @@ def test_bulk_conflict_preflight(two_skills: Path) -> None:
     assert (existing / "custom.txt").read_text(encoding="utf-8") == "original"
 
 
-def test_copy_failure_preserves_existing_skills(two_skills: Path, tmp_path: Path) -> None:
+def test_copy_failure_preserves_existing_skills(
+    two_skills: Path, tmp_path: Path
+) -> None:
     """An unreadable resource fails before any existing skill is replaced."""
     destinations = install_skills()
     broken = tmp_path / "bundle/_skills/z-example/broken"
@@ -229,6 +232,38 @@ def test_copy_failure_preserves_existing_skills(two_skills: Path, tmp_path: Path
         "a-example",
         "z-example",
     ]
+
+
+def test_empty_bundle(tmp_path: Path, monkeypatch) -> None:
+    """An empty bundle creates no installation directories."""
+    (tmp_path / "_skills").mkdir()
+    monkeypatch.setattr(resources, "files", lambda package: tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert install_skills() == []
+    assert not (tmp_path / ".agents").exists()
+
+
+def test_late_destination_is_not_overwritten(two_skills: Path, monkeypatch) -> None:
+    """A destination appearing after preflight is not overwritten without force."""
+    parent = two_skills / ".agents/skills"
+    destination = parent / "z-example"
+    original_copy = shutil.copyfileobj
+
+    def create_late_destination(reader, writer) -> None:
+        original_copy(reader, writer)
+        if not destination.exists():
+            destination.mkdir()
+            (destination / "custom.txt").write_text(
+                "created concurrently", encoding="utf-8"
+            )
+
+    monkeypatch.setattr(shutil, "copyfileobj", create_late_destination)
+    with pytest.raises(FileExistsError, match="z-example"):
+        install_skills()
+    assert (destination / "custom.txt").read_text(
+        encoding="utf-8"
+    ) == "created concurrently"
+    assert (parent / "a-example" / "reference.txt").is_file()
 
 
 def test_cli_list(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -250,7 +285,15 @@ def test_cli_install(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "sys.argv",
-        ["confusius", "skills", "install", SKILL, "--global", "--target", ".claude/skills"],
+        [
+            "confusius",
+            "skills",
+            "install",
+            SKILL,
+            "--global",
+            "--target",
+            ".claude/skills",
+        ],
     )
     main()
     destination = home / ".claude" / "skills" / SKILL

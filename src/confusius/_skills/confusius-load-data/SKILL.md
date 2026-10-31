@@ -60,21 +60,6 @@ Region-by-time signal tables without spatial dimensions are not `VoxelData`.
 
 ## 3. Construct and validate VoxelData
 
-Choose **one** geometry representation:
-
-- `spacing=(dz, dy, dx)`, optionally `origin=(z0, y0, x0)` and a 3×3 `direction`.
-- `voxel_to_world=A`, a 4×4 affine mapping voxel `[k, j, i, 1]` to world
-  `[z, y, x, 1]`. Do not combine it with `spacing`, `origin`, or `direction`.
-
-Spacing must be positive. Units label coordinates but do not convert them.
-Do not copy an external `ijk → xyz` affine unchanged.
-
-See [geometry details](references/geometry.md) for affine conversions, rotations,
-cropping, defaults, and multi-pose acquisitions. A `pose` dimension requires one affine
-per pose and, for recordings, pose-dependent timestamps.
-
-## 3. Construct and validate VoxelData
-
 Pass the raw array unchanged and specify its axis order with `dims`. Geometry parameters
 follow ConfUSIus conventions, regardless of the input array's order.
 
