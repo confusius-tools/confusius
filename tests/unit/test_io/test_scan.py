@@ -313,7 +313,7 @@ class TestLoadScan2D:
             assert key in scan_2d.attrs
         # Iconeus-specific fields
         for key in (
-            "iconeus_scan_mode",
+            "iconeus_acquisition_mode",
             "iconeus_subject",
             "iconeus_session",
             "iconeus_scan",
@@ -340,8 +340,8 @@ class TestLoadScan2D:
         assert scan_2d.name == "scan-01"
 
     def test_scan_mode_attr(self, scan_2d: xr.DataArray) -> None:
-        """iconeus_scan_mode attr equals '2Dscan'."""
-        assert scan_2d.attrs["iconeus_scan_mode"] == "2Dscan"
+        """iconeus_acquisition_mode attr equals '2Dscan'."""
+        assert scan_2d.attrs["iconeus_acquisition_mode"] == "2Dscan"
 
     def test_probe_to_lab_shape(self, scan_2d: xr.DataArray) -> None:
         """The primary voxel-to-world affine has shape (4, 4) for 2Dscan."""
@@ -434,8 +434,8 @@ class TestLoadScan3D:
         np.testing.assert_array_equal(da.values, expected)
 
     def test_scan_mode_attr(self, scan_3d: xr.DataArray) -> None:
-        """iconeus_scan_mode attr equals '3Dscan'."""
-        assert scan_3d.attrs["iconeus_scan_mode"] == "3Dscan"
+        """iconeus_acquisition_mode attr equals '3Dscan'."""
+        assert scan_3d.attrs["iconeus_acquisition_mode"] == "3Dscan"
 
     def test_matrix_probe_z_dim(self, scan_3d_matrix: xr.DataArray) -> None:
         """3Dscan with matrix probe (sizeY=4) has k dimension size 4."""
@@ -527,8 +527,8 @@ class TestLoadScan4D:
         np.testing.assert_array_equal(da.values, expected)
 
     def test_scan_mode_attr(self, scan_4d: xr.DataArray) -> None:
-        """iconeus_scan_mode attr equals '4Dscan'."""
-        assert scan_4d.attrs["iconeus_scan_mode"] == "4Dscan"
+        """iconeus_acquisition_mode attr equals '4Dscan'."""
+        assert scan_4d.attrs["iconeus_acquisition_mode"] == "4Dscan"
 
     def test_4dscan_custom_loads_as_4d(self, tmp_path: Path) -> None:
         """4DscanCustom follows the same layout as 4Dscan."""
@@ -557,7 +557,7 @@ class TestLoadScan4D:
 
         assert scan_4d.dims == ("time", "pose", "k", "j", "i")
         assert scan_4d.shape == (_T, _NPOSE, _SIZE_Y, _SIZE_Z, _SIZE_X)
-        assert scan_4d.attrs["iconeus_scan_mode"] == "4DscanCustom"
+        assert scan_4d.attrs["iconeus_acquisition_mode"] == "4DscanCustom"
 
     def test_multiblock_repeats_are_merged_into_time(
         self, scan_4d_multiblock_path: Path, scan_4d_multiblock: xr.DataArray

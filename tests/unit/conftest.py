@@ -767,6 +767,103 @@ def sample_voxeldata_iq_3dt(rng):
     )
 
 
+def _encrypt_hraw(values: npt.ArrayLike, index: int) -> np.ndarray:
+    """Encode values using the legacy HRAW obfuscation function."""
+    return np.asarray(values, dtype=np.float64) * (1005 * index) + 72
+
+
+@pytest.fixture
+def make_iconeus_raw_files(tmp_path: Path):
+    """Factory for synthetic Iconeus RAW/HRAW files written to `tmp_path`.
+
+    The factory returns `(raw_path, meta_path, expected_iq)`, where `expected_iq`
+    is the `(time, k, j, i)` complex IQ array that the RAW payload encodes.
+    """
+
+    def _make(
+        *,
+        size_x: int = 3,
+        size_y: int = 2,
+        size_z: int = 4,
+        n_compound: int = 1,
+        n_frames: int = 5,
+        n_blocks: int = 2,
+        compound: bool = True,
+        legacy: bool = False,
+        truncate: bool = False,
+        lateral_spacing: float = 0.1,
+        elevation_spacing: float = 0.2,
+        axial_spacing: float = 0.05,
+        depth_near: float = 1.0,
+        depth_far: float = 10.0,
+    ) -> tuple[Path, Path, np.ndarray]:
+        """Create synthetic Iconeus RAW/HRAW files and return the expected IQ array."""
+        meta_path = tmp_path / "sample.hraw"
+        raw_path = tmp_path / "sample.raw"
+
+        with h5py.File(meta_path, "w") as f:
+            f.create_dataset("F1", data=_encrypt_hraw([[15.625]], 1))
+            f.create_dataset("F2", data=_encrypt_hraw([[11000.0]], 2))
+            f.create_dataset("F3", data=_encrypt_hraw([[1540.0]], 3))
+            f.create_dataset("F4", data=_encrypt_hraw([[500.0]], 4))
+            f.create_dataset("F5", data=_encrypt_hraw([[1.0], [128.0]], 5))
+            f.create_dataset("F6", data=_encrypt_hraw([[depth_near], [depth_far]], 6))
+            f.create_dataset("F7", data=_encrypt_hraw([[-10.0], [0.0], [10.0]], 7))
+            f.create_dataset(
+                "F8",
+                data=_encrypt_hraw([[lateral_spacing], [elevation_spacing], [axial_spacing]], 8),
+            )
+            f.create_dataset(
+                "F9",
+                data=_encrypt_hraw([size_x, size_y, size_z, n_compound, n_frames], 9).reshape(
+                    -1, 1
+                ),
+            )
+            f.create_dataset("F10", data=_encrypt_hraw([[float(compound)]], 10))
+            f.create_dataset("F11", data=_encrypt_hraw([[float(n_blocks)]], 11))
+            f.create_dataset("F12", data=_encrypt_hraw([[float(legacy)]], 12))
+            f.create_dataset("F13", data=np.asarray([[b"2Dscan"]]))
+
+        expected = np.zeros(
+            (size_z, size_y, size_x, n_frames, n_blocks), dtype=np.complex64
+        )
+        for block in range(n_blocks):
+            for frame in range(n_frames):
+                for x in range(size_x):
+                    for y in range(size_y):
+                        for z in range(size_z):
+                            expected[z, y, x, frame, block] = complex(
+                                z + 10 * y + 100 * x + 1000 * frame + 100000 * block,
+                                -(z + 10 * y + 100 * x),
+                            )
+
+        floats = np.empty(
+            (2, size_z, size_y, size_x, n_compound, n_frames, n_blocks),
+            dtype="<f4",
+            order="F",
+        )
+        for band, component in enumerate((expected.real, expected.imag)):
+            floats[band] = np.broadcast_to(
+                component[:, :, :, None, :, :],
+                (size_z, size_y, size_x, n_compound, n_frames, n_blocks),
+            )
+
+        with raw_path.open("wb") as stream:
+            if legacy:
+                np.zeros(117, dtype=np.uint8).tofile(stream)
+            payload = floats.ravel(order="F")
+            if truncate:
+                payload = payload[:-1]
+            payload.tofile(stream)
+
+        expected_iq = np.transpose(expected[:, :, :, :, :], (4, 3, 1, 0, 2)).reshape(
+            n_blocks * n_frames, size_y, size_z, size_x
+        )
+        return raw_path, meta_path, expected_iq
+
+    return _make
+
+
 @pytest.fixture
 def make_sample_timeseries(rng):
     """Factory fixture for 2D time-series data (time, space).

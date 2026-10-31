@@ -141,7 +141,7 @@ Coordinates:
 Attributes:
     probe_model:                         IcoPrime 4D MultiArray
     iconeus_scan_format:                 v2
-    iconeus_scan_mode:                   4Dscan
+    iconeus_acquisition_mode:            4Dscan
     ...
 ```
 

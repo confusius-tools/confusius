@@ -16,6 +16,10 @@ contributions:
       title: Read SCAN file
       python_name: confusius._napari._io._readers:read_scan
 
+    - id: confusius.read_iconeus_raw
+      title: Read Iconeus RAW file
+      python_name: confusius._napari._io._readers:read_iconeus_raw
+
     - id: confusius.read_zarr
       title: Read Zarr store
       python_name: confusius._napari._io._readers:read_zarr
@@ -69,6 +73,11 @@ contributions:
       accepts_directories: false
       filename_patterns:
         - "*.scan"
+
+    - command: confusius.read_iconeus_raw
+      accepts_directories: false
+      filename_patterns:
+        - "*.raw"
 
     - command: confusius.read_zarr
       accepts_directories: true
