@@ -397,7 +397,7 @@ Several loaders populate `.attrs["affines"]` automatically:
   world coordinates to the first pose's probe space (`z` elevation, `y` depth, `x`
   lateral), so the world space can be switched to the probe and back. When `bps_path` is
   supplied, the `"world_to_brain"` entry maps world coordinates to the Iconeus brain
-  space defined by the BPS file. 
+  space defined by the BPS file.
 
 Registration transforms are handled separately from `.attrs["affines"]`.
 [`register_volume`][confusius.registration.register_volume] returns the estimated

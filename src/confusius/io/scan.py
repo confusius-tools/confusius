@@ -138,49 +138,27 @@ def _decode_scan_v2_hex_string(text: str) -> str:
         return text
 
 
-WORLD_TO_PROBE_PERMUTATION: npt.NDArray[np.float64] = np.array(
+CONFUSIUS_TO_ICONEUS_AXES: npt.NDArray[np.float64] = np.array(
     [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
 )
-"""Permutation matrix that maps ConfUSIus world to probe world.
+"""Convert ConfUSIus `(z, y, x)` to Iconeus `(x, y, z)` coordinates.
 
-ConfUSIus input (z_conf, y_conf, x_conf, 1) is mapped to the probe world (x_probe,
-y_probe, z_probe, 1):
+Maps `(z, y, x)` to `(x, z, -y)`, accounting for the different axis conventions:
+depth increases along +y in ConfUSIus, but along -z in Iconeus.
 
-  x_probe =  x_conf      (lateral, same direction)
-  y_probe =  z_conf      (elevation, same direction)
-  z_probe = -y_conf      (axial depth, sign flip: y_conf = -z_probe > 0)
-
-Its transpose maps probe world (x_probe, y_probe, z_probe, 1) back to ConfUSIus
-world (z_conf, y_conf, x_conf, 1):
-
-  z_conf =  y_probe      (elevation)
-  y_conf = -z_probe      (depth, sign flip)
-  x_conf =  x_probe      (lateral)
-
+The transpose performs the inverse conversion.
 """
 
-ICONEUS_LAB_MOTOR_COMPENSATION: npt.NDArray[np.float64] = np.array(
+ICONEUS_LAB_CORONAL_ROTATION: npt.NDArray[np.float64] = np.array(
     [[0, 0, 1, 0], [0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 0, 1]], dtype=float
 )
-"""Quarter turn about the depth axis that compensates the standard IcoScan motor mount.
+"""Rotate the reordered Iconeus laboratory frame by 90° for coronal imaging.
 
-IcoScan's motor holds the probe turned by -90 degrees about the axial (`z`) axis of the
-Iconeus lab frame, so in raw lab coordinates the probe's lateral axis lands on ConfUSIus
-`z` (flipped) and its elevation axis on `x`. The ConfUSIus representation of the
-Iconeus lab frame undoes that fixed mount orientation, and only that: per-pose motor
-sweeps are kept. It applies a constant +90 degree turn about the same axis, origin
-unchanged, so that a standard acquisition has `z` elevation, `y` depth and `x` lateral
-while every scan of a session still shares one fixed scanner frame. From
-ConfUSIus-ordered Iconeus lab coordinates `(z_iconeus_lab, y_iconeus_lab,
-x_iconeus_lab, 1)`:
+Maps `(z, y, x)` to `(x, y, -z)` so that typical coronal acquisitions align with
+the ConfUSIus world axes. This fixed rotation preserves the relative geometry
+of all probe poses and recordings.
 
-  z_confusius =  x_iconeus_lab    (elevation for a standard mount)
-  y_confusius =  y_iconeus_lab    (depth)
-  x_confusius = -z_iconeus_lab    (lateral for a standard mount)
-
-The turn is the same for every file: a probe mounted at another angle keeps its
-residual rotation in the loaded geometry. See
-https://github.com/confusius-tools/confusius/issues/524.
+See https://github.com/confusius-tools/confusius/issues/524.
 """
 
 
@@ -264,14 +242,14 @@ def _build_probe_to_lab(
 
     `probe_to_lab` maps ConfUSIus-ordered probe coordinates `(z_probe, y_probe, x_probe,
     1)` (elevation, depth, lateral) to the ConfUSIus representation of the Iconeus lab
-    frame, `(z, y, x)` in millimeters: the Iconeus lab frame re-ordered with the
-    permutation `P` and turned by `ICONEUS_LAB_MOTOR_COMPENSATION` to undo the standard
-    IcoScan probe mount:
+    frame, `(z, y, x)` in millimeters: the Iconeus lab frame re-ordered with
+    `CONFUSIUS_TO_ICONEUS_AXES` and rotated by `ICONEUS_LAB_CORONAL_ROTATION` so that
+    typical coronal acquisitions align with the ConfUSIus world axes:
 
     ```python
     probe_to_lab = (
-        ICONEUS_LAB_MOTOR_COMPENSATION
-        @ WORLD_TO_PROBE_PERMUTATION^T @ probeToLab @ WORLD_TO_PROBE_PERMUTATION
+        ICONEUS_LAB_CORONAL_ROTATION
+        @ CONFUSIUS_TO_ICONEUS_AXES.T @ probeToLab @ CONFUSIUS_TO_ICONEUS_AXES
     )
     ```
 
@@ -287,10 +265,10 @@ def _build_probe_to_lab(
         `2Dscan` or `(npose, 4, 4)` for `3Dscan`/`4Dscan`.
     """
     probe_to_lab = (
-        WORLD_TO_PROBE_PERMUTATION.T @ probe_to_lab @ WORLD_TO_PROBE_PERMUTATION
+        CONFUSIUS_TO_ICONEUS_AXES.T @ probe_to_lab @ CONFUSIUS_TO_ICONEUS_AXES
     )
     probe_to_lab[..., :3, 3] *= 1e3
-    return ICONEUS_LAB_MOTOR_COMPENSATION @ probe_to_lab
+    return ICONEUS_LAB_CORONAL_ROTATION @ probe_to_lab
 
 
 def _build_voxel_to_probe(
@@ -322,7 +300,7 @@ def _build_voxel_to_probe(
     metres_to_mm = np.diag([1e3, 1e3, 1e3, 1.0])
     return (
         metres_to_mm
-        @ WORLD_TO_PROBE_PERMUTATION.T
+        @ CONFUSIUS_TO_ICONEUS_AXES.T
         @ np.asarray(voxels_to_probe, dtype=np.float64)
         @ conf_voxel_to_probe_voxel
     )
@@ -436,8 +414,8 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
 
     To compose this affine with the rest of the ConfUSIus pipeline we re-express the lab
     side in the ConfUSIus representation of the Iconeus lab frame: **ConfUSIus-ordered**
-    `(z_lab, y_lab, x_lab)` in millimeters, turned by `ICONEUS_LAB_MOTOR_COMPENSATION`
-    to undo the standard IcoScan probe mount, exactly as
+    `(z_lab, y_lab, x_lab)` in millimeters, rotated by `ICONEUS_LAB_CORONAL_ROTATION`
+    for typical coronal acquisitions, exactly as
     [`load_scan`][confusius.io.load_scan] does for world coordinates. The brain side is
     left in its original axis order (the brain coordinate units are not declared by the
     BPS format and are therefore not converted).
@@ -446,16 +424,16 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     Iconeus-ordered meter lab coordinates is
 
     ```
-    confusius_lab_to_iconeus_lab = mm_to_m @ WORLD_TO_PROBE_PERMUTATION
+    confusius_lab_to_iconeus_lab = mm_to_m @ CONFUSIUS_TO_ICONEUS_AXES
     ```
 
-    `WORLD_TO_PROBE_PERMUTATION` permutes the axes from ConfUSIus order `(z, y, x)` to
+    `CONFUSIUS_TO_ICONEUS_AXES` converts the axes from ConfUSIus order `(z, y, x)` to
     probe / Iconeus-lab order `(x, y, z)`, and `mm_to_m = diag(1e-3, 1e-3, 1e-3, 1)`
     rescales the translation column. The returned affine is then
 
     ```
     brain_to_lab = (
-        ICONEUS_LAB_MOTOR_COMPENSATION @ inv(confusius_lab_to_iconeus_lab) @ BrainToLab
+        ICONEUS_LAB_CORONAL_ROTATION @ inv(confusius_lab_to_iconeus_lab) @ BrainToLab
     )
     ```
 
@@ -477,10 +455,10 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
         brain_to_lab = f["BrainToLab"][:]
 
     mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
-    confusius_lab_to_iconeus_lab = mm_to_m @ WORLD_TO_PROBE_PERMUTATION
+    confusius_lab_to_iconeus_lab = mm_to_m @ CONFUSIUS_TO_ICONEUS_AXES
 
     brain_to_lab = np.linalg.inv(confusius_lab_to_iconeus_lab) @ brain_to_lab
-    return ICONEUS_LAB_MOTOR_COMPENSATION @ brain_to_lab
+    return ICONEUS_LAB_CORONAL_ROTATION @ brain_to_lab
 
 
 def _add_world_to_brain(affines: dict[str, Any], bps_path: str | Path) -> None:
@@ -584,14 +562,14 @@ def load_scan(
     ConfUSIus world coordinates `(z, y, x)` for SCAN data are the **ConfUSIus
     representation of Iconeus lab coordinates** (mm): the Iconeus lab frame, a fixed
     scanner frame shared by every pose and every scan of a session, re-ordered to
-    `(z, y, x)` and turned by a constant +90 degrees about the axial axis
-    (`ICONEUS_LAB_MOTOR_COMPENSATION`) to undo the standard IcoScan probe mount. A
-    standard acquisition therefore has `z` elevation, `y` depth and `x` lateral; a probe
-    mounted at another angle keeps its rotation in the loaded geometry. The frame is the
-    same for SCAN v1 and SCAN v2 files. For multi-pose files, `da`'s voxel-to-world
-    geometry is itself pose-dependent (a `(npose, 4, 4)` affine stack, one affine per
-    `da.coords["pose"]` label); world selection therefore requires reducing `pose` to a
-    scalar first, e.g. `da.isel(pose=0).sel(z=..., y=..., x=...)` or `da.isel(pose=0)`.
+    `(z, y, x)` and rotated by `ICONEUS_LAB_CORONAL_ROTATION` (a constant +90 degrees
+    about the axial axis) so that typical coronal acquisitions have `z` elevation, `y`
+    depth and `x` lateral. Acquisitions at other probe angles keep their rotation in the
+    loaded geometry. The frame is the same for SCAN v1 and SCAN v2 files. For multi-pose
+    files, `da`'s voxel-to-world geometry is itself pose-dependent (a `(npose, 4, 4)`
+    affine stack, one affine per `da.coords["pose"]` label); world selection therefore
+    requires reducing `pose` to a scalar first, e.g.
+    `da.isel(pose=0).sel(z=..., y=..., x=...)` or `da.isel(pose=0)`.
 
     Two named affines are stored in `da.attrs["affines"]`: `world_to_lab`, the
     identity, since lab space is the world space, and `world_to_probe`, mapping world
