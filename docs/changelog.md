@@ -14,11 +14,9 @@ Current development version for the next ConfUSIus release.
 
 - Iconeus SCAN world coordinates are now computed from a modified Iconeus laboratory
   frame, reordered to `(z, y, x)` and rotated by 90 degrees about the axial axis. This
-  ensures that typical coronal recordings appear in the correct orientation.
-  [`load_bps`][confusius.io.load_bps] applies the same rotation, so `inv(load_bps(...))`
-  remains the `world_to_brain` affine, and
-  `confusius.io.scan.ICONEUS_LAB_CORONAL_ROTATION` is the rotation matrix used to
-  correct the Iconeus laboratory frame.
+  aligns typical coronal recordings have `z` elevation, `y` depth, and `x` lateral.
+  [`load_bps`][confusius.io.load_bps] applies the same modification so the resulting
+  affine can be composed with the modified laboratory space
   ([#526](https://github.com/confusius-tools/confusius/pull/526)).
 - Fix matrix initialization incorrectly allowing full affine optimization for
   rigid/translation registration. Refinement now respects the requested transform;

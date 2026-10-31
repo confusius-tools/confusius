@@ -152,11 +152,11 @@ The transpose performs the inverse conversion.
 ICONEUS_LAB_CORONAL_ROTATION: npt.NDArray[np.float64] = np.array(
     [[0, 0, 1, 0], [0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 0, 1]], dtype=float
 )
-"""Rotate the reordered Iconeus laboratory frame by 90° for coronal imaging.
+"""Rotate the reordered Iconeus laboratory space by 90° for coronal imaging.
 
-Maps `(z, y, x)` to `(x, y, -z)` so that typical coronal acquisitions align with
-the ConfUSIus world axes. This fixed rotation preserves the relative geometry
-of all probe poses and recordings.
+Maps `(z, y, x)` to `(x, y, -z)` so that typical coronal recordings have `z` elevation,
+`y` depth, and `x` lateral. This fixed rotation preserves the relative geometry of all
+probe poses and recordings.
 
 See https://github.com/confusius-tools/confusius/issues/524.
 """
@@ -236,22 +236,15 @@ def _build_probe_to_lab(
 ) -> npt.NDArray[np.float64]:
     """Convert `probeToLab` to a ConfUSIus `probe_to_lab` affine in mm.
 
-    `probeToLab` maps probe coordinates `(x_probe, y_probe, z_probe, 1)` to Iconeus lab
-    space `(x_lab, y_lab, z_lab, 1)` in meters. The Iconeus lab frame is a fixed scanner
-    frame; `probeToLab` carries any translation and rotation of the probe within it.
+    `probeToLab` maps probe coordinates `(x_probe, y_probe, z_probe, 1)` to Iconeus
+    laboratory space `(x_lab, y_lab, z_lab, 1)` in meters. The Iconeus laboratory space
+    is a fixed scanner space; `probeToLab` carries any translation and rotation of the
+    probe within it.
 
-    `probe_to_lab` maps ConfUSIus-ordered probe coordinates `(z_probe, y_probe, x_probe,
-    1)` (elevation, depth, lateral) to the ConfUSIus representation of the Iconeus lab
-    frame, `(z, y, x)` in millimeters: the Iconeus lab frame re-ordered with
-    `CONFUSIUS_TO_ICONEUS_AXES` and rotated by `ICONEUS_LAB_CORONAL_ROTATION` so that
-    typical coronal acquisitions align with the ConfUSIus world axes:
-
-    ```python
-    probe_to_lab = (
-        ICONEUS_LAB_CORONAL_ROTATION
-        @ CONFUSIUS_TO_ICONEUS_AXES.T @ probeToLab @ CONFUSIUS_TO_ICONEUS_AXES
-    )
-    ```
+    `probe_to_lab` is a modified version of `probeToLab` obtained by permuting axes to
+    ConfUSIus order `(z, y, x)` with increasing depth along `+y`, scaling the
+    translation to millimeters, and rotating about `y` by 90° so that typical coronal
+    recordings have `z` elevation, `y` depth, and `x` lateral.
 
     Parameters
     ----------
@@ -314,9 +307,9 @@ def _build_scan_affines(
     Lab space is the world space, so `world_to_lab` is the identity (like the
     `world_to_sform`/`world_to_qform` entry of the selected NIfTI affine), and
     `world_to_probe` maps world coordinates to the first pose's probe space (`z`
-    elevation, `y` depth, `x` lateral). Both are single `(4, 4)` affines, also for
-    multi-pose files, so that `.fusi.affine.apply("world_to_probe")` places every
-    pose relative to the first one and pose consolidation passes them through.
+    elevation, `y` depth, `x` lateral). Both are single `(4, 4)` affines so that
+    `.fusi.affine.apply("world_to_probe")` places every pose relative to the first one
+    and pose consolidation passes them through.
 
     Parameters
     ----------
@@ -404,38 +397,19 @@ def _scan_time_attrs(duration: float) -> dict[str, Any]:
 
 
 def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
-    """Load a BPS file and return its brain-to-lab affine, re-expressed for ConfUSIus.
+    """Load a BPS file and return its brain-to-lab affine.
 
-    BPS files are HDF5 sidecars produced by Iconeus' brain positioning system. They
-    store a `BrainToLab` affine that maps Iconeus brain coordinates `(x_brain, y_brain,
-    z_brain, 1)` to Iconeus lab coordinates `(x_lab, y_lab, z_lab, 1)` in meters.
-    The Iconeus lab frame is a fixed scanner frame; `probeToLab` carries any rotation
-    of the probe within it.
+    BPS files are HDF5 sidecars produced by Iconeus' Brain Positioning System (BPS).
+    They store a `BrainToLab` affine that maps Iconeus brain space coordinates
+    `(x_brain, y_brain, z_brain, 1)` to Iconeus laboratory space coordinates
+    `(x_lab, y_lab, z_lab, 1)` in meters.
 
-    To compose this affine with the rest of the ConfUSIus pipeline we re-express the lab
-    side in the ConfUSIus representation of the Iconeus lab frame: **ConfUSIus-ordered**
-    `(z_lab, y_lab, x_lab)` in millimeters, rotated by `ICONEUS_LAB_CORONAL_ROTATION`
-    for typical coronal acquisitions, exactly as
-    [`load_scan`][confusius.io.load_scan] does for world coordinates. The brain side is
-    left in its original axis order (the brain coordinate units are not declared by the
-    BPS format and are therefore not converted).
+    Since SCAN files loaded by ConfUSIus have their laboratory space modified (see
+    [World Space](../user-guide/voxeldata.md#world-space)), the `BrainToLab` affine is
+    also modified to match the ConfUSIus-modified Iconeus laboratory space.
 
-    The change of basis from ConfUSIus-ordered millimeter lab coordinates to
-    Iconeus-ordered meter lab coordinates is
-
-    ```
-    confusius_lab_to_iconeus_lab = mm_to_m @ CONFUSIUS_TO_ICONEUS_AXES
-    ```
-
-    `CONFUSIUS_TO_ICONEUS_AXES` converts the axes from ConfUSIus order `(z, y, x)` to
-    probe / Iconeus-lab order `(x, y, z)`, and `mm_to_m = diag(1e-3, 1e-3, 1e-3, 1)`
-    rescales the translation column. The returned affine is then
-
-    ```
-    brain_to_lab = (
-        ICONEUS_LAB_CORONAL_ROTATION @ inv(confusius_lab_to_iconeus_lab) @ BrainToLab
-    )
-    ```
+    The Iconeus brain space isn't modified, as its units and intent are not declared by
+    the BPS format.
 
     Parameters
     ----------
@@ -445,9 +419,16 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     Returns
     -------
     (4, 4) numpy.ndarray
-        Affine mapping Iconeus brain coordinates to the ConfUSIus representation of
-        Iconeus lab coordinates `(z, y, x, 1)` in millimeters, the world space of
-        [`load_scan`][confusius.io.load_scan].
+        Affine mapping Iconeus brain space coordinates to the ConfUSIus-modified Iconeus
+        laboratory space coordinates in millimeters.
+
+    References
+    ----------
+    [^1]:
+        Nouhoum, M., Ferrier, J., Osmanski, B.-F., Ialy-Radio, N., Pezet, S., Tanter,
+        M., & Deffieux, T. (2021). A functional ultrasound brain GPS for automatic
+        vascular-based neuronavigation. Scientific Reports, 11(1), 15197.
+        https://doi.org/10.1038/s41598-021-94764-7
     """
     bps_path = check_path(bps_path, label="bps_path", type="file")
 
@@ -490,17 +471,18 @@ def load_scan(
 ) -> xr.DataArray:
     """Load an Iconeus SCAN file as a lazy VoxelData array.
 
-    SCAN files (`.scan`) come in two on-disk formats, both handled here:
+    SCAN files (`.scan`) come in two on-disk formats. `load_scan` sniffs the format
+    automatically and dispatches accordingly:
 
     - **v1**: an HDF5 container produced by IcoScan/NeuroScan, holding power Doppler
       data and spatial/temporal metadata for 2D, 3D, or 3D+t fUSI volumes. The returned
       DataArray wraps an open `h5py` handle via a Dask array; keep it in scope (or call
       `.compute()`) before the handle is garbage-collected.
     - **v2**: a flat binary file (variable-length header + little-endian `float64`
-      payload). Each Dask chunk opens its own read-only memory map and, when a
-      `bps_path` is given, the returned DataArray includes `world_to_brain`.
+      payload). Each Dask chunk opens its own read-only memory map.
 
-    `load_scan` sniffs the format automatically and dispatches accordingly.
+    When a `bps_path` is provided, the returned VoxelData array includes a
+    `world_to_brain` affine (see [`load_bps`][confusius.io.load_bps]).
 
     Parameters
     ----------
@@ -545,52 +527,25 @@ def load_scan(
 
     Notes
     -----
-    **v2.** The binary layout follows PyIconeus: header fields, measured times, one
-    6DOF probe pose per `pose`, acquisition/provenance metadata, then a Fortran-ordered
-    `(size_x, size_y, size_z, time, pose, dim6)` payload. The loader exposes this as
-    VoxelData order `(..., time, pose, k, j, i)` and keeps dim6 as an extra leading
-    dimension when present. Mapped chunks are read-only; in-place chunk-processing
-    functions must copy them first.
+    Both formats use the same world coordinate system: the Iconeus laboratory space,
+    reordered to ConfUSIus `(z, y, x)` conventions (millimeters) and rotated by 90°
+    about the y-axis to align typical coronal recordings have `z` elevation, `y` depth,
+    and `x` lateral. This space is shared across poses and scans, while each pose
+    retains its own voxel-to-world geometry.
 
-    Acquisition settings that correspond to fUSI-BIDS fields are also surfaced as
-    attributes, in native header units: `probe_model`, `probe_center_frequency` (MHz),
-    `probe_pitch` (mm), `probe_aperture` (mm), `probe_focal_depth` (mm),
-    `imaging_depth` (mm start/end), `transmit_frequency` (MHz),
-    `pulse_repetition_frequency` (Hz), `plane_wave_angles` (deg), `svd_low_cutoff`, and
-    `power_doppler_integration_duration` (s).
+    `da.attrs["affines"]` contains `world_to_lab` (identity) and `world_to_probe`
+    (relative to the first probe pose). These can be applied with
+    `da.fusi.affine.apply(...)`. If `bps_path` is provided, `world_to_brain` is also
+    stored, mapping world coordinates to native Iconeus brain coordinates.
 
-    ConfUSIus world coordinates `(z, y, x)` for SCAN data are the **ConfUSIus
-    representation of Iconeus lab coordinates** (mm): the Iconeus lab frame, a fixed
-    scanner frame shared by every pose and every scan of a session, re-ordered to
-    `(z, y, x)` and rotated by `ICONEUS_LAB_CORONAL_ROTATION` (a constant +90 degrees
-    about the axial axis) so that typical coronal acquisitions have `z` elevation, `y`
-    depth and `x` lateral. Acquisitions at other probe angles keep their rotation in the
-    loaded geometry. The frame is the same for SCAN v1 and SCAN v2 files. For multi-pose
-    files, `da`'s voxel-to-world geometry is itself pose-dependent (a `(npose, 4, 4)`
-    affine stack, one affine per `da.coords["pose"]` label); world selection therefore
-    requires reducing `pose` to a scalar first, e.g.
-    `da.isel(pose=0).sel(z=..., y=..., x=...)` or `da.isel(pose=0)`.
+    Provenance metadata (`iconeus_*`, `software_version`, `device_serial_number`) are
+    preserved in `da.attrs`. Acquisition datetimes use ISO 8601, with SCAN v1 timestamps
+    assumed to be UTC. SCAN v2 additionally exposes acquisition parameters such as probe
+    specifications, transmit frequency, plane-wave angles, and processing settings.
 
-    Two named affines are stored in `da.attrs["affines"]`: `world_to_lab`, the
-    identity, since lab space is the world space, and `world_to_probe`, mapping world
-    coordinates to the first pose's probe space (`z` elevation, `y` depth, `x`
-    lateral). `da.fusi.affine.apply("world_to_probe")` re-expresses the data in probe
-    space, placing every pose relative to the first one, and
-    `.apply("world_to_lab")` brings it back. The lab frame is the same for SCAN v1 and
-    SCAN v2 files.
-
-    If `bps_path` is provided, a `world_to_brain` affine is stored in
-    `da.attrs["affines"]["world_to_brain"]` that maps ConfUSIus world coordinates
-    (already lab space, as above) to Iconeus' brain coordinates. Apply as
-    `da.attrs["affines"]["world_to_brain"] @ np.array([z, y, x, 1.0])`.
-
-    Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
-    (`device_serial_number`, `software_version`) and Iconeus-specific fields
-    (`iconeus_scan_mode`, `iconeus_subject`, `iconeus_session`, `iconeus_scan`,
-    `iconeus_project`, `iconeus_datetime`). `iconeus_datetime` is the acquisition
-    date and time in ISO 8601 format, e.g. `"2021-10-22T14:14:12+00:00"`. SCAN v1
-    stores it without a time zone, so ConfUSIus treats it as UTC. SCAN v2 files
-    also provide `iconeus_hardware`.
+    SCAN v1 uses HDF5-backed Dask arrays, which cannot be pickled for process-based
+    parallelism; call `.compute()` first. SCAN v2 uses read-only memory-mapped chunks,
+    which must be copied before in-place modification.
     """
     path = check_path(path, type="file")
 

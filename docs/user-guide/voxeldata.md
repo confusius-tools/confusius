@@ -283,10 +283,10 @@ Different loaders derive them in different ways:
   [`convert_autc_dats_to_zarr`][confusius.io.convert_autc_dats_to_zarr]—AUTC files carry
   no spacing metadata of their own. Origin is optional and defaults to a probe-centered,
   surface-referenced position when omitted.
-- **Iconeus SCAN**: Coordinates are derived from Iconeus' laboratory frame, reordered
-  and rotated by 90 degrees about the axial axis to ensure coronal slices are displayed
-  in the correct orientation for typical recordings. The laboratory frame's axial axis
-  is flipped so that it is always positive and increases with depth.
+- **Iconeus SCAN**: Coordinates are derived from Iconeus' laboratory space, reordered
+  and rotated by 90 degrees about the axial axis so typical coronal recordings have `z`
+  elevation, `y` depth, and `x` lateral. The laboratory space's axial axis is flipped so
+  that it is always positive and increases with depth.
 - **NIfTI**: Coordinates are derived from the "best" affine transformation found in the
   file header, or from whichever one [`load_nifti`][confusius.io.load_nifti]'s
   `coordinate_affine` argument selects explicitly.
@@ -391,13 +391,13 @@ Several loaders populate `.attrs["affines"]` automatically:
   switched between the two. [`save_nifti`][confusius.io.save_nifti] can write any
   named affine in `.attrs["affines"]` back to the header via its `qform=`/`sform=`
   arguments, defaulting to `"world_to_qform"`/`"world_to_sform"` when not specified.
-- **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] uses the corrected Iconeus
-  laboratory frame (reordered and rotated by 90 degrees about the axial axis) as world
-  space, so its `"world_to_lab"` entry is the identity. A `"world_to_probe"` entry maps
-  world coordinates to the first pose's probe space (`z` elevation, `y` depth, `x`
-  lateral), so the world space can be switched to the probe and back. When `bps_path` is
-  supplied, the `"world_to_brain"` entry maps world coordinates to the Iconeus brain
-  space defined by the BPS file.
+- **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] uses the modified Iconeus
+  laboratory space (see [World Space](#world-space)) as world space, so its
+  `"world_to_lab"` entry is the identity. A `"world_to_probe"` entry maps world
+  coordinates to the first pose's probe space (`z` elevation, `y` depth, `x` lateral),
+  so the world space can be switched to the probe and back. When `bps_path` is supplied,
+  the `"world_to_brain"` entry maps world coordinates to the Iconeus brain space defined
+  by the BPS file.
 
 Registration transforms are handled separately from `.attrs["affines"]`.
 [`register_volume`][confusius.registration.register_volume] returns the estimated
