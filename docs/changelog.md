@@ -288,6 +288,11 @@ Released 2026-10-13.
   Signals panel as a stored signal, opening that plot if needed, instead of in a
   separate QC plot tab
   ([#429](https://github.com/confusius-tools/confusius/pull/429)).
+- Added a Preprocessing panel, covering temporal resampling, spatial smoothing,
+  detrending, temporal filtering, standardization, confound regression
+  (including CompCor confound extraction), and scrubbing, with sample masks
+  and confounds sourced directly from stored signals
+  ([#435](https://github.com/confusius-tools/confusius/pull/435)).
 
 ## 0.7.1
 
