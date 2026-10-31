@@ -206,7 +206,7 @@ iq = cf.load("path/to/data.dat")
 iq = cf.load("path/to/data.dat", meta_path="path/to/metadata.mat")
 ```
 
-When you expect to process the same recording repeatedly, [convert it to
+When you expect to process the same recording repeatedly, [save it to
 Zarr](#converting-beamformed-iq-data-to-zarr) instead for better performance.
 
 ### Loading Iconeus RAW Files
@@ -233,7 +233,7 @@ stored with the `iconeus_` prefix.
     coordinate with `iq.assign_coords(time=...)` after loading.
 
 When you expect to process the same recording repeatedly, [save it to
-Zarr](#saving-data) once for better performance:
+Zarr](#converting-beamformed-iq-data-to-zarr) once for better performance:
 
 ```python
 cf.save(iq, "path/to/acquisition.zarr")
@@ -518,9 +518,12 @@ walkthrough, from a real lab-specific MAT file to motion correction and a task G
 ## Converting Beamformed IQ Data to Zarr
 
 Beamformed IQ exports are often stored as large binary files together with acquisition
-metadata. ConfUSIus loads AUTC DAT, EchoFrame DAT, and Iconeus RAW exports directly, and
-provides conversion utilities for AUTC and EchoFrame that reorganize these datasets into
-Zarr for more efficient processing.
+metadata. ConfUSIus loads AUTC DAT, EchoFrame DAT, and Iconeus RAW exports directly.
+AUTC DAT folders are split across multiple binary files, so they use the dedicated
+[`convert_autc_dats_to_zarr`][confusius.io.convert_autc_dats_to_zarr] converter.
+EchoFrame DAT and Iconeus RAW files load lazily as VoxelData arrays, so convert them
+with [`confusius.load`][confusius.load] followed by
+[`confusius.save`][confusius.save]; data is streamed one Dask chunk at a time.
 
 === "AUTC DATs"
 
@@ -562,37 +565,104 @@ Zarr for more efficient processing.
     This format consists of a binary `.dat` file containing the beamformed data and a
     `.mat` file containing metadata (sequence parameters).
 
-    To convert EchoFrame data to Zarr, use
-    [`convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr].
-    Zarr is useful for long-term storage or repeated processing of the same recording.
-
     ```python
-    from confusius.io import convert_echoframe_dat_to_zarr
+    import numpy as np
 
-    convert_echoframe_dat_to_zarr(
-        dat_path="path/to/data.dat",
-        meta_path="path/to/metadata.mat",
-        output_path="sub-01_task-awake_iq.zarr",
-        # Optional: specify block start times. Other metadata (e.g., transmit frequency,
-        # axis coordinates) will be automatically extracted from the metadata file.
-        block_times=block_times,
+    import confusius as cf
+
+    # Finds ScanParameters.mat next to the DAT file by default.
+    iq = cf.load("path/to/data.dat")
+
+    # Optionally keep only blocks 2..4 (zero-based, end-exclusive).
+    n_volumes = iq.attrs["n_volumes_per_block"]
+    iq = iq.isel(time=slice(2 * n_volumes, 5 * n_volumes))
+
+    # Replace the theoretical time coordinate with measured block start times.
+    block_starts = np.array([0.0, 2.5, 5.1])  # Seconds, one per retained block.
+    time = np.concatenate(
+        [
+            start
+            + np.arange(n_volumes) / iq.attrs["compound_sampling_frequency"]
+            for start in block_starts
+        ]
     )
+    iq = iq.assign_coords(time=("time", time, iq.coords["time"].attrs))
+
+    # Name the Zarr array `iq` and stream the data to disk.
+    iq.name = "iq"
+    cf.save(iq, "sub-01_task-awake_iq.zarr")
     ```
 
-    This will create a Zarr group containing:
+=== "Iconeus RAW"
 
-    - `iq`: Beamformed IQ data with native dimensions `(time, k, j, i)`.
-    - `time`, `k`, `j`, `i`: Native time and voxel-space dimension coordinates.
-    - `voxel_to_world` and `voxel_to_world_units`: Attributes on `iq` used to restore
-      the `VoxelToWorldIndex` and derive `z`/`y`/`x` world coordinates.
-    - Metadata attributes (e.g., `transmit_frequency`, `plane_wave_angles`)
-      as extracted from the metadata file.
+    This format consists of a binary `.raw` payload paired with an HDF5 `.hraw`
+    metadata sidecar.
+
+    ```python
+    import numpy as np
+
+    import confusius as cf
+
+    # Finds the matching .hraw file next to the payload.
+    iq = cf.load("path/to/acquisition.raw")
+
+    # Each Dask chunk is one acquisition block; chunks[0] lists frames per block.
+    block_starts = np.concatenate(([0], np.cumsum(iq.chunks[0])))
+    # Keep blocks 1..3 (zero-based, end-exclusive).
+    iq = iq.isel(time=slice(block_starts[1], block_starts[4]))
+
+    # Replace the theoretical time coordinate with measured frame timestamps.
+    frame_times = np.asarray(measured_frame_times)  # One per retained frame, in seconds.
+    iq = iq.assign_coords(time=("time", frame_times, iq.coords["time"].attrs))
+
+    # Name the Zarr array `iq` and stream the data to disk.
+    iq.name = "iq"
+    cf.save(iq, "sub-01_task-awake_iq.zarr")
+    ```
+
+### Sharding and Memory Use
+
+`cf.save` writes the loaded Dask chunks one at a time, so memory stays bounded by the
+number of chunks written concurrently. To bundle several chunks into each Zarr shard,
+set both the chunk and shard encoding. Dask chunks must align with shard boundaries, so
+pass `align_chunks=True` or rechunk to the shard size first:
+
+```python
+n_volumes = iq.chunks[0][0]  # Frames in the first acquisition block.
+shard_volumes = 4 * n_volumes
+
+iq.name = "iq"
+cf.save(
+    iq,
+    "sub-01_task-awake_iq.zarr",
+    encoding={
+        "iq": {
+            "chunks": (n_volumes, 1, *iq.shape[2:]),
+            "shards": (shard_volumes, 1, *iq.shape[2:]),
+        }
+    },
+    align_chunks=True,
+)
+```
+
+Sharding increases the amount of data held by each write task to one shard. To cap
+memory further, use Dask's single-threaded scheduler; this is slower but keeps only one
+chunk or shard in flight:
+
+```python
+cf.save(
+    iq,
+    "sub-01_task-awake_iq.zarr",
+    chunkmanager_store_kwargs={"scheduler": "single-threaded"},
+)
+```
 
 ### Other Systems
 
-For beamformed IQ data from a system other than AUTC or EchoFrame, load the complex
-array with the tool appropriate for your file format, then wrap it as a VoxelData array
-with [`create_voxeldata`][confusius.xarray.create_voxeldata]. Put IQ-specific metadata
+For beamformed IQ data from a system other than AUTC, EchoFrame, or Iconeus, load the
+complex array with the tool appropriate for your file format, then wrap it as a
+VoxelData array with
+[`create_voxeldata`][confusius.xarray.create_voxeldata]. Put IQ-specific metadata
 such as `transmit_frequency` and `beamforming_sound_velocity` in `attrs`:
 
 ```python
@@ -686,8 +756,9 @@ Quick reference for converting between formats:
 |------|-----|----------|
 | AUTC DATs | Zarr | [`confusius.io.convert_autc_dats_to_zarr`][confusius.io.convert_autc_dats_to_zarr] |
 | EchoFrame DAT | VoxelData array | [`confusius.io.load_echoframe_dat`][confusius.io.load_echoframe_dat] |
-| EchoFrame DAT | Zarr | [`confusius.io.convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr] |
+| EchoFrame DAT | Zarr | [`confusius.load`][confusius.load] then [`confusius.save`][confusius.save] |
 | Iconeus RAW | VoxelData array | [`confusius.load`][confusius.load] |
+| Iconeus RAW | Zarr | [`confusius.load`][confusius.load] then [`confusius.save`][confusius.save] |
 | Iconeus SCAN | VoxelData array | [`confusius.load`][confusius.load] |
 | NIfTI | VoxelData array | [`confusius.load`][confusius.load] |
 | Zarr | VoxelData array or Dataset | [`confusius.load`][confusius.load] / [`xarray.open_zarr`][xarray.open_zarr] (Dataset) |
