@@ -26,14 +26,9 @@ without leaving the viewer.
 
 ### Loading data
 
-Use **Load Data** for both fUSI files and behavioral videos. Click **Browse** to pick
-a file—it loads immediately on selection. Or paste a path and click **Load** (or press
-++enter++). Video extensions are sent to the video viewer; other paths use the fUSI
-loader. **Load** stays disabled until a path is entered.
-
-Enable **Load lazily** beforehand to keep large fUSI arrays Dask-backed. This option is
-disabled for video paths, since videos already decode frames on demand. A progress bar
-animates while fUSI data loads, and errors are reported in napari notifications.
+Use **Load Data** for both fUSI files and behavioral videos. When loading fUSI files,
+enable **Load lazily** beforehand to keep large fUSI arrays Dask-backed. This option is
+disabled for video paths, since videos already decode frames on demand.
 
 !!! info "Time overlay"
     When a loaded scan contains a time dimension, the current time coordinate is
@@ -41,30 +36,16 @@ animates while fUSI data loads, and errors are reported in napari notifications.
     units are read from the scan's coordinate metadata and update automatically as you
     scrub the time slider.
 
-    When multiple scans are open, the overlay reflects the currently selected layer.
-    If zero or more than one layer is selected, it keeps following the previously
-    selected one.
+    When multiple scans are open, the overlay reflects the currently selected layer. If
+    zero or more than one layer is selected, it keeps following the previously selected
+    one.
 
 ### Loading a video
 
-The same panel opens behavioral videos (`.mp4`, `.mov`, `.avi`) in a second napari
-viewer, the video viewer, docked between the main canvas and the ConfUSIus sidebar.
-The video viewer has its own layers, axes and camera, so a video never changes how
-your fUSI layers are displayed. The two viewers share only time: moving the time
-slider of one moves the other to the same time, converting the recording's time units
-to or from seconds for the video viewer.
-
-1. Type a video path in **Load Data** and click **Load** (or press ++enter++), or click
-   **Browse** to pick a file and add it right away.
-2. The video viewer opens with the video as a new layer.
-
-Closing the video viewer or its layer list only hides it. Use **Show video viewer** or
-**Show video list** in the Data I/O panel to bring it back. Each button is enabled only
-while its dock is hidden and videos are loaded.
-
-Repeat to add more videos: the video viewer shows them side by side in its grid. Frame
-`n` of a video is shown at `n / fps` seconds, so a video lines up with a recording whose
-time coordinate starts at the first video frame.
+Videos are opened (`.mp4`, `.mov`, `.avi`) in a second napari viewer docked between the
+main canvas and the ConfUSIus sidebar. The video viewer has its own layers, axes and
+camera, so a video never changes how your fUSI layers are displayed. The two viewers
+share only time: moving the time slider of one moves the other to the same time.
 
 !!! tip "Launch with a video from the CLI"
     Pass `--video` to open a video at launch, with or without data files:
@@ -72,13 +53,24 @@ time coordinate starts at the first video frame.
     confusius path/to/scan.nii.gz --video path/to/camera.mp4
     confusius --video path/to/camera.mp4
     ```
+Closing the video viewer or its layer list only hides it. Use **Show video viewer** or
+**Show video list** in the Data I/O panel to bring it back.
+
+When multiple videos are loaded, the video viewer shows them side by side in its grid.
+Frame `n` of a video is shown at `n / fps` seconds, so a video lines up with a recording
+whose time coordinate starts at the first video frame.
+
+!!! warning "Irregular recording or video times"
+    Synchronization assumes regularly sampled fUSI data and videos. Napari approximates
+    irregular fUSI timestamps using the median sample interval; videos are timed from
+    frame indices and the reported frame rate, not individual frame timestamps.
+    Irregular fUSI or video sampling can therefore misalign the displayed frames. Do not
+    rely on frame-accurate synchronization in these cases.
 
 ![ConfUSIus playing a video in sync with a fUSI recording](../images/gui/plugin-video.gif)
 
-The video layers are listed in a **video layer list** dock under napari's own layer list,
-so they behave like any other napari layers: select, rename, reorder or hide them as
-you would in the main viewer. Right-click a layer for a short advanced menu. The delete
-button sits above the list; transpose, grid, and frame step sit below it:
+The video layers are listed in a **video layer list** dock under napari's own layer
+list, so they behave like any other napari layers. Available controls are:
 
 | Control | Description |
 |---------|-------------|
@@ -95,7 +87,7 @@ last video hides the video viewer.
     depending on user hardware and operating system). Use **Frame step** to reduce the
     effective frame rate if playback is choppy or buffering.
 
-### Saving data
+### Exporting data
 
 1. Select the layer to save from the **Save layer** dropdown.
 2. Optionally select a layer in the **Coordinates from** dropdown to borrow its physical
