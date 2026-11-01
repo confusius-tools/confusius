@@ -72,6 +72,9 @@ Current development version for the next ConfUSIus release.
   viewers ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 - `confusius --video PATH` opens a video without a data file
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- Videos synchronize correctly with recordings whose time coordinates use
+  milliseconds or microseconds, rather than treating those values as seconds
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 
 ## 0.8.0
 

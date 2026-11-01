@@ -167,8 +167,12 @@ QPushButton {{
     border-radius: 3px;
     padding: 5px 10px;
 }}
-QPushButton:hover {{
+QPushButton:hover:enabled {{
     background: {btn_hover_bg};
+}}
+QPushButton:disabled {{
+    background: {btn_bg};
+    color: {placeholder_fg};
 }}
 QPushButton#primary_btn {{
     background: {accent};

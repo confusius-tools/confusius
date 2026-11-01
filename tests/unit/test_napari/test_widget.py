@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
 from qtpy.QtCore import QTimer
+from qtpy.QtGui import QPalette
 from qtpy.QtWidgets import QWIDGETSIZE_MAX, QApplication, QGroupBox
 
 from confusius._napari._data._load_panel import DataPanel
@@ -31,6 +33,43 @@ def test_video_loading_is_part_of_data_io(make_napari_viewer):
         "Load Data",
         "Layer Export",
     ]
+
+
+@pytest.mark.parametrize(
+    ("theme", "enabled_color", "disabled_color"),
+    [("dark", "#c8c8d4", "#565668"), ("light", "#2c2c3a", "#a0a0b0")],
+)
+def test_video_reopen_buttons_look_disabled(
+    make_napari_viewer, theme, enabled_color, disabled_color
+):
+    viewer = make_napari_viewer()
+    viewer.theme = theme
+    widget = ConfUSIusWidget(viewer)
+    panel = widget.findChild(VideoPanel)
+
+    for button in (panel._show_viewer_btn, panel._show_layer_list_btn):
+        button.ensurePolished()
+        assert not button.isEnabled()
+        assert (
+            button.palette()
+            .color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText)
+            .name()
+            == disabled_color
+        )
+        button.setEnabled(True)
+        assert (
+            button.palette()
+            .color(QPalette.ColorGroup.Active, QPalette.ColorRole.ButtonText)
+            .name()
+            == enabled_color
+        )
+        button.setEnabled(False)
+        assert (
+            button.palette()
+            .color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText)
+            .name()
+            == disabled_color
+        )
 
 
 def test_dock_fills_available_height_under_napari_0_9(make_napari_viewer):

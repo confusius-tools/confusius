@@ -26,10 +26,7 @@ if TYPE_CHECKING:
 class _VideoEntry:
     """Per-video state held by `VideoPanel` for each loaded video."""
 
-    path: Path
     video: VideoReaderNP
-    fps: float
-    name: str
     layer: napari.layers.Image
 
 
@@ -76,7 +73,7 @@ class VideoPanel(QWidget):
         self._show_viewer_btn = QPushButton("Show video viewer")
         self._show_viewer_btn.setEnabled(False)
         self._show_viewer_btn.clicked.connect(self._show_video_viewer)
-        self._show_layer_list_btn = QPushButton("Show layer list")
+        self._show_layer_list_btn = QPushButton("Show video list")
         self._show_layer_list_btn.setEnabled(False)
         self._show_layer_list_btn.clicked.connect(self._show_layer_list)
 
@@ -96,10 +93,13 @@ class VideoPanel(QWidget):
             self._video_viewer.show_layer_list()
 
     def _update_window_buttons(self) -> None:
-        """Enable reopening video windows only while videos are loaded."""
-        enabled = self._video_viewer is not None and bool(self._videos)
-        self._show_viewer_btn.setEnabled(enabled)
-        self._show_layer_list_btn.setEnabled(enabled)
+        """Enable reopening hidden video windows only while videos are loaded."""
+        video_viewer = self._video_viewer
+        enabled = video_viewer is not None and bool(self._videos)
+        self._show_viewer_btn.setEnabled(enabled and video_viewer.dock.isHidden())
+        self._show_layer_list_btn.setEnabled(
+            enabled and video_viewer.controls_dock.isHidden()
+        )
 
     # ------------------------------------------------------------------
     # Load
@@ -131,15 +131,10 @@ class VideoPanel(QWidget):
         elif not self._videos:
             self._video_viewer.show()
 
-        name = f"Video: {path.stem}"
         layer = self._video_viewer.add_video(
-            video, name=name, fps=video.frame_rate, step=self._frame_step
+            video, name=f"Video: {path.stem}", step=self._frame_step
         )
-        self._videos.append(
-            _VideoEntry(
-                path=path, video=video, fps=video.frame_rate, name=name, layer=layer
-            )
-        )
+        self._videos.append(_VideoEntry(video=video, layer=layer))
         self._update_window_buttons()
 
     def _show_error(self, message: str) -> None:
@@ -166,8 +161,11 @@ class VideoPanel(QWidget):
         video_viewer = VideoViewer(self._viewer, anchor=self)
         video_viewer.frame_step_spin.setValue(self._frame_step)
         video_viewer.frame_step_spin.valueChanged.connect(self._on_frame_step_changed)
-        # After the viewer's own handlers, so it has refit itself before the
-        # panel may close it.
+        video_viewer.dock.visibilityChanged.connect(self._update_window_buttons)
+        video_viewer.controls_dock.visibilityChanged.connect(
+            self._update_window_buttons
+        )
+        # Let the viewer resynchronize and refit before the panel hides it.
         video_viewer.model.layers.events.removed.connect(
             self._on_layer_removed, position="last"
         )
@@ -206,6 +204,4 @@ class VideoPanel(QWidget):
         if self._video_viewer is None or not self._videos:
             return
         for entry in self._videos:
-            self._video_viewer.set_frame_step(
-                entry.layer, entry.video, entry.fps, value
-            )
+            self._video_viewer.set_frame_step(entry.layer, entry.video, value)

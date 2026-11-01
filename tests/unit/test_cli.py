@@ -159,6 +159,8 @@ class TestRun:
         class _FakeVideo:
             number_of_frames = 10
             frame_rate = 30.0
+            frame_shape = (8, 6, 3)
+            dtype = np.uint8
 
             def __getitem__(self, idx):
                 return np.zeros((8, 6, 3), np.uint8)

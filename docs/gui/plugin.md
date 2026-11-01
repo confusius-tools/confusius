@@ -51,15 +51,16 @@ The same panel opens behavioral videos (`.mp4`, `.mov`, `.avi`) in a second napa
 viewer, the video viewer, docked between the main canvas and the ConfUSIus sidebar.
 The video viewer has its own layers, axes and camera, so a video never changes how
 your fUSI layers are displayed. The two viewers share only time: moving the time
-slider of one moves the other to the same time in seconds, so the video plays in sync
-with the recording.
+slider of one moves the other to the same time, converting the recording's time units
+to or from seconds for the video viewer.
 
 1. Type a video path in **Load Data** and click **Load** (or press ++enter++), or click
    **Browse** to pick a file and add it right away.
 2. The video viewer opens with the video as a new layer.
 
 Closing the video viewer or its layer list only hides it. Use **Show video viewer** or
-**Show layer list** in the Data I/O panel to bring it back.
+**Show video list** in the Data I/O panel to bring it back. Each button is enabled only
+while its dock is hidden and videos are loaded.
 
 Repeat to add more videos: the video viewer shows them side by side in its grid. Frame
 `n` of a video is shown at `n / fps` seconds, so a video lines up with a recording whose

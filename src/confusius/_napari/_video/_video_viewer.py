@@ -34,6 +34,7 @@ from qtpy.QtWidgets import (
 
 from confusius._napari._qt import find_main_window
 from confusius._napari._timeaxis import find_time_dim_index
+from confusius.timing import convert_time_units
 
 if TYPE_CHECKING:
     import napari
@@ -59,11 +60,11 @@ class _VideoArray:
     def __init__(self, video: VideoReaderNP, *, step: int = 1) -> None:
         self._video = video
         self._step = step
-        frame = np.ascontiguousarray(video[0])
-        self._frame_shape = frame.shape
+        # Reader metadata avoids seeking back to frame zero on every step change.
+        self._frame_shape = video.frame_shape
         n_frames = len(range(0, video.number_of_frames, step))
-        self.shape = (n_frames, *frame.shape)
-        self.dtype = frame.dtype
+        self.shape = (n_frames, *self._frame_shape)
+        self.dtype = video.dtype
         self.ndim = len(self.shape)
         self.size = int(np.prod(self.shape))
 
@@ -258,7 +259,9 @@ class VideoViewer:
         controls_layout = QVBoxLayout(self.controls)
         controls_layout.setContentsMargins(8, 4, 8, 6)
         # Share the existing button bar so its minimum width is not added twice.
-        self.buttons.layout().addWidget(self.frame_step_spin)
+        buttons_layout = self.buttons.layout()
+        assert buttons_layout is not None
+        buttons_layout.addWidget(self.frame_step_spin)
         controls_layout.addWidget(self.layer_buttons)
         controls_layout.addWidget(self.layer_list, stretch=1)
         controls_layout.addWidget(self.buttons)
@@ -300,7 +303,7 @@ class VideoViewer:
         viewer.events.theme.connect(self._sync_theme)
         self.model.dims.events.point.connect(self._sync_to_main)
         self.model.dims.events.point.connect(self._update_time_text)
-        self.model.layers.events.removed.connect(self._update_time_text)
+        self.model.layers.events.removing.connect(self._on_layer_removing)
         self.model.layers.events.removed.connect(self._on_layer_removed)
 
     def _place_left_of(self, dock: QDockWidget) -> None:
@@ -364,7 +367,6 @@ class VideoViewer:
         video: VideoReaderNP,
         *,
         name: str,
-        fps: float,
         step: int = 1,
     ) -> napari.layers.Image:
         """Add a video as a plain `(time, y, x[, rgb])` image layer.
@@ -372,11 +374,9 @@ class VideoViewer:
         Parameters
         ----------
         video : VideoReaderNP
-            The opened video reader.
+            The opened video reader. Its frame rate sets the time scale in seconds.
         name : str
             Layer name.
-        fps : float
-            Video frame rate; the time scale becomes `step / fps` seconds.
         step : int, default: 1
             Show every *step*-th frame.
 
@@ -395,10 +395,10 @@ class VideoViewer:
                 data,
                 name=name,
                 rgb=is_rgb,
-                scale=(_time_scale(fps, step), 1.0, 1.0),
+                scale=(_time_scale(video.frame_rate, step), 1.0, 1.0),
                 axis_labels=("time", "y", "x"),
                 units=("s", None, None),
-                metadata={"fps": fps, "time_units": "s"},
+                metadata={"fps": video.frame_rate, "time_units": "s"},
             )
         finally:
             self._syncing = False
@@ -427,7 +427,7 @@ class VideoViewer:
         self._reset_view()
 
     def set_frame_step(
-        self, layer: napari.layers.Image, video: VideoReaderNP, fps: float, step: int
+        self, layer: napari.layers.Image, video: VideoReaderNP, step: int
     ) -> None:
         """Rebuild `layer` with a new frame step, keeping the current time.
 
@@ -437,8 +437,6 @@ class VideoViewer:
             A layer previously returned by `add_video`.
         video : VideoReaderNP
             The reader backing `layer`.
-        fps : float
-            Video frame rate.
         step : int
             Show every *step*-th frame.
         """
@@ -446,13 +444,20 @@ class VideoViewer:
         self._syncing = True
         try:
             layer.data = _VideoArray(video, step=step)
-            layer.scale = (_time_scale(fps, step), 1.0, 1.0)  # ty: ignore[invalid-assignment]
+            layer.scale = (_time_scale(video.frame_rate, step), 1.0, 1.0)  # ty: ignore[invalid-assignment]
             self.model.dims.set_point(0, current_time)
         finally:
             self._syncing = False
 
+    def _on_layer_removing(self, event=None) -> None:
+        """Keep removal-induced time clamping from moving the main viewer."""
+        self._syncing = True
+
     def _on_layer_removed(self, event=None) -> None:
-        """Refit the remaining videos after one is removed."""
+        """Resynchronize and refit the remaining videos after one is removed."""
+        self._syncing = False
+        self._sync_from_main()
+        self._update_time_text()
         if self.model.layers:
             self.model.reset_view()
 
@@ -546,7 +551,14 @@ class VideoViewer:
             return
         self._syncing = True
         try:
-            self.model.dims.set_point(0, float(self._main.dims.point[time_idx]))
+            units = self._main.dims.units
+            video_time = float(
+                convert_time_units(
+                    self._main.dims.point[time_idx],
+                    str(units[time_idx]) if units else None,
+                )
+            )
+            self.model.dims.set_point(0, video_time)
         finally:
             self._syncing = False
 
@@ -557,15 +569,22 @@ class VideoViewer:
             return
         self._syncing = True
         try:
-            video_time = float(self.model.dims.point[0])
-            self._main.dims.set_point(time_idx, video_time)
+            units = self._main.dims.units
+            main_time = float(
+                convert_time_units(
+                    self.model.dims.point[0],
+                    "s",
+                    str(units[time_idx]) if units else None,
+                )
+            )
+            self._main.dims.set_point(time_idx, main_time)
             # When the main step changes, napari's time slider snaps the point
             # to that step. Setting it again keeps the video's exact time (the
             # step is unchanged, so the slider leaves it alone): the main viewer
             # still shows its nearest frame, and time cursors follow the video.
-            # Without a snap the point already equals `video_time`, so this
+            # Without a snap the point already equals `main_time`, so this
             # emits no second point event.
-            self._main.dims.set_point(time_idx, video_time)
+            self._main.dims.set_point(time_idx, main_time)
         finally:
             self._syncing = False
 
