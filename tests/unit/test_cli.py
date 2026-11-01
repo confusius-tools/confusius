@@ -172,7 +172,7 @@ class TestRun:
         viewer = make_napari_viewer()
         run(args, viewer=viewer)
 
-        panel = viewer.window.dock_widgets["ConfUSIus"]._accordion_panels["Video"]
+        panel = viewer.window.dock_widgets["ConfUSIus"]._video_panel
         try:
             assert len(viewer.layers) == len(paths)
             assert [layer.name for layer in panel._video_viewer.model.layers] == [

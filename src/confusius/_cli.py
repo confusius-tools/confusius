@@ -166,8 +166,8 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
         The viewer with the ConfUSIus widget docked and the requested data
         files added as layers (one layer per file, in the same order as
         `args.path`; see [`_open_paths`][confusius._cli._open_paths] for how
-        the layer type is chosen). `args.video`, if set, is opened in the Video
-        panel's dedicated viewer.
+        the layer type is chosen). `args.video`, if set, is opened in the
+        dedicated video viewer.
     """
     import napari
 
@@ -182,8 +182,7 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
         _open_paths(viewer, args.path, lazy=args.lazy)
 
     if args.video is not None:
-        video_panel = widget._accordion_panels["Video"]
-        video_panel._add_video(args.video)  # type: ignore
+        widget._video_panel.add_video(args.video)
 
     return viewer
 

@@ -25,8 +25,6 @@ from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QWIDGETSIZE_MAX,
     QDockWidget,
-    QHBoxLayout,
-    QLabel,
     QMenu,
     QSizePolicy,
     QSpinBox,
@@ -144,6 +142,9 @@ class _VideoToast(NapariQtNotification):
 class VideoViewer:
     """A second napari viewer, docked in the main window, that shows only videos.
 
+    Its layer list and controls live in a separate "video layer list" dock, placed
+    right under napari's own layer list.
+
     Parameters
     ----------
     viewer : napari.Viewer
@@ -176,11 +177,12 @@ class VideoViewer:
         self.dock = viewer.window.add_dock_widget(
             self.qt_viewer, name="Video", area="right"
         )
-        # No close button: the dock lives exactly as long as videos are
-        # loaded.  No floating: a detached vispy canvas needs
+        # Closing hides the dock so Data I/O can reopen it. No floating:
+        # a detached vispy canvas needs
         # `AA_ShareOpenGLContexts`, which must be set before the QApplication
         # exists and a plugin cannot guarantee.
         self.dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        _hide_on_close(self.dock)
         # napari 0.9 caps a plugin dock at its initial size hint (explicit max
         # height on the dock, Maximum policy on its content); lift both so the
         # video canvas spans the full window height like the main one.
@@ -200,12 +202,11 @@ class VideoViewer:
             # controls that drive it, with no close button of its own.
             anchor_dock.destroyed.connect(self._on_anchor_destroyed)
 
-        # Panel-side controls built from napari's own widgets for this model,
-        # laid out like napari's layer panel: a row with the transpose and
-        # grid buttons, the frame step and the delete button, then the layer
-        # list.  The stock buttons run app-wide actions that resolve to the
-        # main viewer, so they are rewired here; the grid button keeps
-        # napari's right-click popup, which edits this model's grid.
+        # Controls built from napari's own widgets for this model, with
+        # layer buttons above the list and viewer buttons below, like napari.
+        # The stock buttons run app-wide actions that resolve to the main
+        # viewer, so they are rewired here; the grid button keeps napari's
+        # right-click popup, which edits this model's grid.
         self.buttons = QtViewerButtons(self.model)
         for button in (
             self.buttons.consoleButton,
@@ -236,6 +237,8 @@ class VideoViewer:
 
         self.frame_step_spin = QSpinBox()
         self.frame_step_spin.setRange(1, 100)
+        self.frame_step_spin.setPrefix("Step: ")
+        self.frame_step_spin.setAccessibleName("Frame step")
         self.frame_step_spin.setToolTip(
             "Show every N-th frame. Higher values skip frames for lighter playback."
         )
@@ -253,19 +256,31 @@ class VideoViewer:
 
         self.controls = QWidget()
         controls_layout = QVBoxLayout(self.controls)
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        controls_layout.setSpacing(4)
-        # Frame step on the left, the three buttons ragged right.
-        row = QHBoxLayout()
-        row.setSpacing(4)
-        row.addWidget(QLabel("Frame step"))
-        row.addWidget(self.frame_step_spin)
-        row.addStretch()
-        row.addWidget(self.buttons)
-        row.addWidget(self.layer_buttons)
-        controls_layout.addLayout(row)
+        controls_layout.setContentsMargins(8, 4, 8, 6)
+        # Share the existing button bar so its minimum width is not added twice.
+        self.buttons.layout().addWidget(self.frame_step_spin)
+        controls_layout.addWidget(self.layer_buttons)
         controls_layout.addWidget(self.layer_list, stretch=1)
+        controls_layout.addWidget(self.buttons)
+        # The video layer list lives in its own dock, right under napari's
+        # layer list, so videos are listed where layers are normally found
+        # instead of in the ConfUSIus sidebar.  Remember that list's width
+        # first: adding a dock can widen the shared left column.
+        layer_dock = getattr(self._main.window._qt_viewer, "dockLayerList", None)
+        self._layer_list_width = (
+            layer_dock.width() if isinstance(layer_dock, QDockWidget) else 0
+        )
+        controls_policy = self.controls.sizePolicy()
+        self.controls_dock = viewer.window.add_dock_widget(
+            self.controls, name="video layer list", area="left"
+        )
+        # Like napari's layer dock, undo the plugin dock's Maximum policy.
+        self.controls.setSizePolicy(controls_policy)
+        self.controls_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        _hide_on_close(self.controls_dock)
         self._sync_theme()
+        # Size the dock after Qt has polished and laid out its contents.
+        QTimer.singleShot(0, self._place_under_layer_list)
 
         # napari's Home button and Ctrl+R run the `napari:reset_view` action,
         # which calls `viewer.reset_view()` on the main viewer.  Overriding
@@ -309,6 +324,36 @@ class VideoViewer:
         # The split halves the panel's width: give the video that width and
         # the panel its own back, so the canvas is what shrinks.
         window.resizeDocks([self.dock, dock], [width, width], Qt.Orientation.Horizontal)
+
+    def _place_under_layer_list(self) -> None:
+        """Dock the video layer list below napari's main layer list."""
+        if not hasattr(self, "controls_dock") or self.controls_dock.isHidden():
+            return
+        layer_dock = getattr(self._main.window._qt_viewer, "dockLayerList", None)
+        window = find_main_window(self.controls_dock)
+        if (
+            window is None
+            or not isinstance(layer_dock, QDockWidget)
+            or layer_dock.isFloating()
+            or layer_dock is self.controls_dock
+        ):
+            return
+        height = layer_dock.height()
+        window.splitDockWidget(layer_dock, self.controls_dock, Qt.Orientation.Vertical)
+        self.controls_dock.show()
+        # Request less than the minimum and let Qt clamp to the settled layout.
+        window.resizeDocks(
+            [layer_dock, self.controls_dock],
+            [height, 1],
+            Qt.Orientation.Vertical,
+        )
+        width = self._layer_list_width or layer_dock.width()
+        if width:
+            window.resizeDocks(
+                [layer_dock, self.controls_dock],
+                [width, width],
+                Qt.Orientation.Horizontal,
+            )
 
     # ------------------------------------------------------------------
     # Layers
@@ -451,15 +496,7 @@ class VideoViewer:
     def _sync_theme(self, event=None) -> None:
         """Follow the main viewer's theme."""
         self.model.theme = self._main.theme
-        # The controls sit inside the ConfUSIus panel, whose stylesheet would
-        # restyle them; napari's own stylesheet restores their look, minus the
-        # 242 px `min-width` napari gives these widgets to size its layer dock
-        # and the spin-box `min-width` that would make the frame step 132 px.
-        self.controls.setStyleSheet(
-            get_stylesheet(self._main.theme)
-            + "QtLayerButtons, QtViewerButtons, QtLayerList { min-width: 0px; }"
-            + "QSpinBox { min-width: 0px; }"
-        )
+        self.controls.setStyleSheet(get_stylesheet(self._main.theme))
 
     def notify(
         self, message: str, severity: NotificationSeverity = NotificationSeverity.INFO
@@ -537,7 +574,7 @@ class VideoViewer:
     # ------------------------------------------------------------------
 
     def hide(self) -> None:
-        """Hide the dock and controls, giving the dock's width back to the canvas.
+        """Hide the docks, giving the canvas dock's width back to the main canvas.
 
         The viewer is kept alive rather than closed: creating another GL
         canvas in the window after one existed crashes the process on some
@@ -548,23 +585,31 @@ class VideoViewer:
         anchor_width = anchor.width() if anchor is not None else 0
         window = find_main_window(self.dock)
         self.dock.hide()
-        self.controls.hide()
+        self.controls_dock.hide()
         if anchor is not None and window is not None:
             window.resizeDocks([anchor], [anchor_width], Qt.Orientation.Horizontal)
 
     def show(self) -> None:
-        """Show the dock and controls again, sized as on first opening."""
+        """Show the docks again, sized as on first opening."""
         anchor = self._anchor_dock
         anchor_width = anchor.width() if anchor is not None else 0
         window = find_main_window(self.dock)
         self.dock.show()
-        self.controls.show()
+        self.controls_dock.show()
         if anchor is not None and window is not None:
             window.resizeDocks(
                 [self.dock, anchor],
                 [anchor_width, anchor_width],
                 Qt.Orientation.Horizontal,
             )
+
+    def show_viewer(self) -> None:
+        """Show the video canvas dock again after it was hidden."""
+        self.dock.show()
+
+    def show_layer_list(self) -> None:
+        """Show the video layer list dock again after it was hidden."""
+        self.controls_dock.show()
 
     def _on_anchor_destroyed(self) -> None:
         """Close the video viewer once the dock it was placed next to is gone."""
@@ -584,7 +629,7 @@ class VideoViewer:
             self.close()
 
     def close(self) -> None:
-        """Disconnect from the main viewer and remove the dock."""
+        """Disconnect from the main viewer and remove the docks."""
         object.__delattr__(self._main, "reset_view")
         self._main.dims.events.point.disconnect(self._sync_from_main)
         self._main.events.theme.disconnect(self._sync_theme)
@@ -592,6 +637,7 @@ class VideoViewer:
         anchor = self._anchor_dock
         anchor_width = anchor.width() if anchor is not None else 0
         window = find_main_window(self.dock)
+        self._main.window.remove_dock_widget(self.controls_dock)
         self._main.window.remove_dock_widget(self.dock)
         if anchor is not None and window is not None:
             # Qt hands the removed dock's space to the panel beside it; give
@@ -600,14 +646,29 @@ class VideoViewer:
         self.qt_viewer.close()
         # Safe to delete: napari's action manager drops its tooltip hooks on
         # the buttons' `destroyed` signal.  Unparenting pulls the controls
-        # out of the panel's layout.  They are gone already if the panel was
+        # out of their dock.  They are gone already if the window was
         # deleted first.
         with contextlib.suppress(RuntimeError):
             self.controls.setParent(None)
             self.controls.deleteLater()
         # The model's event callbacks hold bound methods of the QtViewer, so
         # dropping both references is what lets the QtViewer be collected.
-        del self.qt_viewer, self.model, self.dock, self.controls
+        del self.qt_viewer, self.model, self.dock, self.controls, self.controls_dock
+
+
+def _hide_on_close(dock: QDockWidget) -> None:
+    """Make a dock's title-bar close button hide it instead of deleting it.
+
+    The video viewer keeps one GL canvas for the whole session: destroying it
+    and building another can crash some GL stacks, so the close button must
+    not remove the dock.
+
+    Parameters
+    ----------
+    dock : qtpy.QtWidgets.QDockWidget
+        Dock whose close button should hide it.
+    """
+    object.__setattr__(dock, "destroyOnClose", dock.hide)
 
 
 def _time_scale(fps: float, step: int) -> float:

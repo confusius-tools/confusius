@@ -15,6 +15,7 @@ import pytest
 from qtpy.QtWidgets import QWidget
 
 import confusius._napari._video._video_panel as panel_module
+from confusius._napari._data._load_panel import DataPanel
 from confusius._napari._timeaxis import find_time_dim_index, read_current_time
 from confusius._napari._video._video_panel import VideoPanel
 from confusius._napari._video._video_viewer import _VideoArray
@@ -122,14 +123,13 @@ def panel(viewer):
 
 @pytest.fixture
 def add_video(panel, monkeypatch, tmp_path):
-    """Return a function that adds a stubbed video through the panel UI path."""
+    """Return a function that adds a stubbed video through the video panel."""
 
     def _add(fv: _FakeVideo, name: str = "clip"):
         path = tmp_path / f"{name}.mp4"
         path.touch()
         monkeypatch.setattr(panel_module, "VideoReaderNP", lambda p, **kw: fv)
-        panel._path_edit.setText(str(path))
-        panel._load_from_path()
+        panel.add_video(path)
         return panel._videos[-1]
 
     return _add
@@ -143,17 +143,17 @@ def _delete_video(panel, name: str) -> None:
     video_viewer.layer_buttons.deleteButton.click()
 
 
-def test_add_video_opens_dock_and_leaves_main_viewer_alone(viewer, panel, add_video):
-    assert not panel._no_videos_label.isHidden()
+def test_add_video_opens_docks_and_leaves_main_viewer_alone(viewer, panel, add_video):
     entry = add_video(_FakeVideo(n_frames=10, rgb=True))
-    assert viewer.window.dock_widgets["Video"] is panel._video_viewer.qt_viewer
+    video_viewer = panel._video_viewer
+    assert viewer.window.dock_widgets["Video"] is video_viewer.qt_viewer
+    assert viewer.window.dock_widgets["video layer list"] is video_viewer.controls
     assert entry.layer.data.shape == (10, 48, 64, 3)
     assert entry.layer.rgb
     np.testing.assert_allclose(entry.layer.scale, (1 / 30, 1.0, 1.0))
     assert len(viewer.layers) == 1
     assert not viewer.canvas.grid.enabled
-    assert panel._no_videos_label.isHidden()
-    assert panel.isAncestorOf(panel._video_viewer.layer_list)
+    assert panel.isAncestorOf(video_viewer.controls) is False
 
 
 def test_add_video_does_not_move_main_time(viewer, panel, add_video):
@@ -166,8 +166,7 @@ def test_add_video_does_not_move_main_time(viewer, panel, add_video):
 def test_missing_file_shows_error_and_opens_nothing(panel, tmp_path, monkeypatch):
     errors = []
     monkeypatch.setattr(panel_module, "show_error", errors.append)
-    panel._path_edit.setText(str(tmp_path / "nope.mp4"))
-    panel._load_from_path()
+    panel.add_video(tmp_path / "nope.mp4")
     assert errors and "not found" in errors[0]
     assert panel._video_viewer is None
 
@@ -184,14 +183,12 @@ def test_undecodable_video_shows_error_and_opens_nothing(panel, tmp_path, monkey
     )
     path = tmp_path / "truncated.mp4"
     path.touch()
-    panel._path_edit.setText(str(path))
-    panel._load_from_path()
+    panel.add_video(path)
     assert errors and "cannot decode frame" in errors[0]
     assert panel._video_viewer is None
-    assert not panel._no_videos_label.isHidden()
 
 
-def test_video_messages_show_on_video_canvas_within_it(
+def test_only_video_errors_show_notifications_on_video_canvas(
     viewer, panel, add_video, tmp_path
 ):
     from napari._qt.dialogs.qt_notification import NapariQtNotification
@@ -200,22 +197,18 @@ def test_video_messages_show_on_video_canvas_within_it(
     canvas = panel._video_viewer.qt_viewer.canvas.native
     # Narrower than napari's 400 px toast.
     canvas.resize(300, 200)
-    panel._path_edit.setText(str(tmp_path / "nope.mp4"))
-    panel._load_from_path()
     panel._video_viewer.frame_step_spin.setValue(2)
+    assert not canvas.findChildren(NapariQtNotification)
+    assert not viewer.window._qt_viewer.canvas.native.findChildren(NapariQtNotification)
 
+    panel.add_video(tmp_path / "nope.mp4")
     toasts = canvas.findChildren(NapariQtNotification)
-    assert [toast.message.text().split()[0] for toast in toasts] == [
-        "Video",
-        "File",
-        "Frame",
-    ]
-    for toast in toasts[1:]:
+    assert len(toasts) == 1
+    assert "File not found" in toasts[0].message.text()
+    for toast in toasts:
         assert 0 <= toast.x()
         assert toast.geometry().right() < canvas.width()
-    assert not viewer.window._qt_viewer.canvas.native.findChildren(
-        NapariQtNotification
-    )
+    assert not viewer.window._qt_viewer.canvas.native.findChildren(NapariQtNotification)
 
 
 def test_two_videos_share_video_grid(viewer, panel, add_video):
@@ -228,8 +221,12 @@ def test_two_videos_share_video_grid(viewer, panel, add_video):
 
 
 def test_remove_last_video_closes_dock(viewer, panel, add_video):
+    assert not panel._show_viewer_btn.isEnabled()
+    assert not panel._show_layer_list_btn.isEnabled()
     add_video(_FakeVideo(), "a")
     add_video(_FakeVideo(), "b")
+    assert panel._show_viewer_btn.isEnabled()
+    assert panel._show_layer_list_btn.isEnabled()
     video_viewer = panel._video_viewer
     _delete_video(panel, "Video: a")
     assert [e.name for e in panel._videos] == ["Video: b"]
@@ -239,15 +236,35 @@ def test_remove_last_video_closes_dock(viewer, panel, add_video):
     # The viewer is kept (opening another GL canvas later can crash) but hidden.
     assert panel._video_viewer is video_viewer
     assert video_viewer.dock.isHidden()
-    assert video_viewer.controls.isHidden()
-    assert not panel._no_videos_label.isHidden()
+    assert video_viewer.controls_dock.isHidden()
+    assert not panel._show_viewer_btn.isEnabled()
+    assert not panel._show_layer_list_btn.isEnabled()
 
     add_video(_FakeVideo(), "c")
     assert panel._video_viewer is video_viewer
     assert not video_viewer.dock.isHidden()
-    assert not video_viewer.controls.isHidden()
-    assert panel._no_videos_label.isHidden()
+    assert not video_viewer.controls_dock.isHidden()
     assert [layer.name for layer in video_viewer.model.layers] == ["Video: c"]
+
+
+def test_closed_video_windows_can_be_reopened_from_data_io(viewer, panel, add_video):
+    add_video(_FakeVideo())
+    video_viewer = panel._video_viewer
+
+    controls_dock = video_viewer.controls_dock
+    controls_dock.titleBarWidget().close_button.click()
+    assert controls_dock.isHidden()
+    # Closing hides the dock instead of deleting it, so it can come back.
+    assert viewer.window.dock_widgets["video layer list"] is video_viewer.controls
+    panel._show_layer_list_btn.click()
+    assert not controls_dock.isHidden()
+
+    video_dock = video_viewer.dock
+    video_dock.titleBarWidget().close_button.click()
+    assert video_dock.isHidden()
+    assert viewer.window.dock_widgets["Video"] is video_viewer.qt_viewer
+    panel._show_viewer_btn.click()
+    assert not video_dock.isHidden()
 
 
 def test_layer_removed_from_the_model_is_forgotten(viewer, panel, add_video):
@@ -365,14 +382,22 @@ def test_viewer_controls_act_on_video_viewer_only(viewer, panel, add_video):
     video_viewer = panel._video_viewer
     buttons = video_viewer.buttons
     controls = video_viewer.controls
-    assert panel.isAncestorOf(controls)
-    # napari's 242 px `min-width` on its button bars and layer list, and its
-    # spin-box width floor, are overridden so the controls fit the sidebar
-    # (issue #183 pattern).
+    assert video_viewer.controls_dock.widget() is controls
+    # Use napari's own layer panel as the width budget, not a pixel constant.
     for widget in [*controls.findChildren(QWidget), controls]:
         if widget.layout() is not None:
             widget.layout().activate()
-    assert controls.minimumSizeHint().width() < 242
+    native_controls = viewer.window._qt_viewer.dockLayerList.widget()
+    native_controls.layout().activate()
+    assert (
+        controls.minimumSizeHint().width() <= native_controls.minimumSizeHint().width()
+    )
+    assert controls.sizePolicy() == native_controls.sizePolicy()
+    bottom_row = controls.layout().itemAt(controls.layout().count() - 1).widget()
+    assert bottom_row is buttons
+    assert buttons.layout().itemAt(buttons.layout().count() - 1).widget() is (
+        video_viewer.frame_step_spin
+    )
     for hidden in (
         buttons.consoleButton,
         buttons.ndisplayButton,
@@ -399,8 +424,7 @@ def test_viewer_controls_act_on_video_viewer_only(viewer, panel, add_video):
 
     for name in ("Video: a", "Video: b"):
         _delete_video(panel, name)
-    assert not panel._no_videos_label.isHidden()
-    assert controls.isHidden()
+    assert video_viewer.controls_dock.isHidden()
 
 
 def test_layer_context_menu_acts_on_video_layers(viewer, panel, add_video):
@@ -497,21 +521,34 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
 
     relayout()
     panel_width = panel_dock.width()
+    layer_dock = viewer.window._qt_viewer.dockLayerList
+    layer_width = layer_dock.width()
 
     path = tmp_path / "clip.mp4"
     path.touch()
     monkeypatch.setattr(panel_module, "VideoReaderNP", lambda p, **kw: _FakeVideo())
-    panel._path_edit.setText(str(path))
-    panel._load_from_path()
+    load_panel = widget.findChild(DataPanel)
+    load_panel._path_edit.setText(str(path))
+    load_panel._load_btn.click()
     video_viewer = panel._video_viewer
     assert video_viewer is not None
     video_dock = video_viewer.dock
+    controls_dock = video_viewer.controls_dock
 
     relayout()
     try:
         assert (
             window.dockWidgetArea(video_dock) == Qt.DockWidgetArea.RightDockWidgetArea
         )
+        assert (
+            window.dockWidgetArea(controls_dock) == Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        assert controls_dock.y() > layer_dock.y()
+        assert controls_dock.height() < layer_dock.height()
+        assert controls_dock.x() == layer_dock.x()
+        # It shares the layer list's column instead of widening it.
+        assert controls_dock.width() == layer_dock.width()
+        assert layer_dock.width() == pytest.approx(layer_width, abs=4)
         assert not panel_dock.isHidden()
         assert video_dock.x() < panel_dock.x()
         assert video_dock.y() == panel_dock.y()
@@ -521,15 +558,26 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
         assert video_dock.width() == pytest.approx(panel_width, abs=4)
 
+        # A user can widen the shared column and shrink it back again.
+        window.resizeDocks([layer_dock], [layer_width + 150], Qt.Orientation.Horizontal)
+        relayout()
+        assert layer_dock.width() > layer_width
+        window.resizeDocks([layer_dock], [layer_width], Qt.Orientation.Horizontal)
+        relayout()
+        assert layer_dock.width() == pytest.approx(layer_width, abs=4)
+        assert controls_dock.width() == layer_dock.width()
+
         # Removing the last video hides the dock and gives its space back to
         # the canvas, not to the panel; re-adding shows it sized as before.
         _delete_video(panel, "Video: clip")
         relayout()
         assert video_dock.isHidden()
+        assert controls_dock.isHidden()
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
-        panel._load_from_path()
+        panel.add_video(path)
         relayout()
         assert not video_dock.isHidden()
+        assert not controls_dock.isHidden()
         assert video_dock.x() < panel_dock.x()
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
         assert video_dock.width() == pytest.approx(panel_width, abs=4)
@@ -538,6 +586,42 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
     relayout()
     assert not panel_dock.isHidden()
     assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+
+
+@pytest.mark.parametrize("show_before_load", [False, True])
+def test_video_layer_list_starts_at_smallest_height(
+    viewer, panel, add_video, show_before_load
+):
+    from qtpy.QtCore import Qt
+    from qtpy.QtWidgets import QApplication
+
+    window = viewer.window._qt_window
+    # Exercise the shown window's layout without painting an offscreen GL canvas.
+    window.setUpdatesEnabled(False)
+    window.resize(1600, 900)
+    if show_before_load:
+        window.show()
+        QApplication.processEvents()
+    add_video(_FakeVideo())
+    window.show()
+    QApplication.processEvents()
+    controls_dock = panel._video_viewer.controls_dock
+    layer_dock = viewer.window._qt_viewer.dockLayerList
+    initial_height = controls_dock.height()
+    window.resizeDocks(
+        [layer_dock, controls_dock],
+        [layer_dock.height() + initial_height, 1],
+        Qt.Orientation.Vertical,
+    )
+    QApplication.processEvents()
+    assert controls_dock.height() == initial_height
+    window.resizeDocks(
+        [layer_dock, controls_dock],
+        [layer_dock.height() - 100, initial_height + 100],
+        Qt.Orientation.Vertical,
+    )
+    QApplication.processEvents()
+    assert controls_dock.height() > initial_height
 
 
 def test_closing_panel_dock_closes_video_viewer(
@@ -556,15 +640,16 @@ def test_closing_panel_dock_closes_video_viewer(
     path = tmp_path / "clip.mp4"
     path.touch()
     monkeypatch.setattr(panel_module, "VideoReaderNP", lambda p, **kw: _FakeVideo())
-    panel._path_edit.setText(str(path))
-    panel._load_from_path()
+    panel.add_video(path)
     assert "Video" in viewer.window.dock_widgets
+    assert "video layer list" in viewer.window.dock_widgets
     assert "reset_view" in viewer.__dict__
 
     # What the panel dock's close button does.
     viewer.window.remove_dock_widget(panel_dock)
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     qtbot.waitUntil(lambda: "Video" not in viewer.window.dock_widgets)
+    assert "video layer list" not in viewer.window.dock_widgets
     assert "reset_view" not in viewer.__dict__
 
 

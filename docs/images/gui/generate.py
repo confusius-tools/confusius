@@ -24,7 +24,7 @@ Outputs (all saved to docs/images/gui/):
 - `plugin-signals-labels.png` — Signals panel in labels mode.
 - `plugin-events-create.gif` — GIF of creating events with the Start/End workflow.
 - `plugin-qc.png` — QC panel with DVARS, carpet, and CV computed.
-- `plugin-video.gif` — Video panel with video synced to the fUSI acquisition.
+- `plugin-video.gif` — Video loading in Data I/O, synced to the fUSI acquisition.
 - `plugin-registration.gif` — Registration panel during a rigid between-session angiography run.
 - `plugin-registration-volumewise.gif` — Registration panel during within-scan motion correction.
 
@@ -1049,7 +1049,7 @@ except Exception as exc:
     _warn(f"plugin-registration-volumewise.gif failed: {exc}")
 
 # ---------------------------------------------------------------------------
-# 8. Video panel — time-scrubbing GIF via the plugin
+# 8. Video loading in Data I/O — time-scrubbing GIF via the plugin
 # ---------------------------------------------------------------------------
 
 try:
@@ -1081,14 +1081,14 @@ try:
     fusi_layer.contrast_limits = VIDEO_DISPLAY_CONTRAST
     _qt_sleep(100)
 
-    # Open the video from the Video panel; it plays in the video viewer docked
-    # beside the main canvas.
-    _open_accordion_panel(widget6, "Video")
+    # Open the video from the Data I/O panel; it plays in the video viewer
+    # docked beside the main canvas and is listed under napari's layer list.
+    _open_accordion_panel(widget6, "Data I/O")
     video_panel = widget6.findChild(VideoPanel)
     if video_panel is None:
         raise RuntimeError("VideoPanel not found in ConfUSIusWidget")
-    video_panel._path_edit.setText(str(_VIDEO_MP4_PATH))
-    video_panel._load_from_path()
+    data_panel._path_edit.setText(str(_VIDEO_MP4_PATH))
+    data_panel._load()
     _qt_sleep(200)
 
     video_layer = video_panel._video_viewer.model.layers[0]
@@ -1162,7 +1162,7 @@ try:
     from qtpy.QtCore import QPoint
     from qtpy.QtWidgets import QScrollArea
 
-    # Reuse the Videos GIF window, with its fUSI layer and video viewer: a second
+    # Reuse the video GIF window, with its fUSI layer and video viewer: a second
     # video viewer in one process crashes some GL drivers (Mesa), even in a new
     # window.
     viewer9, widget9, fusi9 = viewer6, widget6, fusi_layer

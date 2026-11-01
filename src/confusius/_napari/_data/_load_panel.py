@@ -23,12 +23,17 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from confusius._napari._video._video_panel import VideoPanel
 from confusius._utils.napari import infer_layer_type
 from confusius.io import load
 from confusius.plotting.napari import plot_napari
 
 if TYPE_CHECKING:
     import napari
+
+
+_VIDEO_EXTENSIONS = (".mp4", ".mov", ".avi")
+"""Video formats dispatched to the dedicated video viewer."""
 
 
 @thread_worker
@@ -66,12 +71,13 @@ class _FileOrDirDialog(QFileDialog):
 
 
 class DataPanel(QWidget):
-    """Panel for loading fUSI data files into the napari viewer.
+    """Panel for loading fUSI data and behavioral videos.
 
-    Supported formats are whatever [`confusius.load`][confusius.load] accepts (`.nii`,
-    `.nii.gz`, `.scan`, `.zarr`).
+    fUSI formats are whatever [`confusius.load`][confusius.load] accepts (`.nii`,
+    `.nii.gz`, `.scan`, `.zarr`). Videos (`.mp4`, `.mov`, `.avi`) open in a dedicated
+    viewer synchronized with the main viewer.
 
-    Loading runs in a background thread so the UI stays responsive. A file is loaded
+    fUSI loading runs in a background thread so the UI stays responsive. A file is loaded
     automatically as soon as the user selects one via the Browse dialog, or when they
     press Enter in the path field.
 
@@ -84,6 +90,7 @@ class DataPanel(QWidget):
     def __init__(self, viewer: napari.Viewer) -> None:
         super().__init__()
         self.viewer = viewer
+        self.video_panel = VideoPanel(viewer)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -92,13 +99,13 @@ class DataPanel(QWidget):
         layout.setSpacing(8)
 
         # --- File group --------------------------------------------------
-        file_group = QGroupBox("File Loading")
+        file_group = QGroupBox("Load Data")
         self._file_group = file_group
         file_layout = QVBoxLayout(file_group)
         file_layout.setSpacing(6)
 
         self._path_edit = QLineEdit()
-        self._path_edit.setPlaceholderText("Path to .nii / .nii.gz / .scan / .zarr")
+        self._path_edit.setPlaceholderText("Path to fUSI data or video")
         # Pressing Enter in the path field triggers loading.
         self._path_edit.returnPressed.connect(self._load)
 
@@ -130,8 +137,11 @@ class DataPanel(QWidget):
 
         self._load_btn = QPushButton("Load")
         self._load_btn.setObjectName("primary_btn")
+        self._load_btn.setEnabled(False)
         self._load_btn.clicked.connect(self._load)
+        self._path_edit.textChanged.connect(self._update_load_button)
         layout.addWidget(self._load_btn)
+        layout.addWidget(self.video_panel)
 
         layout.addStretch()
 
@@ -139,10 +149,22 @@ class DataPanel(QWidget):
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _update_load_button(self) -> None:
+        """Enable loading only when a path is entered and no load is running."""
+        self._load_btn.setEnabled(
+            self._path_edit.isEnabled() and bool(self._path_edit.text().strip())
+        )
+        self._compute_check.setEnabled(
+            self._path_edit.isEnabled()
+            and Path(self._path_edit.text().strip()).suffix.lower()
+            not in _VIDEO_EXTENSIONS
+        )
+
     def _begin_work(self) -> None:
         self._browse_btn.setEnabled(False)
         self._path_edit.setEnabled(False)
         self._load_btn.setEnabled(False)
+        self._compute_check.setEnabled(False)
         self._load_btn.setText("Loading…")
         self._progress.show()
         QApplication.processEvents()
@@ -150,7 +172,7 @@ class DataPanel(QWidget):
     def _end_work(self) -> None:
         self._browse_btn.setEnabled(True)
         self._path_edit.setEnabled(True)
-        self._load_btn.setEnabled(True)
+        self._update_load_button()
         self._load_btn.setText("Load")
         self._progress.hide()
 
@@ -161,14 +183,15 @@ class DataPanel(QWidget):
     def _browse(self) -> None:
         start = self._path_edit.text().strip() or str(Path.home())
 
-        dialog = _FileOrDirDialog(self, "Open fUSI Data", start)
+        dialog = _FileOrDirDialog(self, "Open Data or Video", start)
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
         dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
         dialog.setNameFilter(
-            "Supported files (*.nii *.nii.gz *.scan *.zarr);;"
+            "Supported files (*.nii *.nii.gz *.scan *.zarr *.mp4 *.mov *.avi);;"
             "NIfTI (*.nii *.nii.gz);;"
             "SCAN (*.scan);;"
             "Zarr (*.zarr);;"
+            "Video (*.mp4 *.mov *.avi);;"
             "All files (*)"
         )
 
@@ -184,6 +207,10 @@ class DataPanel(QWidget):
             return
 
         path = Path(path_str)
+        if path.suffix.lower() in _VIDEO_EXTENSIONS:
+            self.video_panel.add_video(path)
+            return
+
         if not path.exists():
             show_error(f"Path not found: {path}")
             return

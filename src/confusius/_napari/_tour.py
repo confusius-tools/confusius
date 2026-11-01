@@ -553,7 +553,6 @@ def build_default_tour(
     from confusius._napari._qc._panel import QCPanel
     from confusius._napari._registration._panel import RegistrationPanel
     from confusius._napari._signals._panel import SignalPanel
-    from confusius._napari._video._video_panel import VideoPanel
 
     window = plugin_widget.window() or plugin_widget
 
@@ -785,8 +784,9 @@ def build_default_tour(
             title="Data I/O",
             body=(
                 "This section is where data enters and leaves ConfUSIus. Load fUSI "
-                "datasets from disk, then save processed layers or annotations back "
-                "out with the coordinates you want to preserve."
+                "datasets and behavioral videos from disk, then save processed "
+                "layers or annotations back out with the coordinates you want to "
+                "preserve."
             ),
             anchor="left",
             spotlight_rect=_accordion_tab_rect("Data I/O"),
@@ -795,7 +795,7 @@ def build_default_tour(
         ),
         TourStep(
             target=_panel_attr("Data I/O", DataPanel, "_file_group"),
-            title="File Loading",
+            title="Load Data",
             body=(
                 "Open NIfTI, SCAN, or Zarr files here. <b>Browse</b> selects a dataset "
                 "and starts loading it right away. Tick <b>Load lazily</b> to keep "
@@ -806,8 +806,28 @@ def build_default_tour(
             pre_action=_expand_section("Data I/O"),
         ),
         TourStep(
+            target=_panel_attr("Data I/O", DataPanel, "_file_group"),
+            title="Add a Video",
+            body=(
+                "Enter or browse for a video file (.mp4, .mov, .avi), then click "
+                "<b>Load</b> to import it. Videos open in a dedicated Video "
+                "viewer next to the main canvas, synchronized in time with the "
+                "acquisition, and are listed in a <b>video layer list</b> dock under "
+                "napari's layer list. Repeat to add more videos side by side."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_rect(
+                "Data I/O",
+                DataPanel,
+                "_file_group",
+                "_load_btn",
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_expand_section("Data I/O"),
+        ),
+        TourStep(
             target=_panel_attr("Data I/O", SavePanel, "_save_group"),
-            title="Layer Saving",
+            title="Layer Export",
             body=(
                 "Save any napari layer from here. <b>Coordinates from</b> is useful "
                 "when exporting labels or derived maps: it allows reusing the world "
@@ -816,55 +836,6 @@ def build_default_tour(
             anchor="left",
             tooltip_target=_dock_widget,
             pre_action=_expand_section("Data I/O"),
-        ),
-        TourStep(
-            target=_accordion_panel("Video"),
-            title="Video",
-            body=(
-                "This section lets you load one or more behavioral videos alongside "
-                "your fUSI recording. Videos open in a dedicated Video viewer next "
-                "to the main canvas, synchronized in time with the acquisition, "
-                "so you can see what the animal was doing at each time point. "
-                "Scrubbing either time slider moves the other."
-            ),
-            anchor="left",
-            spotlight_rect=_accordion_tab_rect("Video"),
-            tooltip_target=_dock_widget,
-            pre_action=_expand_section("Video"),
-        ),
-        TourStep(
-            target=_panel_attr("Video", VideoPanel, "_file_group"),
-            title="Add a Video",
-            body=(
-                "Enter or browse for a video file (.mp4, .mov, .avi), then click "
-                "<b>Add video</b> to import it. The video appears in the Video "
-                "viewer; repeat to add more videos side by side."
-            ),
-            anchor="left",
-            spotlight_rect=_panel_attr_rect(
-                "Video",
-                VideoPanel,
-                "_file_group",
-                "_load_btn",
-            ),
-            tooltip_target=_dock_widget,
-            pre_action=_expand_section("Video"),
-        ),
-        TourStep(
-            target=_panel_attr("Video", VideoPanel, "_videos_group"),
-            title="Loaded Videos",
-            body=(
-                "Loaded videos are listed here like napari layers: toggle their "
-                "visibility, rename them, or drag to reorder. The buttons above "
-                "transpose the video axes and toggle grid mode (right-click for "
-                "grid options); <b>Frame step</b> shows every N-th frame for "
-                "lighter playback of long or heavy videos; the bin removes the "
-                "selected videos. The Video viewer closes once the last video is "
-                "removed."
-            ),
-            anchor="left",
-            tooltip_target=_dock_widget,
-            pre_action=_expand_section("Video"),
         ),
         TourStep(
             target=_accordion_panel("Signals"),

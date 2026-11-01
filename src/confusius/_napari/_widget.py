@@ -528,29 +528,27 @@ class ConfUSIusWidget(QWidget):
         from confusius._napari._qc._panel import QCPanel
         from confusius._napari._registration._panel import RegistrationPanel
         from confusius._napari._signals._panel import SignalPanel
-        from confusius._napari._video._video_panel import VideoPanel
 
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Combined loading + saving panel.
+        # Combined data/video loading and layer export panel.
         data_panel = QWidget()
         data_layout = QVBoxLayout(data_panel)
         data_layout.setContentsMargins(0, 0, 0, 0)
         data_layout.setSpacing(0)
-        data_layout.addWidget(DataPanel(self.viewer))
+        load_panel = DataPanel(self.viewer)
+        data_layout.addWidget(load_panel)
         data_layout.addWidget(SavePanel(self.viewer))
         data_layout.addStretch()
-
-        # Video panel (own section).
-        video_panel = VideoPanel(self.viewer)
+        # Exposed so the CLI can open a video at launch.
+        self._video_panel = load_panel.video_panel
 
         accent = RED if self._is_dark() else RED_DARK
         tab_entries = [
             ("Data I/O", "file-input"),
-            ("Video", "video"),
             ("Signals", "chart-line"),
             ("Registration", "images"),
             ("Events", "calendar-clock"),
@@ -563,7 +561,6 @@ class ConfUSIusWidget(QWidget):
         )
         panels = [
             data_panel,
-            video_panel,
             signal_panel,
             RegistrationPanel(self.viewer),
             EventPanel(self.viewer, self._event_store),
