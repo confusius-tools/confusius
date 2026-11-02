@@ -511,9 +511,9 @@ For the common moves, three helpers build the affine for you: `translate` shifts
 vector in world units, `rotate` turns by an angle (degrees by default) about a world
 axis name or vector, and `zoom` rescales by a scalar or per-axis `(z, y, x)` factors.
 `rotate` and `zoom` take an optional `center` pivot (default: the world origin), and
-`rotate` follows the right-hand rule in the physical `(x, y, z)` frame. Calls chain
-in order; the voxel grid and data values never change, only their placement in
-world space:
+`rotate` follows the right-hand rule in ordered `(z, y, x)` world coordinates, the
+frame napari displays. Calls chain in order; the voxel grid and data values never
+change, only their placement in world space:
 
 ```python
 # Shift 1 mm along z, then tilt 5 degrees about x through the volume center.

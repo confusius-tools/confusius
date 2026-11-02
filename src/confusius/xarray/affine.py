@@ -772,10 +772,10 @@ class FUSIAffineAccessor:
     ) -> xr.DataArray:
         """Rotate a DataArray in world space.
 
-        Rotations follow the right-hand rule in the physical `(x, y, z)` frame, so a
-        rotation of +90 degrees about `x` maps `+y` onto `+z`. Only the voxel-to-world
-        geometry changes. See [apply_rotate][confusius.registration.apply_rotate] for
-        details.
+        Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates,
+        the frame napari displays, so a rotation of +90 degrees about `x` maps `+z`
+        onto `+y`. Only the voxel-to-world geometry changes. See
+        [apply_rotate][confusius.registration.apply_rotate] for details.
 
         Parameters
         ----------
@@ -816,8 +816,8 @@ class FUSIAffineAccessor:
         ... )
         >>> rotated = data.fusi.affine.rotate(90.0, "z")
         >>> box = rotated.fusi.affine.bounding_box
-        >>> round(float(box.sel(bound="min", component="x")), 6)
-        -3.0
+        >>> round(float(box.sel(bound="max", component="x")), 6)
+        3.0
         """
         from confusius.registration.affines import apply_rotate
 

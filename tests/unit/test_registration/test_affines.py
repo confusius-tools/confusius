@@ -9,7 +9,12 @@ import xarray as xr
 from numpy.testing import assert_allclose, assert_array_almost_equal, assert_array_equal
 from scipy.spatial.transform import Rotation
 
-from confusius.registration import apply_rotate, apply_translate, apply_zoom
+from confusius.registration import (
+    apply_rotate,
+    apply_translate,
+    apply_zoom,
+    extract_motion_parameters,
+)
 from confusius.registration.affines import (
     affine_to_sitk_linear_transform,
     compose_affine,
@@ -273,23 +278,34 @@ class TestApplyTranslate:
 class TestApplyRotate:
     """Tests for apply_rotate."""
 
-    def test_right_hand_rule_about_x(self, rng):
-        # Physical right-hand rule: +90 deg about x maps +y onto +z.
-        result = apply_rotate(_volume(rng), 90.0, "x")
-        assert_allclose(
-            _world_affine(result) @ [0.0, 1.0, 0.0, 1.0],
-            [1.0, 0.0, 0.0, 1.0],
-            atol=1e-12,
-        )
+    @pytest.mark.parametrize(
+        ("axis", "start", "end"),
+        [
+            ("z", (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+            ("y", (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)),
+            ("x", (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+        ],
+    )
+    def test_right_hand_rule_in_zyx_order(self, rng, axis, start, end):
+        # Points are (z, y, x): +90 deg about z maps +y onto +x, about y maps +x onto
+        # +z, and about x maps +z onto +y.
+        result = apply_rotate(_volume(rng), 90.0, axis)
+        assert_allclose(_world_affine(result) @ [*start, 1.0], [*end, 1.0], atol=1e-12)
 
-    def test_matches_permuted_scipy_reference(self, rng):
+    def test_matches_scipy_reference(self, rng):
         axis_zyx = np.array([1.0, 2.0, 2.0]) / 3.0
         result = apply_rotate(_volume(rng), 37.0, axis_zyx)
-        expected = Rotation.from_rotvec(np.deg2rad(37.0) * axis_zyx[::-1]).as_matrix()[
-            ::-1, ::-1
-        ]
+        expected = Rotation.from_rotvec(np.deg2rad(37.0) * axis_zyx).as_matrix()
         assert_allclose(_world_affine(result)[:3, :3], expected, atol=1e-12)
         assert_allclose(_world_affine(result)[:3, 3], 0.0, atol=1e-12)
+
+    def test_chained_rotations_match_motion_parameters(self, rng):
+        angles = np.deg2rad([30.0, 20.0, 10.0])
+        result = _volume(rng)
+        for angle, axis in zip(angles, "zyx", strict=True):
+            result = apply_rotate(result, angle, axis, degrees=False)
+        params = extract_motion_parameters([_world_affine(result)])
+        assert_allclose(params[0, :3], angles, atol=1e-12)
 
     def test_center_is_fixed_point(self, rng):
         center = np.array([1.0, -2.0, 3.0])

@@ -360,8 +360,10 @@ def apply_rotate(
 
     Only the voxel-to-world geometry changes: data values and voxel coordinates are
     untouched, and any `attrs["affines"]` entries are re-expressed accordingly.
-    Rotations follow the right-hand rule in the physical `(x, y, z)` frame, so a
-    rotation of +90 degrees about `x` maps `+y` onto `+z`.
+    Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates, the
+    frame napari displays, so a rotation of +90 degrees about `x` maps `+z` onto `+y`.
+    Rotating about `z`, then `y`, then `x` gives the angles reported by
+    [extract_motion_parameters][confusius.registration.extract_motion_parameters].
 
     Parameters
     ----------
@@ -405,8 +407,8 @@ def apply_rotate(
     ... )
     >>> rotated = apply_rotate(data, 90.0, "x")
     >>> np.round(rotated.fusi.affine.voxel_to_world[:3, :3])
-    array([[ 0.,  1.,  0.],
-           [-1.,  0.,  0.],
+    array([[ 0., -1.,  0.],
+           [ 1.,  0.,  0.],
            [ 0.,  0.,  1.]])
     """
     angle = _as_finite_scalar(angle, "angle")
@@ -426,10 +428,10 @@ def apply_rotate(
         unit_axis = unit_axis / norm
 
     angle_rad = np.deg2rad(angle) if degrees else float(angle)
-    # (z, y, x) is an odd permutation of (x, y, z), so a rotation vector evaluated in
-    # z/y/x component order rotates the opposite way. Build the matrix in x/y/z order
-    # and permute rows and columns back so +angle follows the right-hand rule.
-    rotation = Rotation.from_rotvec(angle_rad * unit_axis[::-1]).as_matrix()[::-1, ::-1]
+    # The rotation vector stays in (z, y, x) component order, so the right-hand rule
+    # applies to that ordered triad. Using (x, y, z) components instead would reverse
+    # the sense of every rotation, since the two orders differ by an odd permutation.
+    rotation = Rotation.from_rotvec(angle_rad * unit_axis).as_matrix()
     return apply_affine(data, _about_center(rotation, center), inplace=inplace)
 
 
