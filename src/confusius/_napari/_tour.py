@@ -553,6 +553,7 @@ def build_default_tour(
     from confusius._napari._qc._panel import QCPanel
     from confusius._napari._registration._panel import RegistrationPanel
     from confusius._napari._signals._panel import SignalPanel
+    from confusius._napari._video._video_panel import VideoPanel
 
     window = plugin_widget.window() or plugin_widget
 
@@ -797,30 +798,29 @@ def build_default_tour(
             target=_panel_attr("Data I/O", DataPanel, "_file_group"),
             title="Load Data",
             body=(
-                "Open NIfTI, SCAN, or Zarr files here. <b>Browse</b> selects a dataset "
-                "and starts loading it right away. Tick <b>Load lazily</b> to keep "
-                "large arrays on disk and load frames as you view them."
+                "Open fUSI data (NIfTI, SCAN, Zarr) or synchronized videos here. "
+                "<b>Browse</b> opens a file immediately; you can also enter a path "
+                "and click <b>Load</b>. Use <b>Load lazily</b> to read fUSI frames "
+                "on demand."
             ),
             anchor="left",
             tooltip_target=_dock_widget,
             pre_action=_expand_section("Data I/O"),
         ),
         TourStep(
-            target=_panel_attr("Data I/O", DataPanel, "_file_group"),
-            title="Add a Video",
+            target=_panel_descendant("Data I/O", VideoPanel),
+            title="Video Viewer and List",
             body=(
-                "Enter or browse for a video file (.mp4, .mov, .avi), then click "
-                "<b>Load</b> to import it. Videos open in a dedicated Video "
-                "viewer next to the main canvas, synchronized in time with the "
-                "acquisition, and are listed in a <b>video layer list</b> dock under "
-                "napari's layer list. Repeat to add more videos side by side."
+                "Videos play next to the main canvas, with their own list below "
+                "napari's layer list. Closing either dock only hides it. Use "
+                "<b>Show video viewer</b> or <b>Show video list</b> to bring it back."
             ),
             anchor="left",
             spotlight_rect=_panel_attr_rect(
                 "Data I/O",
-                DataPanel,
-                "_file_group",
-                "_load_btn",
+                VideoPanel,
+                "_show_viewer_btn",
+                "_show_layer_list_btn",
             ),
             tooltip_target=_dock_widget,
             pre_action=_expand_section("Data I/O"),
