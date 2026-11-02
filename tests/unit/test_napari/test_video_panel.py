@@ -8,6 +8,7 @@ See https://napari.org/dev/plugins/testing_and_publishing/test.html
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -18,7 +19,7 @@ import confusius._napari._video._video_panel as panel_module
 from confusius._napari._data._load_panel import DataPanel
 from confusius._napari._timeaxis import find_time_dim_index, read_current_time
 from confusius._napari._video._video_panel import VideoPanel
-from confusius._napari._video._video_viewer import _VideoArray
+from confusius._napari._video._video_viewer import VideoViewer, _VideoArray
 from confusius.plotting import plot_napari
 
 # ---------------------------------------------------------------------------
@@ -213,6 +214,44 @@ def test_only_video_errors_show_notifications_on_video_canvas(
         assert 0 <= toast.x()
         assert toast.geometry().right() < canvas.width()
     assert not viewer.window._qt_viewer.canvas.native.findChildren(NapariQtNotification)
+
+
+@pytest.mark.parametrize("irregular", [False, True])
+@pytest.mark.parametrize("video_first", [False, True])
+def test_irregular_time_warning(
+    viewer, panel, add_video, monkeypatch, irregular, video_first
+):
+    from napari.utils.notifications import NotificationSeverity
+
+    notify = MagicMock()
+    monkeypatch.setattr(VideoViewer, "notify", notify)
+    scan = viewer.layers[0].metadata["xarray"]
+    times = scan.time.values.copy()
+    if irregular:
+        times[5:] += 1.0
+    scan = scan.assign_coords(time=scan.time.copy(data=times))
+    viewer.layers.clear()
+    if video_first:
+        add_video(_FakeVideo(n_frames=450))
+    with pytest.warns(UserWarning, match="non-uniform") if irregular else nullcontext():
+        plot_napari(scan, viewer=viewer, show_colorbar=False, show_scale_bar=False)
+    if not video_first:
+        notify.assert_not_called()
+        add_video(_FakeVideo(n_frames=450))
+
+    if irregular:
+        notify.assert_called_once()
+        message, severity = notify.call_args.args
+        assert "not regularly sampled" in message
+        assert "linear approximation and may drift" in message
+        assert severity == NotificationSeverity.WARNING
+    else:
+        notify.assert_not_called()
+
+    calls = notify.call_count
+    viewer.dims.set_point(find_time_dim_index(viewer), 12.0)
+    add_video(_FakeVideo(n_frames=450), "second")
+    assert notify.call_count == calls
 
 
 def test_two_videos_share_video_grid(viewer, panel, add_video):

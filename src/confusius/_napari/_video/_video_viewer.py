@@ -34,12 +34,19 @@ from qtpy.QtWidgets import (
 
 from confusius._napari._qt import find_main_window
 from confusius._napari._timeaxis import find_time_dim_index
-from confusius.timing import convert_time_units
+from confusius.timing import convert_time_units, get_representative_time_step
 
 if TYPE_CHECKING:
     import napari
     import napari.layers
     from napari_video.napari_video import VideoReaderNP
+
+
+_IRREGULAR_TIME_WARNING = (
+    "Reference layer time axis is not regularly sampled; "
+    "video synchronization uses a linear approximation and may drift."
+)
+"""Warning shown when video synchronization uses approximate recording times."""
 
 
 class _VideoArray:
@@ -301,6 +308,7 @@ class VideoViewer:
         self._syncing = False
         viewer.dims.events.point.connect(self._sync_from_main)
         viewer.events.theme.connect(self._sync_theme)
+        viewer.layers.events.inserted.connect(self._warn_if_irregular_time)
         self.model.dims.events.point.connect(self._sync_to_main)
         self.model.dims.events.point.connect(self._update_time_text)
         self.model.layers.events.removing.connect(self._on_layer_removing)
@@ -405,6 +413,8 @@ class VideoViewer:
         assert not isinstance(layer, list)
         self._sync_from_main()
         self._update_time_text()
+        if len(self.model.layers) == 1:
+            self._warn_if_irregular_time()
         # The dock is laid out on the next event-loop pass; only then does
         # the canvas have its real size, so fitting the view must wait.
         QTimer.singleShot(0, self._reset_view)
@@ -544,6 +554,28 @@ class VideoViewer:
         overlay.text = f"{self.model.dims.point[0]:.2f} s"
         overlay.visible = True
 
+    def _warn_if_irregular_time(self, event=None) -> None:
+        """Warn when videos follow a recording with irregular time samples.
+
+        Parameters
+        ----------
+        event : napari.utils.events.Event, optional
+            Main-viewer layer insertion event. Only inserting the recording that
+            drives synchronization triggers a warning.
+        """
+        if not self.model.layers:
+            return
+        reference = next(
+            (layer for layer in self._main.layers if "time" in layer.axis_labels), None
+        )
+        if reference is None or (event is not None and event.value is not reference):
+            return
+        data = reference.metadata.get("xarray")
+        if data is not None and "time" in data.coords:
+            _, approximate = get_representative_time_step(data)
+            if approximate:
+                self.notify(_IRREGULAR_TIME_WARNING, NotificationSeverity.WARNING)
+
     def _sync_from_main(self, event=None) -> None:
         """Move the video slider to the main viewer's current world time."""
         time_idx = find_time_dim_index(self._main)
@@ -652,6 +684,7 @@ class VideoViewer:
         object.__delattr__(self._main, "reset_view")
         self._main.dims.events.point.disconnect(self._sync_from_main)
         self._main.events.theme.disconnect(self._sync_theme)
+        self._main.layers.events.inserted.disconnect(self._warn_if_irregular_time)
         self.model.dims.events.point.disconnect(self._sync_to_main)
         anchor = self._anchor_dock
         anchor_width = anchor.width() if anchor is not None else 0
