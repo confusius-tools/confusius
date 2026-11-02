@@ -1,5 +1,6 @@
 """Unit tests for affine matrix decomposition utilities."""
 
+import warnings
 from itertools import permutations
 from typing import Any, cast
 
@@ -262,12 +263,23 @@ class TestApplyTranslation:
             (1.0, 2.0),
             (1.0, 2.0, 3.0, 4.0),
             (np.nan, 0.0, 0.0),
+            ("1.0", "2.0", "3.0"),
             {"z": 1.0, "y": 0.0, "x": 0.0},
         ],
     )
     def test_invalid_translation_raises(self, rng, translation):
         with pytest.raises(ValueError, match="translation"):
             apply_translation(_volume(rng), translation)
+
+    def test_scalar_indexed_voxel_dim_is_restored(self, rng):
+        result = apply_translation(_volume(rng).isel(k=1), (1.0, 2.0, 3.0))
+        assert result.dims == ("k", "j", "i")
+        assert_allclose(result.fusi.affine.voxel_to_world[:3, 3], [2.0, 0.0, 6.0])
+        assert_allclose(result.coords["z"].values.ravel()[0], 2.5)
+
+    def test_scalar_indexed_voxel_dim_inplace_raises(self, rng):
+        with pytest.raises(ValueError, match="scalar-indexed"):
+            apply_translation(_volume(rng).isel(k=1), (1.0, 2.0, 3.0), inplace=True)
 
     def test_non_voxeldata_raises(self):
         plain = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
@@ -374,6 +386,12 @@ class TestApplyRotation:
             by_vector.fusi.affine.voxel_to_world,
             atol=1e-12,
         )
+        by_huge_vector = apply_rotation(_volume(rng), 45.0, (0.0, 1e308, 0.0))
+        assert_allclose(
+            by_name.fusi.affine.voxel_to_world,
+            by_huge_vector.fusi.affine.voxel_to_world,
+            atol=1e-12,
+        )
 
     def test_broadcasts_over_poses(self, rng):
         result = apply_rotation(_pose_volume(rng), 90.0, "x")
@@ -424,7 +442,7 @@ class TestApplyRotation:
         with pytest.raises(ValueError, match="axis"):
             apply_rotation(_volume(rng), 10.0, axis)
 
-    @pytest.mark.parametrize("angle", [np.nan, "90", None, [1.0, 2.0]])
+    @pytest.mark.parametrize("angle", [np.nan, "90", b"90", 1j, None, [1.0, 2.0]])
     def test_invalid_angle_raises(self, rng, angle):
         with pytest.raises(ValueError, match="angle"):
             apply_rotation(_volume(rng), angle, "x")
@@ -458,6 +476,16 @@ class TestCenterOptions:
             _world_affine(result) @ [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]
         )
 
+    def test_origin_ignores_extra_dims_without_coordinates(self, rng, transform):
+        data = _volume(rng).expand_dims("component")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = transform(data)
+        assert_allclose(
+            result.fusi.affine.voxel_to_world,
+            transform(_volume(rng)).fusi.affine.voxel_to_world,
+        )
+
     def test_volume_keeps_bounding_box_center(self, rng, transform):
         data = _volume(rng)
         center = get_center(data).values
@@ -470,7 +498,9 @@ class TestCenterOptions:
     def test_point_is_fixed(self, rng, transform):
         point = np.array([5.0, -7.0, 2.0])
         result = transform(_volume(rng), center=point)
-        assert_allclose(_world_affine(result) @ [*point, 1.0], [*point, 1.0], atol=1e-12)
+        assert_allclose(
+            _world_affine(result) @ [*point, 1.0], [*point, 1.0], atol=1e-12
+        )
 
     def test_world_origin_is_a_point(self, rng, transform):
         result = transform(_volume(rng), center=(0.0, 0.0, 0.0))
@@ -505,6 +535,26 @@ class TestCenterOptions:
     def test_invalid_center_raises(self, rng, transform, center):
         with pytest.raises(ValueError, match="center"):
             transform(_volume(rng), center=center)
+
+    @pytest.mark.parametrize("center", ["origin", "volume", (0.0, 0.0, 0.0)])
+    def test_scalar_indexed_data_matches_kept_dim(self, rng, transform, center):
+        data = _volume(rng, attrs={"affines": {"world_to_lab": np.eye(4)}})
+        result = transform(data.isel(k=1), center=center)
+        kept = transform(data.isel(k=[1]), center=center)
+        assert result.dims == ("k", "j", "i")
+        assert_allclose(
+            result.fusi.affine.voxel_to_world, kept.fusi.affine.voxel_to_world
+        )
+        assert_allclose(
+            result.attrs["affines"]["world_to_lab"],
+            kept.attrs["affines"]["world_to_lab"],
+        )
+
+    @pytest.mark.parametrize("center", ["origin", "volume", (0.0, 0.0, 0.0)])
+    def test_non_voxeldata_raises(self, transform, center):
+        plain = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
+        with pytest.raises(ValueError, match="voxel"):
+            transform(plain, center=center)
 
     def test_volume_with_irregular_coordinates_raises(self, rng, transform):
         data = _volume(rng).isel(i=[0, 1, 3])

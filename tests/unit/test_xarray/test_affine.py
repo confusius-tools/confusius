@@ -194,9 +194,7 @@ def test_center_of_pose_dependent_data_encloses_all_poses(rng):
     assert_allclose(
         center.values, (bounds[:, 0].min(axis=0) + bounds[:, 1].max(axis=0)) / 2
     )
-    assert_allclose(
-        get_center(data.isel(pose=1)).values, bounds[1].mean(axis=0)
-    )
+    assert_allclose(get_center(data.isel(pose=1)).values, bounds[1].mean(axis=0))
 
 
 def test_center_with_irregular_coordinates_raises(rng):

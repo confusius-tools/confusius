@@ -9,6 +9,7 @@ import xarray as xr
 from scipy.spatial.transform import Rotation
 
 from confusius._dims import POSE_DIM, WORLD_DIMS
+from confusius._utils.geometry import get_voxel_to_world_index_origin
 from confusius.xarray.affine import apply_affine, get_center
 
 if TYPE_CHECKING:
@@ -230,9 +231,11 @@ def _as_finite_scalar(value: object, name: str) -> float:
     ValueError
         If `value` cannot be converted to a finite float.
     """
-    # `float` parses strings, which would silently accept `"2"`.
+    # `float` parses strings and bytes, which would silently accept `"2"`, and drops
+    # the imaginary part of NumPy complex scalars.
     try:
-        result = math.nan if isinstance(value, str) else float(cast(float, value))
+        rejected = isinstance(value, (str, bytes, complex, np.complexfloating))
+        result = math.nan if rejected else float(cast(float, value))
     except (TypeError, ValueError):
         result = math.nan
     if not math.isfinite(result):
@@ -262,12 +265,18 @@ def _as_world_vector(value: npt.ArrayLike, name: str) -> npt.NDArray[np.float64]
     """
     msg = f"{name} must be a (3,) array-like of finite floats in world z/y/x order."
     try:
-        vector = np.asarray(value, dtype=np.float64)
+        vector = np.asarray(value)
     except (TypeError, ValueError) as error:
         raise ValueError(msg) from error
-    if vector.shape != (3,) or not np.all(np.isfinite(vector)):
+    # Casting straight to float64 would parse strings, silently accepting
+    # `("1", "2", "3")`.
+    if (
+        vector.dtype.kind not in "biuf"
+        or vector.shape != (3,)
+        or not np.all(np.isfinite(vector))
+    ):
         raise ValueError(msg)
-    return vector
+    return vector.astype(np.float64)
 
 
 def apply_translation(
@@ -281,7 +290,8 @@ def apply_translation(
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData array to translate.
+        VoxelData array to translate. Scalar-indexed voxel dims are restored as
+        singletons, which `inplace` cannot do.
     translation : (3,) array-like
         Translation in world `(z, y, x)` order, in units of `data.fusi.affine.units`.
     inplace : bool, default: False
@@ -295,8 +305,8 @@ def apply_translation(
     Raises
     ------
     ValueError
-        If `translation` is not a finite `(3,)` vector, or if `data` is not a
-        VoxelData array.
+        If `translation` is not a finite `(3,)` vector, if `data` is not a VoxelData
+        array, or if `inplace` is `True` and a voxel dim is scalar-indexed.
 
     Examples
     --------
@@ -346,7 +356,7 @@ def _resolve_center(
     if center == "origin":
         # Pose-stacked geometry gets one matrix, so one pivot: the first pose's.
         first = data.isel({POSE_DIM: 0}) if POSE_DIM in data.dims else data
-        origin = first.fusi.origin
+        origin = get_voxel_to_world_index_origin(first)
         return np.array([origin[name] for name in WORLD_DIMS])
     raise ValueError(
         f"center must be 'origin', 'volume' or a (3,) world point, got {center!r}."
@@ -399,7 +409,8 @@ def apply_rotation(
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData array to rotate.
+        VoxelData array to rotate. Scalar-indexed voxel dims are restored as
+        singletons, which `inplace` cannot do.
     angle : float or (N,) array-like
         Rotation angle, or one angle per name when `axis` names several axes.
     axis : str or (3,) array-like
@@ -416,7 +427,7 @@ def apply_rotation(
         `(z, y, x)` order, in units of `data.fusi.affine.units`, such as `(0, 0, 0)`
         for the world origin.
     degrees : bool, default: True
-        Whether `angle` is in degrees rather than radians.
+        Whether to read `angle` in degrees rather than radians.
     inplace : bool, default: False
         Whether to modify `data` in place instead of returning a copy.
 
@@ -431,8 +442,9 @@ def apply_rotation(
         If `angle` is not finite, if it does not hold one value per axis name, if
         `axis` is neither world dimension names nor a non-zero finite `(3,)` vector,
         if `center` is neither `"origin"`, `"volume"` nor a finite `(3,)` vector, if
-        `center` is `"volume"` and a voxel dim has irregular coordinates, or if `data`
-        is not a VoxelData array.
+        `center` is `"volume"` and a voxel dim has irregular coordinates, if `data` is
+        not a VoxelData array, or if `inplace` is `True` and a voxel dim is
+        scalar-indexed.
 
     Examples
     --------
@@ -452,7 +464,7 @@ def apply_rotation(
     >>> np.round(np.rad2deg(params[0, :3]))
     array([30., 20., 10.])
     """
-    axes = {"z": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "x": (0.0, 0.0, 1.0)}
+    axes = dict(zip(WORLD_DIMS, np.eye(3), strict=True))
     if isinstance(axis, str):
         if not axis or not set(axis) <= axes.keys():
             raise ValueError(
@@ -461,10 +473,13 @@ def apply_rotation(
         unit_axes = np.array([axes[name] for name in axis])
     else:
         unit_axis = _as_world_vector(axis, "axis")
-        norm = np.linalg.norm(unit_axis)
-        if norm == 0:
+        largest = np.abs(unit_axis).max()
+        if largest == 0:
             raise ValueError("axis must have non-zero length.")
-        unit_axes = unit_axis[np.newaxis] / norm
+        # Rescaling first keeps the norm from overflowing, which would normalize a
+        # huge axis to zero and silently rotate by nothing.
+        unit_axis = unit_axis / largest
+        unit_axes = unit_axis[np.newaxis] / np.linalg.norm(unit_axis)
 
     angles = np.array(
         [_as_finite_scalar(value, "angle") for value in np.atleast_1d(angle)]
@@ -502,10 +517,13 @@ def apply_zoom(
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData array to rescale.
+        VoxelData array to rescale. Scalar-indexed voxel dims are restored as
+        singletons, which `inplace` cannot do.
     zoom : float or (3,) array-like
         Scale factor, either a scalar applied to all axes or per-axis factors in world
         `(z, y, x)` order. Negative factors reflect the volume along that axis.
+        Unequal factors shear the voxel grid when it is oblique to the world axes, so
+        rotating then zooming differs from zooming then rotating.
     center : {"origin", "volume"} or (3,) array-like, default: "origin"
         Fixed point of the rescaling. `"origin"` is the grid origin, the world position
         of the first sampled voxel (of the first pose for pose-stacked geometry).
@@ -527,9 +545,10 @@ def apply_zoom(
         If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
         (singular affine), if `center` is neither `"origin"`, `"volume"` nor a finite
         `(3,)` vector, if `center` is `"volume"` and a voxel dim has irregular
-        coordinates, if `data` is not a VoxelData array, or if a per-axis `zoom` is
+        coordinates, if `data` is not a VoxelData array, if a per-axis `zoom` is
         applied to pose-stacked geometry whose poses are not parallel (all pose affines
-        must share equal spatial scale magnitudes).
+        must share equal spatial scale magnitudes), or if `inplace` is `True` and a
+        voxel dim is scalar-indexed.
 
     Examples
     --------

@@ -237,7 +237,8 @@ def apply_affine(
     Parameters
     ----------
     da : xarray.DataArray
-        Input scan with voxel-to-world geometry (a `VoxelToWorldIndex`).
+        Input scan with voxel-to-world geometry (a `VoxelToWorldIndex`). Scalar-indexed
+        voxel dims are restored as singletons, which `inplace` cannot do.
     affine : (4, 4) numpy.ndarray or str
         Homogeneous world-space affine matrix to apply. If a string, it is looked up as
         a key in `da.attrs["affines"]`.
@@ -821,8 +822,9 @@ class FUSIAffineAccessor:
         Raises
         ------
         ValueError
-            If `translation` is not a finite `(3,)` vector, or if the DataArray is
-            not a VoxelData array.
+            If `translation` is not a finite `(3,)` vector, if the DataArray is not a
+            VoxelData array, or if `inplace` is `True` and a voxel dim is
+            scalar-indexed.
 
         Examples
         --------
@@ -878,7 +880,7 @@ class FUSIAffineAccessor:
             DataArray's world units (`.fusi.affine.units`), such as `(0, 0, 0)` for the
             world origin.
         degrees : bool, default: True
-            Whether `angle` is in degrees rather than radians.
+            Whether to read `angle` in degrees rather than radians.
         inplace : bool, default: False
             Whether to modify the DataArray in place instead of returning a copy.
 
@@ -895,7 +897,8 @@ class FUSIAffineAccessor:
             `axis` is neither world dimension names nor a non-zero finite `(3,)`
             vector, if `center` is neither `"origin"`, `"volume"` nor a finite `(3,)`
             vector, if `center` is `"volume"` and a voxel dim has irregular
-            coordinates, or if the DataArray is not a VoxelData array.
+            coordinates, if the DataArray is not a VoxelData array, or if `inplace` is
+            `True` and a voxel dim is scalar-indexed.
 
         Examples
         --------
@@ -939,7 +942,8 @@ class FUSIAffineAccessor:
         zoom : float or (3,) array-like
             Scale factor, either a scalar applied to all axes or per-axis factors in
             world `(z, y, x)` order. Negative factors reflect the volume along that
-            axis.
+            axis. Unequal factors shear the voxel grid when it is oblique to the world
+            axes, so rotating then zooming differs from zooming then rotating.
         center : {"origin", "volume"} or (3,) array-like, default: "origin"
             Fixed point of the rescaling. `"origin"` is the grid origin, the world
             position of the first sampled voxel (of the first pose for pose-stacked
@@ -963,9 +967,10 @@ class FUSIAffineAccessor:
             If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
             (singular affine), if `center` is neither `"origin"`, `"volume"` nor a
             finite `(3,)` vector, if `center` is `"volume"` and a voxel dim has
-            irregular coordinates, if the DataArray is not a VoxelData array, or if a
+            irregular coordinates, if the DataArray is not a VoxelData array, if a
             per-axis `zoom` is applied to pose-stacked geometry whose poses are not
-            parallel (all pose affines must share equal spatial scale magnitudes).
+            parallel (all pose affines must share equal spatial scale magnitudes), or if
+            `inplace` is `True` and a voxel dim is scalar-indexed.
 
         Examples
         --------
