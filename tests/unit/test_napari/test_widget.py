@@ -41,6 +41,7 @@ def test_data_tour_highlights_video_reopen_buttons(make_napari_viewer):
     widget = ConfUSIusWidget(viewer)
     viewer.window.add_dock_widget(widget, name="ConfUSIus")
     window = widget.window()
+    assert window is not None
     window.setUpdatesEnabled(False)
     window.resize(1600, 900)
     window.show()
@@ -54,6 +55,8 @@ def test_data_tour_highlights_video_reopen_buttons(make_napari_viewer):
         assert "videos" in load_step.body
 
         video_step = steps["Video Viewer and List"]
+        assert video_step.pre_action is not None
+        assert video_step.spotlight_rect is not None
         video_step.pre_action()
         panel = widget.findChild(VideoPanel)
         assert video_step.target() is panel
