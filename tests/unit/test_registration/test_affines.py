@@ -21,7 +21,7 @@ from confusius.registration.affines import (
     decompose_affine,
     sitk_linear_transform_to_affine,
 )
-from confusius.xarray import create_voxeldata, get_bounding_box
+from confusius.xarray import create_voxeldata, get_center
 
 VOXEL_TO_WORLD = np.array(
     [
@@ -289,12 +289,12 @@ class TestApplyRotation:
     def test_right_hand_rule_in_zyx_order(self, rng, axis, start, end):
         # Points are (z, y, x): +90 deg about z maps +y onto +x, about y maps +x onto
         # +z, and about x maps +z onto +y.
-        result = apply_rotation(_volume(rng), 90.0, axis)
+        result = apply_rotation(_volume(rng), 90.0, axis, center=(0.0, 0.0, 0.0))
         assert_allclose(_world_affine(result) @ [*start, 1.0], [*end, 1.0], atol=1e-12)
 
     def test_matches_scipy_reference(self, rng):
         axis_zyx = np.array([1.0, 2.0, 2.0]) / 3.0
-        result = apply_rotation(_volume(rng), 37.0, axis_zyx)
+        result = apply_rotation(_volume(rng), 37.0, axis_zyx, center=(0.0, 0.0, 0.0))
         expected = Rotation.from_rotvec(np.deg2rad(37.0) * axis_zyx).as_matrix()
         assert_allclose(_world_affine(result)[:3, :3], expected, atol=1e-12)
         assert_allclose(_world_affine(result)[:3, 3], 0.0, atol=1e-12)
@@ -357,24 +357,6 @@ class TestApplyRotation:
         with pytest.raises(ValueError, match="angle"):
             apply_rotation(_volume(rng), angle, axis)
 
-    def test_center_is_fixed_point(self, rng):
-        center = np.array([1.0, -2.0, 3.0])
-        result = apply_rotation(_volume(rng), 30.0, "y", center=center)
-        assert_allclose(
-            _world_affine(result) @ [*center, 1.0], [*center, 1.0], atol=1e-12
-        )
-        assert not np.allclose(
-            _world_affine(result) @ [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]
-        )
-
-    def test_volume_center_pivot_keeps_bounding_box_center(self, rng):
-        data = _volume(rng)
-        center = get_bounding_box(data).mean("bound").values
-        result = apply_rotation(data, 30.0, "y", center=center)
-        assert_allclose(
-            get_bounding_box(result).mean("bound").values, center, atol=1e-12
-        )
-
     def test_radians_match_degrees(self, rng):
         deg = apply_rotation(_volume(rng), 90.0, "z")
         rad = apply_rotation(_volume(rng), np.pi / 2, "z", degrees=False)
@@ -407,19 +389,28 @@ class TestApplyRotation:
         )
 
     def test_chaining_applies_in_call_order(self, rng):
+        # A pivot that moves with the data would make the two orders commute, so pin
+        # the pivot to the world origin.
+        world_origin = (0.0, 0.0, 0.0)
         rotated_then_shifted = apply_translation(
-            apply_rotation(_volume(rng), 90.0, "x"), (1.0, 2.0, 3.0)
+            apply_rotation(_volume(rng), 90.0, "x", center=world_origin),
+            (1.0, 2.0, 3.0),
         )
         shift = np.eye(4)
         shift[:3, 3] = [1.0, 2.0, 3.0]
-        rotation = _world_affine(apply_rotation(_volume(rng), 90.0, "x"))
+        rotation = _world_affine(
+            apply_rotation(_volume(rng), 90.0, "x", center=world_origin)
+        )
         assert_allclose(
             rotated_then_shifted.fusi.affine.voxel_to_world,
             shift @ rotation @ VOXEL_TO_WORLD,
             atol=1e-12,
         )
         shifted_then_rotated = apply_rotation(
-            apply_translation(_volume(rng), (1.0, 2.0, 3.0)), 90.0, "x"
+            apply_translation(_volume(rng), (1.0, 2.0, 3.0)),
+            90.0,
+            "x",
+            center=world_origin,
         )
         assert not np.allclose(
             shifted_then_rotated.fusi.affine.voxel_to_world,
@@ -438,9 +429,87 @@ class TestApplyRotation:
         with pytest.raises(ValueError, match="angle"):
             apply_rotation(_volume(rng), angle, "x")
 
-    def test_invalid_center_raises(self, rng):
+
+@pytest.mark.parametrize(
+    "transform",
+    [
+        lambda data, **kwargs: apply_rotation(data, 30.0, "y", **kwargs),
+        lambda data, **kwargs: apply_zoom(data, 3.0, **kwargs),
+    ],
+    ids=["rotation", "zoom"],
+)
+class TestCenterOptions:
+    """Tests for the `center` options shared by apply_rotation and apply_zoom."""
+
+    def test_default_is_grid_origin(self, rng, transform):
+        data = _volume(rng)
+        assert_allclose(
+            transform(data).fusi.affine.voxel_to_world,
+            transform(data, center="origin").fusi.affine.voxel_to_world,
+        )
+
+    def test_origin_is_first_sampled_voxel(self, rng, transform):
+        # Cropping moves the first voxel away from the affine's translation.
+        data = _volume(rng).isel(k=slice(1, None), i=slice(2, None))
+        first_voxel = VOXEL_TO_WORLD @ [1.0, 0.0, 2.0, 1.0]
+        result = transform(data, center="origin")
+        assert_allclose(_world_affine(result) @ first_voxel, first_voxel, atol=1e-12)
+        assert not np.allclose(
+            _world_affine(result) @ [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]
+        )
+
+    def test_volume_keeps_bounding_box_center(self, rng, transform):
+        data = _volume(rng)
+        center = get_center(data).values
+        result = transform(data, center="volume")
+        assert_allclose(
+            _world_affine(result) @ [*center, 1.0], [*center, 1.0], atol=1e-12
+        )
+        assert_allclose(get_center(result).values, center, atol=1e-12)
+
+    def test_point_is_fixed(self, rng, transform):
+        point = np.array([5.0, -7.0, 2.0])
+        result = transform(_volume(rng), center=point)
+        assert_allclose(_world_affine(result) @ [*point, 1.0], [*point, 1.0], atol=1e-12)
+
+    def test_world_origin_is_a_point(self, rng, transform):
+        result = transform(_volume(rng), center=(0.0, 0.0, 0.0))
+        assert_allclose(_world_affine(result)[:3, 3], 0.0, atol=1e-12)
+
+    def test_accepts_center_dataarray(self, rng, transform):
+        data = _volume(rng)
+        assert_allclose(
+            transform(data, center=get_center(data)).fusi.affine.voxel_to_world,
+            transform(data, center="volume").fusi.affine.voxel_to_world,
+        )
+
+    def test_pose_stack_origin_is_first_voxel_of_first_pose(self, rng, transform):
+        data = _pose_volume(rng)
+        assert_allclose(
+            transform(data, center="origin").fusi.affine.voxel_to_world,
+            transform(data, center=VOXEL_TO_WORLD[:3, 3]).fusi.affine.voxel_to_world,
+        )
+
+    def test_pose_stack_volume_is_center_of_enclosing_box(self, rng, transform):
+        data = _pose_volume(rng)
+        center = get_center(data).values
+        affine = transform(data, center="volume").fusi.affine.voxel_to_world
+        applied = affine[0] @ np.linalg.inv(VOXEL_TO_WORLD)
+        assert_allclose(applied @ [*center, 1.0], [*center, 1.0], atol=1e-12)
+        # One matrix is applied on top of every pose's own affine.
+        assert_allclose(affine[1] @ np.linalg.inv(ROTATED_POSE), applied, atol=1e-12)
+
+    @pytest.mark.parametrize(
+        "center", ["middle", "", (1.0, 2.0), (np.nan, 0.0, 0.0), None]
+    )
+    def test_invalid_center_raises(self, rng, transform, center):
         with pytest.raises(ValueError, match="center"):
-            apply_rotation(_volume(rng), 10.0, "x", center=(1.0, 2.0))
+            transform(_volume(rng), center=center)
+
+    def test_volume_with_irregular_coordinates_raises(self, rng, transform):
+        data = _volume(rng).isel(i=[0, 1, 3])
+        with pytest.raises(ValueError, match="irregular"):
+            transform(data, center="volume")
 
 
 class TestApplyZoom:
@@ -452,19 +521,9 @@ class TestApplyZoom:
         assert result.fusi.spacing == pytest.approx({"k": 1.0, "j": 0.4, "i": 0.2})
 
     def test_per_axis_zoom(self, rng):
-        result = apply_zoom(_volume(rng), (1.0, 2.0, 4.0))
+        result = apply_zoom(_volume(rng), (1.0, 2.0, 4.0), center=(0.0, 0.0, 0.0))
         assert result.fusi.spacing == pytest.approx({"k": 0.5, "j": 0.4, "i": 0.4})
         assert_allclose(result.fusi.affine.voxel_to_world[:3, 3], [1.0, -4.0, 12.0])
-
-    def test_center_is_fixed_point(self, rng):
-        center = np.array([1.0, -2.0, 3.0])
-        result = apply_zoom(_volume(rng), 3.0, center=center)
-        assert_allclose(
-            _world_affine(result) @ [*center, 1.0], [*center, 1.0], atol=1e-12
-        )
-        assert not np.allclose(
-            _world_affine(result) @ [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]
-        )
 
     def test_negative_factor_flips_direction(self, rng):
         result = apply_zoom(_volume(rng), (1.0, 1.0, -1.0))

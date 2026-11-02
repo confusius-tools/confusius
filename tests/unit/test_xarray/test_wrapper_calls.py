@@ -107,11 +107,11 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
         calls["translate"] = (data, translation, inplace)
         return expected_apply
 
-    def _rotate(data, angle, axis, *, center=None, degrees=True, inplace=False):
+    def _rotate(data, angle, axis, *, center, degrees, inplace):
         calls["rotate"] = (data, angle, axis, center, degrees, inplace)
         return expected_apply
 
-    def _zoom(data, zoom, *, center=None, inplace=False):
+    def _zoom(data, zoom, *, center, inplace):
         calls["zoom"] = (data, zoom, center, inplace)
         return expected_apply
 
@@ -119,6 +119,12 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
     monkeypatch.setattr("confusius.registration.affines.apply_translation", _translate)
     monkeypatch.setattr("confusius.registration.affines.apply_rotation", _rotate)
     monkeypatch.setattr("confusius.registration.affines.apply_zoom", _zoom)
+
+    assert sample_voxeldata_3dt.fusi.affine.rotate(5.0, "x") is expected_apply
+    assert calls["rotate"] == (sample_voxeldata_3dt, 5.0, "x", "origin", True, False)
+
+    assert sample_voxeldata_3dt.fusi.affine.zoom(2.0) is expected_apply
+    assert calls["zoom"] == (sample_voxeldata_3dt, 2.0, "origin", False)
 
     assert sample_voxeldata_3dt.fusi.affine.translate((1.0, 2.0, 3.0)) is expected_apply
     assert calls["translate"] == (sample_voxeldata_3dt, (1.0, 2.0, 3.0), False)

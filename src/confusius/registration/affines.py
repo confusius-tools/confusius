@@ -1,14 +1,15 @@
 """Affine matrix utilities and world-space translate, rotate and zoom helpers."""
 
 import math
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
 from scipy.spatial.transform import Rotation
 
-from confusius.xarray.affine import apply_affine
+from confusius._dims import POSE_DIM, WORLD_DIMS
+from confusius.xarray.affine import apply_affine, get_center
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
@@ -314,8 +315,46 @@ def apply_translation(
     return apply_affine(data, matrix, inplace=inplace)
 
 
+def _resolve_center(
+    data: xr.DataArray, center: Literal["origin", "volume"] | npt.ArrayLike
+) -> npt.NDArray[np.float64]:
+    """Return the world point a transform pivots about.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array being transformed.
+    center : {"origin", "volume"} or (3,) array-like
+        `"origin"` for the world position of the first sampled voxel, `"volume"` for
+        the center of the bounding box, or a world point in `(z, y, x)` order.
+
+    Returns
+    -------
+    (3,) numpy.ndarray
+        The pivot in world `(z, y, x)` order.
+
+    Raises
+    ------
+    ValueError
+        If `center` is neither `"origin"`, `"volume"` nor a finite `(3,)` vector, or
+        if `data` cannot provide the requested pivot.
+    """
+    if not isinstance(center, str):
+        return _as_world_vector(center, "center")
+    if center == "volume":
+        return get_center(data).to_numpy()
+    if center == "origin":
+        # Pose-stacked geometry gets one matrix, so one pivot: the first pose's.
+        first = data.isel({POSE_DIM: 0}) if POSE_DIM in data.dims else data
+        origin = first.fusi.origin
+        return np.array([origin[name] for name in WORLD_DIMS])
+    raise ValueError(
+        f"center must be 'origin', 'volume' or a (3,) world point, got {center!r}."
+    )
+
+
 def _about_center(
-    linear: npt.NDArray[np.float64], center: npt.ArrayLike | None
+    linear: npt.NDArray[np.float64], center: npt.NDArray[np.float64]
 ) -> npt.NDArray[np.float64]:
     """Embed a linear map in a homogeneous matrix pivoting about `center`.
 
@@ -325,25 +364,17 @@ def _about_center(
     ----------
     linear : (3, 3) numpy.ndarray
         Linear part, in world `(z, y, x)` order.
-    center : (3,) array-like, optional
-        Fixed point of the map, in world `(z, y, x)` order. If not provided, the map
-        pivots about the world origin.
+    center : (3,) numpy.ndarray
+        Fixed point of the map, in world `(z, y, x)` order.
 
     Returns
     -------
     (4, 4) numpy.ndarray
         Homogeneous matrix.
-
-    Raises
-    ------
-    ValueError
-        If `center` is not a finite `(3,)` vector.
     """
     matrix = np.eye(4)
     matrix[:3, :3] = linear
-    if center is not None:
-        c = _as_world_vector(center, "center")
-        matrix[:3, 3] = c - linear @ c
+    matrix[:3, 3] = center - linear @ center
     return matrix
 
 
@@ -352,7 +383,7 @@ def apply_rotation(
     angle: float | npt.ArrayLike,
     axis: str | npt.ArrayLike,
     *,
-    center: npt.ArrayLike | None = None,
+    center: Literal["origin", "volume"] | npt.ArrayLike = "origin",
     degrees: bool = True,
     inplace: bool = False,
 ) -> xr.DataArray:
@@ -377,12 +408,13 @@ def apply_rotation(
         names rotate in sequence from left to right about the fixed world axes, so
         `"zyx"` rotates about `z` first. Names may repeat, as in `"zyz"`, and their
         order changes the result.
-    center : (3,) array-like, optional
-        Fixed point of the rotation in world `(z, y, x)` order, in units of
-        `data.fusi.affine.units`. If not provided, the rotation is about the world
-        origin. For single-pose data, use
-        `data.fusi.affine.bounding_box.mean("bound").values` to rotate about the
-        center of the volume.
+    center : {"origin", "volume"} or (3,) array-like, default: "origin"
+        Fixed point of the rotation. `"origin"` is the grid origin, the world position
+        of the first sampled voxel (of the first pose for pose-stacked geometry).
+        `"volume"` is the center of the bounding box, see
+        [get_center][confusius.xarray.get_center]. Otherwise a world point in
+        `(z, y, x)` order, in units of `data.fusi.affine.units`, such as `(0, 0, 0)`
+        for the world origin.
     degrees : bool, default: True
         Whether `angle` is in degrees rather than radians.
     inplace : bool, default: False
@@ -398,8 +430,9 @@ def apply_rotation(
     ValueError
         If `angle` is not finite, if it does not hold one value per axis name, if
         `axis` is neither world dimension names nor a non-zero finite `(3,)` vector,
-        if `center` is not a finite `(3,)` vector, or if `data` is not a VoxelData
-        array.
+        if `center` is neither `"origin"`, `"volume"` nor a finite `(3,)` vector, if
+        `center` is `"volume"` and a voxel dim has irregular coordinates, or if `data`
+        is not a VoxelData array.
 
     Examples
     --------
@@ -450,14 +483,15 @@ def apply_rotation(
     rotation = np.eye(3)
     for step in Rotation.from_rotvec(angles[:, np.newaxis] * unit_axes).as_matrix():
         rotation = step @ rotation
-    return apply_affine(data, _about_center(rotation, center), inplace=inplace)
+    pivot = _resolve_center(data, center)
+    return apply_affine(data, _about_center(rotation, pivot), inplace=inplace)
 
 
 def apply_zoom(
     data: xr.DataArray,
     zoom: float | npt.ArrayLike,
     *,
-    center: npt.ArrayLike | None = None,
+    center: Literal["origin", "volume"] | npt.ArrayLike = "origin",
     inplace: bool = False,
 ) -> xr.DataArray:
     """Rescale a VoxelData array in world space.
@@ -472,12 +506,13 @@ def apply_zoom(
     zoom : float or (3,) array-like
         Scale factor, either a scalar applied to all axes or per-axis factors in world
         `(z, y, x)` order. Negative factors reflect the volume along that axis.
-    center : (3,) array-like, optional
-        Fixed point of the rescaling in world `(z, y, x)` order, in units of
-        `data.fusi.affine.units`. If not provided, the volume is rescaled about the
-        world origin. For single-pose data, use
-        `data.fusi.affine.bounding_box.mean("bound").values` to rescale about the
-        center of the volume.
+    center : {"origin", "volume"} or (3,) array-like, default: "origin"
+        Fixed point of the rescaling. `"origin"` is the grid origin, the world position
+        of the first sampled voxel (of the first pose for pose-stacked geometry).
+        `"volume"` is the center of the bounding box, see
+        [get_center][confusius.xarray.get_center]. Otherwise a world point in
+        `(z, y, x)` order, in units of `data.fusi.affine.units`, such as `(0, 0, 0)`
+        for the world origin.
     inplace : bool, default: False
         Whether to modify `data` in place instead of returning a copy.
 
@@ -490,10 +525,11 @@ def apply_zoom(
     ------
     ValueError
         If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
-        (singular affine), if `center` is not a finite `(3,)` vector, if `data` is not
-        a VoxelData array, or if a per-axis `zoom` is applied to pose-stacked geometry
-        whose poses are not parallel (all pose affines must share equal spatial scale
-        magnitudes).
+        (singular affine), if `center` is neither `"origin"`, `"volume"` nor a finite
+        `(3,)` vector, if `center` is `"volume"` and a voxel dim has irregular
+        coordinates, if `data` is not a VoxelData array, or if a per-axis `zoom` is
+        applied to pose-stacked geometry whose poses are not parallel (all pose affines
+        must share equal spatial scale magnitudes).
 
     Examples
     --------
@@ -513,7 +549,8 @@ def apply_zoom(
         factors = _as_world_vector(zoom, "zoom")
     if np.any(factors == 0):
         raise ValueError("zoom factors must be non-zero, got a singular scaling.")
-    return apply_affine(data, _about_center(np.diag(factors), center), inplace=inplace)
+    pivot = _resolve_center(data, center)
+    return apply_affine(data, _about_center(np.diag(factors), pivot), inplace=inplace)
 
 
 def affine_to_sitk_linear_transform(

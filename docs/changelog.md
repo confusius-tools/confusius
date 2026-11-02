@@ -18,6 +18,10 @@ Current development version for the next ConfUSIus release.
   `.fusi.affine.translate()`, `.rotate()` and `.zoom()` accessor methods, to move
   VoxelData in world space without resampling
   ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+- Add [`get_center`][confusius.xarray.get_center] and
+  [`.fusi.affine.center`][confusius.xarray.FUSIAffineAccessor.center] to get the
+  world-space center of a VoxelData array
+  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
 
 ### :bug: Fixes
 
