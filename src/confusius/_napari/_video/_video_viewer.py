@@ -10,6 +10,7 @@ its time axis drives the video viewer's time slider and vice versa.
 from __future__ import annotations
 
 import contextlib
+from functools import partial
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -37,8 +38,12 @@ from confusius._napari._timeaxis import find_time_dim_index
 from confusius.timing import convert_time_units, get_representative_time_step
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import napari
     import napari.layers
+    from napari._qt.widgets.qt_dims import QtDims
+    from napari._qt.widgets.qt_dims_slider import QtPlayButton
     from napari_video.napari_video import VideoReaderNP
 
 
@@ -190,7 +195,7 @@ class VideoViewer:
         # `AA_ShareOpenGLContexts`, which must be set before the QApplication
         # exists and a plugin cannot guarantee.
         self.dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
-        _hide_on_close(self.dock)
+        _hide_on_close(self.dock, self.hide_viewer)
         # napari 0.9 caps a plugin dock at its initial size hint (explicit max
         # height on the dock, Maximum policy on its content); lift both so the
         # video canvas spans the full window height like the main one.
@@ -287,7 +292,7 @@ class VideoViewer:
         # Like napari's layer dock, undo the plugin dock's Maximum policy.
         self.controls.setSizePolicy(controls_policy)
         self.controls_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
-        _hide_on_close(self.controls_dock)
+        _hide_on_close(self.controls_dock, self.controls_dock.hide)
         self._sync_theme()
         # Size the dock after Qt has polished and laid out its contents.
         QTimer.singleShot(0, self._place_under_layer_list)
@@ -313,6 +318,11 @@ class VideoViewer:
         self.model.dims.events.point.connect(self._update_time_text)
         self.model.layers.events.removing.connect(self._on_layer_removing)
         self.model.layers.events.removed.connect(self._on_layer_removed)
+
+        self._main_dims = viewer.window._qt_viewer.dims
+        self._wire_play_buttons()
+        viewer.dims.events.ndim.connect(self._wire_play_buttons)
+        self.model.dims.events.ndim.connect(self._wire_play_buttons)
 
     def _place_left_of(self, dock: QDockWidget) -> None:
         """Move the video dock between the main canvas and `dock`.
@@ -576,10 +586,64 @@ class VideoViewer:
             if approximate:
                 self.notify(_IRREGULAR_TIME_WARNING, NotificationSeverity.WARNING)
 
+    def _wire_play_buttons(self, event=None) -> None:
+        """Route the play buttons of both viewers through `_on_play_clicked`.
+
+        Parameters
+        ----------
+        event : napari.utils.events.Event, optional
+            Dims `ndim` event: napari rebuilds a viewer's sliders on each one.
+        """
+        for qt_dims in (self._main_dims, self.qt_viewer.dims):
+            for slider in qt_dims.slider_widgets:
+                button = slider.play_button
+                button._on_click = partial(self._on_play_clicked, qt_dims, button)
+
+    def _on_play_clicked(self, qt_dims: QtDims, button: QtPlayButton) -> None:
+        """Toggle a play button, keeping one time playback across both viewers.
+
+        A time animation in either viewer already moves both, so a second one
+        would only fight it: pressing play on a time slider while the other
+        viewer plays time stops that playback instead. Other axes of the main
+        viewer do not move the video and play independently.
+
+        Parameters
+        ----------
+        qt_dims : napari._qt.widgets.qt_dims.QtDims
+            The sliders `button` belongs to.
+        button : napari._qt.widgets.qt_dims_slider.QtPlayButton
+            The pressed play button.
+        """
+        if button.property("playing") == "True":
+            qt_dims.stop()
+            return
+        main_time = find_time_dim_index(self._main)
+        if qt_dims is self._main_dims:
+            own_time, other, other_time = main_time, self.qt_viewer.dims, 0
+        else:
+            own_time, other, other_time = 0, self._main_dims, main_time
+        if (
+            button.axis == own_time
+            and other.is_playing
+            and other._animation_thread.axis == other_time
+        ):
+            other.stop()
+            return
+        button.play_requested.emit(button.axis)
+
     def _sync_from_main(self, event=None) -> None:
-        """Move the video slider to the main viewer's current world time."""
+        """Move the video slider to the main viewer's current world time.
+
+        A closed video dock skips this, so scrubbing does not decode frames nobody
+        sees; `show_viewer` catches up when the dock reopens.
+        """
         time_idx = find_time_dim_index(self._main)
-        if self._syncing or time_idx is None or not self.model.layers:
+        if (
+            self._syncing
+            or time_idx is None
+            or not self.model.layers
+            or self.dock.isHidden()
+        ):
             return
         self._syncing = True
         try:
@@ -632,31 +696,37 @@ class VideoViewer:
         GL stacks (Mesa software rendering under WSLg, for one), so one
         video viewer is reused for the whole session.
         """
+        self.hide_viewer()
+        self.controls_dock.hide()
+
+    def hide_viewer(self) -> None:
+        """Stop video playback and hide the canvas dock, widening the main canvas."""
+        self.qt_viewer.dims.stop()
         anchor = self._anchor_dock
         anchor_width = anchor.width() if anchor is not None else 0
         window = find_main_window(self.dock)
         self.dock.hide()
-        self.controls_dock.hide()
         if anchor is not None and window is not None:
             window.resizeDocks([anchor], [anchor_width], Qt.Orientation.Horizontal)
 
     def show(self) -> None:
         """Show the docks again, sized as on first opening."""
+        self.show_viewer()
+        self.controls_dock.show()
+
+    def show_viewer(self) -> None:
+        """Show the canvas dock, sized as on first opening, at the main viewer's time."""
         anchor = self._anchor_dock
         anchor_width = anchor.width() if anchor is not None else 0
         window = find_main_window(self.dock)
         self.dock.show()
-        self.controls_dock.show()
         if anchor is not None and window is not None:
             window.resizeDocks(
                 [self.dock, anchor],
                 [anchor_width, anchor_width],
                 Qt.Orientation.Horizontal,
             )
-
-    def show_viewer(self) -> None:
-        """Show the video canvas dock again after it was hidden."""
-        self.dock.show()
+        self._sync_from_main()
 
     def show_layer_list(self) -> None:
         """Show the video layer list dock again after it was hidden."""
@@ -686,6 +756,11 @@ class VideoViewer:
         self._main.events.theme.disconnect(self._sync_theme)
         self._main.layers.events.inserted.disconnect(self._warn_if_irregular_time)
         self.model.dims.events.point.disconnect(self._sync_to_main)
+        self._main.dims.events.ndim.disconnect(self._wire_play_buttons)
+        self.model.dims.events.ndim.disconnect(self._wire_play_buttons)
+        for qt_dims in (self._main_dims, self.qt_viewer.dims):
+            for slider in qt_dims.slider_widgets:
+                del slider.play_button._on_click
         anchor = self._anchor_dock
         anchor_width = anchor.width() if anchor is not None else 0
         window = find_main_window(self.dock)
@@ -708,19 +783,23 @@ class VideoViewer:
         del self.qt_viewer, self.model, self.dock, self.controls, self.controls_dock
 
 
-def _hide_on_close(dock: QDockWidget) -> None:
-    """Make a dock's title-bar close button hide it instead of deleting it.
+def _hide_on_close(dock: QDockWidget, hide: Callable[[], None]) -> None:
+    """Make a dock's title-bar buttons run `hide` instead of deleting it.
 
     The video viewer keeps one GL canvas for the whole session: destroying it
     and building another can crash some GL stacks, so the close button must
-    not remove the dock.
+    not remove the dock. napari's title bar calls `destroyOnClose` from its close
+    button and `close` from its hide button.
 
     Parameters
     ----------
     dock : qtpy.QtWidgets.QDockWidget
-        Dock whose close button should hide it.
+        Dock whose title-bar buttons should hide it.
+    hide : collections.abc.Callable
+        Called instead of the dock's `destroyOnClose` and `close`.
     """
-    object.__setattr__(dock, "destroyOnClose", dock.hide)
+    object.__setattr__(dock, "destroyOnClose", hide)
+    object.__setattr__(dock, "close", hide)
 
 
 def _time_scale(fps: float, step: int) -> float:

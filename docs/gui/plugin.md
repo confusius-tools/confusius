@@ -45,7 +45,9 @@ disabled for video paths, since videos already decode frames on demand.
 Videos are opened (`.mp4`, `.mov`, `.avi`) in a second napari viewer docked between the
 main canvas and the ConfUSIus sidebar. The video viewer has its own layers, axes and
 camera, so a video never changes how your fUSI layers are displayed. The two viewers
-share only time: moving the time slider of one moves the other to the same time.
+share only time: moving the time slider of one moves the other to the same time. They
+also share time playback: while one viewer plays, pressing the time slider's play button
+in the other stops it.
 
 !!! tip "Launch with a video from the CLI"
     Pass `--video` to open a video at launch, with or without data files:
@@ -54,7 +56,8 @@ share only time: moving the time slider of one moves the other to the same time.
     confusius --video path/to/camera.mp4
     ```
 Closing the video viewer or its layer list only hides it. Use **Show video viewer** or
-**Show video list** in the Data I/O panel to bring it back.
+**Show video list** in the Data I/O panel to bring it back. A closed video viewer does
+not decode frames, and it catches up with the main viewer's time when it reopens.
 
 When multiple videos are loaded, the video viewer shows them side by side in its grid.
 Frame `n` of a video is shown at `n / fps` seconds, so a video lines up with a recording

@@ -360,6 +360,103 @@ def test_frame_step_does_not_decode_frame_zero_again(viewer, panel, add_video):
     np.testing.assert_array_equal(entry.layer.data[120], video._frames[360])
 
 
+def test_closed_video_dock_does_not_decode_until_reopened(
+    viewer, panel, add_video, qtbot
+):
+    video = _FakeVideo(n_frames=450)
+    add_video(video)
+    video_viewer = panel._video_viewer
+    video_dims = video_viewer.qt_viewer.dims
+    t_idx = find_time_dim_index(viewer)
+    # Away from the time reopening must catch up with, which would decode nothing.
+    viewer.dims.set_point(t_idx, 11.0)
+    video_dims.play(0)
+    qtbot.waitUntil(lambda: video_dims.is_playing)
+
+    video_viewer.dock.titleBarWidget().close_button.click()
+    assert not video_dims.is_playing
+
+    video.reads.clear()
+    viewer.dims.set_point(t_idx, 12.0)
+    assert video.reads == []
+
+    video_viewer.show_viewer()
+    assert video_viewer.model.dims.point[0] == pytest.approx(12.0, abs=1 / 30)
+    assert 360 in video.reads
+
+
+def test_play_buttons_of_both_viewers_share_time_playback(
+    viewer, panel, add_video, qtbot
+):
+    add_video(_FakeVideo(n_frames=450))
+    main_dims = viewer.window._qt_viewer.dims
+    video_dims = panel._video_viewer.qt_viewer.dims
+    main_button = main_dims.slider_widgets[find_time_dim_index(viewer)].play_button
+    video_button = video_dims.slider_widgets[0].play_button
+
+    for first_button, first_dims, second_button, second_dims in (
+        (video_button, video_dims, main_button, main_dims),
+        (main_button, main_dims, video_button, video_dims),
+    ):
+        # `_on_click` is what the buttons' mouse release runs.
+        first_button._on_click()
+        qtbot.waitUntil(lambda dims=first_dims: dims.is_playing)
+        second_button._on_click()
+        assert not first_dims.is_playing
+        assert not second_dims.is_playing
+        qtbot.waitUntil(
+            lambda button=first_button: button.property("playing") == "False"
+        )
+
+
+def test_play_on_another_main_axis_is_independent_of_the_video(
+    viewer, panel, add_video, qtbot
+):
+    add_video(_FakeVideo(n_frames=450))
+    main_dims = viewer.window._qt_viewer.dims
+    video_dims = panel._video_viewer.qt_viewer.dims
+    time_axis = find_time_dim_index(viewer)
+    assert time_axis is not None
+
+    video_dims.slider_widgets[0].play_button._on_click()
+    qtbot.waitUntil(lambda: video_dims.is_playing)
+    main_dims.slider_widgets[time_axis + 1].play_button._on_click()
+    qtbot.waitUntil(lambda: main_dims.is_playing)
+    assert video_dims.is_playing
+    main_dims.stop()
+    video_dims.stop()
+
+
+def test_play_buttons_stay_shared_after_main_sliders_are_rebuilt(
+    viewer, panel, add_video, qtbot
+):
+    add_video(_FakeVideo(n_frames=450))
+    main_dims = viewer.window._qt_viewer.dims
+    video_dims = panel._video_viewer.qt_viewer.dims
+    scan = viewer.layers[0].metadata["xarray"]
+    viewer.layers.clear()
+    plot_napari(scan, viewer=viewer, show_colorbar=False, show_scale_bar=False)
+
+    video_dims.slider_widgets[0].play_button._on_click()
+    qtbot.waitUntil(lambda: video_dims.is_playing)
+    main_dims.slider_widgets[find_time_dim_index(viewer)].play_button._on_click()
+    assert not video_dims.is_playing
+    assert not main_dims.is_playing
+
+
+def test_closing_video_viewer_restores_main_play_buttons(
+    viewer, panel, add_video, qtbot
+):
+    add_video(_FakeVideo(n_frames=450))
+    main_dims = viewer.window._qt_viewer.dims
+    panel._video_viewer.close()
+    panel._video_viewer = None
+
+    main_dims.slider_widgets[find_time_dim_index(viewer)].play_button._on_click()
+    qtbot.waitUntil(lambda: main_dims.is_playing)
+    main_dims.stop()
+
+
 def test_frame_step_persists_across_viewer_reopen(viewer, panel, add_video):
     add_video(_FakeVideo(n_frames=30), "a")
     panel._video_viewer.frame_step_spin.setValue(3)
@@ -685,6 +782,23 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
         assert video_dock.x() < panel_dock.x()
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
         assert video_dock.width() == pytest.approx(panel_width, abs=4)
+
+        # Both title-bar buttons also give the space back to the canvas, and
+        # reopening takes it from the canvas again.
+        canvas = window.centralWidget()
+        canvas_width = canvas.width()
+        for button_name in ("close_button", "hide_button"):
+            getattr(video_dock.titleBarWidget(), button_name).click()
+            relayout()
+            assert video_dock.isHidden()
+            assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+            assert canvas.width() > canvas_width
+            video_viewer.show_viewer()
+            relayout()
+            assert not video_dock.isHidden()
+            assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+            assert video_dock.width() == pytest.approx(panel_width, abs=4)
+            assert canvas.width() == pytest.approx(canvas_width, abs=4)
     finally:
         video_viewer.close()
     relayout()
