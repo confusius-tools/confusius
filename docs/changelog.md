@@ -10,6 +10,28 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- New [`is_brainglobe_atlas_cached`][confusius.datasets.is_brainglobe_atlas_cached]
+  and [`is_dataset_cached`][confusius.datasets.is_dataset_cached] tell whether a
+  BrainGlobe atlas, or a ConfUSIus dataset or template, can be fetched without
+  downloading ([#488](https://github.com/confusius-tools/confusius/pull/488)).
+
+### :frame_photo: Napari plugin
+
+- New **Atlas** tab. Atlases page and Templates page. For atlases, the user can download
+  any of the [BrainGlobe
+  atlases](https://brainglobe.info/documentation/brainglobe-atlasapi/usage/atlas-details.html),
+  just like with [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas].
+  There are options to create layers from the atlas template, annotations and
+  hemispheres volumes. Masks can be constructed from the anatomical regions just like
+  with [`get_atlas_masks`][confusius.atlas.get_atlas_masks]. For templates, the user can
+  load into an image layer any of the fUSI templates in `confusius.datasets`
+  ([#488](https://github.com/confusius-tools/confusius/pull/488)).
+- The `confusius` launcher takes `--atlas NAME` and `--template NAME [NAME ...]`.
+  The plugin opens with the atlas, its volume layers and the templates loaded
+  ([#488](https://github.com/confusius-tools/confusius/pull/488)).
+
 ## 0.9.0
 
 Released 2026-10-31.
@@ -997,10 +1019,10 @@ Released 2026-07-07.
   signed fUSI signals NMF-compatible.
 - Add an [atlas-based region correlation matrix
   example](examples/_built/connectivity/atlas_correlation_matrix.md) to the gallery,
-  demonstrating registration to the Pepe-Mariani 2026 template, resampling the Allen
-  Mouse Brain Atlas onto a recording's native grid, and plotting a region correlation
-  matrix with [`plot_matrix`][confusius.plotting.plot_matrix]'s `groups` annotation
-  ([#243](https://github.com/confusius-tools/confusius/pull/243)).
+  demonstrating registration to the Pepe, Mariani *et al.* (2026) template, resampling
+  the Allen Mouse Brain Atlas onto a recording's native grid, and plotting a region
+  correlation matrix with [`plot_matrix`][confusius.plotting.plot_matrix]'s `groups`
+  annotation ([#243](https://github.com/confusius-tools/confusius/pull/243)).
 
 ### :wrench: Maintenance
 

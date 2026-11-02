@@ -522,6 +522,7 @@ class ConfUSIusWidget(QWidget):
 
     def _make_accordion(self) -> QWidget:
         """Build a stacked accordion where the open section fills all space."""
+        from confusius._napari._atlas._panel import AtlasPanel
         from confusius._napari._data._load_panel import DataPanel
         from confusius._napari._data._save_panel import SavePanel
         from confusius._napari._events._panel import EventPanel
@@ -550,6 +551,7 @@ class ConfUSIusWidget(QWidget):
         accent = RED if self._is_dark() else RED_DARK
         tab_entries = [
             ("Data I/O", "file-input"),
+            ("Atlas", "brain"),
             ("Video", "video"),
             ("Signals", "chart-line"),
             ("Registration", "images"),
@@ -563,6 +565,7 @@ class ConfUSIusWidget(QWidget):
         )
         panels = [
             data_panel,
+            AtlasPanel(self.viewer),
             video_panel,
             signal_panel,
             RegistrationPanel(self.viewer),

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 class TestBuildParser:
     """The default parser accepts zero, one, or many positional paths."""
@@ -33,6 +35,39 @@ class TestBuildParser:
 
         ns = build_parser().parse_args(["a.nii", "b.nii.gz", "c.scan"])
         assert ns.path == [Path("a.nii"), Path("b.nii.gz"), Path("c.scan")]
+
+    def test_atlas_takes_one_name_and_template_several(self) -> None:
+        from confusius._cli import build_parser
+
+        ns = build_parser().parse_args(
+            [
+                "a.nii",
+                "--atlas",
+                "allen_mouse_25um",
+                "--template",
+                "brunner_grillet_2021",
+                "pepe_mariani_2026",
+            ]
+        )
+        assert ns.path == [Path("a.nii")]
+        assert ns.atlas == "allen_mouse_25um"
+        assert ns.template == ["brunner_grillet_2021", "pepe_mariani_2026"]
+
+    def test_atlas_and_template_default_empty(self) -> None:
+        from confusius._cli import build_parser
+
+        ns = build_parser().parse_args([])
+        assert ns.atlas is None
+        assert ns.template == []
+
+    def test_unknown_template_rejected(self, capsys) -> None:
+        import pytest
+
+        from confusius._cli import build_parser
+
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(["--template", "Brunner 2021"])
+        assert "brunner_grillet_2021" in capsys.readouterr().err
 
     def test_lazy_and_video(self) -> None:
         from confusius._cli import build_parser
@@ -177,3 +212,45 @@ class TestRun:
 
         layer = viewer.layers[float_nifti_path.name]
         assert isinstance(layer, Image)
+
+
+class TestRunAtlasAndTemplate:
+    """`--atlas` / `--template` load through the Atlas tab in background workers."""
+
+    @pytest.fixture
+    def offline(self, monkeypatch, atlas_ds, sample_voxeldata_3d):
+        monkeypatch.setattr(
+            "confusius._napari._atlas._panel.is_brainglobe_atlas_cached",
+            lambda name: True,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._atlas._panel.fetch_brainglobe_atlas",
+            lambda name, **kwargs: atlas_ds,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._atlas._panel.is_template_cached", lambda name: True
+        )
+        monkeypatch.setattr(
+            "confusius._napari._atlas._panel.fetch_template",
+            lambda name, **kwargs: sample_voxeldata_3d,
+        )
+
+    def test_opens_with_atlas_and_template_loaded(
+        self, qtbot, make_napari_viewer, offline
+    ) -> None:
+        from confusius._cli import build_parser, run
+
+        args = build_parser().parse_args(
+            ["--atlas", "allen_mouse_25um", "--template", "brunner_grillet_2021"]
+        )
+        viewer = make_napari_viewer()
+        run(args, viewer=viewer)
+        qtbot.waitUntil(lambda: len(viewer.layers) == 4, timeout=10_000)
+
+        names = {layer.name for layer in viewer.layers}
+        assert names == {
+            "allen_mouse_25um template",
+            "allen_mouse_25um annotation",
+            "allen_mouse_25um hemispheres",
+            "brunner_grillet_2021",
+        }

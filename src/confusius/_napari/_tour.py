@@ -547,6 +547,7 @@ def build_default_tour(
     GuidedTour
         Ready-to-start tour instance.
     """
+    from confusius._napari._atlas._panel import AtlasPanel
     from confusius._napari._data._load_panel import DataPanel
     from confusius._napari._data._save_panel import SavePanel
     from confusius._napari._events._panel import EventPanel
@@ -719,6 +720,22 @@ def build_default_tour(
     def _select_sub_panel(label: str, attr: str) -> Callable[[], None]:
         return _set_panel_button(label, attr)
 
+    def _atlas_panel() -> AtlasPanel | None:
+        panel = _panel_descendant("Atlas", AtlasPanel)()
+        return panel if isinstance(panel, AtlasPanel) else None
+
+    def _select_atlas_page(attr: str) -> Callable[[], None]:
+        def _action() -> None:
+            _expand_section("Atlas")()
+            panel = _atlas_panel()
+            if panel is None:
+                return
+            button = getattr(panel, attr, None)
+            if isinstance(button, QAbstractButton) and not button.isChecked():
+                button.click()
+
+        return _action
+
     # Record the open panel before the tour starts so we can restore it when
     # the tour is closed or skipped.
     initial_open: str | None = next(
@@ -739,7 +756,24 @@ def build_default_tour(
             "advanced_open": registration_panel._advanced_toggle.isChecked(),
         }
 
+    atlas_panel = _atlas_panel()
+    initial_atlas_state = None
+    if atlas_panel is not None:
+        initial_atlas_state = {
+            "atlases_page": atlas_panel._atlases_page_btn.isChecked(),
+        }
+
     def _restore_state() -> None:
+        if initial_atlas_state is not None:
+            panel = _atlas_panel()
+            if panel is not None:
+                page_btn = (
+                    panel._atlases_page_btn
+                    if initial_atlas_state["atlases_page"]
+                    else panel._templates_page_btn
+                )
+                if not page_btn.isChecked():
+                    page_btn.click()
         if initial_registration_state is not None:
             _expand_section("Registration")()
             panel = _registration_panel()
@@ -816,6 +850,77 @@ def build_default_tour(
             anchor="left",
             tooltip_target=_dock_widget,
             pre_action=_expand_section("Data I/O"),
+        ),
+        TourStep(
+            target=_accordion_panel("Atlas"),
+            title="Atlas",
+            body=(
+                "Bring brain atlases and fUSI templates into the viewer. The "
+                "<b>Atlases</b> page loads BrainGlobe atlases and builds region "
+                "masks; the <b>fUSI templates</b> page loads the vascular templates "
+                "shipped with ConfUSIus."
+            ),
+            anchor="left",
+            spotlight_rect=_accordion_tab_rect("Atlas"),
+            tooltip_target=_dock_widget,
+            pre_action=_select_atlas_page("_atlases_page_btn"),
+        ),
+        TourStep(
+            target=_panel_attr("Atlas", AtlasPanel, "_atlas_combo"),
+            title="BrainGlobe Atlases",
+            body=(
+                "Pick any BrainGlobe atlas: already downloaded ones come first and "
+                "load as soon as they are selected. Any other shows a <b>Download "
+                "atlas</b> button that fetches it into the BrainGlobe cache, shared "
+                "with other BrainGlobe tools, and loads it."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_rect("Atlas", AtlasPanel, "_atlas_combo"),
+            tooltip_target=_dock_widget,
+            pre_action=_select_atlas_page("_atlases_page_btn"),
+        ),
+        TourStep(
+            target=_panel_attr("Atlas", AtlasPanel, "_tree_btn"),
+            title="Atlas Layers",
+            body=(
+                "The panel holds the selected atlas; picking another one frees it. "
+                "While an atlas is loaded, <b>Template</b>, <b>Annotation</b> and "
+                "<b>Hemispheres</b> each add that volume as a layer, reading only "
+                "the slices on screen while <b>Make layers lazily</b> is checked, "
+                "and <b>Structure tree</b> opens the region hierarchy in a dock."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_rect(
+                "Atlas", AtlasPanel, "_lazy_layers_check", "_tree_btn"
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_select_atlas_page("_atlases_page_btn"),
+        ),
+        TourStep(
+            target=_panel_attr("Atlas", AtlasPanel, "_masks_group"),
+            title="Region Masks",
+            body=(
+                "Greyed out until an atlas is loaded, this group then lists its "
+                "structures. Type an acronym or name (regular expressions work, e.g. "
+                "<code>^VISp$</code>) to filter them, move the ones you want to the "
+                "lower table with <b>Add</b>, pick a hemisphere <b>Side</b>, and "
+                "<b>Load masks</b> adds one Labels layer per region."
+            ),
+            anchor="left",
+            tooltip_target=_dock_widget,
+            pre_action=_select_atlas_page("_atlases_page_btn"),
+        ),
+        TourStep(
+            target=_panel_attr("Atlas", AtlasPanel, "_template_group"),
+            title="fUSI Templates",
+            body=(
+                "Load one of the fUSI vascular templates shipped with ConfUSIus as an "
+                "Image layer. The line under the dropdown names the reference atlas "
+                "each template is aligned to."
+            ),
+            anchor="left",
+            tooltip_target=_dock_widget,
+            pre_action=_select_atlas_page("_templates_page_btn"),
         ),
         TourStep(
             target=_accordion_panel("Video"),

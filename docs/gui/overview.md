@@ -46,8 +46,9 @@ There are two ways to start the plugin:
     uvx -p 3.13 confusius
     ```
 
-The ConfUSIus sidebar contains six collapsible panels—[Data I/O](plugin.md#data-io-panel),
-[Video](plugin.md#video-panel), [Signals](plugin.md#signals-panel),
+The ConfUSIus sidebar contains seven collapsible panels—[Data I/O](plugin.md#data-io-panel),
+[Atlas](plugin.md#atlas-panel), [Video](plugin.md#video-panel),
+[Signals](plugin.md#signals-panel),
 [Events](plugin.md#events-panel), [QC](plugin.md#qc-panel), and
 [Registration](plugin.md#registration-panel)—that can each be expanded or collapsed
 independently. If you want a quick walkthrough inside napari itself, click

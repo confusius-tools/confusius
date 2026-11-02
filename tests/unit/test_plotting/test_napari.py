@@ -235,6 +235,38 @@ class TestPlotNapari:
         assert singleton_dim not in viewer.dims.order[-2:]
         viewer.close()
 
+    def test_dask_labels_stay_lazy_and_use_rgb_lookup_colors(
+        self, make_napari_viewer
+    ) -> None:
+        import dask.array as da
+
+        values = np.zeros((4, 6, 8), dtype=np.int32)
+        values[:2] = 10
+        values[2:] = 20
+        rgb_lookup = {10: [255, 0, 0], 20: [0, 255, 0], 30: [0, 0, 255]}
+        labels = create_voxeldata(
+            da.from_array(values, chunks=(2, 3, 4)),
+            dims=("k", "j", "i"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+            attrs={"rgb_lookup": rgb_lookup},
+        )
+        viewer = make_napari_viewer()
+
+        _, layer = plot_napari(labels, viewer=viewer, layer_type="labels")
+
+        # napari slices the Dask array on demand rather than holding a full copy.
+        assert isinstance(layer.data, da.Array)
+        npt.assert_array_equal(np.asarray(layer.data), values)
+        # Without reading the volume, every `rgb_lookup` id still gets its color.
+        for label, rgb in rgb_lookup.items():
+            npt.assert_allclose(
+                np.atleast_2d(layer.colormap.map(label))[0, :3],
+                np.array(rgb) / 255,
+                atol=1e-6,
+            )
+        viewer.close()
+
     def test_labels_layer_preserves_xarray_metadata(
         self, sample_voxeldata_3dt, make_napari_viewer
     ):
