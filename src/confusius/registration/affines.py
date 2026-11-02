@@ -269,7 +269,7 @@ def _as_world_vector(value: npt.ArrayLike, name: str) -> npt.NDArray[np.float64]
     return vector
 
 
-def apply_translate(
+def apply_translation(
     data: xr.DataArray, translation: npt.ArrayLike, *, inplace: bool = False
 ) -> xr.DataArray:
     """Translate a VoxelData array in world space.
@@ -300,12 +300,12 @@ def apply_translate(
     Examples
     --------
     >>> import numpy as np
-    >>> from confusius.registration import apply_translate
+    >>> from confusius.registration import apply_translation
     >>> from confusius.xarray import create_voxeldata
     >>> data = create_voxeldata(
     ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
     ... )
-    >>> shifted = apply_translate(data, (0.0, 0.0, 1.5))
+    >>> shifted = apply_translation(data, (0.0, 0.0, 1.5))
     >>> shifted.fusi.affine.voxel_to_world[:3, 3]
     array([0. , 0. , 1.5])
     """
@@ -347,7 +347,7 @@ def _about_center(
     return matrix
 
 
-def apply_rotate(
+def apply_rotation(
     data: xr.DataArray,
     angle: float | npt.ArrayLike,
     axis: str | npt.ArrayLike,
@@ -404,17 +404,17 @@ def apply_rotate(
     Examples
     --------
     >>> import numpy as np
-    >>> from confusius.registration import apply_rotate, extract_motion_parameters
+    >>> from confusius.registration import apply_rotation, extract_motion_parameters
     >>> from confusius.xarray import create_voxeldata
     >>> data = create_voxeldata(
     ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
     ... )
-    >>> rotated = apply_rotate(data, 90.0, "x")
+    >>> rotated = apply_rotation(data, 90.0, "x")
     >>> np.round(rotated.fusi.affine.voxel_to_world[:3, :3])
     array([[ 0., -1.,  0.],
            [ 1.,  0.,  0.],
            [ 0.,  0.,  1.]])
-    >>> tilted = apply_rotate(data, (30.0, 20.0, 10.0), "zyx")
+    >>> tilted = apply_rotation(data, (30.0, 20.0, 10.0), "zyx")
     >>> params = extract_motion_parameters([tilted.fusi.affine.voxel_to_world])
     >>> np.round(np.rad2deg(params[0, :3]))
     array([30., 20., 10.])

@@ -10,8 +10,8 @@ from numpy.testing import assert_allclose, assert_array_almost_equal, assert_arr
 from scipy.spatial.transform import Rotation
 
 from confusius.registration import (
-    apply_rotate,
-    apply_translate,
+    apply_rotation,
+    apply_translation,
     apply_zoom,
     extract_motion_parameters,
 )
@@ -213,11 +213,11 @@ class TestDecompose44:
         assert Z[0] < 0
 
 
-class TestApplyTranslate:
-    """Tests for `apply_translate`."""
+class TestApplyTranslation:
+    """Tests for `apply_translation`."""
 
     def test_shifts_world_origin(self, rng):
-        result = apply_translate(_volume(rng), (1.0, 2.0, 3.0))
+        result = apply_translation(_volume(rng), (1.0, 2.0, 3.0))
         assert_allclose(result.fusi.affine.voxel_to_world[:3, 3], [2.0, 0.0, 6.0])
         assert_allclose(
             result.fusi.affine.voxel_to_world[:3, :3], VOXEL_TO_WORLD[:3, :3]
@@ -225,14 +225,14 @@ class TestApplyTranslate:
         assert_allclose(result.coords["z"].isel(k=0, j=0, i=0), 2.0)
 
     def test_integer_translation_gives_float_affine(self, rng):
-        result = apply_translate(_volume(rng), (1, 2, 3))
+        result = apply_translation(_volume(rng), (1, 2, 3))
         assert result.fusi.affine.voxel_to_world.dtype == np.float64
         assert_allclose(result.fusi.affine.voxel_to_world[:3, 3], [2.0, 0.0, 6.0])
 
     def test_reexpresses_stored_affines(self, rng):
         world_to_lab = np.diag([1.0, 2.0, 3.0, 1.0])
         data = _volume(rng, attrs={"affines": {"world_to_lab": world_to_lab}})
-        result = apply_translate(data, (1.0, 2.0, 3.0))
+        result = apply_translation(data, (1.0, 2.0, 3.0))
         shift = np.eye(4)
         shift[:3, 3] = [1.0, 2.0, 3.0]
         assert_allclose(
@@ -240,11 +240,11 @@ class TestApplyTranslate:
         )
 
     def test_no_affines_attr_stays_absent(self, rng):
-        result = apply_translate(_volume(rng), (1.0, 0.0, 0.0))
+        result = apply_translation(_volume(rng), (1.0, 0.0, 0.0))
         assert "affines" not in result.attrs
 
     def test_broadcasts_over_poses(self, rng):
-        result = apply_translate(_pose_volume(rng), (1.0, 2.0, 3.0))
+        result = apply_translation(_pose_volume(rng), (1.0, 2.0, 3.0))
         affine = result.fusi.affine.voxel_to_world
         assert affine.shape == (2, 4, 4)
         assert_allclose(affine[0, :3, 3], VOXEL_TO_WORLD[:3, 3] + [1.0, 2.0, 3.0])
@@ -252,7 +252,7 @@ class TestApplyTranslate:
 
     def test_inplace_returns_same_object(self, rng):
         data = _volume(rng)
-        result = apply_translate(data, (1.0, 0.0, 0.0), inplace=True)
+        result = apply_translation(data, (1.0, 0.0, 0.0), inplace=True)
         assert result is data
         assert_allclose(data.fusi.affine.voxel_to_world[0, 3], 2.0)
 
@@ -267,16 +267,16 @@ class TestApplyTranslate:
     )
     def test_invalid_translation_raises(self, rng, translation):
         with pytest.raises(ValueError, match="translation"):
-            apply_translate(_volume(rng), translation)
+            apply_translation(_volume(rng), translation)
 
     def test_non_voxeldata_raises(self):
         plain = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
         with pytest.raises(ValueError, match="voxel-to-world index"):
-            apply_translate(plain, (1.0, 0.0, 0.0))
+            apply_translation(plain, (1.0, 0.0, 0.0))
 
 
-class TestApplyRotate:
-    """Tests for apply_rotate."""
+class TestApplyRotation:
+    """Tests for apply_rotation."""
 
     @pytest.mark.parametrize(
         ("axis", "start", "end"),
@@ -289,12 +289,12 @@ class TestApplyRotate:
     def test_right_hand_rule_in_zyx_order(self, rng, axis, start, end):
         # Points are (z, y, x): +90 deg about z maps +y onto +x, about y maps +x onto
         # +z, and about x maps +z onto +y.
-        result = apply_rotate(_volume(rng), 90.0, axis)
+        result = apply_rotation(_volume(rng), 90.0, axis)
         assert_allclose(_world_affine(result) @ [*start, 1.0], [*end, 1.0], atol=1e-12)
 
     def test_matches_scipy_reference(self, rng):
         axis_zyx = np.array([1.0, 2.0, 2.0]) / 3.0
-        result = apply_rotate(_volume(rng), 37.0, axis_zyx)
+        result = apply_rotation(_volume(rng), 37.0, axis_zyx)
         expected = Rotation.from_rotvec(np.deg2rad(37.0) * axis_zyx).as_matrix()
         assert_allclose(_world_affine(result)[:3, :3], expected, atol=1e-12)
         assert_allclose(_world_affine(result)[:3, 3], 0.0, atol=1e-12)
@@ -303,7 +303,7 @@ class TestApplyRotate:
         angles = np.deg2rad([30.0, 20.0, 10.0])
         result = _volume(rng)
         for angle, axis in zip(angles, "zyx", strict=True):
-            result = apply_rotate(result, angle, axis, degrees=False)
+            result = apply_rotation(result, angle, axis, degrees=False)
         params = extract_motion_parameters([_world_affine(result)])
         assert_allclose(params[0, :3], angles, atol=1e-12)
 
@@ -320,8 +320,8 @@ class TestApplyRotate:
         center = (1.0, -2.0, 3.0)
         chained = _volume(rng)
         for angle, axis in zip(angles, axes, strict=True):
-            chained = apply_rotate(chained, angle, axis, center=center)
-        result = apply_rotate(_volume(rng), angles, axes, center=center)
+            chained = apply_rotation(chained, angle, axis, center=center)
+        result = apply_rotation(_volume(rng), angles, axes, center=center)
         assert_allclose(
             result.fusi.affine.voxel_to_world,
             chained.fusi.affine.voxel_to_world,
@@ -329,15 +329,15 @@ class TestApplyRotate:
         )
 
     def test_axis_sequence_order_matters(self, rng):
-        zyx = apply_rotate(_volume(rng), (30.0, 20.0, 10.0), "zyx")
-        xyz = apply_rotate(_volume(rng), (10.0, 20.0, 30.0), "xyz")
+        zyx = apply_rotation(_volume(rng), (30.0, 20.0, 10.0), "zyx")
+        xyz = apply_rotation(_volume(rng), (10.0, 20.0, 30.0), "xyz")
         assert not np.allclose(
             zyx.fusi.affine.voxel_to_world, xyz.fusi.affine.voxel_to_world
         )
 
     def test_axis_sequence_matches_motion_parameters(self, rng):
         angles = np.deg2rad([30.0, 20.0, 10.0])
-        result = apply_rotate(_volume(rng), angles, "zyx", degrees=False)
+        result = apply_rotation(_volume(rng), angles, "zyx", degrees=False)
         params = extract_motion_parameters([_world_affine(result)])
         assert_allclose(params[0, :3], angles, atol=1e-12)
 
@@ -355,11 +355,11 @@ class TestApplyRotate:
     )
     def test_invalid_angle_for_axis_sequence_raises(self, rng, angle, axis):
         with pytest.raises(ValueError, match="angle"):
-            apply_rotate(_volume(rng), angle, axis)
+            apply_rotation(_volume(rng), angle, axis)
 
     def test_center_is_fixed_point(self, rng):
         center = np.array([1.0, -2.0, 3.0])
-        result = apply_rotate(_volume(rng), 30.0, "y", center=center)
+        result = apply_rotation(_volume(rng), 30.0, "y", center=center)
         assert_allclose(
             _world_affine(result) @ [*center, 1.0], [*center, 1.0], atol=1e-12
         )
@@ -370,14 +370,14 @@ class TestApplyRotate:
     def test_volume_center_pivot_keeps_bounding_box_center(self, rng):
         data = _volume(rng)
         center = get_bounding_box(data).mean("bound").values
-        result = apply_rotate(data, 30.0, "y", center=center)
+        result = apply_rotation(data, 30.0, "y", center=center)
         assert_allclose(
             get_bounding_box(result).mean("bound").values, center, atol=1e-12
         )
 
     def test_radians_match_degrees(self, rng):
-        deg = apply_rotate(_volume(rng), 90.0, "z")
-        rad = apply_rotate(_volume(rng), np.pi / 2, "z", degrees=False)
+        deg = apply_rotation(_volume(rng), 90.0, "z")
+        rad = apply_rotation(_volume(rng), np.pi / 2, "z", degrees=False)
         assert_allclose(
             deg.fusi.affine.voxel_to_world,
             rad.fusi.affine.voxel_to_world,
@@ -385,8 +385,8 @@ class TestApplyRotate:
         )
 
     def test_vector_axis_matches_name_and_is_normalised(self, rng):
-        by_name = apply_rotate(_volume(rng), 45.0, "y")
-        by_vector = apply_rotate(_volume(rng), 45.0, (0.0, 5.0, 0.0))
+        by_name = apply_rotation(_volume(rng), 45.0, "y")
+        by_vector = apply_rotation(_volume(rng), 45.0, (0.0, 5.0, 0.0))
         assert_allclose(
             by_name.fusi.affine.voxel_to_world,
             by_vector.fusi.affine.voxel_to_world,
@@ -394,9 +394,9 @@ class TestApplyRotate:
         )
 
     def test_broadcasts_over_poses(self, rng):
-        result = apply_rotate(_pose_volume(rng), 90.0, "x")
+        result = apply_rotation(_pose_volume(rng), 90.0, "x")
         affine = result.fusi.affine.voxel_to_world
-        single = apply_rotate(_volume(rng), 90.0, "x").fusi.affine.voxel_to_world
+        single = apply_rotation(_volume(rng), 90.0, "x").fusi.affine.voxel_to_world
         assert affine.shape == (2, 4, 4)
         assert_allclose(affine[0], single, atol=1e-12)
         # Same world-space matrix was applied on top of each pose's own affine.
@@ -407,19 +407,19 @@ class TestApplyRotate:
         )
 
     def test_chaining_applies_in_call_order(self, rng):
-        rotated_then_shifted = apply_translate(
-            apply_rotate(_volume(rng), 90.0, "x"), (1.0, 2.0, 3.0)
+        rotated_then_shifted = apply_translation(
+            apply_rotation(_volume(rng), 90.0, "x"), (1.0, 2.0, 3.0)
         )
         shift = np.eye(4)
         shift[:3, 3] = [1.0, 2.0, 3.0]
-        rotation = _world_affine(apply_rotate(_volume(rng), 90.0, "x"))
+        rotation = _world_affine(apply_rotation(_volume(rng), 90.0, "x"))
         assert_allclose(
             rotated_then_shifted.fusi.affine.voxel_to_world,
             shift @ rotation @ VOXEL_TO_WORLD,
             atol=1e-12,
         )
-        shifted_then_rotated = apply_rotate(
-            apply_translate(_volume(rng), (1.0, 2.0, 3.0)), 90.0, "x"
+        shifted_then_rotated = apply_rotation(
+            apply_translation(_volume(rng), (1.0, 2.0, 3.0)), 90.0, "x"
         )
         assert not np.allclose(
             shifted_then_rotated.fusi.affine.voxel_to_world,
@@ -431,16 +431,16 @@ class TestApplyRotate:
     )
     def test_invalid_axis_raises(self, rng, axis):
         with pytest.raises(ValueError, match="axis"):
-            apply_rotate(_volume(rng), 10.0, axis)
+            apply_rotation(_volume(rng), 10.0, axis)
 
     @pytest.mark.parametrize("angle", [np.nan, "90", None, [1.0, 2.0]])
     def test_invalid_angle_raises(self, rng, angle):
         with pytest.raises(ValueError, match="angle"):
-            apply_rotate(_volume(rng), angle, "x")
+            apply_rotation(_volume(rng), angle, "x")
 
     def test_invalid_center_raises(self, rng):
         with pytest.raises(ValueError, match="center"):
-            apply_rotate(_volume(rng), 10.0, "x", center=(1.0, 2.0))
+            apply_rotation(_volume(rng), 10.0, "x", center=(1.0, 2.0))
 
 
 class TestApplyZoom:

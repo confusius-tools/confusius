@@ -12,8 +12,8 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
-- Add [`apply_translate`][confusius.registration.apply_translate],
-  [`apply_rotate`][confusius.registration.apply_rotate] and
+- Add [`apply_translation`][confusius.registration.apply_translation],
+  [`apply_rotation`][confusius.registration.apply_rotation] and
   [`apply_zoom`][confusius.registration.apply_zoom], plus the matching
   `.fusi.affine.translate()`, `.rotate()` and `.zoom()` accessor methods, to move
   VoxelData in world space without resampling

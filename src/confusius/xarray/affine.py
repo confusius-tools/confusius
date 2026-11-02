@@ -717,8 +717,8 @@ class FUSIAffineAccessor:
         """Translate a DataArray in world space.
 
         `translation` is given in world `(z, y, x)` order. Only the voxel-to-world
-        geometry changes. See [apply_translate][confusius.registration.apply_translate]
-        for details.
+        geometry changes. See
+        [apply_translation][confusius.registration.apply_translation] for details.
 
         Parameters
         ----------
@@ -755,9 +755,9 @@ class FUSIAffineAccessor:
         >>> round(float(box.sel(bound="max", component="x")), 6)
         2.0
         """
-        from confusius.registration.affines import apply_translate
+        from confusius.registration.affines import apply_translation
 
-        return apply_translate(self._obj, translation, inplace=inplace)
+        return apply_translation(self._obj, translation, inplace=inplace)
 
     def rotate(
         self,
@@ -773,7 +773,7 @@ class FUSIAffineAccessor:
         Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates,
         the frame napari displays, so a rotation of +90 degrees about `x` maps `+z`
         onto `+y`. Only the voxel-to-world geometry changes. See
-        [apply_rotate][confusius.registration.apply_rotate] for details.
+        [apply_rotation][confusius.registration.apply_rotation] for details.
 
         Parameters
         ----------
@@ -822,9 +822,9 @@ class FUSIAffineAccessor:
         3.0
         >>> tilted = data.fusi.affine.rotate((30.0, 20.0, 10.0), "zyx")
         """
-        from confusius.registration.affines import apply_rotate
+        from confusius.registration.affines import apply_rotation
 
-        return apply_rotate(
+        return apply_rotation(
             self._obj,
             angle,
             axis,

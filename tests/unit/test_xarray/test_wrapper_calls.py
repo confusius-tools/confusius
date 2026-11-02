@@ -116,8 +116,8 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
         return expected_apply
 
     # The accessor imports these lazily, so patch the registration module.
-    monkeypatch.setattr("confusius.registration.affines.apply_translate", _translate)
-    monkeypatch.setattr("confusius.registration.affines.apply_rotate", _rotate)
+    monkeypatch.setattr("confusius.registration.affines.apply_translation", _translate)
+    monkeypatch.setattr("confusius.registration.affines.apply_rotation", _rotate)
     monkeypatch.setattr("confusius.registration.affines.apply_zoom", _zoom)
 
     assert sample_voxeldata_3dt.fusi.affine.translate((1.0, 2.0, 3.0)) is expected_apply

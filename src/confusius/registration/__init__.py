@@ -2,8 +2,8 @@
 
 from confusius.registration._utils import initialize_single_slice_rigid_transform
 from confusius.registration.affines import (
-    apply_rotate,
-    apply_translate,
+    apply_rotation,
+    apply_translation,
     apply_zoom,
     compose_affine,
     decompose_affine,
@@ -36,8 +36,8 @@ __all__ = [
     "RegistrationDiagnostics",
     "RegistrationProgress",
     "VolumewiseProgressReporter",
-    "apply_rotate",
-    "apply_translate",
+    "apply_rotation",
+    "apply_translation",
     "apply_zoom",
     "compose_affine",
     "compute_framewise_displacement",
