@@ -509,7 +509,8 @@ shifted = pwd.fusi.affine.apply(my_affine)
 
 For the common moves, three helpers build the affine for you: `translate` shifts by a `(z, y, x)`
 vector in world units, `rotate` turns by an angle (degrees by default) about a world
-axis name or vector, and `zoom` rescales by a scalar or per-axis `(z, y, x)` factors.
+axis name or vector, or by several angles about a sequence of axis names applied left
+to right, and `zoom` rescales by a scalar or per-axis `(z, y, x)` factors.
 `rotate` and `zoom` take an optional `center` pivot (default: the world origin), and
 `rotate` follows the right-hand rule in ordered `(z, y, x)` world coordinates, the
 frame napari displays. Calls chain in order; the voxel grid and data values never
@@ -521,6 +522,9 @@ center = pwd.fusi.affine.bounding_box.mean("bound").values
 moved = pwd.fusi.affine.translate((1.0, 0.0, 0.0)).fusi.affine.rotate(
     5.0, "x", center=center
 )
+
+# Rotate about z, then y, then x, each about the fixed world axes.
+tilted = pwd.fusi.affine.rotate((30.0, 20.0, 10.0), "zyx", center=center)
 ```
 
 [`bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] gives the extent of

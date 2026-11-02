@@ -307,6 +307,56 @@ class TestApplyRotate:
         params = extract_motion_parameters([_world_affine(result)])
         assert_allclose(params[0, :3], angles, atol=1e-12)
 
+    @pytest.mark.parametrize(
+        ("angles", "axes"),
+        [
+            ((30, 20, 10), "zyx"),
+            ((30.0, 20.0, 10.0), "zyz"),
+            (np.array([30.0, 20.0]), "yx"),
+            ((15.0,), "x"),
+        ],
+    )
+    def test_axis_sequence_matches_chained_calls(self, rng, angles, axes):
+        center = (1.0, -2.0, 3.0)
+        chained = _volume(rng)
+        for angle, axis in zip(angles, axes, strict=True):
+            chained = apply_rotate(chained, angle, axis, center=center)
+        result = apply_rotate(_volume(rng), angles, axes, center=center)
+        assert_allclose(
+            result.fusi.affine.voxel_to_world,
+            chained.fusi.affine.voxel_to_world,
+            atol=1e-12,
+        )
+
+    def test_axis_sequence_order_matters(self, rng):
+        zyx = apply_rotate(_volume(rng), (30.0, 20.0, 10.0), "zyx")
+        xyz = apply_rotate(_volume(rng), (10.0, 20.0, 30.0), "xyz")
+        assert not np.allclose(
+            zyx.fusi.affine.voxel_to_world, xyz.fusi.affine.voxel_to_world
+        )
+
+    def test_axis_sequence_matches_motion_parameters(self, rng):
+        angles = np.deg2rad([30.0, 20.0, 10.0])
+        result = apply_rotate(_volume(rng), angles, "zyx", degrees=False)
+        params = extract_motion_parameters([_world_affine(result)])
+        assert_allclose(params[0, :3], angles, atol=1e-12)
+
+    @pytest.mark.parametrize(
+        ("angle", "axis"),
+        [
+            (10.0, "zy"),
+            ((), "z"),
+            ((10.0, 20.0), "z"),
+            ((10.0, 20.0, 30.0), "zy"),
+            ((10.0, 20.0), (0.0, 1.0, 0.0)),
+            ((10.0, np.nan), "zy"),
+            ((10.0, "20"), "zy"),
+        ],
+    )
+    def test_invalid_angle_for_axis_sequence_raises(self, rng, angle, axis):
+        with pytest.raises(ValueError, match="angle"):
+            apply_rotate(_volume(rng), angle, axis)
+
     def test_center_is_fixed_point(self, rng):
         center = np.array([1.0, -2.0, 3.0])
         result = apply_rotate(_volume(rng), 30.0, "y", center=center)
@@ -377,7 +427,7 @@ class TestApplyRotate:
         )
 
     @pytest.mark.parametrize(
-        "axis", ["k", "zz", (0.0, 0.0, 0.0), (1.0, 0.0), (np.nan, 0.0, 1.0)]
+        "axis", ["k", "zk", "", "ZYX", (0.0, 0.0, 0.0), (1.0, 0.0), (np.nan, 0.0, 1.0)]
     )
     def test_invalid_axis_raises(self, rng, axis):
         with pytest.raises(ValueError, match="axis"):

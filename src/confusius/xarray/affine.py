@@ -20,8 +20,6 @@ from confusius._utils.geometry import (
 )
 
 if TYPE_CHECKING:
-    from typing import Literal
-
     import numpy.typing as npt
 
 
@@ -763,8 +761,8 @@ class FUSIAffineAccessor:
 
     def rotate(
         self,
-        angle: float,
-        axis: 'Literal["z", "y", "x"] | npt.ArrayLike',
+        angle: "float | npt.ArrayLike",
+        axis: "str | npt.ArrayLike",
         *,
         center: "npt.ArrayLike | None" = None,
         degrees: bool = True,
@@ -779,11 +777,14 @@ class FUSIAffineAccessor:
 
         Parameters
         ----------
-        angle : float
-            Rotation angle.
-        axis : {"z", "y", "x"} or (3,) array-like
-            Rotation axis, either a world dimension name or a vector in world
-            `(z, y, x)` order. Vectors are normalized.
+        angle : float or (N,) array-like
+            Rotation angle, or one angle per name when `axis` names several axes.
+        axis : str or (3,) array-like
+            Rotation axis. Either one or more world dimension names among `"z"`, `"y"`
+            and `"x"`, or a vector in world `(z, y, x)` order, which is normalized.
+            Several names rotate in sequence from left to right about the fixed world
+            axes, so `"zyx"` rotates about `z` first. Names may repeat, as in `"zyz"`,
+            and their order changes the result.
         center : (3,) array-like, optional
             Fixed point of the rotation in world `(z, y, x)` order, in the
             DataArray's world units (`.fusi.affine.units`). If not provided, the rotation is about the world
@@ -802,9 +803,10 @@ class FUSIAffineAccessor:
         Raises
         ------
         ValueError
-            If `angle` is not finite, if `axis` is not a world dimension name or a
-            non-zero finite `(3,)` vector, if `center` is not a finite `(3,)` vector,
-            or if the DataArray is not a VoxelData array.
+            If `angle` is not finite, if it does not hold one value per axis name, if
+            `axis` is neither world dimension names nor a non-zero finite `(3,)`
+            vector, if `center` is not a finite `(3,)` vector, or if the DataArray is
+            not a VoxelData array.
 
         Examples
         --------
@@ -818,6 +820,7 @@ class FUSIAffineAccessor:
         >>> box = rotated.fusi.affine.bounding_box
         >>> round(float(box.sel(bound="max", component="x")), 6)
         3.0
+        >>> tilted = data.fusi.affine.rotate((30.0, 20.0, 10.0), "zyx")
         """
         from confusius.registration.affines import apply_rotate
 

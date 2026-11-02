@@ -1,7 +1,7 @@
 """Affine matrix utilities and world-space translate, rotate and zoom helpers."""
 
 import math
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -349,8 +349,8 @@ def _about_center(
 
 def apply_rotate(
     data: xr.DataArray,
-    angle: float,
-    axis: Literal["z", "y", "x"] | npt.ArrayLike,
+    angle: float | npt.ArrayLike,
+    axis: str | npt.ArrayLike,
     *,
     center: npt.ArrayLike | None = None,
     degrees: bool = True,
@@ -362,18 +362,21 @@ def apply_rotate(
     untouched, and any `attrs["affines"]` entries are re-expressed accordingly.
     Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates, the
     frame napari displays, so a rotation of +90 degrees about `x` maps `+z` onto `+y`.
-    Rotating about `z`, then `y`, then `x` gives the angles reported by
+    With `axis="zyx"`, the angles match the rotations reported by
     [extract_motion_parameters][confusius.registration.extract_motion_parameters].
 
     Parameters
     ----------
     data : xarray.DataArray
         VoxelData array to rotate.
-    angle : float
-        Rotation angle.
-    axis : {"z", "y", "x"} or (3,) array-like
-        Rotation axis, either a world dimension name or a vector in world
-        `(z, y, x)` order. Vectors are normalized.
+    angle : float or (N,) array-like
+        Rotation angle, or one angle per name when `axis` names several axes.
+    axis : str or (3,) array-like
+        Rotation axis. Either one or more world dimension names among `"z"`, `"y"` and
+        `"x"`, or a vector in world `(z, y, x)` order, which is normalized. Several
+        names rotate in sequence from left to right about the fixed world axes, so
+        `"zyx"` rotates about `z` first. Names may repeat, as in `"zyz"`, and their
+        order changes the result.
     center : (3,) array-like, optional
         Fixed point of the rotation in world `(z, y, x)` order, in units of
         `data.fusi.affine.units`. If not provided, the rotation is about the world
@@ -393,14 +396,15 @@ def apply_rotate(
     Raises
     ------
     ValueError
-        If `angle` is not finite, if `axis` is not a world dimension name or a
-        non-zero finite `(3,)` vector, if `center` is not a finite `(3,)` vector, or
-        if `data` is not a VoxelData array.
+        If `angle` is not finite, if it does not hold one value per axis name, if
+        `axis` is neither world dimension names nor a non-zero finite `(3,)` vector,
+        if `center` is not a finite `(3,)` vector, or if `data` is not a VoxelData
+        array.
 
     Examples
     --------
     >>> import numpy as np
-    >>> from confusius.registration import apply_rotate
+    >>> from confusius.registration import apply_rotate, extract_motion_parameters
     >>> from confusius.xarray import create_voxeldata
     >>> data = create_voxeldata(
     ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
@@ -410,28 +414,42 @@ def apply_rotate(
     array([[ 0., -1.,  0.],
            [ 1.,  0.,  0.],
            [ 0.,  0.,  1.]])
+    >>> tilted = apply_rotate(data, (30.0, 20.0, 10.0), "zyx")
+    >>> params = extract_motion_parameters([tilted.fusi.affine.voxel_to_world])
+    >>> np.round(np.rad2deg(params[0, :3]))
+    array([30., 20., 10.])
     """
-    angle = _as_finite_scalar(angle, "angle")
-
     axes = {"z": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "x": (0.0, 0.0, 1.0)}
     if isinstance(axis, str):
-        if axis not in axes:
+        if not axis or not set(axis) <= axes.keys():
             raise ValueError(
-                f"axis must be one of 'z', 'y', 'x' or a vector, got {axis!r}."
+                f"axis must be one or more of 'z', 'y', 'x' or a vector, got {axis!r}."
             )
-        unit_axis = np.array(axes[axis])
+        unit_axes = np.array([axes[name] for name in axis])
     else:
         unit_axis = _as_world_vector(axis, "axis")
         norm = np.linalg.norm(unit_axis)
         if norm == 0:
             raise ValueError("axis must have non-zero length.")
-        unit_axis = unit_axis / norm
+        unit_axes = unit_axis[np.newaxis] / norm
 
-    angle_rad = np.deg2rad(angle) if degrees else float(angle)
-    # The rotation vector stays in (z, y, x) component order, so the right-hand rule
+    angles = np.array(
+        [_as_finite_scalar(value, "angle") for value in np.atleast_1d(angle)]
+    )
+    if len(angles) != len(unit_axes):
+        raise ValueError(
+            f"angle has {len(angles)} value(s) but axis defines "
+            f"{len(unit_axes)} rotation(s)."
+        )
+    if degrees:
+        angles = np.deg2rad(angles)
+
+    # The rotation vectors stay in (z, y, x) component order, so the right-hand rule
     # applies to that ordered triad. Using (x, y, z) components instead would reverse
     # the sense of every rotation, since the two orders differ by an odd permutation.
-    rotation = Rotation.from_rotvec(angle_rad * unit_axis).as_matrix()
+    rotation = np.eye(3)
+    for step in Rotation.from_rotvec(angles[:, np.newaxis] * unit_axes).as_matrix():
+        rotation = step @ rotation
     return apply_affine(data, _about_center(rotation, center), inplace=inplace)
 
 
