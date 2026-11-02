@@ -62,18 +62,12 @@ Current development version for the next ConfUSIus release.
 
 - Boolean arrays open as labels layers
   ([#504](https://github.com/confusius-tools/confusius/pull/504)).
-- Videos play in their own viewer, docked between the main canvas and the sidebar,
-  and follow the fUSI time in both directions without changing how the fUSI layers
-  are displayed. A single **Load Data** group in **Data I/O** opens fUSI files or
-  videos according to the file extension, and loaded videos appear in a
-  **video layer list** under napari's layer list with frame step,
-  transpose, grid and delete controls. Closing either video window only hides it,
-  and the **Data I/O** tab can show it again. napari's Home button resets both
-  viewers ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- Videos open in a separate, time-synchronized viewer with their own layer list. Load
+  recordings and videos from **Data I/O**
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 - `confusius --video PATH` opens a video without a data file
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
-- Videos synchronize correctly with recordings whose time coordinates use
-  milliseconds or microseconds, rather than treating those values as seconds
+- Fix video synchronization with recordings timed in milliseconds or microseconds
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 
 ## 0.8.0
