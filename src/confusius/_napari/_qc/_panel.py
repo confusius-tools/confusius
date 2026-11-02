@@ -53,7 +53,7 @@ def _compute_qc_metrics(
     """
     results: dict = {}
     if do_dvars:
-        results["dvars"] = compute_dvars(da)
+        results["dvars"] = compute_dvars(da).compute()
     if do_tsnr:
         results["tsnr"] = compute_tsnr(da)
     if do_cv:

@@ -8,9 +8,8 @@ The ConfUSIus sidebar contains seven collapsible panels. Each panel operates
 independently and can be expanded or collapsed by clicking its header. For an in-app
 introduction, click **Take a Tour** in the sidebar header.
 
-- [**Data I/O**](#data-io-panel) — load and save fUSI files (NIfTI, Zarr, SCAN).
+- [**Data I/O**](#data-io-panel) — load and save fUSI files (NIfTI, Zarr, Iconeus SCAN and RAW).
 - [**Atlas**](#atlas-panel) — load brain atlases and fUSI templates, browse
-  the structure tree, and get ROI masks.
 - [**Video**](#video-panel) — load videos side-by-side, temporally synced with the fUSI acquisition.
 - [**Signals**](#signals-panel) — plot voxel, point, or label-region signals in a bottom dock.
 - [**Events**](#events-panel) — annotate periods of time (BIDS events) and shade them on
@@ -67,6 +66,7 @@ Three save modes are applied automatically depending on what is available:
 | **Direct** | The layer was loaded via ConfUSIus (DataArray in metadata). Saved verbatim, all coordinates and attributes preserved. |
 | **Template** | A template layer is selected. Coordinates are borrowed from the template DataArray. |
 | **Reconstruct** | No template and no DataArray in metadata (e.g. a freshly drawn labels layer). Coordinates are reconstructed from the napari layer state (`scale`, `translate`, `axis_labels`). |
+
 
 ## Atlas Panel
 

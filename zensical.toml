@@ -21,6 +21,7 @@ nav = [
     { "User Guide" = [
         { "Getting Started" = "user-guide/getting-started.md" },
         { "Installation" = "user-guide/installation.md" },
+        { "Agents" = "user-guide/agents.md" },
         { "Input/Output" = "user-guide/io.md" },
         { "The VoxelData Model" = "user-guide/voxeldata.md" },
         { "Working with Xarray" = "user-guide/xarray.md" },
@@ -287,7 +288,7 @@ custom_checkbox = true
 [project.plugins.llmstxt]
 full_output = "llms-full.txt"
 markdown_description = """
-This file describes ConfUSIus version 0.9.0.dev0. ConfUSIus is a Python library built on xarray for loading, registering, extracting signals from, and visualizing functional ultrasound imaging (fUSI) data. Every spatial array is a VoxelData `xarray.DataArray` with dims `(..., time, pose, k, j, i)` and a voxel-to-world affine index. Install with `pip install confusius`. The package is in beta and the API may change between releases.
+This file describes ConfUSIus version 0.10.0.dev0. ConfUSIus is a Python library built on xarray for loading, registering, extracting signals from, and visualizing functional ultrasound imaging (fUSI) data. Every spatial array is a VoxelData `xarray.DataArray` with dims `(..., time, pose, k, j, i)` and a voxel-to-world affine index. Install with `pip install confusius`. The package is in beta and the API may change between releases.
 """
 
 [project.plugins.llmstxt.sections]
@@ -295,6 +296,7 @@ This file describes ConfUSIus version 0.9.0.dev0. ConfUSIus is a Python library 
 "User guide" = [
     "user-guide/getting-started.md",
     "user-guide/installation.md",
+    "user-guide/agents.md",
     "user-guide/io.md",
     "user-guide/voxeldata.md",
     "user-guide/xarray.md",

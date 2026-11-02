@@ -38,7 +38,7 @@ def _load_file(path: Path, lazy: bool) -> xr.DataArray:
     Parameters
     ----------
     path : Path
-        Path to a `.nii`, `.nii.gz`, `.scan`, or `.zarr` file/directory.
+        Path to a `.nii`, `.nii.gz`, `.scan`, `.raw`, or `.zarr` file/directory.
     lazy : bool
         Whether to return a lazy (Dask-backed) array without computing.
     """
@@ -69,7 +69,7 @@ class DataPanel(QWidget):
     """Panel for loading fUSI data files into the napari viewer.
 
     Supported formats are whatever [`confusius.load`][confusius.load] accepts (`.nii`,
-    `.nii.gz`, `.scan`, `.zarr`).
+    `.nii.gz`, `.scan`, `.raw`, `.zarr`).
 
     Loading runs in a background thread so the UI stays responsive. A file is loaded
     automatically as soon as the user selects one via the Browse dialog, or when they
@@ -98,7 +98,9 @@ class DataPanel(QWidget):
         file_layout.setSpacing(6)
 
         self._path_edit = QLineEdit()
-        self._path_edit.setPlaceholderText("Path to .nii / .nii.gz / .scan / .zarr")
+        self._path_edit.setPlaceholderText(
+            "Path to .nii / .nii.gz / .scan / .raw / .zarr"
+        )
         # Pressing Enter in the path field triggers loading.
         self._path_edit.returnPressed.connect(self._load)
 
@@ -165,9 +167,10 @@ class DataPanel(QWidget):
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
         dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
         dialog.setNameFilter(
-            "Supported files (*.nii *.nii.gz *.scan *.zarr);;"
+            "Supported files (*.nii *.nii.gz *.scan *.raw *.zarr);;"
             "NIfTI (*.nii *.nii.gz);;"
             "SCAN (*.scan);;"
+            "Iconeus RAW (*.raw);;"
             "Zarr (*.zarr);;"
             "All files (*)"
         )

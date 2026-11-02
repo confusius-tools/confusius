@@ -85,6 +85,33 @@ def read_scan(path: PathOrPaths) -> Callable[[PathOrPaths], list[FullLayerData]]
     return _make_reader(path)
 
 
+def read_iconeus_raw(
+    path: PathOrPaths,
+) -> Callable[[PathOrPaths], list[FullLayerData]] | None:
+    """Get reader for Iconeus RAW files (`.raw`).
+
+    `.raw` is a common extension, so only RAW files next to their matching `.hraw`
+    metadata sidecar are claimed; any other `.raw` file is left to other plugins.
+
+    Parameters
+    ----------
+    path : PathOrPaths
+        Path passed by napari.
+
+    Returns
+    -------
+    Callable or None
+        Reader function, or `None` if the path is a list, the file does not exist, or
+        it has no matching `.hraw` sidecar (napari will fall back to other plugins).
+    """
+    if isinstance(path, list) or not isinstance(path, (str, Path)):
+        return None
+    raw_path = Path(path)
+    if not raw_path.is_file() or not raw_path.with_suffix(".hraw").is_file():
+        return None
+    return _make_reader(path)
+
+
 def read_zarr(path: PathOrPaths) -> Callable[[PathOrPaths], list[FullLayerData]] | None:
     """Get reader for Zarr stores (`.zarr`) written by [`confusius.io.save`][confusius.io.save].
 
