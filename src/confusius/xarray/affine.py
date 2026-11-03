@@ -338,7 +338,8 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
         `voxel_to_world` affine. World coordinates are unchanged. For pose-dependent
         geometry, `voxel_to_world` stays a per-pose stack: each pose keeps its own
         origin and direction (spacing is shared, per the equal-scale invariant), so
-        rebasing is unambiguous per pose and every pose is reindexed at once.
+        rebasing is unambiguous per pose and every pose is reindexed at once. A voxel
+        dim removed by scalar indexing is restored as a singleton dim.
 
     Raises
     ------
@@ -346,8 +347,16 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
         If `da` lacks voxel-to-world geometry, or if world spacing is undefined for
         any voxel dimension.
     """
+    from confusius.validation import ensure_voxeldata
+
     if not has_voxel_to_world_index(da):
         raise ValueError("DataArray must have a voxel-to-world index.")
+
+    # The affine rebuilt below needs one column per native voxel dim, so restore any dim
+    # removed by scalar indexing. Complete arrays skip this to avoid the extra validation
+    # in `ensure_voxeldata`.
+    if not set(VOXEL_DIMS) <= set(da.dims):
+        da = ensure_voxeldata(da)
 
     voxel_dims = get_voxel_to_world_spatial_dims(da)
 
@@ -711,19 +720,23 @@ class FUSIAffineAccessor:
         Parameters
         ----------
         inplace : bool, default: False
-            Whether to modify the wrapped DataArray in-place.
+            Whether to modify the wrapped DataArray in-place. This requires all native
+            voxel dimensions `k`, `j` and `i`, since a DataArray modified in-place
+            cannot get back dimensions that scalar indexing removed.
 
         Returns
         -------
         xarray.DataArray
             DataArray with voxel coordinates rebased to `0, 1, ..., dim - 1` and an
-            updated `voxel_to_world` affine. World coordinates are unchanged.
+            updated `voxel_to_world` affine. World coordinates are unchanged. A voxel
+            dim removed by scalar indexing is restored as a singleton dim.
 
         Raises
         ------
         ValueError
-            If `self` lacks voxel-to-world geometry, or if world spacing is
-            undefined for any voxel dimension.
+            If `self` lacks voxel-to-world geometry, if world spacing is undefined for
+            any voxel dimension, or if `inplace` is set and `self` has a voxel dim
+            removed by scalar indexing.
 
         Examples
         --------
@@ -740,6 +753,11 @@ class FUSIAffineAccessor:
         >>> float(reindexed.coords["y"].isel(j=0, i=0, k=0))
         2.0
         """
+        if inplace and not set(VOXEL_DIMS) <= set(self._obj.dims):
+            raise ValueError(
+                f"inplace=True needs all native voxel dims {VOXEL_DIMS}, got dims "
+                f"{self._obj.dims}. Use inplace=False."
+            )
         result = reindex_voxels(self._obj)
         if inplace:
             self._obj.coords.update(result.coords)
