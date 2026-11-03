@@ -8,6 +8,7 @@ See https://napari.org/dev/plugins/testing_and_publishing/test.html
 
 from __future__ import annotations
 
+import time
 from contextlib import nullcontext
 from unittest.mock import MagicMock
 
@@ -348,7 +349,7 @@ def test_removing_longer_video_does_not_move_main_time(viewer, panel, add_video)
     assert viewer.dims.point[t_idx] == pytest.approx(12.0)
 
 
-def test_frame_step_does_not_decode_frame_zero_again(viewer, panel, add_video):
+def test_frame_step_decodes_only_the_frame_at_the_kept_time(viewer, panel, add_video):
     video = _FakeVideo(n_frames=450)
     entry = add_video(video)
     viewer.dims.set_point(find_time_dim_index(viewer), 12.0)
@@ -356,8 +357,71 @@ def test_frame_step_does_not_decode_frame_zero_again(viewer, panel, add_video):
 
     panel._video_viewer.frame_step_spin.setValue(3)
 
-    assert 0 not in video.reads
+    assert video.reads == [360]
+    assert entry.layer.visible
     np.testing.assert_array_equal(entry.layer.data[120], video._frames[360])
+
+
+def test_frame_step_leaves_hidden_videos_hidden_and_undecoded(
+    viewer, panel, add_video
+):
+    video = _FakeVideo(n_frames=450)
+    entry = add_video(video)
+    viewer.dims.set_point(find_time_dim_index(viewer), 12.0)
+    entry.layer.visible = False
+    video.reads.clear()
+
+    panel._video_viewer.frame_step_spin.setValue(3)
+
+    assert not entry.layer.visible
+    assert video.reads == []
+
+    entry.layer.visible = True
+    assert video.reads == [360]
+
+
+@pytest.mark.parametrize("old_step, new_step", [(1, 5), (5, 1)])
+def test_frame_step_change_keeps_running_playback_in_place(
+    viewer, panel, add_video, qtbot, old_step, new_step
+):
+    add_video(_FakeVideo(n_frames=1800, h=2, w=2))
+    video_viewer = panel._video_viewer
+    video_viewer.frame_step_spin.setValue(old_step)
+    dims = video_viewer.model.dims
+    dims.set_point(0, 12.0)
+    qt_dims = video_viewer.qt_viewer.dims
+    qt_dims.play(0, fps=100)
+    # Frames queue up in the old step's units while the event loop is busy.
+    time.sleep(0.05)
+
+    video_viewer.frame_step_spin.setValue(new_step)
+    # Tests draw nothing, and only a draw lets the next queued frame through.
+    dims._play_ready = True
+    qtbot.wait(20)
+    qt_dims.stop()
+
+    assert dims.point[0] == pytest.approx(12.0, abs=1.0)
+    # Playback must loop at the new end, not at the old step's.
+    assert qt_dims._animation_thread.max_point == dims.nsteps[0]
+
+
+def test_fast_frame_step_changes_keep_playback_running(
+    viewer, panel, add_video, qtbot
+):
+    add_video(_FakeVideo(n_frames=1800, h=2, w=2))
+    video_viewer = panel._video_viewer
+    qt_dims = video_viewer.qt_viewer.dims
+    qt_dims.play(0, fps=100)
+    time.sleep(0.05)
+
+    for step in range(2, 40):
+        video_viewer.frame_step_spin.setValue(step)
+
+    qtbot.waitUntil(
+        lambda: qt_dims.slider_widgets[0].play_button.property("playing") == "True"
+    )
+    assert qt_dims._animation_thread.isRunning()
+    qt_dims.stop()
 
 
 def test_closed_video_dock_does_not_decode_until_reopened(

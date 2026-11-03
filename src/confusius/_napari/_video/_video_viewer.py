@@ -10,6 +10,7 @@ its time axis drives the video viewer's time slider and vice versa.
 from __future__ import annotations
 
 import contextlib
+import time
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -22,7 +23,7 @@ from napari.components import ViewerModel
 from napari.qt import QtViewer, QtViewerButtons, get_stylesheet
 from napari.settings import get_settings
 from napari.utils.notifications import NotificationSeverity
-from qtpy.QtCore import Qt, QTimer
+from qtpy.QtCore import QCoreApplication, QEvent, Qt, QTimer
 from qtpy.QtWidgets import (
     QWIDGETSIZE_MAX,
     QDockWidget,
@@ -38,7 +39,7 @@ from confusius._napari._timeaxis import find_time_dim_index
 from confusius.timing import convert_time_units, get_representative_time_step
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     import napari
     import napari.layers
@@ -447,27 +448,58 @@ class VideoViewer:
         self._reset_view()
 
     def set_frame_step(
-        self, layer: napari.layers.Image, video: VideoReaderNP, step: int
+        self,
+        videos: Sequence[tuple[napari.layers.Image, VideoReaderNP]],
+        step: int,
     ) -> None:
-        """Rebuild `layer` with a new frame step, keeping the current time.
+        """Rebuild video layers with a new frame step, keeping the current time.
+
+        A running playback carries on from that time.
 
         Parameters
         ----------
-        layer : napari.layers.Image
-            A layer previously returned by `add_video`.
-        video : VideoReaderNP
-            The reader backing `layer`.
+        videos : sequence of (napari.layers.Image, VideoReaderNP)
+            The layers previously returned by `add_video`, with their readers.
         step : int
             Show every *step*-th frame.
         """
+        qt_dims = self.qt_viewer.dims
+        thread = qt_dims._animation_thread
+        playing = thread.isRunning()
+        if playing:
+            qt_dims.stop()
+            # Queued frames are slider positions, whose time depends on the step:
+            # apply them while they still mean what the thread meant.
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.MetaCall)
+
         current_time = float(self.model.dims.point[0])
+        shown = [layer for layer, _ in videos if layer.visible]
         self._syncing = True
         try:
-            layer.data = _VideoArray(video, step=step)
-            layer.scale = (_time_scale(video.frame_rate, step), 1.0, 1.0)  # ty: ignore[invalid-assignment]
+            # Data and scale cannot change together, and the states in between map
+            # the current time to frames far away. Layers marked as hidden do not
+            # decode them, and nothing paints before the refresh below.
+            for layer in shown:
+                layer._visible = False
+            for layer, video in videos:
+                layer.data = _VideoArray(video, step=step)
+                layer.scale = (_time_scale(video.frame_rate, step), 1.0, 1.0)  # ty: ignore[invalid-assignment]
             self.model.dims.set_point(0, current_time)
         finally:
+            for layer in shown:
+                layer._visible = True
             self._syncing = False
+        for layer in shown:
+            layer.refresh()
+
+        if playing:
+            # This also updates the thread's position and loop range to the new step.
+            thread.set_slider(thread.slider)
+            thread.start()
+            # The thread clears its stop flag once running. A stop before that is
+            # lost and `QtDims.stop` hangs, which fast step changes would hit.
+            while thread._waiter.is_set() and thread.isRunning():
+                time.sleep(0.001)
 
     def _on_layer_removing(self, event=None) -> None:
         """Keep removal-induced time clamping from moving the main viewer."""

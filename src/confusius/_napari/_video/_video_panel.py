@@ -203,5 +203,6 @@ class VideoPanel(QWidget):
         self._frame_step = value
         if self._video_viewer is None or not self._videos:
             return
-        for entry in self._videos:
-            self._video_viewer.set_frame_step(entry.layer, entry.video, value)
+        self._video_viewer.set_frame_step(
+            [(entry.layer, entry.video) for entry in self._videos], value
+        )
