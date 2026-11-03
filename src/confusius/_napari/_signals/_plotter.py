@@ -745,7 +745,7 @@ class SignalPlotter(QWidget):
             if self._xaxis_coords is not None and len(self._xaxis_coords) == len(ts):
                 x_values = self._xaxis_coords
             else:
-                x_values = np.arange(len(ts))
+                x_values = np.arange(len(ts), dtype=float)
             xlabel = self._get_xaxis_label(self._current_layer)
 
             # Read name/color/visibility from the store if available.
@@ -2056,7 +2056,7 @@ class SignalPlotter(QWidget):
                     x = (
                         xaxis_coords
                         if (xaxis_coords is not None and len(xaxis_coords) == len(ts))
-                        else np.arange(len(ts))
+                        else np.arange(len(ts), dtype=float)
                     )
                     label = self._signal_label(pt_name, img_layer, ref_layers)
                     linestyle = _LAYER_LINESTYLES[layer_index % len(_LAYER_LINESTYLES)]
