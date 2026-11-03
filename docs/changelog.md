@@ -12,8 +12,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
-- [`apply_affine`][confusius.xarray.apply_affine] now accepts scalar-indexed VoxelData
-  arrays and restores the indexed voxel dimension in its result. `inplace=True` raises a
+- [`apply_affine`][confusius.xarray.apply_affine] and
+  [`reindex_voxels`][confusius.xarray.reindex_voxels] now accept scalar-indexed VoxelData
+  arrays and restore the indexed voxel dimension in their result. `inplace=True` raises a
   `ValueError` on such arrays.
 
 ### :wrench: Maintenance
