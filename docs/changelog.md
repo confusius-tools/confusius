@@ -10,6 +10,12 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :bug: Fixes
+
+- [`apply_affine`][confusius.xarray.apply_affine] now accepts scalar-indexed VoxelData
+  arrays and restores the indexed voxel dimension in its result. `inplace=True` raises a
+  `ValueError` on such arrays.
+
 ### :wrench: Maintenance
 
 - Test that every function in the napari plugin manifest can be imported
