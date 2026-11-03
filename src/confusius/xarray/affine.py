@@ -192,8 +192,9 @@ def apply_affine(
         Homogeneous world-space affine matrix to apply. If a string, it is looked up as
         a key in `da.attrs["affines"]`.
     inplace : bool, default: False
-        Whether to modify the DataArray in-place. This requires all of `k`, `j` and
-        `i`, since a scalar-indexed DataArray cannot regain the missing dims.
+        Whether to modify the DataArray in-place. This requires all native voxel
+        dimensions `k`, `j` and `i`, because an in-place update cannot add back a
+        dimension removed by scalar indexing.
 
     Returns
     -------
@@ -660,8 +661,9 @@ class FUSIAffineAccessor:
             Homogeneous world-space affine matrix to apply. If a string, it is
             looked up as a key in `self.attrs["affines"]`.
         inplace : bool, default: False
-            Whether to modify the DataArray in-place. This requires all of `k`, `j`
-            and `i`, since a scalar-indexed DataArray cannot regain the missing dims.
+            Whether to modify the DataArray in-place. This requires all native voxel
+            dimensions `k`, `j` and `i`, because an in-place update cannot add back a
+            dimension removed by scalar indexing.
 
         Returns
         -------
