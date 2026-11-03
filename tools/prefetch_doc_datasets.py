@@ -28,6 +28,7 @@ from confusius.datasets import (
     fetch_brainglobe_atlas,
     fetch_cybis_pereira_2026,
     fetch_khallaf_2026,
+    fetch_landemard_2026,
     fetch_nunez_elizalde_2022,
     fetch_pepe_mariani_2026,
     fetch_template_pepe_mariani_2026,
@@ -43,17 +44,8 @@ def _prefetch_nunez_elizalde() -> None:
     # docs/images/home/generate.py
     fetch_nunez_elizalde_2022(
         print_citation=False,
-        subjects=["CR022", "CR024"],
-        sessions=["20201011", "20201029"],
-        tasks="spontaneous",
-        acqs="slice03",
-    )
-
-    # docs/images/qc/generate.py
-    fetch_nunez_elizalde_2022(
-        print_citation=False,
-        subjects="CR024",
-        sessions="20201029",
+        subjects="CR022",
+        sessions="20201011",
         tasks="spontaneous",
         acqs="slice03",
     )
@@ -94,6 +86,17 @@ def _prefetch_nunez_elizalde() -> None:
         sessions="20201007",
         tasks="spontaneous",
         acqs="slice02",
+    )
+
+
+def _prefetch_landemard() -> None:
+    # docs/images/qc/generate.py
+    fetch_landemard_2026(
+        print_citation=False,
+        datasets=["rawdata", "atlas_mapping"],
+        subjects=["ALD001"],
+        acqs=["ref20"],
+        datatypes=["fusi"],
     )
 
 
@@ -202,6 +205,7 @@ def _prefetch_rabut_2024_human_glm() -> None:
 
 def main() -> None:
     _prefetch_nunez_elizalde()
+    _prefetch_landemard()
     _prefetch_cybis_pereira()
     _prefetch_rabut_2024_human_glm()
     _prefetch_pepe_mariani_template()

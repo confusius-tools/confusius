@@ -128,15 +128,16 @@ class TestConsolidatePoses:
             atol=1e-12,
         )
 
-    def test_no_spurious_probe_to_lab_in_attrs(self, scan_3d: xr.DataArray) -> None:
-        """Consolidation doesn't inject a probe_to_lab attrs entry that never existed.
+    def test_scan_affines_pass_through(self, scan_3d: xr.DataArray) -> None:
+        """Consolidation keeps the single (4, 4) SCAN affines unchanged.
 
-        Primary geometry for SCAN data is index-based (VoxelToWorldIndex), so
-        `attrs["affines"]` starts empty; consolidation must not fabricate one.
+        `world_to_lab` and `world_to_probe` are not per-pose stacks, so they are not
+        re-linked to the consolidated primary geometry.
         """
-        assert "probe_to_lab" not in scan_3d.attrs.get("affines", {})
         result = consolidate_poses(scan_3d)
-        assert "probe_to_lab" not in result.attrs.get("affines", {})
+        assert set(result.attrs["affines"]) == {"world_to_lab", "world_to_probe"}
+        for key, value in scan_3d.attrs["affines"].items():
+            np.testing.assert_array_equal(result.attrs["affines"][key], value)
 
     def test_4dscan_updates_time_coord_from_pose_timing(
         self, scan_4d: xr.DataArray

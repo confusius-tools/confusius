@@ -301,7 +301,8 @@ class TestLoadEchoFrameDat:
         dat_path, meta_path = echoframe_dat_no_padding
 
         data = load_echoframe_dat(dat_path, meta_path)
-        n_volumes = data.attrs["n_volumes_per_block"]
+        assert data.chunks is not None
+        n_volumes = data.chunks[0][0]
 
         first_block = data.isel(time=slice(0, n_volumes))
         last_block = data.isel(time=slice(-n_volumes, None))
@@ -380,7 +381,7 @@ class TestLoadEchoFrameDat:
         )
 
         assert data.attrs["transmit_frequency"] == meta["transmit_frequency"]
-        assert data.attrs["n_volumes_per_block"] == meta["n_volumes_per_block"]
+        assert "n_volumes_per_block" not in data.attrs
 
 
 @pytest.fixture

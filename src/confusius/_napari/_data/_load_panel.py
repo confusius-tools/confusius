@@ -43,7 +43,7 @@ def _load_file(path: Path, lazy: bool) -> xr.DataArray:
     Parameters
     ----------
     path : Path
-        Path to a `.nii`, `.nii.gz`, `.scan`, or `.zarr` file/directory.
+        Path to a `.nii`, `.nii.gz`, `.scan`, `.raw`, or `.zarr` file/directory.
     lazy : bool
         Whether to return a lazy (Dask-backed) array without computing.
     """
@@ -74,7 +74,7 @@ class DataPanel(QWidget):
     """Panel for loading fUSI data and behavioral videos.
 
     fUSI formats are whatever [`confusius.load`][confusius.load] accepts (`.nii`,
-    `.nii.gz`, `.scan`, `.zarr`). Videos (`.mp4`, `.mov`, `.avi`) open in a dedicated
+    `.nii.gz`, `.scan`, `.raw`, `.zarr`). Videos (`.mp4`, `.mov`, `.avi`) open in a dedicated
     viewer synchronized with the main viewer.
 
     fUSI loading runs in a background thread so the UI stays responsive. A file is loaded
@@ -187,9 +187,10 @@ class DataPanel(QWidget):
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
         dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
         dialog.setNameFilter(
-            "Supported files (*.nii *.nii.gz *.scan *.zarr *.mp4 *.mov *.avi);;"
+            "Supported files (*.nii *.nii.gz *.scan *.raw *.zarr *.mp4 *.mov *.avi);;"
             "NIfTI (*.nii *.nii.gz);;"
             "SCAN (*.scan);;"
+            "Iconeus RAW (*.raw);;"
             "Zarr (*.zarr);;"
             "Video (*.mp4 *.mov *.avi);;"
             "All files (*)"
