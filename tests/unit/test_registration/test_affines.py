@@ -22,7 +22,7 @@ from confusius.registration.affines import (
     decompose_affine,
     sitk_linear_transform_to_affine,
 )
-from confusius.xarray import create_voxeldata, get_center
+from confusius.xarray import create_voxeldata, get_geometry_center
 
 VOXEL_TO_WORLD = np.array(
     [
@@ -271,16 +271,6 @@ class TestApplyTranslation:
         with pytest.raises(ValueError, match="translation"):
             apply_translation(_volume(rng), translation)
 
-    def test_scalar_indexed_voxel_dim_is_restored(self, rng):
-        result = apply_translation(_volume(rng).isel(k=1), (1.0, 2.0, 3.0))
-        assert result.dims == ("k", "j", "i")
-        assert_allclose(result.fusi.affine.voxel_to_world[:3, 3], [2.0, 0.0, 6.0])
-        assert_allclose(result.coords["z"].values.ravel()[0], 2.5)
-
-    def test_scalar_indexed_voxel_dim_inplace_raises(self, rng):
-        with pytest.raises(ValueError, match="scalar-indexed"):
-            apply_translation(_volume(rng).isel(k=1), (1.0, 2.0, 3.0), inplace=True)
-
     def test_non_voxeldata_raises(self):
         plain = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
         with pytest.raises(ValueError, match="voxel-to-world index"):
@@ -486,14 +476,14 @@ class TestCenterOptions:
             transform(_volume(rng)).fusi.affine.voxel_to_world,
         )
 
-    def test_volume_keeps_bounding_box_center(self, rng, transform):
+    def test_geometry_keeps_bounding_box_center(self, rng, transform):
         data = _volume(rng)
-        center = get_center(data).values
-        result = transform(data, center="volume")
+        center = get_geometry_center(data).values
+        result = transform(data, center="geometry")
         assert_allclose(
             _world_affine(result) @ [*center, 1.0], [*center, 1.0], atol=1e-12
         )
-        assert_allclose(get_center(result).values, center, atol=1e-12)
+        assert_allclose(get_geometry_center(result).values, center, atol=1e-12)
 
     def test_point_is_fixed(self, rng, transform):
         point = np.array([5.0, -7.0, 2.0])
@@ -509,8 +499,8 @@ class TestCenterOptions:
     def test_accepts_center_dataarray(self, rng, transform):
         data = _volume(rng)
         assert_allclose(
-            transform(data, center=get_center(data)).fusi.affine.voxel_to_world,
-            transform(data, center="volume").fusi.affine.voxel_to_world,
+            transform(data, center=get_geometry_center(data)).fusi.affine.voxel_to_world,
+            transform(data, center="geometry").fusi.affine.voxel_to_world,
         )
 
     def test_pose_stack_origin_is_first_voxel_of_first_pose(self, rng, transform):
@@ -520,10 +510,10 @@ class TestCenterOptions:
             transform(data, center=VOXEL_TO_WORLD[:3, 3]).fusi.affine.voxel_to_world,
         )
 
-    def test_pose_stack_volume_is_center_of_enclosing_box(self, rng, transform):
+    def test_pose_stack_geometry_is_center_of_enclosing_box(self, rng, transform):
         data = _pose_volume(rng)
-        center = get_center(data).values
-        affine = transform(data, center="volume").fusi.affine.voxel_to_world
+        center = get_geometry_center(data).values
+        affine = transform(data, center="geometry").fusi.affine.voxel_to_world
         applied = affine[0] @ np.linalg.inv(VOXEL_TO_WORLD)
         assert_allclose(applied @ [*center, 1.0], [*center, 1.0], atol=1e-12)
         # One matrix is applied on top of every pose's own affine.
@@ -536,30 +526,16 @@ class TestCenterOptions:
         with pytest.raises(ValueError, match="center"):
             transform(_volume(rng), center=center)
 
-    @pytest.mark.parametrize("center", ["origin", "volume", (0.0, 0.0, 0.0)])
-    def test_scalar_indexed_data_matches_kept_dim(self, rng, transform, center):
-        data = _volume(rng, attrs={"affines": {"world_to_lab": np.eye(4)}})
-        result = transform(data.isel(k=1), center=center)
-        kept = transform(data.isel(k=[1]), center=center)
-        assert result.dims == ("k", "j", "i")
-        assert_allclose(
-            result.fusi.affine.voxel_to_world, kept.fusi.affine.voxel_to_world
-        )
-        assert_allclose(
-            result.attrs["affines"]["world_to_lab"],
-            kept.attrs["affines"]["world_to_lab"],
-        )
-
-    @pytest.mark.parametrize("center", ["origin", "volume", (0.0, 0.0, 0.0)])
+    @pytest.mark.parametrize("center", ["origin", "geometry", (0.0, 0.0, 0.0)])
     def test_non_voxeldata_raises(self, transform, center):
         plain = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
         with pytest.raises(ValueError, match="voxel"):
             transform(plain, center=center)
 
-    def test_volume_with_irregular_coordinates_raises(self, rng, transform):
+    def test_geometry_with_irregular_coordinates_raises(self, rng, transform):
         data = _volume(rng).isel(i=[0, 1, 3])
         with pytest.raises(ValueError, match="irregular"):
-            transform(data, center="volume")
+            transform(data, center="geometry")
 
 
 class TestApplyZoom:

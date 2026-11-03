@@ -1,11 +1,11 @@
-"""Tests for `confusius.xarray.affine` helpers (`get_bounding_box`, `get_center`)."""
+"""Tests for `get_bounding_box` and `get_geometry_center` in `xarray.affine`."""
 
 import numpy as np
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
-from confusius.xarray import create_voxeldata, get_bounding_box, get_center
+from confusius.xarray import create_voxeldata, get_bounding_box, get_geometry_center
 
 OBLIQUE_AFFINE = np.array(
     [
@@ -156,30 +156,30 @@ def test_accessor_matches_function(rng):
     assert_allclose(data.fusi.affine.bounding_box.values, get_bounding_box(data).values)
 
 
-def test_center_of_axis_aligned_data():
+def test_geometry_center_of_axis_aligned_data():
     """The center is the midpoint of the voxel centers, with its labels and units."""
     affine = np.diag([2.0, 3.0, 4.0, 1.0])
     affine[:3, 3] = [10.0, 20.0, 30.0]
     data = create_voxeldata(
         np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=affine, units="m"
     )
-    center = get_center(data)
+    center = get_geometry_center(data)
     assert center.dims == ("component",)
     assert list(center.coords["component"].values) == ["z", "y", "x"]
     assert center.attrs["units"] == "m"
     assert_allclose(center.values, [11.0, 23.0, 36.0])
 
 
-def test_center_of_oblique_data_matches_materialized_bounds(rng):
+def test_geometry_center_of_oblique_data_matches_materialized_bounds(rng):
     data = create_voxeldata(
         rng.random((4, 5, 6)), dims=("k", "j", "i"), voxel_to_world=OBLIQUE_AFFINE
     )
     assert_allclose(
-        get_center(data).values, _materialized_edge_bounds(data).mean(axis=0)
+        get_geometry_center(data).values, _materialized_edge_bounds(data).mean(axis=0)
     )
 
 
-def test_center_of_pose_dependent_data_encloses_all_poses(rng):
+def test_geometry_center_of_pose_dependent_data_encloses_all_poses(rng):
     shifted = OBLIQUE_AFFINE.copy()
     shifted[:3, 3] += [5.0, -2.0, 1.5]
     data = create_voxeldata(
@@ -189,25 +189,25 @@ def test_center_of_pose_dependent_data_encloses_all_poses(rng):
         voxel_to_world=np.stack([OBLIQUE_AFFINE, shifted]),
     )
     bounds = np.stack([_materialized_edge_bounds(data.isel(pose=p)) for p in range(2)])
-    center = get_center(data)
+    center = get_geometry_center(data)
     assert center.dims == ("component",)
     assert_allclose(
         center.values, (bounds[:, 0].min(axis=0) + bounds[:, 1].max(axis=0)) / 2
     )
-    assert_allclose(get_center(data.isel(pose=1)).values, bounds[1].mean(axis=0))
+    assert_allclose(get_geometry_center(data.isel(pose=1)).values, bounds[1].mean(axis=0))
 
 
-def test_center_with_irregular_coordinates_raises(rng):
+def test_geometry_center_with_irregular_coordinates_raises(rng):
     data = create_voxeldata(
         rng.random((4, 5, 6)), dims=("k", "j", "i"), voxel_to_world=OBLIQUE_AFFINE
     ).isel(i=[0, 1, 3])
     with pytest.raises(ValueError, match="irregular"):
-        get_center(data)
+        get_geometry_center(data)
 
 
-def test_center_accessor_matches_function(rng):
-    """The `.fusi.affine.center` property returns the same point."""
+def test_geometry_center_accessor_matches_function(rng):
+    """The `.fusi.affine.geometry_center` property returns the same point."""
     data = create_voxeldata(
         rng.random((4, 5, 6)), dims=("k", "j", "i"), voxel_to_world=OBLIQUE_AFFINE
     )
-    assert_allclose(data.fusi.affine.center.values, get_center(data).values)
+    assert_allclose(data.fusi.affine.geometry_center.values, get_geometry_center(data).values)

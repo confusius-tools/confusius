@@ -10,7 +10,7 @@ from scipy.spatial.transform import Rotation
 
 from confusius._dims import POSE_DIM, WORLD_DIMS
 from confusius._utils.geometry import get_voxel_to_world_index_origin
-from confusius.xarray.affine import apply_affine, get_center
+from confusius.xarray.affine import apply_affine, get_geometry_center
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
@@ -290,8 +290,7 @@ def apply_translation(
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData array to translate. Scalar-indexed voxel dims are restored as
-        singletons, which `inplace` cannot do.
+        VoxelData array to translate.
     translation : (3,) array-like
         Translation in world `(z, y, x)` order, in units of `data.fusi.affine.units`.
     inplace : bool, default: False
@@ -305,8 +304,8 @@ def apply_translation(
     Raises
     ------
     ValueError
-        If `translation` is not a finite `(3,)` vector, if `data` is not a VoxelData
-        array, or if `inplace` is `True` and a voxel dim is scalar-indexed.
+        If `translation` is not a finite `(3,)` vector, or if `data` is not a VoxelData
+        array.
 
     Examples
     --------
@@ -326,7 +325,7 @@ def apply_translation(
 
 
 def _resolve_center(
-    data: xr.DataArray, center: Literal["origin", "volume"] | npt.ArrayLike
+    data: xr.DataArray, center: Literal["origin", "geometry"] | npt.ArrayLike
 ) -> npt.NDArray[np.float64]:
     """Return the world point a transform pivots about.
 
@@ -334,8 +333,8 @@ def _resolve_center(
     ----------
     data : xarray.DataArray
         VoxelData array being transformed.
-    center : {"origin", "volume"} or (3,) array-like
-        `"origin"` for the world position of the first sampled voxel, `"volume"` for
+    center : {"origin", "geometry"} or (3,) array-like
+        `"origin"` for the world position of the first sampled voxel, `"geometry"` for
         the center of the bounding box, or a world point in `(z, y, x)` order.
 
     Returns
@@ -346,20 +345,20 @@ def _resolve_center(
     Raises
     ------
     ValueError
-        If `center` is neither `"origin"`, `"volume"` nor a finite `(3,)` vector, or
+        If `center` is neither `"origin"`, `"geometry"` nor a finite `(3,)` vector, or
         if `data` cannot provide the requested pivot.
     """
     if not isinstance(center, str):
         return _as_world_vector(center, "center")
-    if center == "volume":
-        return get_center(data).to_numpy()
+    if center == "geometry":
+        return get_geometry_center(data).to_numpy()
     if center == "origin":
         # Pose-stacked geometry gets one matrix, so one pivot: the first pose's.
         first = data.isel({POSE_DIM: 0}) if POSE_DIM in data.dims else data
         origin = get_voxel_to_world_index_origin(first)
         return np.array([origin[name] for name in WORLD_DIMS])
     raise ValueError(
-        f"center must be 'origin', 'volume' or a (3,) world point, got {center!r}."
+        f"center must be 'origin', 'geometry' or a (3,) world point, got {center!r}."
     )
 
 
@@ -393,7 +392,7 @@ def apply_rotation(
     angle: float | npt.ArrayLike,
     axis: str | npt.ArrayLike,
     *,
-    center: Literal["origin", "volume"] | npt.ArrayLike = "origin",
+    center: Literal["origin", "geometry"] | npt.ArrayLike = "origin",
     degrees: bool = True,
     inplace: bool = False,
 ) -> xr.DataArray:
@@ -401,16 +400,15 @@ def apply_rotation(
 
     Only the voxel-to-world geometry changes: data values and voxel coordinates are
     untouched, and any `attrs["affines"]` entries are re-expressed accordingly.
-    Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates, the
-    frame napari displays, so a rotation of +90 degrees about `x` maps `+z` onto `+y`.
+    Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates, so a
+    rotation of +90 degrees about `x` maps `+z` onto `+y`.
     With `axis="zyx"`, the angles match the rotations reported by
     [extract_motion_parameters][confusius.registration.extract_motion_parameters].
 
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData array to rotate. Scalar-indexed voxel dims are restored as
-        singletons, which `inplace` cannot do.
+        VoxelData array to rotate.
     angle : float or (N,) array-like
         Rotation angle, or one angle per name when `axis` names several axes.
     axis : str or (3,) array-like
@@ -419,13 +417,13 @@ def apply_rotation(
         names rotate in sequence from left to right about the fixed world axes, so
         `"zyx"` rotates about `z` first. Names may repeat, as in `"zyz"`, and their
         order changes the result.
-    center : {"origin", "volume"} or (3,) array-like, default: "origin"
+    center : {"origin", "geometry"} or (3,) array-like, default: "origin"
         Fixed point of the rotation. `"origin"` is the grid origin, the world position
         of the first sampled voxel (of the first pose for pose-stacked geometry).
-        `"volume"` is the center of the bounding box, see
-        [get_center][confusius.xarray.get_center]. Otherwise a world point in
-        `(z, y, x)` order, in units of `data.fusi.affine.units`, such as `(0, 0, 0)`
-        for the world origin.
+        `"geometry"` is the center of the bounding box, see
+        [get_geometry_center][confusius.xarray.get_geometry_center]. Otherwise a world
+        point in `(z, y, x)` order, in units of `data.fusi.affine.units`, such as
+        `(0, 0, 0)` for the world origin.
     degrees : bool, default: True
         Whether to read `angle` in degrees rather than radians.
     inplace : bool, default: False
@@ -441,10 +439,9 @@ def apply_rotation(
     ValueError
         If `angle` is not finite, if it does not hold one value per axis name, if
         `axis` is neither world dimension names nor a non-zero finite `(3,)` vector,
-        if `center` is neither `"origin"`, `"volume"` nor a finite `(3,)` vector, if
-        `center` is `"volume"` and a voxel dim has irregular coordinates, if `data` is
-        not a VoxelData array, or if `inplace` is `True` and a voxel dim is
-        scalar-indexed.
+        if `center` is neither `"origin"`, `"geometry"` nor a finite `(3,)` vector, if
+        `center` is `"geometry"` and a voxel dim has irregular coordinates, or if `data`
+        is not a VoxelData array.
 
     Examples
     --------
@@ -506,7 +503,7 @@ def apply_zoom(
     data: xr.DataArray,
     zoom: float | npt.ArrayLike,
     *,
-    center: Literal["origin", "volume"] | npt.ArrayLike = "origin",
+    center: Literal["origin", "geometry"] | npt.ArrayLike = "origin",
     inplace: bool = False,
 ) -> xr.DataArray:
     """Rescale a VoxelData array in world space.
@@ -517,20 +514,19 @@ def apply_zoom(
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData array to rescale. Scalar-indexed voxel dims are restored as
-        singletons, which `inplace` cannot do.
+        VoxelData array to rescale.
     zoom : float or (3,) array-like
         Scale factor, either a scalar applied to all axes or per-axis factors in world
         `(z, y, x)` order. Negative factors reflect the volume along that axis.
         Unequal factors shear the voxel grid when it is oblique to the world axes, so
         rotating then zooming differs from zooming then rotating.
-    center : {"origin", "volume"} or (3,) array-like, default: "origin"
+    center : {"origin", "geometry"} or (3,) array-like, default: "origin"
         Fixed point of the rescaling. `"origin"` is the grid origin, the world position
         of the first sampled voxel (of the first pose for pose-stacked geometry).
-        `"volume"` is the center of the bounding box, see
-        [get_center][confusius.xarray.get_center]. Otherwise a world point in
-        `(z, y, x)` order, in units of `data.fusi.affine.units`, such as `(0, 0, 0)`
-        for the world origin.
+        `"geometry"` is the center of the bounding box, see
+        [get_geometry_center][confusius.xarray.get_geometry_center]. Otherwise a world
+        point in `(z, y, x)` order, in units of `data.fusi.affine.units`, such as
+        `(0, 0, 0)` for the world origin.
     inplace : bool, default: False
         Whether to modify `data` in place instead of returning a copy.
 
@@ -543,12 +539,11 @@ def apply_zoom(
     ------
     ValueError
         If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
-        (singular affine), if `center` is neither `"origin"`, `"volume"` nor a finite
-        `(3,)` vector, if `center` is `"volume"` and a voxel dim has irregular
-        coordinates, if `data` is not a VoxelData array, if a per-axis `zoom` is
+        (singular affine), if `center` is neither `"origin"`, `"geometry"` nor a finite
+        `(3,)` vector, if `center` is `"geometry"` and a voxel dim has irregular
+        coordinates, if `data` is not a VoxelData array, or if a per-axis `zoom` is
         applied to pose-stacked geometry whose poses are not parallel (all pose affines
-        must share equal spatial scale magnitudes), or if `inplace` is `True` and a
-        voxel dim is scalar-indexed.
+        must share equal spatial scale magnitudes).
 
     Examples
     --------

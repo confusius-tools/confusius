@@ -124,7 +124,7 @@ def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
     )
 
 
-def get_center(data: xr.DataArray) -> xr.DataArray:
+def get_geometry_center(data: xr.DataArray) -> xr.DataArray:
     """Return the world-space center of a VoxelData array.
 
     The center is the midpoint of the box returned by
@@ -156,11 +156,11 @@ def get_center(data: xr.DataArray) -> xr.DataArray:
     Examples
     --------
     >>> import numpy as np
-    >>> from confusius.xarray import create_voxeldata, get_center
+    >>> from confusius.xarray import create_voxeldata, get_geometry_center
     >>> data = create_voxeldata(
     ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
     ... )
-    >>> get_center(data).values
+    >>> get_geometry_center(data).values
     array([0.5, 1. , 1.5])
     """
     bounds = get_bounding_box(data)
@@ -237,8 +237,7 @@ def apply_affine(
     Parameters
     ----------
     da : xarray.DataArray
-        Input scan with voxel-to-world geometry (a `VoxelToWorldIndex`). Scalar-indexed
-        voxel dims are restored as singletons, which `inplace` cannot do.
+        Input scan with voxel-to-world geometry (a `VoxelToWorldIndex`).
     affine : (4, 4) numpy.ndarray or str
         Homogeneous world-space affine matrix to apply. If a string, it is looked up as
         a key in `da.attrs["affines"]`.
@@ -666,13 +665,13 @@ class FUSIAffineAccessor:
         return get_bounding_box(self._obj)
 
     @property
-    def center(self) -> xr.DataArray:
+    def geometry_center(self) -> xr.DataArray:
         """World-space center of the wrapped VoxelData array.
 
         The midpoint of
         [bounding_box][confusius.xarray.FUSIAffineAccessor.bounding_box]. Pose-dependent
         geometry yields a single point, the center of the box enclosing every pose. See
-        [get_center][confusius.xarray.get_center] for details.
+        [get_geometry_center][confusius.xarray.get_geometry_center] for details.
 
         Returns
         -------
@@ -694,10 +693,10 @@ class FUSIAffineAccessor:
         >>> data = create_voxeldata(
         ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
         ... )
-        >>> data.fusi.affine.center.sel(component="y").item()
+        >>> data.fusi.affine.geometry_center.sel(component="y").item()
         1.5
         """
-        return get_center(self._obj)
+        return get_geometry_center(self._obj)
 
     def to(self, other: xr.DataArray, via: str) -> "npt.NDArray[np.float64]":
         """Return the affine mapping `self`'s world space into `other`'s.
@@ -822,9 +821,8 @@ class FUSIAffineAccessor:
         Raises
         ------
         ValueError
-            If `translation` is not a finite `(3,)` vector, if the DataArray is not a
-            VoxelData array, or if `inplace` is `True` and a voxel dim is
-            scalar-indexed.
+            If `translation` is not a finite `(3,)` vector, or if the DataArray is not a
+            VoxelData array.
 
         Examples
         --------
@@ -850,15 +848,15 @@ class FUSIAffineAccessor:
         angle: "float | npt.ArrayLike",
         axis: "str | npt.ArrayLike",
         *,
-        center: 'Literal["origin", "volume"] | npt.ArrayLike' = "origin",
+        center: 'Literal["origin", "geometry"] | npt.ArrayLike' = "origin",
         degrees: bool = True,
         inplace: bool = False,
     ) -> xr.DataArray:
         """Rotate a DataArray in world space.
 
         Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates,
-        the frame napari displays, so a rotation of +90 degrees about `x` maps `+z`
-        onto `+y`. Only the voxel-to-world geometry changes. See
+        so a rotation of +90 degrees about `x` maps `+z` onto `+y`. Only the
+        voxel-to-world geometry changes. See
         [apply_rotation][confusius.registration.apply_rotation] for details.
 
         Parameters
@@ -871,14 +869,14 @@ class FUSIAffineAccessor:
             Several names rotate in sequence from left to right about the fixed world
             axes, so `"zyx"` rotates about `z` first. Names may repeat, as in `"zyz"`,
             and their order changes the result.
-        center : {"origin", "volume"} or (3,) array-like, default: "origin"
+        center : {"origin", "geometry"} or (3,) array-like, default: "origin"
             Fixed point of the rotation. `"origin"` is the grid origin, the world
             position of the first sampled voxel (of the first pose for pose-stacked
-            geometry). `"volume"` is
-            [center][confusius.xarray.FUSIAffineAccessor.center], the center of the
-            bounding box. Otherwise a world point in `(z, y, x)` order, in the
-            DataArray's world units (`.fusi.affine.units`), such as `(0, 0, 0)` for the
-            world origin.
+            geometry). `"geometry"` is
+            [geometry_center][confusius.xarray.FUSIAffineAccessor.geometry_center], the
+            center of the bounding box. Otherwise a world point in `(z, y, x)` order, in
+            the DataArray's world units (`.fusi.affine.units`), such as `(0, 0, 0)` for
+            the world origin.
         degrees : bool, default: True
             Whether to read `angle` in degrees rather than radians.
         inplace : bool, default: False
@@ -895,10 +893,9 @@ class FUSIAffineAccessor:
         ValueError
             If `angle` is not finite, if it does not hold one value per axis name, if
             `axis` is neither world dimension names nor a non-zero finite `(3,)`
-            vector, if `center` is neither `"origin"`, `"volume"` nor a finite `(3,)`
-            vector, if `center` is `"volume"` and a voxel dim has irregular
-            coordinates, if the DataArray is not a VoxelData array, or if `inplace` is
-            `True` and a voxel dim is scalar-indexed.
+            vector, if `center` is neither `"origin"`, `"geometry"` nor a finite
+            `(3,)` vector, if `center` is `"geometry"` and a voxel dim has irregular
+            coordinates, or if the DataArray is not a VoxelData array.
 
         Examples
         --------
@@ -929,7 +926,7 @@ class FUSIAffineAccessor:
         self,
         zoom: "float | npt.ArrayLike",
         *,
-        center: 'Literal["origin", "volume"] | npt.ArrayLike' = "origin",
+        center: 'Literal["origin", "geometry"] | npt.ArrayLike' = "origin",
         inplace: bool = False,
     ) -> xr.DataArray:
         """Rescale a DataArray in world space.
@@ -944,14 +941,14 @@ class FUSIAffineAccessor:
             world `(z, y, x)` order. Negative factors reflect the volume along that
             axis. Unequal factors shear the voxel grid when it is oblique to the world
             axes, so rotating then zooming differs from zooming then rotating.
-        center : {"origin", "volume"} or (3,) array-like, default: "origin"
+        center : {"origin", "geometry"} or (3,) array-like, default: "origin"
             Fixed point of the rescaling. `"origin"` is the grid origin, the world
             position of the first sampled voxel (of the first pose for pose-stacked
-            geometry). `"volume"` is
-            [center][confusius.xarray.FUSIAffineAccessor.center], the center of the
-            bounding box. Otherwise a world point in `(z, y, x)` order, in the
-            DataArray's world units (`.fusi.affine.units`), such as `(0, 0, 0)` for the
-            world origin.
+            geometry). `"geometry"` is
+            [geometry_center][confusius.xarray.FUSIAffineAccessor.geometry_center], the
+            center of the bounding box. Otherwise a world point in `(z, y, x)` order, in
+            the DataArray's world units (`.fusi.affine.units`), such as `(0, 0, 0)` for
+            the world origin.
         inplace : bool, default: False
             Whether to modify the DataArray in place instead of returning a copy.
 
@@ -965,12 +962,11 @@ class FUSIAffineAccessor:
         ------
         ValueError
             If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
-            (singular affine), if `center` is neither `"origin"`, `"volume"` nor a
-            finite `(3,)` vector, if `center` is `"volume"` and a voxel dim has
-            irregular coordinates, if the DataArray is not a VoxelData array, if a
+            (singular affine), if `center` is neither `"origin"`, `"geometry"` nor a
+            finite `(3,)` vector, if `center` is `"geometry"` and a voxel dim has
+            irregular coordinates, if the DataArray is not a VoxelData array, or if a
             per-axis `zoom` is applied to pose-stacked geometry whose poses are not
-            parallel (all pose affines must share equal spatial scale magnitudes), or if
-            `inplace` is `True` and a voxel dim is scalar-indexed.
+            parallel (all pose affines must share equal spatial scale magnitudes).
 
         Examples
         --------
@@ -980,7 +976,7 @@ class FUSIAffineAccessor:
         >>> data = create_voxeldata(
         ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
         ... )
-        >>> zoomed = data.fusi.affine.zoom(2.0, center="volume")
+        >>> zoomed = data.fusi.affine.zoom(2.0, center="geometry")
         >>> float(zoomed.fusi.affine.bounding_box.sel(bound="max", component="x"))
         4.0
         """
