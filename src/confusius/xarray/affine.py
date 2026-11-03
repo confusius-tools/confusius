@@ -193,8 +193,8 @@ def apply_affine(
         a key in `da.attrs["affines"]`.
     inplace : bool, default: False
         Whether to modify the DataArray in-place. This requires all native voxel
-        dimensions `k`, `j` and `i`, because an in-place update cannot add back a
-        dimension removed by scalar indexing.
+        dimensions `k`, `j` and `i`, since a DataArray modified in-place cannot get back
+        dimensions that scalar indexing removed.
 
     Returns
     -------
@@ -662,8 +662,8 @@ class FUSIAffineAccessor:
             looked up as a key in `self.attrs["affines"]`.
         inplace : bool, default: False
             Whether to modify the DataArray in-place. This requires all native voxel
-            dimensions `k`, `j` and `i`, because an in-place update cannot add back a
-            dimension removed by scalar indexing.
+            dimensions `k`, `j` and `i`, since a DataArray modified in-place cannot get
+            back dimensions that scalar indexing removed.
 
         Returns
         -------
