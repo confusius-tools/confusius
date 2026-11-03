@@ -13,7 +13,7 @@ Current development version for the next ConfUSIus release.
 ### :wrench: Maintenance
 
 - Test that every function in the napari plugin manifest can be imported
-  ([#PR_NUMBER](https://github.com/confusius-tools/confusius/pull/PR_NUMBER)).
+  ([#555](https://github.com/confusius-tools/confusius/pull/555)).
 
 ## 0.9.0
 
