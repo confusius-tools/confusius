@@ -815,13 +815,7 @@ class SignalPlotter(QWidget):
             self._mouse_stored_signature = self._stored_signature(stored_signals)
             export_stored = self._plot_signal_to_export(stored_signals)
             self._set_export_signals(
-                [
-                    ExportSignal(
-                        live_label,
-                        np.asarray(x_values, dtype=float),
-                        np.asarray(ts, dtype=float),
-                    )
-                ]
+                [ExportSignal(live_label, np.asarray(x_values), np.asarray(ts))]
                 + export_stored
             )
 
@@ -2069,11 +2063,7 @@ class SignalPlotter(QWidget):
                         label=label,
                     )
                     export_signals.append(
-                        ExportSignal(
-                            label,
-                            np.asarray(x, dtype=float),
-                            np.asarray(ts, dtype=float),
-                        )
+                        ExportSignal(label, np.asarray(x), np.asarray(ts))
                     )
                     has_any = True
                     # Keep x-axis coords from the last successful layer for cursor mapping.
@@ -2217,11 +2207,7 @@ class SignalPlotter(QWidget):
                         label=label,
                     )
                     export_signals.append(
-                        ExportSignal(
-                            label,
-                            np.asarray(x, dtype=float),
-                            np.asarray(ts, dtype=float),
-                        )
+                        ExportSignal(label, np.asarray(x), np.asarray(ts))
                     )
                     has_any = True
                     # Keep the last successful layer's data for pinning, matching the
