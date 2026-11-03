@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
-from confusius._dims import POSE_DIM, WORLD_DIMS
+from confusius._dims import POSE_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_affine_axis_scalings,
@@ -192,41 +192,45 @@ def apply_affine(
         Homogeneous world-space affine matrix to apply. If a string, it is looked up as
         a key in `da.attrs["affines"]`.
     inplace : bool, default: False
-        Whether to modify the DataArray in-place.
+        Whether to modify the DataArray in-place. This requires all of `k`, `j` and
+        `i`, since a scalar-indexed DataArray cannot regain the missing dims.
 
     Returns
     -------
     xarray.DataArray
         `da` with updated spatial coordinates and updated `attrs["affines"]`. No
         entry is removed: when `affine` is a string, that key is kept as the
-        identity, since the world frame now is that named space.
+        identity, since the world frame now is that named space. A voxel dim removed
+        by scalar indexing is restored as a singleton dim.
 
     Raises
     ------
     ValueError
         If `da` lacks voxel-to-world geometry, if `affine` shape does not match the
-        DataArray's voxel-to-world affine, or if `affine` is a string and `da` has no
-        `"affines"` entry in `attrs`.
+        DataArray's voxel-to-world affine, if `affine` is a string and `da` has no
+        `"affines"` entry in `attrs`, or if `inplace` is set and `da` has a voxel dim
+        removed by scalar indexing.
     KeyError
         If `affine` is a string not present in `da.attrs["affines"]`.
 
     Examples
     --------
     >>> import numpy as np
-    >>> import xarray as xr
-    >>> import confusius  # noqa: F401
-    >>> data = xr.DataArray(
-    ...     np.zeros((3, 4)),
-    ...     dims=["j", "i"],
-    ...     coords={"j": np.arange(3), "i": np.arange(4)},
+    >>> from confusius.xarray import create_voxeldata
+    >>> data = create_voxeldata(
+    ...     np.zeros((2, 3, 4)),
+    ...     dims=("k", "j", "i"),
+    ...     spacing=(1, 1, 1),
+    ...     origin=(0, 0, 0),
     ... )
-    >>> data = data.fusi.affine.set_voxel_to_world(np.eye(3))
-    >>> shift = np.eye(3)
-    >>> shift[:2, 2] = [10.0, 5.0]
+    >>> shift = np.eye(4)
+    >>> shift[:3, 3] = [10.0, 5.0, 0.0]
     >>> result = data.fusi.affine.apply(shift)
-    >>> float(result.fusi.affine.voxel_to_world[0, 2])
+    >>> float(result.fusi.affine.voxel_to_world[0, 3])
     10.0
     """
+    from confusius.validation import ensure_voxeldata
+
     applied_key = affine if isinstance(affine, str) else None
     if applied_key is not None:
         if "affines" not in da.attrs:
@@ -238,6 +242,17 @@ def apply_affine(
 
     if not has_voxel_to_world_index(da):
         raise ValueError("DataArray must have a voxel-to-world index.")
+
+    # A scalar-indexed array has a rectangular voxel-to-world affine that no world-space
+    # affine can match, so restore its voxel dims first. Complete arrays skip this
+    # because `ensure_voxeldata` returns a new object, which would break `inplace=True`.
+    if not set(VOXEL_DIMS) <= set(da.dims):
+        if inplace:
+            raise ValueError(
+                f"inplace=True needs all native voxel dims {VOXEL_DIMS}, got dims "
+                f"{da.dims}. Use inplace=False."
+            )
+        da = ensure_voxeldata(da)
 
     voxel_to_world = get_voxel_to_world_affine(da)
     is_pose_stacked = voxel_to_world.ndim == 3
@@ -645,39 +660,41 @@ class FUSIAffineAccessor:
             Homogeneous world-space affine matrix to apply. If a string, it is
             looked up as a key in `self.attrs["affines"]`.
         inplace : bool, default: False
-            Whether to modify the DataArray in-place.
+            Whether to modify the DataArray in-place. This requires all of `k`, `j`
+            and `i`, since a scalar-indexed DataArray cannot regain the missing dims.
 
         Returns
         -------
         xarray.DataArray
             The DataArray with updated spatial coordinates and `attrs["affines"]`.
             No entry is removed: when `affine` is a string, that key is kept as the
-            identity, since the world frame now is that named space.
+            identity, since the world frame now is that named space. A voxel dim
+            removed by scalar indexing is restored as a singleton dim.
 
         Raises
         ------
         ValueError
             If `self` lacks voxel-to-world geometry, if `affine` shape does not match
-            the DataArray's voxel-to-world affine, or if `affine` is a string and
-            `self` has no `"affines"` entry in `attrs`.
+            the DataArray's voxel-to-world affine, if `affine` is a string and `self`
+            has no `"affines"` entry in `attrs`, or if `inplace` is set and `self` has
+            a voxel dim removed by scalar indexing.
         KeyError
             If `affine` is a string not present in `self.attrs["affines"]`.
 
         Examples
         --------
         >>> import numpy as np
-        >>> import xarray as xr
-        >>> import confusius  # noqa: F401
-        >>> data = xr.DataArray(
-        ...     np.zeros((3, 4)),
-        ...     dims=["j", "i"],
-        ...     coords={"j": np.arange(3), "i": np.arange(4)},
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)),
+        ...     dims=("k", "j", "i"),
+        ...     spacing=(1, 1, 1),
+        ...     origin=(0, 0, 0),
         ... )
-        >>> data = data.fusi.affine.set_voxel_to_world(np.eye(3))
-        >>> shift = np.eye(3)
-        >>> shift[:2, 2] = [10.0, 5.0]
+        >>> shift = np.eye(4)
+        >>> shift[:3, 3] = [10.0, 5.0, 0.0]
         >>> result = data.fusi.affine.apply(shift)
-        >>> float(result.fusi.affine.voxel_to_world[0, 2])
+        >>> float(result.fusi.affine.voxel_to_world[0, 3])
         10.0
         """
         return apply_affine(self._obj, affine, inplace=inplace)

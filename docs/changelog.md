@@ -17,6 +17,12 @@ Current development version for the next ConfUSIus release.
   [SPEC 0](https://scientific-python.org/specs/spec-0000/)
   ([#377](https://github.com/confusius-tools/confusius/issues/377)).
 
+### :bug: Fixes
+
+- [`apply_affine`][confusius.xarray.apply_affine] now accepts scalar-indexed VoxelData
+  arrays and restores the indexed voxel dimension in its result. `inplace=True` raises a
+  `ValueError` on such arrays.
+
 ### :books: Documentation
 
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
