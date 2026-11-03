@@ -25,6 +25,8 @@ Current development version for the next ConfUSIus release.
   ([#377](https://github.com/confusius-tools/confusius/issues/377)).
 - Test that every function in the napari plugin manifest can be imported
   ([#555](https://github.com/confusius-tools/confusius/pull/555)).
+- Use the released xarray 2026.9.0 instead of a git pin now that it ships the
+  required fixes ([#559](https://github.com/confusius-tools/confusius/pull/559)).
 
 ## 0.9.0
 
