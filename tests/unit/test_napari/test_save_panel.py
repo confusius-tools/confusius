@@ -27,7 +27,7 @@ def labels_layer(viewer, sample_voxeldata_3dt):
 
     plot_napari(sample_voxeldata_3dt, viewer=viewer)
     SignalPanel(viewer)._create_labels_layer()
-    return viewer.layers["Labels (3D)"]
+    return viewer.layers["Labels"]
 
 
 class TestBuildDataArray:

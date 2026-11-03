@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, cast
 import napari
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
-    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDockWidget,
@@ -16,18 +15,21 @@ from qtpy.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
-    QRadioButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
+from superqt import QDoubleRangeSlider
 
 from confusius._dims import POSE_DIM, TIME_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._napari._qt import find_main_window
 from confusius._napari._signals._manager import SignalsManagerDialog
 from confusius._napari._signals._plotter import SignalPlotter
 from confusius._napari._signals._store import SignalStore
+from confusius._napari._utils import get_layer_affine
 
 if TYPE_CHECKING:
     from confusius._napari._events._store import EventStore
@@ -65,14 +67,15 @@ class SignalPanel(QWidget):
         self._signals_store = (
             signal_store if signal_store is not None else SignalStore(self)
         )
+        self._live_sources = self._signals_store.live_sources(viewer)
         self._cached_xaxis_dim_index: int | None = None
         self._setup_ui()
-        # Construct (but don't dock) the plotter immediately: live-signal
-        # extraction/registration happens as part of its rendering, so e.g.
-        # painting a Labels layer must register/update live signals in the shared
-        # store even if "Show Signal Plot" was never clicked.
-        self._ensure_plotter_instance()
-        self._sync_source_to_plotter()
+        self._live_sources.sources_changed.connect(self._sync_source_controls)
+        if event_store is not None:
+            event_store.changed.connect(self._refresh_baseline_events)
+        self._refresh_baseline_events()
+        self._sync_source_controls()
+        self._apply_settings()
         viewer.events.theme.connect(self._on_theme_changed)
 
     def _setup_ui(self) -> None:
@@ -81,8 +84,7 @@ class SignalPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        # Source group. A grid keeps the three combos left-aligned in one
-        # column regardless of the leading radio/label text widths.
+        # Align source selectors independently of checkbox label widths.
         source_group = QGroupBox("Source")
         self._source_group = source_group
         source_layout = QGridLayout(source_group)
@@ -90,25 +92,26 @@ class SignalPanel(QWidget):
         source_layout.setVerticalSpacing(4)
         source_layout.setColumnStretch(1, 1)
 
-        self._source_btn_group = QButtonGroup(self)
-
         # Mouse row.
-        self._radio_mouse = QRadioButton("Mouse (Shift + hover)")
-        self._radio_mouse.setChecked(True)
-        self._source_btn_group.addButton(self._radio_mouse, 0)
-        source_layout.addWidget(self._radio_mouse, 0, 0, 1, 3)
-
-        # Points row. Text is part of the radio button (same pattern as the Mouse row)
-        # so the indicator and label are always flush with no gap.
-        self._radio_points = QRadioButton("Points")
-        self._source_btn_group.addButton(self._radio_points, 1)
-        source_layout.addWidget(self._radio_points, 1, 0)
-        self._points_combo = QComboBox()
-        self._points_combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        self._mouse_check = QCheckBox("Mouse (Shift + hover)")
+        self._mouse_check.setChecked(True)
+        source_layout.addWidget(self._mouse_check, 0, 0)
+        source_layout.addWidget(QLabel("Radius"), 0, 1)
+        self._radius_spin = QDoubleSpinBox()
+        self._radius_spin.setRange(0.0, 1000.0)
+        self._radius_spin.setDecimals(2)
+        self._radius_spin.setSingleStep(0.1)
+        self._radius_spin.setSuffix(" mm")
+        self._radius_spin.setAccessibleName("Shared mouse radius")
+        self._radius_spin.setToolTip(
+            "Shared mouse sphere radius. Zero selects one voxel; FC uses the same trace."
         )
-        self._points_combo.setEnabled(False)
-        source_layout.addWidget(self._points_combo, 1, 1)
+        self._radius_spin.valueChanged.connect(self._live_sources.set_radius)
+        source_layout.addWidget(self._radius_spin, 0, 2, 1, 2)
+
+        # All ROI layers are detected by the shared controller.
+        self._points_check = QCheckBox("Points layers")
+        source_layout.addWidget(self._points_check, 1, 0, 1, 3)
         self._new_points_btn = QPushButton("+")
         self._new_points_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
         self._new_points_btn.setToolTip(
@@ -116,18 +119,11 @@ class SignalPanel(QWidget):
             "Points will be visible at all time steps."
         )
         self._new_points_btn.clicked.connect(self._create_points_layer)
-        source_layout.addWidget(self._new_points_btn, 1, 2)
+        source_layout.addWidget(self._new_points_btn, 1, 3)
 
         # Labels row.
-        self._radio_labels = QRadioButton("Labels")
-        self._source_btn_group.addButton(self._radio_labels, 2)
-        source_layout.addWidget(self._radio_labels, 2, 0)
-        self._labels_combo = QComboBox()
-        self._labels_combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
-        )
-        self._labels_combo.setEnabled(False)
-        source_layout.addWidget(self._labels_combo, 2, 1)
+        self._labels_check = QCheckBox("Labels layers")
+        source_layout.addWidget(self._labels_check, 2, 0, 1, 3)
         self._new_labels_btn = QPushButton("+")
         self._new_labels_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
         self._new_labels_btn.setToolTip(
@@ -135,34 +131,24 @@ class SignalPanel(QWidget):
             "Labels will be visible at all time steps."
         )
         self._new_labels_btn.clicked.connect(self._create_labels_layer)
-        source_layout.addWidget(self._new_labels_btn, 2, 2)
-
-        # Reference image (enabled in points/labels mode). Spans the "+"
-        # column so its right edge stays flush with the buttons above.
-        self._ref_label = QLabel("Reference")
-        self._ref_label.setEnabled(False)
-        source_layout.addWidget(self._ref_label, 3, 0)
-        self._ref_combo = QComboBox()
-        self._ref_combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
-        )
-        self._ref_combo.setEnabled(False)
-        source_layout.addWidget(self._ref_combo, 3, 1, 1, 2)
+        source_layout.addWidget(self._new_labels_btn, 2, 3)
 
         layout.addWidget(source_group)
 
-        self._source_btn_group.idToggled.connect(self._on_source_mode_changed)
-        self._points_combo.currentTextChanged.connect(self._on_source_selection_changed)
-        self._labels_combo.currentTextChanged.connect(self._on_source_selection_changed)
-        self._ref_combo.currentTextChanged.connect(self._on_source_selection_changed)
-
+        self._mouse_check.toggled.connect(
+            lambda checked: self._on_source_enabled_changed(0, checked)
+        )
+        self._points_check.toggled.connect(
+            lambda checked: self._on_source_enabled_changed(1, checked)
+        )
+        self._labels_check.toggled.connect(
+            lambda checked: self._on_source_enabled_changed(2, checked)
+        )
         self._viewer.layers.events.inserted.connect(self._on_layer_inserted)
-        self._viewer.layers.events.removed.connect(self._refresh_source_combos)
-        self._viewer.layers.events.renamed.connect(self._refresh_source_combos)
+        self._viewer.layers.events.removed.connect(self._on_layer_inserted)
         self._viewer.layers.selection.events.active.connect(
             self._on_active_layer_changed
         )
-        self._refresh_source_combos()
 
         # Axis parameters group.
         axis_group = QGroupBox("Axis Parameters")
@@ -239,23 +225,51 @@ class SignalPanel(QWidget):
         display_layout = QVBoxLayout(display_group)
         display_layout.setSpacing(4)
 
-        self._grid_check = QCheckBox("Show grid")
-        self._grid_check.setChecked(True)
-        self._grid_check.toggled.connect(self._apply_settings)
-        display_layout.addWidget(self._grid_check)
-
-        self._cursor_check = QCheckBox("Show x-axis cursor")
-        self._cursor_check.setChecked(False)
-        self._cursor_check.setToolTip(
-            "Draw a vertical cursor on the plot tracking the napari x-axis slider."
+        display_layout.addWidget(QLabel("Standardization"))
+        self._standardization_combo = QComboBox()
+        self._standardization_combo.addItem("None", "raw")
+        self._standardization_combo.addItem("Z-score", "zscore")
+        self._standardization_combo.addItem("Percent signal change", "psc")
+        self._standardization_combo.currentIndexChanged.connect(self._apply_settings)
+        display_layout.addWidget(self._standardization_combo)
+        self._baseline_group = QGroupBox("PSC baseline")
+        baseline_layout = QVBoxLayout(self._baseline_group)
+        self._baseline_source_combo = QComboBox()
+        self._baseline_source_combo.addItem("Manual intervals", "manual")
+        self._baseline_source_combo.addItem("Events", "events")
+        self._baseline_source_combo.currentIndexChanged.connect(self._apply_settings)
+        baseline_layout.addWidget(self._baseline_source_combo)
+        self._baseline_events_widget = QWidget()
+        events_layout = QVBoxLayout(self._baseline_events_widget)
+        events_layout.setContentsMargins(0, 0, 0, 0)
+        self._baseline_events_list = QListWidget()
+        self._baseline_events_list.setMaximumHeight(120)
+        self._baseline_events_list.setToolTip(
+            "Select event occurrences whose union defines the baseline."
         )
-        self._cursor_check.toggled.connect(self._on_cursor_toggled)
-        display_layout.addWidget(self._cursor_check)
-
-        self._zscore_check = QCheckBox("Z-score signal")
-        self._zscore_check.setChecked(False)
-        self._zscore_check.toggled.connect(self._apply_settings)
-        display_layout.addWidget(self._zscore_check)
+        self._baseline_events_list.itemChanged.connect(self._apply_settings)
+        events_layout.addWidget(self._baseline_events_list)
+        self._baseline_outside_check = QCheckBox("Outside selected events")
+        self._baseline_outside_check.toggled.connect(self._apply_settings)
+        events_layout.addWidget(self._baseline_outside_check)
+        self._baseline_events_status = QLabel()
+        self._baseline_events_status.setWordWrap(True)
+        events_layout.addWidget(self._baseline_events_status)
+        baseline_layout.addWidget(self._baseline_events_widget)
+        self._manual_baseline_widget = QWidget()
+        baseline_layout.addWidget(self._manual_baseline_widget)
+        self._baseline_layout = QVBoxLayout(self._manual_baseline_widget)
+        self._baseline_layout.setContentsMargins(0, 0, 0, 0)
+        self._baseline_layout.addWidget(QLabel("Intervals (x-axis units)"))
+        self._baseline_bounds: tuple[float, float] | None = None
+        self._baseline_last_bounds: tuple[float, float] | None = None
+        self._baseline_rows: list[tuple[QWidget, QLabel, QDoubleRangeSlider]] = []
+        self._add_baseline_btn = QPushButton("Add interval")
+        self._add_baseline_btn.clicked.connect(self._add_baseline_interval)
+        self._baseline_layout.addWidget(self._add_baseline_btn)
+        self._add_baseline_interval()
+        display_layout.addWidget(self._baseline_group)
+        self._viewer.dims.events.current_step.connect(self._on_xaxis_step_changed)
 
         layout.addWidget(display_group)
 
@@ -284,11 +298,12 @@ class SignalPanel(QWidget):
         self._apply_settings()
 
     def _ensure_plotter_instance(self) -> SignalPlotter:
-        """Return the SignalPlotter, constructing it (undocked) on first call.
+        """Return the plot renderer, constructing it on first use.
 
-        Separate from `_ensure_plotter` so live-signal extraction/registration
-        (which happens as part of rendering) works even before the plot dock has
-        ever been shown.
+        Returns
+        -------
+        SignalPlotter
+            Renderer consuming the shared controller.
         """
         if self._plotter is None:
             self._plotter = SignalPlotter(
@@ -297,6 +312,8 @@ class SignalPanel(QWidget):
                 event_store=self._event_store,
             )
             self._plotter.frame_clicked.connect(self._on_frame_clicked)
+            self._plotter.axis_range_changed.connect(self._update_baseline_bounds)
+            self._update_baseline_bounds(self._plotter.get_axis_range())
         return self._plotter
 
     def _ensure_plotter(self) -> SignalPlotter:
@@ -359,10 +376,9 @@ class SignalPanel(QWidget):
 
         # Always sync panel settings to the plotter (covers the case where settings like
         # the x-axis cursor were configured before the plotter was first created).
+        self._refresh_xaxis_combo()
         self._apply_settings()
-        self._sync_source_to_plotter()
-        if self._cursor_check.isChecked():
-            plotter.set_xaxis_cursor(self._current_xaxis_world())
+        plotter.set_xaxis_cursor(self._current_xaxis_world())
 
         return plotter
 
@@ -380,7 +396,9 @@ class SignalPanel(QWidget):
     def _show_signals_manager(self) -> None:
         """Show the floating signals manager window."""
         if self._signals_manager is None:
-            self._signals_manager = SignalsManagerDialog(self._signals_store, self)
+            self._signals_manager = SignalsManagerDialog(
+                self._signals_store, self, self._live_sources
+            )
             self._signals_manager.apply_theme(self._viewer.theme)
 
         self._signals_manager.show()
@@ -389,6 +407,19 @@ class SignalPanel(QWidget):
 
     def _apply_settings(self) -> None:
         """Apply current settings to the plotter."""
+        if hasattr(self, "_manual_baseline_widget"):
+            self._baseline_group.setVisible(
+                self._standardization_combo.currentData() == "psc"
+            )
+            events = self._baseline_source_combo.currentData() == "events"
+            self._manual_baseline_widget.setVisible(not events)
+            self._baseline_events_widget.setVisible(events)
+            self._baseline_source_combo.setEnabled(self._event_store is not None)
+            self._baseline_events_status.setText(
+                "Select at least one positive-duration event."
+                if not self._selected_baseline_events()
+                else "Events use seconds and half-open intervals [start, end)."
+            )
         plotter = self._plotter
         if plotter is None:
             return
@@ -399,14 +430,158 @@ class SignalPanel(QWidget):
         if not autoscale:
             plotter.set_ylim(self._ymin_spin.value(), self._ymax_spin.value())
 
-        plotter.set_show_grid(self._grid_check.isChecked())
-        plotter.set_zscore(self._zscore_check.isChecked())
-        plotter.set_show_cursor(self._cursor_check.isChecked())
+        intervals = (
+            [tuple(slider.value()) for _, _, slider in self._baseline_rows]
+            if self._baseline_bounds is not None
+            else []
+        )
+        source = self._baseline_source_combo.currentData()
+        if source == "events":
+            intervals = [
+                (onset, onset + duration)
+                for onset, duration, _ in self._selected_baseline_events()
+            ]
+        plotter.set_standardization(
+            self._standardization_combo.currentData(),
+            intervals,
+            baseline_source=source,
+            outside=self._baseline_outside_check.isChecked(),
+        )
 
         # Set the x-axis dimension.
         xaxis_dim = self._xaxis_combo.currentText()
         if xaxis_dim:
             plotter.set_xaxis_dim(xaxis_dim)
+
+    def _selected_baseline_events(self) -> list[tuple[float, float, str]]:
+        """Return checked event occurrences with positive duration.
+
+        Returns
+        -------
+        list[tuple[float, float, str]]
+            Event onset, duration and type, with times in seconds.
+        """
+        return [
+            tuple(item.data(Qt.ItemDataRole.UserRole))
+            for index in range(self._baseline_events_list.count())
+            if (item := self._baseline_events_list.item(index)) is not None
+            and item.checkState() == Qt.CheckState.Checked
+            and item.data(Qt.ItemDataRole.UserRole)[1] > 0
+        ]
+
+    def _refresh_baseline_events(self) -> None:
+        """Synchronize selectable event occurrences without changing annotations."""
+        selected = set(self._selected_baseline_events())
+        self._baseline_events_list.blockSignals(True)
+        self._baseline_events_list.clear()
+        if self._event_store is not None:
+            for onset, duration, trial_type in self._event_store.iter_events():
+                event = (float(onset), float(duration), str(trial_type))
+                item = QListWidgetItem(
+                    f"{trial_type}: {onset:g}–{onset + duration:g} s"
+                )
+                item.setData(Qt.ItemDataRole.UserRole, event)
+                if duration > 0:
+                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    item.setCheckState(
+                        Qt.CheckState.Checked
+                        if event in selected
+                        else Qt.CheckState.Unchecked
+                    )
+                else:
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                    item.setToolTip(
+                        "A zero-duration event cannot define a baseline period."
+                    )
+                self._baseline_events_list.addItem(item)
+        self._baseline_events_list.blockSignals(False)
+        self._apply_settings()
+
+    def _add_baseline_interval(self) -> None:
+        """Add a two-handle interval selector within the plotted axis range."""
+        row = QWidget()
+        layout = QVBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        header = QHBoxLayout()
+        label = QLabel()
+        header.addWidget(label, stretch=1)
+        remove = QPushButton("−")
+        remove.setToolTip("Remove this baseline interval")
+        remove.clicked.connect(lambda: self._remove_baseline_interval(row))
+        header.addWidget(remove)
+        layout.addLayout(header)
+        slider = QDoubleRangeSlider(Qt.Orientation.Horizontal)
+        slider.setMinimumWidth(0)
+        slider.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        slider.setRange(*(self._baseline_bounds or (0.0, 1.0)))
+        slider.setValue(self._baseline_bounds or (0.0, 1.0))
+        slider.setEnabled(self._baseline_bounds is not None)
+        slider.setToolTip("Inclusive baseline interval; shaded on the signal plot.")
+        slider.valuesChanged.connect(self._on_baseline_changed)
+        layout.addWidget(slider)
+        self._baseline_rows.append((row, label, slider))
+        self._baseline_layout.insertWidget(len(self._baseline_rows), row)
+        self._on_baseline_changed()
+
+    def _remove_baseline_interval(self, row: QWidget) -> None:
+        """Remove an interval while retaining at least one baseline selector.
+
+        Parameters
+        ----------
+        row : qtpy.QtWidgets.QWidget
+            Interval row to remove.
+        """
+        if len(self._baseline_rows) == 1:
+            return
+        self._baseline_rows = [
+            entry for entry in self._baseline_rows if entry[0] is not row
+        ]
+        self._baseline_layout.removeWidget(row)
+        row.deleteLater()
+        self._on_baseline_changed()
+
+    def _update_baseline_bounds(self, bounds: tuple[float, float] | None) -> None:
+        """Keep baseline sliders within finite numeric plot coordinates.
+
+        Parameters
+        ----------
+        bounds : tuple[float, float], optional
+            Axis extent. If not provided, disable interval selection.
+        """
+        previous = self._baseline_last_bounds
+        self._baseline_bounds = bounds
+        if bounds is not None:
+            self._baseline_last_bounds = bounds
+        for _, _, slider in self._baseline_rows:
+            slider.blockSignals(True)
+            if bounds is not None:
+                start, end = slider.value()
+                full = previous is None
+                slider.setRange(*bounds)
+                slider.setValue(
+                    bounds
+                    if full
+                    else (
+                        max(bounds[0], min(start, bounds[1])),
+                        max(bounds[0], min(end, bounds[1])),
+                    )
+                )
+            slider.setEnabled(bounds is not None)
+            slider.blockSignals(False)
+        self._add_baseline_btn.setEnabled(bounds is not None)
+        self._on_baseline_changed()
+
+    def _on_baseline_changed(self) -> None:
+        """Update endpoint labels and the display-only baseline selection."""
+        for row, label, slider in self._baseline_rows:
+            start, end = slider.value()
+            label.setText(
+                f"{start:g} – {end:g}"
+                if self._baseline_bounds is not None
+                else "No numeric trace axis"
+            )
+            row.findChild(QPushButton).setEnabled(len(self._baseline_rows) > 1)
+        self._apply_settings()
 
     def _xaxis_dim_index(self) -> int:
         """Return the viewer dimension index for the x-axis dimension.
@@ -443,22 +618,6 @@ class SignalPanel(QWidget):
         dims_point = self._viewer.dims.point
         return float(dims_point[xaxis_index]) if xaxis_index < len(dims_point) else 0.0
 
-    def _on_cursor_toggled(self, checked: bool) -> None:
-        """Connect or disconnect the x-axis step event and update the plotter."""
-        if checked:
-            self._viewer.dims.events.current_step.connect(self._on_xaxis_step_changed)
-        else:
-            try:
-                self._viewer.dims.events.current_step.disconnect(
-                    self._on_xaxis_step_changed
-                )
-            except RuntimeError:
-                pass
-        if self._plotter is not None:
-            self._plotter.set_show_cursor(checked)
-            if checked:
-                self._plotter.set_xaxis_cursor(self._current_xaxis_world())
-
     def _on_xaxis_step_changed(self, event) -> None:
         """Forward the current napari x-axis world coordinate to the cursor."""
         if self._plotter is None:
@@ -492,114 +651,50 @@ class SignalPanel(QWidget):
     # Source management
     # ------------------------------------------------------------------
 
-    def _refresh_source_combos(self, _event=None) -> None:
-        """Repopulate all source combo boxes from the current viewer layers."""
-        self._cached_xaxis_dim_index = None
-        # Preserve current selections.
-        cur_points = self._points_combo.currentData()
-        cur_labels = self._labels_combo.currentData()
-        cur_ref = self._ref_combo.currentData()
+    def _on_source_enabled_changed(self, btn_id: int, checked: bool) -> None:
+        """Enable independent source kinds without deleting registrations.
 
-        self._points_combo.blockSignals(True)
-        self._labels_combo.blockSignals(True)
-        self._ref_combo.blockSignals(True)
-        try:
-            self._points_combo.clear()
-            self._labels_combo.clear()
-            self._ref_combo.clear()
+        Parameters
+        ----------
+        btn_id : int
+            Mouse, Points or Labels control index.
+        checked : bool
+            Whether to enable this source kind.
+        """
+        kind = ("mouse", "point", "label")[btn_id]
+        for source in self._live_sources.sources():
+            if source.kind == kind:
+                self._live_sources.set_enabled(source.id, checked)
+        self._radius_spin.setEnabled(self._mouse_check.isChecked())
 
-            self._ref_combo.addItem("All image layers")
-
-            displayed_dims = set(self._viewer.dims.displayed)
-            for layer in self._viewer.layers:
-                t = layer._type_string
-                if t == "points":
-                    self._points_combo.addItem(layer.name, layer)
-                elif t == "labels":
-                    self._labels_combo.addItem(layer.name, layer)
-                elif t == "image" and not getattr(layer, "rgb", False):
-                    # Include layers with at least one non-displayed signal
-                    # dimension so spatial maps (tSNR, CV, ...) are excluded.
-                    da = layer.metadata.get("xarray")
-                    if da is not None:
-                        has_signal_dim = any(
-                            i not in displayed_dims and da.shape[i] > 1
-                            for i in range(da.ndim)
-                        )
-                    else:
-                        has_signal_dim = layer.data.ndim >= 4
-                    if has_signal_dim:
-                        self._ref_combo.addItem(layer.name, layer)
-
-            for combo, prev in (
-                (self._points_combo, cur_points),
-                (self._labels_combo, cur_labels),
-                (self._ref_combo, cur_ref),
-            ):
-                text_index = combo.findData(prev)
-                if text_index >= 0:
-                    combo.setCurrentIndex(text_index)
-        finally:
-            self._points_combo.blockSignals(False)
-            self._labels_combo.blockSignals(False)
-            self._ref_combo.blockSignals(False)
-
-        # Defer the plotter sync to the next event-loop iteration. When called from an
-        # `inserted` event, this ensures napari has finished setting up the new layer
-        # (including computing contrast limits via its async slice worker) before we
-        # trigger a canvas redraw in the plotter.
-        QTimer.singleShot(0, self._sync_source_to_plotter)
-
-    def _on_source_mode_changed(self, btn_id: int, checked: bool) -> None:
-        """Handle radio button toggling between source modes."""
-        if not checked:
-            return
-        is_mouse = btn_id == 0
-        self._points_combo.setEnabled(btn_id == 1)
-        self._labels_combo.setEnabled(btn_id == 2)
-        self._ref_combo.setEnabled(not is_mouse)
-        self._ref_label.setEnabled(not is_mouse)
-        self._sync_source_to_plotter()
-
-    def _on_source_selection_changed(self) -> None:
-        """Handle combo box selection changes."""
-        self._sync_source_to_plotter()
-
-    def _sync_source_to_plotter(self) -> None:
-        """Push the current source mode and layer selections to the plotter."""
-        plotter = self._plotter
-        if plotter is None:
-            return
-
-        btn_id = self._source_btn_group.checkedId()
-        if btn_id == 1:
-            mode = "points"
-        elif btn_id == 2:
-            mode = "labels"
-        else:
-            mode = "mouse"
-
-        ref_layer = self._ref_combo.currentData()
-        plotter.set_ref_layers([ref_layer] if ref_layer is not None else None)
-        plotter.set_points_layer(self._points_combo.currentData())
-        plotter.set_labels_layer(self._labels_combo.currentData())
-
-        # Mode last, triggers a replot with the already-updated layers.
-        plotter.set_source_mode(mode)
+    def _sync_source_controls(self) -> None:
+        """Reflect source enablement changed through the manager."""
+        sources = self._live_sources.sources()
+        for kind, check in (
+            ("mouse", self._mouse_check),
+            ("point", self._points_check),
+            ("label", self._labels_check),
+        ):
+            enabled = any(s.kind == kind and s.enabled for s in sources)
+            check.blockSignals(True)
+            check.setChecked(enabled)
+            check.setEnabled(any(s.kind == kind for s in sources))
+            check.blockSignals(False)
+        self._radius_spin.setEnabled(self._mouse_check.isChecked())
 
     def _on_active_layer_changed(self, event) -> None:
-        """Handle active layer change to update x-axis dropdown options."""
+        """Update image axes without disrupting ROI editing."""
+        # A transient empty selection can suspend plotting before ROI focus arrives.
         self._refresh_xaxis_combo()
 
     def _on_layer_inserted(self, event) -> None:
-        """Handle layer insertion to refresh source combos and x-axis options.
+        """Handle layer changes to refresh x-axis options.
 
         Also refreshes the x-axis combo when an image layer with xarray metadata
         is inserted, since the metadata may be attached after the layer is added
         to the viewer (e.g., via plot_napari).
         """
         self._cached_xaxis_dim_index = None
-        self._refresh_source_combos()
 
         # Defer the x-axis combo refresh to the next event-loop iteration so that
         # any metadata attached after the layer is inserted (e.g., by plot_napari)
@@ -624,9 +719,7 @@ class SignalPanel(QWidget):
         metadata if available, restricted to the **non-displayed** (slider)
         axes with more than one element. Displayed axes are shown on screen and
         have no slider, so they are not valid x-axis choices; singleton axes
-        cannot form a meaningful x-axis. This mirrors the criterion used by
-        [_refresh_source_combos][confusius._napari._signals._panel.SignalPanel._refresh_source_combos]
-        to identify signal-bearing layers.
+        cannot form a meaningful x-axis.
 
         When the active layer lacks xarray metadata (e.g., a video layer),
         falls back to the first image layer in the viewer that does have
@@ -634,7 +727,14 @@ class SignalPanel(QWidget):
         found.
         """
         layer = self._viewer.layers.selection.active
-        if layer is None or layer._type_string != "image":
+        if layer is None:
+            return []
+        if layer._type_string != "image":
+            references = self._live_sources.references()
+            if not references:
+                return []
+            layer = references[0]
+        if layer.ndim <= self._viewer.dims.ndisplay:
             return []
 
         da = layer.metadata.get("xarray")
@@ -646,11 +746,14 @@ class SignalPanel(QWidget):
                 if other._type_string == "image":
                     da = other.metadata.get("xarray")
                     if da is not None:
+                        layer = other
                         break
 
         if da is not None:
             # Offer the non-displayed (slider) axes with more than one element.
-            displayed_dims = set(self._viewer.dims.displayed)
+            # Viewer indices include leading dimensions missing from this layer.
+            offset = self._viewer.dims.ndim - layer.ndim
+            displayed_dims = {index - offset for index in self._viewer.dims.displayed}
             return [
                 str(dim)
                 for i, dim in enumerate(da.dims)
@@ -669,6 +772,8 @@ class SignalPanel(QWidget):
         if not dims:
             self._xaxis_combo.clear()
             self._xaxis_combo.setEnabled(False)
+            if self._plotter is not None:
+                self._plotter.set_xaxis_dim("")
             return
 
         current = self._xaxis_combo.currentText()
@@ -695,10 +800,15 @@ class SignalPanel(QWidget):
     def _on_xaxis_changed(self) -> None:
         """Handle x-axis dimension selection change."""
         self._cached_xaxis_dim_index = None
+        dim = self._xaxis_combo.currentText()
+        if dim:
+            self._live_sources.set_display_axis(dim)
         self._apply_settings()
 
     def _spatial_info(self) -> tuple[tuple[int, ...], dict[str, Any]] | None:
-        """Return the spatial shape and layer geometry of the first signal layer.
+        """Return the active image's spatial shape and current world geometry.
+
+        If the active layer is not a suitable image, use the first suitable image.
 
         Spatial axes are those named `z`, `y`, or `x` in the xarray metadata.
         This always covers the full spatial volume regardless of which dims are
@@ -709,15 +819,22 @@ class SignalPanel(QWidget):
         shape : tuple[int, ...]
             Spatial shape of the reference layer.
         geometry : dict[str, Any]
-            `scale`, `translate`, `axis_labels`, and `units` restricted to the
-            spatial axes, ready to pass to a napari `add_*` method. All values come
+            `scale`, `translate`, `affine`, `axis_labels`, and `units` restricted to
+            the spatial axes, ready to pass to a napari `add_*` method. All values come
             from the *same* layer so they are guaranteed to be consistent, and
             copying `units`/`axis_labels` keeps napari's world units consistent
             across layers (otherwise it warns and stops rendering units).
 
         Returns `None` when no suitable layer is found.
         """
-        for layer in self._viewer.layers:
+        import numpy as np
+
+        active = self._viewer.layers.selection.active
+        layers = list(self._viewer.layers)
+        if active in layers:
+            layers.remove(active)
+            layers.insert(0, active)
+        for layer in layers:
             if layer._type_string != "image":
                 continue
             da = layer.metadata.get("xarray")
@@ -742,6 +859,12 @@ class SignalPanel(QWidget):
                 "axis_labels": tuple(layer.axis_labels[i] for i in spatial_indices),
                 "units": tuple(layer.units[i] for i in spatial_indices),
             }
+            base = np.eye(len(spatial_indices) + 1)
+            base[:-1, :-1] = np.diag(geometry["scale"])
+            base[:-1, -1] = geometry["translate"]
+            geometry["affine"] = get_layer_affine(
+                layer, spatial_indices
+            ) @ np.linalg.inv(base)
             return shape, geometry
         return None
 
@@ -765,7 +888,7 @@ class SignalPanel(QWidget):
             kwargs["size"] = 2.0
         self._viewer.add_points(  # type: ignore
             np.empty((0, ndim)),
-            name="Points (3D)",
+            name="Points",
             ndim=ndim,
             projection_mode="rescale_linear",
             **kwargs,
@@ -774,8 +897,8 @@ class SignalPanel(QWidget):
     def _create_labels_layer(self) -> None:
         """Add a new 3D Labels layer (no time axis) to the viewer.
 
-        Shape and geometry are derived from the first image layer with xarray
-        metadata so the labels are pixel-aligned with the image and the paint brush
+        Shape and current geometry are derived from the active image, or the first
+        suitable image, so labels are pixel-aligned and the paint brush
         maps to the correct voxel positions.
         """
         import numpy as np
@@ -784,6 +907,6 @@ class SignalPanel(QWidget):
         shape, kwargs = info if info is not None else ((64, 64, 64), {})
         self._viewer.add_labels(  # type: ignore
             np.zeros(shape, dtype=np.int32),
-            name="Labels (3D)",
+            name="Labels",
             **kwargs,
         )
