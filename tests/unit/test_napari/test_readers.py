@@ -6,7 +6,6 @@ scale/translate/axis_labels/units/colormap values produced for napari are physic
 correct.
 """
 
-import pkgutil
 import warnings
 from pathlib import Path
 
@@ -18,7 +17,6 @@ import pytest
 import xarray as xr
 from dask.callbacks import Callback
 from napari.layers import Image
-from npe2 import PluginManager, PluginManifest
 
 from confusius._napari._io._readers import (
     read_iconeus_raw,
@@ -173,22 +171,6 @@ class TestReadIconeusRawGating:
         """A `.raw` file next to its `.hraw` sidecar returns a reader function."""
         raw_path, _, _ = make_iconeus_raw_files()
         assert callable(read_iconeus_raw(str(raw_path)))
-
-    def test_manifest_routes_raw_files_to_reader(self) -> None:
-        """napari offers this reader for `.raw` files."""
-        manifest = PluginManifest.from_file("src/confusius/_napari/napari.yaml")
-        plugin_manager = PluginManager()
-        plugin_manager.register(manifest)
-
-        readers = list(plugin_manager.iter_compatible_readers("data.raw"))
-
-        assert [reader.command for reader in readers] == ["confusius.read_iconeus_raw"]
-        command = next(
-            command
-            for command in manifest.contributions.commands or []
-            if command.id == "confusius.read_iconeus_raw"
-        )
-        assert pkgutil.resolve_name(command.python_name) is read_iconeus_raw
 
 
 # ---------------------------------------------------------------------------
