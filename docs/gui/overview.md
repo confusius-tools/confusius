@@ -108,7 +108,7 @@ shown as its magnitude.
 
 ### Recommended: Data I/O Panel
 
-The [Data I/O Panel](plugin.md#saving-data) save section lets you export any layer to
+The [Data I/O Panel](plugin.md#exporting-data) save section lets you export any layer to
 NIfTI or Zarr. Select the layer, optionally pick a template layer to borrow physical
 coordinates from, enter an output path, and click **Save**.
 
