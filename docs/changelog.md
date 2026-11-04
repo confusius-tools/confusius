@@ -17,6 +17,15 @@ Current development version for the next ConfUSIus release.
 - Use the released xarray 2026.9.0 instead of a git pin now that it ships the
   required fixes ([#559](https://github.com/confusius-tools/confusius/pull/559)).
 
+### :frame_photo: Napari plugin
+
+- Open multipose arrays as one correctly positioned layer per pose through
+  [`plot_napari`][confusius.plotting.plot_napari], its xarray accessors, and the CLI,
+  with pose values appended to layer names. **Breaking:** the plotting APIs always
+  return `(viewer, layers)`, with a list even for single-pose input; use
+  `viewer, [layer] = ...` when expecting one layer
+  ([#562](https://github.com/confusius-tools/confusius/pull/562)).
+
 ## 0.9.0
 
 Released 2026-10-31.

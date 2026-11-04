@@ -212,6 +212,11 @@ Most Xarray operations that don't touch world coordinates or timing work on mult
 arrays exactly as on any other VoxelData array—reductions, arithmetic, `.isel`, mask
 extraction, and so on all treat `pose` as an ordinary dimension.
 
+For [napari visualization](visualization.md#interactive-exploration-with-napari),
+`viewer, layers = pwd.fusi.plot.napari()` opens one layer per pose, each positioned
+using its own affine and named `<data name> [pose <value>]`. The CLI does the same;
+no consolidation is needed.
+
 Operations that resolve *positions* or *timestamps*, however, need a scalar `pose`
 first, per [The Multi-Pose Data Model](#the-multi-pose-data-model) above:
 
