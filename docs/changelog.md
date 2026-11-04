@@ -10,6 +10,12 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :books: Documentation
+
+- Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
+  archive, and simplify dataset and template citations
+  ([#565](https://github.com/confusius-tools/confusius/pull/565)).
+
 ### :wrench: Maintenance
 
 - Test that every function in the napari plugin manifest can be imported
