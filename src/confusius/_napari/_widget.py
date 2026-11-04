@@ -403,19 +403,12 @@ class ConfUSIusWidget(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Wrap header + accordion in a scroll area so the sidebar dock can be
-        # made arbitrarily short without forcing a tall minimum on the middle
-        # band of the main window layout (which would cap how high the bottom
-        # dock can grow). Content scrolls vertically when the dock is short.
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(0)
-        content_layout.addWidget(self._make_header())
-        content_layout.addWidget(self._make_accordion(), stretch=1)
+        root.addWidget(self._make_header())
 
+        # Scroll only the accordion so the tour button stays visible when low tabs
+        # such as Functional Connectivity are opened.
         scroll = QScrollArea()
-        scroll.setWidget(content)
+        scroll.setWidget(self._make_accordion())
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -536,6 +529,7 @@ class ConfUSIusWidget(QWidget):
 
     def _make_accordion(self) -> QWidget:
         """Build a stacked accordion where the open section fills all space."""
+        from confusius._napari._connectivity._panel import FunctionalConnectivityPanel
         from confusius._napari._data._load_panel import DataPanel
         from confusius._napari._data._save_panel import SavePanel
         from confusius._napari._events._panel import EventPanel
@@ -569,6 +563,7 @@ class ConfUSIusWidget(QWidget):
             ("Signals", "chart-line"),
             ("Registration", "images"),
             ("Preprocessing", "brush-cleaning"),
+            ("Functional Connectivity", "network"),
             ("Events", "calendar-clock"),
             ("Quality Control", "clipboard-check"),
         ]
@@ -583,6 +578,7 @@ class ConfUSIusWidget(QWidget):
             signal_panel,
             RegistrationPanel(self.viewer),
             PreprocessingPanel(self.viewer, signal_store=self._signal_store),
+            FunctionalConnectivityPanel(self.viewer, signal_store=self._signal_store),
             EventPanel(self.viewer, self._event_store),
             QCPanel(
                 self.viewer,
