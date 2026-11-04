@@ -2,13 +2,14 @@
 
 import warnings
 from collections import defaultdict
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import xarray as xr
 from napari.layers.utils.layer_utils import calc_data_range
+from napari.types import FullLayerData
 from napari.utils.colormaps import DirectLabelColormap, ensure_colormap
 from napari.utils.notifications import show_warning
 
@@ -319,7 +320,7 @@ def build_napari_layer_data(
 
     Returns
     -------
-    layers : list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]
+    list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]
         Napari layer payloads, keyword arguments, and resolved layer types.
     """
     from confusius.validation import ensure_voxeldata
@@ -349,9 +350,7 @@ def build_napari_layer_data(
     ]
 
 
-def convert_dataarray_to_layer_data(
-    da: xr.DataArray, name: str
-) -> list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]:
+def convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> list[FullLayerData]:
     """Convert a ConfUSIus DataArray to napari FullLayerData tuples.
 
     Used by the napari plugin readers and sample data, which hand the tuples to napari
@@ -368,7 +367,7 @@ def convert_dataarray_to_layer_data(
 
     Returns
     -------
-    layers : list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]
+    list[napari.types.FullLayerData]
         Napari layer data tuples, one per pose when `da` has a `pose` dimension.
     """
     # napari only routes Python warnings to its notifications inside
@@ -397,7 +396,7 @@ def convert_dataarray_to_layer_data(
         )
         for _data, kwargs, _layer_type in layers:
             kwargs["contrast_limits"] = contrast_limits
-    return layers
+    return cast("list[FullLayerData]", layers)
 
 
 def build_roi_labels_features(roi_labels: dict[int, str]) -> pd.DataFrame:

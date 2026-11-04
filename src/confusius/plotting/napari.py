@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import napari
 import numpy as np
 import xarray as xr
+from napari.layers import Image
 
 from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM, WORLD_DIMS
 from confusius._utils.geometry import (
@@ -30,7 +31,7 @@ from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
     from napari import Viewer
-    from napari.layers import Image, Labels
+    from napari.layers import Labels
 
 
 def plot_napari(
@@ -195,15 +196,16 @@ def plot_napari(
                 ),
             )
             layers.extend(pose_layers)
-            if contrast_limits is None and hasattr(pose_layers[0], "contrast_limits"):
-                automatic_contrast_limits.append(tuple(pose_layers[0].contrast_limits))
+            if contrast_limits is None and built_layer[2] == "image":
+                image_layer = cast("Image", pose_layers[0])
+                automatic_contrast_limits.append(image_layer.contrast_limits)
         if automatic_contrast_limits:
             contrast_limits = (
                 min(limits[0] for limits in automatic_contrast_limits),
                 max(limits[1] for limits in automatic_contrast_limits),
             )
             for pose_layer in layers:
-                if hasattr(pose_layer, "contrast_limits"):
+                if isinstance(pose_layer, Image):
                     pose_layer.contrast_limits = contrast_limits
         assert viewer is not None
         return viewer, layers

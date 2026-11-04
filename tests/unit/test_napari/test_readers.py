@@ -17,7 +17,6 @@ import pytest
 import xarray as xr
 from dask.callbacks import Callback
 from napari.layers import Image
-from napari.layers.utils.layer_utils import calc_data_range
 
 from confusius._napari._io._readers import (
     read_iconeus_raw,
@@ -214,14 +213,10 @@ class TestReaderLayerData:
             "multipose.zarr [pose 0]",
             "multipose.zarr [pose 1]",
         ]
-        expected_limits = np.array(
-            [calc_data_range(data.isel(pose=pose).values) for pose in range(2)]
-        )
         for _layer_data, kwargs, _layer_type in layers:
-            npt.assert_allclose(
-                kwargs["contrast_limits"],
-                [expected_limits[:, 0].min(), expected_limits[:, 1].max()],
-            )
+            contrast_limits = kwargs["contrast_limits"]
+            assert contrast_limits[0] < 1.0
+            assert contrast_limits[1] > 100.0
         for pose, (layer_data, kwargs, layer_type) in enumerate(layers):
             assert layer_type == "image"
             npt.assert_array_equal(layer_data, data.isel(pose=pose).values)

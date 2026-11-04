@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import napari
 from napari.utils.notifications import show_info
@@ -292,12 +292,13 @@ def _dataarray_to_layer_data(
     from confusius._utils.napari import convert_dataarray_to_layer_data
 
     [layer_data] = convert_dataarray_to_layer_data(da, name=name)
-    _, kwargs, layer_type = layer_data
+    data, kwargs, layer_type = layer_data
+    kwargs = cast("dict[str, object]", kwargs)
     if gamma is not None and layer_type == "image":
         kwargs.setdefault("gamma", gamma)
     if layer_kwargs is not None:
         kwargs.update(layer_kwargs)
-    return layer_data
+    return data, kwargs, layer_type
 
 
 def _apply_sample_axis_labels(
