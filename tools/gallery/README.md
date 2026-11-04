@@ -37,8 +37,8 @@ Every example runs once, under a light matplotlib style. Each figure is then
 re-rendered for dark mode without re-executing anything: the gallery swaps the
 theme colors (figure background, axes background, black foreground) and the
 default diverging colormap (`coolwarm` to `berlin`) on the drawn artists, prints a
-second PNG, and swaps everything back. Both PNGs land on the page, and the site
-shows the one matching the reader's theme.
+second PNG, and restores the exact properties it changed. Both PNGs land on the
+page, and the site shows the one matching the reader's theme.
 
 What this means when writing an example:
 
@@ -48,8 +48,11 @@ What this means when writing an example:
   Pure black is a theme color wherever it appears (text, lines, line markers, and
   backgrounds); always pass `bg_color` to the plotting functions rather than relying
   on their `"black"` default. Per-element colors (`scatter(c="black")`,
-  collections) are left alone, and any other explicit color, pure white included,
-  is kept as is.
+  collections) are left alone. Pure white and explicitly named colors such as
+  `tab:blue` are kept. Default-cycle line colors switch to Matplotlib's
+  `dark_background` cycle, matching the former separate dark execution. Explicit
+  RGB/hex line colors matching a cycle entry also switch: a drawn artist does not
+  record whether that color was chosen explicitly or taken from the cycle.
 - A figure whose background is pure black is taken as drawn on confusius's black
   default (the registration progress plot, a plotting call that makes its own
   figure without `bg_color`): its black is swapped as background and its white as
@@ -69,13 +72,14 @@ What this means when writing an example:
   both themes.
 
 When the built-in swap is not enough for the whole gallery, edit `gallery_retheme`
-in `tools/gallery/hooks.py`. It runs in the kernel after the swap, with `"dark"`
-before the dark rendering and `"light"` after the figure is swapped back, and must
-undo for `"light"` what it did for `"dark"`. As shipped it flips sequential
-colormaps whose low end should fade into the page (draw with `inferno_r` on the
-light page and the dark page gets `inferno`) and brightens the brand colors. Add
-pairs to `SEQUENTIAL_CMAP_SWAPS` or `BRAND_COLOR_SWAPS` there to extend it. Editing the file invalidates the whole gallery cache, like any
-change to `tools/gallery`.
+in `tools/gallery/hooks.py`. It runs after a theme swap and returns an `ExitStack`
+that restores its changes, also when printing fails. It is called with `"dark"`
+before the dark rendering, or `"light"` when first converting a black figure to
+light. There is no reverse-hook call. As shipped it adjusts the default line
+cycle, brightens brand colors, and flips sequential colormaps whose low end should
+fade into the page (`inferno_r` on light pages, `inferno` on dark pages). Add pairs
+to `SEQUENTIAL_CMAP_SWAPS` or `BRAND_COLOR_SWAPS` to extend it. Editing the file
+invalidates the whole gallery cache, like any change to `tools/gallery`.
 
 ## Tips
 

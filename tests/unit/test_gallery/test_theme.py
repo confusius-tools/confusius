@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+from contextlib import ExitStack
 from functools import partial
 
 import matplotlib
@@ -139,6 +140,99 @@ def test_render_both_returns_light_data_and_dark_metadata(figure) -> None:
     )
 
 
+@pytest.mark.parametrize("cmap", ["inferno", "berlin"])
+def test_render_both_preserves_existing_destination_colormap(cmap) -> None:
+    """Displaying twice must not change an explicitly chosen destination palette."""
+    from tools.gallery.hooks import gallery_retheme
+
+    fig, ax = plt.subplots(facecolor=LIGHT.bg)
+    image = ax.imshow([[0, 1]], cmap=cmap)
+    original = image.get_cmap()
+    printed = []
+
+    def printer(fig):
+        printed.append(image.get_cmap().name)
+        return "png", {}
+
+    try:
+        for _ in range(2):
+            render_both(fig, printer=printer, hook=gallery_retheme)
+            assert image.get_cmap() is original
+        assert printed == [cmap] * 4
+    finally:
+        plt.close(fig)
+
+
+def test_render_both_preserves_automatic_marker_colors() -> None:
+    """Automatic marker colors must still follow later line-color changes."""
+    fig, ax = plt.subplots(facecolor=LIGHT.bg)
+    (line,) = ax.plot([0, 1], color="black", marker="o")
+    try:
+        render_both(fig, printer=lambda fig: ("png", {}))
+        line.set_color("red")
+        assert line.get_markerfacecolor() == "red"
+        assert line.get_markeredgecolor() == "red"
+    finally:
+        plt.close(fig)
+
+
+def test_render_both_uses_dark_style_line_cycle() -> None:
+    """Default traces follow dark_background; explicitly named colors stay fixed."""
+    from tools.gallery.hooks import gallery_retheme
+
+    with matplotlib.rc_context():
+        plt.style.use("default")
+        fig, ax = plt.subplots(facecolor=LIGHT.bg)
+        lines = [ax.plot([0, 1], marker="o")[0] for _ in range(10)]
+        (explicit,) = ax.plot([1, 0], color="tab:blue")
+        original = [line.get_color() for line in lines]
+        printed = []
+
+        def printer(fig):
+            printed.append([mcolors.to_hex(line.get_color()) for line in lines])
+            assert explicit.get_color() == "tab:blue"
+            return "png", {}
+
+        try:
+            render_both(fig, printer=printer, hook=gallery_retheme)
+            assert printed[0] == [mcolors.to_hex(color) for color in original]
+            assert (
+                printed[1]
+                == plt.style.library["dark_background"]["axes.prop_cycle"].by_key()[
+                    "color"
+                ]
+            )
+            assert [line.get_color() for line in lines] == original
+        finally:
+            plt.close(fig)
+
+
+def test_render_both_restores_original_state_when_printing_fails(figure) -> None:
+    """A failed dark print must restore colormap objects, colors and layout."""
+    from tools.gallery.hooks import gallery_retheme
+
+    fig = figure["fig"]
+    image = figure["image"]
+    cmap = image.get_cmap()
+    engine = fig.get_layout_engine()
+    (line,) = figure["ax1"].plot([0, 1], color="#d93a54", marker="o")
+
+    def printer(fig):
+        if mcolors.to_hex(fig.get_facecolor()) == DARK.bg:
+            raise RuntimeError("dark print failed")
+        return "png", {}
+
+    with pytest.raises(RuntimeError, match="dark print failed"):
+        render_both(fig, printer=printer, hook=gallery_retheme)
+
+    assert image.get_cmap() is cmap
+    assert fig.get_layout_engine() is engine
+    assert mcolors.to_hex(fig.get_facecolor()) == LIGHT.bg
+    assert line.get_color() == "#d93a54"
+    line.set_color("red")
+    assert line.get_markerfacecolor() == "red"
+
+
 def test_render_both_passes_through_empty_figure() -> None:
     fig = plt.figure()
     try:
@@ -157,9 +251,7 @@ def test_render_both_themes_figures_drawn_on_black() -> None:
 
         assert result is not None
         data, metadata = result
-        assert _corner_rgb(data) == pytest.approx(
-            mcolors.to_rgb(LIGHT.bg), abs=1 / 255
-        )
+        assert _corner_rgb(data) == pytest.approx(mcolors.to_rgb(LIGHT.bg), abs=1 / 255)
         assert _corner_rgb(metadata["dark"]) == pytest.approx(
             mcolors.to_rgb(DARK.bg), abs=1 / 255
         )
@@ -170,19 +262,21 @@ def test_render_both_themes_figures_drawn_on_black() -> None:
         plt.close(fig)
 
 
-def test_render_both_calls_hook_after_each_swap(figure) -> None:
-    """The project hook sees the figure in dark before printing and in light after."""
+def test_render_both_restores_hook_changes(figure) -> None:
+    """The hook sees the dark figure and registers its exact restoration."""
     seen: list[tuple[str, tuple[float, ...]]] = []
 
     def hook(fig, theme):
         seen.append((theme, tuple(fig.get_facecolor())))
-        fig.axes[1].set_title("dark title" if theme == "dark" else "title")
+        restore = ExitStack()
+        restore.callback(fig.axes[1].set_title, fig.axes[1].get_title())
+        fig.axes[1].set_title("dark title")
+        return restore
 
     render_both(figure["fig"], printer=partial(retina_figure, base64=True), hook=hook)
 
-    assert [theme for theme, _ in seen] == ["dark", "light"]
+    assert [theme for theme, _ in seen] == ["dark"]
     assert seen[0][1] == pytest.approx(mcolors.to_rgba(DARK.bg))
-    assert seen[1][1] == pytest.approx(mcolors.to_rgba(LIGHT.bg))
     assert figure["ax1"].get_title() == "title"
 
 
@@ -210,14 +304,11 @@ def test_default_project_hook_flips_sequential_cmaps_and_back(figure) -> None:
     )
     before = figure["fig"].get_facecolor()
 
-    gallery_retheme(figure["fig"], "dark")
-
-    assert plain.get_cmap().name == "inferno"
-    assert banded.get_cmap().source.name == "inferno"
-    assert figure["scatter"].get_cmap().name == LIGHT.diverging_cmap
-    assert figure["fig"].get_facecolor() == before
-
-    gallery_retheme(figure["fig"], "light")
+    with gallery_retheme(figure["fig"], "dark"):
+        assert plain.get_cmap().name == "inferno"
+        assert banded.get_cmap().source.name == "inferno"
+        assert figure["scatter"].get_cmap().name == LIGHT.diverging_cmap
+        assert figure["fig"].get_facecolor() == before
 
     assert plain.get_cmap().name == "inferno_r"
     assert banded.get_cmap().source.name == "inferno_r"
@@ -232,13 +323,10 @@ def test_default_project_hook_brightens_brand_colors_and_back(figure) -> None:
     (red,) = ax.plot([0, 1], color=RED_DARK)
     label = ax.set_ylabel("iterations", color=TURQUOISE_DARK)
 
-    gallery_retheme(figure["fig"], "dark")
-
-    assert mcolors.to_hex(red.get_color()) == RED
-    assert mcolors.to_hex(label.get_color()) == TURQUOISE
-    assert figure["red_line"].get_color() == "tab:red"
-
-    gallery_retheme(figure["fig"], "light")
+    with gallery_retheme(figure["fig"], "dark"):
+        assert mcolors.to_hex(red.get_color()) == RED
+        assert mcolors.to_hex(label.get_color()) == TURQUOISE
+        assert figure["red_line"].get_color() == "tab:red"
 
     assert mcolors.to_hex(red.get_color()) == RED_DARK
     assert mcolors.to_hex(label.get_color()) == TURQUOISE_DARK

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass
 from functools import partial
 from typing import Any, Literal
@@ -20,16 +21,18 @@ import matplotlib as mpl
 import matplotlib.colors as mcolors
 import matplotlib.style
 import numpy as np
+from matplotlib.artist import Artist
 from matplotlib.cm import ScalarMappable
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 
 from confusius.plotting import ThresholdedColormap
 
 Printer = Callable[[Figure], tuple[str, dict[str, Any]] | None]
 """A matplotlib_inline figure printer: base64 PNG plus metadata, or `None` if empty."""
 
-Hook = Callable[[Figure, Literal["light", "dark"]], None]
-"""Project hook run after the built-in swap, see `tools.gallery.hooks`."""
+Hook = Callable[[Figure, Literal["light", "dark"]], ExitStack]
+"""Project hook returning a context manager that restores its changes."""
 
 
 @dataclass(frozen=True)
@@ -109,7 +112,7 @@ def _as_rgba(value: Any) -> tuple[float, float, float, float] | None:
         return None
 
 
-def swap_colors(fig: Figure, mapping: dict[str, str]) -> None:
+def swap_colors(artists: list[Artist], mapping: dict[str, str]) -> ExitStack:
     """Replace every single artist color in `mapping` by its replacement.
 
     Colors are read for all artists before any is written: an Axes and its
@@ -120,26 +123,40 @@ def swap_colors(fig: Figure, mapping: dict[str, str]) -> None:
 
     Parameters
     ----------
-    fig : matplotlib.figure.Figure
-        Figure to recolor in place.
+    artists : list[matplotlib.artist.Artist]
+        Artists to recolor in place.
     mapping : dict[str, str]
         Colors to replace, mapped to their replacement.
+
+    Returns
+    -------
+    contextlib.ExitStack
+        Context manager restoring only the changed properties to their original values.
     """
+    restore = ExitStack()
     table = {mcolors.to_rgb(src): dst for src, dst in mapping.items()}
-    writes: list[tuple[Callable[[Any], Any], tuple[float, float, float, float]]] = []
-    for artist in fig.findobj():
+    writes: list[
+        tuple[Callable[[Any], Any], Any, tuple[float, float, float, float]]
+    ] = []
+    for artist in artists:
         for getter, setter in _COLOR_SLOTS:
             if not hasattr(artist, getter):
                 continue
-            rgba = _as_rgba(getattr(artist, getter)())
+            value = getattr(artist, getter)()
+            if isinstance(artist, Line2D) and getter.startswith("get_marker"):
+                # Public getters resolve "auto"; keep that link to the line color.
+                value = getattr(artist, "_" + getter.removeprefix("get_"))
+            rgba = _as_rgba(value)
             if rgba is not None and rgba[:3] in table:
                 new = mcolors.to_rgba(table[rgba[:3]], alpha=rgba[3])
-                writes.append((getattr(artist, setter), new))
-    for setter, color in writes:
+                writes.append((getattr(artist, setter), value, new))
+    for setter, original, color in writes:
+        restore.callback(setter, original)
         setter(color)
+    return restore
 
 
-def swap_cmaps(fig: Figure, mapping: dict[str, str]) -> None:
+def swap_cmaps(artists: list[Artist], mapping: dict[str, str]) -> ExitStack:
     """Switch every mappable drawn with a colormap in `mapping` to its replacement.
 
     Colormaps are matched by name. A `ThresholdedColormap` is matched on its
@@ -149,22 +166,33 @@ def swap_cmaps(fig: Figure, mapping: dict[str, str]) -> None:
 
     Parameters
     ----------
-    fig : matplotlib.figure.Figure
-        Figure to update in place.
+    artists : list[matplotlib.artist.Artist]
+        Artists to update in place.
     mapping : dict[str, str]
         Colormap names to replace, mapped to the replacement's name.
+
+    Returns
+    -------
+    contextlib.ExitStack
+        Context manager restoring the original colormaps.
     """
-    mappables: list[Any] = fig.findobj(lambda a: isinstance(a, ScalarMappable))
-    for mappable in mappables:
+    restore = ExitStack()
+    for mappable in artists:
+        if not isinstance(mappable, ScalarMappable):
+            continue
         cmap = mappable.get_cmap()
-        if isinstance(cmap, ThresholdedColormap):
-            if cmap.source.name in mapping:
-                mappable.set_cmap(cmap.with_source(mapping[cmap.source.name]))
-        elif cmap.name in mapping:
-            mappable.set_cmap(mapping[cmap.name])
+        source = cmap.source if isinstance(cmap, ThresholdedColormap) else cmap
+        if source.name in mapping:
+            restore.callback(mappable.set_cmap, cmap)
+            mappable.set_cmap(
+                cmap.with_source(mapping[source.name])
+                if isinstance(cmap, ThresholdedColormap)
+                else mapping[source.name]
+            )
+    return restore
 
 
-def retheme(fig: Figure, src: Theme, dst: Theme) -> None:
+def retheme(fig: Figure, src: Theme, dst: Theme) -> ExitStack:
     """Recolor a drawn figure from `src` to `dst` in place.
 
     Only colors and colormaps that exactly match a `src` role are touched;
@@ -178,13 +206,23 @@ def retheme(fig: Figure, src: Theme, dst: Theme) -> None:
         Theme the figure is currently drawn with.
     dst : Theme
         Theme to recolor to.
+
+    Returns
+    -------
+    contextlib.ExitStack
+        Context manager restoring the original colors and colormaps.
     """
-    # `bg` comes after `axes_bg` so that it wins when `src` draws both in the same
-    # color (`ON_BLACK`): the whole figure then takes the page background.
-    swap_colors(
-        fig, {getattr(src, role): getattr(dst, role) for role in ("axes_bg", "bg", "fg")}
-    )
-    swap_cmaps(fig, {src.diverging_cmap: dst.diverging_cmap})
+    artists = fig.findobj()
+    # `bg` wins when `src` uses the same color for both backgrounds (`ON_BLACK`).
+    colors = {
+        getattr(src, role): getattr(dst, role) for role in ("axes_bg", "bg", "fg")
+    }
+    with ExitStack() as restore:
+        restore.enter_context(swap_colors(artists, colors))
+        restore.enter_context(
+            swap_cmaps(artists, {src.diverging_cmap: dst.diverging_cmap})
+        )
+        return restore.pop_all()
 
 
 def render_both(
@@ -200,13 +238,10 @@ def render_both(
         first and handed back in `ON_BLACK`.
     printer : Callable[[matplotlib.figure.Figure], tuple[str, dict] or None]
         The figure printer matplotlib_inline registered for `Figure`.
-    hook : Callable[[matplotlib.figure.Figure, str], None], optional
-        Project hook called with `"dark"` after the swap to dark and with
-        `"light"` after the swap back, so it can adjust what the built-in swap
-        does not cover. It must undo in `"light"` what it did in `"dark"`, and
-        the reverse: an `ON_BLACK` figure gets `"light"` after its swap to
-        `LIGHT` and `"dark"` after its swap back. If not provided, nothing else
-        is adjusted.
+    hook : Callable[[matplotlib.figure.Figure, str], contextlib.ExitStack], optional
+        Project hook called after each theme swap. Returns a context manager that
+        restores its changes, including when rendering fails. If not provided,
+        nothing else is adjusted.
 
     Returns
     -------
@@ -220,17 +255,10 @@ def render_both(
     layout engine is restored before returning.
     """
     if mcolors.to_rgb(fig.get_facecolor()) == mcolors.to_rgb(ON_BLACK.bg):
-        # `ON_BLACK` is a dark theme, so the hook's dark-page colors are undone on
-        # the way to `LIGHT` and redone on the way back.
-        retheme(fig, ON_BLACK, LIGHT)
-        if hook is not None:
-            hook(fig, "light")
-        try:
-            return render_both(fig, printer=printer, hook=hook)
-        finally:
-            retheme(fig, LIGHT, ON_BLACK)
+        with retheme(fig, ON_BLACK, LIGHT) as restore:
             if hook is not None:
-                hook(fig, "dark")
+                restore.enter_context(hook(fig, "light"))
+            return render_both(fig, printer=printer, hook=hook)
     light = printer(fig)
     if light is None:
         return None
@@ -239,18 +267,13 @@ def render_both(
     # idempotent, so the dark render would come out shifted by a few pixels.
     # Freezing the layout during the dark render keeps the geometry identical; the
     # engine is restored afterwards so later cells still re-solve the layout.
-    engine = fig.get_layout_engine()
-    fig.set_layout_engine("none")
-    retheme(fig, LIGHT, DARK)
-    try:
+    with ExitStack() as restore:
+        restore.callback(fig.set_layout_engine, fig.get_layout_engine())
+        fig.set_layout_engine("none")
+        restore.enter_context(retheme(fig, LIGHT, DARK))
         if hook is not None:
-            hook(fig, "dark")
+            restore.enter_context(hook(fig, "dark"))
         dark = printer(fig)
-    finally:
-        fig.set_layout_engine(engine)
-        retheme(fig, DARK, LIGHT)
-        if hook is not None:
-            hook(fig, "light")
     if dark is None:
         return light
     return data, {**metadata, "dark": dark[0]}

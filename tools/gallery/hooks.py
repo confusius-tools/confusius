@@ -1,20 +1,18 @@
-"""Project-level adjustments to the gallery's light/dark re-rendering.
+"""Project palette swaps, restored exactly after each gallery rendering.
 
-`tools.gallery.theme` turns each drawn figure dark by swapping the theme colors
-(figure and axes backgrounds, black foreground) and the default diverging
-colormap. Anything else an example draws is kept as is. When that is not enough,
-edit `gallery_retheme` below: it runs inside the kernel, after the built-in swap,
-once with `"dark"` before the dark rendering is printed and once with `"light"`
-after the figure is swapped back. Whatever it changes for `"dark"` it must undo
-for `"light"`, since the same figure object is returned to the example.
-
-This file is the project's side of the gallery tooling: a project using the
-gallery owns it, the rest of `tools/gallery` is the tool.
+`gallery_retheme` runs after the built-in swap. It returns an `ExitStack` that
+restores only the properties it changed, rather than reversing the whole palette.
 """
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from typing import TYPE_CHECKING, Literal
+
+import matplotlib as mpl
+import matplotlib.colors as mcolors
+import matplotlib.style
+from matplotlib.lines import Line2D
 
 from confusius._utils.colors import RED, RED_DARK, TURQUOISE, TURQUOISE_DARK
 from tools.gallery.theme import swap_cmaps, swap_colors
@@ -23,38 +21,55 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 SEQUENTIAL_CMAP_SWAPS: dict[str, str] = {"inferno_r": "inferno"}
-"""Sequential colormaps examples draw with on light pages, and their dark-page twins.
-
-A sequential map reads best when its low end fades into the page: bright on a light
-page (`inferno_r`), dark on a dark page (`inferno`). Examples pick the light-page
-name; the hook flips it for the dark rendering and back again.
-"""
+"""Light-page sequential colormaps and their dark-page counterparts."""
 
 BRAND_COLOR_SWAPS: dict[str, str] = {RED_DARK: RED, TURQUOISE_DARK: TURQUOISE}
-"""Brand colors examples draw with on light pages, and their dark-page twins.
+"""Light-page brand colors and their brighter dark-page counterparts."""
 
-The darker variants keep contrast against the light page; the dark page gets the
-brighter brand colors, as in the docs theme.
-"""
+LINE_COLOR_SWAPS: dict[str, str] = dict(
+    zip(
+        map(mcolors.to_hex, mpl.rcParamsDefault["axes.prop_cycle"].by_key()["color"]),
+        mpl.style.library["dark_background"]["axes.prop_cycle"].by_key()["color"],
+        strict=True,
+    )
+)
+"""Default light and dark line cycles, matching the former two-execution gallery."""
 
 
-def gallery_retheme(fig: Figure, theme: Literal["light", "dark"]) -> None:
-    """Adjust `fig` after the gallery's built-in theme swap.
-
-    Flips the sequential colormaps in `SEQUENTIAL_CMAP_SWAPS` and the brand colors
-    in `BRAND_COLOR_SWAPS` to their dark-page twins for `"dark"`, and back for
-    `"light"`.
+def gallery_retheme(fig: Figure, theme: Literal["light", "dark"]) -> ExitStack:
+    """Apply the project's palette for `theme`, returning its restoration context.
 
     Parameters
     ----------
     fig : matplotlib.figure.Figure
-        The figure about to be printed, already swapped to `theme`.
+        Figure to adjust, already swapped to `theme`.
     theme : {"light", "dark"}
-        Theme the figure is now drawn with.
+        Target theme. Light conversion is used for figures originally drawn on black.
+
+    Returns
+    -------
+    contextlib.ExitStack
+        Context manager restoring the original colors and colormaps.
     """
-    if theme == "dark":
-        swap_cmaps(fig, SEQUENTIAL_CMAP_SWAPS)
-        swap_colors(fig, BRAND_COLOR_SWAPS)
-    else:
-        swap_cmaps(fig, {v: k for k, v in SEQUENTIAL_CMAP_SWAPS.items()})
-        swap_colors(fig, {v: k for k, v in BRAND_COLOR_SWAPS.items()})
+    cmaps, colors, cycle = (
+        (mapping if theme == "dark" else {v: k for k, v in mapping.items()})
+        for mapping in (SEQUENTIAL_CMAP_SWAPS, BRAND_COLOR_SWAPS, LINE_COLOR_SWAPS)
+    )
+    artists = fig.findobj()
+    with ExitStack() as restore:
+        restore.enter_context(swap_cmaps(artists, cmaps))
+        restore.enter_context(swap_colors(artists, colors))
+        for line in artists:
+            if not isinstance(line, Line2D):
+                continue
+            color = line.get_color()
+            # Named colors are explicit; default-cycle colors are RGB tuples or hex.
+            if isinstance(color, str) and not color.startswith(("#", "C")):
+                continue
+            replacement = cycle.get(mcolors.to_hex(color))
+            if replacement is not None:
+                restore.callback(line.set_color, color)
+                line.set_color(
+                    mcolors.to_rgba(replacement, alpha=mcolors.to_rgba(color)[3])
+                )
+        return restore.pop_all()
