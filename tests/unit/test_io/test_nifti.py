@@ -14,7 +14,9 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
 )
+from confusius.io import load
 from confusius.io.nifti import load_nifti, save_nifti
+from confusius.multipose import stack_poses
 from confusius.xarray import create_voxeldata
 from confusius.xarray.affine import apply_affine
 
@@ -155,6 +157,62 @@ def nifti_with_sidecar(tmp_path: Path) -> Path:
 
 class TestLoadNifti:
     """Tests for load_nifti function."""
+
+    @pytest.mark.parametrize("loader", [load_nifti, load])
+    @pytest.mark.parametrize("extension", [".nii", ".nii.gz"])
+    @pytest.mark.parametrize("indices", [(10, 2, 1), (2,)])
+    def test_load_chunk_template(self, tmp_path, loader, extension, indices):
+        """Templates stack numeric chunks lazily with their geometry and timing."""
+        paths = {}
+        for index in indices:
+            label = "01" if index == 1 else str(index)
+            path = tmp_path / f"sub-01_chunk-{label}_pwd{extension}"
+            affine = np.eye(4)
+            affine[0, 3] = index
+            image = nib.Nifti1Image(np.full((2, 3, 4, 5), index, np.float32), affine)
+            image.header.set_xyzt_units("mm", "sec")
+            image.header["toffset"] = index
+            image.to_filename(path)
+            paths[index] = path
+        # Non-integer chunks and unrelated filenames must not be loaded.
+        (tmp_path / f"sub-01_chunk-other_pwd{extension}").touch()
+        (tmp_path / f"sub-02_chunk-03_pwd{extension}").touch()
+        (tmp_path / f"sub-01_chunk-03_pwd{extension}").mkdir()
+        template = tmp_path / f"sub-01_chunk-{{chunk}}_pwd{extension}"
+        actual = loader(template, chunks=1, coordinate_affine="sform")
+        ordered = sorted(indices)
+        expected = stack_poses(
+            [
+                load_nifti(paths[i], chunks=1, coordinate_affine="sform")
+                for i in ordered
+            ],
+            pose=ordered,
+        )
+        xr.testing.assert_equal(actual, expected)
+        np.testing.assert_array_equal(
+            get_voxel_to_world_affine(actual), get_voxel_to_world_affine(expected)
+        )
+        np.testing.assert_array_equal(
+            actual.attrs["affines"]["world_to_sform"], np.eye(4)
+        )
+        np.testing.assert_array_equal(actual.pose, ordered)
+        for index in ordered:
+            np.testing.assert_array_equal(actual.sel(pose=index).values, index)
+        assert actual.chunks is not None
+        assert max(actual.chunks[0]) == 1
+
+    def test_load_chunk_template_no_matches(self, tmp_path):
+        """An unmatched template reports the missing chunks explicitly."""
+        with pytest.raises(FileNotFoundError, match="No NIfTI chunks match"):
+            load_nifti(tmp_path / "sub-01_chunk-{chunk}_pwd.nii")
+
+    @pytest.mark.parametrize(
+        "template", ["{chunk}/pwd.nii", "chunk-{chunk}_{chunk}_pwd.nii"]
+    )
+    def test_load_chunk_template_invalid(self, tmp_path, template):
+        """Only one filename placeholder is supported."""
+        with pytest.raises(ValueError, match="exactly one"):
+            load_nifti(tmp_path / template)
 
     def test_load_2d_nifti(self, nifti_2d_path: tuple[Path, np.ndarray]) -> None:
         """Loading 2D NIfTI pads the missing spatial dim to a canonical singleton `k`.

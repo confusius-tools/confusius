@@ -396,6 +396,22 @@ files (`3Dscan`, `4Dscan`), since lab space is shared by every pose.
 
 ### Loading NIfTI Files
 
+To load fUSI-BIDS chunks together, put `{chunk}` in the filename:
+
+```python
+import confusius as cf
+
+data = cf.load("sub-01_ses-01_chunk-{chunk}_pwd.nii")
+```
+
+Matching integer chunk indices are sorted numerically (so `2` precedes `10`)
+then combined lazily with [`stack_poses`][confusius.multipose.stack_poses]. The
+chunk indices become integer `pose` labels, preserving each pose's geometry and
+timing. The chunks must meet `stack_poses`' requirements, including equal time
+lengths and compatible voxel grids. A single match still produces a `pose`
+dimension; an unmatched template raises `FileNotFoundError`. Both `.nii` and `.nii.gz` are
+supported, including through [`load_nifti`][confusius.io.load_nifti] directly.
+
 When loading NIfTI files, ConfUSIus automatically loads a
 [fUSI-BIDS](https://bids-specification.readthedocs.io/en/stable/) metadata. For files 
 inside a BIDS folder tree, matching sidecars are inherited from the dataset root (the 
