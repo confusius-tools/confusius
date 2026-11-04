@@ -636,7 +636,7 @@ class TestProcessIqToPowerDoppler:
         assert result.coords["time"].attrs[
             "volume_acquisition_duration"
         ] == pytest.approx(0.2)
-        assert result.attrs["power_doppler_integration_stride"] == pytest.approx(0.1)
+        assert result.time.values[1] - result.time.values[0] == pytest.approx(0.1)
         assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
 
     def test_chunked_overlapping_windows_match_reference_implementation(
@@ -955,7 +955,7 @@ class TestProcessIqToAxialVelocity:
             "volume_acquisition_duration"
         ] == pytest.approx(0.3)
         assert result.attrs["axial_velocity_integration_duration"] == pytest.approx(0.3)
-        assert result.attrs["axial_velocity_integration_stride"] == pytest.approx(0.1)
+        assert result.time.values[1] - result.time.values[0] == pytest.approx(0.1)
         assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
         assert result.attrs["axial_velocity_lag"] == 2
 
@@ -1312,7 +1312,7 @@ class TestProcessIqToBmode:
         assert result.name == "bmode"
         assert result.attrs["units"] == "a.u."
         assert result.attrs["bmode_integration_duration"] == pytest.approx(1.0)
-        assert result.attrs["bmode_integration_stride"] == pytest.approx(0.5)
+        assert result.time.values[1] - result.time.values[0] == pytest.approx(0.5)
         assert result.coords["time"].attrs[
             "volume_acquisition_duration"
         ] == pytest.approx(1.0)

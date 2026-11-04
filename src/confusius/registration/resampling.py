@@ -15,6 +15,7 @@ from confusius._utils.geometry import (
 from confusius.registration._utils import (
     replace_affines_attr,
     set_sitk_thread_count,
+    validate_fill_value,
     voxeldata_to_sitk_image,
 )
 from confusius.registration.bspline import (
@@ -180,7 +181,8 @@ def resample_volume(
         Value assigned to voxels that fall outside the moving image's field of view
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
-        for dB data where 0 is maximum intensity).
+        for dB data where 0 is maximum intensity). Must be representable in `moving`'s
+        dtype: to fill an integer volume with NaN, cast it to float first.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
@@ -256,6 +258,7 @@ def resample_volume(
     moving_sitk = voxeldata_to_sitk_image(moving_for_sitk)
 
     resolved_fill_value = fill_value if fill_value is not None else float(moving.min())
+    validate_fill_value(resolved_fill_value, moving.dtype)
 
     # SimpleITK will automatically create a vector output if the input is a vector
     # image.

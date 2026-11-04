@@ -5,16 +5,15 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ._osf import (
-    OsfFileInfo,
-    download_osf_files,
+from confusius.datasets._s3 import (
+    S3FileInfo,
+    download_s3_files,
     get_index,
-    read_cached_index,
+    get_release_dir,
     update_cached_index,
 )
-from ._utils import get_datasets_dir, print_citation_message
+from confusius.datasets._utils import get_datasets_dir, print_citation_message
 
-_OSF_PROJECT_ID = "7yhdc"
 _BIDS_ROOT = "pepe-mariani-2026-bids"
 _TOTAL_SIZE_BYTES = 37_557_512_137
 _CITATION = (
@@ -28,26 +27,26 @@ _CITATION = (
 _VALID_DATASETS = frozenset({"rawdata", "registered", "preprocessed", "Params"})
 """Valid values for the `datasets` parameter of `fetch_pepe_mariani_2026`."""
 
-_VALID_DATATYPES = frozenset({"fusi", "angio"})
+_VALID_DATATYPES = frozenset({"fusi", "susi"})
 """Valid values for the `datatypes` parameter of `fetch_pepe_mariani_2026`."""
 
 
 def _filter_files(
-    index: dict[str, OsfFileInfo],
+    index: dict[str, S3FileInfo],
     datasets: list[str] | None,
     subjects: list[str] | None,
     sessions: list[str] | None,
     acqs: list[str] | None,
     datatypes: list[str] | None,
-) -> dict[str, OsfFileInfo]:
+) -> dict[str, S3FileInfo]:
     """Filter the index to files matching the requested datasets and entities.
 
     Parameters
     ----------
-    index : dict[str, OsfFileInfo]
+    index : dict[str, S3FileInfo]
         Full dataset index as returned by `get_index`.
     datasets : list[str] or None
-        Datasets to include. Use `"rawdata"` for the raw fUSI/angio data and derivative
+        Datasets to include. Use `"rawdata"` for the raw fUSI/angiography data and derivative
         names for processed outputs: `"registered"`, `"preprocessed"`, `"Params"`. If
         `None`, all datasets are included.
     subjects : list[str] or None
@@ -65,10 +64,10 @@ def _filter_files(
 
     Returns
     -------
-    dict[str, OsfFileInfo]
+    dict[str, S3FileInfo]
         Subset of the index matching the filters.
     """
-    filtered: dict[str, OsfFileInfo] = {}
+    filtered: dict[str, S3FileInfo] = {}
 
     for path, file_info in index.items():
         parts = Path(path).parts
@@ -187,7 +186,7 @@ def fetch_pepe_mariani_2026(
         Directory in which to cache the dataset. Defaults to the platform cache
         directory, overridable via the `CONFUSIUS_DATA` environment variable.
     datasets : str or list[str], optional
-        Datasets to download. Use `"rawdata"` for raw fUSI/angio data and derivative
+        Datasets to download. Use `"rawdata"` for raw fUSI/angiography data and derivative
         names for processed outputs: `"registered"`, `"preprocessed"`, `"Params"`.
         Accepts a single string or a list. If not provided, all datasets are downloaded.
     subjects : str or list[str], optional
@@ -200,12 +199,12 @@ def fetch_pepe_mariani_2026(
         Acquisition labels to download (without "acq-" prefix). If not provided, all
         acquisitions are downloaded. Files with no acquisition entity are always included.
     datatypes : str or list[str], optional
-        BIDS datatype directories to download, e.g. `"fusi"` or `"angio"`. If not
+        BIDS datatype directories to download, e.g. `"fusi"` or `"susi"`. If not
         provided, all datatypes are downloaded. Files that do not sit under a datatype
         directory are always included.
     refresh : bool, default: False
-        Whether to re-fetch the dataset index from OSF and reconcile local files against
-        it.
+        Whether to resolve the latest published S3 release. Otherwise the cached
+        release is reused offline. Releases are cached in separate version directories.
     print_citation : bool, default: True
         Whether to print the citation for the dataset.
 
@@ -227,13 +226,13 @@ def fetch_pepe_mariani_2026(
         connectome revealed by functional ultrasound imaging (Fusi).
         [https://doi.org/10.64898/2026.02.05.704055](https://doi.org/10.64898/2026.02.05.704055)
     [^2]:
-        fUSI-BIDS dataset on OSF: [https://osf.io/7yhdc/](https://osf.io/7yhdc/)
+        [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).
     [^3]:
         Dataset license (CC BY 4.0):
         [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/)
     """
-    bids_dir = get_datasets_dir(data_dir) / _BIDS_ROOT
-    bids_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = get_datasets_dir(data_dir) / _BIDS_ROOT
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     if isinstance(datasets, str):
         datasets = [datasets]
@@ -259,13 +258,12 @@ def fetch_pepe_mariani_2026(
                 f"Unknown datatype(s): {invalid}. Valid options: {sorted(_VALID_DATATYPES)}"
             )
 
-    previous_index = read_cached_index(bids_dir) if refresh else None
-    index = get_index(bids_dir, _OSF_PROJECT_ID, _BIDS_ROOT, refresh=refresh)
+    index = get_index(cache_dir, "datasets", _BIDS_ROOT, refresh=refresh)
+    bids_dir = get_release_dir(cache_dir, index)
     files = _filter_files(index, datasets, subjects, sessions, acqs, datatypes)
 
-    download_osf_files(bids_dir, files, previous_index, refresh=refresh)
-    if refresh:
-        update_cached_index(bids_dir, index, previous_index or {}, files)
+    download_s3_files(bids_dir, files, refresh=refresh)
+    update_cached_index(cache_dir, index)
 
     if print_citation:
         print_citation_message(_CITATION, "dataset")

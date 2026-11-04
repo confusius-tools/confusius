@@ -24,7 +24,8 @@ def test_cli_runs_to_completion_when_examples_dir_exists(tmp_path: Path) -> None
     (examples / "io").mkdir()
     (examples / "io" / "_section.md").write_text("## Input/Output\n\nIO.\n")
     (examples / "io" / "hello.py").write_text(
-        "# %% [markdown]\n# # Hello\n\n# %%\nprint('hi')\n"
+        "# %% [markdown]\n# # Hello ┏\n\n# %%\nprint('hi')\n",
+        encoding="utf-8",
     )
 
     # Copy the CLI + tools/gallery into the sandbox so REPO_ROOT inside the
@@ -43,7 +44,8 @@ def test_cli_runs_to_completion_when_examples_dir_exists(tmp_path: Path) -> None
     )
 
     assert proc.returncode == 0, f"stderr: {proc.stderr}\nstdout: {proc.stdout}"
-    assert (examples / "_built" / "io" / "hello.md").is_file()
+    markdown = (examples / "_built" / "io" / "hello.md").read_text(encoding="utf-8")
+    assert "# Hello ┏" in markdown
     assert (examples / "index.md").is_file()
 
 

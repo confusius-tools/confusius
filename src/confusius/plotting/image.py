@@ -22,10 +22,12 @@ from confusius._utils.geometry import (
 from confusius._utils.mask import select_masked_features
 from confusius._utils.plotting import (
     blend_red_cyan,
+    coerce_complex_to_magnitude,
     compute_oblique_axis_aligned_grid_geometry,
     qr_axis_spacing,
     resample_to_axis_aligned_world_grid,
     scale_min_max,
+    sort_coords_for_plot,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.plotting._hover import (
@@ -38,9 +40,7 @@ from confusius.plotting._utils import (
     _resolve_colormap_style,
     _resolve_font_sizes,
     _style_colorbar,
-    coerce_complex_to_magnitude,
     materialize_axis_aligned_world_grid_for_display,
-    sort_coords_for_plot,
 )
 from confusius.signal import clean
 from confusius.validation import (

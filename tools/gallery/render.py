@@ -145,6 +145,8 @@ def _normalize_html_output(html: str) -> str:
     In particular, xarray's notebook HTML repr includes a plain-text fallback and uses
     theme selectors that do not match Zensical's `data-md-color-scheme` attribute.
     """
+    if "font-family:Menlo" in html and any(corner in html for corner in "┏┌╔╭"):
+        html = html.replace("<pre ", '<pre class="gallery-rich-table" ', 1)
     if "xr-wrap" in html:
         html = re.sub(
             r"<pre class=['\"]xr-text-repr-fallback['\"]>.*?</pre>",

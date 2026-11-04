@@ -121,8 +121,10 @@ Attributes:
     beamforming_sound_velocity:   1540.0
 ```
 
-If your acquisition system isn't directly supported by ConfUSIus, see [Other
-Systems](io.md#other-systems) for how to wrap a custom complex array as an IQ DataArray.
+ConfUSIus loads AUTC DAT, EchoFrame DAT, and Iconeus RAW beamformed IQ files directly;
+see the [I/O guide](io.md) for more details. If your acquisition system isn't directly
+supported, see [Other Systems](io.md#other-systems) for how to wrap a custom complex
+array as an IQ DataArray.
 
 !!! question "Finding metadata values"
     If you're unsure about the correct values:
@@ -573,7 +575,6 @@ Attributes:
     clutter_filter_window_duration:       0.4
     clutter_filter_window_stride:         0.3999999999999999
     power_doppler_integration_duration:   0.19999999999999996
-    power_doppler_integration_stride:     0.19999999999999998
 ```
 
 To actually compute the power Doppler values and load them into memory, you must call
@@ -687,7 +688,6 @@ Attributes:
     axial_velocity_lag:                   1
     axial_velocity_spatial_kernel:        3
     axial_velocity_integration_duration:  0.19999999999999996
-    axial_velocity_integration_stride:    0.19999999999999998
 ```
 
 !!! info "Processing parameters"

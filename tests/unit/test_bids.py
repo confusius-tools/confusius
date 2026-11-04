@@ -44,7 +44,7 @@ class TestCaseConversion:
         original = {
             "repetition_time": 1.5,
             "task_name": "rest",
-            "probe_central_frequency": 15.0,
+            "probe_center_frequency": 15.0,
         }
 
         bids_format = bids.to_bids(original)
@@ -87,12 +87,14 @@ class TestCaseConversion:
         attrs: dict[str, object] = {
             "transmit_frequency": 15e6,
             "pulse_repetition_frequency": 2_500.0,
+            "volume_acquisition_duration": 0.3,
         }
 
         bids_attrs = bids.to_bids(attrs)
 
-        assert bids_attrs["UltrasoundTransmitFrequency"] == 15e6
-        assert bids_attrs["UltrasoundPulseRepetitionFrequency"] == 2_500.0
+        assert bids_attrs["TransmitFrequency"] == 15e6
+        assert bids_attrs["PulseRepetitionFrequency"] == 2_500.0
+        assert bids_attrs["FrameAcquisitionDuration"] == 0.3
 
         roundtripped = bids.from_bids(bids_attrs)
 
@@ -111,19 +113,17 @@ class TestCaseConversion:
         assert bids_attrs["ClutterFilterWindowStride"] == 0.3
         assert bids.from_bids(bids_attrs) == attrs
 
-    def test_integration_stride_metadata_mapping(self):
-        """Integration stride metadata maps to expected BIDS and ConfUSIus keys."""
+    def test_integration_duration_metadata_mapping(self):
+        """Internal integration durations round-trip through prefixed BIDS keys."""
         attrs = {
-            "power_doppler_integration_stride": 0.2,
-            "axial_velocity_integration_stride": 0.25,
-            "bmode_integration_stride": 0.3,
+            "axial_velocity_integration_duration": 0.25,
+            "bmode_integration_duration": 0.3,
         }
 
         bids_attrs = bids.to_bids(attrs)
 
-        assert bids_attrs["PowerDopplerIntegrationStride"] == 0.2
-        assert bids_attrs["ConfUSIusAxialVelocityIntegrationStride"] == 0.25
-        assert bids_attrs["ConfUSIusBmodeIntegrationStride"] == 0.3
+        assert bids_attrs["ConfUSIusAxialVelocityIntegrationDuration"] == 0.25
+        assert bids_attrs["ConfUSIusBmodeIntegrationDuration"] == 0.3
         assert bids.from_bids(bids_attrs) == attrs
 
     def test_from_bids_restores_internal_attributes(self):
@@ -183,10 +183,29 @@ class TestValidation:
                 }
             )
 
-    def test_invalid_repetition_time(self):
-        """Test that invalid RepetitionTime raises error."""
-        with pytest.raises(ValidationError, match="greater than 0"):
-            bids.validate_metadata({"RepetitionTime": -1.0})
+    @pytest.mark.parametrize(
+        ("metadata", "message"),
+        [
+            ({"RepetitionTime": -1.0}, "greater than 0"),
+            ({"ClutterFilterWindowDuration": "invalid"}, "valid number"),
+            ({"VolumeTiming": [-1, 0]}, "non-negative"),
+            ({"VolumeTiming": [0, 0]}, "strictly increasing"),
+            ({"VolumeTiming": []}, "strictly increasing"),
+            ({"VolumeTiming": [0, float("nan")]}, "finite"),
+            (
+                {"VolumeTiming": [0, 1], "FrameAcquisitionDuration": 0.3, "DelayTime": 0},
+                "VolumeTiming and DelayTime are mutually exclusive",
+            ),
+            (
+                {"PlaneWaveAngles": [0], "VirtualSources": [[0, 0, -5]]},
+                "PlaneWaveAngles and VirtualSources are mutually exclusive",
+            ),
+        ],
+    )
+    def test_invalid_metadata(self, metadata, message):
+        """Invalid values and mutually exclusive fields fail validation."""
+        with pytest.raises(ValidationError, match=message):
+            bids.validate_metadata(metadata)
 
     def test_repetition_time_and_volume_timing_mutually_exclusive(self):
         """Test that RepetitionTime and VolumeTiming cannot both be provided."""

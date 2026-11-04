@@ -46,21 +46,36 @@ _SCAN_VOXELS_TO_PROBE = np.array(
     dtype=np.float64,
 )
 
+# Raw laboratory-frame rotation typical coronal acquisitions carry: the probe turned by
+# -90 degrees about the Iconeus axial axis, which load_scan rotates back by +90 degrees.
+# Composed in front of every probeToLab fixture so that the loaded world axes align with
+# the voxel grid, as they do for real coronal files.
+_SCAN_RAW_CORONAL_ROTATION = np.array(
+    [
+        [0.0, 1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+
 _SCAN_PROBE_TO_LAB_SINGLE = np.eye(4, dtype=np.float64)
 _SCAN_PROBE_TO_LAB_SINGLE[:3, 3] = [0.001, 0.002, 0.003]
+_SCAN_PROBE_TO_LAB_SINGLE = _SCAN_RAW_CORONAL_ROTATION @ _SCAN_PROBE_TO_LAB_SINGLE
 
-_SCAN_PROBE_TO_LAB_MULTI = np.stack(
+_SCAN_PROBE_TO_LAB_MULTI = _SCAN_RAW_CORONAL_ROTATION @ np.stack(
     [
-        # Translation lives in row 1: through the world/probe permutation this
-        # lands on ConfUSIus's k (elevation) axis, matching a real translational
-        # probe sweep -- see consolidate_poses's sweep_dim auto-detection.
+        # Translation lives in row 1 (probe elevation): the raw coronal rotation moves
+        # it to lab x and the constant rotation brings it back onto ConfUSIus's k
+        # (elevation) axis, matching a real translational probe sweep -- see
+        # consolidate_poses's sweep_dim auto-detection.
         np.eye(4, dtype=np.float64)
         + np.array([[0, 0, 0, 0], [0, 0, 0, i * 0.001], [0, 0, 0, 0], [0, 0, 0, 0]])
         for i in range(_SCAN_NPOSE)
     ]
 )
 
-_SCAN_PROBE_TO_LAB_ROTATED = np.array(
+_SCAN_PROBE_TO_LAB_ROTATED = _SCAN_RAW_CORONAL_ROTATION @ np.array(
     [
         [0.0, 0.0, 1.0, 0.005],
         [0.0, 1.0, 0.0, 0.002],
@@ -70,10 +85,10 @@ _SCAN_PROBE_TO_LAB_ROTATED = np.array(
     dtype=np.float64,
 )
 
-_SCAN_PROBE_TO_LAB_IRREGULAR = np.stack(
+_SCAN_PROBE_TO_LAB_IRREGULAR = _SCAN_RAW_CORONAL_ROTATION @ np.stack(
     [
         # Row 1, like _SCAN_PROBE_TO_LAB_MULTI: lands on k (elevation) after the
-        # world/probe permutation.
+        # coronal rotation.
         np.eye(4, dtype=np.float64)
         + np.array([[0, 0, 0, 0], [0, 0, 0, t], [0, 0, 0, 0], [0, 0, 0, 0]])
         for t in [0.0, 0.001, 0.005]
@@ -81,7 +96,7 @@ _SCAN_PROBE_TO_LAB_IRREGULAR = np.stack(
 )
 
 _SCAN_ANGLE = np.pi / 6
-_SCAN_PROBE_TO_LAB_VARYING_ROTATION = np.stack(
+_SCAN_PROBE_TO_LAB_VARYING_ROTATION = _SCAN_RAW_CORONAL_ROTATION @ np.stack(
     [
         np.array(
             [
@@ -96,7 +111,7 @@ _SCAN_PROBE_TO_LAB_VARYING_ROTATION = np.stack(
     ]
 )
 
-_SCAN_PROBE_TO_LAB_2D_SWEEP = np.stack(
+_SCAN_PROBE_TO_LAB_2D_SWEEP = _SCAN_RAW_CORONAL_ROTATION @ np.stack(
     [
         np.eye(4, dtype=np.float64)
         + np.array(
@@ -172,7 +187,7 @@ def _write_scan_metadata(
         ("Session_tag", "ses-01"),
         ("Scan_tag", "scan-01"),
         ("Project_tag", "proj-01"),
-        ("Date", "2025-01-01"),
+        ("Date", "2025-01-01 12:34:56"),
         ("Neuroscan_version", "1.0"),
         ("Machine_SN", "SN-0001"),
         ("User_name", "user"),
@@ -752,6 +767,103 @@ def sample_voxeldata_iq_3dt(rng):
     )
 
 
+def _encrypt_hraw(values: npt.ArrayLike, index: int) -> np.ndarray:
+    """Encode values using the legacy HRAW obfuscation function."""
+    return np.asarray(values, dtype=np.float64) * (1005 * index) + 72
+
+
+@pytest.fixture
+def make_iconeus_raw_files(tmp_path: Path):
+    """Factory for synthetic Iconeus RAW/HRAW files written to `tmp_path`.
+
+    The factory returns `(raw_path, meta_path, expected_iq)`, where `expected_iq`
+    is the `(time, k, j, i)` complex IQ array that the RAW payload encodes.
+    """
+
+    def _make(
+        *,
+        size_x: int = 3,
+        size_y: int = 2,
+        size_z: int = 4,
+        n_compound: int = 1,
+        n_frames: int = 5,
+        n_blocks: int = 2,
+        compound: bool = True,
+        legacy: bool = False,
+        truncate: bool = False,
+        lateral_spacing: float = 0.1,
+        elevation_spacing: float = 0.2,
+        axial_spacing: float = 0.05,
+        depth_near: float = 1.0,
+        depth_far: float = 10.0,
+    ) -> tuple[Path, Path, np.ndarray]:
+        """Create synthetic Iconeus RAW/HRAW files and return the expected IQ array."""
+        meta_path = tmp_path / "sample.hraw"
+        raw_path = tmp_path / "sample.raw"
+
+        with h5py.File(meta_path, "w") as f:
+            f.create_dataset("F1", data=_encrypt_hraw([[15.625]], 1))
+            f.create_dataset("F2", data=_encrypt_hraw([[11000.0]], 2))
+            f.create_dataset("F3", data=_encrypt_hraw([[1540.0]], 3))
+            f.create_dataset("F4", data=_encrypt_hraw([[500.0]], 4))
+            f.create_dataset("F5", data=_encrypt_hraw([[1.0], [128.0]], 5))
+            f.create_dataset("F6", data=_encrypt_hraw([[depth_near], [depth_far]], 6))
+            f.create_dataset("F7", data=_encrypt_hraw([[-10.0], [0.0], [10.0]], 7))
+            f.create_dataset(
+                "F8",
+                data=_encrypt_hraw([[lateral_spacing], [elevation_spacing], [axial_spacing]], 8),
+            )
+            f.create_dataset(
+                "F9",
+                data=_encrypt_hraw([size_x, size_y, size_z, n_compound, n_frames], 9).reshape(
+                    -1, 1
+                ),
+            )
+            f.create_dataset("F10", data=_encrypt_hraw([[float(compound)]], 10))
+            f.create_dataset("F11", data=_encrypt_hraw([[float(n_blocks)]], 11))
+            f.create_dataset("F12", data=_encrypt_hraw([[float(legacy)]], 12))
+            f.create_dataset("F13", data=np.asarray([[b"2Dscan"]]))
+
+        expected = np.zeros(
+            (size_z, size_y, size_x, n_frames, n_blocks), dtype=np.complex64
+        )
+        for block in range(n_blocks):
+            for frame in range(n_frames):
+                for x in range(size_x):
+                    for y in range(size_y):
+                        for z in range(size_z):
+                            expected[z, y, x, frame, block] = complex(
+                                z + 10 * y + 100 * x + 1000 * frame + 100000 * block,
+                                -(z + 10 * y + 100 * x),
+                            )
+
+        floats = np.empty(
+            (2, size_z, size_y, size_x, n_compound, n_frames, n_blocks),
+            dtype="<f4",
+            order="F",
+        )
+        for band, component in enumerate((expected.real, expected.imag)):
+            floats[band] = np.broadcast_to(
+                component[:, :, :, None, :, :],
+                (size_z, size_y, size_x, n_compound, n_frames, n_blocks),
+            )
+
+        with raw_path.open("wb") as stream:
+            if legacy:
+                np.zeros(117, dtype=np.uint8).tofile(stream)
+            payload = floats.ravel(order="F")
+            if truncate:
+                payload = payload[:-1]
+            payload.tofile(stream)
+
+        expected_iq = np.transpose(expected[:, :, :, :, :], (4, 3, 1, 0, 2)).reshape(
+            n_blocks * n_frames, size_y, size_z, size_x
+        )
+        return raw_path, meta_path, expected_iq
+
+    return _make
+
+
 @pytest.fixture
 def make_sample_timeseries(rng):
     """Factory fixture for 2D time-series data (time, space).
@@ -827,7 +939,7 @@ def sample_roi_labels():
     units match `sample_voxeldata_3d` so the fixtures pair naturally for tests
     combining image + label data.
 
-    Attributes mirror what `Atlas` / `labels_from_layer` produce in production:
+    Attributes mirror what `Atlas` / `extract_labels_from_layer` produce in production:
     `roi_labels` for status-bar names and `rgb_lookup` for per-label colors.
     """
     shape = (4, 6, 8)
@@ -1012,7 +1124,7 @@ def atlas_ds(structure_list: list[dict], mock_structures: StructuresDict) -> xr.
     (0.1 mm), so sampling the map splits the mesh 3/3.
     """
     shape = (4, 6, 8)
-    # 50 µm so the OBJ mesh (z up to 100 µm) stays inside the reference grid, which the
+    # 50 µm so the OBJ mesh (z up to 100 µm) stays inside the template grid, which the
     # nonlinear get_meshes tests require.
     resolution_mm = 0.05
 
@@ -1030,7 +1142,7 @@ def atlas_ds(structure_list: list[dict], mock_structures: StructuresDict) -> xr.
         20: [0, 255, 0],
     }
 
-    reference_da = create_voxeldata(
+    template_da = create_voxeldata(
         np.ones(shape, dtype=np.float32),
         dims=["k", "j", "i"],
         spacing=(resolution_mm, resolution_mm, resolution_mm),
@@ -1054,7 +1166,7 @@ def atlas_ds(structure_list: list[dict], mock_structures: StructuresDict) -> xr.
 
     return xr.Dataset(
         {
-            "reference": reference_da,
+            "template": template_da,
             "annotation": annotation_da,
             "hemispheres": hemispheres_da,
         },

@@ -6,24 +6,27 @@ icon: lucide/quote
 
 # Citing ConfUSIus
 
-If you use ConfUSIus in your research, please cite it using the following reference:
+If you use ConfUSIus in your research, please cite the following preprint:
 
-> Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus (v0.7.1). Zenodo.
-> https://doi.org/10.5281/zenodo.18611124
+> Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus: an accessible and scalable
+> toolkit for functional ultrasound imaging analysis. *bioRxiv*.
+> https://doi.org/10.64898/2026.10.27.762250
 
 Or in BibTeX format:
 
 ```bibtex
-@software{confusius,
-  author    = {Le Meur-Diebolt, Samuel and Cybis Pereira, Felipe},
-  title     = {ConfUSIus},
-  year      = {2026},
-  publisher = {Zenodo},
-  version   = {v0.7.1},
-  doi       = {10.5281/zenodo.18611124},
-  url       = {https://doi.org/10.5281/zenodo.18611124}
+@article{confusius,
+  title = {ConfUSIus: an accessible and scalable toolkit for functional ultrasound imaging analysis},
+  url = {http://dx.doi.org/10.64898/2026.10.27.762250},
+  DOI = {10.64898/2026.10.27.762250},
+  publisher = {openRxiv},
+  author = {Le Meur-Diebolt,  Samuel and Cybis Pereira,  Felipe},
+  year = {2026},
+  month = Nov
 }
 ```
+
+ConfUSIus versions are archived on [Zenodo](https://doi.org/10.5281/zenodo.18611124).
 
 ---
 
@@ -263,16 +266,18 @@ provides a fUSI-BIDS re-export of this dataset. If you use it, please cite:
 
 > Pepe, C., Mariani, J.-C., Urosevic, M., Gini, S., Stuefer, A., Ricci, F., Galbusera,
 > A., Iurilli, G., & Gozzi, A. (2026). Structural and dynamic embedding of the mouse
-> functional connectome revealed by functional ultrasound imaging (Fusi).
+> functional connectome revealed by functional ultrasound imaging (fUSI). *bioRxiv*.
 > https://doi.org/10.64898/2026.02.05.704055
 
 ```bibtex
-@misc{pepe_structural_2026,
-  title = {Structural and dynamic embedding of the mouse functional connectome revealed by functional ultrasound imaging ({Fusi})},
-  doi = {10.64898/2026.02.05.704055},
-  url = {http://biorxiv.org/lookup/doi/10.64898/2026.02.05.704055},
-  author = {Pepe, Chiara and Mariani, Jean-Charles and Urosevic, Mila and Gini, Silvia and Stuefer, Alexia and Ricci, Fabio and Galbusera, Alberto and Iurilli, Giuliano and Gozzi, Alessandro},
+@article{Pepe2026,
+  title = {Structural and dynamic embedding of the mouse functional connectome revealed by functional ultrasound imaging (fUSI)},
+  url = {http://dx.doi.org/10.64898/2026.02.05.704055},
+  DOI = {10.64898/2026.02.05.704055},
+  publisher = {openRxiv},
+  author = {Pepe,  Chiara and Mariani,  Jean-Charles and Urosevic,  Mila and Gini,  Silvia and Stuefer,  Alexia and Ricci,  Fabio and Galbusera,  Alberto and Iurilli,  Giuliano and Gozzi,  Alessandro},
   year = {2026},
+  month = Feb
 }
 ```
 
@@ -316,38 +321,36 @@ License: **[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)**.
 
 ## Templates
 
-### Huang et al. (2025)
+### Brunner, Grillet et al. (2021)
 
-The [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025]
-function provides a vascular mouse template derived from OpenfUSAnalyzer. If you use
-this template in your research, please cite:
+The [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
+function provides an Allen-aligned vascular mouse template. If you use this template
+in your research, please cite the paper:
 
-> Huang, Y.-A., Lambert, T., Verbeyst, D., Fitzgerald, N. E., Grillet, M.,
-> Brunner, C., Montaldo, G., Vanduffel, W., & Urban, A. (2025). OfUSA: OpenfUS
-> Analyzer, a versatile open-source framework for the analysis and visualization of
-> functional ultrasound imaging data across animal models. *bioRxiv*.
-> https://doi.org/10.1101/2025.09.16.676515
+> Brunner, C., Grillet, M., Urban, A., Roska, B., Montaldo, G., & Macé, E. (2021).
+> Whole-brain functional ultrasound imaging in awake head-fixed mice.
+> *Nature Protocols*, 16, 3547–3571.
+> https://doi.org/10.1038/s41596-021-00548-8
 
 Or in BibTeX format:
 
 ```bibtex
-@misc{huang_ofusa:_2025,
-  title = {OfUSA: OpenfUS Analyzer, a versatile open-source framework for the analysis and
-           visualization of functional ultrasound imaging data across animal models},
-  copyright = {http://creativecommons.org/licenses/by-nc/4.0/},
-  shorttitle = {OfUSA},
-  url = {http://biorxiv.org/lookup/doi/10.1101/2025.09.16.676515},
-  doi = {10.1101/2025.09.16.676515},
-  language = {en},
-  author = {Huang, Yun-An and Lambert, Théo and Verbeyst, Damon and Fitzgerald, Nora Eilis and
-            Grillet, Micheline and Brunner, Clément and Montaldo, Gabriel and
-            Vanduffel, Wim and Urban, Alan},
-  month = sep,
-  year = {2025},
+@article{brunner2021,
+  title = {Whole-brain functional ultrasound imaging in awake head-fixed mice},
+  author = {Brunner, Clément and Grillet, Micheline and Urban, Alan and Roska, Botond and
+            Montaldo, Gabriel and Macé, Emilie},
+  journal = {Nature Protocols},
+  volume = {16},
+  number = {7},
+  pages = {3547--3571},
+  year = {2021},
+  doi = {10.1038/s41596-021-00548-8},
 }
 ```
 
-License: **[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)**.
+The associated dataset is archived on [Zenodo](https://doi.org/10.5281/zenodo.4905862).
+
+License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
 
 ### Pepe, Mariani et al. (2026)
 
@@ -364,17 +367,14 @@ this template in your research, please also cite the corresponding article:
 Or in BibTeX format:
 
 ```bibtex
-@article{pepe2026fusi,
-  author    = {Pepe, Chiara and Mariani, Jean-Charles and Urosevic, Mila and Gini, Silvia and
-               Stuefer, Alexia and Ricci, Fabio and Galbusera, Alberto and Iurilli, Giuliano and
-               Gozzi, Alessandro},
-  title     = {Structural and dynamic embedding of the mouse functional connectome revealed by
-               functional ultrasound imaging ({fUSI})},
-  journal   = {bioRxiv},
-  year      = {2026},
-  publisher = {Cold Spring Harbor Laboratory},
-  doi       = {10.64898/2026.02.05.704055},
-  url       = {https://doi.org/10.64898/2026.02.05.704055}
+@article{Pepe2026,
+  title = {Structural and dynamic embedding of the mouse functional connectome revealed by functional ultrasound imaging (fUSI)},
+  url = {http://dx.doi.org/10.64898/2026.02.05.704055},
+  DOI = {10.64898/2026.02.05.704055},
+  publisher = {openRxiv},
+  author = {Pepe,  Chiara and Mariani,  Jean-Charles and Urosevic,  Mila and Gini,  Silvia and Stuefer,  Alexia and Ricci,  Fabio and Galbusera,  Alberto and Iurilli,  Giuliano and Gozzi,  Alessandro},
+  year = {2026},
+  month = Feb
 }
 ```
 

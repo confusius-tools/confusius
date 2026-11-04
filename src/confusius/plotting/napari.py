@@ -9,7 +9,6 @@ resampled onto an axis-aligned world grid first, since napari's `scale`/`transla
 model can't represent oblique geometry; axis-aligned data needs no resampling.
 """
 
-import warnings
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import napari
@@ -22,16 +21,10 @@ from confusius._utils.geometry import (
     get_voxel_to_world_units,
 )
 from confusius._utils.napari import (
-    build_direct_label_colormap,
-    build_roi_labels_features,
+    build_napari_layer_data,
     get_napari_layer_geometry,
 )
-from confusius._utils.plotting import resample_to_axis_aligned_world_grid
-from confusius._utils.stack import find_stack_level
-from confusius.plotting._utils import (
-    coerce_complex_to_magnitude,
-    sort_coords_for_plot,
-)
+from confusius.registration import resample_like
 from confusius.validation import ensure_voxeldata
 from confusius.xarray import create_voxeldata
 
@@ -46,7 +39,7 @@ def plot_napari(
     show_scale_bar: bool = True,
     dim_order: tuple[str, ...] | None = None,
     viewer: "Viewer | None" = None,
-    layer_type: Literal["image", "labels"] = "image",
+    layer_type: Literal["image", "labels", "auto"] = "auto",
     resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
     resample_fill_value: float | None = None,
     **layer_kwargs,
@@ -73,15 +66,16 @@ def plot_napari(
     viewer : napari.Viewer, optional
         Existing napari viewer to add the layer to. If not provided, a new viewer
         is created.
-    layer_type : {"image", "labels"}, default: "image"
+    layer_type : {"image", "labels", "auto"}, default: "auto"
         Type of layer to create. Use "image" for fUSI data and "labels" for
-        ROI masks, segmentations, or other label data.
+        ROI masks, segmentations, or other label data. "auto" picks "labels" for integer
+        or boolean data and "image" otherwise.
     resample_interpolation : {"linear", "nearest", "bspline"}, optional
         Interpolation method used when resampling oblique (non-axis-aligned)
         voxel-to-world `data` onto an axis-aligned world grid for display. If not
-        provided, defaults to `"nearest"` for `layer_type="labels"` (blending
-        distinct integer labels together is never meaningful) and `"linear"`
-        otherwise.
+        provided, defaults to `"nearest"` for labels layers (including those
+        inferred with `layer_type="auto"`; blending distinct integer labels
+        together is never meaningful) and `"linear"` for image layers.
     resample_fill_value : float, optional
         Value assigned to voxels outside `data`'s field of view after resampling
         oblique data. If not provided, defaults to `data`'s own minimum value.
@@ -158,25 +152,17 @@ def plot_napari(
     >>> viewer, layer = plot_napari(data)
     >>> viewer, layer = plot_napari(roi_mask, viewer=viewer, layer_type="labels")
     """
-    if layer_type not in ("image", "labels"):
-        raise ValueError(
-            f"Unknown layer_type: {layer_type!r}. Expected 'image' or 'labels'."
-        )
-    data = ensure_voxeldata(data)
-
-    resolved_interpolation = resample_interpolation or (
-        "nearest" if layer_type == "labels" else "linear"
+    plot_data, built_kwargs, resolved_layer_type = build_napari_layer_data(
+        data,
+        layer_type=layer_type,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
     )
-    source_data = data
-    data = resample_to_axis_aligned_world_grid(
-        data, interpolation=resolved_interpolation, fill_value=resample_fill_value
-    )
+    data = built_kwargs["metadata"]["xarray"]
 
     all_dims = [str(dim) for dim in data.dims]
     time_dim = TIME_DIM if TIME_DIM in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
-
-    data = sort_coords_for_plot(data, spatial_dims)
 
     if dim_order is not None:
         if set(dim_order) != set(spatial_dims):
@@ -193,62 +179,28 @@ def plot_napari(
         # regardless of how the voxel-to-world affine maps them.
         dim_order = tuple(sorted(spatial_dims, key=lambda d: data.sizes[d] != 1))
 
-    scale, coord_translates, axis_labels, all_units, non_uniform, spacing = (
-        get_napari_layer_geometry(data)
-    )
-    for dim in non_uniform:
-        warnings.warn(
-            f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
-            "(positions along this axis may be approximate).",
-            stacklevel=find_stack_level(),
-        )
+    # Caller-provided layer kwargs take precedence over the built ones, except for
+    # `metadata["xarray"]`, which always holds the displayed DataArray.
+    built_metadata = built_kwargs.pop("metadata")
+    for key, value in built_kwargs.items():
+        layer_kwargs.setdefault(key, value)
+    layer_kwargs["metadata"] = {
+        **built_metadata,
+        **layer_kwargs.get("metadata", {}),
+        "xarray": data,
+    }
 
-    layer_kwargs.setdefault("name", data.name)
-    if any(u is not None for u in all_units):
-        layer_kwargs.setdefault("units", all_units)
-
-    if layer_type == "image":
-        plot_data = coerce_complex_to_magnitude(data, caller="plot_napari")
-
+    if resolved_layer_type == "image":
         # The last 2 (2D) or 3 (3D) dimensions are the displayed spatial axes.
-        if dim_order is not None:
-            order = []
-            if time_dim:
-                order.append(all_dims.index(time_dim))
-            for dim in dim_order:
-                if dim in all_dims:
-                    order.append(all_dims.index(dim))
-            layer_kwargs["order"] = tuple(order)
+        order = []
+        if time_dim:
+            order.append(all_dims.index(time_dim))
+        for dim in dim_order:
+            if dim in all_dims:
+                order.append(all_dims.index(dim))
+        layer_kwargs["order"] = tuple(order)
 
-        # Layers are always positioned in world space (scale/translate are real
-        # physical spacing/origin, and oblique input is resampled onto an
-        # axis-aligned world grid), so axis_labels shows world names (z/y/x) to
-        # honestly reflect what the dims slider actually scrubs through, even
-        # though `data` itself stays on its native voxel dims with its index intact.
-        layer_kwargs.setdefault("axis_labels", axis_labels)
-
-        if "colormap" not in layer_kwargs:
-            cmap_attr = data.attrs.get("cmap")
-            if cmap_attr is not None:
-                layer_kwargs["colormap"] = cmap_attr
-
-        # VoxelData arrays are scalar fields; prevent napari from auto-interpreting a
-        # trailing axis of length 3/4 as RGB channels.
-        layer_kwargs.setdefault("rgb", False)
-
-        layer_kwargs.setdefault("translate", coord_translates)
-
-        # Pass the underlying array (numpy or Dask) rather than the DataArray. napari's
-        # rendering loop adds overhead on every frame when given an xarray DataArray,
-        # making time scrubbing noticeably slow for lazy (Dask-backed) data.
-        layer_kwargs.setdefault("metadata", {})["xarray"] = data
-        layer_kwargs["metadata"].setdefault("source_xarray", source_data)
-        viewer, layer = napari.imshow(
-            plot_data.data,
-            scale=scale,
-            viewer=viewer,
-            **layer_kwargs,
-        )
+        viewer, layer = napari.imshow(plot_data, viewer=viewer, **layer_kwargs)
         # napari.imshow stubs declare list[Image] but at runtime returns Image
         # directly: cast to silence the type checker.
         layer = cast("Image", layer)
@@ -267,32 +219,10 @@ def plot_napari(
         if show_colorbar:
             layer.colorbar.visible = True
 
-    elif layer_type == "labels":
-        layer_kwargs.setdefault("translate", coord_translates)
-        layer_kwargs.setdefault("metadata", {})["xarray"] = data
-        layer_kwargs["metadata"].setdefault("source_xarray", source_data)
+    else:
         if viewer is None:
             viewer = napari.Viewer()
-        values = data.values
-        if not np.issubdtype(values.dtype, np.integer):
-            values = values.astype(np.int32)
-
-        # Build a DirectLabelColormap from attrs when the caller has not already
-        # supplied one. This lets atlas annotations and masks carry their colormap
-        # automatically into the viewer.
-        if "colormap" not in layer_kwargs:
-            colormap = build_direct_label_colormap(data)
-            if colormap is not None:
-                layer_kwargs["colormap"] = colormap
-
-        layer = viewer.add_labels(  # type: ignore
-            values,
-            scale=scale,
-            **layer_kwargs,
-        )
-
-        if (roi_labels := data.attrs.get("roi_labels")) is not None:
-            layer.features = build_roi_labels_features(roi_labels)
+        layer = viewer.add_labels(plot_data, **layer_kwargs)  # type: ignore
 
     assert viewer is not None
     viewer.canvas.overlays.scale_bar.visible = show_scale_bar
@@ -310,7 +240,7 @@ def draw_napari_labels(
 
     Displays the data as an image layer and adds an empty Labels layer on top. The user
     can paint integer labels directly on the image using napari's brush tool. After
-    painting, call [`labels_from_layer`][confusius.plotting.labels_from_layer] with the
+    painting, call [`extract_labels_from_layer`][confusius.plotting.extract_labels_from_layer] with the
     returned Labels layer and the original data to obtain an integer label map as a
     DataArray with the same spatial coordinates.
 
@@ -336,7 +266,7 @@ def draw_napari_labels(
     labels_layer : napari.layers.Labels
         The empty Labels layer initialised to zeros. After the user paints
         labels in the viewer, pass this layer to
-        [`labels_from_layer`][confusius.plotting.labels_from_layer] to obtain
+        [`extract_labels_from_layer`][confusius.plotting.extract_labels_from_layer] to obtain
         an integer label map.
 
     Notes
@@ -344,6 +274,14 @@ def draw_napari_labels(
     The Labels layer is initialised with the same `scale` and `translate`
     parameters as the image layer so that the napari canvas shows a consistent
     world coordinate frame regardless of voxel spacing or data origin.
+
+    Oblique or sheared input is interpolated onto an axis-aligned grid for display;
+    extraction then uses nearest-neighbor interpolation to return painted labels
+    to the original grid. Thin regions and boundaries can change in this round trip.
+    Prefer drawing in an existing axis-aligned acquisition/scanner frame when
+    available. A known world-space transform can be applied with
+    [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] without
+    resampling voxels; labels must be transformed consistently when changing frames.
 
     Examples
     --------
@@ -353,9 +291,11 @@ def draw_napari_labels(
     >>> viewer, labels_layer = draw_napari_labels(pwd.mean("time"))
     >>> # … paint labels in the viewer …
     >>> # Convert painted labels to an integer label map DataArray.
-    >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
+    >>> label_map = extract_labels_from_layer(labels_layer, pwd.mean("time"))
     """
     data = ensure_voxeldata(data)
+    # The painting background is an intensity image, regardless of its dtype.
+    kwargs["layer_type"] = "image"
     viewer, image_layer = plot_napari(data, viewer=viewer, **kwargs)
     display_data = cast(xr.DataArray, image_layer.metadata["xarray"])
 
@@ -387,7 +327,7 @@ def draw_napari_labels(
     return viewer, labels_layer
 
 
-def labels_from_layer(
+def extract_labels_from_layer(
     labels_layer: "Labels",
     data: xr.DataArray,
 ) -> xr.DataArray:
@@ -431,12 +371,17 @@ def labels_from_layer(
     Raises
     ------
     ValueError
-        If `labels_layer` does not contain any non-zero labels.
+        If the layer shape does not match its voxel grid, or no non-zero labels
+        remain on the reference grid.
 
     Notes
     -----
-    The label array is taken directly from `labels_layer.data`. No
-    rasterisation is performed: this is a direct read of the painted values.
+    Painted labels are read on the display grid stored in the layer's `xarray`
+    metadata, then resampled onto `data`'s grid with nearest-neighbor interpolation
+    and zero background when the grids differ. Without that metadata, the layer
+    is assumed to use `data`'s grid. Nearest-neighbor interpolation preserves label
+    IDs but can change boundaries or remove thin regions. Prefer drawing on an
+    existing axis-aligned grid to avoid this interpolation round trip.
 
     Per-label colors are read from `labels_layer.get_color(label)`, which works for both
     the default cyclic colormap and any `DirectLabelColormap` set on the layer.
@@ -448,7 +393,7 @@ def labels_from_layer(
     >>> pwd = xr.open_zarr("output.zarr")["power_doppler"].compute()
     >>> viewer, labels_layer = draw_napari_labels(pwd.mean("time"))
     >>> # … paint labels in the viewer …
-    >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
+    >>> label_map = extract_labels_from_layer(labels_layer, pwd.mean("time"))
     >>> label_map.dims
     ('mask', 'k', 'j', 'i')
     >>> # Slice a single label for display alongside a seed map.
@@ -463,13 +408,33 @@ def labels_from_layer(
     all_dims = [str(dim) for dim in data.dims]
     time_dim = TIME_DIM if TIME_DIM in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
-    if label_array.shape != tuple(data.sizes[dim] for dim in spatial_dims):
-        metadata_data = getattr(labels_layer, "metadata", {}).get("xarray")
-        if isinstance(metadata_data, xr.DataArray):
-            data = ensure_voxeldata(metadata_data)
-            all_dims = [str(dim) for dim in data.dims]
-            time_dim = TIME_DIM if TIME_DIM in all_dims else None
-            spatial_dims = [d for d in all_dims if d != time_dim]
+    metadata_data = labels_layer.metadata.get("xarray")
+    display_data = (
+        ensure_voxeldata(metadata_data)
+        if isinstance(metadata_data, xr.DataArray)
+        else data
+    )
+    display_dims = [str(dim) for dim in display_data.dims if dim != TIME_DIM]
+    if label_array.shape != tuple(display_data.sizes[dim] for dim in display_dims):
+        raise ValueError("labels_layer shape does not match its voxel grid.")
+
+    # Equal array shapes do not imply equal physical grids after display resampling.
+    if not display_data.xindexes["z"].equals(data.xindexes["z"]):
+        painted = create_voxeldata(
+            label_array,
+            dims=display_dims,
+            k=display_data.coords["k"],
+            j=display_data.coords["j"],
+            i=display_data.coords["i"],
+            pose=display_data.coords.get(POSE_DIM)
+            if POSE_DIM in display_dims
+            else None,
+            voxel_to_world=get_voxel_to_world_affine(display_data),
+            units=get_voxel_to_world_units(display_data),
+        )
+        label_array = resample_like(
+            painted, data, np.eye(4), interpolation="nearest", fill_value=0
+        ).values
 
     # Copy auxiliary spatial coordinates only. Native voxel coords and `pose` are
     # passed through `create_voxeldata`; derived `z`/`y`/`x` are rebuilt from the index.
@@ -502,7 +467,7 @@ def labels_from_layer(
     # (e.g. label_map.sel(mask=2)) and is directly accepted by
     # extract_with_labels, plot_contours, and add_contours.
     if len(unique_labels) == 0:
-        raise ValueError("labels_layer does not contain any non-zero labels.")
+        raise ValueError("No non-zero labels remain on the reference grid.")
 
     layers = [np.where(label_array == k, k, 0).astype(np.int32) for k in unique_labels]
     stacked = np.stack(layers, axis=0)

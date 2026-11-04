@@ -14,7 +14,13 @@ root directory, or a more specific object (e.g., a DataArray for templates or an
 !!! tip "Try before you buy"
     Fetchers generally accept filters (subjects, sessions, tasks, derivatives, etc.) so
     you can download a small subset first and decide later whether you want the full
-    dataset. Cached files are never re-downloaded.
+    dataset. Cached files with matching SHA-256 hashes are reused.
+
+The ConfUSIus dataset collection is hosted on Amazon S3, with hosting sponsored
+by **AWS Open Data**. Downloads are anonymous HTTPS requests: no AWS account,
+credentials, or CLI is required. The [collection repository](https://github.com/confusius-tools/confusius-datasets)
+documents provenance, conversion recipes, and per-dataset licenses. Hosting does not
+change attribution or licensing requirements.
 
 ## Quick Start
 
@@ -73,7 +79,7 @@ Attributes: (12/24)
     transmit_frequency:                  15625000.0
     compound_sampling_frequency:         500.0
     plane_wave_angles:                   [-10.0, -7.9, -5.8, -3.6999999999999...
-    probe_voltage:                       25.0
+    transmit_voltage:                    25.0
 ```
 
 
@@ -95,8 +101,10 @@ You can inspect the resolved directory at any time with
 PosixPath('/home/alice/.cache/confusius')
 ```
 
-Each fetcher creates its own BIDS-root subdirectory under this path (e.g.
-`nunez-elizalde-2022-bids/`), so multiple datasets can coexist safely.
+Each collection fetcher caches releases under `<recipe>/<version>/` (e.g.
+`nunez-elizalde-2022-bids/1.0.0/`). Its returned path is the versioned BIDS root,
+so paths constructed relative to that return value continue to work. Earlier
+releases are preserved when downloading a newer version.
 
 ## Listing Available Datasets
 
@@ -107,19 +115,19 @@ fetchers and their full download sizes:
 >>> from confusius.datasets import list_datasets
 >>>
 >>> list_datasets()
-                   Available Datasets
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
-┃ Fetch function                   ┃     Size ┃ On disk ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
-│ fetch_nunez_elizalde_2022        │ 6.983 GB │    ✗    │
-│ fetch_pereira_2025               │ 29.96 GB │    ✗    │
-│ fetch_cybis_pereira_2026         │ 12.88 GB │    ✗    │
-│ fetch_pepe_mariani_2026          │ 37.56 GB │    ✗    │
-│ fetch_landemard_2026             │ 42.04 GB │    ✗    │
-│ fetch_khallaf_2026               │ 19.49 GB │    ✗    │
-│ fetch_template_huang_2025        │ 16.34 MB │    ✗    │
-│ fetch_template_pepe_mariani_2026 │ 5.508 MB │    ✗    │
-└──────────────────────────────────┴──────────┴─────────┘
+                     Available Datasets
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
+┃ Fetch function                      ┃     Size ┃ On disk ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
+│ fetch_nunez_elizalde_2022           │ 6.983 GB │    ✗    │
+│ fetch_pereira_2025                  │ 29.96 GB │    ✗    │
+│ fetch_cybis_pereira_2026            │ 12.88 GB │    ✗    │
+│ fetch_pepe_mariani_2026             │ 37.56 GB │    ✗    │
+│ fetch_landemard_2026                │ 42.04 GB │    ✗    │
+│ fetch_khallaf_2026                  │ 24.02 GB │    ✗    │
+│ fetch_template_brunner_grillet_2021 │ 16.34 MB │    ✗    │
+│ fetch_template_pepe_mariani_2026    │ 5.508 MB │    ✗    │
+└─────────────────────────────────────┴──────────┴─────────┘
 ```
 
 The sizes shown are for the **full** dataset. Filtered fetches are typically a small
@@ -137,7 +145,7 @@ confusius datasets --list
 
     Simultaneous neural activity and cerebral blood volume recordings in awake mice,
     from Nunez-Elizalde et al. (2022)[^nunez2022], converted to fUSI-BIDS format and
-    hosted on [OSF (43skw)](https://osf.io/43skw/). Total size: **~7 GB**.
+    hosted in the S3 collection. Total size: **~7 GB**.
 
     Use [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022] to
     download the dataset. Four filters narrow the download:
@@ -167,7 +175,7 @@ confusius datasets --list
 
     Functional ultrasound imaging data from a rat model of neuroinflammation, from
     Pereira et al. (2025)[^pereira2025], re-exported to fUSI-BIDS format and hosted on
-    [OSF (pqa65)](https://osf.io/pqa65/). Total size: **~30 GB**.
+    the S3 collection. Total size: **~30 GB**.
 
     Use [`fetch_pereira_2025`][confusius.datasets.fetch_pereira_2025] to download the
     dataset. Three filters narrow the download:
@@ -192,7 +200,7 @@ confusius datasets --list
 
     Functional ultrasound imaging data from freely-moving rats investigating vascular
     coding of speed in the spatial navigation system, from Cybis Pereira et al.
-    (2026)[^cybis2026], hosted on [OSF (2v6f7)](https://osf.io/2v6f7/).
+    (2026)[^cybis2026], hosted in the S3 collection.
     Total size: **~13 GB**.
 
     Use [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026] to
@@ -243,7 +251,7 @@ confusius datasets --list
 
     Transcranial mouse resting-state fUSI recordings and derivatives, from Pepe,
     Mariani et al. (2026)[^pepe_mariani2026], re-exported to fUSI-BIDS format and
-    hosted on [OSF (7yhdc)](https://osf.io/7yhdc/). Total size: **~38 GB**.
+    hosted in the S3 collection. Total size: **~38 GB**.
 
     Use [`fetch_pepe_mariani_2026`][confusius.datasets.fetch_pepe_mariani_2026] to
     download the dataset. Five filters narrow the download:
@@ -254,7 +262,7 @@ confusius datasets --list
     | `subjects`  | `sub-`              | `"m01"`                         |
     | `sessions`  | `ses-`              | `"rest"`                        |
     | `acqs`      | `acq-`              | `"coronal"`                     |
-    | `datatypes` | datatype directory  | `"fusi"`, `"angio"`            |
+    | `datatypes` | datatype directory  | `"fusi"`, `"susi"`            |
 
     The `datasets` filter accepts `"rawdata"`, `"registered"`, `"preprocessed"`, and
     `"Params"`.
@@ -271,7 +279,7 @@ confusius datasets --list
     Functional ultrasound imaging recordings from awake, head-fixed,
     freely-running mice, from Landemard et al. (2026)[^landemard2026],
     re-exported to fUSI-BIDS format and hosted on
-    [OSF (7cf9g)](https://osf.io/7cf9g/overview).
+    the S3 collection.
     Total size: **~42 GB**.
 
     Use [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] to
@@ -282,11 +290,11 @@ confusius datasets --list
     | `datasets`  | dataset name        | `"atlas_mapping"`, `["rawdata", "processed_data"]` |
     | `subjects`  | `sub-`              | `["ALD001", "ALD019"]`           |
     | `acqs`      | `acq-`              | `["ref04", "ref11"]`             |
-    | `datatypes` | datatype directory  | `"fusi"`, `["fusi", "angio"]`    |
+    | `datatypes` | datatype directory  | `"fusi"`, `["fusi", "susi"]`    |
 
     The Landemard dataset has no session layer: every recording sits directly under
-    `sub-*/fusi/` or `sub-*/angio/`. Files that lack an `acq-` entity (e.g.
-    `sub-ALD001_scans.tsv`, `sub-ALD001/angio/sub-ALD001_pwd.nii.gz`) are always
+    `sub-*/fusi/` or `sub-*/susi/`. Files that lack an `acq-` entity (e.g.
+    `sub-ALD001_scans.tsv`, `sub-ALD001/susi/sub-ALD001_pwd.nii.gz`) are always
     included regardless of the `acqs` filter.
 
     The `datasets` filter accepts:
@@ -316,13 +324,9 @@ confusius datasets --list
 
     Functional ultrasound imaging data from naked mole-rats exposed to olfactory
     stimulation, from Khallaf et al. (2026)[^khallaf2026], organised following BIDS and
-    the proposed fUSI extension BEP-040 and hosted on
-    [Edmond (10.17617/3.7QCU1F)](https://doi.org/10.17617/3.7QCU1F).
-    Total size: **~19.5 GB**.
-
-    Unlike the OSF-hosted datasets above, this one is distributed as a single ~19.5 GB
-    zip archive. ConfUSIus streams the requested members out of it individually by HTTP
-    range request, so a filtered fetch never downloads the whole archive.
+    the proposed fUSI extension BEP-040. The original data is published on
+    [Edmond (10.17617/3.7QCU1F)](https://doi.org/10.17617/3.7QCU1F); ConfUSIus
+    downloads individual files from the S3 collection rather than the source archive.
 
     Use [`fetch_khallaf_2026`][confusius.datasets.fetch_khallaf_2026] to download the
     dataset. Six filters narrow the download:
@@ -386,50 +390,66 @@ for nii in sorted((bids_root / "sub-CR020").rglob("*_pwd.nii.gz")):
 See the [I/O guide](io.md) for loading NIfTI, Zarr, and Iconeus SCAN files into
 VoxelData arrays.
 
-### Refreshing the Dataset Index
+### Selecting a New Release
 
-Each fUSI-BIDS dataset fetcher caches a `dataset_index.json` file mapping BIDS-relative
-paths to OSF file metadata (download path and size). Pass `refresh=True` to re-fetch
-this index from OSF and download any new files that appeared since the last call:
+Collection fetchers resolve the published version from `last_versions.conf` and
+read that release's `manifest.json`, which records each file's size and SHA-256 hash.
+A local `s3_index.json` remembers the selected release. Subsequent calls reuse that
+release without querying the catalog. Existing files are trusted without rereading
+or hashing their contents, so cached fetches work offline and avoid scanning the
+whole collection. Missing files are downloaded and SHA-256 verified. To repair a
+corrupted or manually modified file, delete it and fetch again.
+
+Pass `refresh=True` to select the latest published release:
 
 ```python
-# Pick up any files added to OSF since the last fetch.
+# Select the latest release without overwriting a previously cached version.
 bids_root = fetch_nunez_elizalde_2022(subjects=["CR020"], refresh=True)
 ```
 
-Existing local files are never re-downloaded—`refresh=True` only adds what is missing.
+Versions are immutable and use separate cache directories. Refreshing an unchanged
+release does not reread or download files whose recorded SHA-256 matches the remote
+manifest. If an upstream hash changes or the cached hash is unknown, the file is
+revalidated and downloaded when necessary. The same release-selection behavior
+applies to template fetchers.
 
 ## Available Templates
 
-=== "Huang 2025"
+=== "Brunner, Grillet 2021"
 
-    A vascular mouse fUSI template derived from Huang et al. (2025)[^huang2025] and
-    distributed as a single NIfTI on [OSF (am3jw)](https://osf.io/am3jw/). Total size:
-    **~16.3 MB**.
+    A vascular mouse fUSI template from Brunner, Grillet et al. (2021)[^brunner2021], sourced
+    from the Macé and Montaldo Zenodo dataset[^brunner_dataset] and distributed as
+    a NIfTI with its JSON sidecar in the S3 collection under **CC BY 4.0**. Total
+    size: **~16.3 MB**.
 
-    Use [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] to
-    download and load the template directly. The Huang 2025 template is already
-    resampled to the Allen space:
+    Use
+    [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
+    to download and load the template directly. Its axes are reordered onto the
+    Allen 50 µm grid, whose affine is explicitly assigned without changing vascular
+    voxel values:
 
     ```python
-    from confusius.datasets import fetch_brainglobe_atlas, fetch_template_huang_2025
+    from confusius.datasets import (
+        fetch_brainglobe_atlas,
+        fetch_template_brunner_grillet_2021,
+    )
 
-    template = fetch_template_huang_2025()
+    template = fetch_template_brunner_grillet_2021()
     atlas = fetch_brainglobe_atlas("allen_mouse_50um")
     ```
 
 === "Pepe Mariani 2026"
 
     A mouse fUSI template derived from Pepe, Mariani et al. (2026)[^pepe_mariani2026] and
-    distributed as a single NIfTI on [OSF (43tu9)](https://osf.io/43tu9/). Total size:
+    distributed as a NIfTI with its JSON sidecar in the S3 collection. Total size:
     **~5.5 MB**.
 
     Use
     [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026]
-    to download and load the template directly. The Pepe, Mariani 2026 template isn't
-    resampled to the Allen space to retain the typical orientation from preclinical
-    head-fixed setups. However, the `sform` NIfTI affine contains the transformation
-    necessary to resample to the Allen space:
+    to download and load the template directly. Its native voxel grid and scanner-space
+    `qform` are retained for registration. The `sform` encodes the full Allen atlas
+    alignment, including shear. Use `world_to_sform` to resample the atlas onto the
+    template's native grid:
 
     ```python
     from confusius.datasets import fetch_brainglobe_atlas, fetch_template_pepe_mariani_2026
@@ -494,11 +514,15 @@ parameters and return types.
     eusocial mammal. *Nature*.
     <https://doi.org/10.1038/s41586-026-10772-5>
 
-[^huang2025]:
-    Huang, Y.-A. et al. (2025). OfUSA: OpenfUS Analyzer, a versatile open-source
-    framework for the analysis and visualization of functional ultrasound imaging data
-    across animal models.
-    <https://doi.org/10.1101/2025.09.16.676515>
+[^brunner2021]:
+    Brunner, C., Grillet, M. et al. (2021). Whole-brain functional ultrasound imaging
+    in awake head-fixed mice. *Nature Protocols*, 16, 3547–3571.
+    <https://doi.org/10.1038/s41596-021-00548-8>
+
+[^brunner_dataset]:
+    Macé, E. and Montaldo, G. (2020). Whole-brain visually evoked activity maps in
+    head-fixed awake mice (June 2021 metadata update). *Zenodo*.
+    <https://doi.org/10.5281/zenodo.4905862>
 
 [^pepe_mariani2026]:
     Pepe, C. et al. (2026). Structural and dynamic embedding of the mouse

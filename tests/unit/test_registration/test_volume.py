@@ -219,7 +219,9 @@ class TestRegisterVolumeValidation:
                 metric_sampling_percentage=1.5,
             )
 
-    def test_invalid_metric_sampling_seed_raises(self, sample_voxeldata_2d_registration):
+    def test_invalid_metric_sampling_seed_raises(
+        self, sample_voxeldata_2d_registration
+    ):
         """A negative metric sampling seed raises ValueError."""
         with pytest.raises(ValueError, match="metric_sampling_seed"):
             register_volume(
@@ -1071,6 +1073,42 @@ class TestResampleVolume:
             sample_voxeldata_3dt_registration.coords["time"].values,
         )
 
+    @pytest.mark.parametrize("fill_value", [np.nan, np.inf, 0.5, 2**40])
+    def test_int_dtype_with_unrepresentable_fill_value_raises(self, fill_value):
+        """A fill_value that cannot be stored in an integer moving dtype raises."""
+        labels = create_voxeldata(
+            np.zeros((1, 6, 6), dtype=np.int32),
+            dims=VOXEL_DIMS,
+            voxel_to_world=np.eye(4),
+        )
+        with pytest.raises(ValueError, match="fill_value"):
+            resample_volume(
+                labels,
+                np.eye(4),
+                fill_value=fill_value,
+                **_resample_volume_grid_kwargs(labels),
+            )
+
+    def test_int_dtype_with_integer_fill_value_fills_out_of_fov(self):
+        """An integer fill_value on integer labels lands exactly in out-of-FOV voxels."""
+        labels = create_voxeldata(
+            np.full((1, 6, 6), 7, dtype=np.int32),
+            dims=VOXEL_DIMS,
+            voxel_to_world=np.eye(4),
+        )
+        # Shift the output grid so its first row falls outside the moving FOV.
+        shift = np.eye(4)
+        shift[1, 3] = -2.0
+        result = resample_volume(
+            labels,
+            shift,
+            fill_value=-1,
+            **_resample_volume_grid_kwargs(labels),
+        )
+        assert result.dtype == np.int32
+        assert_array_equal(result.values[0, 0], -1)
+        assert_array_equal(result.values[0, -1], 7)
+
     def test_wrong_ndim_raises(self):
         """1D input raises ValueError."""
         da = xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
@@ -1191,9 +1229,7 @@ class TestResampleVolume:
         )
         assert_allclose(result_auto.values, result_linear.values)
 
-    def test_bspline_interpolation_resamples(
-        self, sample_voxeldata_2d_registration
-    ):
+    def test_bspline_interpolation_resamples(self, sample_voxeldata_2d_registration):
         """`interpolation="bspline"` runs through the SimpleITK B-spline interpolator."""
         result = resample_volume(
             sample_voxeldata_2d_registration,
@@ -1414,6 +1450,120 @@ class TestInitialization:
         )
 
         assert_allclose(transform, initial_transform)
+
+    @pytest.mark.parametrize(
+        ("transform_type", "transform_name", "n_parameters"),
+        [
+            ("translation", "TranslationTransform", 3),
+            ("rigid", "Euler3DTransform", 6),
+            ("affine", "AffineTransform", 12),
+        ],
+    )
+    def test_affine_seed_preserves_mapping_and_fixed_center(
+        self, transform_type, transform_name, n_parameters, monkeypatch
+    ):
+        """A nonidentity initial transform keeps its mapping and the fixed physical pivot."""
+        import SimpleITK as sitk
+
+        geometry = np.array(
+            [
+                [0.0, -0.5, 0.0, 12.0],
+                [0.8, 0.0, 0.0, -7.0],
+                [0.0, 0.0, 1.2, 3.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        fixed = create_voxeldata(
+            np.random.default_rng(0).random((5, 6, 7)).astype(np.float32),
+            dims=("k", "j", "i"),
+            voxel_to_world=geometry,
+        )
+        angle = np.deg2rad(5.0)
+        seed = np.array(
+            [
+                [np.cos(angle), -np.sin(angle), 0.0, 0.3],
+                [np.sin(angle), np.cos(angle), 0.0, -0.2],
+                [0.0, 0.0, 1.0, 0.1],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        seed[0, 1] += 0.03
+        seed[2, 2] = 1.02
+        initial_transforms = []
+        original_set_initial_transform = (
+            sitk.ImageRegistrationMethod.SetInitialTransform
+        )
+
+        def capture_initial_transform(registration, transform, inPlace):
+            initial_transforms.append(sitk.CompositeTransform(transform))
+            return original_set_initial_transform(registration, transform, inPlace)
+
+        monkeypatch.setattr(
+            sitk.ImageRegistrationMethod,
+            "SetInitialTransform",
+            capture_initial_transform,
+        )
+        _, result, _ = register_volume(
+            fixed,
+            fixed,
+            transform_type=transform_type,
+            initialization=seed,
+            optimizer_weights=[0.0] * n_parameters,
+            learning_rate=1.0,
+            number_of_iterations=1,
+            use_multi_resolution=False,
+            resample=False,
+        )
+
+        (initial_transform,) = initial_transforms
+        assert initial_transform.GetNumberOfTransforms() == 2
+        refinement = initial_transform.GetBackTransform()
+        assert refinement.GetName() == transform_name
+        assert refinement.GetNumberOfParameters() == n_parameters
+        expected_center = (geometry @ [2.0, 2.5, 3.0, 1.0])[:3]
+        if transform_type != "translation":
+            assert_allclose(refinement.GetCenter(), expected_center)
+        for point in [np.zeros(3), expected_center, np.array([2.0, -3.0, 4.0])]:
+            assert_allclose(
+                initial_transform.TransformPoint(point),
+                seed[:3, :3] @ point + seed[:3, 3],
+                atol=1e-12,
+            )
+        assert_allclose(result, seed, atol=1e-12)
+
+    @pytest.mark.parametrize("transform_type", ["translation", "rigid"])
+    @pytest.mark.parametrize("nonrigid_seed", [False, True])
+    def test_matrix_seeded_optimization_respects_refinement_constraints(
+        self, sample_voxeldata_3d_feature_registration, transform_type, nonrigid_seed
+    ):
+        """Actual optimization only changes the requested incremental degrees of freedom."""
+        seed = np.eye(4)
+        if nonrigid_seed:
+            seed[:3, :3] = [[1.01, 0.02, 0.0], [0.0, 0.99, 0.0], [0.0, 0.0, 1.02]]
+        seed[:3, 3] = [0.3, -0.2, 0.1]
+        n_parameters = 3 if transform_type == "translation" else 6
+
+        _, result, diagnostics = register_volume(
+            sample_voxeldata_3d_feature_registration,
+            sample_voxeldata_3d_feature_registration,
+            transform_type=transform_type,
+            initialization=seed,
+            optimizer_weights=[1.0] * n_parameters,
+            number_of_iterations=1,
+            learning_rate=0.05,
+            resample=False,
+        )
+
+        refinement = np.linalg.solve(seed, result)
+        linear = refinement[:3, :3]
+        assert diagnostics.n_iterations == 1
+        assert np.linalg.norm(refinement[:3, 3]) > 1e-8
+        if transform_type == "translation":
+            assert_allclose(linear, np.eye(3), atol=1e-12)
+        else:
+            assert_allclose(linear.T @ linear, np.eye(3), atol=1e-12)
+            assert_allclose(np.linalg.det(linear), 1.0, atol=1e-12)
+        assert_allclose(refinement[3], [0.0, 0.0, 0.0, 1.0], atol=1e-12)
 
     def test_bspline_with_affine_initialization_stores_pre_affine(
         self, sample_voxeldata_2d_registration
@@ -2009,7 +2159,9 @@ class TestResampleLike:
     ):
         """The default `interpolation="auto"` is forwarded, matching explicit "nearest"."""
         moving = sample_voxeldata_2d_registration.astype(np.int32)
-        result_default = resample_like(moving, sample_voxeldata_2d_registration, np.eye(4))
+        result_default = resample_like(
+            moving, sample_voxeldata_2d_registration, np.eye(4)
+        )
         result_nearest = resample_like(
             moving,
             sample_voxeldata_2d_registration,
@@ -2366,6 +2518,23 @@ class TestRegisterVolumeFillValue:
         )
         # Out-of-FOV voxels (corners) should be exactly fill_value.
         assert float(result.values[0, 0, 0]) == pytest.approx(sentinel, abs=1e-5)
+
+    def test_int_dtype_with_nan_fill_value_raises(self):
+        """register_volume rejects a NaN fill_value for an integer moving dtype."""
+        fixed = create_voxeldata(
+            np.ones((1, 16, 16), dtype=np.float32),
+            dims=VOXEL_DIMS,
+            voxel_to_world=np.eye(4),
+        )
+        moving = create_voxeldata(
+            np.ones((1, 16, 16), dtype=np.int32),
+            dims=VOXEL_DIMS,
+            voxel_to_world=np.eye(4),
+        )
+        with pytest.raises(ValueError, match="fill_value"):
+            register_volume(
+                moving, fixed, transform_type="translation", fill_value=np.nan
+            )
 
     def test_default_fill_value_is_moving_min(self):
         """When fill_value is None, out-of-FOV voxels are filled with moving.min()."""

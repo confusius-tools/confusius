@@ -300,7 +300,7 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     A VoxelData array's stored `voxel_to_world` affine is defined in
     terms of voxel *coordinate values*, which stay unchanged across cropping or
     striding by design (see
-    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]).
+    `VoxelToWorldIndex`).
     Because of this, the affine generally does not describe where voxel *position*
     `(0, ..., 0)` sits in world space, or the world distance between
     consecutive positions, once `da` has been cropped or strided from a larger
