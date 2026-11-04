@@ -4,7 +4,7 @@ icon: lucide/app-window
 
 # Using the Plugin
 
-The ConfUSIus sidebar contains six collapsible panels. Each panel operates
+The ConfUSIus sidebar contains seven collapsible panels. Each panel operates
 independently and can be expanded or collapsed by clicking its header. For an in-app
 introduction, click **Take a Tour** in the sidebar header.
 
@@ -16,6 +16,8 @@ introduction, click **Take a Tour** in the sidebar header.
 - [**QC**](#qc-panel) — compute DVARS, carpet, CV, tSNR for a selected layer.
 - [**Registration**](#registration-panel) — run between-scan or within-scan
   registration, inspect progress, and save/apply transforms.
+- [**Transform**](#transform-panel): translate, rotate, zoom, and flip a layer in world
+  space, with a live preview.
 
 ## Data I/O Panel
 
@@ -408,3 +410,64 @@ finish. The animation below uses a short open-field recording chunk and shows th
 filling in progressively.
 
 ![ConfUSIus Registration panel — within-scan motion correction](../images/gui/plugin-registration-volumewise.gif)
+
+## Transform Panel
+
+The Transform Panel moves a layer in world space by hand, for instance to align a
+recording with a template. It works on image and labels layers loaded by ConfUSIus.
+
+Pick the layer under **Target**, and optionally a **Reference** to overlay it on. Then
+use the rows to move it:
+
+- **Translate** moves the layer along an axis, in the data's units. The step selector
+  sets what the **−** and **+** buttons do, and can follow the voxel size.
+- **Rotate** turns the layer about the center of rotation. Each dial stays where you
+  leave it and shows, with its box, how far the layer has turned about that axis. It
+  goes round, so one drag can turn as far as you like. Reset, Paste, Load, Identity
+  and Invert put the dials back to 0, as the matrix no longer comes from them.
+- **Zoom and flip** rescales or mirrors the layer about the center of rotation.
+
+**Axes** chooses between world axes (**Global**) and axes that rotate with the layer
+(**Local**). **Center of rotation** sets the point that rotations leave fixed: the
+layer's first voxel, the cursor, or the center of the layer's box. Moving it never moves
+the layer. With the panel in focus, the arrow keys translate within the displayed plane
+and Page Up and Page Down translate through it. Hold Shift for steps ten times larger,
+or Alt for steps ten times smaller. Esc cancels a drag, and Ctrl+Z and Ctrl+Shift+Z undo
+and redo.
+
+**4×4 matrix** shows the transform in `(z, y, x)` order. It can be copied and pasted as
+plain text, saved and loaded as a transform file, or exported as an ITK `.tfm` file for
+tools such as 3D Slicer. A matrix with shear can only be changed as a whole, so it
+disables the rows.
+
+### Preview, Apply and Resample
+
+While you edit, the layer shows a live preview, computed the way
+[`plot_napari`][confusius.plotting.plot_napari] displays oblique data, and the panel
+shows **Not applied**. Until you commit it, saving the layer, QC and registration use
+the original data. The Signals panel's cursor traces read the preview, so they follow
+what you see. Saving with a template layer asks you to apply or reset the preview first.
+
+- **Apply to affine** writes the transform into the layer's voxel-to-world affine. Voxel
+  values do not change.
+- **Resample** creates a new layer with resampled voxels, on the reference layer's grid
+  if one is selected. The original layer does not change.
+- **Reset** discards the transform and restores the layer.
+
+Painting is not possible during a preview. Committing a transform on a labels layer
+whose paint is not in its source data is refused, because the paint would be lost.
+
+!!! warning "Known limitations"
+    Layers with a pose dimension are not supported. A single slice tilted out of its
+    plane shows only a band per plane in 2D, so use the 3D view to see all of it. In 3D,
+    dragging a rotation dial on a large volume previews at a coarser resolution until
+    release.
+
+    `plot_napari` currently places data with a negative voxel-to-world diagonal at the
+    wrong world position. On such data, the layer jumps when a preview starts and on
+    **Reset**, and after **Apply** on a flip or a 180° rotation the layer is displayed
+    misplaced, even though its affine is correct.
+
+    Do not use this panel on a result layer of the Registration panel yet: those layers
+    keep their unregistered data as their source, so the preview shows it and **Apply**
+    replaces the registered result with it.

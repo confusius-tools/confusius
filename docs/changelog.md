@@ -23,6 +23,11 @@ Current development version for the next ConfUSIus release.
   to get the world-space center of a VoxelData array
   ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 
+### :zap: Performance
+
+- [`plot_napari`][confusius.plotting.plot_napari] displays oblique 3D volumes several
+  times faster.
+
 ### :bug: Fixes
 
 - [`apply_affine`][confusius.xarray.apply_affine] and
@@ -35,6 +40,12 @@ Current development version for the next ConfUSIus release.
 
 - Test that every function in the napari plugin manifest can be imported
   ([#555](https://github.com/confusius-tools/confusius/pull/555)).
+
+### :frame_photo: Napari plugin
+
+- Add a Transform panel to translate, rotate, zoom and flip a layer in world space, with
+  a live preview and rotation dials. Apply writes the result to the layer's affine, and
+  Resample creates a new layer with resampled voxels.
 
 ## 0.9.0
 
