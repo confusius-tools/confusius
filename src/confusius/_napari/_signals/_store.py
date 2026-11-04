@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from napari import Viewer
+    from napari.layers import Layer
+
+    from confusius._napari._signals._live import LiveSources
 
 import numpy as np
 import numpy.typing as npt
@@ -52,6 +58,10 @@ class StoredSignal:
         `"mouse-12-34-56"`), or `None` for a signal imported from a file.
         Re-pinning the same origin updates this entry in place instead of
         creating a duplicate.
+    coordinate_dim : str
+        Coordinate axis represented by `x`. Only time snapshots can seed FC.
+    line_style : str
+        Matplotlib line style.
     """
 
     id: str
@@ -64,23 +74,23 @@ class StoredSignal:
     file_path: Path | None
     original_column_name: str | None
     pin_origin: str | None = None
+    coordinate_dim: str = "time"
+    line_style: str = "-"
 
 
 @dataclass(frozen=True, slots=True)
 class LiveSignal:
     """Live signal backed by a napari layer.
 
-    Unlike `StoredSignal`, a live signal does not own its data: the plotter extracts
-    it from layers on each update, and it only exists while its source mode is active
-    — switching source modes replaces the whole live set. The store tracks only
-    presentation metadata (name, color, visibility) so the user can customise the
-    plot; to keep a live signal's current values around after switching modes, pin it
-    with [`SignalStore.pin_signal`][confusius._napari._signals._store.SignalStore.pin_signal].
+    The shared live controller extracts values independently of plotting. A trace
+    identifies one spatial source item and one reference recording. Disabling or
+    hiding it retains its identity and presentation settings. Pinning creates an
+    optional stored snapshot rather than enabling use by other consumers.
 
     Attributes
     ----------
     id : str
-        Stable identifier (e.g. `"mouse-0"`, `"point-3"`, `"label-5"`).
+        Stable identifier for one source item and reference recording.
     name : str
         Display name used in legends (editable by the user).
     color : str
@@ -90,12 +100,29 @@ class LiveSignal:
     source_type : `"mouse"` | `"point"` | `"label"`
         Kind of napari source that produces this signal.
     source_id : int | None
-        `None` for mouse, point index for points, label integer for labels.
+        `None` for mouse, stable feature ID for points, label integer for labels.
     layer_name : str | None
-        Name of the Points or Labels layer `source_id` is defined on, so
-        consumers outside the plotter (e.g. the Preprocessing panel) can
-        re-extract this signal's trace against a different reference image.
-        `None` for mouse signals, which have no backing layer.
+        Display description of the backing layer, never an identity key.
+    source_key : str
+        Stable registered source identifier.
+    reference_layer : napari.layers.Layer or None
+        Explicit reference recording supplying this trace.
+    backing_layer : napari.layers.Layer or None
+        Points or Labels layer defining the ROI.
+    enabled : bool
+        Whether the source and reference configuration permit extraction.
+    available : bool
+        Whether the source item currently exists.
+    default_name : str
+        Generated name, used to preserve explicit user renames.
+    color_overridden : bool
+        Whether to use a custom trace colour instead of its source colour.
+    default_color : str
+        Current source colour, restored when colour synchronization is enabled.
+    line_style : str
+        Matplotlib line style, cycled by recording by default.
+    style_overridden : bool
+        Whether to retain a user-selected line style.
     """
 
     id: str
@@ -105,6 +132,27 @@ class LiveSignal:
     source_type: Literal["mouse", "point", "label"]
     source_id: int | None
     layer_name: str | None = None
+    source_key: str = ""
+    reference_layer: Layer | None = None
+    backing_layer: Layer | None = None
+    enabled: bool = True
+    available: bool = True
+    default_name: str = ""
+    color_overridden: bool = False
+    default_color: str = ""
+    line_style: str = "-"
+    style_overridden: bool = False
+
+    @property
+    def display_name(self) -> str:
+        """Return the generated or user-supplied legend name.
+
+        Returns
+        -------
+        str
+            Display name; source identity remains available in the manager.
+        """
+        return self.name
 
 
 class SignalStore(QObject):
@@ -127,6 +175,33 @@ class SignalStore(QObject):
         self._stored_signals: list[StoredSignal] = []
         self._live_signals: dict[str, LiveSignal] = {}
         self._id_counter: int = 0
+        self._live_sources: LiveSources | None = None
+
+    def live_sources(self, viewer: Viewer) -> LiveSources:
+        """Return the viewer's shared live-source controller.
+
+        Parameters
+        ----------
+        viewer : napari.Viewer
+            Viewer owning the sources.
+
+        Returns
+        -------
+        LiveSources
+            Shared controller, constructed on first use.
+
+        Raises
+        ------
+        ValueError
+            If this store already belongs to another viewer.
+        """
+        from confusius._napari._signals._live import LiveSources
+
+        if self._live_sources is None:
+            self._live_sources = LiveSources(viewer, self)
+        elif self._live_sources.viewer is not viewer:
+            raise ValueError("A signal store cannot share live sources across viewers.")
+        return self._live_sources
 
     def stored_signals(self) -> list[StoredSignal]:
         """Return all stored signals.
@@ -263,6 +338,7 @@ class SignalStore(QObject):
         y: npt.NDArray[np.floating],
         color: str,
         source_label: str,
+        coordinate_dim: str = "time",
     ) -> StoredSignal:
         """Pin a live signal's current values as a persistent stored signal.
 
@@ -286,6 +362,8 @@ class SignalStore(QObject):
             Hex color used for plotting.
         source_label : str
             Human-readable description of where this was pinned from.
+        coordinate_dim : str, default: "time"
+            Axis represented by `x`; non-time snapshots are not FC seeds.
 
         Returns
         -------
@@ -315,6 +393,7 @@ class SignalStore(QObject):
             file_path=None,
             original_column_name=None,
             pin_origin=origin,
+            coordinate_dim=coordinate_dim,
         )
         self._stored_signals.append(pinned)
         self._emit_changed(plot_data=True)
@@ -407,7 +486,11 @@ class SignalStore(QObject):
         list[LiveSignal]
             Visible live signals.
         """
-        return [s for s in self._live_signals.values() if s.visible]
+        return [
+            s
+            for s in self._live_signals.values()
+            if s.visible and s.enabled and s.available
+        ]
 
     def get_live_signal(self, signal_id: str) -> LiveSignal | None:
         """Look up a single live signal by ID.
@@ -443,8 +526,13 @@ class SignalStore(QObject):
                 # Preserve user overrides, but update source metadata.
                 merged[sid] = replace(
                     new,
-                    name=old.name,
-                    color=old.color,
+                    name=(old.name if old.name != old.default_name else new.name),
+                    color=old.color if old.color_overridden else new.color,
+                    color_overridden=old.color_overridden,
+                    line_style=old.line_style
+                    if old.style_overridden
+                    else new.line_style,
+                    style_overridden=old.style_overridden,
                     visible=old.visible,
                 )
             else:
@@ -494,7 +582,7 @@ class SignalStore(QObject):
         self._replace_live(signal_id, plot_data=True, visible=visible)
 
     def set_live_signal_color(self, signal_id: str, color: str) -> None:
-        """Update the plot color for one live signal.
+        """Set a custom trace colour and disable ROI colour synchronization.
 
         Parameters
         ----------
@@ -505,7 +593,53 @@ class SignalStore(QObject):
         """
         if not color:
             raise ValueError("Live signal color cannot be empty.")
-        self._replace_live(signal_id, color=color)
+        self._replace_live(signal_id, color=color, color_overridden=True)
+
+    def set_live_signal_color_sync(self, signal_id: str, synced: bool) -> None:
+        """Toggle synchronization with the point or label colour.
+
+        Parameters
+        ----------
+        signal_id : str
+            Live ROI trace identifier.
+        synced : bool
+            Whether to follow the backing ROI's current colour.
+
+        Raises
+        ------
+        ValueError
+            If the signal is missing or has no backing ROI.
+        """
+        live = self.get_live_signal(signal_id)
+        if live is None or live.backing_layer is None:
+            raise ValueError("Colour synchronization requires a point or label trace.")
+        self._replace_live(
+            signal_id,
+            color_overridden=not synced,
+            color=(live.default_color or live.color) if synced else live.color,
+        )
+
+    def set_signal_line_style(self, signal_id: str, style: str) -> None:
+        """Set a live or stored trace's line style.
+
+        Parameters
+        ----------
+        signal_id : str
+            Trace identifier.
+        style : {"-", "--", "-.", ":"}
+            Solid, dashed, dash-dot or dotted style.
+
+        Raises
+        ------
+        ValueError
+            If the style or signal identifier is invalid.
+        """
+        if style not in {"-", "--", "-.", ":"}:
+            raise ValueError("Unknown line style.")
+        if self.get_live_signal(signal_id) is not None:
+            self._replace_live(signal_id, line_style=style, style_overridden=True)
+        else:
+            self._replace_signal(signal_id, line_style=style)
 
     # -- Private helpers ------------------------------------------------------
 
