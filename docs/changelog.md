@@ -20,6 +20,11 @@ Current development version for the next ConfUSIus release.
 - Fix video synchronization with recordings timed in milliseconds or microseconds
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 
+### :wrench: Maintenance
+
+- Test that every function in the napari plugin manifest can be imported
+  ([#555](https://github.com/confusius-tools/confusius/pull/555)).
+
 ## 0.9.0
 
 Released 2026-10-31.
