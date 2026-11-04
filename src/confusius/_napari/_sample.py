@@ -291,7 +291,7 @@ def _dataarray_to_layer_data(
     """
     from confusius._utils.napari import convert_dataarray_to_layer_data
 
-    layer_data = convert_dataarray_to_layer_data(da, name=name)
+    [layer_data] = convert_dataarray_to_layer_data(da, name=name)
     _, kwargs, layer_type = layer_data
     if gamma is not None and layer_type == "image":
         kwargs.setdefault("gamma", gamma)

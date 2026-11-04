@@ -42,6 +42,7 @@ def plot_napari(
     layer_type: Literal["image", "labels", "auto"] = "auto",
     resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
     resample_fill_value: float | None = None,
+    _built_layer: tuple[Any, dict[str, Any], Literal["image", "labels"]] | None = None,
     **layer_kwargs,
 ) -> "tuple[Viewer, list[Image | Labels]]":
     """Display fUSI data using the napari viewer.
@@ -81,6 +82,8 @@ def plot_napari(
     resample_fill_value : float, optional
         Value assigned to voxels outside `data`'s field of view after resampling
         oblique data. If not provided, defaults to `data`'s own minimum value.
+    _built_layer : tuple[Any, dict[str, Any], Literal["image", "labels"]], optional
+        Internal pre-built layer payload used when adding a pose layer.
     **layer_kwargs
         Additional keyword arguments passed to the layer creation method
         (`napari.imshow` for images or `viewer.add_labels` for labels).
@@ -160,12 +163,23 @@ def plot_napari(
     """
     data = ensure_voxeldata(data)
     if POSE_DIM in data.dims:
+        built_layers = build_napari_layer_data(
+            data,
+            name=layer_kwargs.get("name"),
+            layer_type=layer_type,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
+        )
         layers: list[Image | Labels] = []
-        name = layer_kwargs.get("name", data.name)
-        for p in range(data.sizes[POSE_DIM]):
-            pose = data.coords[POSE_DIM].values[p]
+        contrast_limits = layer_kwargs.get("contrast_limits")
+        automatic_contrast_limits: list[tuple[float, float]] = []
+        layer_kwargs = {
+            key: value for key, value in layer_kwargs.items() if key != "name"
+        }
+        for built_layer in built_layers:
+            source_data = built_layer[1]["metadata"]["source_xarray"]
             viewer, pose_layers = plot_napari(
-                data.isel({POSE_DIM: p}),
+                source_data,
                 show_colorbar=show_colorbar,
                 show_scale_bar=show_scale_bar,
                 dim_order=dim_order,
@@ -173,18 +187,36 @@ def plot_napari(
                 layer_type=layer_type,
                 resample_interpolation=resample_interpolation,
                 resample_fill_value=resample_fill_value,
-                **{**layer_kwargs, "name": f"{name or 'data'} [pose {pose}]"},
+                _built_layer=built_layer,
+                **(
+                    {**layer_kwargs, "contrast_limits": contrast_limits}
+                    if contrast_limits is not None
+                    else layer_kwargs
+                ),
             )
             layers.extend(pose_layers)
+            if contrast_limits is None and hasattr(pose_layers[0], "contrast_limits"):
+                automatic_contrast_limits.append(tuple(pose_layers[0].contrast_limits))
+        if automatic_contrast_limits:
+            contrast_limits = (
+                min(limits[0] for limits in automatic_contrast_limits),
+                max(limits[1] for limits in automatic_contrast_limits),
+            )
+            for pose_layer in layers:
+                if hasattr(pose_layer, "contrast_limits"):
+                    pose_layer.contrast_limits = contrast_limits
         assert viewer is not None
         return viewer, layers
 
-    plot_data, built_kwargs, resolved_layer_type = build_napari_layer_data(
-        data,
-        layer_type=layer_type,
-        resample_interpolation=resample_interpolation,
-        resample_fill_value=resample_fill_value,
-    )
+    if _built_layer is None:
+        [(plot_data, built_kwargs, resolved_layer_type)] = build_napari_layer_data(
+            data,
+            layer_type=layer_type,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
+        )
+    else:
+        plot_data, built_kwargs, resolved_layer_type = _built_layer
     data = built_kwargs["metadata"]["xarray"]
 
     all_dims = [str(dim) for dim in data.dims]

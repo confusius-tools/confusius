@@ -17,6 +17,7 @@ import pytest
 import xarray as xr
 from dask.callbacks import Callback
 from napari.layers import Image
+from napari.layers.utils.layer_utils import calc_data_range
 
 from confusius._napari._io._readers import (
     read_iconeus_raw,
@@ -193,6 +194,38 @@ class TestReaderLayerData:
         npt.assert_allclose(kwargs["scale"], [0.2, 0.1, 0.05], rtol=1e-5)
         npt.assert_allclose(kwargs["translate"], [1.0, 2.0, 3.0], rtol=1e-5)
         assert kwargs["axis_labels"] == ["z", "y", "x"]
+
+    def test_multipose_data_returns_one_layer_per_pose_with_shared_contrast(
+        self, tmp_path: Path, sample_voxeldata_3dt_pose: xr.DataArray
+    ) -> None:
+        """Readers split poses and aggregate their automatic contrast limits."""
+        data = sample_voxeldata_3dt_pose + xr.DataArray(
+            [0.0, 100.0], dims="pose", coords={"pose": sample_voxeldata_3dt_pose.pose}
+        )
+        path = tmp_path / "multipose.zarr"
+        save(data, path)
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        layers = reader(str(path))
+
+        assert len(layers) == data.sizes["pose"]
+        assert [kwargs["name"] for _, kwargs, _ in layers] == [
+            "multipose.zarr [pose 0]",
+            "multipose.zarr [pose 1]",
+        ]
+        expected_limits = np.array(
+            [calc_data_range(data.isel(pose=pose).values) for pose in range(2)]
+        )
+        for _layer_data, kwargs, _layer_type in layers:
+            npt.assert_allclose(
+                kwargs["contrast_limits"],
+                [expected_limits[:, 0].min(), expected_limits[:, 1].max()],
+            )
+        for pose, (layer_data, kwargs, layer_type) in enumerate(layers):
+            assert layer_type == "image"
+            npt.assert_array_equal(layer_data, data.isel(pose=pose).values)
+            assert kwargs["metadata"]["source_xarray"].coords["pose"].item() == pose
 
     def test_4d_scale_uses_time_spacing(self, zarr_4d_path: Path) -> None:
         """4D scale uses fusi.spacing for all dims, including time."""

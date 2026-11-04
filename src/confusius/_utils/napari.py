@@ -12,7 +12,7 @@ from napari.layers.utils.layer_utils import calc_data_range
 from napari.utils.colormaps import DirectLabelColormap, ensure_colormap
 from napari.utils.notifications import show_warning
 
-from confusius._dims import TIME_DIM
+from confusius._dims import POSE_DIM, TIME_DIM
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
 from confusius._utils.stack import find_stack_level
@@ -153,7 +153,7 @@ def get_napari_layer_geometry(
     return scale, translate, axis_labels, units, non_uniform, spacing
 
 
-def build_napari_layer_data(
+def _build_napari_layer_data(
     data: xr.DataArray,
     name: str | None = None,
     layer_type: Literal["image", "labels", "auto"] = "auto",
@@ -292,15 +292,72 @@ def build_napari_layer_data(
     return data.data, kwargs, resolved_layer_type
 
 
+def build_napari_layer_data(
+    data: xr.DataArray,
+    name: str | None = None,
+    layer_type: Literal["image", "labels", "auto"] = "auto",
+    resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
+    resample_fill_value: float | None = None,
+) -> list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]:
+    """Build napari layer data for a VoxelData array.
+
+    Arrays with a `pose` dimension produce one layer per pose so every layer keeps
+    its own voxel-to-world affine. Otherwise, returns one layer.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to display.
+    name : str, optional
+        Layer name. If not provided, `data.name` is used.
+    layer_type : {"image", "labels", "auto"}, default: "auto"
+        Type of layer to build.
+    resample_interpolation : {"linear", "nearest", "bspline"}, optional
+        Interpolation method used when resampling oblique data for display.
+    resample_fill_value : float, optional
+        Value assigned outside the field of view when resampling.
+
+    Returns
+    -------
+    layers : list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]
+        Napari layer payloads, keyword arguments, and resolved layer types.
+    """
+    from confusius.validation import ensure_voxeldata
+
+    data = ensure_voxeldata(data)
+    if POSE_DIM not in data.dims:
+        return [
+            _build_napari_layer_data(
+                data,
+                name=name,
+                layer_type=layer_type,
+                resample_interpolation=resample_interpolation,
+                resample_fill_value=resample_fill_value,
+            )
+        ]
+
+    base_name = name if name is not None else data.name or "data"
+    return [
+        _build_napari_layer_data(
+            data.isel({POSE_DIM: index}),
+            name=f"{base_name} [pose {pose}]",
+            layer_type=layer_type,
+            resample_interpolation=resample_interpolation,
+            resample_fill_value=resample_fill_value,
+        )
+        for index, pose in enumerate(data.coords[POSE_DIM].values)
+    ]
+
+
 def convert_dataarray_to_layer_data(
     da: xr.DataArray, name: str
-) -> tuple[Any, dict[str, Any], Literal["image", "labels"]]:
-    """Convert a ConfUSIus DataArray to a napari FullLayerData tuple.
+) -> list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]:
+    """Convert a ConfUSIus DataArray to napari FullLayerData tuples.
 
-    Used by the napari plugin readers and sample data, which hand the tuple to napari
-    instead of adding the layer themselves. Wraps `build_napari_layer_data`, shows
-    its warnings as napari notifications, and computes image contrast limits up
-    front.
+    Used by the napari plugin readers and sample data, which hand the tuples to napari
+    instead of adding the layers themselves. Wraps `build_napari_layer_data`, shows
+    its warnings as napari notifications, and aggregates image contrast limits over
+    all layers so every pose shares a consistent display range.
 
     Parameters
     ----------
@@ -311,19 +368,15 @@ def convert_dataarray_to_layer_data(
 
     Returns
     -------
-    data : Any
-        Layer data payload.
-    kwargs : dict[str, Any]
-        Keyword arguments for the napari layer constructor.
-    layer_type : {"image", "labels"}
-        Napari layer type inferred from `da.dtype`.
+    layers : list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]
+        Napari layer data tuples, one per pose when `da` has a `pose` dimension.
     """
     # napari only routes Python warnings to its notifications inside
     # `notification_manager`, which a reader call is not, so warnings would otherwise
     # only reach the terminal.
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        data, kwargs, layer_type = build_napari_layer_data(da, name=name)
+        layers = build_napari_layer_data(da, name=name)
     for caught_warning in caught:
         if issubclass(caught_warning.category, UserWarning):
             show_warning(str(caught_warning.message))
@@ -334,9 +387,17 @@ def convert_dataarray_to_layer_data(
                 caught_warning.filename,
                 caught_warning.lineno,
             )
-    if layer_type == "image":
-        kwargs["contrast_limits"] = calc_data_range(data)
-    return data, kwargs, layer_type
+    if layers[0][2] == "image":
+        automatic_contrast_limits = np.array(
+            [calc_data_range(data) for data, _kwargs, _layer_type in layers]
+        )
+        contrast_limits = (
+            automatic_contrast_limits[:, 0].min(),
+            automatic_contrast_limits[:, 1].max(),
+        )
+        for _data, kwargs, _layer_type in layers:
+            kwargs["contrast_limits"] = contrast_limits
+    return layers
 
 
 def build_roi_labels_features(roi_labels: dict[int, str]) -> pd.DataFrame:
