@@ -1,8 +1,8 @@
 cff-version: 1.2.0
 title: ConfUSIus
 message: >-
-  If you use this software, please cite it using the
-  metadata from this file.
+  If you use this software, please cite the preprint
+  in the preferred-citation field.
 type: software
 authors:
   - given-names: Samuel
@@ -22,6 +22,23 @@ identifiers:
   - type: doi
     value: 10.5281/zenodo.18611124
     description: Zenodo link
+preferred-citation:
+  type: article
+  title: >-
+    ConfUSIus: an accessible and scalable toolkit for
+    functional ultrasound imaging analysis
+  authors:
+    - given-names: Samuel
+      family-names: Le Meur-Diebolt
+      orcid: 'https://orcid.org/0000-0002-9788-7263'
+    - given-names: Felipe
+      family-names: Cybis Pereira
+      orcid: 'https://orcid.org/0009-0009-6124-0466'
+  journal: bioRxiv
+  year: 2026
+  date-published: '2026-11-03'
+  doi: 10.64898/2026.10.27.762250
+  url: 'https://doi.org/10.64898/2026.10.27.762250'
 repository-code: 'https://github.com/confusius-tools/confusius'
 url: 'https://confusius.tools'
 abstract: >-

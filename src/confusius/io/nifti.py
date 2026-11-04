@@ -10,7 +10,7 @@ import json
 import re
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal
 
 import dask.array as da
 import numpy as np
@@ -53,7 +53,7 @@ from confusius.xarray.create import create_voxeldata
 if TYPE_CHECKING:
     import nibabel as nib
 
-NiftiVersion: TypeAlias = Literal[1, 2]
+type NiftiVersion = Literal[1, 2]
 """Type alias for NIfTI file format version."""
 
 _NIFTI_DIM_ORDER = ("i", "j", "k", "time", "dim4", "dim5", "dim6")
