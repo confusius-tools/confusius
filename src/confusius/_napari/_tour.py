@@ -812,8 +812,10 @@ def build_default_tour(
             title="Video Viewer and List",
             body=(
                 "Videos play next to the main canvas, with their own list below "
-                "napari's layer list. Closing either dock only hides it. Use "
-                "<b>Show video viewer</b> or <b>Show video list</b> to bring it back."
+                "napari's layer list. The video canvas has no title bar: use "
+                "<b>Show video viewer</b> / <b>Hide video viewer</b> to toggle it. "
+                "Closing the layer list only hides it; use "
+                "<b>Show video list</b> to bring it back."
             ),
             anchor="left",
             spotlight_rect=_panel_attr_rect(

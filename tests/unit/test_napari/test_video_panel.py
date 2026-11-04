@@ -162,6 +162,25 @@ def test_add_video_opens_docks_and_leaves_main_viewer_alone(viewer, panel, add_v
     assert panel.isAncestorOf(video_viewer.controls) is False
 
 
+def test_video_canvas_has_no_title_bar_and_cannot_float(viewer, panel, add_video):
+    add_video(_FakeVideo(n_frames=2))
+    video_viewer = panel._video_viewer
+    video_dock = video_viewer.dock
+    assert not video_dock.features() & video_dock.DockWidgetFeature.DockWidgetFloatable
+    assert not hasattr(video_dock.titleBarWidget(), "float_button")
+    assert not hasattr(video_dock.titleBarWidget(), "close_button")
+    # napari rebuilds its custom title bar whenever the dock's float state
+    # changes; the empty title bar must survive that.
+    video_dock.topLevelChanged.emit(False)
+    assert not hasattr(video_dock.titleBarWidget(), "float_button")
+
+    controls_dock = video_viewer.controls_dock
+    assert not (
+        controls_dock.features() & controls_dock.DockWidgetFeature.DockWidgetFloatable
+    )
+    assert controls_dock.titleBarWidget().float_button.isHidden()
+
+
 def test_add_video_does_not_move_main_time(viewer, panel, add_video):
     t_idx = find_time_dim_index(viewer)
     before = viewer.dims.point[t_idx]
@@ -269,8 +288,10 @@ def test_remove_last_video_closes_dock(viewer, panel, add_video):
     assert not panel._show_layer_list_btn.isEnabled()
     add_video(_FakeVideo(), "a")
     add_video(_FakeVideo(), "b")
-    assert not panel._show_viewer_btn.isEnabled()
-    assert not panel._show_layer_list_btn.isEnabled()
+    assert panel._show_viewer_btn.isEnabled()
+    assert panel._show_viewer_btn.text() == "Hide video viewer"
+    assert panel._show_layer_list_btn.isEnabled()
+    assert panel._show_layer_list_btn.text() == "Hide video list"
     video_viewer = panel._video_viewer
     _delete_video(panel, "Video: a")
     assert [e.layer.name for e in panel._videos] == ["Video: b"]
@@ -300,30 +321,33 @@ def test_closed_video_windows_can_be_reopened_from_data_io(viewer, panel, add_vi
     add_video(_FakeVideo())
     QApplication.processEvents()
     video_viewer = panel._video_viewer
-    assert panel._show_layer_list_btn.text() == "Show video list"
-    assert not panel._show_viewer_btn.isEnabled()
-    assert not panel._show_layer_list_btn.isEnabled()
+    assert panel._show_viewer_btn.isEnabled()
+    assert panel._show_viewer_btn.text() == "Hide video viewer"
+    assert panel._show_layer_list_btn.isEnabled()
+    assert panel._show_layer_list_btn.text() == "Hide video list"
 
     controls_dock = video_viewer.controls_dock
     controls_dock.titleBarWidget().close_button.click()
     assert controls_dock.isHidden()
     assert panel._show_layer_list_btn.isEnabled()
-    assert not panel._show_viewer_btn.isEnabled()
+    assert panel._show_layer_list_btn.text() == "Show video list"
+    assert panel._show_viewer_btn.text() == "Hide video viewer"
     # Closing hides the dock instead of deleting it, so it can come back.
     assert viewer.window.dock_widgets["video layer list"] is video_viewer.controls
     panel._show_layer_list_btn.click()
     assert not controls_dock.isHidden()
-    assert not panel._show_layer_list_btn.isEnabled()
+    assert panel._show_layer_list_btn.text() == "Hide video list"
 
     video_dock = video_viewer.dock
-    video_dock.titleBarWidget().close_button.click()
+    assert not hasattr(video_dock.titleBarWidget(), "close_button")
+    panel._show_viewer_btn.click()
     assert video_dock.isHidden()
-    assert panel._show_viewer_btn.isEnabled()
-    assert not panel._show_layer_list_btn.isEnabled()
+    assert panel._show_viewer_btn.text() == "Show video viewer"
+    assert panel._show_layer_list_btn.text() == "Hide video list"
     assert viewer.window.dock_widgets["Video"] is video_viewer.qt_viewer
     panel._show_viewer_btn.click()
     assert not video_dock.isHidden()
-    assert not panel._show_viewer_btn.isEnabled()
+    assert panel._show_viewer_btn.text() == "Hide video viewer"
 
 
 def test_layer_removed_from_the_model_is_forgotten(viewer, panel, add_video):
@@ -437,14 +461,14 @@ def test_closed_video_dock_does_not_decode_until_reopened(
     video_dims.play(0)
     qtbot.waitUntil(lambda: video_dims.is_playing)
 
-    video_viewer.dock.titleBarWidget().close_button.click()
+    panel._show_viewer_btn.click()
     assert not video_dims.is_playing
 
     video.reads.clear()
     viewer.dims.set_point(t_idx, 12.0)
     assert video.reads == []
 
-    video_viewer.show_viewer()
+    panel._show_viewer_btn.click()
     assert video_viewer.model.dims.point[0] == pytest.approx(12.0, abs=1 / 30)
     assert 360 in video.reads
 
@@ -847,22 +871,21 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
         assert video_dock.width() == pytest.approx(panel_width, abs=4)
 
-        # Both title-bar buttons also give the space back to the canvas, and
+        # The Data I/O toggle also gives the space back to the canvas, and
         # reopening takes it from the canvas again.
         canvas = window.centralWidget()
         canvas_width = canvas.width()
-        for button_name in ("close_button", "hide_button"):
-            getattr(video_dock.titleBarWidget(), button_name).click()
-            relayout()
-            assert video_dock.isHidden()
-            assert panel_dock.width() == pytest.approx(panel_width, abs=4)
-            assert canvas.width() > canvas_width
-            video_viewer.show_viewer()
-            relayout()
-            assert not video_dock.isHidden()
-            assert panel_dock.width() == pytest.approx(panel_width, abs=4)
-            assert video_dock.width() == pytest.approx(panel_width, abs=4)
-            assert canvas.width() == pytest.approx(canvas_width, abs=4)
+        panel._show_viewer_btn.click()
+        relayout()
+        assert video_dock.isHidden()
+        assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+        assert canvas.width() > canvas_width
+        panel._show_viewer_btn.click()
+        relayout()
+        assert not video_dock.isHidden()
+        assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+        assert video_dock.width() == pytest.approx(panel_width, abs=4)
+        assert canvas.width() == pytest.approx(canvas_width, abs=4)
     finally:
         video_viewer.close()
     relayout()

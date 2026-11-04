@@ -194,8 +194,10 @@ class VideoViewer:
         # Closing hides the dock so Data I/O can reopen it. No floating:
         # a detached vispy canvas needs
         # `AA_ShareOpenGLContexts`, which must be set before the QApplication
-        # exists and a plugin cannot guarantee.
+        # exists and a plugin cannot guarantee. The canvas has no title bar,
+        # so its panel toggle is the only way to hide it.
         self.dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        _remove_title_bar(self.dock)
         _hide_on_close(self.dock, self.hide_viewer)
         # napari 0.9 caps a plugin dock at its initial size hint (explicit max
         # height on the dock, Maximum policy on its content); lift both so the
@@ -293,6 +295,7 @@ class VideoViewer:
         # Like napari's layer dock, undo the plugin dock's Maximum policy.
         self.controls.setSizePolicy(controls_policy)
         self.controls_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        _keep_docked(self.controls_dock)
         _hide_on_close(self.controls_dock, self.controls_dock.hide)
         self._sync_theme()
         # Size the dock after Qt has polished and laid out its contents.
@@ -813,6 +816,78 @@ class VideoViewer:
         # The model's event callbacks hold bound methods of the QtViewer, so
         # dropping both references is what lets the QtViewer be collected.
         del self.qt_viewer, self.model, self.dock, self.controls, self.controls_dock
+
+
+class _EmptyTitleBar(QWidget):
+    """Zero-height dock title bar with no buttons or drag handle.
+
+    Parameters
+    ----------
+    parent : qtpy.QtWidgets.QWidget
+        The dock widget owning the title bar.
+    """
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(0)
+
+
+def _remove_title_bar(dock: QDockWidget) -> None:
+    """Strip the dock's title bar and keep the dock itself from floating.
+
+    The video canvas has no usable close, hide or float controls of its own:
+    closing and hiding are driven from the Data I/O panel, and floating would
+    reparent the `QOpenGLWidget` into a window with an unshared GL context
+    (see `_keep_docked`).
+
+    Parameters
+    ----------
+    dock : qtpy.QtWidgets.QDockWidget
+        Dock whose title bar should be removed.
+    """
+
+    def remove(*_args) -> None:
+        """Restore the empty title bar and re-dock a floating dock."""
+        if not isinstance(dock.titleBarWidget(), _EmptyTitleBar):
+            dock.setTitleBarWidget(_EmptyTitleBar(dock))
+        if dock.isFloating():
+            dock.setFloating(False)
+
+    remove()
+    # napari rebuilds its custom title bar on both events.
+    dock.dockLocationChanged.connect(remove)
+    dock.topLevelChanged.connect(remove)
+
+
+def _keep_docked(dock: QDockWidget) -> None:
+    """Hide the title bar's float button and undo any detach.
+
+    napari's custom title bar shows a float button regardless of the dock's
+    `DockWidgetFloatable` feature, so `setFeatures` alone does not stop a
+    detach.  Floating reparents the video's `QOpenGLWidget` into a new
+    top-level window whose GL context is not shared with the main window;
+    vispy's buffers and textures then belong to the old context, and every
+    draw raises `GLError` (1281, "invalid value").
+
+    Parameters
+    ----------
+    dock : qtpy.QtWidgets.QDockWidget
+        Dock that must stay docked in the main window.
+    """
+
+    def keep_docked(*_args) -> None:
+        """Hide the float button and re-dock a currently floating dock."""
+        title = dock.titleBarWidget()
+        button = getattr(title, "float_button", None)
+        if button is not None:
+            button.hide()
+        if dock.isFloating():
+            dock.setFloating(False)
+
+    keep_docked()
+    # napari recreates the title bar on both events, bringing the button back.
+    dock.dockLocationChanged.connect(keep_docked)
+    dock.topLevelChanged.connect(keep_docked)
 
 
 def _hide_on_close(dock: QDockWidget, hide: Callable[[], None]) -> None:

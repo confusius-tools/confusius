@@ -72,33 +72,47 @@ class VideoPanel(QWidget):
 
         self._show_viewer_btn = QPushButton("Show video viewer")
         self._show_viewer_btn.setEnabled(False)
-        self._show_viewer_btn.clicked.connect(self._show_video_viewer)
+        self._show_viewer_btn.clicked.connect(self._toggle_video_viewer)
         self._show_layer_list_btn = QPushButton("Show video list")
         self._show_layer_list_btn.setEnabled(False)
-        self._show_layer_list_btn.clicked.connect(self._show_layer_list)
+        self._show_layer_list_btn.clicked.connect(self._toggle_layer_list)
 
         window_row = QHBoxLayout()
         window_row.addWidget(self._show_viewer_btn)
         window_row.addWidget(self._show_layer_list_btn)
         layout.addLayout(window_row)
 
-    def _show_video_viewer(self) -> None:
-        """Reopen the video canvas if it was closed."""
-        if self._video_viewer is not None:
+    def _toggle_video_viewer(self) -> None:
+        """Show or hide the video canvas."""
+        if self._video_viewer is None:
+            return
+        if self._video_viewer.dock.isHidden():
             self._video_viewer.show_viewer()
+        else:
+            self._video_viewer.hide_viewer()
 
-    def _show_layer_list(self) -> None:
-        """Reopen the video layer list if it was closed."""
-        if self._video_viewer is not None:
+    def _toggle_layer_list(self) -> None:
+        """Show or hide the video layer list."""
+        if self._video_viewer is None:
+            return
+        if self._video_viewer.controls_dock.isHidden():
             self._video_viewer.show_layer_list()
+        else:
+            self._video_viewer.controls_dock.hide()
 
     def _update_window_buttons(self) -> None:
-        """Enable reopening hidden video windows only while videos are loaded."""
+        """Update the window toggles for the loaded videos."""
         video_viewer = self._video_viewer
         enabled = video_viewer is not None and bool(self._videos)
-        self._show_viewer_btn.setEnabled(enabled and video_viewer.dock.isHidden())
-        self._show_layer_list_btn.setEnabled(
-            enabled and video_viewer.controls_dock.isHidden()
+        viewer_hidden = not enabled or video_viewer.dock.isHidden()
+        list_hidden = not enabled or video_viewer.controls_dock.isHidden()
+        self._show_viewer_btn.setEnabled(enabled)
+        self._show_viewer_btn.setText(
+            "Show video viewer" if viewer_hidden else "Hide video viewer"
+        )
+        self._show_layer_list_btn.setEnabled(enabled)
+        self._show_layer_list_btn.setText(
+            "Show video list" if list_hidden else "Hide video list"
         )
 
     # ------------------------------------------------------------------
