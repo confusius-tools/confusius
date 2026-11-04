@@ -10,6 +10,19 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :books: Documentation
+
+- Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
+  archive, and simplify dataset and template citations
+  ([#565](https://github.com/confusius-tools/confusius/pull/565)).
+
+### :wrench: Maintenance
+
+- Test that every function in the napari plugin manifest can be imported
+  ([#555](https://github.com/confusius-tools/confusius/pull/555)).
+- Use the released xarray 2026.9.0 instead of a git pin now that it ships the
+  required fixes ([#559](https://github.com/confusius-tools/confusius/pull/559)).
+  
 ### :frame_photo: Napari plugin
 
 - Videos open in a separate, time-synchronized viewer with their own layer list. Load
@@ -19,11 +32,6 @@ Current development version for the next ConfUSIus release.
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 - Fix video synchronization with recordings timed in milliseconds or microseconds
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
-
-### :wrench: Maintenance
-
-- Test that every function in the napari plugin manifest can be imported
-  ([#555](https://github.com/confusius-tools/confusius/pull/555)).
 
 ## 0.9.0
 
