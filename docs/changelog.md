@@ -10,6 +10,12 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- `plot_napari` and its xarray accessors always return `(viewer, layers)`;
+  use `viewer, [layer] = ...` for single-layer results
+  ([#562](https://github.com/confusius-tools/confusius/pull/562)).
+
 ### :wrench: Maintenance
 
 - Test that every function in the napari plugin manifest can be imported
@@ -19,11 +25,8 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
-- Open multipose arrays as one correctly positioned layer per pose through
-  [`plot_napari`][confusius.plotting.plot_napari], its xarray accessors, and the CLI,
-  with pose values appended to layer names. **Breaking:** the plotting APIs always
-  return `(viewer, layers)`, with a list even for single-pose input; use
-  `viewer, [layer] = ...` when expecting one layer
+- Open multipose arrays as one positioned layer per pose in `plot_napari`, its
+  xarray accessors, and the CLI, with pose values in layer names
   ([#562](https://github.com/confusius-tools/confusius/pull/562)).
 
 ## 0.9.0
