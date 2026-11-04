@@ -55,11 +55,6 @@ in the other stops it.
     confusius path/to/scan.nii.gz --video path/to/camera.mp4
     confusius --video path/to/camera.mp4
     ```
-The video canvas has no title bar of its own. Use the **Show video viewer** /
-**Hide video viewer** toggle in the Data I/O panel to show or hide it. The video
-layer list can be closed from its title bar or with the **Show video list** /
-**Hide video list** toggle. A hidden video viewer does not decode frames, and it
-catches up with the main viewer's time when it reopens.
 
 When multiple videos are loaded, the video viewer shows them side by side in its grid.
 Frame `n` of a video is shown at `n / fps` seconds, so a video lines up with a recording

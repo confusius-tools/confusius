@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from qtpy.QtWidgets import QWidget
+from qtpy.QtWidgets import QDockWidget, QWidget
 
 import confusius._napari._video._video_panel as panel_module
 from confusius._napari._data._load_panel import DataPanel
@@ -165,20 +165,22 @@ def test_add_video_opens_docks_and_leaves_main_viewer_alone(viewer, panel, add_v
 def test_video_canvas_has_no_title_bar_and_cannot_float(viewer, panel, add_video):
     add_video(_FakeVideo(n_frames=2))
     video_viewer = panel._video_viewer
-    video_dock = video_viewer.dock
-    assert not video_dock.features() & video_dock.DockWidgetFeature.DockWidgetFloatable
-    assert not hasattr(video_dock.titleBarWidget(), "float_button")
-    assert not hasattr(video_dock.titleBarWidget(), "close_button")
-    # napari rebuilds its custom title bar whenever the dock's float state
-    # changes; the empty title bar must survive that.
-    video_dock.topLevelChanged.emit(False)
-    assert not hasattr(video_dock.titleBarWidget(), "float_button")
+    title = video_viewer.dock.titleBarWidget()
+    assert not hasattr(title, "float_button")
+    assert not hasattr(title, "close_button")
+    # The layer list is a normal dock and keeps its float button.
+    assert hasattr(video_viewer.controls_dock.titleBarWidget(), "float_button")
 
-    controls_dock = video_viewer.controls_dock
-    assert not (
-        controls_dock.features() & controls_dock.DockWidgetFeature.DockWidgetFloatable
-    )
-    assert controls_dock.titleBarWidget().float_button.isHidden()
+    floatable = QDockWidget.DockWidgetFeature.DockWidgetFloatable
+    assert not video_viewer.dock.features() & floatable
+    assert video_viewer.controls_dock.features() & floatable
+
+    # napari rebuilds its title bar on dock changes; keep it stripped.
+    video_viewer.dock.topLevelChanged.emit(False)
+    title = video_viewer.dock.titleBarWidget()
+    assert title.height() == 0
+    assert not hasattr(title, "float_button")
+    assert not hasattr(title, "close_button")
 
 
 def test_add_video_does_not_move_main_time(viewer, panel, add_video):

@@ -19,8 +19,6 @@ Current development version for the next ConfUSIus release.
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 - Fix video synchronization with recordings timed in milliseconds or microseconds
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
-- Prevent detaching the video canvas, which broke rendering with a `GLError`
-  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 
 ### :wrench: Maintenance
 
