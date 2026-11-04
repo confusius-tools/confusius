@@ -90,7 +90,7 @@ def setup_volumewise_progress(
                 panel._volumewise_moving_preview_layer_name()
             )
             if moving_preview_layer is None:
-                _, moving_preview_layer = plot_napari(
+                _, [moving_preview_layer] = plot_napari(
                     moving,
                     viewer=panel.viewer,
                     name=panel._volumewise_moving_preview_layer_name(),
@@ -115,7 +115,7 @@ def setup_volumewise_progress(
             if fixed_preview_layer is not None:
                 fixed_preview_layer.visible = False
 
-            _, layer = plot_napari(
+            _, [layer] = plot_napari(
                 preview,
                 viewer=panel.viewer,
                 name=layer_name,
@@ -316,7 +316,7 @@ def create_volume_progress_plotter(
                 panel._volume_fixed_preview_layer_name()
             )
             if fixed_preview_layer is None:
-                _, fixed_preview_layer = plot_napari(
+                _, [fixed_preview_layer] = plot_napari(
                     fixed,
                     viewer=panel.viewer,
                     name=panel._volume_fixed_preview_layer_name(),
@@ -336,7 +336,7 @@ def create_volume_progress_plotter(
                 panel._volume_moving_preview_layer_name()
             )
             if moving_preview_layer is None:
-                _, moving_preview_layer = plot_napari(
+                _, [moving_preview_layer] = plot_napari(
                     preview,
                     viewer=panel.viewer,
                     name=panel._volume_moving_preview_layer_name(),
@@ -357,7 +357,7 @@ def create_volume_progress_plotter(
                 moving_preview_layer.contrast_limits = preview_contrast_limits
             moving_preview_layer.visible = False
 
-            _, layer = plot_napari(
+            _, [layer] = plot_napari(
                 preview,
                 viewer=panel.viewer,
                 name=layer_name,

@@ -43,7 +43,7 @@ def plot_napari(
     resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
     resample_fill_value: float | None = None,
     **layer_kwargs,
-) -> "tuple[Viewer, Image | Labels]":
+) -> "tuple[Viewer, list[Image | Labels]]":
     """Display fUSI data using the napari viewer.
 
     Parameters
@@ -53,6 +53,8 @@ def plot_napari(
         voxel dimensions `(..., time, pose, k, j, i)` deriving world `z/y/x`
         coordinates). Use `dim_order` to specify a different displayed spatial
         ordering. Can be image data or label/mask data (e.g., ROIs, segmentations).
+        Arrays with a `pose` dimension are split into one layer per pose, each
+        positioned using its own voxel-to-world affine.
     show_colorbar : bool, default: True
         Whether to show the colorbar. Only applies to image layers.
     show_scale_bar : bool, default: True
@@ -87,13 +89,17 @@ def plot_napari(
         For labels layers, if `data.attrs` contains `"cmap"` and `"norm"`
         (as set by atlas functions) and `"colormap"` is not in `layer_kwargs`,
         a per-label color dict is built automatically from those attributes.
+        An explicit `name` overrides `data.name`. Multipose layers append
+        `" [pose {pose}]"` using each pose's coordinate value. Unnamed multipose
+        arrays use `"data"` as the base name.
 
     Returns
     -------
     viewer : napari.Viewer
         The napari viewer instance with the layer added.
-    layer : napari.layers.Image or napari.layers.Labels
-        The layer added to the viewer.
+    layers : list of napari.layers.Image or napari.layers.Labels
+        Layers added to the viewer, in pose order. Always a list, including when
+        the input has no `pose` dimension or contains only one pose.
 
     Notes
     -----
@@ -132,26 +138,47 @@ def plot_napari(
     >>> import confusius as cf
     >>> from confusius.plotting import plot_napari
     >>> data = cf.load("output.nii.gz")
-    >>> viewer, layer = plot_napari(data)
+    >>> viewer, layers = plot_napari(data)
 
     >>> # Custom contrast limits
-    >>> viewer, layer = plot_napari(data, contrast_limits=(0, 100))
+    >>> viewer, layers = plot_napari(data, contrast_limits=(0, 100))
 
     >>> # Different dimension ordering (e.g., depth, elevation, lateral)
-    >>> viewer, layer = plot_napari(data, dim_order=("y", "z", "x"))
+    >>> viewer, layers = plot_napari(data, dim_order=("y", "z", "x"))
 
     >>> # Add a second dataset as a new layer in an existing viewer
-    >>> viewer, layer = plot_napari(data1)
-    >>> viewer, layer = plot_napari(data2, viewer=viewer)
+    >>> viewer, layers = plot_napari(data1)
+    >>> viewer, layers = plot_napari(data2, viewer=viewer)
 
     >>> # Display ROI labels (e.g., segmentation mask)
     >>> roi_mask = cf.load("roi_mask.nii.gz")
-    >>> viewer, layer = plot_napari(roi_mask, layer_type="labels")
+    >>> viewer, layers = plot_napari(roi_mask, layer_type="labels")
 
     >>> # Overlay labels on existing image
-    >>> viewer, layer = plot_napari(data)
-    >>> viewer, layer = plot_napari(roi_mask, viewer=viewer, layer_type="labels")
+    >>> viewer, layers = plot_napari(data)
+    >>> viewer, layers = plot_napari(roi_mask, viewer=viewer, layer_type="labels")
     """
+    data = ensure_voxeldata(data)
+    if POSE_DIM in data.dims:
+        layers: list[Image | Labels] = []
+        name = layer_kwargs.get("name", data.name)
+        for p in range(data.sizes[POSE_DIM]):
+            pose = data.coords[POSE_DIM].values[p]
+            viewer, pose_layers = plot_napari(
+                data.isel({POSE_DIM: p}),
+                show_colorbar=show_colorbar,
+                show_scale_bar=show_scale_bar,
+                dim_order=dim_order,
+                viewer=viewer,
+                layer_type=layer_type,
+                resample_interpolation=resample_interpolation,
+                resample_fill_value=resample_fill_value,
+                **{**layer_kwargs, "name": f"{name or 'data'} [pose {pose}]"},
+            )
+            layers.extend(pose_layers)
+        assert viewer is not None
+        return viewer, layers
+
     plot_data, built_kwargs, resolved_layer_type = build_napari_layer_data(
         data,
         layer_type=layer_type,
@@ -227,7 +254,7 @@ def plot_napari(
     assert viewer is not None
     viewer.canvas.overlays.scale_bar.visible = show_scale_bar
 
-    return viewer, layer
+    return viewer, [layer]
 
 
 def draw_napari_labels(
@@ -248,7 +275,8 @@ def draw_napari_labels(
     ----------
     data : xarray.DataArray
         Input data array to display as the background image. Typically a time-averaged
-        power Doppler frame, e.g. `data.mean("time")`.
+        power Doppler frame, e.g. `data.mean("time")`. Select a single pose first
+        for multipose data.
     labels_layer_name : str, default: "labels"
         Name assigned to the Labels layer added to the viewer.
     viewer : napari.Viewer, optional
@@ -268,6 +296,12 @@ def draw_napari_labels(
         labels in the viewer, pass this layer to
         [`extract_labels_from_layer`][confusius.plotting.extract_labels_from_layer] to obtain
         an integer label map.
+
+    Raises
+    ------
+    ValueError
+        If `data` is not a VoxelData array or still has a `pose` dimension.
+        Select one pose with `data.isel(pose=p)` before drawing labels.
 
     Notes
     -----
@@ -294,9 +328,11 @@ def draw_napari_labels(
     >>> label_map = extract_labels_from_layer(labels_layer, pwd.mean("time"))
     """
     data = ensure_voxeldata(data)
+    if POSE_DIM in data.dims:
+        raise ValueError("Select a single pose before drawing labels.")
     # The painting background is an intensity image, regardless of its dtype.
     kwargs["layer_type"] = "image"
-    viewer, image_layer = plot_napari(data, viewer=viewer, **kwargs)
+    viewer, [image_layer] = plot_napari(data, viewer=viewer, **kwargs)
     display_data = cast(xr.DataArray, image_layer.metadata["xarray"])
 
     all_dims = [str(dim) for dim in display_data.dims]
