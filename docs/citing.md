@@ -15,7 +15,7 @@ If you use ConfUSIus in your research, please cite the following preprint:
 Or in BibTeX format:
 
 ```bibtex
-@article{LeMeurDiebolt2026,
+@article{confusius,
   title = {ConfUSIus: an accessible and scalable toolkit for functional ultrasound imaging analysis},
   url = {http://dx.doi.org/10.64898/2026.10.27.762250},
   DOI = {10.64898/2026.10.27.762250},
@@ -349,10 +349,6 @@ Or in BibTeX format:
 ```
 
 The associated dataset is archived on [Zenodo](https://doi.org/10.5281/zenodo.4905862).
-
-The template conversion reorders axes and assigns the Allen 50 µm coordinate grid
-without changing vascular voxel values. Also cite Wang et al. (2020) for the Allen
-CCF reference framework: <https://doi.org/10.1016/j.cell.2020.04.007>.
 
 License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
 

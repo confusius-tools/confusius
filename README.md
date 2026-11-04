@@ -122,7 +122,7 @@ If you use ConfUSIus in your research, please cite the following preprint:
 Or in BibTeX format:
 
 ```bibtex
-@article{LeMeurDiebolt2026,
+@article{confusius,
   title = {ConfUSIus: an accessible and scalable toolkit for functional ultrasound imaging analysis},
   url = {http://dx.doi.org/10.64898/2026.10.27.762250},
   DOI = {10.64898/2026.10.27.762250},
