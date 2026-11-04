@@ -120,17 +120,17 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
     monkeypatch.setattr("confusius.registration.affines.apply_rotation", _rotate)
     monkeypatch.setattr("confusius.registration.affines.apply_zoom", _zoom)
 
-    assert sample_voxeldata_3dt.fusi.affine.rotate(5.0, "x") is expected_apply
+    assert sample_voxeldata_3dt.fusi.rotate(5.0, "x") is expected_apply
     assert calls["rotate"] == (sample_voxeldata_3dt, 5.0, "x", "origin", True, False)
 
-    assert sample_voxeldata_3dt.fusi.affine.zoom(2.0) is expected_apply
+    assert sample_voxeldata_3dt.fusi.zoom(2.0) is expected_apply
     assert calls["zoom"] == (sample_voxeldata_3dt, 2.0, "origin", False)
 
-    assert sample_voxeldata_3dt.fusi.affine.translate((1.0, 2.0, 3.0)) is expected_apply
+    assert sample_voxeldata_3dt.fusi.translate((1.0, 2.0, 3.0)) is expected_apply
     assert calls["translate"] == (sample_voxeldata_3dt, (1.0, 2.0, 3.0), False)
 
     assert (
-        sample_voxeldata_3dt.fusi.affine.rotate(
+        sample_voxeldata_3dt.fusi.rotate(
             5.0, "x", center=(0.0, 0.0, 0.0), degrees=False, inplace=True
         )
         is expected_apply
@@ -145,7 +145,7 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
     )
 
     assert (
-        sample_voxeldata_3dt.fusi.affine.zoom(2.0, center=(1.0, 1.0, 1.0))
+        sample_voxeldata_3dt.fusi.zoom(2.0, center=(1.0, 1.0, 1.0))
         is expected_apply
     )
     assert calls["zoom"] == (sample_voxeldata_3dt, 2.0, (1.0, 1.0, 1.0), False)

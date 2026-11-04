@@ -15,7 +15,7 @@ Current development version for the next ConfUSIus release.
 - Add [`apply_translation`][confusius.registration.apply_translation],
   [`apply_rotation`][confusius.registration.apply_rotation] and
   [`apply_zoom`][confusius.registration.apply_zoom], plus the matching
-  `.fusi.affine.translate()`, `.rotate()` and `.zoom()` accessor methods, to move
+  `.fusi.translate()`, `.fusi.rotate()` and `.fusi.zoom()` accessor methods, to move
   VoxelData in world space without resampling
   ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 - Add [`get_geometry_center`][confusius.xarray.get_geometry_center] and

@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Any
 import xarray as xr
 
 if TYPE_CHECKING:
+    import numpy.typing as npt
+
+    from confusius.registration.affines import TransformCenter
     from confusius.xarray.affine import FUSIAffineAccessor
     from confusius.xarray.connectivity import FUSIConnectivityAccessor
     from confusius.xarray.extract import FUSIExtractAccessor
@@ -341,6 +344,195 @@ class FUSIAccessor:
         from confusius.xarray.affine import FUSIAffineAccessor
 
         return FUSIAffineAccessor(self._obj)
+
+    def translate(
+        self, translation: npt.ArrayLike, *, inplace: bool = False
+    ) -> xr.DataArray:
+        """Translate a DataArray in world space.
+
+        `translation` is given in world `(z, y, x)` order. Only the voxel-to-world
+        geometry changes. See
+        [apply_translation][confusius.registration.apply_translation] for details.
+
+        Parameters
+        ----------
+        translation : (3,) array-like
+            Translation in world `(z, y, x)` order, in the DataArray's world units
+            (`.fusi.affine.units`).
+        inplace : bool, default: False
+            Whether to modify the DataArray in place instead of returning a copy.
+
+        Returns
+        -------
+        xarray.DataArray
+            The translated DataArray. This is the DataArray itself if `inplace` is
+            `True`.
+
+        Raises
+        ------
+        ValueError
+            If `translation` is not a finite `(3,)` vector, or if the DataArray is not a
+            VoxelData array.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
+        >>> moved = data.fusi.translate((1.0, 0.0, 0.0)).fusi.rotate(
+        ...     5.0, "x"
+        ... )
+        >>> box = moved.fusi.affine.bounding_box
+        >>> round(float(box.sel(bound="max", component="x")), 6)
+        2.0
+        """
+        from confusius.registration.affines import apply_translation
+
+        return apply_translation(self._obj, translation, inplace=inplace)
+
+    def rotate(
+        self,
+        angle: npt.ArrayLike,
+        axis: str | npt.ArrayLike,
+        *,
+        center: TransformCenter = "origin",
+        degrees: bool = True,
+        inplace: bool = False,
+    ) -> xr.DataArray:
+        """Rotate a DataArray in world space.
+
+        Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates,
+        so a rotation of +90 degrees about `x` maps `+z` onto `+y`. Only the
+        voxel-to-world geometry changes. See
+        [apply_rotation][confusius.registration.apply_rotation] for details.
+
+        Parameters
+        ----------
+        angle : float or (N,) array-like
+            Rotation angle, or one angle per name when `axis` names several axes.
+        axis : str or (3,) array-like
+            Rotation axis. Either one or more world dimension names among `"z"`, `"y"`
+            and `"x"`, or a vector in world `(z, y, x)` order, which is normalized.
+            Several names rotate in sequence from left to right about the fixed world
+            axes, so `"zyx"` rotates about `z` first. Names may repeat, as in `"zyz"`,
+            and their order changes the result.
+        center : {"origin", "geometry"} or (3,) array-like, default: "origin"
+            Fixed point of the rotation. `"origin"` is the grid origin, the world
+            position of the first sampled voxel (of the first pose for pose-stacked
+            geometry). `"geometry"` is
+            [geometry_center][confusius.xarray.FUSIAffineAccessor.geometry_center], the
+            center of the bounding box. Otherwise a world point in `(z, y, x)` order, in
+            the DataArray's world units (`.fusi.affine.units`), such as `(0, 0, 0)` for
+            the world origin.
+        degrees : bool, default: True
+            Whether to read `angle` in degrees rather than radians.
+        inplace : bool, default: False
+            Whether to modify the DataArray in place instead of returning a copy.
+
+        Returns
+        -------
+        xarray.DataArray
+            The rotated DataArray. This is the DataArray itself if `inplace` is
+            `True`.
+
+        Raises
+        ------
+        ValueError
+            If `angle` is not finite, if it does not hold one value per axis name, if
+            `axis` is neither world dimension names nor a non-zero finite `(3,)`
+            vector, if `center` is neither `"origin"`, `"geometry"` nor a finite
+            `(3,)` vector, if `center` is `"geometry"` and a voxel dim has irregular
+            coordinates, or if the DataArray is not a VoxelData array.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
+        >>> rotated = data.fusi.rotate(90.0, "z", center=(0.0, 0.0, 0.0))
+        >>> box = rotated.fusi.affine.bounding_box
+        >>> round(float(box.sel(bound="max", component="x")), 6)
+        3.0
+        >>> tilted = data.fusi.rotate((30.0, 20.0, 10.0), "zyx")
+        """
+        from confusius.registration.affines import apply_rotation
+
+        return apply_rotation(
+            self._obj,
+            angle,
+            axis,
+            center=center,
+            degrees=degrees,
+            inplace=inplace,
+        )
+
+    def zoom(
+        self,
+        zoom: npt.ArrayLike,
+        *,
+        center: TransformCenter = "origin",
+        inplace: bool = False,
+    ) -> xr.DataArray:
+        """Rescale a DataArray in world space.
+
+        Only the voxel-to-world geometry changes. See
+        [apply_zoom][confusius.registration.apply_zoom] for details.
+
+        Parameters
+        ----------
+        zoom : float or (3,) array-like
+            Scale factor, either a scalar applied to all axes or per-axis factors in
+            world `(z, y, x)` order. Negative factors reflect the volume along that
+            axis. Unequal factors shear the voxel grid when it is oblique to the world
+            axes, so rotating then zooming differs from zooming then rotating.
+        center : {"origin", "geometry"} or (3,) array-like, default: "origin"
+            Fixed point of the rescaling. `"origin"` is the grid origin, the world
+            position of the first sampled voxel (of the first pose for pose-stacked
+            geometry). `"geometry"` is
+            [geometry_center][confusius.xarray.FUSIAffineAccessor.geometry_center], the
+            center of the bounding box. Otherwise a world point in `(z, y, x)` order, in
+            the DataArray's world units (`.fusi.affine.units`), such as `(0, 0, 0)` for
+            the world origin.
+        inplace : bool, default: False
+            Whether to modify the DataArray in place instead of returning a copy.
+
+        Returns
+        -------
+        xarray.DataArray
+            The rescaled DataArray. This is the DataArray itself if `inplace` is
+            `True`.
+
+        Raises
+        ------
+        ValueError
+            If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
+            (singular affine), if `center` is neither `"origin"`, `"geometry"` nor a
+            finite `(3,)` vector, if `center` is `"geometry"` and a voxel dim has
+            irregular coordinates, if the DataArray is not a VoxelData array, or if a
+            per-axis `zoom` is applied to pose-stacked geometry whose poses are not
+            parallel (all pose affines must share equal spatial scale magnitudes).
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
+        >>> zoomed = data.fusi.zoom(2.0, center="geometry")
+        >>> float(zoomed.fusi.affine.bounding_box.sel(bound="max", component="x"))
+        4.0
+        """
+        from confusius.registration.affines import apply_zoom
+
+        return apply_zoom(self._obj, zoom, center=center, inplace=inplace)
 
     def save(self, path: str | Path, **kwargs: Any) -> None:
         """Save the DataArray to file, dispatching by extension.
