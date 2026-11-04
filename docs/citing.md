@@ -6,7 +6,29 @@ icon: lucide/quote
 
 # Citing ConfUSIus
 
-If you use ConfUSIus in your research, please cite it using the following reference:
+If you use ConfUSIus in your research, please cite the following preprint:
+
+> Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus: an accessible and scalable
+> toolkit for functional ultrasound imaging analysis. *bioRxiv*.
+> https://doi.org/10.64898/2026.10.27.762250
+
+Or in BibTeX format:
+
+```bibtex
+@article{confusius,
+  author  = {Le Meur-Diebolt, Samuel and Cybis Pereira, Felipe},
+  title   = {{ConfUSIus}: an accessible and scalable toolkit for functional ultrasound imaging analysis},
+  year    = {2026},
+  journal = {bioRxiv},
+  doi     = {10.64898/2026.10.27.762250},
+  url     = {https://doi.org/10.64898/2026.10.27.762250}
+}
+```
+
+## Software citation
+
+To identify the software used, you may additionally cite the corresponding archived
+release on Zenodo. The software citation below refers to the latest tagged release:
 
 > Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus (v0.9.0). Zenodo.
 > https://doi.org/10.5281/zenodo.18611124
@@ -14,7 +36,7 @@ If you use ConfUSIus in your research, please cite it using the following refere
 Or in BibTeX format:
 
 ```bibtex
-@software{confusius,
+@software{confusius_software,
   author    = {Le Meur-Diebolt, Samuel and Cybis Pereira, Felipe},
   title     = {ConfUSIus},
   year      = {2026},

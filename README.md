@@ -1,7 +1,8 @@
 [![PyPI version](https://img.shields.io/pypi/v/confusius?style=flat-square&color=d93a54&label=PyPI)](https://pypi.org/project/confusius/)
 [![Python versions](https://img.shields.io/pypi/pyversions/confusius?style=flat-square&color=0099e5&logo=python&logoColor=white)](https://pypi.org/project/confusius/)
 [![License](https://img.shields.io/github/license/confusius-tools/confusius?style=flat-square&color=3ad9a4)](https://github.com/confusius-tools/confusius/blob/main/LICENSE)
-[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.18611124-8b7ff7?style=flat-square)](https://doi.org/10.5281/zenodo.18611124)
+[![Preprint](https://img.shields.io/badge/Preprint-10.64898%2F2026.10.27.762250-8b7ff7?style=flat-square)](https://doi.org/10.64898/2026.10.27.762250)
+[![Software DOI](https://img.shields.io/badge/Software_DOI-10.5281%2Fzenodo.18611124-8b7ff7?style=flat-square)](https://doi.org/10.5281/zenodo.18611124)
 [![codecov](https://img.shields.io/codecov/c/github/confusius-tools/confusius?style=flat-square)](https://codecov.io/gh/confusius-tools/confusius)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/mZd87tgmy2)
 
@@ -113,7 +114,29 @@ and tutorials.
 
 ## Citing ConfUSIus
 
-If you use ConfUSIus in your research, please cite it using the following reference:
+If you use ConfUSIus in your research, please cite the following preprint:
+
+> Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus: an accessible and scalable
+> toolkit for functional ultrasound imaging analysis. *bioRxiv*.
+> https://doi.org/10.64898/2026.10.27.762250
+
+Or in BibTeX format:
+
+```bibtex
+@article{confusius,
+  author  = {Le Meur-Diebolt, Samuel and Cybis Pereira, Felipe},
+  title   = {{ConfUSIus}: an accessible and scalable toolkit for functional ultrasound imaging analysis},
+  year    = {2026},
+  journal = {bioRxiv},
+  doi     = {10.64898/2026.10.27.762250},
+  url     = {https://doi.org/10.64898/2026.10.27.762250}
+}
+```
+
+### Software citation
+
+To identify the software used, you may additionally cite the corresponding archived
+release on Zenodo. The software citation below refers to the latest tagged release:
 
 > Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus (v0.9.0). Zenodo.
 > https://doi.org/10.5281/zenodo.18611124
@@ -121,7 +144,7 @@ If you use ConfUSIus in your research, please cite it using the following refere
 Or in BibTeX format:
 
 ```bibtex
-@software{confusius,
+@software{confusius_software,
   author    = {Le Meur-Diebolt, Samuel and Cybis Pereira, Felipe},
   title     = {ConfUSIus},
   year      = {2026},
