@@ -1,7 +1,8 @@
 """Affine matrix utilities and world-space translate, rotate and zoom helpers."""
 
 import math
-from typing import TYPE_CHECKING, Literal, cast
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -29,6 +30,14 @@ if TYPE_CHECKING:
         | Similarity3DTransform
         | VersorRigid3DTransform
     )
+
+TransformCenter: TypeAlias = (
+    Literal["origin", "geometry"]
+    | Sequence[float]
+    | npt.NDArray[np.floating]
+    | xr.DataArray
+)
+"""Fixed point of a world-space transform: a named point or a world `(z, y, x)` point."""
 
 _MATRIX_TRANSFORMS = {
     "AffineTransform",
@@ -84,7 +93,7 @@ def compose_affine(
     R: npt.NDArray[np.floating],
     Z: npt.NDArray[np.floating],
     S: npt.NDArray[np.floating] | None = None,
-) -> npt.NDArray[np.floating]:
+) -> npt.NDArray[np.float64]:
     """Compose translations, rotations, zooms, and shears into an affine matrix.
 
     Parameters
@@ -211,72 +220,44 @@ def decompose_affine(
     return T, Rmat, np.array([sx, sy, sz]), np.array([sxy, sxz, syz])
 
 
-def _as_finite_scalar(value: object, name: str) -> float:
-    """Validate a finite real scalar.
-
-    Parameters
-    ----------
-    value : object
-        Candidate scalar.
-    name : str
-        Argument name used in error messages.
-
-    Returns
-    -------
-    float
-        The value as a finite Python float.
-
-    Raises
-    ------
-    ValueError
-        If `value` cannot be converted to a finite float.
-    """
-    # `float` parses strings and bytes, which would silently accept `"2"`, and drops
-    # the imaginary part of NumPy complex scalars.
-    try:
-        rejected = isinstance(value, (str, bytes, complex, np.complexfloating))
-        result = math.nan if rejected else float(cast(float, value))
-    except (TypeError, ValueError):
-        result = math.nan
-    if not math.isfinite(result):
-        raise ValueError(f"{name} must be a finite number, got {value!r}.")
-    return result
-
-
-def _as_world_vector(value: npt.ArrayLike, name: str) -> npt.NDArray[np.float64]:
-    """Validate a world-space 3-vector given in `z/y/x` order.
+def _as_finite_array(
+    value: npt.ArrayLike, name: str, shape: tuple[int, ...]
+) -> npt.NDArray[np.float64]:
+    """Validate a finite real array of a given shape.
 
     Parameters
     ----------
     value : array-like
-        Candidate vector.
+        Candidate array.
     name : str
         Argument name used in error messages.
+    shape : tuple[int, ...]
+        Required shape.
 
     Returns
     -------
-    (3,) numpy.ndarray
-        The vector as a finite `float64` array.
+    numpy.ndarray
+        The array as `float64`, with shape `shape`.
 
     Raises
     ------
     ValueError
-        If `value` is not convertible to a finite float array of shape `(3,)`.
+        If `value` is not a finite integer or float array of shape `shape`.
     """
-    msg = f"{name} must be a (3,) array-like of finite floats in world z/y/x order."
+    msg = f"{name} must be finite real numbers with shape {shape}."
     try:
-        vector = np.asarray(value)
+        array = np.asarray(value)
     except (TypeError, ValueError) as error:
         raise ValueError(msg) from error
-    # Casting straight to float64 would parse strings, silently accepting
-    # `("1", "2", "3")`.
+    # Casting straight to float64 would parse strings, silently accepting `"2"`, and
+    # would turn booleans into numbers.
     if (
-        vector.dtype.kind not in "biuf"
-        or vector.shape != (3,)
-        or not np.all(np.isfinite(vector))
+        array.dtype.kind not in "iuf"
+        or array.shape != shape
+        or not np.all(np.isfinite(array))
     ):
         raise ValueError(msg)
-    return vector.astype(np.float64)
+    return array.astype(np.float64)
 
 
 def apply_translation(
@@ -319,13 +300,13 @@ def apply_translation(
     >>> shifted.fusi.affine.voxel_to_world[:3, 3]
     array([0. , 0. , 1.5])
     """
-    matrix = np.eye(4)
-    matrix[:3, 3] = _as_world_vector(translation, "translation")
+    vector = _as_finite_array(translation, "translation", (3,))
+    matrix = compose_affine(vector, np.eye(3), np.ones(3))
     return apply_affine(data, matrix, inplace=inplace)
 
 
 def _resolve_center(
-    data: xr.DataArray, center: Literal["origin", "geometry"] | npt.ArrayLike
+    data: xr.DataArray, center: TransformCenter
 ) -> npt.NDArray[np.float64]:
     """Return the world point a transform pivots about.
 
@@ -349,7 +330,7 @@ def _resolve_center(
         if `data` cannot provide the requested pivot.
     """
     if not isinstance(center, str):
-        return _as_world_vector(center, "center")
+        return _as_finite_array(center, "center", (3,))
     if center == "geometry":
         return get_geometry_center(data).to_numpy()
     if center == "origin":
@@ -362,37 +343,12 @@ def _resolve_center(
     )
 
 
-def _about_center(
-    linear: npt.NDArray[np.float64], center: npt.NDArray[np.float64]
-) -> npt.NDArray[np.float64]:
-    """Embed a linear map in a homogeneous matrix pivoting about `center`.
-
-    This is the closed form of `T(center) @ L @ T(-center)`.
-
-    Parameters
-    ----------
-    linear : (3, 3) numpy.ndarray
-        Linear part, in world `(z, y, x)` order.
-    center : (3,) numpy.ndarray
-        Fixed point of the map, in world `(z, y, x)` order.
-
-    Returns
-    -------
-    (4, 4) numpy.ndarray
-        Homogeneous matrix.
-    """
-    matrix = np.eye(4)
-    matrix[:3, :3] = linear
-    matrix[:3, 3] = center - linear @ center
-    return matrix
-
-
 def apply_rotation(
     data: xr.DataArray,
-    angle: float | npt.ArrayLike,
+    angle: npt.ArrayLike,
     axis: str | npt.ArrayLike,
     *,
-    center: Literal["origin", "geometry"] | npt.ArrayLike = "origin",
+    center: TransformCenter = "origin",
     degrees: bool = True,
     inplace: bool = False,
 ) -> xr.DataArray:
@@ -469,23 +425,13 @@ def apply_rotation(
             )
         unit_axes = np.array([axes[name] for name in axis])
     else:
-        unit_axis = _as_world_vector(axis, "axis")
-        largest = np.abs(unit_axis).max()
-        if largest == 0:
-            raise ValueError("axis must have non-zero length.")
-        # Rescaling first keeps the norm from overflowing, which would normalize a
-        # huge axis to zero and silently rotate by nothing.
-        unit_axis = unit_axis / largest
-        unit_axes = unit_axis[np.newaxis] / np.linalg.norm(unit_axis)
+        unit_axis = _as_finite_array(axis, "axis", (3,))
+        norm = math.hypot(*unit_axis)
+        if not 0 < norm < math.inf:
+            raise ValueError("axis must have a non-zero, finite length.")
+        unit_axes = unit_axis[np.newaxis] / norm
 
-    angles = np.array(
-        [_as_finite_scalar(value, "angle") for value in np.atleast_1d(angle)]
-    )
-    if len(angles) != len(unit_axes):
-        raise ValueError(
-            f"angle has {len(angles)} value(s) but axis defines "
-            f"{len(unit_axes)} rotation(s)."
-        )
+    angles = _as_finite_array(np.atleast_1d(angle), "angle", (len(unit_axes),))
     if degrees:
         angles = np.deg2rad(angles)
 
@@ -496,14 +442,15 @@ def apply_rotation(
     for step in Rotation.from_rotvec(angles[:, np.newaxis] * unit_axes).as_matrix():
         rotation = step @ rotation
     pivot = _resolve_center(data, center)
-    return apply_affine(data, _about_center(rotation, pivot), inplace=inplace)
+    matrix = compose_affine(pivot - rotation @ pivot, rotation, np.ones(3))
+    return apply_affine(data, matrix, inplace=inplace)
 
 
 def apply_zoom(
     data: xr.DataArray,
-    zoom: float | npt.ArrayLike,
+    zoom: npt.ArrayLike,
     *,
-    center: Literal["origin", "geometry"] | npt.ArrayLike = "origin",
+    center: TransformCenter = "origin",
     inplace: bool = False,
 ) -> xr.DataArray:
     """Rescale a VoxelData array in world space.
@@ -558,13 +505,13 @@ def apply_zoom(
     array([2., 2., 2., 1.])
     """
     if np.ndim(zoom) == 0:
-        factors = np.full(3, _as_finite_scalar(zoom, "zoom"), dtype=np.float64)
-    else:
-        factors = _as_world_vector(zoom, "zoom")
+        zoom = np.full(3, zoom)
+    factors = _as_finite_array(zoom, "zoom", (3,))
     if np.any(factors == 0):
         raise ValueError("zoom factors must be non-zero, got a singular scaling.")
     pivot = _resolve_center(data, center)
-    return apply_affine(data, _about_center(np.diag(factors), pivot), inplace=inplace)
+    matrix = compose_affine(pivot - factors * pivot, np.eye(3), factors)
+    return apply_affine(data, matrix, inplace=inplace)
 
 
 def affine_to_sitk_linear_transform(

@@ -20,9 +20,9 @@ from confusius._utils.geometry import (
 )
 
 if TYPE_CHECKING:
-    from typing import Literal
-
     import numpy.typing as npt
+
+    from confusius.registration.affines import TransformCenter
 
 
 def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
@@ -845,10 +845,10 @@ class FUSIAffineAccessor:
 
     def rotate(
         self,
-        angle: "float | npt.ArrayLike",
+        angle: "npt.ArrayLike",
         axis: "str | npt.ArrayLike",
         *,
-        center: 'Literal["origin", "geometry"] | npt.ArrayLike' = "origin",
+        center: "TransformCenter" = "origin",
         degrees: bool = True,
         inplace: bool = False,
     ) -> xr.DataArray:
@@ -924,9 +924,9 @@ class FUSIAffineAccessor:
 
     def zoom(
         self,
-        zoom: "float | npt.ArrayLike",
+        zoom: "npt.ArrayLike",
         *,
-        center: 'Literal["origin", "geometry"] | npt.ArrayLike' = "origin",
+        center: "TransformCenter" = "origin",
         inplace: bool = False,
     ) -> xr.DataArray:
         """Rescale a DataArray in world space.

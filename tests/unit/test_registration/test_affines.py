@@ -264,6 +264,7 @@ class TestApplyTranslation:
             (1.0, 2.0, 3.0, 4.0),
             (np.nan, 0.0, 0.0),
             ("1.0", "2.0", "3.0"),
+            (True, False, False),
             {"z": 1.0, "y": 0.0, "x": 0.0},
         ],
     )
@@ -376,12 +377,6 @@ class TestApplyRotation:
             by_vector.fusi.affine.voxel_to_world,
             atol=1e-12,
         )
-        by_huge_vector = apply_rotation(_volume(rng), 45.0, (0.0, 1e308, 0.0))
-        assert_allclose(
-            by_name.fusi.affine.voxel_to_world,
-            by_huge_vector.fusi.affine.voxel_to_world,
-            atol=1e-12,
-        )
 
     def test_broadcasts_over_poses(self, rng):
         result = apply_rotation(_pose_volume(rng), 90.0, "x")
@@ -426,13 +421,26 @@ class TestApplyRotation:
         )
 
     @pytest.mark.parametrize(
-        "axis", ["k", "zk", "", "ZYX", (0.0, 0.0, 0.0), (1.0, 0.0), (np.nan, 0.0, 1.0)]
+        "axis",
+        [
+            "k",
+            "zk",
+            "",
+            "ZYX",
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0),
+            (np.nan, 0.0, 1.0),
+            (True, False, False),
+            (1.7e308, 1.7e308, 0.0),
+        ],
     )
     def test_invalid_axis_raises(self, rng, axis):
         with pytest.raises(ValueError, match="axis"):
             apply_rotation(_volume(rng), 10.0, axis)
 
-    @pytest.mark.parametrize("angle", [np.nan, "90", b"90", 1j, None, [1.0, 2.0]])
+    @pytest.mark.parametrize(
+        "angle", [np.nan, "90", np.array("90"), b"90", 1j, None, True, [1.0, 2.0]]
+    )
     def test_invalid_angle_raises(self, rng, angle):
         with pytest.raises(ValueError, match="angle"):
             apply_rotation(_volume(rng), angle, "x")
@@ -520,7 +528,7 @@ class TestCenterOptions:
         assert_allclose(affine[1] @ np.linalg.inv(ROTATED_POSE), applied, atol=1e-12)
 
     @pytest.mark.parametrize(
-        "center", ["middle", "", (1.0, 2.0), (np.nan, 0.0, 0.0), None]
+        "center", ["middle", "", (1.0, 2.0), (np.nan, 0.0, 0.0), (True, False, False), None]
     )
     def test_invalid_center_raises(self, rng, transform, center):
         with pytest.raises(ValueError, match="center"):
@@ -577,6 +585,8 @@ class TestApplyZoom:
             np.nan,
             np.inf,
             "2",
+            np.array("2"),
+            True,
             None,
             {"z": 1.0},
         ],
