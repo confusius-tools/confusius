@@ -33,7 +33,7 @@ Current development version for the next ConfUSIus release.
 
 ### :books: Documentation
 
-- Add the [Affine transforms 101](examples/_built/io/affine_transforms_101.md) example,
+- Add the [Transforms 101](examples/_built/io/transforms_101.md) example,
   which shows how to translate, rotate and zoom a VoxelData array and what the `center`
   argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 

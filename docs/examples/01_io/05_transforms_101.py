@@ -1,5 +1,5 @@
 # %% [markdown]
-# # Affine transforms 101
+# # Transforms 101
 #
 # A VoxelData array keeps its values on a voxel grid. A voxel-to-world affine places
 # that grid in world space (see [World Space](../../../user-guide/voxeldata.md#world-space)
