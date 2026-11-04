@@ -10,6 +10,12 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
+  them along `pose` in numeric chunk order while preserving geometry and timing
+  ([#564](https://github.com/confusius-tools/confusius/pull/564)).
+
 ### :wrench: Maintenance
 
 - Test that every function in the napari plugin manifest can be imported
