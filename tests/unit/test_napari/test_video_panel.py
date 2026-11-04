@@ -880,6 +880,9 @@ def test_video_layer_list_starts_at_smallest_height(
     window = viewer.window._qt_window
     # Exercise the shown window's layout without painting an offscreen GL canvas.
     window.setUpdatesEnabled(False)
+    # A shown window is limited by the screen, and the macOS runners' usable height
+    # is below the window's minimum. Hiding this dock leaves the column room to grow.
+    viewer.window._qt_viewer.dockLayerControls.hide()
     window.resize(1600, 900)
     if show_before_load:
         window.show()
