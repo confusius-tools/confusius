@@ -348,6 +348,8 @@ Or in BibTeX format:
 }
 ```
 
+The associated dataset is archived on [Zenodo](https://doi.org/10.5281/zenodo.4905862).
+
 The template conversion reorders axes and assigns the Allen 50 µm coordinate grid
 without changing vascular voxel values. Also cite Wang et al. (2020) for the Allen
 CCF reference framework: <https://doi.org/10.1016/j.cell.2020.04.007>.
