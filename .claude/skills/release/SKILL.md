@@ -78,17 +78,9 @@ Released YYYY-MM-DD.
 - Replace the top-level `date-released: 'OLD_DATE'` with `date-released: 'TODAY'`.
 - Leave `preferred-citation` unchanged: it describes the preprint, not the software release.
 
-### `README.md`
-In the **Software citation** section only:
-
-- Replace `ConfUSIus (vOLD)` with `ConfUSIus (vVERSION)`.
-- Replace `version   = {vOLD}` with `version   = {vVERSION}`.
-- Replace the software citation year if needed.
-- Leave the preferred preprint reference and BibTeX unchanged.
-
-### `docs/citing.md`
-Apply the same software citation replacements as in `README.md`, leaving the preprint
-citation unchanged.
+### `README.md` and `docs/citing.md`
+Leave the citation sections unchanged: they cite the preprint and link to the Zenodo
+archive without embedding a software version.
 
 Update any other release/version/date files only if they actually exist and clearly need to
 track the release version.
@@ -297,9 +289,8 @@ In `[project.plugins.llmstxt]`, replace `ConfUSIus version OLD` with
   preprint and is independent of software releases.
 
 ### `README.md` and `docs/citing.md`
-- **Do not modify** the citation sections. The software citation must reference the last
-  tagged release, not a development version; the preprint citation is independent of
-  software releases. Only update software citation versions in `prepare` mode.
+- **Do not modify** the citation sections. They cite the preprint and link to the Zenodo
+  archive without embedding a software version.
 
 ### Step 3 — Sync and verify
 

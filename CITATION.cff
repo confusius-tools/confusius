@@ -2,8 +2,7 @@ cff-version: 1.2.0
 title: ConfUSIus
 message: >-
   If you use this software, please cite the preprint
-  in the preferred-citation field. You may additionally
-  cite the archived software release.
+  in the preferred-citation field.
 type: software
 authors:
   - given-names: Samuel
