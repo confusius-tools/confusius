@@ -31,6 +31,12 @@ Current development version for the next ConfUSIus release.
   `ValueError` on such arrays
   ([#558](https://github.com/confusius-tools/confusius/pull/558)).
 
+### :books: Documentation
+
+- Add the [Affine transforms 101](examples/_built/io/affine_transforms_101.md) example,
+  which shows how to translate, rotate and zoom a VoxelData array and what the `center`
+  argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+
 ### :wrench: Maintenance
 
 - Test that every function in the napari plugin manifest can be imported
