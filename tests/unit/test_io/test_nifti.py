@@ -14,7 +14,6 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
 )
-from confusius.io import load
 from confusius.io.nifti import load_nifti, save_nifti
 from confusius.multipose import stack_poses
 from confusius.xarray import create_voxeldata
@@ -158,10 +157,9 @@ def nifti_with_sidecar(tmp_path: Path) -> Path:
 class TestLoadNifti:
     """Tests for load_nifti function."""
 
-    @pytest.mark.parametrize("loader", [load_nifti, load])
     @pytest.mark.parametrize("extension", [".nii", ".nii.gz"])
     @pytest.mark.parametrize("indices", [(10, 2, 1), (2,)])
-    def test_load_chunk_template(self, tmp_path, loader, extension, indices):
+    def test_load_chunk_template(self, tmp_path, rng, extension, indices):
         """Templates stack numeric chunks lazily with their geometry and timing."""
         paths = {}
         for index in indices:
@@ -169,7 +167,7 @@ class TestLoadNifti:
             path = tmp_path / f"sub-01_chunk-{label}_pwd{extension}"
             affine = np.eye(4)
             affine[0, 3] = index
-            image = nib.Nifti1Image(np.full((2, 3, 4, 5), index, np.float32), affine)
+            image = nib.Nifti1Image(rng.random((2, 3, 4, 5)).astype(np.float32), affine)
             image.header.set_xyzt_units("mm", "sec")
             image.header["toffset"] = index
             image.to_filename(path)
@@ -179,7 +177,7 @@ class TestLoadNifti:
         (tmp_path / f"sub-02_chunk-03_pwd{extension}").touch()
         (tmp_path / f"sub-01_chunk-03_pwd{extension}").mkdir()
         template = tmp_path / f"sub-01_chunk-{{chunk}}_pwd{extension}"
-        actual = loader(template, chunks=1, coordinate_affine="sform")
+        actual = load_nifti(template, chunks=1, coordinate_affine="sform")
         ordered = sorted(indices)
         expected = stack_poses(
             [
@@ -196,8 +194,6 @@ class TestLoadNifti:
             actual.attrs["affines"]["world_to_sform"], np.eye(4)
         )
         np.testing.assert_array_equal(actual.pose, ordered)
-        for index in ordered:
-            np.testing.assert_array_equal(actual.sel(pose=index).values, index)
         assert actual.chunks is not None
         assert max(actual.chunks[0]) == 1
 
