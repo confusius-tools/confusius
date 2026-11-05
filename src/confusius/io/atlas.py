@@ -268,12 +268,14 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     voxel_to_world = get_voxel_to_world_affine(to_save["annotation"])
     units = get_voxel_to_world_units(to_save["annotation"])
     named_affines = to_save["annotation"].vd.affines
+    geometry_dims = to_save["annotation"].vd.geometry_dims
     to_save = to_save.drop_vars(WORLD_DIMS)
     to_save.attrs = {
         **to_save.attrs,
         "voxel_to_world": voxel_to_world,
         "voxel_to_world_units": units,
         "voxel_to_world_named_affines": named_affines,
+        "voxel_to_world_geometry_dims": geometry_dims,
     }
 
     # Serialize the in-memory StructuresDict to a flat JSON list and plan the mesh bundle.
@@ -365,7 +367,7 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
     _check_zarr_suffix(path)
     ds = xr.open_zarr(path, **kwargs)
     if (
-        "pose" in ds.dims
+        ("pose" in ds.dims and "voxel_to_world_geometry_dims" not in ds.attrs)
         or "affines" in ds.attrs
         or any("affines" in ds[name].attrs for name in ds.data_vars)
     ):
@@ -387,9 +389,14 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
         voxel_to_world = np.asarray(ds.attrs.pop("voxel_to_world"), dtype=np.float64)
         units = ds.attrs.pop("voxel_to_world_units", "mm")
         named_affines = ds.attrs.pop("voxel_to_world_named_affines", None)
+        geometry_dims = ds.attrs.pop("voxel_to_world_geometry_dims", None)
         restored_vars = {
             name: attach_voxel_to_world_index(
-                ds[name], voxel_to_world, units=units, named_affines=named_affines
+                ds[name],
+                voxel_to_world,
+                units=units,
+                named_affines=named_affines,
+                geometry_dims=None if geometry_dims is None else tuple(geometry_dims),
             )
             for name in ds.data_vars
         }

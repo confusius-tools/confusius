@@ -387,7 +387,7 @@ def test_create_voxeldata_pose_stacked_voxel_to_world_requires_pose_dim():
     """A pose-stacked affine without a `grid` dim in `dims` raises clearly."""
     affine = np.stack([np.eye(4), np.eye(4)])
 
-    with pytest.raises(ValueError, match="requires a 'grid' dimension"):
+    with pytest.raises(ValueError, match="requires explicit geometry_dims"):
         create_voxeldata(
             np.zeros((2, 3, 4)),
             dims=("k", "j", "i"),
@@ -399,7 +399,7 @@ def test_create_voxeldata_pose_stacked_voxel_to_world_rejects_wrong_shape():
     """A pose-stacked affine whose per-pose blocks aren't (4, 4) raises clearly."""
     affine = np.stack([np.eye(3), np.eye(3)])
 
-    with pytest.raises(ValueError, match="must have shape \\(ngrid, 4, 4\\)"):
+    with pytest.raises(ValueError, match="must have shape"):
         create_voxeldata(
             np.zeros((2, 2, 3, 4)),
             dims=("grid", "k", "j", "i"),
@@ -412,7 +412,7 @@ def test_create_voxeldata_pose_stacked_voxel_to_world_rejects_non_homogeneous():
     affine = np.stack([np.eye(4), np.eye(4)])
     affine[1, -1] = [0.0, 0.0, 0.0, 2.0]  # pose 1's last row is not homogeneous.
 
-    with pytest.raises(ValueError, match="must be a homogeneous affine"):
+    with pytest.raises(ValueError, match="homogeneous final row"):
         create_voxeldata(
             np.zeros((2, 2, 3, 4)),
             dims=("grid", "k", "j", "i"),
@@ -437,7 +437,7 @@ def test_create_voxeldata_pose_stacked_voxel_to_world_rejects_wrong_length():
     """A pose stack length must match the `grid` dimension size."""
     affine = np.stack([np.eye(4)])
 
-    with pytest.raises(ValueError, match="does not match the 'grid' dimension size"):
+    with pytest.raises(ValueError, match="stack length"):
         create_voxeldata(
             np.zeros((2, 2, 3, 4)),
             dims=("grid", "k", "j", "i"),
@@ -445,14 +445,16 @@ def test_create_voxeldata_pose_stacked_voxel_to_world_rejects_wrong_length():
         )
 
 
-def test_create_voxeldata_pose_dim_rejects_shared_voxel_to_world():
-    """A pose dimension requires one affine per pose, not one shared affine."""
-    with pytest.raises(ValueError, match="shared .*affine; every grid must carry"):
-        create_voxeldata(
-            np.zeros((2, 2, 3, 4)),
-            dims=("grid", "k", "j", "i"),
-            voxel_to_world=np.eye(4),
-        )
+def test_create_voxeldata_grid_can_share_geometry():
+    """A shared affine does not depend on unrelated nonspatial dimensions."""
+    result = create_voxeldata(
+        np.zeros((2, 2, 3, 4)),
+        dims=("grid", "k", "j", "i"),
+        voxel_to_world=np.eye(4),
+    )
+    assert result.vd.geometry_dims == ()
+    assert result.z.dims == ("k", "j", "i")
+    assert_allclose(result.vd.voxel_to_world, np.eye(4))
 
 
 # ---------------------------------------------------------------------------

@@ -123,6 +123,7 @@ def create_voxeldata(
     origin: Sequence[float] | None = None,
     direction: npt.ArrayLike | None = None,
     voxel_to_world: npt.ArrayLike | None = None,
+    geometry_dims: tuple[str, ...] | None = None,
     affines: Mapping[str, npt.ArrayLike] | None = None,
     units: str = "mm",
     name: str | None = None,
@@ -189,9 +190,14 @@ def create_voxeldata(
         3x3 direction matrix in world `z/y/x` row and voxel `k/j/i` column order.
     voxel_to_world : numpy.typing.ArrayLike, optional
         4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order,
-        or an `(npose, 4, 4)` stack of one such affine per pose when a `grid` dimension
-        is present in `dims`. Mutually exclusive with `spacing`, `origin`, and
+        or a stack indexed by `geometry_dims`. Legacy `(npose, 4, 4)` stacks infer
+        the `grid` dimension. Mutually exclusive with `spacing`, `origin`, and
         `direction`.
+    geometry_dims : tuple[str, ...], optional
+        Ordered nonspatial dimensions indexing the affine stack. Its shape must
+        be `(*[sizes[d] for d in geometry_dims], 4, 4)`. A shared affine uses `()`.
+        Omitted 3D stacks infer `grid`, or legacy `pose` when no `grid` is present.
+        Timing dependencies are independent of geometry dependencies.
     affines : mapping[str, numpy.typing.ArrayLike], optional
         Named world-frame transforms stored on the VoxelData index.
     units : str, default: "mm"
@@ -211,10 +217,9 @@ def create_voxeldata(
     ------
     ValueError
         If `dims` uses world `z`/`y`/`x` names instead of native voxel names, if a
-        pose-stacked `voxel_to_world` is given without a matching `grid` dimension,
-        if `dims` has a `grid` dimension and `voxel_to_world` is not a matching
-        per-pose stack, or if dimensions, coordinates, geometry, timing, or
-        VoxelData validation otherwise fail.
+        stacked `voxel_to_world` has missing or incompatible geometry dimensions,
+        or if dimensions, coordinates, geometry, timing, or VoxelData validation
+        otherwise fail.
     """
     if volume_acquisition_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
@@ -256,6 +261,7 @@ def create_voxeldata(
         origin=origin,
         direction=direction,
         voxel_to_world=voxel_to_world,
+        geometry_dims=geometry_dims,
         affines=affines,
         units=units,
         name=name,
@@ -280,7 +286,7 @@ def create_voxeldata(
         if duration is None:
             values = np.asarray(coord.values)
             if coord.ndim == 2:
-                values = np.asarray(coord.transpose(TIME_DIM, "grid").values)
+                values = np.asarray(coord.transpose(TIME_DIM, ...).values)
                 duration = _default_per_pose_time_duration(values, dt)
             else:
                 duration = _regular_step(values) or dt

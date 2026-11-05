@@ -1296,7 +1296,7 @@ class TestVolumePlotterAddVolume:
             VolumePlotter(slice_mode="z").add_volume(
                 sample_voxeldata_3d,
                 match_coordinates=False,
-                alpha=alpha,  # ty: ignore[invalid-argument-type]
+                alpha=alpha,
             )
 
     def test_dataarray_alpha_size_mismatch_raises(
@@ -1319,7 +1319,7 @@ class TestVolumePlotterAddVolume:
         dimension; the rejection now happens at `rename` time (geometry layer)
         rather than in `add_volume`'s own dims-equality check.
         """
-        with pytest.raises(ValueError, match="must exactly cover"):
+        with pytest.raises(ValueError, match="coordinate names are fixed"):
             alpha = sample_voxeldata_3d.rename(i="w")
             VolumePlotter(slice_mode="z").add_volume(
                 sample_voxeldata_3d, match_coordinates=False, alpha=alpha

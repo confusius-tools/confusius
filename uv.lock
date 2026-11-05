@@ -723,7 +723,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.5.0" },
     { name = "scipy", specifier = ">=1.16.3" },
     { name = "simpleitk", specifier = ">=2.5.3" },
-    { name = "voxeldata", specifier = ">=0.0.1" },
+    { name = "voxeldata", git = "https://github.com/confusius-tools/voxeldata?rev=973394d11e4e868692e3a18020c12bca4111c166" },
     { name = "xarray", marker = "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'", specifier = ">=2026.9.0" },
     { name = "xarray", extras = ["accel"], marker = "python_full_version < '3.14' or platform_machine != 'x86_64' or sys_platform != 'darwin'", specifier = ">=2026.9.0" },
     { name = "zarr", specifier = ">=3.1.3" },
@@ -4638,16 +4638,12 @@ wheels = [
 [[package]]
 name = "voxeldata"
 version = "0.0.1"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/confusius-tools/voxeldata?rev=973394d11e4e868692e3a18020c12bca4111c166#973394d11e4e868692e3a18020c12bca4111c166" }
 dependencies = [
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'" },
     { name = "pandas" },
     { name = "xarray" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/77/3d/546ef1b5840377bd8c7fe2ba46cd5c17f8520c696dcf20dd9b2850ce7f3f/voxeldata-0.0.1.tar.gz", hash = "sha256:9179ceb9e0d300c9f3299435d21f61303abfce333f787dce7245e13d8de65a28", size = 40837, upload-time = "2026-11-05T01:14:24.183Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/31/ac/2a800e7676087be1cd797b54bb73f85f9fb474e0d22bddbe43dd9ea12770/voxeldata-0.0.1-py3-none-any.whl", hash = "sha256:abbe8d69f339a47b74b0854dccdae437a5c4b780880b4c7da2aedd7935b34687", size = 45325, upload-time = "2026-11-05T01:14:23.219Z" },
 ]
 
 [[package]]

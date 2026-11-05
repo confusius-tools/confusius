@@ -29,14 +29,19 @@ else gridded in space. A VoxelData array is **always**:
 - Backed by a `VoxelToWorldIndex` attached to `z`/`y`/`x`
   (`voxeldata.VoxelToWorldIndex`/`VoxelToWorldTransform`), which
   lazily derives those world coordinates from `k`/`j`/`i` via the voxel-to-world affine:
-  one affine shared by all data, or one affine per `grid`. A `grid` dim selects
-  geometry and requires `(ngrid, 4, 4)` affines even for one grid; affine values may
-  be identical. Probe poses are represented by this dimension. World coordinates
+  a shared `(4, 4)` affine or a stack indexed by ordered nonspatial `geometry_dims`.
+  Omitted 3D stacks infer `grid` (or legacy `pose` when no `grid` exists); arbitrary
+  stacks need explicit names. Shared geometry uses `()`, even with nonspatial axes.
+  Probe-pose APIs use `grid`; general geometry may depend on time/views/other axes.
+  Native `.reindex()`/alignment that changes geometry labels is unsupported: use
+  `.isel()`/`.sel()`. Keep geometry axes independently indexed so extraction and
+  spatial stacking continue to work. World coordinates
   are never stored directly—always this index's output.
 - Named world frames live on this index, accessed with `.vd.affines`,
   `.vd.get_affine`, `.vd.set_affine`, and `.vd.remove_affine`, never in
   `attrs["affines"]`. Zarr I/O serializes them under
-  `voxel_to_world_named_affines` and reconstructs the index on load. NIfTI sidecars
+  `voxel_to_world_named_affines`, with ordered dependencies in
+  `voxel_to_world_geometry_dims`, and reconstructs the index on load. NIfTI sidecars
   retain their wire-format `ConfUSIusAffines` mapping. B-spline initialization is
   transform metadata (`attrs["bspline_initialization"]`), not a named world frame.
 

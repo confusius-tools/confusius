@@ -29,6 +29,12 @@ Current development version for the next ConfUSIus release.
   
 ### :sparkles: Enhancements
 
+- Define arbitrary named affine dependencies with `geometry_dims`, independently
+  of acquisition timestamps. Zarr round-trips retain dependency names, order, and
+  named frames. Mask and label extraction support shared geometry across independent
+  nonspatial axes; select a geometry first when their physical grids differ.
+  Native Xarray `.reindex()` on geometry axes remains unsupported; use `.isel()` or
+  `.sel()` instead ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 - Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
   them along `grid` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).

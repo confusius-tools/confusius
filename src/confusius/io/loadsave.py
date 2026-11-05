@@ -112,7 +112,10 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
                 "attrs['voxel_to_world']). Use xarray.open_zarr directly to load an "
                 "arbitrary Zarr store."
             )
-        if "pose" in data_array.dims or "affines" in data_array.attrs:
+        if (
+            "pose" in data_array.dims
+            and "voxel_to_world_geometry_dims" not in data_array.attrs
+        ) or "affines" in data_array.attrs:
             raise ValueError(
                 "Legacy ConfUSIus Zarr geometry is not supported. Load with xarray, "
                 "rename 'pose' to 'grid', and explicitly attach named affine frames "
@@ -123,8 +126,13 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         )
         units = data_array.attrs.pop("voxel_to_world_units", "mm")
         named_affines = data_array.attrs.pop("voxel_to_world_named_affines", None)
+        geometry_dims = data_array.attrs.pop("voxel_to_world_geometry_dims", None)
         data_array = attach_voxel_to_world_index(
-            data_array, voxel_to_world, units=units, named_affines=named_affines
+            data_array,
+            voxel_to_world,
+            units=units,
+            named_affines=named_affines,
+            geometry_dims=None if geometry_dims is None else tuple(geometry_dims),
         )
     else:
         raise ValueError(
@@ -178,15 +186,16 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         voxel_to_world = get_voxel_to_world_affine(data_array)
         units = get_voxel_to_world_units(data_array)
         named_affines = data_array.vd.affines
-        # `grid` is its own plain, independently indexed coordinate (not owned by the
-        # VoxelToWorldIndex -- see its docstring), so dropping the world coordinates
-        # here leaves it untouched.
+        geometry_dims = data_array.vd.geometry_dims
+        # Geometry-axis labels are independent coordinates and survive dropping the
+        # derived world coordinates.
         data_array = data_array.drop_vars(WORLD_DIMS)
         data_array.attrs = {
             **data_array.attrs,
             "voxel_to_world": voxel_to_world,
             "voxel_to_world_units": units,
             "voxel_to_world_named_affines": named_affines,
+            "voxel_to_world_geometry_dims": geometry_dims,
         }
         data_array.attrs = make_attrs_zarr_safe(data_array.attrs)
         with warnings.catch_warnings():

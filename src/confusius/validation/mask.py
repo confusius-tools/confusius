@@ -19,7 +19,9 @@ def check_spatial_alignment(
     both the voxel-space `k`/`j`/`i` coordinates (what `reindex_like`/`stack` actually
     key alignment on) and the underlying `voxel_to_world` affine, so two arrays
     sharing the same voxel-space coordinate labels but different affines are correctly
-    rejected, not silently treated as aligned.
+    rejected, not silently treated as aligned. Geometry dependencies absent from
+    the other array may be reduced only when all their affine matrices agree;
+    a shared mask must not silently span physically different grids.
 
     Parameters
     ----------
@@ -37,6 +39,28 @@ def check_spatial_alignment(
         If `spatial_da`'s voxel-space coordinates or `voxel_to_world` affine don't
         match `data`'s.
     """
+    arrays = [spatial_da, data]
+    geometry_dims = [set(array.vd.geometry_dims) for array in arrays]
+    for position, array in enumerate(arrays):
+        index = array.vd.index
+        shared = geometry_dims[position] - geometry_dims[1 - position]
+        for dim in shared:
+            first = np.take(
+                index.voxel_to_world, [0], axis=index.geometry_dims.index(dim)
+            )
+            if not np.allclose(index.voxel_to_world, first):
+                raise ValueError(
+                    f"{name} does not share data's voxel grid: geometry varies along {dim!r}; "
+                    "select a geometry before using a shared spatial array."
+                )
+        if shared:
+            arrays[position] = array.isel(dict.fromkeys(shared, 0))
+    spatial_da, data = arrays
+    if spatial_da.vd.units != data.vd.units:
+        raise ValueError(
+            f"{name} does not share data's voxel grid: spatial units differ."
+        )
+
     # `xr.align` groups indexes to compare by (coordinate name, dims order) before ever
     # calling `Index.equals()`, so two VoxelData arrays sharing the same
     # VoxelToWorldIndex grid but a differently-transposed k/j/i order fall into separate

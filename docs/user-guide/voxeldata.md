@@ -20,15 +20,33 @@ A **VoxelData array** satisfies these requirements:
    last. Optional `time`, `grid`, and any other leading dimensions may appear in any
    order.
 2. A **`VoxelToWorldIndex`**, supplied by VoxelData, attached to the derived world
-   coordinates `(z, y, x)`. Without `grid`, geometry is a single `(4, 4)` affine.
-   With `grid`, geometry is an `(ngrid, 4, 4)` stack, including for one grid.
+   coordinates `(z, y, x)`. Geometry is a shared `(4, 4)` affine or a stack indexed
+   by ordered, nonspatial `geometry_dims`. Its batch shape matches those dimensions,
+   independently of the parent array order.
 3. For fUSI time series, attributes `units`, `volume_acquisition_reference`, and
    `volume_acquisition_duration` on `time`. These acquisition requirements belong
    to ConfUSIus, not to the generic VoxelData model.
 
-Probe poses are represented by **`grid`**. Each grid's geometry applies across
-all time points and other leading dimensions. Grids need not have different
-affine values; `grid` selects geometry, rather than requiring distinct positions.
+ConfUSIus probe-pose APIs use **`grid`**. Existing affine stacks infer
+`geometry_dims=("grid",)` and apply across time and other leading dimensions.
+General VoxelData arrays may instead declare dependencies such as
+`geometry_dims=("time", "view")`, requiring `(ntime, nview, 4, 4)` affines. A shared
+matrix has `geometry_dims=()`, even with nonspatial dimensions. Identical matrices
+are allowed. Timestamp dependencies remain independent of geometry dependencies.
+
+!!! warning "Geometry-axis reindexing is unsupported"
+    Use `.isel()` or `.sel()` to select/reorder dimensions listed in
+    `data.vd.geometry_dims`, not native Xarray `.reindex()` or alignment that
+    changes their labels. The world index is separate from their ordinary indexes;
+    raw Xarray world-coordinate access can retain stale transform metadata.
+    VoxelData access/validation detects mismatching indexed geometry labels.
+    `.vd.reindex_voxels()` and `.vd.reindex_voxels_like()` explicitly rebuild geometry
+    and remain supported.
+
+Zarr saves preserve the ordered dependencies in `voxel_to_world_geometry_dims`,
+along with primary geometry and named frames, without storing dense world arrays.
+A shared mask may broadcast across geometry axes only when all corresponding
+affines describe the same physical grid; otherwise select a geometry first.
 
 ### Dimension Ordering
 
@@ -57,9 +75,10 @@ dimensions. Neither inserts an absent `grid` or `time` dimension. ConfUSIus's
 `data.vd.ensure()` only applies the generic VoxelData contract.
 
 !!! note "Migrating existing data"
-    There are no `pose` dimension or `.fusi.affine` aliases. Older Zarr stores with
-    a `pose` dimension or named frames in `attrs["affines"]` are rejected rather
-    than silently losing their frames. Load them with xarray, rename `pose` to
+    There is no `.fusi.affine` alias. Probe-pose APIs use `grid`; arbitrary geometry
+    dimensions are not aliases for it. Older Zarr stores with a `pose` dimension
+    but no explicit geometry-dependency metadata, or named frames in
+    `attrs["affines"]`, are rejected rather than silently losing their frames. Load them with xarray, rename `pose` to
     `grid`, rebuild the index with explicit `named_affines=`, and save again.
 
 Keeping spatial dimensions last has practical benefits:
