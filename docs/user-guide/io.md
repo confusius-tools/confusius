@@ -396,7 +396,7 @@ files (`3Dscan`, `4Dscan`), since lab space is shared by every pose.
 
 ### Loading NIfTI Files
 
-When loading NIfTI files, ConfUSIus automatically loads a
+When loading NIfTI files, ConfUSIus automatically loads
 [fUSI-BIDS](https://bids-specification.readthedocs.io/en/stable/) metadata. For files 
 inside a BIDS folder tree, matching sidecars are inherited from the dataset root (the 
 folder containing `dataset_description.json`) down to the recording folder, with more 
@@ -444,6 +444,19 @@ Attributes: (12/24)
     plane_wave_angles:                   [-10.0, -7.9, -5.8, -3.6999999999999...
     transmit_voltage:                    25.0
 ```
+
+To load multiple probe poses that were split into multiple NIfTI files using the
+fUSI-BIDS `chunk` entity, put `{chunk}` in the filename:
+
+```python
+import confusius as cf
+
+da = cf.load("sub-01_ses-01_chunk-{chunk}_pwd.nii")
+```
+
+Matching integer chunk indices are sorted numerically then combined lazily with
+[`stack_poses`][confusius.multipose.stack_poses]. The chunks must meet `stack_poses`'
+requirements, including equal time lengths and compatible voxel grids.
 
 ### Loading Other Formats
 

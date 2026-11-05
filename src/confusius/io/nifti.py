@@ -7,9 +7,10 @@ processing. Following the VoxelData model, data is stored with native voxel dime
 """
 
 import json
+import re
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal
 
 import dask.array as da
 import numpy as np
@@ -37,6 +38,7 @@ from confusius.bids import (
 from confusius.bids.mapping import CONFUSIUS_INTERNAL_FIELDS
 from confusius.bids.validation import format_validation_error, validate_metadata
 from confusius.io.utils import check_path
+from confusius.multipose import stack_poses
 from confusius.registration.affines import decompose_affine
 from confusius.timing import (
     TIMING_REFERENCE_FACTORS,
@@ -51,7 +53,7 @@ from confusius.xarray.create import create_voxeldata
 if TYPE_CHECKING:
     import nibabel as nib
 
-NiftiVersion: TypeAlias = Literal[1, 2]
+type NiftiVersion = Literal[1, 2]
 """Type alias for NIfTI file format version."""
 
 _NIFTI_DIM_ORDER = ("i", "j", "k", "time", "dim4", "dim5", "dim6")
@@ -1180,7 +1182,11 @@ def load_nifti(
     Parameters
     ----------
     path : str or pathlib.Path
-        Path to the NIfTI file (`.nii` or `.nii.gz`).
+        Path to the NIfTI file (`.nii` or `.nii.gz`). A single `{chunk}` placeholder
+        in the filename loads all matching integer chunk indices in numeric order
+        and stacks them with [stack_poses][confusius.multipose.stack_poses]. Chunk
+        indices become integer `pose` labels, even when only one file matches.
+        Each chunk must satisfy `stack_poses`' single-pose input requirements.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
         How to chunk the array. Must be one of the following forms.
 
@@ -1213,6 +1219,14 @@ def load_nifti(
         order (`k`, `j`, `i` plus optional `time`) and world coordinates `z`, `y`,
         `x`. Data is wrapped
         in a Dask array for out-of-core computation.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no files match a `{chunk}` filename template.
+    ValueError
+        If `{chunk}` occurs outside the filename or more than once, or the loaded
+        chunks cannot be stacked with `stack_poses`.
 
     Notes
     -----
@@ -1275,6 +1289,28 @@ def load_nifti(
     ("time", "k", "j", "i")
     >>> da = cf.io.load_nifti("brain.nii.gz", coordinate_affine="qform")
     """
+    path = check_path(path)
+    if "{chunk}" in str(path):
+        if str(path).count("{chunk}") != 1 or "{chunk}" not in path.name:
+            raise ValueError("Use exactly one {chunk} placeholder, in the filename.")
+        pattern = re.compile(re.escape(path.name).replace(r"\{chunk\}", r"([0-9]+)"))
+        matches = []
+        for candidate in path.parent.iterdir():
+            match = pattern.fullmatch(candidate.name)
+            if match is not None and candidate.is_file():
+                matches.append((int(match[1]), candidate))
+        matches.sort()
+        if not matches:
+            raise FileNotFoundError(f"No NIfTI chunks match {path}.")
+        return stack_poses(
+            [
+                load_nifti(
+                    candidate, chunks=chunks, coordinate_affine=coordinate_affine
+                )
+                for _, candidate in matches
+            ],
+            pose=[index for index, _ in matches],
+        )
     path = check_path(path, type="file")
 
     img, extractor = _load_nifti_with_nibabel(path)

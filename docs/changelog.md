@@ -10,8 +10,18 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- Python 3.11 is no longer supported; ConfUSIus now requires Python 3.12 or newer,
+  following BrainGlobe's move to Python 3.12-3.14 and
+  [SPEC 0](https://scientific-python.org/specs/spec-0000/)
+  ([#377](https://github.com/confusius-tools/confusius/issues/377)).
+
 ### :sparkles: Enhancements
 
+- Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
+  them along `pose` in numeric chunk order while preserving geometry and timing
+  ([#564](https://github.com/confusius-tools/confusius/pull/564)).
 - Add [`apply_translation`][confusius.registration.apply_translation],
   [`apply_rotation`][confusius.registration.apply_rotation] and
   [`apply_zoom`][confusius.registration.apply_zoom], plus the matching
@@ -33,14 +43,23 @@ Current development version for the next ConfUSIus release.
 
 ### :books: Documentation
 
+- Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
+  archive, and simplify dataset and template citations
+  ([#565](https://github.com/confusius-tools/confusius/pull/565)).
 - Add the [Transforms 101](examples/_built/io/transforms_101.md) example,
   which shows how to translate, rotate and zoom a VoxelData array and what the `center`
   argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 
 ### :wrench: Maintenance
 
+- [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] now uses
+  BrainGlobe's public lazy-loading API instead of reimplementing its Zarr internals,
+  so atlas arrays stay lazy without depending on private upstream code
+  ([#377](https://github.com/confusius-tools/confusius/issues/377)).
 - Test that every function in the napari plugin manifest can be imported
   ([#555](https://github.com/confusius-tools/confusius/pull/555)).
+- Use the released xarray 2026.9.0 instead of a git pin now that it ships the
+  required fixes ([#559](https://github.com/confusius-tools/confusius/pull/559)).
 
 ## 0.9.0
 

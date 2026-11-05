@@ -11,7 +11,7 @@ License. See `NOTICE` file for details.
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
@@ -406,11 +406,11 @@ def _resample_regressor(
     return interp1d(volume_times_high_res, high_res_regressor)(volume_times).T
 
 
-HrfModelSpec: TypeAlias = (
+type HrfModelSpec = (
     Literal["glover", "spm", "verhoef2025", "claron2021", "fir"] | HRFModel | None
 )
 
-DriftModelSpec: TypeAlias = Literal["cosine", "polynomial"] | None
+type DriftModelSpec = Literal["cosine", "polynomial"] | None
 
 
 def _regressor_names(

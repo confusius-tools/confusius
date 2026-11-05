@@ -63,7 +63,9 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     Parameters
     ----------
     path : str or pathlib.Path
-        Path to the file to load.
+        Path to the file to load. For NIfTI files, a `{chunk}` placeholder in the
+        filename loads matching integer chunks in numeric order along `pose`;
+        see [load_nifti][confusius.io.load_nifti].
     variable : str, optional
         Zarr only. Name of the variable to extract as a DataArray. If not provided, the
         first variable in the dataset is returned.
