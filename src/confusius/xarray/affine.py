@@ -122,6 +122,54 @@ def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
     )
 
 
+def get_geometry_center(data: xr.DataArray) -> xr.DataArray:
+    """Return the world-space center of a VoxelData array.
+
+    The center is the midpoint of the box returned by
+    [get_bounding_box][confusius.xarray.get_bounding_box], so it is exact for any
+    affine, including oblique ones. Pose-dependent geometry yields a single point, the
+    center of the box enclosing every pose. Select a pose first to get that pose's own
+    center.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array, normalized with
+        [ensure_voxeldata][confusius.validation.ensure_voxeldata].
+
+    Returns
+    -------
+    (3,) xarray.DataArray
+        Center with dim `component`, where `component` is `["z", "y", "x"]`, and a
+        `units` attr from the voxel-to-world index.
+
+    Raises
+    ------
+    TypeError
+        If `data` is not an `xarray.DataArray`.
+    ValueError
+        If `data` is not a valid VoxelData array, or if a voxel dim has irregular
+        coordinates (no defined voxel extent).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from confusius.xarray import create_voxeldata, get_geometry_center
+    >>> data = create_voxeldata(
+    ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
+    ... )
+    >>> get_geometry_center(data).values
+    array([0.5, 1. , 1.5])
+    """
+    bounds = get_bounding_box(data)
+    lower = bounds.sel(bound="min", drop=True)
+    upper = bounds.sel(bound="max", drop=True)
+    if POSE_DIM in bounds.dims:
+        lower = lower.min(POSE_DIM)
+        upper = upper.max(POSE_DIM)
+    return ((lower + upper) / 2).assign_attrs(bounds.attrs)
+
+
 def get_relative_affine(
     da: xr.DataArray,
     other: xr.DataArray,
@@ -479,7 +527,7 @@ class FUSIAffineAccessor:
     """Accessor for affine transform operations on VoxelData arrays.
 
     Provides methods to compute relative transforms between scans and to
-    apply axis-aligned affines to a scan's spatial coordinates.
+    apply affines to a scan's spatial coordinates.
 
     Parameters
     ----------
@@ -612,6 +660,40 @@ class FUSIAffineAccessor:
         2.0
         """
         return get_bounding_box(self._obj)
+
+    @property
+    def geometry_center(self) -> xr.DataArray:
+        """World-space center of the wrapped VoxelData array.
+
+        The midpoint of
+        [bounding_box][confusius.xarray.FUSIAffineAccessor.bounding_box]. Pose-dependent
+        geometry yields a single point, the center of the box enclosing every pose. See
+        [get_geometry_center][confusius.xarray.get_geometry_center] for details.
+
+        Returns
+        -------
+        (3,) xarray.DataArray
+            Center with dim `component`, where `component` is `["z", "y", "x"]`, and a
+            `units` attr from the voxel-to-world index.
+
+        Raises
+        ------
+        ValueError
+            If `self` is not a valid VoxelData array, or if a voxel dim has irregular
+            coordinates.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
+        >>> data.fusi.affine.geometry_center.sel(component="y").item()
+        1.5
+        """
+        return get_geometry_center(self._obj)
 
     def to(self, other: xr.DataArray, via: str) -> "npt.NDArray[np.float64]":
         """Return the affine mapping `self`'s world space into `other`'s.

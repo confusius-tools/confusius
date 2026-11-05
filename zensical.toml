@@ -75,6 +75,7 @@ nav = [
             { "Create a VoxelData array from a MAT file" = "examples/_built/io/create_voxeldata_from_mat.md" },
             { "Load multi-pose recordings" = "examples/_built/io/load_multipose_recordings.md" },
             { "The ConfUSIus Dataset Collection" = "examples/_built/io/dataset_collection.md" },
+            { "Transforms 101" = "examples/_built/io/transforms_101.md" },
         ]},
         { "Registration" = [
             { "Registration of two sessions from the same subject" = "examples/_built/registration/register_volume_same_subject.md" },

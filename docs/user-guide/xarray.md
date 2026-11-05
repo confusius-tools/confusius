@@ -507,6 +507,26 @@ registered_to_qform = pwd.fusi.affine.apply("world_to_qform")
 shifted = pwd.fusi.affine.apply(my_affine)
 ```
 
+For the common moves, three helpers directly on `.fusi` build the affine for you:
+[`translate`][confusius.xarray.FUSIAccessor.translate] shifts by a `(z, y, x)` vector in
+world units, [`rotate`][confusius.xarray.FUSIAccessor.rotate] turns by an angle (degrees
+by default) about a world axis name or vector, and
+[`zoom`][confusius.xarray.FUSIAccessor.zoom] rescales by a scalar or per-axis `(z, y, x)`
+factors. `rotate` and `zoom` pivot about `center`, which is the grid origin by default
+(`"origin"`, the world position of the first voxel). Pass `"geometry"` to pivot about
+the center of the data's bounding box, or a `(z, y, x)` point such as `(0, 0, 0)` for
+the world origin. `rotate` follows the right-hand rule in ordered `(z, y, x)` world
+coordinates. Calls chain in order; the voxel grid and data values never change, only
+their placement in world space:
+
+```python
+# Shift 1 mm along z, then tilt 5 degrees about x through the geometry center.
+moved = pwd.fusi.translate((1.0, 0.0, 0.0)).fusi.rotate(5.0, "x", center="geometry")
+
+# Rotate about z, then y, then x, each about the fixed world axes.
+tilted = pwd.fusi.rotate((30.0, 20.0, 10.0), "zyx", center="geometry")
+```
+
 [`bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] gives the extent of
 the data in world space, enclosing the full extent of every voxel (half a voxel beyond
 the outermost voxel centers). It is computed from the affine alone (exact for oblique
@@ -514,6 +534,15 @@ geometry, and one bounding box per pose when the geometry is pose-dependent):
 
 ```python
 bbox = pwd.fusi.affine.bounding_box  # Dims (bound, component), e.g. ("max", "x").
+```
+
+[`geometry_center`][confusius.xarray.FUSIAffineAccessor.geometry_center] is the midpoint
+of that box, a single `(z, y, x)` point in world space. For pose-dependent geometry it
+is the center of the box enclosing every pose:
+
+```python
+# Dim (component), e.g. center.sel(component="x").
+center = pwd.fusi.affine.geometry_center
 ```
 
 To replace a DataArray's voxel-to-world geometry outright (e.g. after computing a new

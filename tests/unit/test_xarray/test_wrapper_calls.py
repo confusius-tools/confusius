@@ -62,7 +62,9 @@ def test_extract_wrappers_forward_calls(
     monkeypatch.setattr("confusius.extract.reconstruction.unmask", _unmask)
 
     assert (
-        sample_voxeldata_3dt.fusi.extract.with_labels(sample_roi_labels, reduction="sum")
+        sample_voxeldata_3dt.fusi.extract.with_labels(
+            sample_roi_labels, reduction="sum"
+        )
         is expected
     )
     assert calls["labels"] == (sample_voxeldata_3dt, sample_roi_labels, "sum")
@@ -96,8 +98,57 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
     assert sample_voxeldata_3dt.fusi.affine.to(other, via="world_to_lab") is expected_to
     assert calls["to"] == (sample_voxeldata_3dt, other, "world_to_lab")
 
-    assert sample_voxeldata_3dt.fusi.affine.apply(affine, inplace=True) is expected_apply
+    assert (
+        sample_voxeldata_3dt.fusi.affine.apply(affine, inplace=True) is expected_apply
+    )
     assert calls["apply"] == (sample_voxeldata_3dt, affine, True)
+
+    def _translate(data, translation, *, inplace=False):
+        calls["translate"] = (data, translation, inplace)
+        return expected_apply
+
+    def _rotate(data, angle, axis, *, center, degrees, inplace):
+        calls["rotate"] = (data, angle, axis, center, degrees, inplace)
+        return expected_apply
+
+    def _zoom(data, zoom, *, center, inplace):
+        calls["zoom"] = (data, zoom, center, inplace)
+        return expected_apply
+
+    # The accessor imports these lazily, so patch the registration module.
+    monkeypatch.setattr("confusius.registration.affines.apply_translation", _translate)
+    monkeypatch.setattr("confusius.registration.affines.apply_rotation", _rotate)
+    monkeypatch.setattr("confusius.registration.affines.apply_zoom", _zoom)
+
+    assert sample_voxeldata_3dt.fusi.rotate(5.0, "x") is expected_apply
+    assert calls["rotate"] == (sample_voxeldata_3dt, 5.0, "x", "origin", True, False)
+
+    assert sample_voxeldata_3dt.fusi.zoom(2.0) is expected_apply
+    assert calls["zoom"] == (sample_voxeldata_3dt, 2.0, "origin", False)
+
+    assert sample_voxeldata_3dt.fusi.translate((1.0, 2.0, 3.0)) is expected_apply
+    assert calls["translate"] == (sample_voxeldata_3dt, (1.0, 2.0, 3.0), False)
+
+    assert (
+        sample_voxeldata_3dt.fusi.rotate(
+            5.0, "x", center=(0.0, 0.0, 0.0), degrees=False, inplace=True
+        )
+        is expected_apply
+    )
+    assert calls["rotate"] == (
+        sample_voxeldata_3dt,
+        5.0,
+        "x",
+        (0.0, 0.0, 0.0),
+        False,
+        True,
+    )
+
+    assert (
+        sample_voxeldata_3dt.fusi.zoom(2.0, center=(1.0, 1.0, 1.0))
+        is expected_apply
+    )
+    assert calls["zoom"] == (sample_voxeldata_3dt, 2.0, (1.0, 1.0, 1.0), False)
 
 
 def test_iq_wrappers_forward_calls(monkeypatch, sample_voxeldata_iq_3dt):
@@ -410,7 +461,9 @@ def test_connectivity_seed_map_with_signals_constructs_and_fits(
     }
 
 
-def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_roi_labels):
+def test_plot_wrappers_forward_calls(
+    monkeypatch, sample_voxeldata_3d, sample_roi_labels
+):
     """Plot accessor methods forward all arguments to plotting helpers."""
     calls: dict[str, tuple] = {}
 

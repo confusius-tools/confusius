@@ -25,6 +25,16 @@ Current development version for the next ConfUSIus release.
 - Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
   them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
+- Add [`apply_translation`][confusius.registration.apply_translation],
+  [`apply_rotation`][confusius.registration.apply_rotation] and
+  [`apply_zoom`][confusius.registration.apply_zoom], plus the matching
+  `.fusi.translate()`, `.fusi.rotate()` and `.fusi.zoom()` accessor methods, to move
+  VoxelData in world space without resampling
+  ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Add [`get_geometry_center`][confusius.xarray.get_geometry_center] and
+  [`.fusi.affine.geometry_center`][confusius.xarray.FUSIAffineAccessor.geometry_center]
+  to get the world-space center of a VoxelData array
+  ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 
 ### :bug: Fixes
 
@@ -39,6 +49,9 @@ Current development version for the next ConfUSIus release.
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
   archive, and simplify dataset and template citations
   ([#565](https://github.com/confusius-tools/confusius/pull/565)).
+- Add the [Transforms 101](examples/_built/io/transforms_101.md) example,
+  which shows how to translate, rotate and zoom a VoxelData array and what the `center`
+  argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 
 ### :wrench: Maintenance
 

@@ -16,6 +16,7 @@ from scipy.spatial.transform import Rotation
 from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.geometry import get_voxel_to_world_spatial_dims
 from confusius.validation import ensure_voxeldata
+from confusius.xarray.affine import get_geometry_center
 
 if TYPE_CHECKING:
     from threading import Event
@@ -103,14 +104,6 @@ def _rotation_matrix_aligning_vectors(
     return rotation.as_matrix()
 
 
-def _get_voxel_to_world_plane_center(data: xr.DataArray) -> np.ndarray:
-    """Return the world center point of a single-slice voxel-to-world volume."""
-    return np.array(
-        [float(np.asarray(data.coords[name].values).mean()) for name in WORLD_DIMS],
-        dtype=np.float64,
-    )
-
-
 def _get_voxel_to_world_slice_normal(data: xr.DataArray) -> np.ndarray:
     """Return the world-space normal of a single-slice voxel-to-world volume."""
     voxel_dims = get_voxel_to_world_spatial_dims(data)
@@ -146,7 +139,8 @@ def initialize_single_slice_rigid_transform(
     ------
     ValueError
         If either input is not a VoxelData array with a time-free, pose-free,
-        3D voxel-to-world grid (see `confusius.validation.ensure_voxeldata`).
+        3D voxel-to-world grid (see `confusius.validation.ensure_voxeldata`), or if a
+        voxel dim has irregular coordinates.
     """
     # ensure_voxeldata (allow_extra_dims=False) already guarantees spatial_dims ==
     # VOXEL_DIMS for both inputs, so fixed/moving spatial dims can never actually
@@ -168,8 +162,8 @@ def initialize_single_slice_rigid_transform(
     moving_normal = _get_voxel_to_world_slice_normal(moving)
     rotation = _rotation_matrix_aligning_vectors(fixed_normal, moving_normal)
 
-    fixed_center = _get_voxel_to_world_plane_center(fixed)
-    moving_center = _get_voxel_to_world_plane_center(moving)
+    fixed_center = get_geometry_center(fixed).to_numpy()
+    moving_center = get_geometry_center(moving).to_numpy()
     translation = moving_center - rotation @ fixed_center
 
     transform = np.eye(4, dtype=np.float64)
