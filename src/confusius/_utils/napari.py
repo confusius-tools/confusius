@@ -350,13 +350,42 @@ def build_napari_layer_data(
     ]
 
 
+def share_image_contrast_limits(
+    layers: list[tuple[Any, dict[str, Any], Literal["image", "labels"]]],
+) -> None:
+    """Set contrast limits spanning the data range of all image layers.
+
+    One display range shared by every layer keeps intensities comparable across the
+    poses of a recording. The data range of each layer is computed once, before the
+    layers are created.
+
+    Parameters
+    ----------
+    layers : list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]
+        Layer payloads, keyword arguments, and resolved layer types, as returned by
+        `build_napari_layer_data`. `"contrast_limits"` is set in place in the
+        keyword arguments of every image layer. Labels layers are left untouched.
+    """
+    # Layers built from one array all share its resolved layer type.
+    if layers[0][2] != "image":
+        return
+    data_ranges = [calc_data_range(data) for data, _kwargs, _layer_type in layers]
+    contrast_limits = (
+        min(low for low, _high in data_ranges),
+        max(high for _low, high in data_ranges),
+    )
+    for _data, kwargs, _layer_type in layers:
+        kwargs["contrast_limits"] = contrast_limits
+
+
 def convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> list[FullLayerData]:
     """Convert a ConfUSIus DataArray to napari FullLayerData tuples.
 
     Used by the napari plugin readers and sample data, which hand the tuples to napari
     instead of adding the layers themselves. Wraps `build_napari_layer_data`, shows
-    its warnings as napari notifications, and aggregates image contrast limits over
-    all layers so every pose shares a consistent display range.
+    its warnings as napari notifications, and shares image contrast limits across
+    all layers with `share_image_contrast_limits`, so every pose has a consistent
+    display range.
 
     Parameters
     ----------
@@ -386,16 +415,7 @@ def convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> list[FullLay
                 caught_warning.filename,
                 caught_warning.lineno,
             )
-    if layers[0][2] == "image":
-        automatic_contrast_limits = np.array(
-            [calc_data_range(data) for data, _kwargs, _layer_type in layers]
-        )
-        contrast_limits = (
-            automatic_contrast_limits[:, 0].min(),
-            automatic_contrast_limits[:, 1].max(),
-        )
-        for _data, kwargs, _layer_type in layers:
-            kwargs["contrast_limits"] = contrast_limits
+    share_image_contrast_limits(layers)
     return cast("list[FullLayerData]", layers)
 
 

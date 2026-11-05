@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import napari
 import numpy as np
 import xarray as xr
-from napari.layers import Image
 
 from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM, WORLD_DIMS
 from confusius._utils.geometry import (
@@ -24,6 +23,7 @@ from confusius._utils.geometry import (
 from confusius._utils.napari import (
     build_napari_layer_data,
     get_napari_layer_geometry,
+    share_image_contrast_limits,
 )
 from confusius.registration import resample_like
 from confusius.validation import ensure_voxeldata
@@ -31,7 +31,105 @@ from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
     from napari import Viewer
-    from napari.layers import Labels
+    from napari.layers import Image, Labels
+
+
+def _add_layer(
+    viewer: "Viewer | None",
+    built_layer: tuple[Any, dict[str, Any], Literal["image", "labels"]],
+    show_colorbar: bool,
+    dim_order: tuple[str, ...] | None,
+    layer_kwargs: dict[str, Any],
+) -> "tuple[Viewer, Image | Labels]":
+    """Add one built layer to a napari viewer.
+
+    Parameters
+    ----------
+    viewer : napari.Viewer, optional
+        Viewer to add the layer to. If not provided, a new viewer is created.
+    built_layer : tuple[Any, dict[str, Any], Literal["image", "labels"]]
+        Layer payload, keyword arguments, and resolved layer type, as returned by
+        `build_napari_layer_data`.
+    show_colorbar : bool
+        Whether to show the colorbar. Only applies to image layers.
+    dim_order : tuple[str, ...], optional
+        Dimension ordering for the spatial axes. If not provided, singleton spatial
+        dimensions are placed first so the canvas always shows the two axes that
+        actually vary.
+    layer_kwargs : dict[str, Any]
+        Caller-provided keyword arguments for the layer creation method. They take
+        precedence over the built ones and are not modified.
+
+    Returns
+    -------
+    viewer : napari.Viewer
+        Viewer holding the new layer.
+    layer : napari.layers.Image or napari.layers.Labels
+        The layer added to the viewer.
+
+    Raises
+    ------
+    ValueError
+        If `dim_order` does not match the layer's spatial dimensions.
+    """
+    plot_data, built_kwargs, resolved_layer_type = built_layer
+    layer_kwargs = dict(layer_kwargs)
+    data = built_kwargs["metadata"]["xarray"]
+
+    all_dims = [str(dim) for dim in data.dims]
+    time_dim = TIME_DIM if TIME_DIM in all_dims else None
+    spatial_dims = [d for d in all_dims if d != time_dim]
+
+    if dim_order is not None:
+        if set(dim_order) != set(spatial_dims):
+            raise ValueError(
+                f"dim_order {dim_order} does not match spatial dimensions "
+                f"{spatial_dims}. Ensure 'dim_order' contains all spatial "
+                "dimension names."
+            )
+    else:
+        # Planar data has one or more singleton spatial dims (e.g. the elevation
+        # axis of a single-slice acquisition). Default to displaying those as
+        # sliders rather than relying on napari's "last two axes are the canvas"
+        # convention, so the canvas always shows the two axes that actually vary,
+        # regardless of how the voxel-to-world affine maps them.
+        dim_order = tuple(sorted(spatial_dims, key=lambda d: data.sizes[d] != 1))
+
+    # Caller-provided layer kwargs take precedence over the built ones, except for
+    # `metadata["xarray"]`, which always holds the displayed DataArray.
+    built_metadata = built_kwargs.pop("metadata")
+    for key, value in built_kwargs.items():
+        layer_kwargs.setdefault(key, value)
+    layer_kwargs["metadata"] = {
+        **built_metadata,
+        **layer_kwargs.get("metadata", {}),
+        "xarray": data,
+    }
+
+    if resolved_layer_type == "image":
+        # The last 2 (2D) or 3 (3D) dimensions are the displayed spatial axes.
+        order = []
+        if time_dim:
+            order.append(all_dims.index(time_dim))
+        for dim in dim_order:
+            if dim in all_dims:
+                order.append(all_dims.index(dim))
+        layer_kwargs["order"] = tuple(order)
+
+        viewer, layer = napari.imshow(plot_data, viewer=viewer, **layer_kwargs)
+        # napari.imshow stubs declare list[Image] but at runtime returns Image
+        # directly: cast to silence the type checker.
+        layer = cast("Image", layer)
+
+        if show_colorbar:
+            layer.colorbar.visible = True
+
+    else:
+        if viewer is None:
+            viewer = napari.Viewer()
+        layer = viewer.add_labels(plot_data, **layer_kwargs)  # type: ignore
+
+    return viewer, layer
 
 
 def plot_napari(
@@ -43,7 +141,6 @@ def plot_napari(
     layer_type: Literal["image", "labels", "auto"] = "auto",
     resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
     resample_fill_value: float | None = None,
-    _built_layer: tuple[Any, dict[str, Any], Literal["image", "labels"]] | None = None,
     **layer_kwargs,
 ) -> "tuple[Viewer, list[Image | Labels]]":
     """Display fUSI data using the napari viewer.
@@ -83,8 +180,6 @@ def plot_napari(
     resample_fill_value : float, optional
         Value assigned to voxels outside `data`'s field of view after resampling
         oblique data. If not provided, defaults to `data`'s own minimum value.
-    _built_layer : tuple[Any, dict[str, Any], Literal["image", "labels"]], optional
-        Internal pre-built layer payload used when adding a pose layer.
     **layer_kwargs
         Additional keyword arguments passed to the layer creation method
         (`napari.imshow` for images or `viewer.add_labels` for labels).
@@ -162,133 +257,32 @@ def plot_napari(
     >>> viewer, layers = plot_napari(data)
     >>> viewer, layers = plot_napari(roi_mask, viewer=viewer, layer_type="labels")
     """
-    data = ensure_voxeldata(data)
-    if POSE_DIM in data.dims:
-        built_layers = build_napari_layer_data(
-            data,
-            name=layer_kwargs.get("name"),
-            layer_type=layer_type,
-            resample_interpolation=resample_interpolation,
-            resample_fill_value=resample_fill_value,
+    built_layers = build_napari_layer_data(
+        data,
+        name=layer_kwargs.pop("name", None),
+        layer_type=layer_type,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
+    )
+    # Automatic contrast limits are computed up front and passed at layer creation,
+    # so all poses share one display range. This also avoids napari 0.6.6+ leaving
+    # them at (0, 1) for non-numpy data (Dask), whose own computation is deferred to
+    # the async slice worker. See https://github.com/napari/napari/pull/8756.
+    if layer_kwargs.get("contrast_limits") is None:
+        layer_kwargs.pop("contrast_limits", None)
+        share_image_contrast_limits(built_layers)
+
+    layers: list[Image | Labels] = []
+    for built_layer in built_layers:
+        viewer, layer = _add_layer(
+            viewer, built_layer, show_colorbar, dim_order, layer_kwargs
         )
-        layers: list[Image | Labels] = []
-        contrast_limits = layer_kwargs.get("contrast_limits")
-        automatic_contrast_limits: list[tuple[float, float]] = []
-        layer_kwargs = {
-            key: value for key, value in layer_kwargs.items() if key != "name"
-        }
-        for built_layer in built_layers:
-            source_data = built_layer[1]["metadata"]["source_xarray"]
-            viewer, pose_layers = plot_napari(
-                source_data,
-                show_colorbar=show_colorbar,
-                show_scale_bar=show_scale_bar,
-                dim_order=dim_order,
-                viewer=viewer,
-                layer_type=layer_type,
-                resample_interpolation=resample_interpolation,
-                resample_fill_value=resample_fill_value,
-                _built_layer=built_layer,
-                **(
-                    {**layer_kwargs, "contrast_limits": contrast_limits}
-                    if contrast_limits is not None
-                    else layer_kwargs
-                ),
-            )
-            layers.extend(pose_layers)
-            if contrast_limits is None and built_layer[2] == "image":
-                image_layer = cast("Image", pose_layers[0])
-                automatic_contrast_limits.append(image_layer.contrast_limits)
-        if automatic_contrast_limits:
-            contrast_limits = (
-                min(limits[0] for limits in automatic_contrast_limits),
-                max(limits[1] for limits in automatic_contrast_limits),
-            )
-            for pose_layer in layers:
-                if isinstance(pose_layer, Image):
-                    pose_layer.contrast_limits = contrast_limits
-        assert viewer is not None
-        return viewer, layers
-
-    if _built_layer is None:
-        [(plot_data, built_kwargs, resolved_layer_type)] = build_napari_layer_data(
-            data,
-            layer_type=layer_type,
-            resample_interpolation=resample_interpolation,
-            resample_fill_value=resample_fill_value,
-        )
-    else:
-        plot_data, built_kwargs, resolved_layer_type = _built_layer
-    data = built_kwargs["metadata"]["xarray"]
-
-    all_dims = [str(dim) for dim in data.dims]
-    time_dim = TIME_DIM if TIME_DIM in all_dims else None
-    spatial_dims = [d for d in all_dims if d != time_dim]
-
-    if dim_order is not None:
-        if set(dim_order) != set(spatial_dims):
-            raise ValueError(
-                f"dim_order {dim_order} does not match spatial dimensions "
-                f"{spatial_dims}. Ensure 'dim_order' contains all spatial "
-                "dimension names."
-            )
-    else:
-        # Planar data has one or more singleton spatial dims (e.g. the elevation
-        # axis of a single-slice acquisition). Default to displaying those as
-        # sliders rather than relying on napari's "last two axes are the canvas"
-        # convention, so the canvas always shows the two axes that actually vary,
-        # regardless of how the voxel-to-world affine maps them.
-        dim_order = tuple(sorted(spatial_dims, key=lambda d: data.sizes[d] != 1))
-
-    # Caller-provided layer kwargs take precedence over the built ones, except for
-    # `metadata["xarray"]`, which always holds the displayed DataArray.
-    built_metadata = built_kwargs.pop("metadata")
-    for key, value in built_kwargs.items():
-        layer_kwargs.setdefault(key, value)
-    layer_kwargs["metadata"] = {
-        **built_metadata,
-        **layer_kwargs.get("metadata", {}),
-        "xarray": data,
-    }
-
-    if resolved_layer_type == "image":
-        # The last 2 (2D) or 3 (3D) dimensions are the displayed spatial axes.
-        order = []
-        if time_dim:
-            order.append(all_dims.index(time_dim))
-        for dim in dim_order:
-            if dim in all_dims:
-                order.append(all_dims.index(dim))
-        layer_kwargs["order"] = tuple(order)
-
-        viewer, layer = napari.imshow(plot_data, viewer=viewer, **layer_kwargs)
-        # napari.imshow stubs declare list[Image] but at runtime returns Image
-        # directly: cast to silence the type checker.
-        layer = cast("Image", layer)
-
-        # Workaround for napari 0.6.6+: non-numpy data (xarray DataArray / Dask) defers
-        # contrast-limit computation to the async slice worker. The worker fires AFTER
-        # _should_calc_clims is set, but in napari 0.6.6 the initial viewer refresh
-        # triggered by the `inserted` event completes before that flag is raised, so
-        # contrast limits stay at (0, 1) for float data until the user manually clicks
-        # "once". Explicitly computing them here is robust across napari versions. See
-        # https://github.com/napari/napari/pull/8756.
-        if "contrast_limits" not in layer_kwargs:
-            layer.reset_contrast_limits_range()
-            layer.reset_contrast_limits("data")
-
-        if show_colorbar:
-            layer.colorbar.visible = True
-
-    else:
-        if viewer is None:
-            viewer = napari.Viewer()
-        layer = viewer.add_labels(plot_data, **layer_kwargs)  # type: ignore
+        layers.append(layer)
 
     assert viewer is not None
     viewer.canvas.overlays.scale_bar.visible = show_scale_bar
 
-    return viewer, [layer]
+    return viewer, layers
 
 
 def draw_napari_labels(

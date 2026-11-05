@@ -93,6 +93,19 @@ class TestPlotNapari:
             assert layer.contrast_limits[0] < 1.0
             assert layer.contrast_limits[1] > 100.0
 
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_automatic_contrast_limits_span_data_range(
+        self, sample_voxeldata_3dt, make_napari_viewer, lazy
+    ):
+        """Automatic contrast limits match the data range, also for Dask data."""
+        data = sample_voxeldata_3dt.chunk({"time": 2}) if lazy else sample_voxeldata_3dt
+        _, [layer] = plot_napari(data, viewer=make_napari_viewer())
+        assert isinstance(layer, Image)
+        npt.assert_allclose(
+            layer.contrast_limits,
+            (sample_voxeldata_3dt.min().item(), sample_voxeldata_3dt.max().item()),
+        )
+
     def test_multipose_name_override_and_oblique_geometry(
         self, sample_voxeldata_3d_oblique, make_napari_viewer
     ):
