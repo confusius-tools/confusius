@@ -48,11 +48,11 @@ generate-doc-images:
 
 # Run all tests.
 test:
-    uv run pytest --mpl
+    uv run pytest tests/ --mpl
 
 # Run tests with verbose output.
 test-verbose:
-    uv run pytest -v --mpl
+    uv run pytest tests/ -v --mpl
 
 # Generate baseline images for visual regression tests.
 [unix]

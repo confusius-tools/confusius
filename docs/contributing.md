@@ -99,6 +99,23 @@ automatically by the gallery builder — no cache update needed (the cache key a
 covers `docs/examples/**/*.py`). After adding a script, add its built output path to
 the `nav` in `zensical.toml`.
 
+The gallery is built by [zallery](https://github.com/confusius-tools/zallery)
+(`just gallery`). Its README covers the example format, the cell tags, and how a
+single run yields both the light and the dark figures. What is specific to ConfUSIus:
+
+- Pass the background to the plotting functions rather than relying on their
+  `"black"` default: `bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])`.
+  A figure left on pure black (the registration progress plot, a plotting call that
+  makes its own figure without `bg_color`) is themed as a whole for both pages,
+  pure-white data colors included.
+- Leave `cmap` unset on `plot_stat_map` and `plot_matrix` so the library's
+  background-aware default applies.
+- For brand-colored lines, draw with the light-page variants `#d93a54` (red) and
+  `#27906d` (turquoise); the dark rendering switches them to `#e94b5f` and `#3ad9a4`.
+  Default-cycle line colors switch to Matplotlib's `dark_background` cycle, and
+  `inferno_r` becomes `inferno`. These swaps live in `tools/gallery_hooks.py`;
+  editing it invalidates the gallery cache.
+
 ### Reporting Issues
 
 If you find a bug or have a feature request:

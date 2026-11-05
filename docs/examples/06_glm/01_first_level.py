@@ -318,7 +318,7 @@ modified_claron2021 = partial(cf.glm.claron2021_hrf, beta=6.7)
 hrf_kernel = modified_claron2021(dt=1.0)
 hrf_time = np.linspace(0, 32, len(hrf_kernel))
 
-fig, ax = plt.subplots(figsize=(7, 3), facecolor=bg_color)
+fig, ax = plt.subplots(figsize=(7, 3))
 ax.plot(hrf_time, hrf_kernel, color="#d93a54")
 ax.set_xlabel("Time since stimulus onset (s)")
 ax.set_ylabel("Response (a.u.)")
