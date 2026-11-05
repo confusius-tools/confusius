@@ -10,6 +10,30 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- `plot_napari` and its xarray accessors always return `(viewer, layers)`;
+  use `viewer, [layer] = ...` for single-layer results
+  ([#562](https://github.com/confusius-tools/confusius/pull/562)).
+- Python 3.11 is no longer supported; ConfUSIus now requires Python 3.12 or newer,
+  following BrainGlobe's move to Python 3.12-3.14 and
+  [SPEC 0](https://scientific-python.org/specs/spec-0000/)
+  ([#561](https://github.com/confusius-tools/confusius/pull/561)).
+  
+### :sparkles: Enhancements
+
+- Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
+  them along `pose` in numeric chunk order while preserving geometry and timing
+  ([#564](https://github.com/confusius-tools/confusius/pull/564)).
+
+### :bug: Fixes
+
+- [`apply_affine`][confusius.xarray.apply_affine] and
+  [`reindex_voxels`][confusius.xarray.reindex_voxels] now accept scalar-indexed VoxelData
+  arrays and restore the indexed voxel dimension in their result. `inplace=True` raises a
+  `ValueError` on such arrays
+  ([#558](https://github.com/confusius-tools/confusius/pull/558)).
+
 ### :books: Documentation
 
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
@@ -18,6 +42,10 @@ Current development version for the next ConfUSIus release.
 
 ### :wrench: Maintenance
 
+- [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] now uses
+  BrainGlobe's public lazy-loading API instead of reimplementing its Zarr internals,
+  so atlas arrays stay lazy without depending on private upstream code
+  ([#377](https://github.com/confusius-tools/confusius/issues/377)).
 - Test that every function in the napari plugin manifest can be imported
   ([#555](https://github.com/confusius-tools/confusius/pull/555)).
 - Use the released xarray 2026.9.0 instead of a git pin now that it ships the
@@ -32,6 +60,12 @@ Current development version for the next ConfUSIus release.
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 - Fix video synchronization with recordings timed in milliseconds or microseconds
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+
+### :frame_photo: Napari plugin
+
+- Open multipose arrays as one positioned layer per pose in `plot_napari`, its
+  xarray accessors, and the CLI, with pose values in layer names
+  ([#562](https://github.com/confusius-tools/confusius/pull/562)).
 
 ## 0.9.0
 

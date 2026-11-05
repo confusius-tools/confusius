@@ -122,6 +122,28 @@ class TestRun:
         assert len(viewer.layers) == 1
         assert viewer.layers[scan_2d_path.name].name == scan_2d_path.name
 
+    def test_multipose_path_adds_positioned_layers(
+        self, make_napari_viewer, monkeypatch, sample_voxeldata_3dt_pose
+    ) -> None:
+        """The CLI opens every pose and preserves file-based naming and geometry."""
+        import numpy.testing as npt
+
+        from confusius._cli import build_parser, run
+
+        monkeypatch.setattr("confusius.io.load", lambda path: sample_voxeldata_3dt_pose)
+        viewer = make_napari_viewer()
+        run(build_parser().parse_args(["multipose.scan"]), viewer=viewer)
+
+        assert [layer.name for layer in viewer.layers] == [
+            "multipose.scan [pose 0]",
+            "multipose.scan [pose 1]",
+        ]
+        for p, layer in enumerate(viewer.layers):
+            npt.assert_array_equal(layer.data, sample_voxeldata_3dt_pose.isel(pose=p))
+            npt.assert_allclose(
+                layer.translate, [10.0 + 0.25 * p, 1.0 + 0.4 * p, 2.0, 3.0]
+            )
+
     def test_two_paths_adds_two_layers_in_order(
         self, make_napari_viewer, tmp_path: Path, scan_2d_path: Path
     ) -> None:

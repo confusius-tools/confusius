@@ -308,15 +308,15 @@ def _open_paths(
     *,
     lazy: bool,
 ) -> list[napari.layers.Image | napari.layers.Labels]:
-    """Load each path and add it to the viewer as an image or labels layer.
+    """Load each path and add it to the viewer, with one layer per pose.
 
     Parameters
     ----------
     viewer : napari.Viewer
         Active napari viewer to add the loaded layers to.
     paths : list of pathlib.Path
-        One path per fUSI data file. Each becomes its own layer named after
-        the file's basename.
+        One path per fUSI data file. Layers are named after the file's basename,
+        with a pose suffix for each pose in multipose data.
     lazy : bool
         Whether to keep the data Dask-backed (`True`) or materialise it into
         memory before plotting (`False`).
@@ -338,6 +338,8 @@ def _open_paths(
         if not lazy:
             da = da.compute()
         layer_type = infer_layer_type(da.dtype)
-        _, layer = plot_napari(da, viewer=viewer, name=path.name, layer_type=layer_type)
-        layers.append(layer)
+        _, added_layers = plot_napari(
+            da, viewer=viewer, name=path.name, layer_type=layer_type
+        )
+        layers.extend(added_layers)
     return layers

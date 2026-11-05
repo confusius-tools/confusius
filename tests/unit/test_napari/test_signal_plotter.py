@@ -480,7 +480,7 @@ class TestVideoLayerInteraction:
         """Add a real fUSI layer with xarray metadata to the viewer."""
         from confusius.plotting import plot_napari
 
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,
@@ -607,7 +607,7 @@ class TestPanelXaxisWithVideoLayer:
         """Add a real fUSI layer with xarray metadata to the viewer."""
         from confusius.plotting import plot_napari
 
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,

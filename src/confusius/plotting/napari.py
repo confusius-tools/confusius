@@ -23,6 +23,7 @@ from confusius._utils.geometry import (
 from confusius._utils.napari import (
     build_napari_layer_data,
     get_napari_layer_geometry,
+    share_image_contrast_limits,
 )
 from confusius.registration import resample_like
 from confusius.validation import ensure_voxeldata
@@ -33,131 +34,46 @@ if TYPE_CHECKING:
     from napari.layers import Image, Labels
 
 
-def plot_napari(
-    data: xr.DataArray,
-    show_colorbar: bool = True,
-    show_scale_bar: bool = True,
-    dim_order: tuple[str, ...] | None = None,
-    viewer: "Viewer | None" = None,
-    layer_type: Literal["image", "labels", "auto"] = "auto",
-    resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
-    resample_fill_value: float | None = None,
-    **layer_kwargs,
+def _add_layer(
+    viewer: "Viewer | None",
+    built_layer: tuple[Any, dict[str, Any], Literal["image", "labels"]],
+    show_colorbar: bool,
+    dim_order: tuple[str, ...] | None,
+    layer_kwargs: dict[str, Any],
 ) -> "tuple[Viewer, Image | Labels]":
-    """Display fUSI data using the napari viewer.
+    """Add one built layer to a napari viewer.
 
     Parameters
     ----------
-    data : xarray.DataArray
-        Input data array to visualize. Must carry a `VoxelToWorldIndex` (native
-        voxel dimensions `(..., time, pose, k, j, i)` deriving world `z/y/x`
-        coordinates). Use `dim_order` to specify a different displayed spatial
-        ordering. Can be image data or label/mask data (e.g., ROIs, segmentations).
-    show_colorbar : bool, default: True
-        Whether to show the colorbar. Only applies to image layers.
-    show_scale_bar : bool, default: True
-        Whether to show the scale bar.
-    dim_order : tuple[str, ...], optional
-        Dimension ordering for the spatial axes (last three dimensions). If not
-        provided, singleton spatial dimensions (e.g. the elevation axis of a
-        single-slice acquisition) are placed first so the canvas always shows the
-        two axes that actually vary; otherwise the dimensions' native ordering in
-        `data` is used.
     viewer : napari.Viewer, optional
-        Existing napari viewer to add the layer to. If not provided, a new viewer
-        is created.
-    layer_type : {"image", "labels", "auto"}, default: "auto"
-        Type of layer to create. Use "image" for fUSI data and "labels" for
-        ROI masks, segmentations, or other label data. "auto" picks "labels" for integer
-        or boolean data and "image" otherwise.
-    resample_interpolation : {"linear", "nearest", "bspline"}, optional
-        Interpolation method used when resampling oblique (non-axis-aligned)
-        voxel-to-world `data` onto an axis-aligned world grid for display. If not
-        provided, defaults to `"nearest"` for labels layers (including those
-        inferred with `layer_type="auto"`; blending distinct integer labels
-        together is never meaningful) and `"linear"` for image layers.
-    resample_fill_value : float, optional
-        Value assigned to voxels outside `data`'s field of view after resampling
-        oblique data. If not provided, defaults to `data`'s own minimum value.
-    **layer_kwargs
-        Additional keyword arguments passed to the layer creation method
-        (`napari.imshow` for images or `viewer.add_labels` for labels).
-        For image layers, if `data.attrs` contains `"cmap"` and `"colormap"`
-        is not in `layer_kwargs`, the attribute is used as the colormap.
-        For labels layers, if `data.attrs` contains `"cmap"` and `"norm"`
-        (as set by atlas functions) and `"colormap"` is not in `layer_kwargs`,
-        a per-label color dict is built automatically from those attributes.
+        Viewer to add the layer to. If not provided, a new viewer is created.
+    built_layer : tuple[Any, dict[str, Any], Literal["image", "labels"]]
+        Layer payload, keyword arguments, and resolved layer type, as returned by
+        `build_napari_layer_data`.
+    show_colorbar : bool
+        Whether to show the colorbar. Only applies to image layers.
+    dim_order : tuple[str, ...], optional
+        Dimension ordering for the spatial axes. If not provided, singleton spatial
+        dimensions are placed first so the canvas always shows the two axes that
+        actually vary.
+    layer_kwargs : dict[str, Any]
+        Caller-provided keyword arguments for the layer creation method. They take
+        precedence over the built ones and are not modified.
 
     Returns
     -------
     viewer : napari.Viewer
-        The napari viewer instance with the layer added.
+        Viewer holding the new layer.
     layer : napari.layers.Image or napari.layers.Labels
         The layer added to the viewer.
 
-    Notes
-    -----
-    Complex-valued data is converted to magnitude (`abs(data)`) before display.
-
-    Napari's axis labels always show world `z`/`y`/`x` names, even though the
-    displayed layer keeps `data`'s native voxel dims and index. Oblique or sheared
-    data is resampled to an axis-aligned world grid first, because this display path
-    does not yet pass `data.fusi.affine`'s rotation/shear through as a napari layer
-    `affine`.
-
-    If all displayed dimensions have coordinates, their spacing is used as the scale
-    parameter for napari to ensure correct world scaling. If any displayed dimension
-    is missing coordinates, no scaling is applied for that dimension. The spacing is
-    computed as the median difference between consecutive coordinate values.
-
-    When spatial coordinates carry a `units` attribute (e.g. `"m"`), the unit list is
-    forwarded to napari as the `units` layer parameter, which populates the status bar
-    with world coordinates and sets the scale bar unit if units are consistent across
-    displayed axes.
-
-    For unitary voxel dimensions (e.g., a single-slice elevation axis in 2D+t data),
-    the spacing cannot be inferred from consecutive coordinate differences. In that
-    case, `.fusi.spacing` derives it from the voxel-to-world affine column norm
-    instead. For unitary non-voxel dimensions with no affine to fall back on, unit
-    spacing is assumed and a warning is emitted.
-
-    The first coordinate value of each displayed dimension is used as the `translate`
-    parameter so that the image is positioned at its correct world origin. For
-    dimensions without coordinates, a translate of `0.0` is used. This ensures that
-    multiple datasets with different fields of view overlay correctly when added to
-    the same viewer.
-
-    Examples
-    --------
-    >>> import confusius as cf
-    >>> from confusius.plotting import plot_napari
-    >>> data = cf.load("output.nii.gz")
-    >>> viewer, layer = plot_napari(data)
-
-    >>> # Custom contrast limits
-    >>> viewer, layer = plot_napari(data, contrast_limits=(0, 100))
-
-    >>> # Different dimension ordering (e.g., depth, elevation, lateral)
-    >>> viewer, layer = plot_napari(data, dim_order=("y", "z", "x"))
-
-    >>> # Add a second dataset as a new layer in an existing viewer
-    >>> viewer, layer = plot_napari(data1)
-    >>> viewer, layer = plot_napari(data2, viewer=viewer)
-
-    >>> # Display ROI labels (e.g., segmentation mask)
-    >>> roi_mask = cf.load("roi_mask.nii.gz")
-    >>> viewer, layer = plot_napari(roi_mask, layer_type="labels")
-
-    >>> # Overlay labels on existing image
-    >>> viewer, layer = plot_napari(data)
-    >>> viewer, layer = plot_napari(roi_mask, viewer=viewer, layer_type="labels")
+    Raises
+    ------
+    ValueError
+        If `dim_order` does not match the layer's spatial dimensions.
     """
-    plot_data, built_kwargs, resolved_layer_type = build_napari_layer_data(
-        data,
-        layer_type=layer_type,
-        resample_interpolation=resample_interpolation,
-        resample_fill_value=resample_fill_value,
-    )
+    plot_data, built_kwargs, resolved_layer_type = built_layer
+    layer_kwargs = dict(layer_kwargs)
     data = built_kwargs["metadata"]["xarray"]
 
     all_dims = [str(dim) for dim in data.dims]
@@ -205,17 +121,6 @@ def plot_napari(
         # directly: cast to silence the type checker.
         layer = cast("Image", layer)
 
-        # Workaround for napari 0.6.6+: non-numpy data (xarray DataArray / Dask) defers
-        # contrast-limit computation to the async slice worker. The worker fires AFTER
-        # _should_calc_clims is set, but in napari 0.6.6 the initial viewer refresh
-        # triggered by the `inserted` event completes before that flag is raised, so
-        # contrast limits stay at (0, 1) for float data until the user manually clicks
-        # "once". Explicitly computing them here is robust across napari versions. See
-        # https://github.com/napari/napari/pull/8756.
-        if "contrast_limits" not in layer_kwargs:
-            layer.reset_contrast_limits_range()
-            layer.reset_contrast_limits("data")
-
         if show_colorbar:
             layer.colorbar.visible = True
 
@@ -224,10 +129,160 @@ def plot_napari(
             viewer = napari.Viewer()
         layer = viewer.add_labels(plot_data, **layer_kwargs)  # type: ignore
 
+    return viewer, layer
+
+
+def plot_napari(
+    data: xr.DataArray,
+    show_colorbar: bool = True,
+    show_scale_bar: bool = True,
+    dim_order: tuple[str, ...] | None = None,
+    viewer: "Viewer | None" = None,
+    layer_type: Literal["image", "labels", "auto"] = "auto",
+    resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
+    resample_fill_value: float | None = None,
+    **layer_kwargs,
+) -> "tuple[Viewer, list[Image | Labels]]":
+    """Display fUSI data using the napari viewer.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Input data array to visualize. Must carry a `VoxelToWorldIndex` (native
+        voxel dimensions `(..., time, pose, k, j, i)` deriving world `z/y/x`
+        coordinates). Use `dim_order` to specify a different displayed spatial
+        ordering. Can be image data or label/mask data (e.g., ROIs, segmentations).
+        Arrays with a `pose` dimension are split into one layer per pose, each
+        positioned using its own voxel-to-world affine.
+    show_colorbar : bool, default: True
+        Whether to show the colorbar. Only applies to image layers.
+    show_scale_bar : bool, default: True
+        Whether to show the scale bar.
+    dim_order : tuple[str, ...], optional
+        Dimension ordering for the spatial axes (last three dimensions). If not
+        provided, singleton spatial dimensions (e.g. the elevation axis of a
+        single-slice acquisition) are placed first so the canvas always shows the
+        two axes that actually vary; otherwise the dimensions' native ordering in
+        `data` is used.
+    viewer : napari.Viewer, optional
+        Existing napari viewer to add the layer to. If not provided, a new viewer
+        is created.
+    layer_type : {"image", "labels", "auto"}, default: "auto"
+        Type of layer to create. Use "image" for fUSI data and "labels" for
+        ROI masks, segmentations, or other label data. "auto" picks "labels" for integer
+        or boolean data and "image" otherwise.
+    resample_interpolation : {"linear", "nearest", "bspline"}, optional
+        Interpolation method used when resampling oblique (non-axis-aligned)
+        voxel-to-world `data` onto an axis-aligned world grid for display. If not
+        provided, defaults to `"nearest"` for labels layers (including those
+        inferred with `layer_type="auto"`; blending distinct integer labels
+        together is never meaningful) and `"linear"` for image layers.
+    resample_fill_value : float, optional
+        Value assigned to voxels outside `data`'s field of view after resampling
+        oblique data. If not provided, defaults to `data`'s own minimum value.
+    **layer_kwargs
+        Additional keyword arguments passed to the layer creation method
+        (`napari.imshow` for images or `viewer.add_labels` for labels).
+        For image layers, if `data.attrs` contains `"cmap"` and `"colormap"`
+        is not in `layer_kwargs`, the attribute is used as the colormap.
+        For labels layers, if `data.attrs` contains `"cmap"` and `"norm"`
+        (as set by atlas functions) and `"colormap"` is not in `layer_kwargs`,
+        a per-label color dict is built automatically from those attributes.
+        An explicit `name` overrides `data.name`. Multipose layers append
+        `" [pose {pose}]"` using each pose's coordinate value. Unnamed multipose
+        arrays use `"data"` as the base name.
+
+    Returns
+    -------
+    viewer : napari.Viewer
+        The napari viewer instance with the layer added.
+    layers : list of napari.layers.Image or napari.layers.Labels
+        Layers added to the viewer, in pose order. Always a list, including when
+        the input has no `pose` dimension or contains only one pose.
+
+    Notes
+    -----
+    Complex-valued data is converted to magnitude (`abs(data)`) before display.
+
+    Napari's axis labels always show world `z`/`y`/`x` names, even though the
+    displayed layer keeps `data`'s native voxel dims and index. Oblique or sheared
+    data is resampled to an axis-aligned world grid first, because this display path
+    does not yet pass `data.fusi.affine`'s rotation/shear through as a napari layer
+    `affine`.
+
+    If all displayed dimensions have coordinates, their spacing is used as the scale
+    parameter for napari to ensure correct world scaling. If any displayed dimension
+    is missing coordinates, no scaling is applied for that dimension. The spacing is
+    computed as the median difference between consecutive coordinate values.
+
+    When spatial coordinates carry a `units` attribute (e.g. `"m"`), the unit list is
+    forwarded to napari as the `units` layer parameter, which populates the status bar
+    with world coordinates and sets the scale bar unit if units are consistent across
+    displayed axes.
+
+    For unitary voxel dimensions (e.g., a single-slice elevation axis in 2D+t data),
+    the spacing cannot be inferred from consecutive coordinate differences. In that
+    case, `.fusi.spacing` derives it from the voxel-to-world affine column norm
+    instead. For unitary non-voxel dimensions with no affine to fall back on, unit
+    spacing is assumed and a warning is emitted.
+
+    The first coordinate value of each displayed dimension is used as the `translate`
+    parameter so that the image is positioned at its correct world origin. For
+    dimensions without coordinates, a translate of `0.0` is used. This ensures that
+    multiple datasets with different fields of view overlay correctly when added to
+    the same viewer.
+
+    Examples
+    --------
+    >>> import confusius as cf
+    >>> from confusius.plotting import plot_napari
+    >>> data = cf.load("output.nii.gz")
+    >>> viewer, layers = plot_napari(data)
+
+    >>> # Custom contrast limits
+    >>> viewer, layers = plot_napari(data, contrast_limits=(0, 100))
+
+    >>> # Different dimension ordering (e.g., depth, elevation, lateral)
+    >>> viewer, layers = plot_napari(data, dim_order=("y", "z", "x"))
+
+    >>> # Add a second dataset as a new layer in an existing viewer
+    >>> viewer, layers = plot_napari(data1)
+    >>> viewer, layers = plot_napari(data2, viewer=viewer)
+
+    >>> # Display ROI labels (e.g., segmentation mask)
+    >>> roi_mask = cf.load("roi_mask.nii.gz")
+    >>> viewer, layers = plot_napari(roi_mask, layer_type="labels")
+
+    >>> # Overlay labels on existing image
+    >>> viewer, layers = plot_napari(data)
+    >>> viewer, layers = plot_napari(roi_mask, viewer=viewer, layer_type="labels")
+    """
+    built_layers = build_napari_layer_data(
+        data,
+        name=layer_kwargs.pop("name", None),
+        layer_type=layer_type,
+        resample_interpolation=resample_interpolation,
+        resample_fill_value=resample_fill_value,
+    )
+    # Automatic contrast limits are computed up front and passed at layer creation,
+    # so all poses share one display range. This also avoids napari 0.6.6+ leaving
+    # them at (0, 1) for non-numpy data (Dask), whose own computation is deferred to
+    # the async slice worker. See https://github.com/napari/napari/pull/8756.
+    if layer_kwargs.get("contrast_limits") is None:
+        layer_kwargs.pop("contrast_limits", None)
+        share_image_contrast_limits(built_layers)
+
+    layers: list[Image | Labels] = []
+    for built_layer in built_layers:
+        viewer, layer = _add_layer(
+            viewer, built_layer, show_colorbar, dim_order, layer_kwargs
+        )
+        layers.append(layer)
+
     assert viewer is not None
     viewer.canvas.overlays.scale_bar.visible = show_scale_bar
 
-    return viewer, layer
+    return viewer, layers
 
 
 def draw_napari_labels(
@@ -248,7 +303,8 @@ def draw_napari_labels(
     ----------
     data : xarray.DataArray
         Input data array to display as the background image. Typically a time-averaged
-        power Doppler frame, e.g. `data.mean("time")`.
+        power Doppler frame, e.g. `data.mean("time")`. Select a single pose first
+        for multipose data.
     labels_layer_name : str, default: "labels"
         Name assigned to the Labels layer added to the viewer.
     viewer : napari.Viewer, optional
@@ -268,6 +324,12 @@ def draw_napari_labels(
         labels in the viewer, pass this layer to
         [`extract_labels_from_layer`][confusius.plotting.extract_labels_from_layer] to obtain
         an integer label map.
+
+    Raises
+    ------
+    ValueError
+        If `data` is not a VoxelData array or still has a `pose` dimension.
+        Select one pose with `data.isel(pose=p)` before drawing labels.
 
     Notes
     -----
@@ -294,9 +356,11 @@ def draw_napari_labels(
     >>> label_map = extract_labels_from_layer(labels_layer, pwd.mean("time"))
     """
     data = ensure_voxeldata(data)
+    if POSE_DIM in data.dims:
+        raise ValueError("Select a single pose before drawing labels.")
     # The painting background is an intensity image, regardless of its dtype.
     kwargs["layer_type"] = "image"
-    viewer, image_layer = plot_napari(data, viewer=viewer, **kwargs)
+    viewer, [image_layer] = plot_napari(data, viewer=viewer, **kwargs)
     display_data = cast(xr.DataArray, image_layer.metadata["xarray"])
 
     all_dims = [str(dim) for dim in display_data.dims]
