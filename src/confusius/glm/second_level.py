@@ -390,7 +390,7 @@ class SecondLevelModel(BaseEstimator):
             flat,
             self._effective_mask_,
             new_dims=["contrast_dim"] if flat.ndim == 2 else None,
-            attrs={**self._input_attrs, "long_name": output_type, "cmap": "coolwarm"},
+            attrs={**self._input_attrs, "long_name": output_type},
         )
 
     def _check_is_fitted(self) -> None:

@@ -17,6 +17,11 @@ Current development version for the next ConfUSIus release.
   colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
   light ones), judged from `bg_color`
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- Seed-based correlation maps, decomposition maps and GLM contrast maps no longer set
+  `attrs["cmap"]`: [`plot_stat_map`][confusius.plotting.plot_stat_map] picks their
+  colormap, and [`plot_volume`][confusius.plotting.plot_volume] and
+  [`plot_napari`][confusius.plotting.plot_napari] show them in gray unless given one
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - Use
   [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
   instead of `fetch_template_huang_2025` for the vascular mouse template. The fetcher
