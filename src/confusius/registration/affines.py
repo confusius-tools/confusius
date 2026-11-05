@@ -2,7 +2,7 @@
 
 import math
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal, TypeAlias, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
         | VersorRigid3DTransform
     )
 
-TransformCenter: TypeAlias = (
+type TransformCenter = (
     Literal["origin", "geometry"]
     | Sequence[float]
     | npt.NDArray[np.floating]
