@@ -191,7 +191,7 @@ class TestSaveDispatch:
         )
         da = create_voxeldata(
             np.arange(2 * 2 * 3 * 4).reshape(2, 2, 3, 4),
-            dims=("pose", "k", "j", "i"),
+            dims=("grid", "k", "j", "i"),
             voxel_to_world=affine,
         )
         path = tmp_path / "data.zarr"
@@ -200,7 +200,7 @@ class TestSaveDispatch:
         loaded = load(path)
 
         assert loaded.dims == da.dims
-        npt.assert_array_equal(loaded.coords["pose"].values, da.coords["pose"].values)
+        npt.assert_array_equal(loaded.coords["grid"].values, da.coords["grid"].values)
         npt.assert_allclose(loaded.coords["z"].values, da.coords["z"].values)
         npt.assert_allclose(
             get_voxel_to_world_affine(loaded), get_voxel_to_world_affine(da)
@@ -251,18 +251,27 @@ class TestSaveZarrSanitizesAttrs:
     """Non-JSON-serializable attrs are handled when saving to Zarr."""
 
     def test_nested_numpy_affines_round_trip(self, tmp_path, saveable_volume):
-        """`attrs["affines"]` numpy arrays survive a round-trip and reload as arrays."""
+        """`.vd.affines` numpy arrays survive a round-trip and reload as arrays."""
         affines = {
             "world_to_custom": np.eye(4),
-            "stack": np.arange(32.0).reshape(2, 4, 4),
+            "translated": np.array(
+                [
+                    [1.0, 0.0, 0.0, 2.0],
+                    [0.0, 1.0, 0.0, 3.0],
+                    [0.0, 0.0, 1.0, 4.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
         }
-        da = saveable_volume.assign_attrs(affines=affines)
+        da = saveable_volume.vd.set_voxel_to_world(
+            saveable_volume.vd.voxel_to_world, named_affines=affines
+        )
         path = tmp_path / "affines.zarr"
         save(da, path)
 
         loaded = load(path)
         for key, expected in affines.items():
-            restored = loaded.attrs["affines"][key]
+            restored = loaded.vd.affines[key]
             assert isinstance(restored, np.ndarray)
             npt.assert_array_equal(restored, expected)
 
@@ -293,9 +302,11 @@ class TestSaveZarrSanitizesAttrs:
 
     def test_save_does_not_mutate_input_attrs(self, tmp_path, saveable_volume):
         """The caller's DataArray keeps its original numpy attrs after saving."""
-        da = saveable_volume.assign_attrs(affines={"m": np.eye(4)})
+        da = saveable_volume.vd.set_voxel_to_world(
+            saveable_volume.vd.voxel_to_world, named_affines={"m": np.eye(4)}
+        )
         save(da, tmp_path / "nomutate.zarr")
-        assert isinstance(da.attrs["affines"]["m"], np.ndarray)
+        assert isinstance(da.vd.affines["m"], np.ndarray)
 
 
 class TestLoadZarr:

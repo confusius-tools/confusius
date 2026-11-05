@@ -16,7 +16,7 @@ ConfUSIus uses [Xarray](https://docs.xarray.dev/) as its core data structure for
 representing multi-dimensional fUSI data. Xarray provides several advantages over raw
 NumPy arrays:
 
-- **Named dimensions**: Access data using meaningful names (e.g., `i`, `j`, `k`, `pose`,
+- **Named dimensions**: Access data using meaningful names (e.g., `i`, `j`, `k`, `grid`,
   `time`) instead of remembering axis indices.
 - **Coordinates**: Associate time and world coordinates with the native dimensions
   (e.g., `x`, `y`, and `z` in millimeters).
@@ -297,7 +297,7 @@ specifications, transmit frequency, and plane-wave angles.
 
 World coordinates `(z, y, x)` are expressed in millimeters in the Iconeus laboratory
 space, rotated by 90° about the axial axis. For typical coronal acquisitions, this gives
-`z` elevation, `y` depth, and `x` lateral. `.attrs["affines"]` contains `world_to_lab`
+`z` elevation, `y` depth, and `x` lateral. `.vd.affines` contains `world_to_lab`
 (identity) and `world_to_probe` (the transformation to the first pose's probe space).
 
 !!! note "Why the 90° rotation?"
@@ -351,8 +351,8 @@ acquisitions.
 
     anat = cf.load("sub-01_acq-anat_pwd.scan")
     for pose in anat.pose:
-        pose_da = anat.sel(pose=pose)
-        cf.save(pose_da, f"sub-01_acq-anat_pose-{pose.values}.nii.gz")
+        pose_da = anat.sel(grid=pose)
+        cf.save(pose_da, f"sub-01_acq-anat_pose-{grid.values}.nii.gz")
     ```
 
 #### BPS Files
@@ -366,7 +366,7 @@ y_lab, x_lab)` (in millimeters), and rotating it by 90 degrees about the axial a
 
 The affine matrix in the BPS file can be loaded with
 [`confusius.io.load_bps`][confusius.io.load_bps]. It is generally a good idea to store
-it in the `.attrs["affines"]` attribute of the DataArray:
+it on the VoxelData index, accessible through `data.vd.affines`:
 
 ```python
 import confusius as cf
@@ -375,7 +375,7 @@ import numpy as np
 da = cf.load("sub-01_task-awake_pwd.source.scan")
 
 brain_to_world = cf.io.load_bps("sub-01_task-awake_pwd.bps")
-da.attrs["affines"]["world_to_brain"] = np.linalg.inv(brain_to_world)
+da.vd.affines["world_to_brain"] = np.linalg.inv(brain_to_world)
 ```
 
 Passing the BPS file path using the `bps_path` argument when loading a SCAN file offers
@@ -688,7 +688,7 @@ coordinate so the sidecar stays consistent with the data being saved. Multi-pose
 cannot be written directly to a single NIfTI file; save it to Zarr, consolidate poses
 first, or save one pose per file instead.
 
-If `data_array.attrs["affines"]` contains named world-to-reference affines, you can
+If `data_array.vd.affines` contains named world-to-reference affines, you can
 choose which ones are written into the NIfTI header:
 
 ```python
@@ -703,9 +703,9 @@ cf.save(
 ```
 
 When `qform` and/or `sform` are omitted, [`save`][confusius.save] first looks for
-`"world_to_qform"` and `"world_to_sform"` in `attrs["affines"]`. If those keys are not
+`"world_to_qform"` and `"world_to_sform"` in `.vd.affines`. If those keys are not
 present, the NIfTI header falls back to the DataArray's coordinate-defining
-`voxel_to_world` geometry. Any named affine from `attrs["affines"]` that is actually
+`voxel_to_world` geometry. Any named affine from `.vd.affines` that is actually
 written into the NIfTI `qform` or `sform` header is omitted from the `ConfUSIusAffines`
 JSON sidecar field so it is not stored twice.
 

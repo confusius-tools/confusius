@@ -302,13 +302,13 @@ def _build_voxel_to_probe(
 def _build_scan_affines(
     probe_to_lab: npt.NDArray[np.float64],
 ) -> dict[str, npt.NDArray[np.float64]]:
-    """Build the named affines stored in `attrs["affines"]` for SCAN data.
+    """Build the named affines stored in `.vd.affines` for SCAN data.
 
     Lab space is the world space, so `world_to_lab` is the identity (like the
     `world_to_sform`/`world_to_qform` entry of the selected NIfTI affine), and
     `world_to_probe` maps world coordinates to the first pose's probe space (`z`
     elevation, `y` depth, `x` lateral). Both are single `(4, 4)` affines so that
-    `.fusi.affine.apply("world_to_probe")` places every pose relative to the first one
+    `.vd.apply("world_to_probe")` places every pose relative to the first one
     and pose consolidation passes them through.
 
     Parameters
@@ -331,7 +331,7 @@ def _swap_depth_elevation_axes(arr):
 
     Scan payloads store their last three axes as (depth, elevation, lateral);
     ConfUSIus order is (elevation=`k`, depth=`j`, lateral=`i`). Only the depth/
-    elevation pair needs swapping, regardless of how many leading (`time`/`pose`)
+    elevation pair needs swapping, regardless of how many leading (`time`/`grid`)
     axes precede them.
 
     Parameters
@@ -490,7 +490,7 @@ def load_scan(
         Path to the SCAN file (`.scan`).
     bps_path : str or pathlib.Path, optional
         Path to the corresponding BPS file (`.bps`). If provided, a `world_to_brain`
-        affine is added to `da.attrs["affines"]`.
+        affine is added to `da.vd.affines`.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
         Dask chunk specification. Accepted forms:
 
@@ -507,15 +507,15 @@ def load_scan(
         Lazy VoxelData array with dimensions and coordinates:
 
         - v1 `2Dscan` → `(time, k, j, i)`.
-        - v1 `3Dscan` → `(pose, k, j, i)`.
-        - v1 `4Dscan`/`4DscanCustom` → `(time, pose, k, j, i)`.
+        - v1 `3Dscan` → `(grid, k, j, i)`.
+        - v1 `4Dscan`/`4DscanCustom` → `(time, grid, k, j, i)`.
         - v2 single-pose → `(time, k, j, i)`.
-        - v2 multi-pose → `(time, pose, k, j, i)`.
+        - v2 multi-pose → `(time, grid, k, j, i)`.
         - v2 dim6 payloads prepend a `dim6` dimension.
 
         World coordinates `z`, `y`, `x` are in millimeters. The `time` coordinate is in
         seconds. For v1/v2 multi-pose time series, `time` is pose-dependent
-        (`(time, pose)`-shaped), holding each pose's own acquisition timestamps directly.
+        (`(time, grid)`-shaped), holding each pose's own acquisition timestamps directly.
 
     Raises
     ------
@@ -533,9 +533,9 @@ def load_scan(
     and `x` lateral. This space is shared across poses and scans, while each pose
     retains its own voxel-to-world geometry.
 
-    `da.attrs["affines"]` contains `world_to_lab` (identity) and `world_to_probe`
+    `da.vd.affines` contains `world_to_lab` (identity) and `world_to_probe`
     (relative to the first probe pose). These can be applied with
-    `da.fusi.affine.apply(...)`. If `bps_path` is provided, `world_to_brain` is also
+    `da.vd.apply(...)`. If `bps_path` is provided, `world_to_brain` is also
     stored, mapping world coordinates to native Iconeus brain coordinates.
 
     Provenance metadata (`iconeus_*`, `software_version`, `device_serial_number`) are
@@ -569,7 +569,11 @@ def load_scan(
             ) from error
 
         if bps_path is not None:
-            _add_world_to_brain(data_array.attrs["affines"], bps_path)
+            affines = dict(data_array.vd.affines)
+            _add_world_to_brain(affines, bps_path)
+            data_array = data_array.vd.set_voxel_to_world(
+                data_array.vd.voxel_to_world, named_affines=affines
+            )
         return data_array
 
     raise ValueError(
@@ -592,7 +596,7 @@ def _load_scan_v1(
         Path to the v1 SCAN file, already validated as HDF5.
     bps_path : str or pathlib.Path, optional
         Path to the corresponding BPS file (`.bps`). If provided, a `world_to_brain`
-        affine is added to `da.attrs["affines"]`.
+        affine is added to `da.vd.affines`.
     chunks : int or tuple[int, ...] or str or None
         Dask chunk specification passed to `dask.array.from_array`.
 
@@ -630,8 +634,8 @@ def _load_scan_v1(
         # physical transforms produces the VoxelData geometry directly.
         voxel_to_world = probe_to_lab @ voxel_to_probe
 
+        affines = _build_scan_affines(probe_to_lab)
         attrs: dict[str, Any] = {
-            "affines": _build_scan_affines(probe_to_lab),
             "device_serial_number": _read_scan_str(h5, "/scanMetaData/Machine_SN"),
             "software_version": _read_scan_str(h5, "/scanMetaData/Neuroscan_version"),
             "iconeus_acquisition_mode": mode,
@@ -667,7 +671,10 @@ def _load_scan_v1(
 
         data_array.name = attrs["iconeus_scan"] or path.stem
         if bps_path is not None:
-            _add_world_to_brain(data_array.attrs["affines"], bps_path)
+            _add_world_to_brain(affines, bps_path)
+        data_array = data_array.vd.set_voxel_to_world(
+            data_array.vd.voxel_to_world, named_affines=affines
+        )
     except Exception:
         h5.close()
         raise
@@ -707,8 +714,8 @@ def _load_3dscan(
     data_lazy = _swap_depth_elevation_axes(sq)
     return create_voxeldata(
         data_lazy,
-        dims=("pose", "k", "j", "i"),
-        pose=np.arange(npose),
+        dims=("grid", "k", "j", "i"),
+        grid=np.arange(npose),
         voxel_to_world=voxel_to_world,
         attrs=attrs,
     )
@@ -734,9 +741,9 @@ def _load_4dscan(
     time_attrs = _scan_time_attrs(float(time_raw.min()))
     return create_voxeldata(
         data_lazy,
-        dims=("time", "pose", "k", "j", "i"),
-        time=xr.DataArray(time_raw, dims=["time", "pose"], attrs=time_attrs),
-        pose=np.arange(npose),
+        dims=("time", "grid", "k", "j", "i"),
+        time=xr.DataArray(time_raw, dims=["time", "grid"], attrs=time_attrs),
+        grid=np.arange(npose),
         voxel_to_world=voxel_to_world,
         attrs=attrs,
     )
@@ -1043,7 +1050,7 @@ def _load_scan_v2(
     The header stores Iconeus-ordered dimensions `(size_x=lateral, size_y=elevation,
     size_z=depth, n_time, npose, dim6)`. The payload is Fortran-ordered with the same
     axis order. Output dims are VoxelData-ordered: optional `dim6`, optional `time`,
-    optional `pose`, then `(k, j, i)`.
+    optional `grid`, then `(k, j, i)`.
 
     Parameters
     ----------
@@ -1056,7 +1063,7 @@ def _load_scan_v2(
     -------
     xarray.DataArray
         Lazy VoxelData array with dims `(time, k, j, i)` or
-        `(time, pose, k, j, i)` and
+        `(time, grid, k, j, i)` and
         world coordinates derived from a `VoxelToWorldIndex` affine (depth origin
         from the header when found; lateral/elevation centered on zero — see
         `load_scan` Notes).
@@ -1106,7 +1113,7 @@ def _load_scan_v2(
     scan_mode = _scan_v2_mode(meta)
     include_time = n_time > 1 or scan_mode == "2Dscan"
     include_pose = npose > 1
-    dims_list = ["dim6", "time", "pose", "k", "j", "i"]
+    dims_list = ["dim6", "time", "grid", "k", "j", "i"]
     squeeze_axes = []
     if dim6_count == 1:
         squeeze_axes.append(0)
@@ -1116,7 +1123,7 @@ def _load_scan_v2(
         dims_list.remove("time")
     if not include_pose:
         squeeze_axes.append(2)
-        dims_list.remove("pose")
+        dims_list.remove("grid")
     if squeeze_axes:
         data_lazy = da.squeeze(data_lazy, axis=tuple(squeeze_axes))
 
@@ -1125,14 +1132,15 @@ def _load_scan_v2(
 
     probe_to_lab = _build_scan_v2_probe_to_lab(meta)
     voxel_to_world = probe_to_lab @ _build_scan_v2_voxel_to_probe(meta)
-    attrs["affines"] = _build_scan_affines(probe_to_lab)
+    affines = _build_scan_affines(probe_to_lab)
 
     data_array = create_voxeldata(
         data_lazy,
         dims=tuple(dims_list),
         time=_build_scan_v2_time_coord(meta) if include_time else None,
-        pose=np.arange(npose) if include_pose else None,
+        grid=np.arange(npose) if include_pose else None,
         voxel_to_world=voxel_to_world,
+        affines=affines,
         attrs=attrs,
         name=attrs.get("iconeus_scan") or path.stem,
     )
@@ -1189,7 +1197,7 @@ def _build_scan_v2_probe_to_lab(meta: dict[str, Any]) -> npt.NDArray[np.float64]
     Returns
     -------
     numpy.ndarray
-        `(4, 4)` affine for single-pose scans, or `(pose, 4, 4)` affine stack for
+        `(4, 4)` affine for single-pose scans, or `(grid, 4, 4)` affine stack for
         multi-pose scans.
 
     Raises
@@ -1203,13 +1211,13 @@ def _build_scan_v2_probe_to_lab(meta: dict[str, Any]) -> npt.NDArray[np.float64]
         raise ValueError("SCAN v2 probe-pose block is missing or implausible.")
 
     probe_to_lab = np.repeat(np.eye(4)[None, :, :], meta["npose"], axis=0)
-    for pose, (translation, rotation) in enumerate(zip(translations, rotations)):
+    for grid, (translation, rotation) in enumerate(zip(translations, rotations)):
         # SCAN v2 files are written from MATLAB, whose Euler-angle convention is the
         # opposite of the C++ reader's, so Iconeus negates the stored angles when
         # reading them back. See Iconeus' explanation in
         # https://github.com/confusius-tools/confusius/issues/524#issuecomment-6351099909.
-        probe_to_lab[pose, :3, :3] = _build_rotation_matrix(*(-rotation))
-        probe_to_lab[pose, :3, 3] = translation
+        probe_to_lab[grid, :3, :3] = _build_rotation_matrix(*(-rotation))
+        probe_to_lab[grid, :3, 3] = translation
     converted = _build_probe_to_lab(probe_to_lab)
     return converted[0] if meta["npose"] == 1 else converted
 
@@ -1304,7 +1312,6 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
     }
     attrs.update(
         {
-            "affines": {},
             "iconeus_scan_format": "v2",
             "iconeus_acquisition_mode": scan_mode,
         }
@@ -1383,7 +1390,7 @@ def _build_scan_v2_time_coord(meta: dict[str, Any]) -> xr.DataArray:
     Returns
     -------
     xarray.DataArray
-        `time` coordinate. Multi-pose scans use a pose-dependent `(time, pose)` array.
+        `time` coordinate. Multi-pose scans use a pose-dependent `(time, grid)` array.
     """
     times = meta["measured_times"].reshape(
         meta["n_time"], meta["npose"], meta["size_y"]
@@ -1392,4 +1399,4 @@ def _build_scan_v2_time_coord(meta: dict[str, Any]) -> xr.DataArray:
     time_attrs = _scan_time_attrs(float(time_vals.min()) if time_vals.size else 0.0)
     if meta["npose"] == 1:
         return xr.DataArray(time_vals[:, 0], dims=["time"], attrs=time_attrs)
-    return xr.DataArray(time_vals, dims=["time", "pose"], attrs=time_attrs)
+    return xr.DataArray(time_vals, dims=["time", "grid"], attrs=time_attrs)

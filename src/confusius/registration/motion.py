@@ -241,7 +241,7 @@ def compute_framewise_displacement(
     reference = ensure_voxeldata(
         reference,
         require_time=False,
-        allow_pose=False,
+        allow_grid=False,
         allow_extra_dims=False,
         require_regular_spacing=True,
         regular_spacing_dims="space",
@@ -353,7 +353,7 @@ def create_motion_dataframe(
     reference = ensure_voxeldata(
         reference,
         require_time=False,
-        allow_pose=False,
+        allow_grid=False,
         allow_extra_dims=False,
         require_regular_spacing=True,
         regular_spacing_dims="space",

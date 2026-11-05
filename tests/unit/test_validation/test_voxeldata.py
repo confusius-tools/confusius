@@ -242,7 +242,6 @@ def test_validate_voxeldata_can_forbid_extra_dims() -> None:
         validate_voxeldata(data, allow_extra_dims=False)
 
 
-
 def test_validate_voxeldata_can_require_time() -> None:
     """`require_time=True` rejects arrays without a time dimension."""
     spatial = _make_voxel_to_world_time_series().isel(time=0, drop=True)
@@ -252,18 +251,18 @@ def test_validate_voxeldata_can_require_time() -> None:
 
 
 def test_validate_voxeldata_can_forbid_pose() -> None:
-    """`allow_pose=False` rejects valid multi-pose VoxelData arrays."""
+    """`allow_grid=False` rejects valid multi-pose VoxelData arrays."""
     affines = np.stack([np.eye(4), np.eye(4)])
     affines[1, 0, 3] = 10.0
     data = create_voxeldata(
         np.zeros((2, 2, 3, 4), dtype=np.float32),
-        dims=("pose", "k", "j", "i"),
-        pose=[0, 1],
+        dims=("grid", "k", "j", "i"),
+        grid=[0, 1],
         voxel_to_world=affines,
     )
 
-    with pytest.raises(ValueError, match="must not have a 'pose' dimension"):
-        validate_voxeldata(data, allow_pose=False)
+    with pytest.raises(ValueError, match="must not have a 'grid' dimension"):
+        validate_voxeldata(data, allow_grid=False)
 
 
 def test_validate_voxeldata_rejects_missing_dimension_coordinate() -> None:
@@ -300,7 +299,7 @@ def test_validate_voxeldata_rejects_noncanonical_dim_order() -> None:
     """VoxelData dimensions must follow the canonical order."""
     reordered = _make_voxel_to_world_time_series().transpose("j", "i", "time", "k")
 
-    with pytest.raises(ValueError, match="not in canonical ConfUSIus order"):
+    with pytest.raises(ValueError, match="dimensions must end with"):
         validate_voxeldata(reordered)
 
 
@@ -458,7 +457,7 @@ def test_validate_voxeldata_accepts_descending_voxel_coordinate() -> None:
 
 
 def test_validate_voxeldata_rejects_descending_time_coordinate() -> None:
-    """`time`/`pose` coordinates must be strictly increasing, unlike voxel dims."""
+    """`time`/`grid` coordinates must be strictly increasing, unlike voxel dims."""
     bad = _make_voxel_to_world_time_series().isel(time=slice(None, None, -1))
 
     with pytest.raises(ValueError, match="must be strictly monotonic-increasing"):
@@ -475,14 +474,14 @@ def test_validate_voxeldata_rejects_non_dimension_coordinate() -> None:
 
 
 def _make_pose_dependent_time_volume() -> xr.DataArray:
-    """Create a small pose-dependent VoxelData volume with a (time, pose) time coord."""
+    """Create a small pose-dependent VoxelData volume with a (time, grid) time coord."""
     npose = 2
     time_values = xr.DataArray(
         np.stack(
             [np.arange(3, dtype=float) * 0.5, np.arange(3, dtype=float) * 0.5 + 0.1],
             axis=-1,
         ),
-        dims=("time", "pose"),
+        dims=("time", "grid"),
         attrs={
             "units": "s",
             "volume_acquisition_reference": "start",
@@ -491,9 +490,9 @@ def _make_pose_dependent_time_volume() -> xr.DataArray:
     )
     return create_voxeldata(
         np.zeros((3, npose, 2, 3, 4), dtype=np.float32),
-        dims=("time", "pose", "k", "j", "i"),
+        dims=("time", "grid", "k", "j", "i"),
         time=time_values,
-        pose=np.arange(npose),
+        grid=np.arange(npose),
         voxel_to_world=np.broadcast_to(
             np.diag([2.0, 3.0, 4.0, 1.0]), (npose, 4, 4)
         ).copy(),
@@ -501,16 +500,16 @@ def _make_pose_dependent_time_volume() -> xr.DataArray:
 
 
 def test_validate_voxeldata_accepts_pose_dependent_time() -> None:
-    """A valid (time, pose)-shaped time coordinate passes validation."""
+    """A valid (time, grid)-shaped time coordinate passes validation."""
     validate_voxeldata(_make_pose_dependent_time_volume())
 
 
 def test_validate_voxeldata_rejects_non_numeric_pose_dependent_time() -> None:
-    """A non-numeric (time, pose) time coordinate is rejected."""
+    """A non-numeric (time, grid) time coordinate is rejected."""
     data = _make_pose_dependent_time_volume()
     bad_time = xr.DataArray(
         data.coords["time"].values.astype(str),
-        dims=("time", "pose"),
+        dims=("time", "grid"),
         attrs=dict(data.coords["time"].attrs),
     )
     bad = data.drop_vars("time").assign_coords(time=bad_time)
@@ -520,13 +519,13 @@ def test_validate_voxeldata_rejects_non_numeric_pose_dependent_time() -> None:
 
 
 def test_validate_voxeldata_rejects_non_finite_pose_dependent_time() -> None:
-    """A (time, pose) time coordinate with a NaN is rejected."""
+    """A (time, grid) time coordinate with a NaN is rejected."""
     data = _make_pose_dependent_time_volume()
     values = data.coords["time"].values.copy()
     values[0, 0] = np.nan
     bad = data.drop_vars("time").assign_coords(
         time=xr.DataArray(
-            values, dims=("time", "pose"), attrs=dict(data.coords["time"].attrs)
+            values, dims=("time", "grid"), attrs=dict(data.coords["time"].attrs)
         )
     )
 
@@ -535,7 +534,7 @@ def test_validate_voxeldata_rejects_non_finite_pose_dependent_time() -> None:
 
 
 def test_validate_voxeldata_accepts_single_timepoint_pose_dependent_time() -> None:
-    """A single-timepoint (time, pose) time coordinate has nothing to check."""
+    """A single-timepoint (time, grid) time coordinate has nothing to check."""
     data = _make_pose_dependent_time_volume().isel(time=[0])
 
     validate_voxeldata(data)
@@ -548,7 +547,7 @@ def test_validate_voxeldata_rejects_non_ascending_pose_dependent_time() -> None:
     values[:, 0] = values[::-1, 0]  # reverse pose 0's timestamps.
     bad = data.drop_vars("time").assign_coords(
         time=xr.DataArray(
-            values, dims=("time", "pose"), attrs=dict(data.coords["time"].attrs)
+            values, dims=("time", "grid"), attrs=dict(data.coords["time"].attrs)
         )
     )
 

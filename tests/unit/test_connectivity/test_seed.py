@@ -52,12 +52,12 @@ def test_seed_maps_preserve_world_coord_units(
     not `y`. `_compute_correlation_maps` used to pass the scalar fill value as `x` and
     the real VoxelData array as `y`, which silently dropped `units` from every world
     coordinate's `.attrs` (though the `VoxelToWorldIndex`'s own `units` survived
-    untouched). Checks both the authoritative `.fusi.affine.units` and the cosmetic
+    untouched). Checks both the authoritative `.vd.units` and the cosmetic
     `.attrs` copy that external tools may read.
     """
     mapper = SeedBasedMaps(seed_masks=sample_roi_labels).fit(sample_voxeldata_3dt)
 
-    assert mapper.maps_.fusi.affine.units == sample_voxeldata_3dt.fusi.affine.units
+    assert mapper.maps_.vd.units == sample_voxeldata_3dt.vd.units
     for name in ("z", "y", "x"):
         assert (
             mapper.maps_.coords[name].attrs == sample_voxeldata_3dt.coords[name].attrs
@@ -148,7 +148,9 @@ def test_seed_maps_reject_non_integer_labels(
 ) -> None:
     """Seed labels must have integer dtype."""
     with pytest.raises(TypeError, match="integer dtype"):
-        SeedBasedMaps(seed_masks=sample_roi_labels.astype(float)).fit(sample_voxeldata_3dt)
+        SeedBasedMaps(seed_masks=sample_roi_labels.astype(float)).fit(
+            sample_voxeldata_3dt
+        )
 
 
 def test_seed_maps_reject_missing_spatial_coordinate(
@@ -211,4 +213,6 @@ def test_seed_maps_validate_precomputed_signal_shape(
 ) -> None:
     """Precomputed seed signals must have compatible time and feature dimensions."""
     with pytest.raises(ValueError, match=message):
-        SeedBasedMaps(seed_signals=signals(sample_voxeldata_3dt)).fit(sample_voxeldata_3dt)
+        SeedBasedMaps(seed_signals=signals(sample_voxeldata_3dt)).fit(
+            sample_voxeldata_3dt
+        )

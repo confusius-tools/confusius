@@ -233,9 +233,9 @@ class TestLoadScan2D:
             + t[0],
             rtol=1e-10,
         )
-        np.testing.assert_array_equal(da.attrs["affines"]["world_to_lab"], np.eye(4))
+        np.testing.assert_array_equal(da.vd.affines["world_to_lab"], np.eye(4))
         np.testing.assert_allclose(
-            da.attrs["affines"]["world_to_probe"],
+            da.vd.affines["world_to_probe"],
             np.linalg.inv(_build_probe_to_lab(_PROBE_TO_LAB_SINGLE)),
             rtol=1e-10,
         )
@@ -357,7 +357,7 @@ class TestLoadScan2D:
 
     def test_no_pose_coord(self, scan_2d: xr.DataArray) -> None:
         """2Dscan has no pose coordinate."""
-        assert "pose" not in scan_2d.coords
+        assert "grid" not in scan_2d.coords
 
     def test_time_coord_not_pose_dependent(self, scan_2d: xr.DataArray) -> None:
         """2Dscan has a plain 1D time coordinate (no pose dim)."""
@@ -397,8 +397,8 @@ class TestLoadScan3D:
     """Tests for load_scan with 3Dscan files."""
 
     def test_dims(self, scan_3d: xr.DataArray) -> None:
-        """3Dscan produces DataArray with dims (pose, k, j, i)."""
-        assert scan_3d.dims == ("pose", "k", "j", "i")
+        """3Dscan produces DataArray with dims (grid, k, j, i)."""
+        assert scan_3d.dims == ("grid", "k", "j", "i")
 
     def test_shape(self, scan_3d: xr.DataArray) -> None:
         """3Dscan shape matches (npose, sizeY, sizeZ, sizeX)."""
@@ -414,8 +414,8 @@ class TestLoadScan3D:
 
     def test_pose_coord(self, scan_3d: xr.DataArray) -> None:
         """3Dscan has integer pose coordinate from 0 to npose-1."""
-        assert "pose" in scan_3d.coords
-        np.testing.assert_array_equal(scan_3d.coords["pose"].values, np.arange(_NPOSE))
+        assert "grid" in scan_3d.coords
+        np.testing.assert_array_equal(scan_3d.coords["grid"].values, np.arange(_NPOSE))
 
     def test_no_time_coord(self, scan_3d: xr.DataArray) -> None:
         """3Dscan has no time coordinate."""
@@ -439,7 +439,7 @@ class TestLoadScan3D:
 
     def test_matrix_probe_z_dim(self, scan_3d_matrix: xr.DataArray) -> None:
         """3Dscan with matrix probe (sizeY=4) has k dimension size 4."""
-        assert scan_3d_matrix.dims == ("pose", "k", "j", "i")
+        assert scan_3d_matrix.dims == ("grid", "k", "j", "i")
         assert scan_3d_matrix.sizes["k"] == 4
 
     def test_linear_probe_z_singleton(self, scan_3d: xr.DataArray) -> None:
@@ -456,8 +456,8 @@ class TestLoadScan4D:
     """Tests for load_scan with 4Dscan files."""
 
     def test_dims(self, scan_4d: xr.DataArray) -> None:
-        """4Dscan produces DataArray with dims (time, pose, k, j, i)."""
-        assert scan_4d.dims == ("time", "pose", "k", "j", "i")
+        """4Dscan produces DataArray with dims (time, grid, k, j, i)."""
+        assert scan_4d.dims == ("time", "grid", "k", "j", "i")
 
     def test_shape(self, scan_4d: xr.DataArray) -> None:
         """4Dscan shape matches (nscanRepeat, npose, sizeY, sizeZ, sizeX)."""
@@ -472,9 +472,9 @@ class TestLoadScan4D:
         assert isinstance(scan_4d.data, dask_array.Array)
 
     def test_time_coord_pose_dependent(self, scan_4d: xr.DataArray) -> None:
-        """4Dscan time coordinate is (time, pose)-shaped, units seconds."""
+        """4Dscan time coordinate is (time, grid)-shaped, units seconds."""
         time_coord = scan_4d.coords["time"]
-        assert time_coord.dims == ("time", "pose")
+        assert time_coord.dims == ("time", "grid")
         assert time_coord.shape == (_T, _NPOSE)
         assert time_coord.attrs.get("units") == "s"
         assert time_coord.attrs.get("volume_acquisition_reference") == "end"
@@ -499,18 +499,18 @@ class TestLoadScan4D:
 
     def test_pose_coord(self, scan_4d: xr.DataArray) -> None:
         """4Dscan has integer pose coordinate from 0 to npose-1."""
-        assert "pose" in scan_4d.coords
-        np.testing.assert_array_equal(scan_4d.coords["pose"].values, np.arange(_NPOSE))
+        assert "grid" in scan_4d.coords
+        np.testing.assert_array_equal(scan_4d.coords["grid"].values, np.arange(_NPOSE))
 
     def test_time_isel_time(self, scan_4d: xr.DataArray) -> None:
-        """isel on time slices time correctly to shape (pose,)."""
+        """isel on time slices time correctly to shape (grid,)."""
         sliced = scan_4d.isel(time=0)
-        assert sliced.coords["time"].dims == ("pose",)
+        assert sliced.coords["time"].dims == ("grid",)
         assert sliced.coords["time"].shape == (_NPOSE,)
 
     def test_time_isel_pose(self, scan_4d: xr.DataArray) -> None:
         """isel on pose slices time correctly to shape (time,)."""
-        sliced = scan_4d.isel(pose=0)
+        sliced = scan_4d.isel(grid=0)
         assert sliced.coords["time"].dims == ("time",)
         assert sliced.coords["time"].shape == (_T,)
 
@@ -555,7 +555,7 @@ class TestLoadScan4D:
 
         scan_4d = load_scan(path)
 
-        assert scan_4d.dims == ("time", "pose", "k", "j", "i")
+        assert scan_4d.dims == ("time", "grid", "k", "j", "i")
         assert scan_4d.shape == (_T, _NPOSE, _SIZE_Y, _SIZE_Z, _SIZE_X)
         assert scan_4d.attrs["iconeus_acquisition_mode"] == "4DscanCustom"
 
@@ -702,7 +702,7 @@ class TestLoadScanFoldsWorldToLab:
             rtol=1e-10,
         )
         np.testing.assert_allclose(
-            scan_2d_rotated.attrs["affines"]["world_to_probe"],
+            scan_2d_rotated.vd.affines["world_to_probe"],
             np.linalg.inv(probe_to_lab),
             rtol=1e-10,
         )
@@ -720,7 +720,7 @@ class TestLoadScanFoldsWorldToLab:
         for i in range(1, _NPOSE):
             np.testing.assert_allclose(local_affines[i], local_affines[0], rtol=1e-8)
         np.testing.assert_allclose(
-            scan_3d.attrs["affines"]["world_to_probe"],
+            scan_3d.vd.affines["world_to_probe"],
             np.linalg.inv(probe_to_lab[0]),
             rtol=1e-10,
         )
@@ -821,11 +821,7 @@ class TestLoadScanWithBPS:
         """Brain coordinates of a voxel do not depend on the lab-side coronal rotation."""
         da = load_scan(scan_2d_path, bps_path=bps_path)
         voxel = np.array([0.0, 3.0, 5.0, 1.0])
-        brain = (
-            da.attrs["affines"]["world_to_brain"]
-            @ get_voxel_to_world_affine(da)
-            @ voxel
-        )
+        brain = da.vd.affines["world_to_brain"] @ get_voxel_to_world_affine(da) @ voxel
         # Everything below is in raw ConfUSIus-ordered Iconeus lab space, no constant.
         raw_probe_to_lab = (
             CONFUSIUS_TO_ICONEUS_AXES.T
@@ -855,7 +851,7 @@ class TestLoadScanWithBPS:
         """2Dscan world_to_brain matches the expected affine from fixture metadata."""
         da = load_scan(scan_2d_path, bps_path=bps_path)
         expected = self._expected_world_to_brain(brain_to_lab)
-        result = np.asarray(da.attrs["affines"]["world_to_brain"])
+        result = np.asarray(da.vd.affines["world_to_brain"])
         np.testing.assert_allclose(result, expected, rtol=1e-10, atol=1e-12)
 
     @pytest.mark.parametrize("scan_path", ["scan_3d_path", "scan_4d_path"])
@@ -875,7 +871,7 @@ class TestLoadScanWithBPS:
         """
         da = load_scan(request.getfixturevalue(scan_path), bps_path=bps_path)
         expected = self._expected_world_to_brain(brain_to_lab)
-        result = np.asarray(da.attrs["affines"]["world_to_brain"])
+        result = np.asarray(da.vd.affines["world_to_brain"])
         assert result.shape == (4, 4)
         np.testing.assert_allclose(result, expected, rtol=1e-10, atol=1e-12)
 

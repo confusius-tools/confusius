@@ -19,7 +19,7 @@ def validate_matching_spatial_units(arrays: Sequence[tuple[str, xr.DataArray]]) 
     ------
     ValueError
         If any input lacks voxel-to-world geometry, or if any two inputs disagree
-        on their `.fusi.affine.units`.
+        on their `.vd.units`.
     """
     seen = {name: get_voxel_to_world_units(array) for name, array in arrays}
     if len(set(seen.values())) > 1:

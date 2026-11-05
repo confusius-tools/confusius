@@ -99,15 +99,15 @@ def unmask(
     ('k', 'j', 'i')
     >>>
     >>> # Unmask - two extra dims, with custom coords
-    >>> pose_data = np.random.randn(5, 3, signals.sizes["space"])  # (component, pose, space)
+    >>> pose_data = np.random.randn(5, 3, signals.sizes["space"])  # (component, grid, space)
     >>> spatial_pose = unmask(
     ...     pose_data,
     ...     mask,
-    ...     new_dims=["component", "pose"],
-    ...     new_dims_coords={"component": [1, 2, 3, 4, 5], "pose": [0, 1, 2]},
+    ...     new_dims=["component", "grid"],
+    ...     new_dims_coords={"component": [1, 2, 3, 4, 5], "grid": [0, 1, 2]},
     ... )
     >>> spatial_pose.dims
-    ('component', 'pose', 'k', 'j', 'i')
+    ('component', 'grid', 'k', 'j', 'i')
     """
     mask = ensure_voxeldata(mask, allow_extra_dims=True)
     check_mask_dtype(mask, "mask")

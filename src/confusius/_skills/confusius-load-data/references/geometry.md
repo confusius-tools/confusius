@@ -2,9 +2,9 @@
 
 ## Spatial coordinates
 
-`VoxelData` is an `xarray.DataArray` with canonical dimensions `(...extra, time, pose,
+`VoxelData` is an `xarray.DataArray` with canonical dimensions `(...extra, time, grid,
 k, j, i)` and a `VoxelToWorldIndex` defining world coordinates `z/y/x`. `time` and
-`pose` are optional; all three spatial dimensions are required, including for slices and
+`grid` are optional; all three spatial dimensions are required, including for slices and
 lines.
 
 Distinguish three coordinate spaces:
@@ -102,37 +102,41 @@ A_flipped = A @ F
 When reversing an **existing VoxelData** with `data.isel(i=slice(None, None, -1))`,
 labels already track the reversal; do not modify the affine again.
 
-Read geometry through `data.fusi.affine.voxel_to_world` and `data.fusi.affine.units`;
+Read geometry through `data.vd.voxel_to_world` and `data.vd.units`;
 modify it using `set_voxel_to_world` and `set_units`. Do not edit `z/y/x` coordinate
 attributes directly. Changing units metadata does not rescale coordinates.
 
-`data.fusi.origin`, `.spacing`, and `.direction` describe the sampled **array-space
+`data.vd.origin`, `.spacing`, and `.direction` describe the sampled **array-space
 grid**, accounting for voxel-label offsets, strides, and reversals. They may differ from
 the original affine parameters.
 
 ## Multiple probe poses
 
-A `pose` dimension represents distinct probe positions, not components or repetitions.
-It requires one affine per pose, with `voxel_to_world.shape == (npose, 4, 4)`, even for
-a single pose. Spatial scale magnitudes must agree across poses; origins and
-orientations may differ. Do not silently resample mismatched grids.
+The `grid` dimension selects geometry; ConfUSIus uses it to represent probe poses,
+not components or repetitions. It requires `voxel_to_world.shape == (ngrid, 4, 4)`,
+even for a single probe pose. Spatial scale magnitudes must agree across grids;
+origins and orientations may differ, and identical affines are valid. Do not
+silently resample mismatched grids. Leading dimensions may have any order;
+optional canonicalization uses `(...extra_dims, grid, time, k, j, i)`.
 
-For recordings, timestamps must be pose-dependent with shape `(ntime, npose)`:
+Sequential probe poses need their own timestamps, represented by a `time`
+coordinate with dimensions `(time, grid)` or `(grid, time)`. Simultaneous poses
+may share a 1D time coordinate:
 
 - Provide measured `time` for irregular acquisitions.
 - For regular acquisitions, provide `dt` (repeat interval of the **same pose**) and one
   `t0` per pose, giving `time[t, p] = t0[p] + t * dt`.
-- For simultaneous poses, repeat equal timestamps across pose columns.
+- For simultaneous poses, share a 1D time coordinate or repeat timestamps across grids.
 
 `volume_acquisition_duration` describes each pose's acquisition window, not the entire
 sweep. Determine it from the acquisition protocol rather than relying on the fallback
 inferred from inter-pose timing.
 
-World coordinates depend on `(pose, k, j, i)`. Select one pose before world-coordinate
+World coordinates depend on `(grid, k, j, i)`. Select one pose before world-coordinate
 selection. For time-label selection:
 
 ```python
-one = data.isel(pose=0).set_xindex("time")
+one = data.isel(grid=0).set_xindex("time")
 one.sel(time=...)
 ```
 

@@ -610,8 +610,8 @@ def test_compute_compcor_confounds_multipose_pools_poses_and_time_coordinate(
 ):
     """Test CompCor pools voxels across poses and derives a consolidated `time`.
 
-    `pose` is stacked into `space` like every other spatial dim, so noise/high-variance
-    voxels are selected jointly across poses. The original per-pose `(time, pose)`
+    `grid` is stacked into `space` like every other spatial dim, so noise/high-variance
+    voxels are selected jointly across poses. The original per-pose `(time, grid)`
     `time` coordinate would otherwise get silently broadcast to `(time, space)` by
     that stacking (one timestamp per voxel instead of one per timepoint), so the
     result must instead carry a `time`-only coordinate rebuilt with the same
@@ -637,7 +637,7 @@ def test_compute_compcor_confounds_multipose_pools_poses_and_time_coordinate(
 
     time_coord = sample_voxeldata_3dt_pose.coords["time"]
     base_time_coord = xr.DataArray(
-        time_coord.isel(pose=0).values, dims=["time"], attrs=dict(time_coord.attrs)
+        time_coord.isel(grid=0).values, dims=["time"], attrs=dict(time_coord.attrs)
     )
     expected_time = build_consolidated_time_coordinate(
         base_time_coord, time_coord.values, dict(time_coord.attrs)

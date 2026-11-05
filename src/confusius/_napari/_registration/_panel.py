@@ -32,7 +32,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._dims import POSE_DIM, TIME_DIM, VOXEL_DIMS, WORLD_DIMS
+from confusius._dims import GRID_DIM, TIME_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._napari._registration._metric_plotter import (
     RegistrationMetricPlotter,
 )
@@ -1462,7 +1462,7 @@ class RegistrationPanel(QWidget):
         `_get_source_dataarray` always returns VoxelData (a real ConfUSIus DataArray,
         or a reconstruction that ends with `attach_voxel_to_world_index`), so scale
         and translate are read from the `VoxelToWorldIndex` via
-        `.fusi.spacing`/`.fusi.origin` -- not from raw per-dimension coordinate
+        `.vd.spacing`/`.vd.origin` -- not from raw per-dimension coordinate
         differences, which would silently be wrong for an oblique affine.
 
         Parameters
@@ -1483,17 +1483,17 @@ class RegistrationPanel(QWidget):
             return
 
         dims = tuple(
-            str(d) for d in source.dims if d in (POSE_DIM, *VOXEL_DIMS, *WORLD_DIMS)
+            str(d) for d in source.dims if d in (GRID_DIM, *VOXEL_DIMS, *WORLD_DIMS)
         )
         if not dims:
             self._set_error(f"Layer {layer.name!r} has no spatial dimensions.")
             return
-        # `.fusi.spacing` is keyed by voxel dim (k/j/i); `.fusi.origin` is keyed by
+        # `.vd.spacing` is keyed by voxel dim (k/j/i); `.vd.origin` is keyed by
         # world dim (z/y/x) for spatial dims, own name otherwise -- translate below
         # to a dict keyed like `dims` (voxel/own names) either way.
         voxel_to_world_name = dict(zip(VOXEL_DIMS, WORLD_DIMS, strict=True))
-        spacings = source.fusi.spacing
-        world_origins = source.fusi.origin
+        spacings = source.vd.spacing
+        world_origins = source.vd.origin
         origins = {d: world_origins[voxel_to_world_name.get(d, d)] for d in dims}
         # Display each voxel dim by its linked world coordinate name (matching the
         # convention in `get_napari_layer_geometry`), not the raw k/j/i name.

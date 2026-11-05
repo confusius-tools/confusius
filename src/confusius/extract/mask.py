@@ -10,13 +10,13 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
 
     This function flattens `mask`'s native voxel dimensions (`k`/`j`/`i`) into a
     single `space` dimension, while preserving all other dimensions of `data` (e.g.,
-    `time`, `pose`).
+    `time`, `grid`).
 
     Parameters
     ----------
     data : xarray.DataArray
         VoxelData array with native voxel dims `k`/`j`/`i` and a `VoxelToWorldIndex`,
-        plus any number of non-spatial dimensions (e.g., `time`, `pose`). See
+        plus any number of non-spatial dimensions (e.g., `time`, `grid`). See
         [`ensure_voxeldata`][confusius.validation.ensure_voxeldata].
     mask : xarray.DataArray
         Mask defining which voxels to extract, sharing `data`'s voxel grid. Must have
@@ -34,7 +34,7 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
         spatial coordinates.
 
         - `(time, k, j, i)` → `(time, space)`
-        - `(time, pose, k, j, i)` → `(time, pose, space)`
+        - `(time, grid, k, j, i)` → `(time, grid, space)`
         - `(k, j, i)` → `(space,)`
 
         For simple round-trip reconstruction, use `.unstack("space")` which
@@ -72,16 +72,16 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     >>> signals.dims
     ('time', 'space')
     >>>
-    >>> # 3D+t data with extra dim: (time, pose, k, j, i)
+    >>> # 3D+t data with extra dim: (time, grid, k, j, i)
     >>> pose_data = create_voxeldata(
     ...     np.random.randn(100, 5, 10, 20, 30),
-    ...     dims=("time", "pose", "k", "j", "i"),
+    ...     dims=("time", "grid", "k", "j", "i"),
     ...     dt=0.5,
     ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>> pose_signals = extract_with_mask(pose_data, mask)
     >>> pose_signals.dims
-    ('time', 'pose', 'space')
+    ('time', 'grid', 'space')
     """
     data = ensure_voxeldata(data, allow_extra_dims=True)
     mask = ensure_mask(mask, data, "mask")

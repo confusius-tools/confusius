@@ -1,7 +1,6 @@
 """The `.atlas` xarray Dataset accessor: data-aware brain-atlas operations."""
 
 from collections.abc import Hashable, Mapping, Sequence
-from copy import deepcopy
 from typing import TYPE_CHECKING, Literal, SupportsFloat, SupportsIndex
 
 import numpy as np
@@ -448,7 +447,7 @@ class AtlasAccessor:
         reference : xarray.DataArray
             VoxelData array defining the target grid. Only its `k`/`j`/`i` grid
             (`sizes`/`spacing`/`origin`/`direction`) is used, so a `time` dimension, if
-            present, is ignored. Must not have a `pose` or extra non-spatial dimension.
+            present, is ignored. Must not have a `grid` or extra non-spatial dimension.
         transform : (4, 4) numpy.ndarray or xarray.DataArray
             Pull transform mapping reference world coordinates to atlas world
             coordinates.
@@ -467,16 +466,16 @@ class AtlasAccessor:
         Raises
         ------
         ValueError
-            If `reference` has a `pose` or extra non-spatial dimension, or is not a
+            If `reference` has a `grid` or extra non-spatial dimension, or is not a
             VoxelData array.
         """
         reference = ensure_voxeldata(
             reference,
             require_time=False,
-            allow_pose=False,
+            allow_grid=False,
             allow_extra_dims=False,
         )
-        grid = reference.fusi
+        grid = reference.vd
         output = self.resample(
             transform,
             output_sizes=reference.sizes,
@@ -486,19 +485,15 @@ class AtlasAccessor:
             interpolation=interpolation,
             sitk_threads=sitk_threads,
         )
-        data_vars = {
-            name: output[name].fusi.affine.reindex_voxels_like(reference)
-            for name in output.data_vars
-        }
-        template_attrs = dict(data_vars["template"].attrs)
-        if "affines" in reference.attrs:
-            template_attrs["affines"] = deepcopy(reference.attrs["affines"])
-        else:
-            template_attrs.pop("affines", None)
-        data_vars["template"] = data_vars["template"].assign_attrs(template_attrs)
+        data_vars = {}
+        for name in output.data_vars:
+            value = output[name].vd.reindex_voxels_like(reference)
+            data_vars[name] = value.vd.set_voxel_to_world(
+                value.vd.voxel_to_world, named_affines=reference.vd.affines
+            )
         world_to_base = output.attrs["world_to_base"]
         if isinstance(world_to_base, xr.DataArray):
-            world_to_base = world_to_base.fusi.affine.reindex_voxels_like(reference)
+            world_to_base = world_to_base.vd.reindex_voxels_like(reference)
         return xr.Dataset(
             data_vars, attrs={**output.attrs, "world_to_base": world_to_base}
         )

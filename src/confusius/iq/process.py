@@ -115,7 +115,7 @@ def _attach_iq_output_geometry(
         dims=tuple(str(dim) for dim in iq.dims),
         dt=time.attrs["volume_acquisition_duration"],
         t0=float(np.asarray(time.values)[0]),
-        pose=iq.coords["pose"] if "pose" in iq.dims else None,
+        grid=iq.coords["grid"] if "grid" in iq.dims else None,
         k=iq.coords["k"],
         j=iq.coords["j"],
         i=iq.coords["i"],
@@ -1212,7 +1212,7 @@ def process_iq_to_power_doppler(
     clutter_mask_array = None
     if clutter_mask is not None:
         clutter_mask = ensure_voxeldata(
-            clutter_mask, allow_pose=False, allow_extra_dims=False
+            clutter_mask, allow_grid=False, allow_extra_dims=False
         )
         validate_mask(clutter_mask, iq, "clutter_mask")
         clutter_mask_array = clutter_mask.values.astype(bool)
@@ -1520,7 +1520,7 @@ def process_iq_to_axial_velocity(
     clutter_mask_array = None
     if clutter_mask is not None:
         clutter_mask = ensure_voxeldata(
-            clutter_mask, allow_pose=False, allow_extra_dims=False
+            clutter_mask, allow_grid=False, allow_extra_dims=False
         )
         validate_mask(clutter_mask, iq, "clutter_mask")
         clutter_mask_array = clutter_mask.values.astype(bool)

@@ -14,23 +14,31 @@ concern — feel free to make breaking API changes when they improve the design.
 
 ## Data Model: VoxelData
 
-**VoxelData** is ConfUSIus's canonical `xarray.DataArray` model for spatially referenced
-voxel data. This includes fUSI recordings, brain atlas volumes, PCA/decomposition
+**VoxelData** is the external `voxeldata` package's `xarray.DataArray` model for
+spatially referenced voxel data. ConfUSIus depends on the published package and
+must not duplicate its geometry implementation. Internal dimension/geometry and
+module-level affine imports are re-exports; `.vd` is the geometry accessor, while
+`.fusi` is the fUSI analysis layer. There is no `.fusi.affine` accessor. This includes fUSI recordings, brain atlas volumes, PCA/decomposition
 component maps, dense displacement fields, B-spline control-point grids, and anything
 else gridded in space. A VoxelData array is **always**:
 
-- Dims `(...extra, time, pose, k, j, i)` — `time`/`pose` are optional, extra
-  non-spatial dims (PCA/ICA components, displacement `component`, atlas region
-  masks, ...) may precede them, but native voxel indices `k`/`j`/`i` are always
-  present and always last.
+- Dims `(*nonspatial_dims, k, j, i)` — `time`/`grid` are optional and all leading
+  dimensions may appear in any order. Creation preserves leading order. Optional
+  canonicalization/ensure uses `(...extra, grid, time, k, j, i)`, preserving extra
+  dimensions' relative order. Native voxel indices `k`/`j`/`i` are mandatory and last.
 - Backed by a `VoxelToWorldIndex` attached to `z`/`y`/`x`
-  (`confusius._utils.geometry.VoxelToWorldIndex`/`VoxelToWorldTransform`), which
+  (`voxeldata.VoxelToWorldIndex`/`VoxelToWorldTransform`), which
   lazily derives those world coordinates from `k`/`j`/`i` via the voxel-to-world affine:
-  one affine shared by all data, or one affine per `pose`. A `pose` dim always
-  represents distinct probe positions, so its presence always requires one affine
-  per pose, even for a single pose — a shared affine is only valid with no `pose`
-  dim at all. World coordinates are never stored directly—always this index's
-  output.
+  one affine shared by all data, or one affine per `grid`. A `grid` dim selects
+  geometry and requires `(ngrid, 4, 4)` affines even for one grid; affine values may
+  be identical. Probe poses are represented by this dimension. World coordinates
+  are never stored directly—always this index's output.
+- Named world frames live on this index, accessed with `.vd.affines`,
+  `.vd.get_affine`, `.vd.set_affine`, and `.vd.remove_affine`, never in
+  `attrs["affines"]`. Zarr I/O serializes them under
+  `voxel_to_world_named_affines` and reconstructs the index on load. NIfTI sidecars
+  retain their wire-format `ConfUSIusAffines` mapping. B-spline initialization is
+  transform metadata (`attrs["bspline_initialization"]`), not a named world frame.
 
 Every 3D spatial array in the codebase must be VoxelData. Use these terms
 consistently in code, docstrings, and docs:

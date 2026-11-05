@@ -91,10 +91,10 @@ class TestPlotVolume:
             )
 
     def test_slice_mode_pose_facets_over_poses(self, matplotlib_pyplot):
-        """plot_volume facets over `pose` with world-coordinate axis labels.
+        """plot_volume facets over `grid` with world-coordinate axis labels.
 
-        Regression: `pose`-containing data was never recognized as "plottable
-        voxel-to-world" data, so slice_mode="pose" happened to work by accident
+        Regression: `grid`-containing data was never recognized as "plottable
+        voxel-to-world" data, so slice_mode="grid" happened to work by accident
         (the validation/labeling gate silently no-opped) but produced plain
         voxel-index axis labels instead of world-coordinate ones.
         """
@@ -122,12 +122,12 @@ class TestPlotVolume:
         )
         data = create_voxeldata(
             np.random.default_rng(0).random((npose, 1, 6, 8)),
-            dims=("pose", "k", "j", "i"),
-            pose=np.arange(npose),
+            dims=("grid", "k", "j", "i"),
+            grid=np.arange(npose),
             voxel_to_world=affine,
         )
 
-        plotter = plot_volume(data.isel(k=0), slice_mode="pose", show_colorbar=False)
+        plotter = plot_volume(data.isel(k=0), slice_mode="grid", show_colorbar=False)
 
         axes = _axes(plotter).ravel()
         assert sum(len(ax.collections) for ax in axes) == npose
@@ -137,7 +137,7 @@ class TestPlotVolume:
     def test_spatial_slice_mode_squeezes_singleton_pose_dependent_affine(
         self, matplotlib_pyplot
     ):
-        """A single-pose `pose` dim with a technically stacked affine is squeezed
+        """A single-pose `grid` dim with a technically stacked affine is squeezed
         away before spatial slicing, not rejected.
 
         Regression: `stack_poses`-style construction always produces a per-pose
@@ -149,8 +149,8 @@ class TestPlotVolume:
         affine = np.diag([0.2, 0.1, 0.05, 1.0])[np.newaxis]
         data = create_voxeldata(
             np.random.default_rng(0).random((1, 2, 3, 4)),
-            dims=("pose", "k", "j", "i"),
-            pose=[0],
+            dims=("grid", "k", "j", "i"),
+            grid=[0],
             voxel_to_world=affine,
         )
 
@@ -166,9 +166,9 @@ class TestPlotVolume:
 
         Regression: `_prepare_slice_inputs` used to materialize the whole
         pose-stacked array up front whenever it happened to report
-        axis-aligned (each pose individually diagonal, even with a different
-        origin per pose) -- materializing collapses every non-spatial dim,
-        including `pose`, to its first index when building the new `z`/`y`/`x`
+        axis-aligned (each grid individually diagonal, even with a different
+        origin per grid) -- materializing collapses every non-spatial dim,
+        including `grid`, to its first index when building the new `z`/`y`/`x`
         dim-coordinates, silently mislabeling every pose with pose 0's world
         position.
         """
@@ -187,12 +187,12 @@ class TestPlotVolume:
         )
         data = create_voxeldata(
             np.random.default_rng(0).random((2, 1, 6, 8)),
-            dims=("pose", "k", "j", "i"),
-            pose=[0, 1],
+            dims=("grid", "k", "j", "i"),
+            grid=[0, 1],
             voxel_to_world=affine,
         )
 
-        plotter = plot_volume(data.isel(k=0), slice_mode="pose", show_colorbar=False)
+        plotter = plot_volume(data.isel(k=0), slice_mode="grid", show_colorbar=False)
 
         axes = _axes(plotter).ravel()
         assert axes[0].get_xlim()[0] < 10.0
@@ -813,8 +813,8 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         # dimension coordinate, so read the fallback origin/spacing off the index via
         # `.fusi` instead of diffing `.coords["z"].values` directly.
         assert result.sizes["k"] == 2
-        assert result.fusi.origin["z"] == pytest.approx(0.0)
-        assert result.fusi.spacing["k"] == pytest.approx(1.0)
+        assert result.vd.origin["z"] == pytest.approx(0.0)
+        assert result.vd.spacing["k"] == pytest.approx(1.0)
 
     def test_resample_derives_spacing_from_affine_not_materialized_array_axis(self):
         """Resampled spacing matches the voxel-to-world affine, not a naive diff
@@ -825,7 +825,7 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         materialized (k, j, i)-shaped world-coordinate array along its last axis
         (the default `numpy.diff` behaviour) would see zero variation and divide
         by zero downstream. Assert the exact spacing values (matching
-        `.fusi.spacing`), not just that resampling doesn't crash.
+        `.vd.spacing`), not just that resampling doesn't crash.
         """
         from confusius._utils.plotting import resample_to_axis_aligned_world_grid
 
@@ -850,9 +850,9 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         # spacing calculation over the materialized `z` array's last axis would see
         # zero spacing. The affine's scale factors are hand-computable here because
         # its linear block is already upper triangular.
-        assert result.fusi.spacing["k"] == pytest.approx(0.4)
-        assert result.fusi.spacing["j"] == pytest.approx(0.3)
-        assert result.fusi.spacing["i"] == pytest.approx(0.25)
+        assert result.vd.spacing["k"] == pytest.approx(0.4)
+        assert result.vd.spacing["j"] == pytest.approx(0.3)
+        assert result.vd.spacing["i"] == pytest.approx(0.25)
 
     def test_resample_raises_when_dominant_voxel_dim_is_irregular(self):
         """Resampling onto an axis-aligned world grid raises `ValueError` when the
@@ -987,17 +987,17 @@ class TestVolumePlotterAddVolume:
         assert plotter.axes is None
 
     def test_non_spatial_slice_mode_never_nearest_matches(self, matplotlib_pyplot):
-        """A non-spatial `slice_mode` (e.g. `pose`) never nearest-matches.
+        """A non-spatial `slice_mode` (e.g. `grid`) never nearest-matches.
 
-        Regression: numeric non-spatial coordinates (e.g. an integer `pose` id)
+        Regression: numeric non-spatial coordinates (e.g. an integer `grid` id)
         were matched by nearest-neighbour like spatial ones, so requesting pose 2
         when only poses 0/1 exist silently returned pose 1's data mislabeled as
         pose 2 -- nearness has no physical meaning for a discrete facet.
         """
         data = create_voxeldata(
             np.random.default_rng(0).random((2, 1, 6, 8)),
-            dims=("pose", "k", "j", "i"),
-            pose=[0, 1],
+            dims=("grid", "k", "j", "i"),
+            grid=[0, 1],
             voxel_to_world=np.broadcast_to(
                 np.diag([0.2, 0.1, 0.05, 1.0]), (2, 4, 4)
             ).copy(),
@@ -1006,7 +1006,7 @@ class TestVolumePlotterAddVolume:
         with pytest.warns(UserWarning, match="No slice found"):
             plotter = plot_volume(
                 data.isel(k=0),
-                slice_mode="pose",
+                slice_mode="grid",
                 slice_coords=[2],
                 show_colorbar=False,
             )
@@ -1704,7 +1704,7 @@ class TestVolumePlotterAddContours:
         Each pose-faceted panel displayed in world space must keep its own
         native resolution, never get forced onto another panel's grid via a
         shared reference. `_resample_pose_slices_to_world_grid`'s per-panel loop is
-        now only exercised for `slice_mode="pose"` -- any other non-spatial
+        now only exercised for `slice_mode="grid"` -- any other non-spatial
         `slice_mode` (e.g. `"region"`) is resampled once for the whole array in
         `_prepare_slice_inputs`, which structurally can't share a reference grid
         across panels (there's only one array).
@@ -1713,7 +1713,7 @@ class TestVolumePlotterAddContours:
         first panel processed on a plotter and reused for every later one,
         silently downsampling a finer-resolution overlay (e.g. atlas
         annotations) to a coarser background's resolution -- exactly the
-        `plot_stat_map(..., slice_mode="pose") + add_contours(seed_masks)`
+        `plot_stat_map(..., slice_mode="grid") + add_contours(seed_masks)`
         scenario, where seed_masks (25 um) got downsampled to bg_volume's
         (100 um) resolution.
         """
@@ -1727,7 +1727,7 @@ class TestVolumePlotterAddContours:
             dims=("k", "j", "i"),
             voxel_to_world=np.diag([0.2, 0.1 / 3, 0.1 / 3, 1.0]),
         )
-        plotter = VolumePlotter(slice_mode="pose")
+        plotter = VolumePlotter(slice_mode="grid")
 
         resampled_coarse = plotter._resample_pose_slices_to_world_grid([coarse])[0]
         resampled_fine = plotter._resample_pose_slices_to_world_grid([fine])[0]

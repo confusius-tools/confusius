@@ -248,7 +248,7 @@ def test_load_sample_dataarray_applies_affine_when_requested(monkeypatch, tmp_pa
             return transformed
 
     sample = Mock()
-    sample.fusi.affine = _AffineAccessor()
+    sample.vd = _AffineAccessor()
 
     class _Loaded:
         def compute(self):

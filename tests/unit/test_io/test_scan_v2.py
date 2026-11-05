@@ -136,7 +136,7 @@ def _write_scan_v2(
     path : pathlib.Path
         Destination path.
     payload : numpy.ndarray
-        Payload in `(x, y, z, time, pose, dim6)` order.
+        Payload in `(x, y, z, time, grid, dim6)` order.
     size_x, size_y, size_z, n_time, npose, nblock_repeat : int
         Header dimension fields.
     dt : float, default: `_DT`
@@ -152,7 +152,7 @@ def _write_scan_v2(
         Unix timestamp for acquisition metadata.
     acquisition : bool, default: False
         Whether to write a non-identity probe pose and acquisition depth.
-    corrupt_acquisition : {"pose", "angles", "toggles"}, optional
+    corrupt_acquisition : {"grid", "angles", "toggles"}, optional
         Corruption mode used by error-path tests.
     payload_bytes_override : int, optional
         Payload byte count to write into the header.
@@ -211,14 +211,14 @@ def _write_scan_v2(
 
     translations = np.zeros((npose, 3), dtype="<f8")
     rotations = np.zeros((npose, 3), dtype="<f8")
-    for pose in range(npose):
+    for grid in range(npose):
         # The fixture's pose uses the raw coronal lab rotation; only the acquisition
         # block adds a translation.
-        rotations[pose] = _POSE[3:]
+        rotations[grid] = _POSE[3:]
         if acquisition:
-            translations[pose] = _POSE[:3]
-            translations[pose, 1] += pose * 0.001
-    if corrupt_acquisition == "pose":
+            translations[grid] = _POSE[:3]
+            translations[grid, 1] += grid * 0.001
+    if corrupt_acquisition == "grid":
         translations[0, 0] = 5.0
     header += translations.tobytes()
     header += rotations.tobytes()
@@ -287,7 +287,7 @@ def _raw_payload(
     Returns
     -------
     numpy.ndarray
-        Payload with shape `(x, y, z, time, pose, dim6)`.
+        Payload with shape `(x, y, z, time, grid, dim6)`.
     """
     shape = (size_x, size_y, size_z, n_time, npose, nblock_repeat)
     return np.arange(int(np.prod(shape)), dtype=np.float64).reshape(shape, order="F")
@@ -299,7 +299,7 @@ def _expected_confusius(raw: np.ndarray) -> np.ndarray:
     Parameters
     ----------
     raw : numpy.ndarray
-        Payload with shape `(x, y, z, time, pose, dim6)`.
+        Payload with shape `(x, y, z, time, grid, dim6)`.
 
     Returns
     -------
@@ -532,12 +532,10 @@ class TestLoadScanV2:
 
     def test_affines_for_untranslated_pose(self, scan_v2: xr.DataArray) -> None:
         """A typical coronal pose with no translation gives identity world_to_lab/probe."""
-        assert set(scan_v2.attrs["affines"]) == {"world_to_lab", "world_to_probe"}
-        np.testing.assert_array_equal(
-            scan_v2.attrs["affines"]["world_to_lab"], np.eye(4)
-        )
+        assert set(scan_v2.vd.affines) == {"world_to_lab", "world_to_probe"}
+        np.testing.assert_array_equal(scan_v2.vd.affines["world_to_lab"], np.eye(4))
         np.testing.assert_allclose(
-            scan_v2.attrs["affines"]["world_to_probe"], np.eye(4), atol=1e-12
+            scan_v2.vd.affines["world_to_probe"], np.eye(4), atol=1e-12
         )
 
     def test_scan_format_attr(self, scan_v2: xr.DataArray) -> None:
@@ -576,7 +574,7 @@ class TestLoadScanV2Multipose:
     def test_loads_with_pose_affines(self, scan_v2_multipose_path: Path) -> None:
         """Multi-pose v2 files carry a pose dim and one affine per pose."""
         da = load_scan(scan_v2_multipose_path)
-        assert da.dims == ("time", "pose", "k", "j", "i")
+        assert da.dims == ("time", "grid", "k", "j", "i")
         assert da.shape == (_N_TIME, 2, 2, _SIZE_Z, _SIZE_X)
         assert get_voxel_to_world_affine(da).shape == (2, 4, 4)
 
@@ -591,7 +589,7 @@ class TestLoadScanV2Multipose:
             npose=2,
         )
         da = load_scan(path)
-        assert da.dims == ("pose", "k", "j", "i")
+        assert da.dims == ("grid", "k", "j", "i")
         assert da.attrs["iconeus_acquisition_mode"] == "3Dscan"
 
 
@@ -771,7 +769,7 @@ class TestLoadScanV2Acquisition:
             atol=1e-9,
         )
         np.testing.assert_allclose(
-            scan_v2_acq.attrs["affines"]["world_to_probe"],
+            scan_v2_acq.vd.affines["world_to_probe"],
             np.linalg.inv(probe_to_lab),
             atol=1e-9,
         )
@@ -780,7 +778,7 @@ class TestLoadScanV2Acquisition:
         """An implausible v2 pose fails loading instead of using probe geometry."""
         path = tmp_path / "scan_v2_badpose.scan"
         _write_scan_v2(
-            path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
+            path, _raw_payload(), acquisition=True, corrupt_acquisition="grid"
         )
         with pytest.raises(ValueError, match="probe-pose block"):
             load_scan(path)
@@ -808,7 +806,7 @@ class TestLoadScanV2WithBPS:
         da = load_scan(scan_v2_acq_path, bps_path=bps_path)
         expected = np.linalg.inv(load_bps(bps_path))
         np.testing.assert_allclose(
-            da.attrs["affines"]["world_to_brain"], expected, atol=1e-12
+            da.vd.affines["world_to_brain"], expected, atol=1e-12
         )
 
     def test_implausible_pose_rejected_before_bps(
@@ -817,7 +815,7 @@ class TestLoadScanV2WithBPS:
         """v2 files with implausible pose fail loading, with or without bps_path."""
         path = tmp_path / "scan_v2_noaffine.scan"
         _write_scan_v2(
-            path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
+            path, _raw_payload(), acquisition=True, corrupt_acquisition="grid"
         )
         with pytest.raises(ValueError, match="probe-pose block"):
             load_scan(path, bps_path=bps_path)

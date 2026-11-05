@@ -19,7 +19,6 @@ from confusius._utils.geometry import (
 from confusius.io._utils import (
     ZARR_V3_CONSOLIDATED_METADATA_WARNING,
     make_attrs_zarr_safe,
-    restore_affines_in_attrs,
 )
 from confusius.io.utils import check_path
 from confusius.validation import validate_atlas
@@ -268,11 +267,13 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     # for oblique geometry, would otherwise duplicate a full dense array per axis.
     voxel_to_world = get_voxel_to_world_affine(to_save["annotation"])
     units = get_voxel_to_world_units(to_save["annotation"])
+    named_affines = to_save["annotation"].vd.affines
     to_save = to_save.drop_vars(WORLD_DIMS)
     to_save.attrs = {
         **to_save.attrs,
         "voxel_to_world": voxel_to_world,
         "voxel_to_world_units": units,
+        "voxel_to_world_named_affines": named_affines,
     }
 
     # Serialize the in-memory StructuresDict to a flat JSON list and plan the mesh bundle.
@@ -306,7 +307,7 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
 
     # A nonlinear (displacement-field) world_to_base transform carries a decorative
     # string `component` coordinate that zarr v3 cannot serialize stably. Replace it with
-    # integer indices, which serialize cleanly and keep `.fusi.spacing` defined on load;
+    # integer indices, which serialize cleanly and keep `.vd.spacing` defined on load;
     # the transform math uses the dimension order, not the component labels.
     if "world_to_base" in to_save.data_vars and "component" in to_save.coords:
         to_save = to_save.assign_coords(component=np.arange(to_save.sizes["component"]))
@@ -363,12 +364,15 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
     path = check_path(path)
     _check_zarr_suffix(path)
     ds = xr.open_zarr(path, **kwargs)
-
-    # Restore any per-variable `affines` matrices (e.g. world_to_sform) JSON-encoded on
-    # save back to numpy arrays, so they match the arrays a NIfTI-loaded volume carries.
-    for name in ds.data_vars:
-        restore_affines_in_attrs(ds[name].attrs)
-    restore_affines_in_attrs(ds.attrs)
+    if (
+        "pose" in ds.dims
+        or "affines" in ds.attrs
+        or any("affines" in ds[name].attrs for name in ds.data_vars)
+    ):
+        raise ValueError(
+            "Legacy ConfUSIus atlas Zarr geometry is not supported. "
+            "Rebuild its VoxelData index and named frames before saving again."
+        )
 
     # Voxel-to-world geometry was stored as attrs["voxel_to_world"] rather than dense
     # z/y/x coordinate arrays (see save_atlas); rebuild the world coordinates and
@@ -382,8 +386,11 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
     if "voxel_to_world" in ds.attrs:
         voxel_to_world = np.asarray(ds.attrs.pop("voxel_to_world"), dtype=np.float64)
         units = ds.attrs.pop("voxel_to_world_units", "mm")
+        named_affines = ds.attrs.pop("voxel_to_world_named_affines", None)
         restored_vars = {
-            name: attach_voxel_to_world_index(ds[name], voxel_to_world, units=units)
+            name: attach_voxel_to_world_index(
+                ds[name], voxel_to_world, units=units, named_affines=named_affines
+            )
             for name in ds.data_vars
         }
         ds = xr.Dataset(restored_vars, attrs=ds.attrs)

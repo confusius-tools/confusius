@@ -72,7 +72,7 @@ data
 # of the accessor.
 
 # %%
-data.fusi.spacing
+data.vd.spacing
 
 # %% [markdown]
 # ## Lazy loading and when to compute
@@ -166,7 +166,10 @@ _ = ax.legend(loc="upper right")
 mean_db = data.mean("time").fusi.scale.db()
 
 plotter = cf.plotting.plot_volume(
-    mean_db, cmap="gray", cbar_label="Power Doppler (dB)", bg_color=bg_color,
+    mean_db,
+    cmap="gray",
+    cbar_label="Power Doppler (dB)",
+    bg_color=bg_color,
 )
 
 # %% [markdown]

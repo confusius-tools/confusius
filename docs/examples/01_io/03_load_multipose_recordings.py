@@ -80,7 +80,7 @@ print(f"{npose} poses, each shaped {chunks[0].dims} = {chunks[0].shape}")
 # shared affine. `y`/`x` origins don't vary across chunks, so we only show `z`/`time`.
 
 # %%
-origins = [chunk.fusi.origin for chunk in chunks]
+origins = [chunk.vd.origin for chunk in chunks]
 print("z origins:", tuple(origin["z"] for origin in origins))
 print("time origins:", tuple(origin["time"] for origin in origins))
 
@@ -88,11 +88,11 @@ print("time origins:", tuple(origin["time"] for origin in origins))
 # ## Stack the poses into one pose-dependent DataArray
 #
 # [`stack_poses`][confusius.multipose.stack_poses] concatenates independently loaded
-# single-pose grids into one DataArray with a `pose` dimension, one voxel-to-world
+# single-pose grids into one DataArray with a `grid` dimension, one voxel-to-world
 # affine per pose. Poses were also acquired sequentially rather than simultaneously, so
 # each chunk's `time` coordinate is offset from the others by a fraction of the
 # repetition time; when per-pose timestamps differ, `stack_poses` keeps them as a
-# pose-dependent `(time, pose)`-shaped `time` coordinate rather than collapsing them
+# pose-dependent `(time, grid)`-shaped `time` coordinate rather than collapsing them
 # into one shared time axis.
 
 # %%
@@ -103,7 +103,7 @@ multipose = cf.multipose.stack_poses(chunks)
 #
 # Some geometry queries are well-defined without picking a pose: voxel spacing must be
 # identical across poses (a stacked affine with differing scale is rejected at
-# construction), so [`.fusi.spacing`][confusius.xarray.FUSIAccessor.spacing] works
+# construction), so [`.vd.spacing`][voxeldata.accessors.VoxelDataAccessor.spacing] works
 # directly on the multi-pose array.
 #
 # Origin and direction, however, are inherently single-grid concepts—there is no one
@@ -112,28 +112,28 @@ multipose = cf.multipose.stack_poses(chunks)
 #
 # !!! warning "World-coordinate `.sel()` requires a scalar pose"
 #     `.sel(z=..., y=..., x=...)` raises `ValueError` on pose-dependent data unless
-#     `pose` was already reduced to a scalar, e.g. `.isel(pose=0).sel(z=..., y=...,
+#     `grid` was already reduced to a scalar, e.g. `.isel(grid=0).sel(z=..., y=...,
 #     x=...)`. Resolving a world coordinate to a voxel means picking one pose's
 #     affine first; ConfUSIus never resamples poses onto a shared grid implicitly.
 
 # %%
-pose0_origin = multipose.isel(pose=0).fusi.origin
-pose3_origin = multipose.isel(pose=3).fusi.origin
-print("spacing (pose-transparent):", multipose.fusi.spacing)
-print("z origins (pose 0, 3):", (pose0_origin["z"], pose3_origin["z"]))
-print("time origins (pose 0, 3):", (pose0_origin["time"], pose3_origin["time"]))
+pose0_origin = multipose.isel(grid=0).vd.origin
+pose3_origin = multipose.isel(grid=3).vd.origin
+print("spacing (pose-transparent):", multipose.vd.spacing)
+print("z origins (grid 0, 3):", (pose0_origin["z"], pose3_origin["z"]))
+print("time origins (grid 0, 3):", (pose0_origin["time"], pose3_origin["time"]))
 
 # %% [markdown]
 # ## Visualize each pose
 #
 # We plot the temporal mean of each pose side by side with
-# [`plot_volume`][confusius.plotting.plot_volume]'s `slice_mode="pose"`, which labels
-# each panel by its `pose` value.
+# [`plot_volume`][confusius.plotting.plot_volume]'s `slice_mode="grid"`, which labels
+# each panel by its `grid` value.
 #
 # !!! warning "World-coordinate slice modes require a scalar pose"
 #     For the same reason as `.sel`, `plot_volume(..., slice_mode="z")` (or `"y"`/`"x"`)
 #     also raises `ValueError` on pose-dependent data, since display is always in
-#     world space. Slicing along `pose` itself works fine, since it doesn't require
+#     world space. Slicing along `grid` itself works fine, since it doesn't require
 #     picking one affine.
 
 # %% tags=["thumbnail"]
@@ -141,7 +141,7 @@ mean_db = multipose.mean("time").fusi.scale.db().isel(k=0)
 
 plotter = cf.plotting.plot_volume(
     mean_db,
-    slice_mode="pose",
+    slice_mode="grid",
     cbar_label="Power Doppler (dB)",
     bg_color=bg_color,
     yincrease=True,
@@ -152,7 +152,7 @@ plotter = cf.plotting.plot_volume(
 #
 # Since every pose here shares the same rotation and is offset by a pure translation
 # along elevation, [`consolidate_poses`][confusius.multipose.consolidate_poses] can
-# merge `pose` and the swept voxel dimension (`k`, the default) into one physically
+# merge `grid` and the swept voxel dimension (`k`, the default) into one physically
 # ordered axis — the same operation `load_scan`-produced `3Dscan`/`4Dscan` data goes
 # through, now working directly off the DataArray's own per-pose geometry rather than a
 # separately stored affine.
@@ -163,7 +163,7 @@ consolidated
 
 # %% [markdown]
 # The consolidated volume has a genuine `k` extent of `npose` elevation slices (each
-# pose here contributes exactly one, since the probe is linear) and no more `pose`
+# grid here contributes exactly one, since the probe is linear) and no more `grid`
 # dimension, positioned by real physical location rather than acquisition order.
 
 # %%

@@ -771,7 +771,7 @@ def compute_svd_cumulative_energy_threshold(
     mask_array: npt.NDArray[np.bool_] | None = None
     if clutter_mask is not None:
         clutter_mask = ensure_voxeldata(
-            clutter_mask, allow_pose=False, allow_extra_dims=False
+            clutter_mask, allow_grid=False, allow_extra_dims=False
         )
         validate_mask(clutter_mask, iq, "clutter_mask")
         mask_array = clutter_mask.values.astype(bool)

@@ -105,7 +105,7 @@ def extract_with_labels(
     data : xarray.DataArray
         VoxelData array with native voxel dims `k`/`j`/`i` and a
         `VoxelToWorldIndex`, plus any number of non-spatial dimensions (e.g.,
-        `time`, `pose`). See [`ensure_voxeldata`][confusius.validation.ensure_voxeldata].
+        `time`, `grid`). See [`ensure_voxeldata`][confusius.validation.ensure_voxeldata].
     labels : xarray.DataArray
         Integer label map sharing `data`'s voxel grid, in one of two formats:
 
@@ -133,7 +133,7 @@ def extract_with_labels(
         For example (flat label map):
 
         - `(time, k, j, i)` → `(time, region)`
-        - `(time, pose, k, j, i)` → `(time, pose, region)`
+        - `(time, grid, k, j, i)` → `(time, grid, region)`
         - `(k, j, i)` → `(region,)`
 
     Raises

@@ -49,7 +49,9 @@ def sample_mask_boundary(make_sample_timeseries):
 # ===========================
 
 
-def test_interpolate_preserves_kept_samples(make_sample_timeseries, sample_mask_with_gaps):
+def test_interpolate_preserves_kept_samples(
+    make_sample_timeseries, sample_mask_with_gaps
+):
     """Test that kept samples are unchanged after interpolation."""
     signals = make_sample_timeseries(n_time=100)
     result = interpolate_samples(signals, sample_mask_with_gaps, method="linear")
@@ -64,7 +66,9 @@ def test_interpolate_preserves_kept_samples(make_sample_timeseries, sample_mask_
     )
 
 
-def test_interpolate_matches_xarray_interp(make_sample_timeseries, sample_mask_with_gaps):
+def test_interpolate_matches_xarray_interp(
+    make_sample_timeseries, sample_mask_with_gaps
+):
     """Test interpolation matches xarray.DataArray.interp() directly."""
     signals = make_sample_timeseries(n_time=100)
     result = interpolate_samples(signals, sample_mask_with_gaps, method="linear")
@@ -77,7 +81,9 @@ def test_interpolate_matches_xarray_interp(make_sample_timeseries, sample_mask_w
     assert_allclose(result.values, expected.values, rtol=1e-14)
 
 
-def test_interpolate_boundary_extrapolation(make_sample_timeseries, sample_mask_boundary):
+def test_interpolate_boundary_extrapolation(
+    make_sample_timeseries, sample_mask_boundary
+):
     """Test that fill_value='extrapolate' fills boundary values."""
     signals = make_sample_timeseries(n_time=100)
     result = interpolate_samples(
@@ -89,7 +95,9 @@ def test_interpolate_boundary_extrapolation(make_sample_timeseries, sample_mask_
     assert not np.any(np.isnan(result.values[99, :]))
 
 
-def test_interpolate_boundary_no_extrapolation(make_sample_timeseries, sample_mask_boundary):
+def test_interpolate_boundary_no_extrapolation(
+    make_sample_timeseries, sample_mask_boundary
+):
     """Test that fill_value=np.nan produces NaN at boundaries."""
     signals = make_sample_timeseries(n_time=100)
     result = interpolate_samples(
@@ -190,7 +198,7 @@ def test_numpy_mask_rejects_wrong_length(make_sample_timeseries):
 
 
 def test_numpy_mask_with_pose_dependent_time_coordinates(sample_voxeldata_3dt_pose):
-    """Test a NumPy sample_mask works when signals carry `(time, pose)` time coords."""
+    """Test a NumPy sample_mask works when signals carry `(time, grid)` time coords."""
     mask = np.ones(sample_voxeldata_3dt_pose.sizes["time"], dtype=bool)
     mask[[2, 5]] = False
 
@@ -201,7 +209,7 @@ def test_numpy_mask_with_pose_dependent_time_coordinates(sample_voxeldata_3dt_po
 
 
 def test_interpolate_pose_dependent_time_matches_per_pose(sample_voxeldata_3dt_pose):
-    """Test `(time, pose)` signals are interpolated pose by pose on their own
+    """Test `(time, grid)` signals are interpolated pose by pose on their own
     timestamps and keep the pose-dependent coordinate."""
     n_time = sample_voxeldata_3dt_pose.sizes["time"]
     mask = np.ones(n_time, dtype=bool)
@@ -210,14 +218,16 @@ def test_interpolate_pose_dependent_time_matches_per_pose(sample_voxeldata_3dt_p
     with pytest.warns(UserWarning, match="cannot be verified"):
         result = interpolate_samples(sample_voxeldata_3dt_pose, mask)
 
-    assert result.coords["time"].dims == ("time", "pose")
+    assert result.coords["time"].dims == ("time", "grid")
     assert_allclose(
         result.coords["time"].values, sample_voxeldata_3dt_pose.coords["time"].values
     )
-    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
+    for grid in sample_voxeldata_3dt_pose.coords["grid"].values:
         with pytest.warns(UserWarning, match="cannot be verified"):
-            expected = interpolate_samples(sample_voxeldata_3dt_pose.sel(pose=pose), mask)
-        assert_allclose(result.sel(pose=pose).values, expected.values)
+            expected = interpolate_samples(
+                sample_voxeldata_3dt_pose.sel(grid=grid), mask
+            )
+        assert_allclose(result.sel(grid=grid).values, expected.values)
 
 
 def test_interpolate_rejects_mask_without_time_dimension(make_sample_timeseries):
@@ -291,7 +301,9 @@ def test_interpolate_4d_data(sample_voxeldata_3dt):
     )
 
 
-def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_voxeldata_3dt):
+def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(
+    sample_voxeldata_3dt,
+):
     """Test time matching ignores unrelated scalar coordinates on signals."""
     mask_data = np.zeros((2, *sample_voxeldata_3dt.shape[1:]), dtype=int)
     mask_data[0, 0, :, :] = 1
@@ -556,7 +568,9 @@ def test_pre_scrubbing_workflow(make_sample_timeseries, sample_mask_with_gaps):
     assert cleaned.sizes["space"] == signals.sizes["space"]
 
 
-def test_interpolate_and_censor_roundtrip(make_sample_timeseries, sample_mask_with_gaps):
+def test_interpolate_and_censor_roundtrip(
+    make_sample_timeseries, sample_mask_with_gaps
+):
     """Test that kept samples survive interpolate → censor roundtrip."""
     signals = make_sample_timeseries(n_time=100)
 

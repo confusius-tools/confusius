@@ -530,23 +530,23 @@ class TestFirstLevelModelReference:
         assert_allclose(z_map_auto.values, z_manual, rtol=1e-10)
 
     def test_multipose_matches_per_pose_fit(self, fusi_data_pose, events):
-        """Fitting `(time, pose, k, j, i)` data matches fitting each pose slice
+        """Fitting `(time, grid, k, j, i)` data matches fitting each pose slice
         independently and stacking the results.
 
         Guards the fallback all-True mask and the explicit-mask path both
-        correctly carry `pose` through `extract_with_mask`/`unmask`, instead
+        correctly carry `grid` through `extract_with_mask`/`unmask`, instead
         of silently collapsing to a single pose or erroring.
         """
         model = FirstLevelModel(noise_model="ols")
         model.fit(fusi_data_pose, events=events)
         z_pose = model.compute_contrast("A - B")
-        assert z_pose.dims == ("pose", "k", "j", "i")
+        assert z_pose.dims == ("grid", "k", "j", "i")
 
-        for pose in range(fusi_data_pose.sizes["pose"]):
+        for grid in range(fusi_data_pose.sizes["grid"]):
             single_pose_model = FirstLevelModel(noise_model="ols")
-            single_pose_model.fit(fusi_data_pose.isel(pose=pose), events=events)
+            single_pose_model.fit(fusi_data_pose.isel(grid=grid), events=events)
             z_single = single_pose_model.compute_contrast("A - B")
-            assert_allclose(z_pose.isel(pose=pose).values, z_single.values)
+            assert_allclose(z_pose.isel(grid=grid).values, z_single.values)
 
 
 # -----------------------------------------------------------------------------

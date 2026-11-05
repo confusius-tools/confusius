@@ -136,8 +136,8 @@ def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
     # everywhere a displacement field is built, e.g. `_compose_world_to_base_transforms`
     # and `sample_displacement_field_like`), not `reference`'s own (voxel) dims.
     dims = list(WORLD_DIMS)
-    spacing = reference.fusi.spacing
-    origin = reference.fusi.origin
+    spacing = reference.vd.spacing
+    origin = reference.vd.origin
     resolved_spacing: dict[str, float] = {}
     for dim in voxel_dims:
         dim_spacing = spacing[dim]
@@ -151,7 +151,7 @@ def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
         "shape": [int(reference.sizes[dim]) for dim in voxel_dims],
         "spacing": [resolved_spacing[dim] for dim in voxel_dims],
         "origin": [float(origin[dim]) for dim in dims],
-        "direction": np.asarray(reference.fusi.direction, dtype=float).tolist(),
+        "direction": np.asarray(reference.vd.direction, dtype=float).tolist(),
         "units": [get_voxel_to_world_units(reference)] * len(dims),
     }
 
@@ -333,15 +333,10 @@ def _normalize_loaded_bspline_transform(transform: xr.DataArray) -> xr.DataArray
     ):
         normalized.attrs.pop(key, None)
 
-    affines = normalized.attrs.get("affines")
-    if isinstance(affines, dict):
-        normalized_affines = dict(affines)
-        for nifti_key in ("world_to_qform", "world_to_sform"):
-            normalized_affines.pop(nifti_key, None)
-        if normalized_affines:
-            normalized.attrs["affines"] = normalized_affines
-        else:
-            normalized.attrs.pop("affines", None)
+    if has_voxel_to_world_index(normalized):
+        for name in ("world_to_qform", "world_to_sform"):
+            if name in normalized.vd.affines:
+                normalized = normalized.vd.remove_affine(name)
 
     component_values = [str(v) for v in normalized.coords["component"].values]
     spatial_dims = list(normalized.dims[1:])
@@ -703,7 +698,7 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
         # a VoxelData array.
         spatial_dims = [str(dim) for dim in transform.dims[1:]]
         order = [grid["dims"].index(dim) for dim in spatial_dims]
-        direction = np.asarray(transform.fusi.direction, dtype=np.float64)
+        direction = np.asarray(transform.vd.direction, dtype=np.float64)
         spacing = np.asarray(grid["spacing"], dtype=np.float64)[order]
         origin = np.asarray(grid["origin"], dtype=np.float64)[order]
         voxel_to_world = np.eye(len(spatial_dims) + 1, dtype=np.float64)

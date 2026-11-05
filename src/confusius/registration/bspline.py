@@ -10,7 +10,7 @@ extra leading `component` dimension:
   the world mm position of every grid node. The voxel-to-world affine lives on the
   coordinate index (like any other voxel-to-world-index-backed DataArray), not in
   `attrs`; orientation is folded into it rather than stored separately, and can be
-  recovered with `.fusi.direction`.
+  recovered with `.vd.direction`.
 
 They differ in what grid that index describes:
 
@@ -22,15 +22,12 @@ They differ in what grid that index describes:
   {
       "transform_type": "bspline_transform",
       "order":          3,                       # B-spline polynomial order
-      "affines":        {
-          "bspline_initialization": [[...]]     # optional (N+1, N+1) pre-affine;
-                                                 # only present when register_volume
-                                                 # was called with affine initialization.
-      }
+      "bspline_initialization": [[...]],  # Optional (N+1, N+1) pre-alignment.
+
   }
   ```
 
-  When a pre-affine is stored in `attrs["affines"]["bspline_initialization"]`, the full
+  When a pre-affine is stored in `attrs["bspline_initialization"]`, the full
   transform is a `CompositeTransform(pre_affine, bspline)` — i.e. the pre-affine is
   applied *first* (coarse global alignment) and the B-spline is applied *second* (local
   deformation refinement). This mirrors the `inPlace=True` composite that SimpleITK
@@ -92,9 +89,9 @@ def sitk_bspline_to_dataarray(
         is a `BSplineTransform`.  Any other type raises `TypeError`.
     pre_affine : (N+1, N+1) numpy.ndarray, optional
         Homogeneous affine matrix to store as
-        `attrs["affines"]["bspline_initialization"]`. Pass the affine that was used as
+        `attrs["bspline_initialization"]`. Pass the affine that was used as
         the pre-alignment so that `_voxeldata_to_sitk_bspline` can reconstruct the full
-        composite for resampling.  If not provided, no `"affines"` key is written.
+        composite for resampling. If not provided, no initialization metadata is written.
 
     Returns
     -------
@@ -138,7 +135,7 @@ def sitk_bspline_to_dataarray(
         "order": order,
     }
     if pre_affine is not None:
-        attrs["affines"] = {"bspline_initialization": np.asarray(pre_affine).tolist()}
+        attrs["bspline_initialization"] = np.asarray(pre_affine).tolist()
 
     # Direction and spacing compose the same way create_voxeldata's own
     # `direction` parameter does: each column of the (orthonormal) direction matrix
@@ -162,7 +159,7 @@ def sitk_bspline_to_dataarray(
 def _voxeldata_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
     """Reconstruct a SimpleITK transform from a B-spline DataArray.
 
-    If `da.attrs["affines"]["bspline_initialization"]` is present, returns a
+    If `da.attrs["bspline_initialization"]` is present, returns a
     `CompositeTransform(pre_affine, bspline)`; otherwise returns a plain
     `BSplineTransform`.
 
@@ -194,12 +191,12 @@ def _voxeldata_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
     # Recover grid geometry from the voxel-to-world index. No axis reversal needed:
     # sitk axis i corresponds directly to DataArray dim i (see sitk_bspline_to_dataarray,
     # which builds the index with the same convention).
-    spacing_dict = da.fusi.spacing
+    spacing_dict = da.vd.spacing
     origin_dict = get_dim_keyed_origin(da)
     spacing_sitk = [float(spacing_dict[dim]) for dim in spatial_dims]
     origin_sitk = [float(origin_dict[dim]) for dim in spatial_dims]
     node_counts_sitk = [da.sizes[dim] for dim in spatial_dims]
-    direction_sitk = np.asarray(da.fusi.direction, dtype=np.float64)
+    direction_sitk = np.asarray(da.vd.direction, dtype=np.float64)
 
     # FixedParameters layout (2D, length 10):
     #   [nodeCount_x, nodeCount_y, origin_x, origin_y, spacing_x, spacing_y,
@@ -225,7 +222,7 @@ def _voxeldata_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
     )
     bspline.SetParameters(params.tolist())
 
-    pre_affine_list = da.attrs.get("affines", {}).get("bspline_initialization")
+    pre_affine_list = da.attrs.get("bspline_initialization")
     if pre_affine_list is not None:
         pre_tx = affine_to_sitk_linear_transform(np.array(pre_affine_list))
 
@@ -389,11 +386,11 @@ def sample_displacement_field_like(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    transform = ensure_voxeldata(transform, require_time=False, allow_pose=False)
+    transform = ensure_voxeldata(transform, require_time=False, allow_grid=False)
     reference = ensure_voxeldata(
         reference,
         require_time=False,
-        allow_pose=False,
+        allow_grid=False,
         allow_extra_dims=False,
     )
     validate_matching_spatial_units(
@@ -408,7 +405,7 @@ def sample_displacement_field_like(
         spacing=spacing,
         origin=[origin_dict[dim] for dim in dims],
         dims=dims,
-        direction=reference.fusi.direction,
+        direction=reference.vd.direction,
         sitk_threads=sitk_threads,
     )
 
@@ -491,7 +488,7 @@ def invert_displacement_field(
     field_grid = field.isel(component=0, drop=True)
     _, spacing = get_defined_spatial_spacing(field_grid)
     origin = [get_dim_keyed_origin(field_grid)[d] for d in dims]
-    direction = np.asarray(field_grid.fusi.direction, dtype=np.float64)
+    direction = np.asarray(field_grid.vd.direction, dtype=np.float64)
     return _sitk_displacement_field_to_dataarray(
         inverted_expanded, shape, spacing, origin, dims, direction.tolist()
     )
@@ -583,7 +580,7 @@ def _voxeldata_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     field_grid = da.isel(component=0, drop=True)
     spatial_dims, spacing = get_defined_spatial_spacing(field_grid)
     origin = [get_dim_keyed_origin(field_grid)[dim] for dim in spatial_dims]
-    direction = np.asarray(field_grid.fusi.direction, dtype=np.float64)
+    direction = np.asarray(field_grid.vd.direction, dtype=np.float64)
 
     # .T maps the first DataArray axis to SimpleITK's world x-axis, matching the
     # convention used throughout confusius.registration (see voxeldata_to_sitk_image).

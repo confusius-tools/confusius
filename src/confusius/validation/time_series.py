@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from confusius._dims import POSE_DIM, TIME_DIM
+from confusius._dims import GRID_DIM, TIME_DIM
 from confusius._utils.coordinates import get_coordinate_spacing_info
 from confusius._utils.stack import find_stack_level
 from confusius.validation.coordinates import validate_matching_coordinates
@@ -257,7 +257,7 @@ def ensure_time_aligned(
     ordered like `signals` along `time` and takes its `time` coordinates, with a warning
     since alignment cannot be verified.
 
-    `signals` with a pose-dependent `(time, pose)` `time` coordinate are represented
+    `signals` with a pose-dependent `(time, grid)` `time` coordinate are represented
     by their consolidated time (see
     [`consolidate_poses`][confusius.multipose.consolidate_poses]).
 
@@ -350,7 +350,7 @@ def ensure_time_aligned(
         value = value.expand_dims(name, axis=1)
 
     signals_time = signals.coords.get(TIME_DIM)
-    if signals_time is not None and POSE_DIM in signals_time.dims:
+    if signals_time is not None and GRID_DIM in signals_time.dims:
         # Imported here: confusius.timing (used by multipose.timing) imports this
         # module, so a module-level import would be circular.
         from confusius.multipose.timing import consolidate_time_coordinate

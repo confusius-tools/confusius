@@ -153,7 +153,7 @@ class FirstLevelModel(BaseEstimator):
     smoothing_fwhm : float or dict[str, float], optional
         Full width at half maximum of the Gaussian smoothing kernel, in the world
         units of the spatial coordinates, applied to each run before model fitting. A
-        scalar smooths all non-`time` dimensions (caution if the data has a `pose`
+        scalar smooths all non-`time` dimensions (caution if the data has a `grid`
         dimension); a dict maps dimension names to per-dimension FWHM.
         Smoothing is delegated to [`smooth_volume`][confusius.spatial.smooth_volume],
         which requires each smoothed dimension to have uniform coordinate spacing.
@@ -256,7 +256,7 @@ class FirstLevelModel(BaseEstimator):
             A single-run VoxelData array, or a list of per-run VoxelData arrays for
             multi-run data. Each array must have a `time` dimension; all other
             dimensions are treated as spatial (e.g. `(time, k, j, i)` or `(time,
-            pose, k, j, i)`).
+            grid, k, j, i)`).
         events : pandas.DataFrame or list of pandas.DataFrame, optional
             Events table(s) with `onset`, `duration`, and `trial_type` columns. Onsets
             are in the same world time units as the `time` coordinate of `run_data`.

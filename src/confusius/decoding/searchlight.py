@@ -338,7 +338,7 @@ class SearchLight(BaseEstimator):
 
     This estimator wraps scikit-learn while keeping xarray metadata:
 
-    - Input data must be a VoxelData array with dims `(time, k, j, i)`—no `pose` or
+    - Input data must be a VoxelData array with dims `(time, k, j, i)`—no `grid` or
       extra dimensions.
     - The `time` dimension is the sample axis. It need not be temporally ordered. For
       trial-averaged data, rename the trial dimension with `.rename(trial="time")`.
@@ -514,7 +514,7 @@ class SearchLight(BaseEstimator):
             X,
             require_time=True,
             require_unchunked_time=True,
-            allow_pose=False,
+            allow_grid=False,
             allow_extra_dims=False,
         )
 
@@ -601,9 +601,7 @@ class SearchLight(BaseEstimator):
             self.show_progress,
         )
 
-        # Carry the input's attributes over, notably any `affines`, so the score map
-        # stays in the same world space. Override the semantic attributes to describe
-        # the score itself rather than the input signal.
+        # Describe the score rather than the input signal, retaining its world frame.
         attrs = {**dict(X_ordered.attrs), "long_name": "Searchlight CV score"}
         units = _get_score_units(self.scoring, classifier=classifier)
         if units is not None:
@@ -616,6 +614,9 @@ class SearchLight(BaseEstimator):
             process_mask,
             attrs=attrs,
             fill_value=np.nan,
+        )
+        self.scores_ = self.scores_.vd.set_voxel_to_world(
+            self.scores_.vd.voxel_to_world, named_affines=X_ordered.vd.affines
         )
         return self
 

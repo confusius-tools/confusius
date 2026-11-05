@@ -227,7 +227,9 @@ class TestFilterButterworth:
         assert filtered.shape == signals.shape
         assert filtered.dims == signals.dims
         np.testing.assert_array_equal(filtered.coords["time"], signals.coords["time"])
-        np.testing.assert_allclose(filtered.values, expected.transpose(*signals.dims).values)
+        np.testing.assert_allclose(
+            filtered.values, expected.transpose(*signals.dims).values
+        )
 
     def test_dask_array_support(self):
         """Filter should work with Dask-backed arrays."""
@@ -399,24 +401,22 @@ class TestFilterButterworth:
     def test_multipose_pose_dependent_time_matches_per_pose(
         self, sample_voxeldata_3dt_pose
     ):
-        """Test `pose` is just another dimension: joint filtering matches per-pose runs.
+        """Test `grid` is just another dimension: joint filtering matches per-pose runs.
 
-        `sample_voxeldata_3dt_pose` has a pose-dependent `(time, pose)` `time`
+        `sample_voxeldata_3dt_pose` has a pose-dependent `(time, grid)` `time`
         coordinate holding each pose's own real acquisition timestamps, but every
         pose shares the same sampling rate, so filtering every pose jointly must
         equal filtering each pose separately.
         """
         # order=1 to stay within the fixture's 10 timepoints (sosfiltfilt requires
         # more samples than its padlen, which grows with order).
-        result = filter_butterworth(
-            sample_voxeldata_3dt_pose, high_cutoff=0.3, order=1
-        )
+        result = filter_butterworth(sample_voxeldata_3dt_pose, high_cutoff=0.3, order=1)
 
-        for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
+        for grid in sample_voxeldata_3dt_pose.coords["grid"].values:
             expected = filter_butterworth(
-                sample_voxeldata_3dt_pose.sel(pose=pose), high_cutoff=0.3, order=1
+                sample_voxeldata_3dt_pose.sel(grid=grid), high_cutoff=0.3, order=1
             )
-            xr.testing.assert_allclose(result.sel(pose=pose), expected)
+            xr.testing.assert_allclose(result.sel(grid=grid), expected)
 
 
 class TestFilterCosine:

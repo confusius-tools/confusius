@@ -85,10 +85,8 @@ with TemporaryDirectory(prefix="confusius-load-data-") as tmp:
     assert_array_equal(restored.data, power.data)
     assert_allclose(restored.time, power.time)
     assert restored.time.attrs == power.time.attrs
-    assert restored.fusi.affine.units == "mm"
-    assert_allclose(
-        restored.fusi.affine.voxel_to_world, power.fusi.affine.voxel_to_world
-    )
+    assert restored.vd.units == "mm"
+    assert_allclose(restored.vd.voxel_to_world, power.vd.voxel_to_world)
 
 # General external affine maps [i, j, k] -> [x, y, z].
 external = np.array([[0, -0.2, 0, 4], [0.1, 0, 0, 5], [0, 0, 0.3, 6], [0, 0, 0, 1]])
@@ -130,9 +128,9 @@ pose_affines = np.stack([A, A.copy()])
 pose_affines[1, 0, 3] += 2.0
 multipose = cf.create_voxeldata(
     np.repeat(np.stack([labels_raw, labels_raw + 100])[None], 3, axis=0),
-    dims=("time", "pose", "k", "j", "i"),
+    dims=("time", "grid", "k", "j", "i"),
     voxel_to_world=pose_affines,
-    pose=[10, 20],
+    grid=[10, 20],
     dt=1.0,
     t0=[0.0, 0.25],
     volume_acquisition_reference="start",
@@ -141,7 +139,7 @@ multipose = cf.create_voxeldata(
 validate_voxeldata(multipose, require_time=True)
 assert_allclose(multipose.time, [[0, 0.25], [1, 1.25], [2, 2.25]])
 assert_array_equal(
-    multipose.isel(pose=1).set_xindex("time").sel(time=1.25).data,
+    multipose.isel(grid=1).set_xindex("time").sel(time=1.25).data,
     labels_raw + 100,
 )
 

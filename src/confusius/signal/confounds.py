@@ -205,7 +205,7 @@ def regress_confounds(
     UserWarning
         If `confounds` has no `time` coordinates, since alignment cannot be verified.
     UserWarning
-        If `signals` has a `pose` dimension, since the same confounds are regressed
+        If `signals` has a `grid` dimension, since the same confounds are regressed
         from every pose.
 
     Notes
@@ -259,9 +259,9 @@ def regress_confounds(
     confounds_array = ensure_time_aligned(
         signals, confounds, "confounds", ndim=2
     ).values
-    if "pose" in signals.dims:
+    if "grid" in signals.dims:
         warnings.warn(
-            "signals have a 'pose' dimension: the same confounds are regressed from "
+            "signals have a 'grid' dimension: the same confounds are regressed from "
             "every pose. To use per-pose confounds, regress each pose separately.",
             stacklevel=find_stack_level(),
         )
@@ -650,8 +650,8 @@ def compute_compcor_confounds(
         signals_flat = signals.stack(space=spatial_dims)
 
         time_coord = signals.coords.get("time")
-        if time_coord is not None and time_coord.dims == ("time", "pose"):
-            # Folding `pose` into `space` above breaks the per-pose (time, pose)
+        if time_coord is not None and time_coord.dims == ("time", "grid"):
+            # Folding `grid` into `space` above breaks the per-pose (time, grid)
             # `time` coordinate: stacking broadcasts it to (time, space), one
             # timestamp per voxel instead of one per timepoint. CompCor pools
             # voxels across poses into a single PCA, so replace it with one

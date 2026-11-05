@@ -332,18 +332,18 @@ def test_detrend_polynomial_with_nonleading_time_axis(make_sample_timeseries):
 def test_detrend_multipose_pose_dependent_time_matches_per_pose(
     sample_voxeldata_3dt_pose,
 ):
-    """Test `pose` is just another dimension: joint detrending matches per-pose runs.
+    """Test `grid` is just another dimension: joint detrending matches per-pose runs.
 
-    `sample_voxeldata_3dt_pose` has a pose-dependent `(time, pose)` `time`
+    `sample_voxeldata_3dt_pose` has a pose-dependent `(time, grid)` `time`
     coordinate holding each pose's own real acquisition timestamps, but `detrend`
     only relies on positional order along `time`, so detrending every pose jointly
     must equal detrending each pose separately.
     """
     result = detrend(sample_voxeldata_3dt_pose, order=1)
 
-    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
-        expected = detrend(sample_voxeldata_3dt_pose.sel(pose=pose), order=1)
-        xr.testing.assert_allclose(result.sel(pose=pose), expected)
+    for grid in sample_voxeldata_3dt_pose.coords["grid"].values:
+        expected = detrend(sample_voxeldata_3dt_pose.sel(grid=grid), order=1)
+        xr.testing.assert_allclose(result.sel(grid=grid), expected)
 
 
 def test_detrend_dask_compatibility(rng):

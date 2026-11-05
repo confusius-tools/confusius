@@ -12,6 +12,16 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Geometry now comes from the external `voxeldata` package. Use the flat `.vd`
+  accessor instead of `.fusi.affine`, `.fusi.spacing`, `.fusi.origin`, or
+  `.fusi.direction`. Named world frames live on the VoxelData index and are
+  managed with `.vd.set_affine`/`.vd.get_affine`, not DataArray attributes.
+- Probe poses are represented by `grid`, replacing the `pose` dimension and
+  corresponding coordinate/validation keywords. Leading dimensions may appear
+  in any order; optional canonicalization uses `(...extra, grid, time, k, j, i)`.
+- Canonicalize scalar-selected spatial dimensions before `.vd` geometry mutators,
+  for example `ensure_voxeldata(data.isel(k=0)).vd.apply(matrix)`.
+
 - Python 3.11 is no longer supported; ConfUSIus now requires Python 3.12 or newer,
   following BrainGlobe's move to Python 3.12-3.14 and
   [SPEC 0](https://scientific-python.org/specs/spec-0000/)
@@ -20,15 +30,14 @@ Current development version for the next ConfUSIus release.
 ### :sparkles: Enhancements
 
 - Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
-  them along `pose` in numeric chunk order while preserving geometry and timing
+  them along `grid` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
 
 ### :bug: Fixes
 
-- [`apply_affine`][confusius.xarray.apply_affine] and
-  [`reindex_voxels`][confusius.xarray.reindex_voxels] now accept scalar-indexed VoxelData
-  arrays and restore the indexed voxel dimension in their result. `inplace=True` raises a
-  `ValueError` on such arrays
+- Scalar-indexed VoxelData geometry was restored automatically before the external
+  VoxelData integration. Explicit canonicalization is now required before applying
+  or reindexing geometry on these arrays (see breaking changes above)
   ([#558](https://github.com/confusius-tools/confusius/pull/558)).
 
 ### :books: Documentation
@@ -245,8 +254,8 @@ Released 2026-10-13.
 - [`FirstLevelModel`][confusius.glm.FirstLevelModel] accepts `show_progress=True` to
   display a progress bar over the runs being fitted
   ([#442](https://github.com/confusius-tools/confusius/pull/442)).
-- New [`get_bounding_box`][confusius.xarray.get_bounding_box], also available as
-  [`data.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box],
+- New [`get_bounding_box`][voxeldata.affine.get_bounding_box], also available as
+  [`data.fusi.affine.bounding_box`][voxeldata.accessors.VoxelDataAccessor.bounding_box],
   returning a VoxelData array's world-space bounding box enclosing the full extent of
   its voxels, one per pose for pose-dependent geometry
   ([#446](https://github.com/confusius-tools/confusius/pull/446)).
@@ -307,7 +316,7 @@ Released 2026-10-13.
   no longer emits a divide-by-zero `RuntimeWarning` on recordings containing voxels with
   no variance over time, such as those outside the recorded field of view
   ([#442](https://github.com/confusius-tools/confusius/pull/442)).
-- [`apply_affine`][confusius.xarray.apply_affine] keeps the applied key in
+- [`apply_affine`][voxeldata.affine.apply_affine] keeps the applied key in
   `.attrs["affines"]` as the identity when the affine is given by key
   ([#463](https://github.com/confusius-tools/confusius/pull/463)).
 - `convert_echoframe_dat_to_zarr` now preserves time coordinate attributes when
@@ -411,8 +420,8 @@ Released 2026-08-31.
   unconditionally.
 - World-space `units` moved off the `z`/`y`/`x` coordinates' `.attrs` onto
   `VoxelToWorldIndex` as a single shared property, exposed via
-  [`data.fusi.affine.units`][confusius.xarray.FUSIAffineAccessor.units] and set with
-  [`data.fusi.affine.set_units`][confusius.xarray.FUSIAffineAccessor.set_units]. Setting
+  [`data.fusi.affine.units`][voxeldata.accessors.VoxelDataAccessor.units] and set with
+  [`data.fusi.affine.set_units`][voxeldata.accessors.VoxelDataAccessor.set_units]. Setting
   `data.coords["z"].attrs["units"]` directly no longer has any effect: world coordinates
   are always regenerated fresh from the index.
 - Multi-pose data now carries pose-dependent voxel-to-world geometry. Sequentially
@@ -457,7 +466,7 @@ Released 2026-08-31.
   keys such as `world_to_sform`, function/parameter names, docs) to describe the
   coordinate *space*, reserving "physical units" for the mm-vs-voxel-index unit
   distinction (standard ITK/NIfTI usage). `affine_to` was renamed to
-  [`get_relative_affine`][confusius.xarray.get_relative_affine].
+  [`get_relative_affine`][voxeldata.affine.get_relative_affine].
 
 **Follow-on API cleanup ([#322](https://github.com/confusius-tools/confusius/pull/322)):**
 
@@ -490,8 +499,8 @@ Released 2026-08-31.
 
 **VoxelData model:**
 
-- Added [`reindex_voxels`][confusius.xarray.reindex_voxels]/
-  [`reindex_voxels_like`][confusius.xarray.reindex_voxels_like] to `.fusi.affine`,
+- Added [`reindex_voxels`][voxeldata.affine.reindex_voxels]/
+  [`reindex_voxels_like`][voxeldata.affine.reindex_voxels_like] to `.fusi.affine`,
   rebasing voxel-space coordinates to dense positions via plain 4x4 matrix
   composition ([#278](https://github.com/confusius-tools/confusius/pull/278)).
 - `plot_volume` (and napari layers) always displays in world space, like
@@ -965,7 +974,7 @@ Released 2026-07-07.
   [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]—useful to
   shrink a shared colorbar down to size on a multi-panel grid
   ([#242](https://github.com/confusius-tools/confusius/pull/242)).
-- [`apply_affine`][confusius.xarray.affine.apply_affine] and the
+- [`apply_affine`][voxeldata.affine.apply_affine] and the
   `data.fusi.affine.apply` accessor now accept a string naming a key in
   `attrs["affines"]`, instead of requiring the affine matrix itself
   ([#247](https://github.com/confusius-tools/confusius/pull/247)).
@@ -1001,7 +1010,7 @@ Released 2026-07-07.
   unique region ids across stacked mask layers—a layer is already identified by its
   position along `mask`—so `get_masks` output can be passed straight through without
   manual relabeling ([#249](https://github.com/confusius-tools/confusius/pull/249)).
-- [`apply_affine`][confusius.xarray.apply_affine] now rescales the `voxdim` attribute
+- [`apply_affine`][voxeldata.affine.apply_affine] now rescales the `voxdim` attribute
   of the spatial coordinates along with the coordinate values
   ([#245](https://github.com/confusius-tools/confusius/pull/245)).
 - [`clean`][confusius.signal.clean] now supports `ensure_finite=True` to repair

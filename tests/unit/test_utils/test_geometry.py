@@ -38,7 +38,7 @@ def _simple_voxel_to_world_result() -> xr.DataArray:
 
 
 def _pose_dependent_result(
-    pose_affines: np.ndarray | None = None, pose_coord: np.ndarray | None = None
+    pose_affines: np.ndarray | None = None, grid_coord: np.ndarray | None = None
 ) -> xr.DataArray:
     """Build a pose-dependent voxel-to-world DataArray shared by pose tests."""
     if pose_affines is None:
@@ -55,12 +55,12 @@ def _pose_dependent_result(
                 ),
             ]
         )
-    if pose_coord is None:
-        pose_coord = np.array([0, 1])
-    npose = len(pose_coord)
+    if grid_coord is None:
+        grid_coord = np.array([0, 1])
+    npose = len(grid_coord)
     data = xr.DataArray(
         np.arange(npose * 2 * 3 * 4).reshape(npose, 2, 3, 4),
-        dims=("pose", "k", "j", "i"),
+        dims=("grid", "k", "j", "i"),
         coords={
             "k": np.arange(2),
             "j": np.arange(3),
@@ -70,25 +70,25 @@ def _pose_dependent_result(
     transform = VoxelToWorldTransform(
         {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)},
         pose_affines,
-        pose_coord=pose_coord,
+        grid_coord=grid_coord,
     )
     index = VoxelToWorldIndex(CoordinateTransformIndex(transform), pose_affines)
     result = data.assign_coords(xr.Coordinates.from_xindex(index))
-    # `pose` is not one of the index's owned coordinate names (see its docstring), so
+    # `grid` is not one of the index's owned coordinate names (see its docstring), so
     # it needs attaching separately as a plain coordinate, exactly like
     # attach_voxel_to_world_index does.
-    return result.assign_coords(pose=("pose", pose_coord))
+    return result.assign_coords(grid=("grid", grid_coord))
 
 
 def test_pose_dependent_forward_gives_translated_world_coords_per_pose() -> None:
     """Forward coordinates differ per pose when poses have distinct translations."""
     result = _pose_dependent_result()
 
-    assert result.coords["pose"].dims == ("pose",)
-    assert_array_equal(result.coords["pose"].values, [0, 1])
-    assert result.coords["z"].dims == ("pose", "k", "j", "i")
-    assert_allclose(result.coords["z"].isel(pose=0, j=0, i=0).values, [0.0, 1.0])
-    assert_allclose(result.coords["z"].isel(pose=1, j=0, i=0).values, [100.0, 101.0])
+    assert result.coords["grid"].dims == ("grid",)
+    assert_array_equal(result.coords["grid"].values, [0, 1])
+    assert result.coords["z"].dims == ("grid", "k", "j", "i")
+    assert_allclose(result.coords["z"].isel(grid=0, j=0, i=0).values, [0.0, 1.0])
+    assert_allclose(result.coords["z"].isel(grid=1, j=0, i=0).values, [100.0, 101.0])
 
 
 def test_pose_dependent_forward_supports_rotated_poses() -> None:
@@ -102,11 +102,11 @@ def test_pose_dependent_forward_supports_rotated_poses() -> None:
         ]
     )
     result = _pose_dependent_result(
-        pose_affines=np.stack([np.eye(4), rotation]), pose_coord=np.array([0, 1])
+        pose_affines=np.stack([np.eye(4), rotation]), grid_coord=np.array([0, 1])
     )
 
-    unrotated = result.isel(pose=0, k=0, j=1, i=0)
-    rotated = result.isel(pose=1, k=0, j=1, i=0)
+    unrotated = result.isel(grid=0, k=0, j=1, i=0)
+    rotated = result.isel(grid=1, k=0, j=1, i=0)
     assert unrotated.coords["z"].item() == 0.0
     assert unrotated.coords["y"].item() == 1.0
     assert unrotated.coords["x"].item() == 0.0
@@ -118,44 +118,44 @@ def test_pose_dependent_forward_supports_rotated_poses() -> None:
 def test_pose_dependent_sel_requires_scalar_pose_for_world_selection() -> None:
     """World-coordinate selection without a prior scalar pose raises a guiding error.
 
-    `pose` is its own independently indexed coordinate (see `VoxelToWorldIndex`'s
-    docstring), so a single combined `.sel(pose=..., z=..., y=..., x=...)` call is
-    never supported for pose-dependent geometry, regardless of what `pose=` is set
-    to -- world-coordinate selection always requires `pose` reduced to a scalar in a
+    `grid` is its own independently indexed coordinate (see `VoxelToWorldIndex`'s
+    docstring), so a single combined `.sel(grid=..., z=..., y=..., x=...)` call is
+    never supported for pose-dependent geometry, regardless of what `grid=` is set
+    to -- world-coordinate selection always requires `grid` reduced to a scalar in a
     prior, separate call.
     """
     result = _pose_dependent_result()
 
-    with pytest.raises(ValueError, match="requires reducing `pose` to a scalar"):
+    with pytest.raises(ValueError, match="requires reducing `grid` to a scalar"):
         result.sel(z=0.0, y=0.0, x=0.0)
-    with pytest.raises(ValueError, match="requires reducing `pose` to a scalar"):
-        result.sel(pose=[0, 1], z=0.0, y=0.0, x=0.0)
-    with pytest.raises(ValueError, match="requires reducing `pose` to a scalar"):
-        result.sel(pose=slice(0, 2), z=0.0, y=0.0, x=0.0)
-    with pytest.raises(ValueError, match="requires reducing `pose` to a scalar"):
-        result.sel(pose=1, z=100.0, y=1.0, x=2.0, method="nearest")
+    with pytest.raises(ValueError, match="requires reducing `grid` to a scalar"):
+        result.sel(grid=[0, 1], z=0.0, y=0.0, x=0.0)
+    with pytest.raises(ValueError, match="requires reducing `grid` to a scalar"):
+        result.sel(grid=slice(0, 2), z=0.0, y=0.0, x=0.0)
+    with pytest.raises(ValueError, match="requires reducing `grid` to a scalar"):
+        result.sel(grid=1, z=100.0, y=1.0, x=2.0, method="nearest")
 
 
 def test_pose_dependent_sel_resolves_pose_then_world_coords() -> None:
     """A prior scalar pose selection resolves the matching affine for spatial lookup."""
     result = _pose_dependent_result()
 
-    selected = result.isel(pose=1).sel(z=100.0, y=1.0, x=2.0, method="nearest")
+    selected = result.isel(grid=1).sel(z=100.0, y=1.0, x=2.0, method="nearest")
 
-    assert selected.item() == result.isel(pose=1, k=0, j=1, i=2).item()
+    assert selected.item() == result.isel(grid=1, k=0, j=1, i=2).item()
 
-    selected_via_sel = result.sel(pose=1).sel(z=100.0, y=1.0, x=2.0, method="nearest")
+    selected_via_sel = result.sel(grid=1).sel(z=100.0, y=1.0, x=2.0, method="nearest")
 
-    assert selected_via_sel.item() == result.isel(pose=1, k=0, j=1, i=2).item()
+    assert selected_via_sel.item() == result.isel(grid=1, k=0, j=1, i=2).item()
 
 
 def test_pose_dependent_scalar_isel_drops_pose_dependency() -> None:
-    """Scalar `isel` on `pose` selects one affine and removes the pose dim."""
+    """Scalar `isel` on `grid` selects one affine and removes the pose dim."""
     result = _pose_dependent_result()
 
-    fixed = result.isel(pose=1)
+    fixed = result.isel(grid=1)
 
-    assert "pose" not in fixed.dims
+    assert "grid" not in fixed.dims
     assert fixed.coords["z"].dims == ("k", "j", "i")
     assert_allclose(fixed.coords["z"].isel(j=0, i=0).values, [100.0, 101.0])
     # Existing single-affine `.sel` behavior applies once pose is scalar.
@@ -163,17 +163,17 @@ def test_pose_dependent_scalar_isel_drops_pose_dependency() -> None:
 
 
 def test_pose_dependent_slice_and_fancy_isel_subset_pose_and_affines() -> None:
-    """Non-scalar `pose` indexers subset/reorder both labels and affines."""
+    """Non-scalar `grid` indexers subset/reorder both labels and affines."""
     result = _pose_dependent_result()
 
-    sliced = result.isel(pose=slice(1, 2))
-    assert_array_equal(sliced.coords["pose"].values, [1])
-    assert sliced.coords["z"].dims == ("pose", "k", "j", "i")
+    sliced = result.isel(grid=slice(1, 2))
+    assert_array_equal(sliced.coords["grid"].values, [1])
+    assert sliced.coords["z"].dims == ("grid", "k", "j", "i")
 
-    reordered = result.isel(pose=[1, 0])
-    assert_array_equal(reordered.coords["pose"].values, [1, 0])
-    assert_allclose(reordered.coords["z"].isel(pose=0, j=0, i=0).values, [100.0, 101.0])
-    assert_allclose(reordered.coords["z"].isel(pose=1, j=0, i=0).values, [0.0, 1.0])
+    reordered = result.isel(grid=[1, 0])
+    assert_array_equal(reordered.coords["grid"].values, [1, 0])
+    assert_allclose(reordered.coords["z"].isel(grid=0, j=0, i=0).values, [100.0, 101.0])
+    assert_allclose(reordered.coords["z"].isel(grid=1, j=0, i=0).values, [0.0, 1.0])
 
 
 def test_pose_dependent_spatial_isel_subsets_while_pose_stack_remains() -> None:
@@ -182,9 +182,9 @@ def test_pose_dependent_spatial_isel_subsets_while_pose_stack_remains() -> None:
 
     subset = result.isel(k=0)
 
-    assert subset.coords["pose"].dims == ("pose",)
-    assert_array_equal(subset.coords["pose"].values, [0, 1])
-    assert subset.coords["z"].dims == ("pose", "j", "i")
+    assert subset.coords["grid"].dims == ("grid",)
+    assert_array_equal(subset.coords["grid"].values, [0, 1])
+    assert subset.coords["z"].dims == ("grid", "j", "i")
 
 
 def test_pose_affine_stack_validates_shape_length_finiteness_and_scale() -> None:
@@ -192,28 +192,28 @@ def test_pose_affine_stack_validates_shape_length_finiteness_and_scale() -> None
     valid_coords = {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)}
     good = np.stack([np.eye(4), np.eye(4)])
 
-    with pytest.raises(ValueError, match="pose_coord must be 1D"):
-        VoxelToWorldTransform(valid_coords, good, pose_coord=np.array([[0, 1]]))
+    with pytest.raises(ValueError, match="grid_coord must be 1D"):
+        VoxelToWorldTransform(valid_coords, good, grid_coord=np.array([[0, 1]]))
 
     with pytest.raises(ValueError, match="must have shape"):
-        VoxelToWorldTransform(valid_coords, good, pose_coord=np.array([0, 1, 2]))
+        VoxelToWorldTransform(valid_coords, good, grid_coord=np.array([0, 1, 2]))
 
     non_finite = good.copy()
     non_finite[0, 0, 0] = np.nan
     with pytest.raises(ValueError, match="must be finite"):
-        VoxelToWorldTransform(valid_coords, non_finite, pose_coord=np.array([0, 1]))
+        VoxelToWorldTransform(valid_coords, non_finite, grid_coord=np.array([0, 1]))
 
     bad_row = good.copy()
     bad_row[0, -1, -1] = 2.0
     with pytest.raises(ValueError, match="homogeneous final row"):
-        VoxelToWorldTransform(valid_coords, bad_row, pose_coord=np.array([0, 1]))
+        VoxelToWorldTransform(valid_coords, bad_row, grid_coord=np.array([0, 1]))
 
     mismatched_scale = np.stack(
         [np.diag([1.0, 1.0, 1.0, 1.0]), np.diag([2.0, 1.0, 1.0, 1.0])]
     )
     with pytest.raises(ValueError, match="equal spatial scale magnitudes"):
         VoxelToWorldTransform(
-            valid_coords, mismatched_scale, pose_coord=np.array([0, 1])
+            valid_coords, mismatched_scale, grid_coord=np.array([0, 1])
         )
 
 
@@ -244,9 +244,9 @@ def _pose_dependent_data() -> xr.DataArray:
     """Build a plain (non-VoxelData) pose-stacked DataArray for attach tests."""
     return xr.DataArray(
         np.arange(2 * 2 * 3 * 4).reshape(2, 2, 3, 4),
-        dims=("pose", "k", "j", "i"),
+        dims=("grid", "k", "j", "i"),
         coords={
-            "pose": [0, 1],
+            "grid": [0, 1],
             "k": np.arange(2),
             "j": np.arange(3),
             "i": np.arange(4),
@@ -257,7 +257,7 @@ def _pose_dependent_data() -> xr.DataArray:
 def test_attach_voxel_to_world_index_accepts_pose_stacked_affine() -> None:
     """`attach_voxel_to_world_index` wires up a per-pose affine stack."""
     data = _pose_dependent_data()
-    data.coords["pose"].attrs["long_name"] = "pose label"
+    data.coords["grid"].attrs["long_name"] = "pose label"
     affine = np.stack(
         [
             np.eye(4),
@@ -274,16 +274,16 @@ def test_attach_voxel_to_world_index_accepts_pose_stacked_affine() -> None:
 
     result = attach_voxel_to_world_index(data, affine)
 
-    assert result.coords["z"].dims == ("pose", "k", "j", "i")
-    assert_array_equal(result.coords["pose"].values, [0, 1])
-    assert result.coords["pose"].attrs["long_name"] == "pose label"
-    assert_allclose(result.coords["z"].isel(pose=1, j=0, i=0).values, [100.0, 101.0])
+    assert result.coords["z"].dims == ("grid", "k", "j", "i")
+    assert_array_equal(result.coords["grid"].values, [0, 1])
+    assert result.coords["grid"].attrs["long_name"] == "pose label"
+    assert_allclose(result.coords["z"].isel(grid=1, j=0, i=0).values, [100.0, 101.0])
     assert result.coords["z"].attrs["units"] == "mm"
     assert get_voxel_to_world_affine(result).shape == (2, 4, 4)
 
 
 def test_attach_voxel_to_world_index_rejects_mismatched_pose_stack() -> None:
-    """A pose-stacked affine requires a matching `pose` dim/coord on `data`."""
+    """A pose-stacked affine requires a matching `grid` dim/coord on `data`."""
     no_pose = xr.DataArray(
         np.zeros((2, 3, 4)),
         dims=("k", "j", "i"),
@@ -291,11 +291,11 @@ def test_attach_voxel_to_world_index_rejects_mismatched_pose_stack() -> None:
     )
     affine = np.stack([np.eye(4), np.eye(4)])
 
-    with pytest.raises(ValueError, match="have a 'pose' dimension"):
+    with pytest.raises(ValueError, match="have a 'grid' dimension"):
         attach_voxel_to_world_index(no_pose, affine)
 
     wrong_length = _pose_dependent_data()
-    with pytest.raises(ValueError, match="does not match data's 'pose' size"):
+    with pytest.raises(ValueError, match="does not match data's 'grid' size"):
         attach_voxel_to_world_index(wrong_length, np.stack([np.eye(4)]))
 
 
@@ -316,15 +316,15 @@ def test_attach_voxel_to_world_index_rejects_non_integer_voxel_coord() -> None:
 
 
 def test_attach_voxel_to_world_index_rejects_pose_dim_without_1d_coordinate() -> None:
-    """A pose-stacked affine requires `pose` to be a genuine 1D coordinate.
+    """A pose-stacked affine requires `grid` to be a genuine 1D coordinate.
 
     Distinct from `test_attach_voxel_to_world_index_rejects_mismatched_pose_stack`
-    (missing `pose` dimension entirely, or a length mismatch): here `pose` is a
+    (missing `grid` dimension entirely, or a length mismatch): here `grid` is a
     dimension but has no matching coordinate at all.
     """
     data = xr.DataArray(
         np.zeros((2, 2, 3, 4)),
-        dims=("pose", "k", "j", "i"),
+        dims=("grid", "k", "j", "i"),
         coords={"k": np.arange(2), "j": np.arange(3), "i": np.arange(4)},
     )
     affine = np.stack([np.eye(4), np.eye(4)])
@@ -355,12 +355,12 @@ def test_restore_voxel_to_world_index_rebuilds_pose_dependent_geometry() -> None
 
     restored = restore_voxel_to_world_index(expanded)
 
-    assert restored.coords["z"].dims == ("pose", "k", "j", "i")
-    assert_array_equal(restored.coords["pose"].values, [0, 1])
+    assert restored.coords["z"].dims == ("grid", "k", "j", "i")
+    assert_array_equal(restored.coords["grid"].values, [0, 1])
 
 
 def test_pose_dependent_concat_merges_pose_labels_and_affines() -> None:
-    """`xr.concat` along `pose` merges pose labels and affine stacks in order."""
+    """`xr.concat` along `grid` merges pose labels and affine stacks in order."""
     first = _pose_dependent_result()
     second = _pose_dependent_result(
         pose_affines=np.stack(
@@ -375,39 +375,39 @@ def test_pose_dependent_concat_merges_pose_labels_and_affines() -> None:
                 )
             ]
         ),
-        pose_coord=np.array([2]),
+        grid_coord=np.array([2]),
     )
 
-    combined = xr.concat([first, second], dim="pose")
+    combined = xr.concat([first, second], dim="grid")
 
-    assert_array_equal(combined.coords["pose"].values, [0, 1, 2])
-    assert_allclose(combined.coords["z"].isel(pose=2, j=0, i=0).values, [200.0, 201.0])
+    assert_array_equal(combined.coords["grid"].values, [0, 1, 2])
+    assert_allclose(combined.coords["z"].isel(grid=2, j=0, i=0).values, [200.0, 201.0])
 
 
 def test_pose_dependent_concat_rejects_mismatched_spatial_geometry() -> None:
-    """Concatenating along `pose` still rejects mismatched voxel-space geometry."""
+    """Concatenating along `grid` still rejects mismatched voxel-space geometry."""
     first = _pose_dependent_result()
     mismatched = _pose_dependent_result(
         pose_affines=np.stack([np.diag([2.0, 2.0, 2.0, 1.0])]),
-        pose_coord=np.array([2]),
+        grid_coord=np.array([2]),
     )
 
     with pytest.raises(
         ValueError, match="different spatial geometry|equal spatial scale"
     ):
-        xr.concat([first, mismatched], dim="pose", join="exact")
+        xr.concat([first, mismatched], dim="grid", join="exact")
 
 
 def test_origin_and_direction_require_scalar_pose() -> None:
     """Single-grid geometry accessors reject pose-dependent geometry clearly."""
     result = _pose_dependent_result()
 
-    with pytest.raises(ValueError, match="requires pose-independent geometry"):
+    with pytest.raises(ValueError, match="requires grid-independent geometry"):
         get_voxel_to_world_index_origin(result)
-    with pytest.raises(ValueError, match="requires pose-independent geometry"):
+    with pytest.raises(ValueError, match="requires grid-independent geometry"):
         get_voxel_to_world_direction_matrix(result)
 
-    scalar = result.isel(pose=0)
+    scalar = result.isel(grid=0)
     get_voxel_to_world_index_origin(scalar)
     get_voxel_to_world_direction_matrix(scalar)
 
@@ -437,7 +437,7 @@ def test_spacing_matches_scalar_pose_for_non_unit_scale() -> None:
     result = _pose_dependent_result(pose_affines=pose_affines)
 
     spacing = get_voxel_to_world_index_spacing(result)
-    scalar_spacing = get_voxel_to_world_index_spacing(result.isel(pose=0))
+    scalar_spacing = get_voxel_to_world_index_spacing(result.isel(grid=0))
 
     assert spacing == scalar_spacing
     assert spacing["k"] == pytest.approx(0.4)
@@ -449,7 +449,7 @@ def test_pose_dependent_index_equality_compares_pose_labels_and_affines() -> Non
     """Index equality accounts for pose labels and the affine stack."""
     left = _pose_dependent_result()
     same = _pose_dependent_result()
-    different_pose_labels = _pose_dependent_result(pose_coord=np.array([0, 2]))
+    different_pose_labels = _pose_dependent_result(grid_coord=np.array([0, 2]))
 
     assert left.xindexes["z"].equals(same.xindexes["z"])
     assert not left.xindexes["z"].equals(different_pose_labels.xindexes["z"])
@@ -743,7 +743,7 @@ def test_alignment_between_different_world_grids_raises_clear_error(
         ),
     )
 
-    with pytest.raises(ValueError, match="Cannot automatically align .*resample_like"):
+    with pytest.raises(ValueError, match="Cannot automatically align .*Resample"):
         left + right
 
 
@@ -768,9 +768,7 @@ def test_reindex_between_different_world_grids_raises_clear_error(
         ),
     )
 
-    with pytest.raises(
-        ValueError, match="Cannot automatically reindex .*resample_like"
-    ):
+    with pytest.raises(ValueError, match="Cannot automatically reindex .*Resample"):
         left.reindex_like(right)
 
 
@@ -1150,23 +1148,23 @@ def test_restore_world_coords_rebuilds_geometry_after_expand_dims(
 
 
 def test_is_pose_dependent_true_for_stacked_affine() -> None:
-    """`is_pose_dependent` is True while a per-pose affine stack is active."""
+    """`is_grid_dependent` is True while a per-pose affine stack is active."""
     result = _pose_dependent_result()
 
     index = result.xindexes["z"]
     assert isinstance(index, VoxelToWorldIndex)
-    assert index.is_pose_dependent
+    assert index.is_grid_dependent
 
 
 def test_is_pose_dependent_false_after_scalar_pose_selection() -> None:
-    """`is_pose_dependent` is False once `pose` has been reduced to a scalar."""
+    """`is_grid_dependent` is False once `grid` has been reduced to a scalar."""
     result = _pose_dependent_result()
 
-    fixed = result.isel(pose=0)
+    fixed = result.isel(grid=0)
 
     index = fixed.xindexes["z"]
     assert isinstance(index, VoxelToWorldIndex)
-    assert not index.is_pose_dependent
+    assert not index.is_grid_dependent
 
 
 def test_join_returns_self_for_equal_index() -> None:
@@ -1214,84 +1212,84 @@ def test_reverse_rejects_pose_dependent_transform_directly() -> None:
     transform = VoxelToWorldTransform(
         {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)},
         np.stack([np.eye(4), np.eye(4)]),
-        pose_coord=np.array([0, 1]),
+        grid_coord=np.array([0, 1]),
     )
 
-    with pytest.raises(ValueError, match="pose-independent"):
+    with pytest.raises(ValueError, match="grid-independent"):
         transform.reverse({"z": 0.0, "y": 0.0, "x": 0.0})
 
 
 def test_isel_pose_indexer_ignored_when_pose_independent() -> None:
-    """A `pose` indexer is a no-op on an already pose-independent transform."""
+    """A `grid` indexer is a no-op on an already pose-independent transform."""
     transform = VoxelToWorldTransform(
         {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(4)
     )
 
-    result = transform.isel({"pose": 0, "k": 0})
+    result = transform.isel({"grid": 0, "k": 0})
 
     assert result is not None
-    assert result.pose_coord is None
+    assert result.grid_coord is None
     assert "k" not in result.active_voxel_coords
 
 
 def test_isel_pose_multidim_variable_indexer_returns_none() -> None:
-    """A multi-dimensional `pose` Variable indexer is unsupported and returns None."""
+    """A multi-dimensional `grid` Variable indexer is unsupported and returns None."""
     transform = VoxelToWorldTransform(
         {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)},
         np.stack([np.eye(4), np.eye(4)]),
-        pose_coord=np.array([0, 1]),
+        grid_coord=np.array([0, 1]),
     )
 
     result = transform.isel(
-        {"pose": xr.Variable(("a", "b"), np.zeros((2, 2), dtype=int))}
+        {"grid": xr.Variable(("a", "b"), np.zeros((2, 2), dtype=int))}
     )
 
     assert result is None
 
 
 def test_isel_pose_unsupported_indexer_type_returns_none() -> None:
-    """An unsupported `pose` indexer type (not Variable/list/tuple/slice/array)
+    """An unsupported `grid` indexer type (not Variable/list/tuple/slice/array)
     returns None."""
     transform = VoxelToWorldTransform(
         {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)},
         np.stack([np.eye(4), np.eye(4)]),
-        pose_coord=np.array([0, 1]),
+        grid_coord=np.array([0, 1]),
     )
 
-    result = transform.isel({"pose": object()})
+    result = transform.isel({"grid": object()})
 
     assert result is None
 
 
 def test_isel_pose_fancy_index_yielding_non_1d_returns_none() -> None:
-    """A `pose` fancy index producing a non-1D result returns None."""
+    """A `grid` fancy index producing a non-1D result returns None."""
     transform = VoxelToWorldTransform(
         {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)},
         np.stack([np.eye(4), np.eye(4)]),
-        pose_coord=np.array([0, 1]),
+        grid_coord=np.array([0, 1]),
     )
 
-    result = transform.isel({"pose": np.zeros((2, 2), dtype=int)})
+    result = transform.isel({"grid": np.zeros((2, 2), dtype=int)})
 
     assert result is None
 
 
 def test_concat_rejects_non_pose_dim() -> None:
-    """`VoxelToWorldIndex.concat` only supports concatenating along `pose`."""
+    """`VoxelToWorldIndex.concat` only supports concatenating along `grid`."""
     da = _simple_voxel_to_world_result()
     index = da.xindexes["z"]
 
-    with pytest.raises(ValueError, match="only supports concat along 'pose'"):
+    with pytest.raises(ValueError, match="only supports concat along 'grid'"):
         VoxelToWorldIndex.concat([index, index], dim="k")
 
 
 def test_concat_rejects_pose_independent_inputs() -> None:
-    """`VoxelToWorldIndex.concat` requires every input to already be pose-dependent."""
+    """`VoxelToWorldIndex.concat` requires every input to already be grid-dependent."""
     da = _simple_voxel_to_world_result()
     index = da.xindexes["z"]
 
-    with pytest.raises(ValueError, match="every input must already be pose-dependent"):
-        VoxelToWorldIndex.concat([index, index], dim="pose")
+    with pytest.raises(ValueError, match="every input must already be grid-dependent"):
+        VoxelToWorldIndex.concat([index, index], dim="grid")
 
 
 def test_concat_rejects_mismatched_spatial_geometry_directly() -> None:
@@ -1305,7 +1303,7 @@ def test_concat_rejects_mismatched_spatial_geometry_directly() -> None:
 
     with pytest.raises(ValueError, match="different spatial geometry"):
         VoxelToWorldIndex.concat(
-            [first.xindexes["z"], second.xindexes["z"]], dim="pose"
+            [first.xindexes["z"], second.xindexes["z"]], dim="grid"
         )
 
 
@@ -1356,17 +1354,17 @@ def test_rename_world_coord_keeps_transform_consistent() -> None:
 
 
 def test_attach_voxel_to_world_index_rejects_pose_dim_with_shared_affine() -> None:
-    """A `pose` dimension always requires a per-pose affine stack, even for a
+    """A `grid` dimension always requires a per-pose affine stack, even for a
     single (4, 4) shared affine.
     """
     data = xr.DataArray(
         np.zeros((2, 2, 3, 4)),
-        dims=("pose", "k", "j", "i"),
+        dims=("grid", "k", "j", "i"),
         coords={
             "k": np.arange(2),
             "j": np.arange(3),
             "i": np.arange(4),
-            "pose": [0, 1],
+            "grid": [0, 1],
         },
     )
 

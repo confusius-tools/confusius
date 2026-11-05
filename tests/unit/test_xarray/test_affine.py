@@ -29,7 +29,7 @@ def _materialized_edge_bounds(data: xr.DataArray) -> np.ndarray:
     voxel at both ends of each dim through the affine, then reduce."""
     padded = [_pad_half_voxel(data.coords[d].values) for d in ("k", "j", "i")]
     grid = np.stack(np.meshgrid(*padded, indexing="ij"), axis=-1).reshape(-1, 3)
-    affine = data.fusi.affine.voxel_to_world
+    affine = data.vd.voxel_to_world
     world = grid @ affine[:3, :3].T + affine[:3, 3]
     return np.stack([world.min(axis=0), world.max(axis=0)])
 
@@ -122,15 +122,15 @@ def test_pose_dependent_bounds_per_pose(rng):
     shifted[:3, 3] += [5.0, -2.0, 1.5]
     data = create_voxeldata(
         rng.random((2, 3, 4, 5)),
-        dims=("pose", "k", "j", "i"),
-        pose=[10, 20],
+        dims=("grid", "k", "j", "i"),
+        grid=[10, 20],
         voxel_to_world=np.stack([OBLIQUE_AFFINE, shifted]),
     )
     bbox = get_bounding_box(data)
-    assert bbox.dims == ("pose", "bound", "component")
-    assert list(bbox.coords["pose"].values) == [10, 20]
+    assert bbox.dims == ("grid", "bound", "component")
+    assert list(bbox.coords["grid"].values) == [10, 20]
     expected = np.stack(
-        [_materialized_edge_bounds(data.isel(pose=p)) for p in range(2)]
+        [_materialized_edge_bounds(data.isel(grid=p)) for p in range(2)]
     )
     assert_allclose(bbox.values, expected)
 
@@ -149,8 +149,8 @@ def test_non_dataarray_raises():
 
 
 def test_accessor_matches_function(rng):
-    """The `.fusi.affine.bounding_box` property returns the same bounds."""
+    """The `.vd.bounding_box` property returns the same bounds."""
     data = create_voxeldata(
         rng.random((4, 5, 6)), dims=("k", "j", "i"), voxel_to_world=OBLIQUE_AFFINE
     )
-    assert_allclose(data.fusi.affine.bounding_box.values, get_bounding_box(data).values)
+    assert_allclose(data.vd.bounding_box.values, get_bounding_box(data).values)

@@ -154,7 +154,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     # and vice versa.
     permute_kj = np.eye(4)
     permute_kj[[0, 1]] = permute_kj[[1, 0]]
-    swapped_voxel_to_world = da.fusi.affine.voxel_to_world @ permute_kj
+    swapped_voxel_to_world = da.vd.voxel_to_world @ permute_kj
 
     da = cf.create_voxeldata(
         da.values,
@@ -170,7 +170,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     #    voxel column ends up mapping to, so it is applied in full (rotation
     #    included) -- the voxel-to-world index can represent rotations exactly,
     #    unlike a plain z/y/x DataArray's independent 1D coordinates.
-    da.fusi.affine.apply(da.affines["world_to_qform"], inplace=True)
+    da.vd.apply(da.vd.affines["world_to_qform"], inplace=True)
 
     # 3. `world_to_qform` (checked empirically) lands elevation on world "x",
     #    depth on world "z", and lateral on world "y" -- a 3-cycle, not a pairwise
@@ -181,7 +181,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     permute_zyx_cycle[1, 0] = 1  # y <- old z (depth)
     permute_zyx_cycle[2, 1] = 1  # x <- old y (lateral)
     permute_zyx_cycle[3, 3] = 1
-    da.fusi.affine.apply(permute_zyx_cycle, inplace=True)
+    da.vd.apply(permute_zyx_cycle, inplace=True)
 
     # 4. Flip "x" (lateral). The cyclic permutation above leaves the direction matrix
     #    improper (det -1, a reflection): `plot_volume`'s world-grid resampling
@@ -190,7 +190,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     flip_x = np.eye(4)
     flip_x[2, 2] = -1
     flip_x[2, 3] = da.x.max().item() + da.x.min().item()
-    da.fusi.affine.apply(flip_x, inplace=True)
+    da.vd.apply(flip_x, inplace=True)
 
     # 5. Flip "y" to have a depth direction "away" from the transducer, and flip "z"
     #    to match the atlas orientation. Two more mirrors keep the direction matrix
@@ -199,18 +199,18 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     flip_y = np.eye(4)
     flip_y[1, 1] = -1
     flip_y[1, 3] = da.y.max().item() + da.y.min().item()
-    da.fusi.affine.apply(flip_y, inplace=True)
+    da.vd.apply(flip_y, inplace=True)
 
     flip_z = np.eye(4)
     flip_z[0, 0] = -1
     flip_z[0, 3] = da.z.max().item() + da.z.min().item()
-    da.fusi.affine.apply(flip_z, inplace=True)
+    da.vd.apply(flip_z, inplace=True)
 
     # 6. Convert the coordinates units to millimeter (nice to have).
     m_to_mm = np.eye(4)
     m_to_mm[:3, :3] *= 1e3
-    da.fusi.affine.apply(m_to_mm, inplace=True)
-    da.fusi.affine.set_units("mm", inplace=True)
+    da.vd.apply(m_to_mm, inplace=True)
+    da.vd.set_units("mm", inplace=True)
 
     return da
 
@@ -286,7 +286,7 @@ _, template_to_fusi_transform, _ = cf.registration.register_volume(
 # %%
 atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um")
 atlas_to_fusi_transform = template_to_fusi_transform @ np.linalg.inv(
-    template_pepe_mariani.affines["world_to_sform"]
+    template_pepe_mariani.vd.affines["world_to_sform"]
 )
 
 resampled_average_in_atlas = cf.registration.resample_like(
@@ -366,7 +366,7 @@ glm = cf.glm.FirstLevelModel(
     drift_model="cosine",
     low_cutoff=0.01,
     noise_model="ar1",
-    show_progress=True
+    show_progress=True,
 )
 glm.fit(resampled_fusi_list, events=events, confounds=confounds)
 

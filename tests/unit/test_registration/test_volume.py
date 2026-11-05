@@ -57,8 +57,8 @@ def _resample_volume_grid_kwargs(data: xr.DataArray) -> dict:
     """Build `resample_volume`'s position-anchored output-grid kwargs."""
     return {
         "output_sizes": data.sizes,
-        "output_spacing": data.fusi.spacing,
-        "output_origin": data.fusi.origin,
+        "output_spacing": data.vd.spacing,
+        "output_origin": data.vd.origin,
         "output_direction": get_affine_direction_matrix(
             get_voxel_to_world_affine(data)
         ),
@@ -70,7 +70,7 @@ def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
     extra_coords = {
         str(dim): data.coords[dim]
         for dim in data.dims
-        if dim not in {*VOXEL_DIMS, "time", "pose"} and dim in data.coords
+        if dim not in {*VOXEL_DIMS, "time", "grid"} and dim in data.coords
     }
     spacing = []
     origin = []
@@ -86,7 +86,7 @@ def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
         data.values,
         dims=tuple(str(dim) for dim in data.dims),
         time=data.coords.get("time"),
-        pose=data.coords.get("pose"),
+        grid=data.coords.get("grid"),
         extra_coords=extra_coords,
         spacing=spacing,
         origin=origin,
@@ -408,8 +408,8 @@ class TestRegisterVolumeValidation:
 
     def test_mismatched_spatial_units_raise(self, sample_voxeldata_2d_registration):
         """moving and fixed must agree on spatial coordinate units when declared."""
-        moving = sample_voxeldata_2d_registration.fusi.affine.set_units("mm")
-        fixed = sample_voxeldata_2d_registration.fusi.affine.set_units("um")
+        moving = sample_voxeldata_2d_registration.vd.set_units("mm")
+        fixed = sample_voxeldata_2d_registration.vd.set_units("um")
 
         with pytest.raises(ValueError, match="units"):
             register_volume(moving, fixed, transform_type="translation")
@@ -431,7 +431,7 @@ class TestSimpleITKGeometry:
         )
         assert_allclose(
             np.array(image.GetDirection()).reshape(3, 3),
-            data.fusi.direction,
+            data.vd.direction,
         )
 
     def test_voxeldata_to_sitk_image_without_voxel_to_world_index_raises(self):
@@ -520,8 +520,8 @@ class TestRegisterVolumeOutput:
             mesh_size=(1, 4, 4),
         )
 
-        y_span = float(bspline_tx.fusi.spacing["j"] * (bspline_tx.sizes["j"] - 1))
-        x_span = float(bspline_tx.fusi.spacing["i"] * (bspline_tx.sizes["i"] - 1))
+        y_span = float(bspline_tx.vd.spacing["j"] * (bspline_tx.sizes["j"] - 1))
+        x_span = float(bspline_tx.vd.spacing["i"] * (bspline_tx.sizes["i"] - 1))
         # The control-point domain is padded beyond the image FOV for boundary
         # support, so spans are somewhat larger than the raw world extent (9.5 mm
         # for y, 3.9 mm for x). Padding scales with each axis's own extent (same mesh
@@ -554,8 +554,16 @@ class TestRegisterVolumeOutput:
         """resample=True output inherits world-space affines from `fixed`."""
         moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16)).copy()
         fixed = sample_voxeldata_2d_registration.copy()
-        moving.attrs["affines"] = {"world_to_lab": np.diag([2.0, 2.0, 1.0])}
-        fixed.attrs["affines"] = {"world_to_lab": np.diag([3.0, 3.0, 1.0])}
+        moving.vd.set_voxel_to_world(
+            moving.vd.voxel_to_world,
+            named_affines={"world_to_lab": np.diag([2.0, 2.0, 1.0, 1.0])},
+            inplace=True,
+        )
+        fixed.vd.set_voxel_to_world(
+            fixed.vd.voxel_to_world,
+            named_affines={"world_to_lab": np.diag([3.0, 3.0, 1.0, 1.0])},
+            inplace=True,
+        )
 
         result, _, _ = register_volume(
             moving,
@@ -566,8 +574,8 @@ class TestRegisterVolumeOutput:
 
         assert "registration" not in result.attrs
         assert_allclose(
-            result.attrs["affines"]["world_to_lab"],
-            fixed.attrs["affines"]["world_to_lab"],
+            result.vd.affines["world_to_lab"],
+            fixed.vd.affines["world_to_lab"],
         )
 
     def test_resample_true_inherits_fixed_voxel_to_world_geometry(self):
@@ -1184,11 +1192,11 @@ class TestResampleVolume:
         for dim in VOXEL_DIMS:
             assert result.sizes[dim] == grid["output_sizes"][dim]
         assert_allclose(
-            [result.fusi.spacing[dim] for dim in VOXEL_DIMS],
+            [result.vd.spacing[dim] for dim in VOXEL_DIMS],
             [grid["output_spacing"][dim] for dim in VOXEL_DIMS],
         )
         assert_allclose(
-            [result.fusi.origin[name] for name in WORLD_DIMS],
+            [result.vd.origin[name] for name in WORLD_DIMS],
             [grid["output_origin"][name] for name in WORLD_DIMS],
         )
 
@@ -1331,13 +1339,13 @@ class TestInitialization:
         translation = np.eye(4, dtype=np.float64)
         translation[:3, 3] = [-25.0, 4.0, 7.5]
         expected_transform = translation @ rotation
-        moving = fixed.fusi.affine.apply(expected_transform)
+        moving = fixed.vd.apply(expected_transform)
 
         initial_transform = initialize_single_slice_rigid_transform(fixed, moving)
-        seeded = moving.fusi.affine.apply(np.linalg.inv(initial_transform))
+        seeded = moving.vd.apply(np.linalg.inv(initial_transform))
 
         assert_allclose(initial_transform, expected_transform, atol=1e-10)
-        assert_allclose(seeded.fusi.direction, fixed.fusi.direction, atol=1e-10)
+        assert_allclose(seeded.vd.direction, fixed.vd.direction, atol=1e-10)
         assert_allclose(seeded.coords["k"].values, fixed.coords["k"].values, atol=1e-10)
         assert_allclose(seeded.coords["j"].values, fixed.coords["j"].values, atol=1e-10)
         assert_allclose(seeded.coords["i"].values, fixed.coords["i"].values, atol=1e-10)
@@ -1364,10 +1372,8 @@ class TestInitialization:
         # fixed's plane back onto moving's flipped plane.
         assert_allclose(rotation @ rotation.T, np.eye(3), atol=1e-10)
         assert_allclose(np.linalg.det(rotation), 1.0, atol=1e-10)
-        seeded = moving.fusi.affine.apply(np.linalg.inv(initial_transform))
-        assert_allclose(
-            seeded.fusi.direction[:, 0], fixed.fusi.direction[:, 0], atol=1e-10
-        )
+        seeded = moving.vd.apply(np.linalg.inv(initial_transform))
+        assert_allclose(seeded.vd.direction[:, 0], fixed.vd.direction[:, 0], atol=1e-10)
 
     def test_plane_initializer_requires_single_singleton_dim(self):
         """A single-slice voxel-to-world volume without exactly one singleton spatial axis is rejected."""
@@ -1581,8 +1587,7 @@ class TestInitialization:
         )
         assert diagnostics.status == "completed"
         assert isinstance(bspline_tx, xr.DataArray)
-        assert "affines" in bspline_tx.attrs
-        assert "bspline_initialization" in bspline_tx.attrs["affines"]
+        assert "bspline_initialization" in bspline_tx.attrs
 
     def test_bspline_without_affine_initialization_has_no_pre_affine(
         self, sample_voxeldata_2d_registration
@@ -1597,7 +1602,7 @@ class TestInitialization:
             learning_rate=0.1,
         )
         assert isinstance(bspline_tx, xr.DataArray)
-        affines = bspline_tx.attrs.get("affines", {})
+        affines = bspline_tx.vd.affines
         assert "bspline_initialization" not in affines
 
     def test_center_moments_uses_moments_initializer(
@@ -1903,7 +1908,7 @@ class TestDisplacementField:
         assert field.attrs["type"] == "displacement_field_transform"
         assert field.dims[0] == "component"
         np.testing.assert_array_equal(field.coords["component"].values, ["k", "j", "i"])
-        assert_allclose(field.fusi.direction, np.eye(3))
+        assert_allclose(field.vd.direction, np.eye(3))
         assert field.shape == (3, *sample_voxeldata_2d_registration.shape)
         assert_allclose(field.values, 0.0, atol=1e-6)
 
@@ -1928,8 +1933,8 @@ class TestDisplacementField:
         assert_array_equal(by_reference.coords["component"].values, ["k", "j", "i"])
         assert_allclose(by_reference.values, by_grid.values, atol=1e-6)
         assert_allclose(
-            by_reference.fusi.direction,
-            sample_voxeldata_2d_registration.fusi.direction,
+            by_reference.vd.direction,
+            sample_voxeldata_2d_registration.vd.direction,
         )
         assert_allclose(
             by_reference.coords["j"].values,
@@ -1951,14 +1956,14 @@ class TestDisplacementField:
             ],
             dtype=np.float64,
         )
-        fixed = _make_voxel_to_world_single_slice().fusi.affine.apply(rotation)
+        fixed = _make_voxel_to_world_single_slice().vd.apply(rotation)
         _, bspline_tx, _ = register_volume(fixed, fixed, transform_type="bspline")
 
         field = sample_displacement_field_like(bspline_tx, fixed)
         inverted = invert_displacement_field(field)
 
-        assert_allclose(field.fusi.direction, fixed.fusi.direction)
-        assert_allclose(inverted.fusi.direction, fixed.fusi.direction)
+        assert_allclose(field.vd.direction, fixed.vd.direction)
+        assert_allclose(inverted.vd.direction, fixed.vd.direction)
         assert_allclose(field.values, 0.0, atol=1e-6)
         assert_allclose(inverted.values, 0.0, atol=1e-6)
 
@@ -2193,8 +2198,8 @@ class TestResampleLike:
         self, sample_voxeldata_2d_registration
     ):
         """moving and reference must agree on spatial coordinate units when declared."""
-        moving = sample_voxeldata_2d_registration.fusi.affine.set_units("mm")
-        reference = sample_voxeldata_2d_registration.fusi.affine.set_units("um")
+        moving = sample_voxeldata_2d_registration.vd.set_units("mm")
+        reference = sample_voxeldata_2d_registration.vd.set_units("um")
 
         with pytest.raises(ValueError, match="units"):
             resample_like(moving, reference, np.eye(3))
@@ -2203,14 +2208,14 @@ class TestResampleLike:
         self, sample_voxeldata_2d_registration
     ):
         """DataArray transforms must agree with the reference units when declared."""
-        reference = sample_voxeldata_2d_registration.fusi.affine.set_units("mm")
+        reference = sample_voxeldata_2d_registration.vd.set_units("mm")
         transform = create_voxeldata(
             np.zeros((2, 1, 2, 2), dtype=np.float64),
             dims=("component", "k", "j", "i"),
             extra_coords={"component": np.arange(2)},
             spacing=(1.0, 1.0, 1.0),
             attrs={"type": "displacement_field_transform"},
-        ).fusi.affine.set_units("um")
+        ).vd.set_units("um")
 
         with pytest.raises(ValueError, match="units"):
             resample_like(reference, reference, transform)
@@ -2260,21 +2265,29 @@ class TestResampleLike:
         """resample_like output inherits world-space affines from `reference`."""
         moving = sample_voxeldata_2d_registration.isel(j=slice(16), i=slice(16)).copy()
         reference = sample_voxeldata_2d_registration.copy()
-        moving.attrs["affines"] = {"world_to_lab": np.diag([2.0, 2.0, 1.0])}
-        reference.attrs["affines"] = {"world_to_lab": np.diag([3.0, 3.0, 1.0])}
+        moving.vd.set_voxel_to_world(
+            moving.vd.voxel_to_world,
+            named_affines={"world_to_lab": np.diag([2.0, 2.0, 1.0, 1.0])},
+            inplace=True,
+        )
+        reference.vd.set_voxel_to_world(
+            reference.vd.voxel_to_world,
+            named_affines={"world_to_lab": np.diag([3.0, 3.0, 1.0, 1.0])},
+            inplace=True,
+        )
 
         result = resample_like(moving, reference, np.eye(4))
 
         assert "registration" not in result.attrs
         assert_allclose(
-            result.attrs["affines"]["world_to_lab"],
-            reference.attrs["affines"]["world_to_lab"],
+            result.vd.affines["world_to_lab"],
+            reference.vd.affines["world_to_lab"],
         )
 
     def test_inherits_reference_voxel_to_world_geometry(self):
         """resample_like output inherits reference's grid, not moving's."""
         moving = _make_voxel_to_world_single_slice()
-        reference = moving.fusi.affine.apply(
+        reference = moving.vd.apply(
             np.array(
                 [
                     [1.0, 0.0, 0.0, 100.0],
@@ -2304,7 +2317,7 @@ class TestResampleLike:
         array *positions*. Deriving the output grid straight from that affine silently
         misplaced the resampled content whenever `reference` had been cropped or
         strided from a larger array; the correct grid must come from
-        `reference.fusi.origin`/`.fusi.spacing`, which account for the crop/stride.
+        `reference.vd.origin`/`.vd.spacing`, which account for the crop/stride.
         """
         base = _add_identity_voxel_to_world(
             xr.DataArray(
@@ -2322,10 +2335,10 @@ class TestResampleLike:
         result = resample_like(reference, reference, np.eye(4), interpolation="nearest")
 
         assert_allclose(
-            [result.fusi.origin[name] for name in ("z", "y", "x")], [1.0, 2.0, 1.0]
+            [result.vd.origin[name] for name in ("z", "y", "x")], [1.0, 2.0, 1.0]
         )
         assert_allclose(
-            [result.fusi.spacing[dim] for dim in ("k", "j", "i")], [1.0, 2.0, 3.0]
+            [result.vd.spacing[dim] for dim in ("k", "j", "i")], [1.0, 2.0, 3.0]
         )
         assert_allclose(result.values, reference.values)
 

@@ -1,21 +1,5 @@
-"""ConfUSIus dimension name conventions.
+"""VoxelData dimension conventions shared by ConfUSIus consumers."""
 
-All xarray DataArrays produced by ConfUSIus use a fixed set of dimension names. This
-module defines them as constants so that IO, processing, validation, and UI code can
-reference them without duplicating string literals.
-"""
+from voxeldata import CORE_DIMS, GRID_DIM, TIME_DIM, VOXEL_DIMS, WORLD_DIMS
 
-WORLD_DIMS: tuple[str, ...] = ("z", "y", "x")
-"""World spatial dimension names in ConfUSIus order."""
-
-VOXEL_DIMS: tuple[str, ...] = ("k", "j", "i")
-"""Native voxel-space dimension names in ConfUSIus order."""
-
-POSE_DIM: str = "pose"
-"""Dimension name for discrete probe positions in multi-pose acquisitions."""
-
-TIME_DIM: str = "time"
-"""Default signal (x-axis) dimension name."""
-
-CORE_DIMS: tuple[str, ...] = (TIME_DIM, POSE_DIM, *VOXEL_DIMS)
-"""Canonical ConfUSIus core dimension names."""
+__all__ = ["CORE_DIMS", "GRID_DIM", "TIME_DIM", "VOXEL_DIMS", "WORLD_DIMS"]

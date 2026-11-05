@@ -287,7 +287,7 @@ Label IDs are preserved, but boundaries can change and thin regions can disappea
 
 Prefer drawing in an existing axis-aligned acquisition/scanner frame when available. A
 known transform can be applied afterward to both the image and extracted labels using
-[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] without resampling.
+[`.vd.apply`][voxeldata.accessors.VoxelDataAccessor.apply] without resampling.
 
 ## Static Volume Plots
 
@@ -375,7 +375,7 @@ plotter = angio.fusi.scale.db().fusi.plot.volume(
 ### Slicing Over a Non-Spatial Dimension
 
 `slice_mode` can be a world axis (`z`/`y`/`x`) or any extra non-voxel dim, e.g.
-`time`, `pose`, or a `region` dim such as the one a seed-based connectivity map is
+`time`, `grid`, or a `region` dim such as the one a seed-based connectivity map is
 stacked along (see [below](#statistical-maps) and the [seed-based connectivity
 example](../examples/_built/connectivity/atlas_seed_map.md)). Native voxel dims
 (`k`/`j`/`i`) are not valid slice modes. Each requested coordinate along that dim

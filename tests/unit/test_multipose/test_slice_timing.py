@@ -52,7 +52,8 @@ def _make_consolidated_da(
         time=time_coord,
         spacing=(0.2, 0.3, 0.4),
         origin=(0.0, 0.0, 0.0),
-        attrs={"affines": {"world_to_lab": np.eye(4)}},
+        affines={"world_to_lab": np.eye(4)},
+        attrs={},
         name="scan_data",
     )
     return result.assign_coords(
@@ -124,7 +125,7 @@ class TestCorrectSliceTiming:
         """Raises ValueError if DataArray has neither slice_time nor pose-dependent time."""
         da = _make_consolidated_da(ntime=5, nz=3, ny=2, nx=2).drop_vars("slice_time")
         with pytest.raises(
-            ValueError, match="neither a 'slice_time' coordinate nor a pose-dependent"
+            ValueError, match="neither a 'slice_time' coordinate nor a grid-dependent"
         ):
             correct_slice_timings(da)
 
@@ -192,7 +193,8 @@ class TestCorrectSliceTiming:
             ),
             spacing=(0.2, 0.1, 0.1),
             origin=(0.0, 0.0, 0.0),
-            attrs={"affines": {"world_to_lab": np.eye(4)}},
+            affines={"world_to_lab": np.eye(4)},
+            attrs={},
         ).assign_coords(
             slice_time=xr.DataArray(
                 slice_time_vals,
@@ -261,7 +263,7 @@ class TestCorrectSliceTiming:
         result = correct_slice_timings(da)
 
         base_time_coord = xr.DataArray(
-            da.coords["time"].isel(pose=0).values,
+            da.coords["time"].isel(grid=0).values,
             dims=["time"],
             attrs=dict(da.coords["time"].attrs),
         )
@@ -313,17 +315,15 @@ class TestCorrectSliceTiming:
             base_time_coord, pose_time_vals, timing_attrs
         )
 
-        affines = np.broadcast_to(
-            np.diag([0.1, 0.3, 0.4, 1.0]), (npose, 4, 4)
-        ).copy()
+        affines = np.broadcast_to(np.diag([0.1, 0.3, 0.4, 1.0]), (npose, 4, 4)).copy()
         affines[:, 0, 3] = np.arange(npose)
         da_unconsolidated = create_voxeldata(
             data[:, :, None],
-            dims=("time", "pose", "k", "j", "i"),
+            dims=("time", "grid", "k", "j", "i"),
             time=xr.DataArray(
-                pose_time_vals, dims=["time", "pose"], attrs=timing_attrs
+                pose_time_vals, dims=["time", "grid"], attrs=timing_attrs
             ),
-            pose=np.arange(npose),
+            grid=np.arange(npose),
             voxel_to_world=affines,
         )
 

@@ -913,7 +913,7 @@ def on_apply_transform_finished(
     # result.
     grid_units = payload["output_grid"]["units"]
     if grid_units and grid_units[0] is not None:
-        registered = registered.fusi.affine.set_units(grid_units[0])
+        registered = registered.vd.set_units(grid_units[0])
 
     name = panel._make_unique_layer_name(
         f"{payload['moving_layer_name']} → {payload['target_layer_name']}"

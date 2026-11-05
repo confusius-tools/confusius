@@ -79,7 +79,7 @@ class TestConsolidateTimeCoordinate:
         values = np.stack([np.arange(3.0), np.arange(3.0) + 0.25], axis=1)
         time_coord = xr.DataArray(
             values,
-            dims=["time", "pose"],
+            dims=["time", "grid"],
             attrs={
                 "volume_acquisition_duration": 0.25,
                 "volume_acquisition_reference": "center",
@@ -93,5 +93,5 @@ class TestConsolidateTimeCoordinate:
     def test_rejects_other_dimensions(self):
         with pytest.raises(ValueError, match="dimensions"):
             consolidate_time_coordinate(
-                xr.DataArray(np.zeros((2, 3)), dims=["pose", "time"])
+                xr.DataArray(np.zeros((2, 3)), dims=["channel", "time"])
             )

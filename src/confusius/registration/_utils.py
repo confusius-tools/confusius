@@ -5,7 +5,6 @@ import signal
 import threading
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from copy import deepcopy
 from types import FrameType
 from typing import TYPE_CHECKING, Literal, TypeGuard
 
@@ -67,11 +66,11 @@ def get_defined_spatial_spacing(da: xr.DataArray) -> tuple[list[str], list[float
     da = ensure_voxeldata(
         da,
         require_time=False,
-        allow_pose=False,
+        allow_grid=False,
         allow_extra_dims=False,
     )
     spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
-    spacing_dict = da.fusi.spacing
+    spacing_dict = da.vd.spacing
     undefined_dims = [dim for dim in spatial_dims if spacing_dict.get(dim) is None]
     if undefined_dims:
         _raise_undefined_spatial_spacing_error(undefined_dims)
@@ -120,7 +119,7 @@ def _get_voxel_to_world_slice_normal(data: xr.DataArray) -> np.ndarray:
             "Voxel-to-world plane initialization requires exactly one singleton "
             f"spatial dimension, got sizes {[data.sizes[dim] for dim in voxel_dims]!r}."
         )
-    return np.asarray(data.fusi.direction, dtype=np.float64)[:, singleton_axes[0]]
+    return np.asarray(data.vd.direction, dtype=np.float64)[:, singleton_axes[0]]
 
 
 def initialize_single_slice_rigid_transform(
@@ -154,13 +153,13 @@ def initialize_single_slice_rigid_transform(
     fixed = ensure_voxeldata(
         fixed,
         require_time=False,
-        allow_pose=False,
+        allow_grid=False,
         allow_extra_dims=False,
     )
     moving = ensure_voxeldata(
         moving,
         require_time=False,
-        allow_pose=False,
+        allow_grid=False,
         allow_extra_dims=False,
     )
 
@@ -256,8 +255,8 @@ def _is_python_signal_handler(handler: object) -> TypeGuard[SignalHandler]:
     return callable(handler)
 
 
-def replace_affines_attr(result: xr.DataArray, reference: xr.DataArray) -> None:
-    """Replace `result.attrs["affines"]` with affines from a reference array.
+def replace_named_affines(result: xr.DataArray, reference: xr.DataArray) -> None:
+    """Replace the output index's named frames with those of the reference grid.
 
     Parameters
     ----------
@@ -268,15 +267,13 @@ def replace_affines_attr(result: xr.DataArray, reference: xr.DataArray) -> None:
 
     Notes
     -----
-    If `reference` does not define `attrs["affines"]`, any existing affines on
-    `result` are removed. This is appropriate for resampled outputs, whose affine
-    metadata should match the grid they now live on rather than the source grid they
-    were sampled from.
+    Resampled outputs live in the reference world frame, not the source frame.
     """
-    if "affines" in reference.attrs:
-        result.attrs["affines"] = deepcopy(reference.attrs["affines"])
-    else:
-        result.attrs.pop("affines", None)
+    result.vd.set_voxel_to_world(
+        result.vd.voxel_to_world,
+        named_affines=reference.vd.affines,
+        inplace=True,
+    )
 
 
 @contextmanager
@@ -397,8 +394,8 @@ def voxeldata_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     import SimpleITK as sitk
 
     has_extra = "extra" in da.dims
-    spacing = [float(da.fusi.spacing[dim]) for dim in VOXEL_DIMS]
-    origin_dict = da.fusi.origin
+    spacing = [float(da.vd.spacing[dim]) for dim in VOXEL_DIMS]
+    origin_dict = da.vd.origin
     origin = tuple(origin_dict[d] for d in WORLD_DIMS)
 
     if has_extra:
@@ -413,7 +410,7 @@ def voxeldata_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
 
     image.SetSpacing(tuple(spacing))
     image.SetOrigin(tuple(origin))
-    image.SetDirection(np.asarray(da.fusi.direction, dtype=np.float64).ravel().tolist())
+    image.SetDirection(np.asarray(da.vd.direction, dtype=np.float64).ravel().tolist())
     return image
 
 
