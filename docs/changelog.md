@@ -17,10 +17,11 @@ Current development version for the next ConfUSIus release.
   colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
   light ones), judged from `bg_color`
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
-- Seed-based correlation maps, decomposition maps and GLM contrast maps no longer set
-  `attrs["cmap"]`: [`plot_stat_map`][confusius.plotting.plot_stat_map] picks their
-  colormap, and [`plot_volume`][confusius.plotting.plot_volume] and
-  [`plot_napari`][confusius.plotting.plot_napari] show them in gray unless given one
+- Seed-based correlation maps, decomposition maps, GLM contrast maps and
+  [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity] outputs
+  carry `attrs["cmap"] = "berlin"`, the colormap
+  [`plot_volume`][confusius.plotting.plot_volume] and
+  [`plot_napari`][confusius.plotting.plot_napari] draw them with
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - `plot_napari` and its xarray accessors always return `(viewer, layers)`;
   use `viewer, [layer] = ...` for single-layer results

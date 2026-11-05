@@ -303,14 +303,14 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         -------
         (n_components, ...) xarray.DataArray
             Matrix unstacked to the original spatial dimensions, with
-            `attrs["long_name"]` set.
+            `attrs["long_name"]` and `attrs["cmap"]` set.
         """
         reshaped = unmask(
             matrix,
             self._reconstruction_mask_,
             new_dims=["component"],
             new_dims_coords={"component": component_coord},
-            attrs={"long_name": long_name},
+            attrs={"long_name": long_name, "cmap": "berlin"},
             fill_value=0.0,
         )
         return reshaped

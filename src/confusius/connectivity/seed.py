@@ -149,11 +149,10 @@ class SeedBasedMaps(BaseEstimator):
         [`fit`][confusius.connectivity.SeedBasedMaps.fit]. `region` is the leading
         dimension; the remaining dimensions match the spatial dimensions of the data
         passed to [`fit`][confusius.connectivity.SeedBasedMaps.fit]. If a single region
-        is present the `region` dimension is squeezed out. `attrs["norm"]` is set to
-        `Normalize(vmin=-1, vmax=1)` and `attrs["long_name"]` to `"Pearson r"` so that
-        plotting functions pick up sensible defaults automatically. No colormap is
-        set: [`plot_stat_map`][confusius.plotting.plot_stat_map] picks one suited to
-        the background.
+        is present the `region` dimension is squeezed out. `attrs["cmap"]` is set to
+        `"berlin"`, `attrs["norm"]` to `Normalize(vmin=-1, vmax=1)`, and
+        `attrs["long_name"]` to `"Pearson r"` so that plotting functions pick up
+        sensible defaults automatically.
 
     Examples
     --------
@@ -343,11 +342,11 @@ class SeedBasedMaps(BaseEstimator):
             maps = maps.isel(region=0, drop=False)
 
         # Annotate with display defaults so plotting functions pick them up without
-        # requiring the caller to pass vmin/vmax explicitly. No colormap: the right
-        # diverging one depends on the background, which only the plot knows.
+        # requiring the caller to pass cmap/vmin/vmax explicitly.
         maps.attrs.update(
             {
                 "long_name": "Pearson r",
+                "cmap": "berlin",
                 "norm": Normalize(vmin=-1.0, vmax=1.0),
             }
         )
