@@ -16,6 +16,12 @@ Current development version for the next ConfUSIus release.
   following BrainGlobe's move to Python 3.12-3.14 and
   [SPEC 0](https://scientific-python.org/specs/spec-0000/)
   ([#377](https://github.com/confusius-tools/confusius/issues/377)).
+  
+### :sparkles: Enhancements
+
+- Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
+  them along `pose` in numeric chunk order while preserving geometry and timing
+  ([#564](https://github.com/confusius-tools/confusius/pull/564)).
 
 ### :bug: Fixes
 
