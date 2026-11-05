@@ -57,9 +57,9 @@ def test_extract_wrappers_forward_calls(
         calls["unmask"] = (data, mask, fill_value)
         return expected
 
-    monkeypatch.setattr("confusius.extract.labels.extract_with_labels", _with_labels)
-    monkeypatch.setattr("confusius.extract.mask.extract_with_mask", _with_mask)
-    monkeypatch.setattr("confusius.extract.reconstruction.unmask", _unmask)
+    monkeypatch.setattr("confusius.extract.extract_with_labels", _with_labels)
+    monkeypatch.setattr("confusius.extract.extract_with_mask", _with_mask)
+    monkeypatch.setattr("confusius.extract.unmask", _unmask)
 
     assert (
         sample_voxeldata_3dt.fusi.extract.with_labels(

@@ -148,7 +148,10 @@ def create_voxeldata(
     extra_coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
         Coordinates for non-core dimensions only.
     time : numpy.typing.ArrayLike or xarray.DataArray, optional
-        Floating coordinates for the `time` dimension. A 2D `(n_time, npose)` array or
+        Floating coordinates for the `time` dimension. A named DataArray may depend
+        on `time` and any additional nonspatial dimensions, independently of
+        geometry. Select all timestamp dependencies before using a shared-time
+        analysis. A 2D `(n_time, npose)` array or
         DataArray gives each pose its own real timestamps directly (poses acquired
         sequentially rather than simultaneously) rather than a single shared `time`
         axis: there is no single answer for "the" time of a `(grid, k, j, i)` voxel
@@ -285,9 +288,11 @@ def create_voxeldata(
         )
         if duration is None:
             values = np.asarray(coord.values)
-            if coord.ndim == 2:
+            if coord.ndim > 1:
                 values = np.asarray(coord.transpose(TIME_DIM, ...).values)
-                duration = _default_per_pose_time_duration(values, dt)
+                duration = _default_per_pose_time_duration(
+                    values.reshape(coord.sizes[TIME_DIM], -1), dt
+                )
             else:
                 duration = _regular_step(values) or dt
                 if duration is None:

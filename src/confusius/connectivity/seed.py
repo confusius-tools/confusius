@@ -9,8 +9,7 @@ import xarray as xr
 from matplotlib.colors import Normalize
 from sklearn.base import BaseEstimator
 
-from confusius.extract import extract_with_mask, unmask
-from confusius.extract.labels import extract_with_labels
+from confusius.extract import extract_with_labels, extract_with_mask, unmask
 from confusius.signal import clean
 from confusius.validation import (
     ensure_voxeldata,

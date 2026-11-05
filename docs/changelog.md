@@ -21,6 +21,11 @@ Current development version for the next ConfUSIus release.
   in any order; optional canonicalization uses `(...extra, grid, time, k, j, i)`.
 - Canonicalize scalar-selected spatial dimensions before `.vd` geometry mutators,
   for example `ensure_voxeldata(data.isel(k=0)).vd.apply(matrix)`.
+- Import extraction functions from `confusius.extract`, not its former `mask`,
+  `labels`, or `reconstruction` submodules. These are direct VoxelData re-exports:
+  extraction preserves timing metadata but no longer adds acquisition defaults
+  or validates fUSI timing semantics. Use ConfUSIus `ensure_voxeldata` explicitly
+  when acquisition-aware canonicalization/validation is required.
 
 - Python 3.11 is no longer supported; ConfUSIus now requires Python 3.12 or newer,
   following BrainGlobe's move to Python 3.12-3.14 and
@@ -54,10 +59,13 @@ Current development version for the next ConfUSIus release.
 
 ### :wrench: Maintenance
 
-- Delegate generic mask/label validation, extraction, and reconstruction to
-  VoxelData, retaining ConfUSIus acquisition defaults/validation and existing
-  `.fusi.extract` methods. VoxelData provides extraction out of the box through
-  Xarray, with optional flox acceleration and Dask laziness
+- Re-export extraction and reconstruction directly from VoxelData, retaining
+  `.fusi.extract` methods but not acquisition-defaulting extraction wrappers.
+  Acquisition-aware mask/label validators, constructors, and loaders remain in
+  ConfUSIus. Named timestamps support any number of nonspatial dependencies;
+  `slice_time` stays consumer-defined in VoxelData and interpreted by ConfUSIus.
+  VoxelData provides extraction out of the box through Xarray, with independent
+  `accel` (flox), `lazy` (Dask), and combined `all` extras
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 - [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] now uses
   BrainGlobe's public lazy-loading API instead of reimplementing its Zarr internals,

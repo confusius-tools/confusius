@@ -21,12 +21,16 @@ module-level affine imports are re-exports; `.vd` is the geometry accessor, whil
 `.fusi` is the fUSI analysis layer. There is no `.fusi.affine` accessor.
 
 Generic mask/label validation, extraction, and reconstruction also belong to
-VoxelData (`voxeldata.masks`, `voxeldata.extract`). Keep `confusius.extract` and
-`confusius.validation.mask` as thin acquisition-aware adapters; do not duplicate
-alignment, stacking, reductions, or reconstruction. The public `.fusi.extract`
-methods remain. Extraction works without optional flox/Dask in VoxelData; ConfUSIus
-retains its existing analysis dependencies. The draft integration pins VoxelData
-to immutable Git revision `c859738` until a new version is released.
+VoxelData (`voxeldata.masks`, `voxeldata.extract`). `confusius.extract` directly
+re-exports VoxelData functions; do not restore per-function wrapper modules.
+`confusius.validation.mask` retains explicit acquisition-aware adapters. Do not
+reimplement alignment, stacking, reductions, or reconstruction. `.fusi.extract`
+methods remain but do not default/validate acquisition metadata; constructors,
+loaders, and explicit validation own that policy. Primary timestamps may depend
+on `time` plus arbitrary nonspatial axes. Auxiliary `slice_time` semantics and
+correction remain in ConfUSIus. Extraction works without optional flox/Dask in VoxelData; ConfUSIus
+retains its existing analysis dependencies. The draft integration targets the
+published `voxeldata>=0.0.3` release, without a Git dependency.
 
 VoxelData includes fUSI recordings, brain atlas volumes, PCA/decomposition component maps, dense displacement fields, B-spline control-point grids, and anything
 else gridded in space. A VoxelData array is **always**:

@@ -81,6 +81,58 @@ def test_zarr_roundtrip_preserves_named_geometry_axes(
     )
 
 
+@pytest.mark.parametrize("duration", [None, 0.05])
+def test_named_multiaxis_timestamps_roundtrip(
+    tmp_path, sample_named_geometry_voxeldata, duration
+):
+    """Timestamp dependencies remain separate from geometry and slice timing."""
+    source = sample_named_geometry_voxeldata
+    values = (
+        np.arange(3.0)[:, None, None]
+        + np.array([0.0, 0.1])[None, :, None]
+        + np.array([0.0, 0.3])[None, None, :]
+    )
+    timestamps = xr.DataArray(
+        values,
+        dims=("time", "view", "channel"),
+        attrs={"units": "s", "volume_acquisition_reference": "end"},
+    )
+    data = create_voxeldata(
+        source.data,
+        dims=source.dims,
+        time=timestamps.transpose("view", "channel", "time"),
+        extra_coords={"view": source.view, "channel": source.channel},
+        k=source.k,
+        j=source.j,
+        i=source.i,
+        voxel_to_world=source.vd.voxel_to_world,
+        geometry_dims=source.vd.geometry_dims,
+        affines=source.vd.affines,
+        volume_acquisition_duration=duration,
+    )
+    assert data.vd.geometry_dims == ("time", "view")
+    np.testing.assert_array_equal(
+        data.time.transpose("time", "view", "channel"), values
+    )
+    assert data.time.attrs["volume_acquisition_reference"] == "end"
+    assert data.time.attrs["volume_acquisition_duration"] == pytest.approx(
+        0.1 if duration is None else duration
+    )
+    validate_voxeldata(data)
+    path = tmp_path / "multiaxis-time.zarr"
+    io.save(data, path)
+    restored = io.load(path)
+    np.testing.assert_array_equal(
+        restored.time.transpose("time", "view", "channel"), values
+    )
+    assert restored.time.attrs == data.time.attrs
+    assert restored.vd.geometry_dims == data.vd.geometry_dims
+    np.testing.assert_array_equal(
+        restored.vd.get_affine("lab"), data.vd.get_affine("lab")
+    )
+    np.testing.assert_array_equal(restored.transpose(*data.dims).values, data.values)
+
+
 def test_zarr_shared_grid_affine_does_not_infer_dependency(tmp_path):
     """The empty dependency list must be distinguished from absent legacy metadata."""
     data = create_voxeldata(
