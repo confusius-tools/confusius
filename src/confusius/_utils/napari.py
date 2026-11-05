@@ -171,7 +171,8 @@ def _build_napari_layer_data(
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData array to display.
+        VoxelData array to display, without a `pose` dimension. It must already be
+        canonicalized and validated, as `build_napari_layer_data` does.
     name : str, optional
         Layer name. If not provided, `data.name` is used.
     layer_type : {"image", "labels", "auto"}, default: "auto"
@@ -204,8 +205,7 @@ def _build_napari_layer_data(
     Raises
     ------
     ValueError
-        If `layer_type` is not one of the supported values, or if `data` is not a
-        VoxelData array.
+        If `layer_type` is not one of the supported values.
 
     Warns
     -----
@@ -218,7 +218,6 @@ def _build_napari_layer_data(
         resample_to_axis_aligned_world_grid,
         sort_coords_for_plot,
     )
-    from confusius.validation import ensure_voxeldata
 
     resolved_layer_type = layer_type
     if resolved_layer_type == "auto":
@@ -227,7 +226,7 @@ def _build_napari_layer_data(
         raise ValueError(
             f"Unknown layer_type: {layer_type!r}. Expected 'image', 'labels' or 'auto'."
         )
-    source_data = ensure_voxeldata(data)
+    source_data = data
 
     # Resampling an oblique input onto an axis-aligned world grid keeps the
     # voxel-to-world index (see resample_to_axis_aligned_world_grid); already
@@ -322,6 +321,14 @@ def build_napari_layer_data(
     -------
     list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]
         Napari layer payloads, keyword arguments, and resolved layer types.
+
+    Raises
+    ------
+    TypeError
+        If `data` is not an `xarray.DataArray`.
+    ValueError
+        If `data` is not a VoxelData array, or if `layer_type` is not one of the
+        supported values.
     """
     from confusius.validation import ensure_voxeldata
 
