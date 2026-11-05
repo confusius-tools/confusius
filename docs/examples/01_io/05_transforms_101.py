@@ -87,7 +87,7 @@ _ = plotter.axes.ravel()[3].plot(
 
 
 # %% tags=["collapse: Code for `plot_plane_in_3d` helper"]
-def plot_plane_in_3d(before, after, center, axis):
+def plot_plane_in_3d(before, after, center, axis=None):
     """Draw a plane before (red) and after (cyan) a move, inside the template box."""
     box = template.fusi.affine.bounding_box
     fig = plt.figure(figsize=(7, 4.5), facecolor=bg_color)
@@ -130,19 +130,21 @@ def plot_plane_in_3d(before, after, center, axis):
             )
         )
 
-    # Arrow from the fixed point along the rotation axis, in its positive direction, up
-    # to the edge of the template box.
     center = np.asarray(center, dtype=float)[[0, 2, 1]]
-    end = center.copy()
-    end["zxy".index(axis)] = box.sel(component=axis, bound="max").item()
-    ax.quiver(
-        *center,
-        *(end - center),
-        color="yellow",
-        linewidth=2.5,
-        arrow_length_ratio=0.25,
-        label=f"rotation axis (+{axis})",
-    )
+    # Arrow from the fixed point along the rotation axis, in its positive direction, up
+    # to the edge of the template box. Rotations about several axes have no single axis
+    # to draw.
+    if axis is not None:
+        end = center.copy()
+        end["zxy".index(axis)] = box.sel(component=axis, bound="max").item()
+        ax.quiver(
+            *center,
+            *(end - center),
+            color="yellow",
+            linewidth=2.5,
+            arrow_length_ratio=0.25,
+            label=f"rotation axis (+{axis})",
+        )
     ax.plot(*center, "yo", markersize=8, label="fixed point")
 
     # Same orientation as the composite panels: x to the right, y downward.
@@ -240,6 +242,37 @@ _ = plotter.axes.ravel()[0].add_patch(
         (x_min, z_min), x_max - x_min, z_max - z_min, fill=False, edgecolor="yellow"
     )
 )
+
+# %% [markdown]
+# ## Rotate multiple axes about a given point
+#
+# `rotate` also takes several axis names, with one angle per name. The rotations apply
+# one after the other, from left to right, about the fixed world axes. Here the plane
+# turns -10 degrees about `z`, then 20 degrees about `y`, then 30 degrees about `x`. A
+# different order gives a different result.
+#
+# `center` can also be any `(z, y, x)` world point. Here that point is on the plane, 2.5
+# mm above and 4.5 mm to the right of its center in the panels. The yellow dot marks it.
+# Most of the rotated plane now lies outside the six panels, which cover only 0.6 mm
+# along `z`, so each panel shows only a thin band.
+
+# %% tags=["thumbnail"]
+pivot = plane.fusi.affine.geometry_center + np.array((0, -2.5, 4.5))
+
+rotated_about_point = plane.fusi.rotate((-10, 20, 30), "zyx", center=pivot)
+
+plotter = template.fusi.plot.composite(rotated_about_point, **panel_kwargs)
+_ = plotter.axes.ravel()[3].plot(
+    pivot.sel(component="x"), pivot.sel(component="y"), "yo", markersize=15
+)
+
+# %% [markdown]
+# Harder to directly understand what is going on in the composite plot, in the 3D view,
+# the fixed point stays in place and the rotated plane still passes through it. All
+# three rotation axes go through this point.
+
+# %%
+_ = plot_plane_in_3d(plane, rotated_about_point, center=pivot)
 
 # %% [markdown]
 # ## Translate
