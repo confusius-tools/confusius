@@ -18,8 +18,17 @@ concern — feel free to make breaking API changes when they improve the design.
 spatially referenced voxel data. ConfUSIus depends on the published package and
 must not duplicate its geometry implementation. Internal dimension/geometry and
 module-level affine imports are re-exports; `.vd` is the geometry accessor, while
-`.fusi` is the fUSI analysis layer. There is no `.fusi.affine` accessor. This includes fUSI recordings, brain atlas volumes, PCA/decomposition
-component maps, dense displacement fields, B-spline control-point grids, and anything
+`.fusi` is the fUSI analysis layer. There is no `.fusi.affine` accessor.
+
+Generic mask/label validation, extraction, and reconstruction also belong to
+VoxelData (`voxeldata.masks`, `voxeldata.extract`). Keep `confusius.extract` and
+`confusius.validation.mask` as thin acquisition-aware adapters; do not duplicate
+alignment, stacking, reductions, or reconstruction. The public `.fusi.extract`
+methods remain. Extraction works without optional flox/Dask in VoxelData; ConfUSIus
+retains its existing analysis dependencies. The draft integration pins VoxelData
+to immutable Git revision `c859738` until a new version is released.
+
+VoxelData includes fUSI recordings, brain atlas volumes, PCA/decomposition component maps, dense displacement fields, B-spline control-point grids, and anything
 else gridded in space. A VoxelData array is **always**:
 
 - Dims `(*nonspatial_dims, k, j, i)` — `time`/`grid` are optional and all leading

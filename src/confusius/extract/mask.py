@@ -1,98 +1,40 @@
-"""Extraction of signals using boolean masks."""
+"""Mask extraction with ConfUSIus acquisition validation."""
 
 import xarray as xr
+from voxeldata.extract import extract_with_mask as extract_generic_mask
 
-from confusius.validation import ensure_mask, ensure_voxeldata
+from confusius.validation import ensure_voxeldata
 
 
 def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
-    """Extract signals from a VoxelData array using a binary mask.
+    """Extract voxel signals using VoxelData's spatial-mask implementation.
 
-    This function flattens `mask`'s native voxel dimensions (`k`/`j`/`i`) into a
-    single `space` dimension, while preserving all other dimensions of `data` (e.g.,
-    `time`, `grid`).
+    ConfUSIus canonicalizes inputs and applies acquisition defaults/validation
+    before delegating geometry, alignment, and sample selection to VoxelData.
 
     Parameters
     ----------
     data : xarray.DataArray
-        VoxelData array with native voxel dims `k`/`j`/`i` and a `VoxelToWorldIndex`,
-        plus any number of non-spatial dimensions (e.g., `time`, `grid`). See
-        [`ensure_voxeldata`][confusius.validation.ensure_voxeldata].
+        VoxelData array with arbitrary nonspatial dimensions.
     mask : xarray.DataArray
-        Mask defining which voxels to extract, sharing `data`'s voxel grid. Must have
-        boolean dtype, or binary numeric dtype (0 = background, at most one non-zero
-        value = foreground). The latter format is produced by
-        [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and also covers masks
-        written by tools without a boolean dtype (e.g. FSL/NiBabel NIfTI masks with
-        values in `{0, 1}` or `{0.0, 1.0}`).
+        VoxelData mask on the same physical voxel grid, optionally including
+        extra feature axes. All mask dimensions are flattened into `space`.
+        Boolean or finite binary numeric values are accepted. A shared mask
+        requires identical geometry across dependencies absent from the mask.
 
     Returns
     -------
     xarray.DataArray
-        Array with `k`/`j`/`i` flattened into a `space` dimension. All non-spatial
-        dimensions are preserved. The `space` dimension has a MultiIndex storing
-        spatial coordinates.
-
-        - `(time, k, j, i)` → `(time, space)`
-        - `(time, grid, k, j, i)` → `(time, grid, space)`
-        - `(k, j, i)` → `(space,)`
-
-        For simple round-trip reconstruction, use `.unstack("space")` which
-        re-creates the original DataArray using the smallest bounding box containing the
-        masked voxels. For full mask shape reconstruction, use
-        [`confusius.extract.unmask`][confusius.extract.unmask].
+        Signals with nonspatial dimensions followed by `space`. Its MultiIndex
+        contains selected mask-axis labels. Dask signals remain lazy.
 
     Raises
     ------
-    ValueError
-        If `mask` or `data` isn't a VoxelData array, or if `mask`'s
-        voxel grid doesn't match `data`'s.
     TypeError
-        If `mask` is not boolean dtype (or a binary numeric dtype).
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from confusius.extract import extract_with_mask
-    >>> from confusius.xarray import create_voxeldata
-    >>>
-    >>> # 3D+t data: (time, k, j, i)
-    >>> data = create_voxeldata(
-    ...     np.random.randn(100, 10, 20, 30),
-    ...     dims=("time", "k", "j", "i"),
-    ...     dt=0.5,
-    ...     spacing=(1.0, 1.0, 1.0),
-    ... )
-    >>> mask = create_voxeldata(
-    ...     np.random.rand(10, 20, 30) > 0.5,
-    ...     dims=("k", "j", "i"),
-    ...     spacing=(1.0, 1.0, 1.0),
-    ... )
-    >>> signals = extract_with_mask(data, mask)
-    >>> signals.dims
-    ('time', 'space')
-    >>>
-    >>> # 3D+t data with extra dim: (time, grid, k, j, i)
-    >>> pose_data = create_voxeldata(
-    ...     np.random.randn(100, 5, 10, 20, 30),
-    ...     dims=("time", "grid", "k", "j", "i"),
-    ...     dt=0.5,
-    ...     spacing=(1.0, 1.0, 1.0),
-    ... )
-    >>> pose_signals = extract_with_mask(pose_data, mask)
-    >>> pose_signals.dims
-    ('time', 'grid', 'space')
+        If the mask is not a boolean or binary numeric DataArray.
+    ValueError
+        If geometry, dimensions, alignment, or acquisition metadata are invalid.
     """
     data = ensure_voxeldata(data, allow_extra_dims=True)
-    mask = ensure_mask(mask, data, "mask")
-
-    # ensure_mask() already checked mask and data share the same voxel grid (same
-    # k/j/i coordinates and voxel_to_world affine), so mask.values.ravel() is already
-    # positionally aligned with data.stack(space=spatial_dims) below -- both iterate
-    # spatial_dims (mask's own dim order) the same way.
-    spatial_dims = list(mask.dims)
-    data_flat = data.stack(space=spatial_dims)
-    mask_flat = mask.values.ravel()
-    # Rebuild the space index from the selected voxel coordinates so unstack() uses the
-    # reduced grid implied by the extracted mask.
-    return data_flat.isel(space=mask_flat).set_xindex(spatial_dims)
+    mask = ensure_voxeldata(mask, allow_extra_dims=True)
+    return extract_generic_mask(data, mask)

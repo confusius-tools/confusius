@@ -54,6 +54,11 @@ Current development version for the next ConfUSIus release.
 
 ### :wrench: Maintenance
 
+- Delegate generic mask/label validation, extraction, and reconstruction to
+  VoxelData, retaining ConfUSIus acquisition defaults/validation and existing
+  `.fusi.extract` methods. VoxelData provides extraction out of the box through
+  Xarray, with optional flox acceleration and Dask laziness
+  ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 - [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] now uses
   BrainGlobe's public lazy-loading API instead of reimplementing its Zarr internals,
   so atlas arrays stay lazy without depending on private upstream code
