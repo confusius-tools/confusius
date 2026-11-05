@@ -86,10 +86,11 @@ class VideoPanel(QWidget):
         """Show or hide the video canvas."""
         if self._video_viewer is None:
             return
-        if self._video_viewer.dock.isHidden():
+        if self._video_viewer.qt_viewer.isHidden():
             self._video_viewer.show_viewer()
         else:
             self._video_viewer.hide_viewer()
+        self._update_window_buttons()
 
     def _toggle_layer_list(self) -> None:
         """Show or hide the video layer list."""
@@ -104,7 +105,7 @@ class VideoPanel(QWidget):
         """Update the window toggles for the loaded videos."""
         video_viewer = self._video_viewer
         enabled = video_viewer is not None and bool(self._videos)
-        viewer_hidden = not enabled or video_viewer.dock.isHidden()
+        viewer_hidden = not enabled or video_viewer.qt_viewer.isHidden()
         list_hidden = not enabled or video_viewer.controls_dock.isHidden()
         self._show_viewer_btn.setEnabled(enabled)
         self._show_viewer_btn.setText(
@@ -159,7 +160,10 @@ class VideoPanel(QWidget):
         message : str
             Error message to show.
         """
-        if self._video_viewer is not None and not self._video_viewer.dock.isHidden():
+        if (
+            self._video_viewer is not None
+            and not self._video_viewer.qt_viewer.isHidden()
+        ):
             self._video_viewer.notify(message, NotificationSeverity.ERROR)
         else:
             show_error(message)
@@ -175,7 +179,6 @@ class VideoPanel(QWidget):
         video_viewer = VideoViewer(self._viewer, anchor=self)
         video_viewer.frame_step_spin.setValue(self._frame_step)
         video_viewer.frame_step_spin.valueChanged.connect(self._on_frame_step_changed)
-        video_viewer.dock.visibilityChanged.connect(self._update_window_buttons)
         video_viewer.controls_dock.visibilityChanged.connect(
             self._update_window_buttons
         )

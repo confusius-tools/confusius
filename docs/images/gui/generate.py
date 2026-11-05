@@ -1082,7 +1082,7 @@ try:
     _qt_sleep(100)
 
     # Open the video from the Data I/O panel; it plays in the video viewer
-    # docked beside the main canvas and is listed under napari's layer list.
+    # shown beside the main canvas and is listed under napari's layer list.
     _open_accordion_panel(widget6, "Data I/O")
     video_panel = widget6.findChild(VideoPanel)
     if video_panel is None:

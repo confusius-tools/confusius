@@ -1,6 +1,6 @@
 """Dedicated napari viewer for synchronized video playback.
 
-Videos live in their own `ViewerModel` + `QtViewer` docked in the main window
+Videos live in their own `ViewerModel` + `QtViewer` shown beside the main canvas
 (the pattern from napari's ``multiple_viewer_widget`` gallery example), so they
 never share dims, scale, translate, grid or axis order with the fUSI data. The
 only coupling to the main viewer is time: the main viewer's world time along
@@ -23,13 +23,14 @@ from napari.components import ViewerModel
 from napari.qt import QtViewer, QtViewerButtons, get_stylesheet
 from napari.settings import get_settings
 from napari.utils.notifications import NotificationSeverity
+from napari.utils.theme import get_theme, template
 from qtpy.QtCore import QCoreApplication, QEvent, Qt, QTimer
 from qtpy.QtWidgets import (
-    QWIDGETSIZE_MAX,
     QDockWidget,
     QMenu,
-    QSizePolicy,
     QSpinBox,
+    QSplitter,
+    QSplitterHandle,
     QVBoxLayout,
     QWidget,
 )
@@ -46,6 +47,7 @@ if TYPE_CHECKING:
     from napari._qt.widgets.qt_dims import QtDims
     from napari._qt.widgets.qt_dims_slider import QtPlayButton
     from napari_video.napari_video import VideoReaderNP
+    from qtpy.QtGui import QMouseEvent
 
 
 _IRREGULAR_TIME_WARNING = (
@@ -53,6 +55,25 @@ _IRREGULAR_TIME_WARNING = (
     "video synchronization uses a linear approximation and may drift."
 )
 """Warning shown when video synchronization uses approximate recording times."""
+
+_HANDLE_STYLE = """
+_CanvasSplitter::handle {
+  padding: 2px;
+  border: none;
+  background-color: {{ background }};
+  image: url("theme_{{ id }}:/vertical_separator.svg");
+}
+_CanvasSplitter::handle:hover {
+  background: {{ foreground }};
+}
+"""
+"""napari's `QMainWindow::separator` style, for the handle between the two canvases.
+
+The selector names the splitter's own class: a `QSplitter` one would also match
+each `QtViewer`, which is a `QSplitter` too. The handle's width is set on the
+splitter instead: a `width` here alone makes Qt report a handle width of -1 and lay
+the canvases over the handle.
+"""
 
 
 class _VideoArray:
@@ -131,8 +152,8 @@ class _VideoToast(NapariQtNotification):
 
     napari's toast is at least 400 px wide, wider than a narrow video viewer.
     napari also places it again on each resize of its canvas, which the
-    slide-in animation would undo while the dock of a just-shown video viewer
-    takes its size.
+    slide-in animation would undo while a just-shown video canvas takes its
+    size.
     """
 
     def move_to_bottom_right(self, offset: tuple[int, int] = (8, 8)) -> None:
@@ -153,11 +174,78 @@ class _VideoToast(NapariQtNotification):
         super().move_to_bottom_right(offset)
 
 
-class VideoViewer:
-    """A second napari viewer, docked in the main window, that shows only videos.
+class _CanvasSplitterHandle(QSplitterHandle):
+    """Splitter handle that resizes the canvases at most once per event-loop pass.
 
-    Its layer list and controls live in a separate "video layer list" dock, placed
-    right under napari's own layer list.
+    A stock handle resizes on every mouse move. Resizing a GL canvas rebuilds its
+    framebuffer and repaints it at once, which takes longer than the next mouse
+    move takes to arrive: a drag would then work through a backlog of positions
+    the pointer has already left. Like Qt's dock separators, this handle keeps
+    only the latest move and applies it once the pending events are handled.
+
+    Parameters
+    ----------
+    orientation : qtpy.QtCore.Qt.Orientation
+        Orientation of the splitter.
+    splitter : qtpy.QtWidgets.QSplitter
+        The splitter owning the handle.
+    """
+
+    def __init__(self, orientation: Qt.Orientation, splitter: QSplitter) -> None:
+        super().__init__(orientation, splitter)
+        self._pending_move: QMouseEvent | None = None
+
+    def mouseMoveEvent(self, a0) -> None:
+        """Keep the move for the next event-loop pass instead of resizing now.
+
+        Parameters
+        ----------
+        a0 : qtpy.QtGui.QMouseEvent
+            The Qt mouse move event.
+        """
+        if self._pending_move is None:
+            QTimer.singleShot(0, self._apply_pending_move)
+        # Qt deletes the event once this handler returns.
+        self._pending_move = a0.clone()
+
+    def mouseReleaseEvent(self, a0) -> None:
+        """Apply the last move at once, so the handle ends where it was released.
+
+        Parameters
+        ----------
+        a0 : qtpy.QtGui.QMouseEvent
+            The Qt mouse release event.
+        """
+        self._apply_pending_move()
+        super().mouseReleaseEvent(a0)
+
+    def _apply_pending_move(self) -> None:
+        """Resize the canvases to the latest kept move, if any."""
+        event, self._pending_move = self._pending_move, None
+        if event is not None:
+            super().mouseMoveEvent(event)
+
+
+class _CanvasSplitter(QSplitter):
+    """Splitter between the two canvases, with a `_CanvasSplitterHandle`."""
+
+    def createHandle(self) -> QSplitterHandle:
+        """Create the handle between the canvases.
+
+        Returns
+        -------
+        qtpy.QtWidgets.QSplitterHandle
+            A handle that resizes at most once per event-loop pass.
+        """
+        return _CanvasSplitterHandle(self.orientation(), self)
+
+
+class VideoViewer:
+    """A second napari viewer, beside the main canvas, that shows only videos.
+
+    Its canvas shares the window's central area with the main canvas, behind a
+    splitter handle. Its layer list and controls live in a separate "video layer
+    list" dock, placed right under napari's own layer list.
 
     Parameters
     ----------
@@ -165,10 +253,9 @@ class VideoViewer:
         The main napari viewer whose time axis drives the video.
     anchor : qtpy.QtWidgets.QWidget, optional
         A widget living inside a dock widget of the main window (typically
-        the panel creating this viewer).  The video dock is placed between
-        the main canvas and that dock, and closing that dock closes the video
-        viewer too.  If not provided, or if that dock is floating, the video
-        dock is simply added to the right dock area.
+        the panel creating this viewer).  The video canvas starts as wide as
+        that dock, and closing that dock closes the video viewer too.  If not
+        provided, the video canvas starts at the width of its size hint.
     """
 
     def __init__(self, viewer: napari.Viewer, *, anchor: QWidget | None = None) -> None:
@@ -188,30 +275,40 @@ class VideoViewer:
         # main viewer's grid is never touched.
         self.model.canvas.grid.enabled = True
         self.model.canvas.grid.shape = (1, -1)
-        self.dock = viewer.window.add_dock_widget(
-            self.qt_viewer, name="Video", area="right"
-        )
-        # Floating reparents the GL canvas into an unshared context and breaks
-        # rendering. Keep it docked and control visibility from Data I/O.
-        self.dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
-        _remove_title_bar(self.dock)
-        _hide_on_close(self.dock, self.hide_viewer)
-        # napari 0.9 caps a plugin dock at its initial size hint (explicit max
-        # height on the dock, Maximum policy on its content); lift both so the
-        # video canvas spans the full window height like the main one.
-        for widget in (self.qt_viewer, self.dock):
-            widget.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-            )
-            widget.setMaximumHeight(QWIDGETSIZE_MAX)
-        self._anchor_dock: QDockWidget | None = None
+        # The video canvas shares the central area with the main canvas, split
+        # by a handle. Docks of one dock area share that area's width, so a
+        # video dock next to the panel's dock could not be resized alone: the
+        # separator on its canvas side resized both docks, and the one between
+        # them only traded width from one to the other. Here the handle resizes
+        # the video canvas only, and the panel's separator the panel only.
+        main_qt_viewer = viewer.window._qt_viewer
+        center = main_qt_viewer.parentWidget()
+        # Parented before it takes the main canvas: a GL canvas moved to
+        # another window loses its context.
+        self._splitter = _CanvasSplitter(Qt.Orientation.Horizontal, center)
+        self._splitter.setChildrenCollapsible(False)
+        # With the 2 px padding of `_HANDLE_STYLE`, as wide as napari's dock
+        # separators.
+        self._splitter.setHandleWidth(5)
+        self._splitter.setGeometry(main_qt_viewer.geometry())
+        self._center_layout = center.layout()
+        self._center_layout.replaceWidget(main_qt_viewer, self._splitter)
+        self._splitter.addWidget(main_qt_viewer)
+        self._splitter.addWidget(self.qt_viewer)
+        # Window and dock resizes go to the main canvas: the video canvas
+        # keeps the width the handle gave it.
+        self._splitter.setStretchFactor(0, 1)
+        # Shown now rather than on the layout's next pass, so the main canvas
+        # does not vanish in between.
+        self._splitter.show()
         anchor_dock = anchor
         while anchor_dock is not None and not isinstance(anchor_dock, QDockWidget):
             anchor_dock = anchor_dock.parentWidget()
-        if anchor_dock is not None and anchor_dock is not self.dock:
-            self._place_left_of(anchor_dock)
+        if anchor_dock is not None:
+            width = anchor_dock.width()
+            self._splitter.setSizes([self._splitter.width() - width, width])
             # The anchor's close button deletes its dock (napari's
-            # `remove_dock_widget`); the video dock would then outlive the
+            # `remove_dock_widget`); the video canvas would then outlive the
             # controls that drive it, with no close button of its own.
             anchor_dock.destroyed.connect(self._on_anchor_destroyed)
 
@@ -327,28 +424,6 @@ class VideoViewer:
         viewer.dims.events.ndim.connect(self._wire_play_buttons)
         self.model.dims.events.ndim.connect(self._wire_play_buttons)
 
-    def _place_left_of(self, dock: QDockWidget) -> None:
-        """Move the video dock between the main canvas and `dock`.
-
-        Parameters
-        ----------
-        dock : qtpy.QtWidgets.QDockWidget
-            The dock to sit next to.
-        """
-        window = find_main_window(self.dock)
-        if window is None or dock.isFloating():
-            return
-        # `splitDockWidget` puts the second dock after the first, so the video
-        # dock is added first and the panel's dock re-inserted to its right.
-        self._anchor_dock = dock
-        width = dock.width()
-        window.removeDockWidget(dock)
-        window.splitDockWidget(self.dock, dock, Qt.Orientation.Horizontal)
-        dock.show()
-        # The split halves the panel's width: give the video that width and
-        # the panel its own back, so the canvas is what shrinks.
-        window.resizeDocks([self.dock, dock], [width, width], Qt.Orientation.Horizontal)
-
     def _place_under_layer_list(self) -> None:
         """Dock the video layer list below napari's main layer list."""
         if not hasattr(self, "controls_dock") or self.controls_dock.isHidden():
@@ -428,8 +503,8 @@ class VideoViewer:
         self._update_time_text()
         if len(self.model.layers) == 1:
             self._warn_if_irregular_time()
-        # The dock is laid out on the next event-loop pass; only then does
-        # the canvas have its real size, so fitting the view must wait.
+        # The canvas is laid out on the next event-loop pass; only then does
+        # it have its real size, so fitting the view must wait.
         QTimer.singleShot(0, self._reset_view)
         return layer
 
@@ -556,6 +631,9 @@ class VideoViewer:
         """Follow the main viewer's theme."""
         self.model.theme = self._main.theme
         self.controls.setStyleSheet(get_stylesheet(self._main.theme))
+        self._splitter.setStyleSheet(
+            template(_HANDLE_STYLE, **get_theme(self._main.theme).to_rgb_dict())
+        )
 
     def notify(
         self, message: str, severity: NotificationSeverity = NotificationSeverity.INFO
@@ -678,15 +756,15 @@ class VideoViewer:
     def _sync_from_main(self, event=None) -> None:
         """Move the video slider to the main viewer's current world time.
 
-        A closed video dock skips this, so scrubbing does not decode frames nobody
-        sees; `show_viewer` catches up when the dock reopens.
+        A hidden video canvas skips this, so scrubbing does not decode frames
+        nobody sees; `show_viewer` catches up when the canvas is shown again.
         """
         time_idx = find_time_dim_index(self._main)
         if (
             self._syncing
             or time_idx is None
             or not self.model.layers
-            or self.dock.isHidden()
+            or self.qt_viewer.isHidden()
         ):
             return
         self._syncing = True
@@ -733,7 +811,7 @@ class VideoViewer:
     # ------------------------------------------------------------------
 
     def hide(self) -> None:
-        """Hide the docks, giving the canvas dock's width back to the main canvas.
+        """Hide the canvas and the layer list; the main canvas takes the freed width.
 
         The viewer is kept alive rather than closed: creating another GL
         canvas in the window after one existed crashes the process on some
@@ -744,33 +822,19 @@ class VideoViewer:
         self.controls_dock.hide()
 
     def hide_viewer(self) -> None:
-        """Stop video playback and hide the canvas dock, widening the main canvas."""
+        """Stop video playback and hide the canvas, widening the main canvas."""
         self._dismiss_toasts()
         self.qt_viewer.dims.stop()
-        anchor = self._anchor_dock
-        anchor_width = anchor.width() if anchor is not None else 0
-        window = find_main_window(self.dock)
-        self.dock.hide()
-        if anchor is not None and window is not None:
-            window.resizeDocks([anchor], [anchor_width], Qt.Orientation.Horizontal)
+        self.qt_viewer.hide()
 
     def show(self) -> None:
-        """Show the docks again, sized as on first opening."""
+        """Show the canvas and the layer list again."""
         self.show_viewer()
         self.controls_dock.show()
 
     def show_viewer(self) -> None:
-        """Show the canvas dock, sized as on first opening, at the main viewer's time."""
-        anchor = self._anchor_dock
-        anchor_width = anchor.width() if anchor is not None else 0
-        window = find_main_window(self.dock)
-        self.dock.show()
-        if anchor is not None and window is not None:
-            window.resizeDocks(
-                [self.dock, anchor],
-                [anchor_width, anchor_width],
-                Qt.Orientation.Horizontal,
-            )
+        """Show the canvas again, at its last width and the main viewer's time."""
+        self.qt_viewer.show()
         self._sync_from_main()
 
     def show_layer_list(self) -> None:
@@ -778,24 +842,22 @@ class VideoViewer:
         self.controls_dock.show()
 
     def _on_anchor_destroyed(self) -> None:
-        """Close the video viewer once the dock it was placed next to is gone."""
-        # The anchor dock is mid-destruction: no resize may touch it.
-        self._anchor_dock = None
+        """Close the video viewer once the dock of its panel is gone."""
         # Closing the whole window destroys the anchor dock too, and the video
-        # dock along with it; one event-loop pass later, only a lone anchor
-        # removal leaves the video dock in a window to close.
+        # canvas along with it; one event-loop pass later, only a lone anchor
+        # removal leaves the video canvas in a window to close.
         # ponytail: a panel opened again builds a second video viewer, whose GL
         # canvas can crash the GL stacks `hide` describes; keeping one viewer
         # per main window, outside the panel, would avoid it.
-        QTimer.singleShot(0, self._close_if_docked)
+        QTimer.singleShot(0, self._close_if_in_window)
 
-    def _close_if_docked(self) -> None:
+    def _close_if_in_window(self) -> None:
         """Close the video viewer, unless it or its window is already gone."""
-        if hasattr(self, "model") and find_main_window(self.dock) is not None:
+        if hasattr(self, "model") and find_main_window(self.qt_viewer) is not None:
             self.close()
 
     def close(self) -> None:
-        """Disconnect from the main viewer and remove the docks."""
+        """Disconnect from the main viewer and remove the canvas and the dock."""
         self._dismiss_toasts()
         object.__delattr__(self._main, "reset_view")
         self._main.dims.events.point.disconnect(self._sync_from_main)
@@ -807,15 +869,11 @@ class VideoViewer:
         for qt_dims in (self._main_dims, self.qt_viewer.dims):
             for slider in qt_dims.slider_widgets:
                 del slider.play_button._on_click
-        anchor = self._anchor_dock
-        anchor_width = anchor.width() if anchor is not None else 0
-        window = find_main_window(self.dock)
         self._main.window.remove_dock_widget(self.controls_dock)
-        self._main.window.remove_dock_widget(self.dock)
-        if anchor is not None and window is not None:
-            # Qt hands the removed dock's space to the panel beside it; give
-            # it back to the canvas by restoring the panel's width.
-            window.resizeDocks([anchor], [anchor_width], Qt.Orientation.Horizontal)
+        # The main canvas takes the central area back for itself.
+        self._center_layout.replaceWidget(self._splitter, self._main.window._qt_viewer)
+        self.qt_viewer.setParent(None)
+        self._splitter.deleteLater()
         self.qt_viewer.close()
         # Safe to delete: napari's action manager drops its tooltip hooks on
         # the buttons' `destroyed` signal.  Unparenting pulls the controls
@@ -826,46 +884,8 @@ class VideoViewer:
             self.controls.deleteLater()
         # The model's event callbacks hold bound methods of the QtViewer, so
         # dropping both references is what lets the QtViewer be collected.
-        del self.qt_viewer, self.model, self.dock, self.controls, self.controls_dock
-
-
-class _EmptyTitleBar(QWidget):
-    """Zero-height dock title bar with no buttons or drag handle.
-
-    Parameters
-    ----------
-    parent : qtpy.QtWidgets.QWidget
-        The dock widget owning the title bar.
-    """
-
-    def __init__(self, parent: QWidget) -> None:
-        super().__init__(parent)
-        self.setFixedHeight(0)
-
-
-def _remove_title_bar(dock: QDockWidget) -> None:
-    """Strip the dock's title bar and keep the GL canvas docked.
-
-    napari rebuilds its custom title bar regardless of the dock's features,
-    so disabling `DockWidgetFloatable` alone does not prevent detaching.
-
-    Parameters
-    ----------
-    dock : qtpy.QtWidgets.QDockWidget
-        Dock whose title bar should be removed.
-    """
-
-    def remove(*_args) -> None:
-        """Restore the empty title bar and re-dock a floating dock."""
-        if not isinstance(dock.titleBarWidget(), _EmptyTitleBar):
-            dock.setTitleBarWidget(_EmptyTitleBar(dock))
-        if dock.isFloating():
-            dock.setFloating(False)
-
-    remove()
-    # napari rebuilds its custom title bar on both events.
-    dock.dockLocationChanged.connect(remove)
-    dock.topLevelChanged.connect(remove)
+        del self.qt_viewer, self.model, self._splitter, self._center_layout
+        del self.controls, self.controls_dock
 
 
 def _hide_on_close(dock: QDockWidget, hide: Callable[[], None]) -> None:

@@ -14,7 +14,8 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from qtpy.QtWidgets import QDockWidget, QWidget
+from napari.qt import QtViewer
+from qtpy.QtWidgets import QDockWidget, QSplitter, QStyle, QWidget
 
 import confusius._napari._video._video_panel as panel_module
 from confusius._napari._data._load_panel import DataPanel
@@ -149,10 +150,16 @@ def _delete_video(panel, name: str) -> None:
     video_viewer.layer_buttons.deleteButton.click()
 
 
-def test_add_video_opens_docks_and_leaves_main_viewer_alone(viewer, panel, add_video):
+def test_add_video_opens_video_viewer_and_leaves_main_viewer_alone(
+    viewer, panel, add_video
+):
     entry = add_video(_FakeVideo(n_frames=10, rgb=True))
     video_viewer = panel._video_viewer
-    assert viewer.window.dock_widgets["Video"] is video_viewer.qt_viewer
+    # The video canvas sits beside the main canvas, not in a dock.
+    central = viewer.window._qt_window.centralWidget()
+    assert central.isAncestorOf(video_viewer.qt_viewer)
+    assert central.isAncestorOf(viewer.window._qt_viewer)
+    assert "Video" not in viewer.window.dock_widgets
     assert viewer.window.dock_widgets["video layer list"] is video_viewer.controls
     assert entry.layer.data.shape == (10, 48, 64, 3)
     assert entry.layer.rgb
@@ -162,25 +169,11 @@ def test_add_video_opens_docks_and_leaves_main_viewer_alone(viewer, panel, add_v
     assert panel.isAncestorOf(video_viewer.controls) is False
 
 
-def test_video_canvas_has_no_title_bar_and_cannot_float(viewer, panel, add_video):
+def test_video_layer_list_dock_can_float(viewer, panel, add_video):
     add_video(_FakeVideo(n_frames=2))
-    video_viewer = panel._video_viewer
-    title = video_viewer.dock.titleBarWidget()
-    assert not hasattr(title, "float_button")
-    assert not hasattr(title, "close_button")
-    # The layer list is a normal dock and keeps its float button.
-    assert hasattr(video_viewer.controls_dock.titleBarWidget(), "float_button")
-
-    floatable = QDockWidget.DockWidgetFeature.DockWidgetFloatable
-    assert not video_viewer.dock.features() & floatable
-    assert video_viewer.controls_dock.features() & floatable
-
-    # napari rebuilds its title bar on dock changes; keep it stripped.
-    video_viewer.dock.topLevelChanged.emit(False)
-    title = video_viewer.dock.titleBarWidget()
-    assert title.height() == 0
-    assert not hasattr(title, "float_button")
-    assert not hasattr(title, "close_button")
+    controls_dock = panel._video_viewer.controls_dock
+    assert hasattr(controls_dock.titleBarWidget(), "float_button")
+    assert controls_dock.features() & QDockWidget.DockWidgetFeature.DockWidgetFloatable
 
 
 def test_add_video_does_not_move_main_time(viewer, panel, add_video):
@@ -285,7 +278,7 @@ def test_two_videos_share_video_grid(viewer, panel, add_video):
     assert panel._video_viewer.layer_list.model().rowCount() == 2
 
 
-def test_remove_last_video_closes_dock(viewer, panel, add_video):
+def test_remove_last_video_hides_video_viewer(viewer, panel, add_video):
     assert not panel._show_viewer_btn.isEnabled()
     assert not panel._show_layer_list_btn.isEnabled()
     add_video(_FakeVideo(), "a")
@@ -302,14 +295,14 @@ def test_remove_last_video_closes_dock(viewer, panel, add_video):
     _delete_video(panel, "Video: b")
     # The viewer is kept (opening another GL canvas later can crash) but hidden.
     assert panel._video_viewer is video_viewer
-    assert video_viewer.dock.isHidden()
+    assert video_viewer.qt_viewer.isHidden()
     assert video_viewer.controls_dock.isHidden()
     assert not panel._show_viewer_btn.isEnabled()
     assert not panel._show_layer_list_btn.isEnabled()
 
     add_video(_FakeVideo(), "c")
     assert panel._video_viewer is video_viewer
-    assert not video_viewer.dock.isHidden()
+    assert not video_viewer.qt_viewer.isHidden()
     assert not video_viewer.controls_dock.isHidden()
     assert [layer.name for layer in video_viewer.model.layers] == ["Video: c"]
 
@@ -340,15 +333,13 @@ def test_closed_video_windows_can_be_reopened_from_data_io(viewer, panel, add_vi
     assert not controls_dock.isHidden()
     assert panel._show_layer_list_btn.text() == "Hide video list"
 
-    video_dock = video_viewer.dock
-    assert not hasattr(video_dock.titleBarWidget(), "close_button")
+    video_canvas = video_viewer.qt_viewer
     panel._show_viewer_btn.click()
-    assert video_dock.isHidden()
+    assert video_canvas.isHidden()
     assert panel._show_viewer_btn.text() == "Show video viewer"
     assert panel._show_layer_list_btn.text() == "Hide video list"
-    assert viewer.window.dock_widgets["Video"] is video_viewer.qt_viewer
     panel._show_viewer_btn.click()
-    assert not video_dock.isHidden()
+    assert not video_canvas.isHidden()
     assert panel._show_viewer_btn.text() == "Hide video viewer"
 
 
@@ -782,10 +773,11 @@ def test_overlay_shows_video_time(viewer, panel, add_video):
     assert overlay.text == "11.00 s"
 
 
-def test_video_dock_sits_between_canvas_and_panel_dock(
+def test_video_canvas_sits_between_main_canvas_and_panel_dock(
     make_napari_viewer, sample_voxeldata_3dt, monkeypatch, tmp_path
 ):
-    from qtpy.QtCore import Qt
+    from qtpy.QtCore import QEvent, QPoint, QPointF, Qt
+    from qtpy.QtGui import QMouseEvent
     from qtpy.QtWidgets import QApplication
 
     from confusius._napari._widget import ConfUSIusWidget
@@ -799,20 +791,27 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
     panel = widget.findChild(VideoPanel)
 
     window = panel_dock.parentWidget()
+    central = window.centralWidget()
+    main_canvas = viewer.window._qt_viewer
 
     def relayout() -> None:
         # The window stays hidden, so Qt holds back its resize events and the
         # layout does not follow a resize by itself; on macOS, pending window
         # events can even undo a first resize back to Qt's default 640 x 480.
-        # Flush them, then lay the window out at 1600 x 900 explicitly.
+        # Flush them, then lay the window out at 1600 x 900 explicitly, down to
+        # the splitter that holds the two canvases.
         QApplication.processEvents()
         window.resize(1600, 900)
-        window.layout().invalidate()
-        window.layout().activate()
+        for widget in (window, central):
+            widget.layout().invalidate()
+            widget.layout().activate()
+        splitter = main_canvas.parentWidget()
+        if isinstance(splitter, QSplitter):
+            splitter.refresh()
 
     relayout()
     panel_width = panel_dock.width()
-    layer_dock = viewer.window._qt_viewer.dockLayerList
+    layer_dock = main_canvas.dockLayerList
     layer_width = layer_dock.width()
 
     path = tmp_path / "clip.mp4"
@@ -823,14 +822,16 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
     load_panel._load_btn.click()
     video_viewer = panel._video_viewer
     assert video_viewer is not None
-    video_dock = video_viewer.dock
+    video_canvas = video_viewer.qt_viewer
     controls_dock = video_viewer.controls_dock
+    splitter = video_canvas.parentWidget()
+    assert isinstance(splitter, QSplitter)
+
+    def left_edge(widget: QWidget) -> int:
+        return widget.mapTo(window, widget.rect().topLeft()).x()
 
     relayout()
     try:
-        assert (
-            window.dockWidgetArea(video_dock) == Qt.DockWidgetArea.RightDockWidgetArea
-        )
         assert (
             window.dockWidgetArea(controls_dock) == Qt.DockWidgetArea.LeftDockWidgetArea
         )
@@ -841,13 +842,70 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
         assert controls_dock.width() == layer_dock.width()
         assert layer_dock.width() == pytest.approx(layer_width, abs=4)
         assert not panel_dock.isHidden()
-        assert video_dock.x() < panel_dock.x()
-        assert video_dock.y() == panel_dock.y()
-        # Full window height, not capped at the initial size hint.
-        assert video_dock.height() >= 0.85 * window.height()
+        assert left_edge(main_canvas) < left_edge(video_canvas) < left_edge(panel_dock)
+        assert video_canvas.height() == main_canvas.height()
+        # The handle between the canvases is as wide as napari's dock separators,
+        # and the canvases do not overlap it.
+        handle = splitter.handle(1)
+        assert handle is not None
+        assert handle.width() == window.style().pixelMetric(
+            QStyle.PixelMetric.PM_DockWidgetSeparatorExtent, None, window
+        )
+        assert left_edge(video_canvas) - left_edge(main_canvas) == (
+            main_canvas.width() + handle.width()
+        )
         # The video takes its space from the canvas, not from the panel.
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
-        assert video_dock.width() == pytest.approx(panel_width, abs=4)
+        assert video_canvas.width() == pytest.approx(panel_width, abs=4)
+
+        # Dragging the handle between the canvases resizes the video canvas
+        # only: the main canvas takes the difference, the panel is untouched.
+        main_width, video_width = splitter.sizes()
+        splitter.setSizes([main_width + 60, video_width - 60])
+        relayout()
+        assert video_canvas.width() == video_width - 60
+        assert main_canvas.width() == main_width + 60
+        assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+        # Dragging the panel's separator resizes the panel only: again the main
+        # canvas takes the difference, and the video canvas keeps its width.
+        window.resizeDocks([panel_dock], [panel_width + 40], Qt.Orientation.Horizontal)
+        relayout()
+        assert panel_dock.width() == pytest.approx(panel_width + 40, abs=4)
+        assert video_canvas.width() == video_width - 60
+        assert main_canvas.width() < main_width + 60
+        window.resizeDocks([panel_dock], [panel_width], Qt.Orientation.Horizontal)
+        splitter.setSizes([main_width, video_width])
+        relayout()
+
+        # A fast drag delivers a burst of mouse moves between two event-loop
+        # passes. Resizing both GL canvases on each one would lag behind the
+        # pointer, so the handle resizes them once, at the last position.
+        origin = handle.mapToGlobal(QPoint(2, 10))
+
+        def send_mouse(kind: QEvent.Type, dx: int = 0) -> None:
+            position = origin + QPoint(dx, 0)
+            QApplication.sendEvent(
+                handle,
+                QMouseEvent(
+                    kind,
+                    QPointF(handle.mapFromGlobal(position)),
+                    QPointF(position),
+                    Qt.MouseButton.LeftButton,
+                    Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.NoModifier,
+                ),
+            )
+
+        send_mouse(QEvent.Type.MouseButtonPress)
+        for dx in (20, 40, 60):
+            send_mouse(QEvent.Type.MouseMove, dx)
+        assert splitter.sizes() == [main_width, video_width]
+        relayout()
+        assert splitter.sizes() == [main_width + 60, video_width - 60]
+        # Releasing the button applies the last move at once.
+        send_mouse(QEvent.Type.MouseMove)
+        send_mouse(QEvent.Type.MouseButtonRelease)
+        assert splitter.sizes() == [main_width, video_width]
 
         # A user can widen the shared column and shrink it back again.
         window.resizeDocks([layer_dock], [layer_width + 150], Qt.Orientation.Horizontal)
@@ -858,41 +916,45 @@ def test_video_dock_sits_between_canvas_and_panel_dock(
         assert layer_dock.width() == pytest.approx(layer_width, abs=4)
         assert controls_dock.width() == layer_dock.width()
 
-        # Removing the last video hides the dock and gives its space back to
-        # the canvas, not to the panel; re-adding shows it sized as before.
+        # Removing the last video hides the video canvas and gives its space
+        # back to the main canvas, not to the panel; re-adding shows it sized
+        # as before.
+        canvas_width = main_canvas.width()
         _delete_video(panel, "Video: clip")
         relayout()
-        assert video_dock.isHidden()
+        assert video_canvas.isHidden()
         assert controls_dock.isHidden()
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+        assert main_canvas.width() > canvas_width
         panel.add_video(path)
         relayout()
-        assert not video_dock.isHidden()
+        assert not video_canvas.isHidden()
         assert not controls_dock.isHidden()
-        assert video_dock.x() < panel_dock.x()
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
-        assert video_dock.width() == pytest.approx(panel_width, abs=4)
+        assert video_canvas.width() == pytest.approx(panel_width, abs=4)
+        assert main_canvas.width() == canvas_width
 
-        # The Data I/O toggle also gives the space back to the canvas, and
-        # reopening takes it from the canvas again.
-        canvas = window.centralWidget()
-        canvas_width = canvas.width()
+        # The Data I/O toggle also gives the space back to the main canvas, and
+        # reopening takes it from the main canvas again.
         panel._show_viewer_btn.click()
         relayout()
-        assert video_dock.isHidden()
+        assert video_canvas.isHidden()
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
-        assert canvas.width() > canvas_width
+        assert main_canvas.width() > canvas_width
         panel._show_viewer_btn.click()
         relayout()
-        assert not video_dock.isHidden()
+        assert not video_canvas.isHidden()
         assert panel_dock.width() == pytest.approx(panel_width, abs=4)
-        assert video_dock.width() == pytest.approx(panel_width, abs=4)
-        assert canvas.width() == pytest.approx(canvas_width, abs=4)
+        assert video_canvas.width() == pytest.approx(panel_width, abs=4)
+        assert main_canvas.width() == canvas_width
     finally:
         video_viewer.close()
     relayout()
     assert not panel_dock.isHidden()
     assert panel_dock.width() == pytest.approx(panel_width, abs=4)
+    # The main canvas has the central area to itself again.
+    assert main_canvas.parentWidget() is central
+    assert main_canvas.width() > canvas_width
 
 
 @pytest.mark.parametrize("show_before_load", [False, True])
@@ -951,14 +1013,15 @@ def test_closing_panel_dock_closes_video_viewer(
     path.touch()
     monkeypatch.setattr(panel_module, "VideoReaderNP", lambda p, **kw: _FakeVideo())
     panel.add_video(path)
-    assert "Video" in viewer.window.dock_widgets
+    central = viewer.window._qt_window.centralWidget()
+    assert len(central.findChildren(QtViewer)) == 2
     assert "video layer list" in viewer.window.dock_widgets
     assert "reset_view" in viewer.__dict__
 
     # What the panel dock's close button does.
     viewer.window.remove_dock_widget(panel_dock)
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    qtbot.waitUntil(lambda: "Video" not in viewer.window.dock_widgets)
+    qtbot.waitUntil(lambda: central.findChildren(QtViewer) == [viewer.window._qt_viewer])
     assert "video layer list" not in viewer.window.dock_widgets
     assert "reset_view" not in viewer.__dict__
 
