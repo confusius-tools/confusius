@@ -102,7 +102,8 @@ Coordinates:
     y          (pose, k, j, i) float64 1MB ...
     x          (pose, k, j, i) float64 1MB ...
 Attributes:
-    affines:               {}
+    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
+       ...
     device_serial_number:  ASAO0000
     software_version:      IcoScan v.1.9.0
     iconeus_scan_mode:     4Dscan
@@ -140,7 +141,7 @@ Coordinates:
 Attributes:
     probe_model:                         IcoPrime 4D MultiArray
     iconeus_scan_format:                 v2
-    iconeus_scan_mode:                   4Dscan
+    iconeus_acquisition_mode:            4Dscan
     ...
 ```
 
@@ -211,6 +212,11 @@ Most Xarray operations that don't touch world coordinates or timing work on mult
 arrays exactly as on any other VoxelData array—reductions, arithmetic, `.isel`, mask
 extraction, and so on all treat `pose` as an ordinary dimension.
 
+For [napari visualization](visualization.md#interactive-exploration-with-napari),
+`viewer, layers = pwd.fusi.plot.napari()` opens one layer per pose, each positioned
+using its own affine and named `<data name> [pose <value>]`. The CLI does the same;
+no consolidation is needed.
+
 Operations that resolve *positions* or *timestamps*, however, need a scalar `pose`
 first, per [The Multi-Pose Data Model](#the-multi-pose-data-model) above:
 
@@ -280,7 +286,8 @@ Coordinates:
     y           (k, j, i) float64 1MB ...
     x           (k, j, i) float64 1MB ...
 Attributes:
-    affines:               {}
+    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
+       ...
     device_serial_number:  ASAO0000
     software_version:      IcoScan v.1.9.0
     iconeus_scan_mode:     4Dscan
@@ -290,10 +297,10 @@ Attributes:
     ...
 ```
 
-4 poses × 4 slices = 16 consolidated z positions, spanning −4.95 to 2.93 mm in world
-space. The pose-dependent `time` coordinate is reduced to a single whole-volume `time`
-and a `slice_time` coordinate with dims `(time, k)`: each slice retains the timestamp
-of the pose it came from.
+4 poses × 4 slices = 16 consolidated z positions, spanning −3.85 to 4.02 mm along
+elevation. The pose-dependent `time` coordinate is reduced to a single whole-volume
+`time` and a `slice_time` coordinate with dims `(time, k)`: each slice retains the
+timestamp of the pose it came from.
 
 After consolidation, the per-pose affine stack is reduced to a single `(4, 4)` matrix
 representing the consolidated volume's orientation in world space.

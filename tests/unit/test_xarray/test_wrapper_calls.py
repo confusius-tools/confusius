@@ -416,7 +416,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
 
     def _napari(data, **kwargs):
         calls["napari"] = (data, kwargs)
-        return "viewer", "layer"
+        return "viewer", ["layer"]
 
     def _draw(data, **kwargs):
         calls["draw"] = (data, kwargs)
@@ -451,7 +451,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
     monkeypatch.setattr("confusius.xarray.plotting.plot_composite", _composite)
 
     viewer = object()
-    assert sample_voxeldata_3d.fusi.plot(show_scale_bar=False) == ("viewer", "layer")
+    assert sample_voxeldata_3d.fusi.plot(show_scale_bar=False) == ("viewer", ["layer"])
     assert calls["napari"] == (
         sample_voxeldata_3d,
         {
@@ -472,7 +472,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
         viewer=viewer,
         layer_type="labels",
         opacity=0.4,
-    ) == ("viewer", "layer")
+    ) == ("viewer", ["layer"])
     assert calls["napari"] == (
         sample_voxeldata_3d,
         {

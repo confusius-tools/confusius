@@ -1,18 +1,22 @@
 """Napari layer-construction helpers shared by the CLI, GUI panels, and file readers."""
 
+import warnings
 from collections import defaultdict
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import xarray as xr
 from napari.layers.utils.layer_utils import calc_data_range
+from napari.types import FullLayerData
 from napari.utils.colormaps import DirectLabelColormap, ensure_colormap
 from napari.utils.notifications import show_warning
 
+from confusius._dims import POSE_DIM, TIME_DIM
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
+from confusius._utils.stack import find_stack_level
 
 
 def infer_layer_type(dtype: npt.DTypeLike) -> Literal["image", "labels"]:
@@ -84,10 +88,8 @@ def get_napari_layer_geometry(
 ]:
     """Return napari layer geometry metadata for `data`.
 
-    `data` must carry a voxel-to-world index: both callers guarantee this before
-    reaching this point (`plot_napari` checks it explicitly;
-    `convert_dataarray_to_layer_data` only ever receives ConfUSIus-loaded or
-    ConfUSIus-constructed data). Spacing is read from `.fusi.spacing`, falling back to
+    `data` must carry a voxel-to-world index: `build_napari_layer_data` validates
+    this before reaching this point. Spacing is read from `.fusi.spacing`, falling back to
     the plain-coordinate best-effort median only for irregularly spaced coordinates
     (`.fusi.spacing` returns `None` there).
 
@@ -152,10 +154,203 @@ def get_napari_layer_geometry(
     return scale, translate, axis_labels, units, non_uniform, spacing
 
 
-def convert_dataarray_to_layer_data(
-    da: xr.DataArray, name: str
-) -> tuple[Any, dict[str, Any], Literal["image", "labels"]]:
-    """Convert a ConfUSIus DataArray to a napari FullLayerData tuple.
+def build_napari_layer_data(
+    data: xr.DataArray,
+    name: str | None = None,
+    layer_type: Literal["image", "labels", "auto"] = "auto",
+    resample_interpolation: Literal["linear", "nearest", "bspline"] | None = None,
+    resample_fill_value: float | None = None,
+) -> list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]:
+    """Build napari layer data for a VoxelData array.
+
+    This is the single DataArray-to-layer conversion shared by `plot_napari` and the
+    napari plugin readers, so data looks the same however it is opened. Viewer-level
+    settings (displayed dimension order, colorbar, scale bar) and contrast limits are
+    left to the caller.
+
+    Arrays with a `pose` dimension produce one layer per pose so every layer keeps
+    its own voxel-to-world affine. Otherwise, returns one layer.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to display.
+    name : str, optional
+        Layer name. If not provided, `data.name` is used. With a `pose` dimension,
+        every layer name ends with `" [pose {pose}]"`, built from the pose coordinate
+        value, and unnamed arrays use `"data"` as the base name.
+    layer_type : {"image", "labels", "auto"}, default: "auto"
+        Type of layer to build. "auto" picks "labels" for integer or boolean data and
+        "image" otherwise.
+    resample_interpolation : {"linear", "nearest", "bspline"}, optional
+        Interpolation method used when resampling oblique (non-axis-aligned)
+        voxel-to-world `data` onto an axis-aligned world grid. If not provided,
+        defaults to `"nearest"` for labels layers and `"linear"` for image layers.
+    resample_fill_value : float, optional
+        Value assigned to voxels outside `data`'s field of view after resampling
+        oblique data. If not provided, defaults to `data`'s own minimum value.
+
+    Returns
+    -------
+    list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]
+        One `(data, kwargs, layer_type)` tuple per layer: one per pose when `data`
+        has a `pose` dimension, otherwise a single one. `data` is the layer payload:
+        the magnitude of complex image data, and integer values for labels. `kwargs`
+        holds the keyword arguments for the napari layer constructor: the layer name,
+        world-space `scale`/`translate`, world `axis_labels`, `units` when the
+        coordinates carry them, a `colormap` (from `data.attrs` for images, falling
+        back to `"gray"`, or a per-label colormap for labels when available), and
+        `metadata` with the displayed (`"xarray"`) and input (`"source_xarray"`)
+        DataArrays. Image layers also get `rgb=False`, and labels carrying
+        `roi_labels` attrs get matching `features`. `layer_type` is the napari layer
+        type that was built, `"image"` or `"labels"`.
+
+    Raises
+    ------
+    TypeError
+        If `data` is not an `xarray.DataArray`.
+    ValueError
+        If `data` is not a VoxelData array, or if `layer_type` is not one of the
+        supported values.
+
+    Warns
+    -----
+    UserWarning
+        If a dimension has non-uniform spacing, if complex data is converted to its
+        magnitude, or if `data.attrs["cmap"]` is not a valid napari colormap.
+    """
+    from confusius._utils.plotting import (
+        coerce_complex_to_magnitude,
+        resample_to_axis_aligned_world_grid,
+        sort_coords_for_plot,
+    )
+    from confusius.validation import ensure_voxeldata
+
+    data = ensure_voxeldata(data)
+    resolved_layer_type = layer_type
+    if resolved_layer_type == "auto":
+        resolved_layer_type = infer_layer_type(data.dtype)
+    if resolved_layer_type not in ("image", "labels"):
+        raise ValueError(
+            f"Unknown layer_type: {layer_type!r}. Expected 'image', 'labels' or 'auto'."
+        )
+    resolved_interpolation = resample_interpolation or (
+        "nearest" if resolved_layer_type == "labels" else "linear"
+    )
+
+    if POSE_DIM in data.dims:
+        base_name = name if name is not None else data.name or "data"
+        sources: list[tuple[xr.DataArray, str | None]] = [
+            (data.isel({POSE_DIM: index}), f"{base_name} [pose {pose}]")
+            for index, pose in enumerate(data.coords[POSE_DIM].values)
+        ]
+    else:
+        sources = [(data, name)]
+
+    layers: list[tuple[Any, dict[str, Any], Literal["image", "labels"]]] = []
+    for source_data, layer_name in sources:
+        # Resampling an oblique input onto an axis-aligned world grid keeps the
+        # voxel-to-world index (see resample_to_axis_aligned_world_grid); already
+        # axis-aligned input is returned unchanged. Either way the displayed array
+        # stays on its native dims here. Layers are always positioned in world space
+        # (scale/translate are real physical spacing/origin), so axis_labels shows
+        # world names (z/y/x) to honestly reflect what the dims slider actually
+        # scrubs through.
+        display_data = resample_to_axis_aligned_world_grid(
+            source_data,
+            interpolation=resolved_interpolation,
+            fill_value=resample_fill_value,
+        )
+        display_data = sort_coords_for_plot(
+            display_data, [dim for dim in display_data.dims if dim != TIME_DIM]
+        )
+
+        scale, translate, axis_labels, all_units, non_uniform, spacing = (
+            get_napari_layer_geometry(display_data)
+        )
+        for dim in non_uniform:
+            warnings.warn(
+                f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
+                "(positions along this axis may be approximate).",
+                stacklevel=find_stack_level(),
+            )
+
+        kwargs: dict[str, Any] = {
+            "name": display_data.name if layer_name is None else layer_name,
+            "scale": scale,
+            "translate": translate,
+            "axis_labels": axis_labels,
+            "metadata": {"xarray": display_data, "source_xarray": source_data},
+        }
+        if any(u is not None for u in all_units):
+            kwargs["units"] = all_units
+
+        if resolved_layer_type == "labels":
+            # Keep label conversion lazy for Dask-backed data.
+            if not np.issubdtype(display_data.dtype, np.integer):
+                display_data = display_data.astype(np.int32)
+            colormap = build_direct_label_colormap(display_data)
+            if colormap is not None:
+                kwargs["colormap"] = colormap
+            if (roi_labels := display_data.attrs.get("roi_labels")) is not None:
+                kwargs["features"] = build_roi_labels_features(roi_labels)
+        else:
+            display_data = coerce_complex_to_magnitude(display_data, caller="napari")
+            colormap = display_data.attrs.get("cmap", "gray")
+            try:
+                ensure_colormap(colormap)
+            except (KeyError, TypeError):
+                warnings.warn(
+                    f"{colormap!r} is not a valid napari colormap; falling back to "
+                    "'gray'.",
+                    stacklevel=find_stack_level(),
+                )
+                colormap = "gray"
+            kwargs["colormap"] = colormap
+            # VoxelData arrays are scalar fields; prevent napari from auto-interpreting
+            # a trailing axis of length 3/4 as RGB channels.
+            kwargs["rgb"] = False
+
+        layers.append((display_data.data, kwargs, resolved_layer_type))
+    return layers
+
+
+def share_image_contrast_limits(
+    layers: list[tuple[Any, dict[str, Any], Literal["image", "labels"]]],
+) -> None:
+    """Set contrast limits spanning the data range of all image layers.
+
+    One display range shared by every layer keeps intensities comparable across the
+    poses of a recording. The data range of each layer is computed once, before the
+    layers are created.
+
+    Parameters
+    ----------
+    layers : list[tuple[Any, dict[str, Any], Literal["image", "labels"]]]
+        Layer payloads, keyword arguments, and resolved layer types, as returned by
+        `build_napari_layer_data`. `"contrast_limits"` is set in place in the
+        keyword arguments of every image layer. Labels layers are left untouched.
+    """
+    # Layers built from one array all share its resolved layer type.
+    if layers[0][2] != "image":
+        return
+    data_ranges = [calc_data_range(data) for data, _kwargs, _layer_type in layers]
+    contrast_limits = (
+        min(low for low, _high in data_ranges),
+        max(high for _low, high in data_ranges),
+    )
+    for _data, kwargs, _layer_type in layers:
+        kwargs["contrast_limits"] = contrast_limits
+
+
+def convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> list[FullLayerData]:
+    """Convert a ConfUSIus DataArray to napari FullLayerData tuples.
+
+    Used by the napari plugin readers and sample data, which hand the tuples to napari
+    instead of adding the layers themselves. Wraps `build_napari_layer_data`, shows
+    its warnings as napari notifications, and shares image contrast limits across
+    all layers with `share_image_contrast_limits`, so every pose has a consistent
+    display range.
 
     Parameters
     ----------
@@ -166,71 +361,27 @@ def convert_dataarray_to_layer_data(
 
     Returns
     -------
-    data : Any
-        Layer data payload.
-    kwargs : dict[str, Any]
-        Keyword arguments for the napari layer constructor.
-    layer_type : {"image", "labels"}
-        Napari layer type inferred from `da.dtype`.
+    list[napari.types.FullLayerData]
+        Napari layer data tuples, one per pose when `da` has a `pose` dimension.
     """
-    from confusius._utils.plotting import resample_to_axis_aligned_world_grid
-
-    # Resampling an oblique input onto an axis-aligned world grid keeps the
-    # voxel-to-world index (see resample_to_axis_aligned_world_grid); already
-    # axis-aligned input is returned unchanged. Either way `da` stays on its native
-    # dims here. Layers are always positioned in world space (scale/translate are
-    # real physical spacing/origin), so axis_labels shows world names (z/y/x) to
-    # honestly reflect what the dims slider actually scrubs through -- matching
-    # plot_napari's display convention, so a file dragged into napari and the same
-    # data passed to plot_napari look identical.
-    source_da = da
-    # Inferred from dtype, which resampling doesn't change, so it's safe to compute
-    # before resampling -- needed there to pick "nearest" interpolation for labels
-    # (blending distinct integer labels together is never meaningful).
-    layer_type = infer_layer_type(da.dtype)
-    da = resample_to_axis_aligned_world_grid(
-        da, interpolation="nearest" if layer_type == "labels" else "linear"
-    )
-
-    scale, translate, axis_labels, all_units, non_uniform, spacing = (
-        get_napari_layer_geometry(da)
-    )
-    for dim in non_uniform:
-        show_warning(
-            f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
-            "(positions along this axis may be approximate)."
-        )
-
-    kwargs: dict[str, Any] = {
-        "name": name,
-        "scale": scale,
-        "translate": translate,
-        "axis_labels": axis_labels,
-        "metadata": {"xarray": da, "source_xarray": source_da},
-    }
-    if any(u is not None for u in all_units):
-        kwargs["units"] = all_units
-
-    if layer_type == "labels":
-        colormap = build_direct_label_colormap(da)
-        if colormap is not None:
-            kwargs["colormap"] = colormap
-        if (roi_labels := da.attrs.get("roi_labels")) is not None:
-            kwargs["features"] = build_roi_labels_features(roi_labels)
-    else:
-        colormap = da.attrs.get("cmap", "gray")
-        try:
-            ensure_colormap(colormap)
-        except (KeyError, TypeError):
-            show_warning(
-                f"{colormap!r} is not a valid napari colormap; falling back to 'gray'."
+    # napari only routes Python warnings to its notifications inside
+    # `notification_manager`, which a reader call is not, so warnings would otherwise
+    # only reach the terminal.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        layers = build_napari_layer_data(da, name=name)
+    for caught_warning in caught:
+        if issubclass(caught_warning.category, UserWarning):
+            show_warning(str(caught_warning.message))
+        else:
+            warnings.warn_explicit(
+                caught_warning.message,
+                caught_warning.category,
+                caught_warning.filename,
+                caught_warning.lineno,
             )
-            colormap = "gray"
-        kwargs["colormap"] = colormap
-        kwargs["blending"] = "additive"
-        kwargs["contrast_limits"] = calc_data_range(da.data)
-
-    return da.data, kwargs, layer_type
+    share_image_contrast_limits(layers)
+    return cast("list[FullLayerData]", layers)
 
 
 def build_roi_labels_features(roi_labels: dict[int, str]) -> pd.DataFrame:

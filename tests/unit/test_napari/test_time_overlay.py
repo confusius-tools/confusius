@@ -135,7 +135,7 @@ class TestTimeOverlay:
         da = _make_4d_da(rng, np.arange(5) * 0.5)
 
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             da, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
         overlay = _TimeOverlay(viewer)
@@ -151,10 +151,10 @@ class TestTimeOverlay:
         da_b = _make_4d_da(rng, 10.0 + np.arange(5) * 0.5, time_units="s")
 
         viewer = make_napari_viewer()
-        _, layer_a = plot_napari(
+        _, [layer_a] = plot_napari(
             da_a, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
-        _, layer_b = plot_napari(
+        _, [layer_b] = plot_napari(
             da_b, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
         overlay = _TimeOverlay(viewer)
@@ -187,7 +187,7 @@ class TestTimeOverlay:
         da = _make_4d_da(rng, np.arange(5) * 0.5)
 
         viewer = make_napari_viewer()
-        _, time_layer = plot_napari(
+        _, [time_layer] = plot_napari(
             da, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
         overlay = _TimeOverlay(viewer)
@@ -209,10 +209,10 @@ class TestTimeOverlay:
         da_b = _make_4d_da(rng, 10.0 + np.arange(5) * 0.5)
 
         viewer = make_napari_viewer()
-        _, layer_a = plot_napari(
+        _, [layer_a] = plot_napari(
             da_a, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
-        _, layer_b = plot_napari(
+        _, [layer_b] = plot_napari(
             da_b, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
         overlay = _TimeOverlay(viewer)
@@ -232,7 +232,7 @@ class TestTimeOverlay:
     ) -> None:
         """Removing the only time-aware layer hides and clears the overlay."""
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,
@@ -256,10 +256,10 @@ class TestTimeOverlay:
         da_b = _make_4d_da(rng, 10.0 + np.arange(5) * 0.5)
 
         viewer = make_napari_viewer()
-        _, layer_a = plot_napari(
+        _, [layer_a] = plot_napari(
             da_a, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
-        _, layer_b = plot_napari(
+        _, [layer_b] = plot_napari(
             da_b, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
         overlay = _TimeOverlay(viewer)

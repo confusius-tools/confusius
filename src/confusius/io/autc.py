@@ -4,7 +4,7 @@ import shutil
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, TypeAlias, TypedDict
+from typing import TYPE_CHECKING, Any, Optional, TypedDict
 
 import numpy as np
 import numpy.typing as npt
@@ -79,7 +79,7 @@ def _get_dat_dtype(
     )
 
 
-NumpyIndex: TypeAlias = (
+type NumpyIndex = (
     bool  # Single boolean
     | int  # Single integer
     | slice  # Slice object
