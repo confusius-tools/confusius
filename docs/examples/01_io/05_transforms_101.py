@@ -3,21 +3,18 @@
 #
 # A VoxelData array keeps its values on a voxel grid. A voxel-to-world affine places
 # that grid in world space (see [World Space](../../../user-guide/voxeldata.md#world-space)
-# in The VoxelData Model). The [`.fusi`][confusius.xarray.FUSIAccessor] accessor moves
-# the grid in world space. It changes only the affine: the data values and the voxel
-# grid do not change. This example shows the three basic moves:
-# [`translate`][confusius.xarray.FUSIAccessor.translate],
+# in The VoxelData Model). The [`.fusi`][confusius.xarray.FUSIAccessor] accessor can be
+# used to transform the grid in world space. It changes only the affine, which means
+# that the data values **are not** resampled onto the new space. This example shows the
+# three basic moves: [`translate`][confusius.xarray.FUSIAccessor.translate],
 # [`rotate`][confusius.xarray.FUSIAccessor.rotate] and
-# [`zoom`][confusius.xarray.FUSIAccessor.zoom]. It also shows how the `center`
-# argument selects the point that does not move during a rotation or a zoom.
-
-# %% [markdown]
-# ## Fetch the template and select one plane
+# [`zoom`][confusius.xarray.FUSIAccessor.zoom]. It also shows how the `center` argument
+# selects the point that does not move during a rotation or a zoom.
 #
 # This example uses the mouse fUSI template from Pepe, Mariani et al.
-# (2026)[^collection]. We move one `z` plane of the template and keep the full template
-# as a fixed background. Each composite figure shows the template in red and the moved
-# plane in cyan, on six `z` planes around the plane that we move.
+# (2026)[^collection]. We transform one `z` plane of the template and keep the full
+# template as a fixed background. Each composite figure shows the template in red and
+# the transformed plane in cyan, on six `z` planes around the plane that we transform.
 #
 # [^collection]: See [The ConfUSIus Dataset Collection](dataset_collection.md)
 #     for available studies, formats, licenses, and reproducible subset downloads.
@@ -49,9 +46,9 @@ plane = template.sel(z=[slice_coords[3]], method="nearest")
 plane
 
 # %% [markdown]
-# Before a move, the plane sits exactly on the fourth `z` panel. The composite shows it
-# in cyan, and in white where the template is also bright. The other panels show only
-# the template.
+# Before any transform, the plane sits exactly on the fourth `z` panel. The composite
+# shows it in cyan, and in white where the template is also bright. The other panels
+# show only the template.
 
 # %%
 # Options shared by the six-panel composites. The figure is wide, so use a large font.
@@ -65,7 +62,7 @@ _ = template.fusi.plot.composite(plane, **panel_kwargs)
 # `rotate` takes an angle in degrees and the name of the world axis to turn about. By
 # default, the fixed point of the rotation is the grid origin. The grid origin is the
 # world position of the first voxel of the array. In these figures, it is the top-left
-# corner of the plane. The yellow dot marks it.
+# corner of the plane. Note the yellow dot that marks it.
 
 # %%
 rotated_about_origin = plane.fusi.rotate(30, "z")
@@ -77,11 +74,10 @@ _ = plotter.axes.ravel()[3].plot(
 )
 
 # %% [markdown]
-# A 3D view shows the rotation axis. The collapsed `plot_plane_in_3d` helper draws the
-# plane before (red) and after (cyan) a move, inside the bounding box of the template.
+# To better visualize the rotation, a 3D view shows the rotation axis. The collapsed
+# `plot_plane_in_3d` helper draws the plane before (red) and after (cyan) a rotation.
 # It also draws the fixed point and an arrow from that point along the rotation axis.
-# The arrow points in the positive direction of that axis. The plane is one voxel thick.
-# The helper draws it thicker so that the slab is visible.
+# The arrow points in the positive direction of that axis.
 #
 # The view has the same orientation as the composite panels: `x` to the right, `y`
 # downward, and `z` as the depth axis, with `+z` toward you. This orientation keeps the
@@ -223,8 +219,8 @@ _ = template.fusi.plot.composite(tilted, **panel_kwargs)
 _ = plot_plane_in_3d(plane, tilted, center=center, axis="y")
 
 # %% [markdown]
-# To see the full tilted plane, slice the composite along `y`. The yellow box is the
-# [`bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] of the six `z`
+# To see the full tilted plane, slice the composite plot along `y`. The yellow box is
+# the [`bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] of the six `z`
 # planes from the previous figures. Those panels showed only the part of the tilted
 # plane inside this box.
 
@@ -248,23 +244,24 @@ _ = plotter.axes.ravel()[0].add_patch(
 # %% [markdown]
 # ## Translate
 #
-# `translate` moves the array by a `(z, y, x)` vector in world units. Here the plane
-# moves 0.2 mm along `z`, 1 mm along `y` and 3 mm along `x`. The move along `z` puts the
-# plane two panels later. The moves along `y` and `x` shift it inside that panel.
+# [`translate`][confusius.xarray.FUSIAccessor.translate] moves the array by a
+# `(z, y, x)` vector in world units. Here the plane moves -0.2 mm along `z`, 1 mm along
+# `y` and 3 mm along `x`. The translation along `z` puts the plane two panels later. The
+# translation along `y` and `x` shift it inside that panel.
 
 # %%
-translated = plane.fusi.translate((0.2, 1, 3))
+translated = plane.fusi.translate((-0.2, 1, 3))
 
 _ = template.fusi.plot.composite(translated, **panel_kwargs)
 
 # %% [markdown]
 # ## Zoom
 #
-# `zoom` scales the array by a factor, about the grid origin by default. A factor of 3
-# makes the plane three times larger in each direction, which includes its thickness
-# along `z`. As a result, the plane now shows in three panels. The origin does not move,
-# so the plane grows away from its top-left corner. Only the part near that corner stays
-# inside the template.
+# [`zoom`][confusius.xarray.FUSIAccessor.zoom] scales the array by a factor, about the
+# grid origin by default. A factor of 3 makes the plane three times larger in each
+# direction, which includes its thickness along `z`. As a result, the plane now shows in
+# three panels. The origin does not move, so the plane grows away from its top-left
+# corner. Only the part near that corner stays inside the template.
 
 # %%
 zoomed_about_origin = plane.fusi.zoom(3)
@@ -289,17 +286,20 @@ _ = plotter.axes.ravel()[3].plot(
 # %% [markdown]
 # ## What changed, and what did not
 #
-# Each move returned a new DataArray with the same values and the same `k`, `j`, `i`
-# grid as `plane`. Only the voxel-to-world affine changed, and with it the world
-# coordinates derived from that affine. Moves apply in the order that you write them.
-# Thus a rotation followed by a zoom differs from a zoom followed by a rotation. To
-# resample a moved array onto another grid, use
+# Each transform returned a new DataArray with the same values and the same `k`, `j`,
+# `i` grid as `plane`. Only the voxel-to-world affine changed, and with it the world
+# coordinates derived from that affine. Transforms apply in the order that you write
+# them. Thus a rotation followed by a zoom differs from a zoom followed by a rotation.
+# To resample a moved array onto another grid, use
 # [`resample_like`][confusius.registration.resample_like]. This is what
 # [`plot_composite`][confusius.plotting.plot_composite] did internally for each figure
 # in this example.
 
 # %%
 np.array_equal(zoomed_about_center.values, plane.values)
+
+# %%
+plane.fusi.affine.voxel_to_world
 
 # %%
 zoomed_about_center.fusi.affine.voxel_to_world
