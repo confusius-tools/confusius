@@ -12,11 +12,14 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- `plot_napari` and its xarray accessors always return `(viewer, layers)`;
+  use `viewer, [layer] = ...` for single-layer results
+  ([#562](https://github.com/confusius-tools/confusius/pull/562)).
 - Python 3.11 is no longer supported; ConfUSIus now requires Python 3.12 or newer,
   following BrainGlobe's move to Python 3.12-3.14 and
   [SPEC 0](https://scientific-python.org/specs/spec-0000/)
-  ([#377](https://github.com/confusius-tools/confusius/issues/377)).
-
+  ([#561](https://github.com/confusius-tools/confusius/pull/561)).
+  
 ### :sparkles: Enhancements
 
 - Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
@@ -60,6 +63,12 @@ Current development version for the next ConfUSIus release.
   ([#555](https://github.com/confusius-tools/confusius/pull/555)).
 - Use the released xarray 2026.9.0 instead of a git pin now that it ships the
   required fixes ([#559](https://github.com/confusius-tools/confusius/pull/559)).
+
+### :frame_photo: Napari plugin
+
+- Open multipose arrays as one positioned layer per pose in `plot_napari`, its
+  xarray accessors, and the CLI, with pose values in layer names
+  ([#562](https://github.com/confusius-tools/confusius/pull/562)).
 
 ## 0.9.0
 

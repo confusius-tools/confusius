@@ -284,7 +284,7 @@ def fusi_layer(viewer, sample_voxeldata_3dt):
     Returns the napari layer, which carries axis_labels, scale, translate,
     and xarray metadata -- the same state a real fUSI scan would have.
     """
-    _, layer = plot_napari(
+    _, [layer] = plot_napari(
         sample_voxeldata_3dt,
         viewer=viewer,
         show_colorbar=False,
@@ -356,7 +356,7 @@ class TestReferenceWarning:
             time=("time", time_values, sample_voxeldata_3dt.coords["time"].attrs)
         )
         with pytest.warns(UserWarning, match="non-uniform spacing"):
-            _, irregular_layer = plot_napari(
+            _, [irregular_layer] = plot_napari(
                 irregular,
                 viewer=viewer,
                 show_colorbar=False,
@@ -391,7 +391,7 @@ class TestReferenceWarning:
             time=("time", time_values, sample_voxeldata_3dt.coords["time"].attrs)
         )
         with pytest.warns(UserWarning, match="non-uniform spacing"):
-            _, irregular_layer = plot_napari(
+            _, [irregular_layer] = plot_napari(
                 irregular,
                 viewer=viewer,
                 show_colorbar=False,
@@ -641,7 +641,7 @@ class TestPaddedDimsFollowReference:
             spacing=(0.4, 0.1, 0.1),
             origin=(9.0, 3.5, -7.0),
         )
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             scan, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
         labels_before = viewer.dims.axis_labels
@@ -680,7 +680,7 @@ class TestPaddedDimsFollowReference:
             spacing=(0.4, 0.1, 0.1),
             origin=(9.0, 3.5, -7.0),
         )
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             scan, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
         monkeypatch.setattr(

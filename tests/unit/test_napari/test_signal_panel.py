@@ -61,7 +61,7 @@ class TestCreateLayers:
     def image_layer(self, viewer, sample_voxeldata_3dt):
         from confusius.plotting.napari import plot_napari
 
-        _, layer = plot_napari(sample_voxeldata_3dt, viewer=viewer)
+        _, [layer] = plot_napari(sample_voxeldata_3dt, viewer=viewer)
         return layer
 
     @pytest.mark.parametrize("method", ["_create_points_layer", "_create_labels_layer"])
