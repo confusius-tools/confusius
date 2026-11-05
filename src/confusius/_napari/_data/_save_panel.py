@@ -23,6 +23,7 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._napari._io._writers import _convert_layer_to_voxeldata
+from confusius._napari._transform._view import ResampledView
 
 if TYPE_CHECKING:
     import napari
@@ -208,6 +209,13 @@ class SavePanel(QWidget):
         template_layer = self._template_combo.currentData()
 
         if template_layer is not None:
+            # A transform preview has values that do not match any committed geometry.
+            if isinstance(layer.data, ResampledView):
+                show_error(
+                    f"'{layer_name}' is showing a transform preview. Apply or reset it "
+                    "in the Transform panel first."
+                )
+                return None
             template_name = template_layer.name
             template_da: xr.DataArray = template_layer.metadata["xarray"]
             layer_shape = layer.data.shape

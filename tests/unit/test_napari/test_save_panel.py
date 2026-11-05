@@ -56,3 +56,34 @@ class TestBuildDataArray:
             da.coords["x"].attrs["units"]
             == sample_voxeldata_3dt.coords["x"].attrs["units"]
         )
+
+
+def test_template_refuses_a_layer_showing_a_transform_preview(
+    viewer, save_panel, sample_voxeldata_3d, monkeypatch
+):
+    """Preview values must not be written under the template's committed geometry."""
+    from confusius._napari._data import _save_panel as save_panel_module
+    from confusius._napari._transform._model import TransformState
+    from confusius._napari._transform._session import PreviewSession
+
+    messages = []
+    monkeypatch.setattr(save_panel_module, "show_error", messages.append)
+    _, layer = plot_napari(sample_voxeldata_3d, viewer=viewer, name="moving")
+    plot_napari(sample_voxeldata_3d, viewer=viewer, name="template")
+    original = layer.data
+    session = PreviewSession(layer)
+    # A flip keeps the shape, so the template's shape check does not catch it.
+    center = sample_voxeldata_3d.fusi.affine.geometry_center.to_numpy()
+    session.show(TransformState.identity(center=center).flipped("x", frame="global").matrix())
+    save_panel._layer_combo.setCurrentText("moving")
+    save_panel._template_combo.setCurrentText("template")
+
+    assert save_panel._build_da() is None
+    assert len(messages) == 1
+    assert "Apply" in messages[0]
+
+    session.restore()
+
+    da = save_panel._build_da()
+    assert da is not None
+    assert da.data is original

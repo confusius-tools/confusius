@@ -17,6 +17,7 @@ from confusius._napari._registration._transform_payloads import (
     make_affine_transform_payload,
 )
 from confusius._napari._signals._panel import SignalPanel
+from confusius._napari._transform._panel import TransformPanel
 from confusius._napari._video._video_panel import VideoPanel
 from confusius.registration import RegistrationDiagnostics
 
@@ -36,6 +37,7 @@ from confusius.registration import RegistrationDiagnostics
         (VideoPanel, "_ref_combo", "image"),
         (SavePanel, "_layer_combo", "image"),
         (SavePanel, "_template_combo", "image"),
+        (TransformPanel, "_target_combo", "image"),
     ],
 )
 def test_rename_preserves_selected_layer(
