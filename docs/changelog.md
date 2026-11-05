@@ -12,6 +12,17 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`plot_stat_map`][confusius.plotting.plot_stat_map] and
+  [`plot_matrix`][confusius.plotting.plot_matrix] default to the `"berlin"`
+  colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
+  light ones), judged from `bg_color`
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- Seed-based correlation maps, decomposition maps, GLM contrast maps and
+  [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity] outputs
+  carry `attrs["cmap"] = "berlin"`, the colormap
+  [`plot_volume`][confusius.plotting.plot_volume] and
+  [`plot_napari`][confusius.plotting.plot_napari] draw them with
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - `plot_napari` and its xarray accessors always return `(viewer, layers)`;
   use `viewer, [layer] = ...` for single-layer results
   ([#562](https://github.com/confusius-tools/confusius/pull/562)).
@@ -22,12 +33,19 @@ Current development version for the next ConfUSIus release.
   
 ### :sparkles: Enhancements
 
+- New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
+  colormap stat maps are drawn with, which remembers its source colormap and
+  threshold and can be rebuilt on another colormap with `with_source`
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
   them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
 
 ### :bug: Fixes
 
+- [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] draws the
+  iteration count in a darker turquoise, readable on light backgrounds
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - [`apply_affine`][confusius.xarray.apply_affine] and
   [`reindex_voxels`][confusius.xarray.reindex_voxels] now accept scalar-indexed VoxelData
   arrays and restore the indexed voxel dimension in their result. `inplace=True` raises a
@@ -42,6 +60,9 @@ Current development version for the next ConfUSIus release.
 
 ### :wrench: Maintenance
 
+- The examples gallery runs each example once and renders its light and dark
+  figures from that single run
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] now uses
   BrainGlobe's public lazy-loading API instead of reimplementing its Zarr internals,
   so atlas arrays stay lazy without depending on private upstream code

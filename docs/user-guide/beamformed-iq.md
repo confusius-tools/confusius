@@ -681,7 +681,7 @@ Attributes:
     beamforming_sound_velocity:           1540.0
     units:                                m/s
     long_name:                            Axial velocity
-    cmap:                                 coolwarm
+    cmap:                                 berlin
     clutter_filters:                      Index-based SVD [50, +inf[
     clutter_filter_window_duration:       0.4
     clutter_filter_window_stride:         0.3999999999999999
