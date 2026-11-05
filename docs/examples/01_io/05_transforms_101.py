@@ -256,7 +256,7 @@ _ = plotter.axes.ravel()[0].add_patch(
 # Most of the rotated plane now lies outside the six panels, which cover only 0.6 mm
 # along `z`, so each panel shows only a thin band.
 
-# %% tags=["thumbnail"]
+# %%
 pivot = plane.fusi.affine.geometry_center + np.array((0, -2.5, 4.5))
 
 rotated_about_point = plane.fusi.rotate((-10, 20, 30), "zyx", center=pivot)
@@ -267,9 +267,9 @@ _ = plotter.axes.ravel()[3].plot(
 )
 
 # %% [markdown]
-# Harder to directly understand what is going on in the composite plot, in the 3D view,
-# the fixed point stays in place and the rotated plane still passes through it. All
-# three rotation axes go through this point.
+# This rotation is harder to follow in the composite panels. In the 3D view, the fixed
+# point stays in place and the rotated plane still passes through it. All three rotation
+# axes go through this point.
 
 # %%
 _ = plot_plane_in_3d(plane, rotated_about_point, center=pivot)
