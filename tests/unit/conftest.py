@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-import DracoPy  # ty: ignore[unresolved-import]
+import DracoPy  # ty: ignore[import-not-found]
 import h5py
 import matplotlib
 import meshio as mio
