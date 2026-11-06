@@ -1,5 +1,6 @@
 """Shared fixtures for unit tests."""
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import DracoPy  # ty: ignore[unresolved-import]
@@ -197,6 +198,21 @@ def _write_scan_metadata(
         ("Tag", ""),
     ]:
         meta.create_dataset(key, data=np.array([[val.encode()]], dtype=object))
+
+
+@pytest.fixture(autouse=True)
+def _flush_deferred_deletes(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Run the `deleteLater()` queue after tests that create a napari viewer.
+
+    Only a running event loop empties this queue, and tests have none. Closed widgets
+    would pile up between tests, which crashes later shown windows on some GL drivers.
+    """
+    yield
+    if "make_napari_viewer" in request.fixturenames:
+        # Imported here so that tests without a viewer do not load Qt.
+        from qtpy.QtCore import QCoreApplication, QEvent
+
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 @pytest.fixture

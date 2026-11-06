@@ -46,12 +46,11 @@ There are two ways to start the plugin:
     uvx -p 3.13 confusius
     ```
 
-The ConfUSIus sidebar contains six collapsible panels—[Data I/O](plugin.md#data-io-panel),
-[Video](plugin.md#video-panel), [Signals](plugin.md#signals-panel),
-[Events](plugin.md#events-panel), [QC](plugin.md#qc-panel), and
-[Registration](plugin.md#registration-panel)—that can each be expanded or collapsed
-independently. If you want a quick walkthrough inside napari itself, click
-**Take a Tour** in the upper-right corner of the sidebar header.
+The ConfUSIus sidebar contains five collapsible panels—[Data I/O](plugin.md#data-io-panel),
+[Signals](plugin.md#signals-panel), [Events](plugin.md#events-panel),
+[QC](plugin.md#qc-panel), and [Registration](plugin.md#registration-panel)—that can
+each be expanded or collapsed independently. If you want a quick walkthrough inside
+napari itself, click **Take a Tour** in the upper-right corner of the sidebar header.
 
 !!! tip "Running napari programmatically"
     If you prefer to open napari from a Python script or Jupyter notebook, see the
@@ -109,7 +108,7 @@ shown as its magnitude.
 
 ### Recommended: Data I/O Panel
 
-The [Data I/O Panel](plugin.md#saving-data) save section lets you export any layer to
+The [Data I/O Panel](plugin.md#exporting-data) save section lets you export any layer to
 NIfTI or Zarr. Select the layer, optionally pick a template layer to borrow physical
 coordinates from, enter an output path, and click **Save**.
 

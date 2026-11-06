@@ -71,6 +71,16 @@ Current development version for the next ConfUSIus release.
   ([#555](https://github.com/confusius-tools/confusius/pull/555)).
 - Use the released xarray 2026.9.0 instead of a git pin now that it ships the
   required fixes ([#559](https://github.com/confusius-tools/confusius/pull/559)).
+  
+### :frame_photo: Napari plugin
+
+- Videos open in a separate, time-synchronized viewer with their own layer list. Load
+  recordings and videos from **Data I/O**
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- `confusius --video PATH` opens a video without a data file
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- Fix video synchronization with recordings timed in milliseconds or microseconds
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 
 ### :frame_photo: Napari plugin
 
