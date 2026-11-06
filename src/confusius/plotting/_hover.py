@@ -165,7 +165,7 @@ class _HoverManager:
                 parts.append(segment)
 
         info = "; ".join(parts)
-        ax.format_coord = lambda x, y, _info=info: _info  # type: ignore
+        ax.format_coord = lambda x, y, _info=info: _info
 
     def _format_layer(self, layer: _SliceLayer, x: float, y: float) -> str | None:
         """Build the hover segment for one registered slice, or `None` to skip it."""
