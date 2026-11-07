@@ -96,7 +96,7 @@ class FUSIAccessor:
         --------
         >>> import xarray as xr
         >>> data = xr.open_zarr("output.zarr")["iq"]
-        >>> viewer, layer = data.fusi.plot.napari()
+        >>> viewer, layers = data.fusi.plot.napari()
         """
         from confusius.xarray.plotting import FUSIPlotAccessor
 

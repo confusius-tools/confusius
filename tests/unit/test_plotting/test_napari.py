@@ -38,10 +38,131 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
 class TestPlotNapari:
     """Tests for plot_napari scale and translate parameters."""
 
+    @pytest.mark.parametrize("api", ["function", "accessor", "callable_accessor"])
+    @pytest.mark.parametrize("nposes", [1, 2])
+    @pytest.mark.parametrize("layer_type", ["image", "labels"])
+    def test_multipose_layers(
+        self, sample_voxeldata_3dt_pose, make_napari_viewer, api, nposes, layer_type
+    ):
+        """Each pose keeps its values, world geometry, timing, and layer name."""
+        data = sample_voxeldata_3dt_pose.isel(pose=slice(0, nposes)).rename("doppler")
+        if layer_type == "labels":
+            data = (data > 0.5).astype(np.int32).rename("regions")
+        viewer = make_napari_viewer()
+        if api == "function":
+            returned_viewer, layers = plot_napari(
+                data, viewer=viewer, layer_type=layer_type
+            )
+        elif api == "accessor":
+            returned_viewer, layers = data.fusi.plot.napari(
+                viewer=viewer, layer_type=layer_type
+            )
+        else:
+            returned_viewer, layers = data.fusi.plot(
+                viewer=viewer, layer_type=layer_type
+            )
+        assert returned_viewer is viewer
+        assert isinstance(layers, list)
+        assert len(layers) == nposes
+        for p, layer in enumerate(layers):
+            expected = data.isel(pose=p)
+            assert isinstance(layer, Image if layer_type == "image" else Labels)
+            assert layer.name == f"{data.name} [pose {data.pose.values[p]}]"
+            npt.assert_array_equal(np.asarray(layer.data), expected.values)
+            xr.testing.assert_identical(layer.metadata["source_xarray"], expected)
+            npt.assert_allclose(
+                get_voxel_to_world_affine(layer.metadata["xarray"]),
+                get_voxel_to_world_affine(expected),
+            )
+            npt.assert_allclose(
+                layer.translate, [10.0 + 0.25 * p, 1.0 + 0.4 * p, 2.0, 3.0]
+            )
+            npt.assert_allclose(layer.scale, [0.5, 0.2, 0.1, 0.05])
+
+    def test_multipose_aggregates_automatic_contrast_limits(
+        self, sample_voxeldata_3dt_pose, make_napari_viewer
+    ):
+        """Automatic contrast limits across all poses apply to every pose."""
+        data = sample_voxeldata_3dt_pose + xr.DataArray(
+            [0.0, 100.0], dims="pose", coords={"pose": sample_voxeldata_3dt_pose.pose}
+        )
+        _, layers = plot_napari(data, viewer=make_napari_viewer())
+
+        for layer in layers:
+            assert isinstance(layer, Image)
+            assert layer.contrast_limits[0] < 1.0
+            assert layer.contrast_limits[1] > 100.0
+
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_automatic_contrast_limits_span_data_range(
+        self, sample_voxeldata_3dt, make_napari_viewer, lazy
+    ):
+        """Automatic contrast limits match the data range, also for Dask data."""
+        data = sample_voxeldata_3dt.chunk({"time": 2}) if lazy else sample_voxeldata_3dt
+        _, [layer] = plot_napari(data, viewer=make_napari_viewer())
+        assert isinstance(layer, Image)
+        npt.assert_allclose(
+            layer.contrast_limits,
+            (sample_voxeldata_3dt.min().item(), sample_voxeldata_3dt.max().item()),
+        )
+
+    def test_multipose_name_override_and_oblique_geometry(
+        self, sample_voxeldata_3d_oblique, make_napari_viewer
+    ):
+        """Named oblique poses are independently resampled and positioned."""
+        base = sample_voxeldata_3d_oblique
+        affine = get_voxel_to_world_affine(base)
+        translated = affine.copy()
+        translated[:3, 3] += [5.0, 0.0, 0.0]
+        data = create_voxeldata(
+            np.stack([base.values, base.values]),
+            dims=("pose", "k", "j", "i"),
+            pose=[10, 20],
+            voxel_to_world=np.stack([affine, translated]),
+            name="original",
+        )
+        _, layers = plot_napari(data, viewer=make_napari_viewer(), name="custom")
+        assert [layer.name for layer in layers] == [
+            "custom [pose 10]",
+            "custom [pose 20]",
+        ]
+        for p, layer in enumerate(layers):
+            _, [reference] = plot_napari(data.isel(pose=p), viewer=make_napari_viewer())
+            npt.assert_allclose(np.asarray(layer.data), np.asarray(reference.data))
+            npt.assert_allclose(layer.translate, reference.translate)
+            assert has_axis_aligned_voxel_to_world_index(layer.metadata["xarray"])
+        npt.assert_allclose(layers[1].translate - layers[0].translate, [5, 0, 0])
+
+    def test_multipose_preserves_lazy_data(
+        self, sample_voxeldata_3dt_pose, make_napari_viewer
+    ):
+        """Splitting poses does not materialize Dask-backed layer data."""
+        data = sample_voxeldata_3dt_pose.chunk({"time": 2, "pose": 1})
+        _, layers = plot_napari(data, viewer=make_napari_viewer())
+        for p, layer in enumerate(layers):
+            assert isinstance(layer.data, da.Array)
+            npt.assert_array_equal(layer.data.compute(), data.isel(pose=p).values)
+
+    def test_empty_pose_raises(self, sample_voxeldata_3dt_pose, make_napari_viewer):
+        """Empty pose stacks fail before creating any layers."""
+        viewer = make_napari_viewer()
+        with pytest.raises(ValueError, match="zero-length dimensions"):
+            plot_napari(sample_voxeldata_3dt_pose.isel(pose=slice(0, 0)), viewer=viewer)
+        assert len(viewer.layers) == 0
+
+    def test_drawing_labels_requires_selected_pose(
+        self, sample_voxeldata_3dt_pose, make_napari_viewer
+    ):
+        """Painting remains single-pose and does not add partial background layers."""
+        viewer = make_napari_viewer()
+        with pytest.raises(ValueError, match="Select a single pose"):
+            draw_napari_labels(sample_voxeldata_3dt_pose, viewer=viewer)
+        assert len(viewer.layers) == 0
+
     def test_3d_scale_and_translate(self, sample_voxeldata_3d, make_napari_viewer):
         """3D layer scale matches fusi.spacing; translate matches fusi.origin."""
         viewer = make_napari_viewer()
-        _, layer = plot_napari(sample_voxeldata_3d, viewer=viewer)
+        _, [layer] = plot_napari(sample_voxeldata_3d, viewer=viewer)
 
         # z: origin=1.0 spacing=0.2; y: origin=2.0 spacing=0.1; x: origin=3.0 spacing=0.05
         npt.assert_allclose(layer.scale, [0.2, 0.1, 0.05], rtol=1e-5)
@@ -54,7 +175,7 @@ class TestPlotNapari:
         """A spatial axis of length 3 is not auto-interpreted as RGB channels."""
         data = sample_voxeldata_3d.isel(i=slice(0, 3))
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
 
@@ -67,7 +188,7 @@ class TestPlotNapari:
     def test_4d_scale_uses_time_spacing(self, sample_voxeldata_3dt, make_napari_viewer):
         """4D layer scale uses fusi.spacing for all dims, including time."""
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             sample_voxeldata_3dt,
             viewer=viewer,
             show_colorbar=False,
@@ -91,7 +212,7 @@ class TestPlotNapari:
         """
         data = sample_voxeldata_3d_oblique
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
 
@@ -122,7 +243,7 @@ class TestPlotNapari:
             np.diag([0.4, 0.3, 0.25, 1.0]),
         )
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
 
@@ -141,7 +262,7 @@ class TestPlotNapari:
         da = sample_voxeldata_3d.expand_dims({"channel": 2})
         viewer = make_napari_viewer()
         with pytest.warns(UserWarning):
-            _, layer = plot_napari(
+            _, [layer] = plot_napari(
                 da, viewer=viewer, show_colorbar=False, show_scale_bar=False
             )
 
@@ -155,7 +276,7 @@ class TestPlotNapari:
         """A dim with non-numeric (e.g. string) coordinates uses scale=1.0."""
         da = sample_voxeldata_3d.expand_dims(session=["cp230328a"])
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             da, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
 
@@ -223,7 +344,7 @@ class TestPlotNapari:
             voxel_to_world=voxel_to_world,
         )
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
 
@@ -246,7 +367,7 @@ class TestPlotNapari:
             attrs=sample_voxeldata_3dt.attrs,
         )
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             labels,
             viewer=viewer,
             layer_type="labels",
@@ -291,11 +412,11 @@ class TestPlotNapari:
 
         viewer = make_napari_viewer()
         if api == "function":
-            _, layer = plot_napari(data, viewer=viewer)
+            _, [layer] = plot_napari(data, viewer=viewer)
         elif api == "accessor":
-            _, layer = data.fusi.plot.napari(viewer=viewer)
+            _, [layer] = data.fusi.plot.napari(viewer=viewer)
         else:
-            _, layer = data.fusi.plot(viewer=viewer)
+            _, [layer] = data.fusi.plot(viewer=viewer)
 
         assert type(layer) is expected
 
@@ -310,7 +431,7 @@ class TestPlotNapari:
             origin=(0.0, 0.0, 0.0),
         )
 
-        _, layer = plot_napari(data, viewer=make_napari_viewer(), layer_type="labels")
+        _, [layer] = plot_napari(data, viewer=make_napari_viewer(), layer_type="labels")
 
         assert isinstance(layer.data, da.Array)
         assert layer.data.dtype == (
@@ -332,7 +453,7 @@ class TestPlotNapari:
             attrs={"cmap": cmap, "norm": norm},
         )
 
-        _, layer = plot_napari(labels, viewer=make_napari_viewer())
+        _, [layer] = plot_napari(labels, viewer=make_napari_viewer())
 
         colormap = layer.colormap
         assert isinstance(colormap, DirectLabelColormap)
@@ -369,7 +490,7 @@ class TestPlotNapari:
         data = sample_voxeldata_3d.copy()
         data.attrs["cmap"] = "magma"
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             data,
             viewer=viewer,
             show_colorbar=False,
@@ -393,7 +514,7 @@ class TestPlotNapari:
         viewer = make_napari_viewer()
         monkeypatch.setattr("confusius.plotting.napari.napari.Viewer", lambda: viewer)
 
-        created_viewer, layer = plot_napari(
+        created_viewer, [layer] = plot_napari(
             labels,
             viewer=None,
             layer_type="labels",
@@ -411,7 +532,7 @@ class TestPlotNapari:
         """Complex-valued image data is converted to magnitude with a warning."""
         viewer = make_napari_viewer()
         with pytest.warns(UserWarning, match="Complex-valued data"):
-            _, layer = plot_napari(
+            _, [layer] = plot_napari(
                 sample_voxeldata_iq_3dt,
                 viewer=viewer,
                 show_colorbar=False,
@@ -438,7 +559,7 @@ class TestPlotNapari:
         )
 
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             data,
             viewer=viewer,
             show_colorbar=False,
@@ -478,7 +599,7 @@ class TestPlotNapari:
         ).isel(k=0)
 
         viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             labels,
             viewer=viewer,
             layer_type="labels",
@@ -699,7 +820,7 @@ class TestExtractLabelsFromLayer:
     ) -> None:
         """Each unique non-zero label becomes its own mask slice, sorted ascending."""
         viewer = make_napari_viewer()
-        _, labels_layer = plot_napari(
+        _, [labels_layer] = plot_napari(
             sample_roi_labels,
             viewer=viewer,
             layer_type="labels",
@@ -722,7 +843,7 @@ class TestExtractLabelsFromLayer:
         self, sample_roi_labels, make_napari_viewer
     ) -> None:
         viewer = make_napari_viewer()
-        _, labels_layer = plot_napari(
+        _, [labels_layer] = plot_napari(
             sample_roi_labels,
             viewer=viewer,
             layer_type="labels",
@@ -746,7 +867,7 @@ class TestExtractLabelsFromLayer:
     ) -> None:
         """A 4D reference array produces a purely spatial output."""
         viewer = make_napari_viewer()
-        _, labels_layer = plot_napari(
+        _, [labels_layer] = plot_napari(
             sample_roi_labels,
             viewer=viewer,
             layer_type="labels",
@@ -764,7 +885,7 @@ class TestExtractLabelsFromLayer:
     ) -> None:
         """Layer name and per-label colors round-trip through napari exactly."""
         viewer = make_napari_viewer()
-        _, labels_layer = plot_napari(
+        _, [labels_layer] = plot_napari(
             sample_roi_labels,
             viewer=viewer,
             layer_type="labels",

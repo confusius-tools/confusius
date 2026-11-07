@@ -384,9 +384,10 @@ def refresh_transform_controls(panel: RegistrationPanel) -> None:
                 continue
             if panel._loaded_transform_payload["kind"] != "affine":
                 continue
-        elif source_kind == "layer":
-            if layer is None or _get_affine_payload_from_layer(layer) is None:
-                continue
+        elif source_kind == "layer" and (
+            layer is None or _get_affine_payload_from_layer(layer) is None
+        ):
+            continue
         panel._initialization_combo.addItem(label, data)
     for label, data in manual_initialization_options:
         panel._initialization_combo.addItem(label, data)
@@ -926,7 +927,7 @@ def on_apply_transform_finished(
     )
     display_kwargs["blending"] = "additive"
     contrast_limits = tuple(calc_data_range(registered.data))
-    _, layer = plot_napari(
+    _, [layer] = plot_napari(
         registered,
         viewer=panel.viewer,
         name=name,

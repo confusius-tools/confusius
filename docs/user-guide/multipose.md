@@ -113,8 +113,6 @@ Coordinates:
     y          (pose, k, j, i) float64 1MB ...
     x          (pose, k, j, i) float64 1MB ...
 Attributes:
-    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
-       ...
     device_serial_number:  ASAO0000
     software_version:      IcoScan v.1.9.0
     iconeus_scan_mode:     4Dscan
@@ -123,6 +121,8 @@ Attributes:
     iconeus_scan:          sub-01_task-awake_pwd
     ...
 ```
+
+Named world frames are available through `pwd.vd.affines`.
 
 The motor moved the probe across 4 positions. Each position gives 4 elevation slices.
 After [consolidation](#pose-consolidation), the array has 16 slices.
@@ -223,6 +223,11 @@ Most Xarray operations that don't touch world coordinates or timing work on mult
 arrays exactly as on any other VoxelData array—reductions, arithmetic, `.isel`, mask
 extraction, and so on all treat `pose` as an ordinary dimension.
 
+For [napari visualization](visualization.md#interactive-exploration-with-napari),
+`viewer, layers = pwd.fusi.plot.napari()` opens one layer per pose, each positioned
+using its own affine and named `<data name> [pose <value>]`. The CLI does the same;
+no consolidation is needed.
+
 Operations that resolve *positions* or *timestamps*, however, need a scalar `pose`
 first, per [The Multi-Pose Data Model](#the-multi-pose-data-model) above:
 
@@ -292,8 +297,6 @@ Coordinates:
     y           (k, j, i) float64 1MB ...
     x           (k, j, i) float64 1MB ...
 Attributes:
-    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
-       ...
     device_serial_number:  ASAO0000
     software_version:      IcoScan v.1.9.0
     iconeus_scan_mode:     4Dscan

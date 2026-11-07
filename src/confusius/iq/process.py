@@ -1594,7 +1594,7 @@ def process_iq_to_axial_velocity(
     output_attrs = {
         "units": "m/s",
         "long_name": "Axial velocity",
-        "cmap": "coolwarm",
+        "cmap": "berlin",
         "clutter_filters": _format_clutter_filter_spec(
             filter_method, low_cutoff, high_cutoff
         ),

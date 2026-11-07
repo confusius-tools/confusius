@@ -12,7 +12,7 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
-- Geometry now comes from the external `voxeldata` package. Use the flat `.vd`
+- Geometry now comes from the external `voxeldata>=0.0.4` package. Use the flat `.vd`
   accessor instead of `.fusi.affine`, `.fusi.spacing`, `.fusi.origin`, or
   `.fusi.direction`. Named world frames live on the VoxelData index and are
   managed with `.vd.set_affine`/`.vd.get_affine`, not DataArray attributes.
@@ -27,11 +27,24 @@ Current development version for the next ConfUSIus release.
   extraction preserves timing metadata but no longer adds acquisition defaults
   or validates fUSI timing semantics. Use ConfUSIus `ensure_voxeldata` explicitly
   when acquisition-aware canonicalization/validation is required.
-
+- [`plot_stat_map`][confusius.plotting.plot_stat_map] and
+  [`plot_matrix`][confusius.plotting.plot_matrix] default to the `"berlin"`
+  colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
+  light ones), judged from `bg_color`
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- Seed-based correlation maps, decomposition maps, GLM contrast maps and
+  [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity] outputs
+  carry `attrs["cmap"] = "berlin"`, the colormap
+  [`plot_volume`][confusius.plotting.plot_volume] and
+  [`plot_napari`][confusius.plotting.plot_napari] draw them with
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- `plot_napari` and its xarray accessors always return `(viewer, layers)`;
+  use `viewer, [layer] = ...` for single-layer results
+  ([#562](https://github.com/confusius-tools/confusius/pull/562)).
 - Python 3.11 is no longer supported; ConfUSIus now requires Python 3.12 or newer,
   following BrainGlobe's move to Python 3.12-3.14 and
   [SPEC 0](https://scientific-python.org/specs/spec-0000/)
-  ([#377](https://github.com/confusius-tools/confusius/issues/377)).
+  ([#561](https://github.com/confusius-tools/confusius/pull/561)).
   
 ### :sparkles: Enhancements
 
@@ -41,12 +54,19 @@ Current development version for the next ConfUSIus release.
   nonspatial axes; select a geometry first when their physical grids differ.
   Native Xarray `.reindex()` on geometry axes remains unsupported; use `.isel()` or
   `.sel()` instead ([#569](https://github.com/confusius-tools/confusius/pull/569)).
+- New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
+  colormap stat maps are drawn with, which remembers its source colormap and
+  threshold and can be rebuilt on another colormap with `with_source`
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
   them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
 
 ### :bug: Fixes
 
+- [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] draws the
+  iteration count in a darker turquoise, readable on light backgrounds
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - The first-level GLM example preserves named NIfTI frames when relabeling voxel
   axes, allowing its `world_to_qform` correction and full analysis to complete
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
@@ -72,6 +92,9 @@ Current development version for the next ConfUSIus release.
   VoxelData provides extraction out of the box through Xarray, with independent
   `accel` (flox), `lazy` (Dask), and combined `all` extras
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
+- The examples gallery runs each example once and renders its light and dark
+  figures from that single run
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
 - [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] now uses
   BrainGlobe's public lazy-loading API instead of reimplementing its Zarr internals,
   so atlas arrays stay lazy without depending on private upstream code
@@ -80,6 +103,12 @@ Current development version for the next ConfUSIus release.
   ([#555](https://github.com/confusius-tools/confusius/pull/555)).
 - Use the released xarray 2026.9.0 instead of a git pin now that it ships the
   required fixes ([#559](https://github.com/confusius-tools/confusius/pull/559)).
+
+### :frame_photo: Napari plugin
+
+- Open multipose arrays as one positioned layer per pose in `plot_napari`, its
+  xarray accessors, and the CLI, with pose values in layer names
+  ([#562](https://github.com/confusius-tools/confusius/pull/562)).
 
 ## 0.9.0
 

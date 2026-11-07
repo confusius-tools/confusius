@@ -107,7 +107,7 @@ class TestSecondLevelModelFit:
         assert z_map.attrs["contrast"] == "A-B"
         assert "subject_id" not in z_map.attrs
         assert z_map.attrs["long_name"] == "zscore"
-        assert z_map.attrs["cmap"] == "coolwarm"
+        assert z_map.attrs["cmap"] == "berlin"
 
     def test_sklearn_is_fitted(self, spatial_maps):
         model = SecondLevelModel()

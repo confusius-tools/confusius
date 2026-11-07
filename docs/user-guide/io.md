@@ -261,8 +261,7 @@ Indexes:
   ┌ z        VoxelToWorldIndex
   │ y
   └ x
-Attributes: (12/26)
-    affines:                           {'world_to_lab': array([[1., 0., 0.,...
+Attributes:
     iconeus_scan_format:               v2
     iconeus_acquisition_mode:          2Dscan
     iconeus_datetime:                  2026-07-14T05:00:00+00:00

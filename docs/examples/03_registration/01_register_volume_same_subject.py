@@ -136,7 +136,6 @@ print(f"Rigid transform:\n{rigid_transform}")
 
 # %% tags=["thumbnail"]
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-fig.patch.set_facecolor(bg_color)
 
 for ax, moving_view, title in [
     (axes[0], moving, "Before"),
@@ -158,7 +157,6 @@ _ = fig.suptitle("Fixed (red) / moving (cyan)")
 
 # %%
 fig, ax = plt.subplots(figsize=(7, 3))
-fig.patch.set_facecolor(bg_color)
 ax.plot(diagnostics.metric_values, color="#d93a54")
 ax.set_xlabel("Iteration")
 ax.set_ylabel(f"Similarity metric ({diagnostics.metric})")
@@ -213,7 +211,6 @@ print(f"Rigid + B-spline final metric: {diagnostics_bspline.final_metric_value:.
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-fig.patch.set_facecolor(bg_color)
 
 for ax, moving_view, title in [
     (axes[0], registered, "Rigid"),
@@ -229,7 +226,6 @@ _ = fig.suptitle("Fixed (red) / moving (cyan)")
 
 # %%
 fig, ax = plt.subplots(figsize=(7, 3))
-fig.patch.set_facecolor(bg_color)
 ax.plot(diagnostics_bspline.metric_values, color="#d93a54")
 ax.set_xlabel("Iteration")
 ax.set_ylabel(f"Similarity metric ({diagnostics_bspline.metric})")
@@ -280,7 +276,6 @@ local_inverse_field = cf.registration.invert_displacement_field(local_field)
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(8, 3))
-fig.patch.set_facecolor(bg_color)
 
 for ax, background, field, title in [
     (axes[0], fixed, composite_inverse_field, "Approximate inverse combined warp"),

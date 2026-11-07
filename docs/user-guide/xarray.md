@@ -657,7 +657,7 @@ visualization functions for quick data inspection and quality control.
 For example, to display data in [napari](https://napari.org/):
 
 ```python
-viewer, layer = registered.fusi.plot.napari(gamma=0.5)
+viewer, layers = registered.fusi.plot.napari(gamma=0.5)
 ```
 
 Or to show standardized time series in a carpet plot, useful for quality control:
@@ -701,7 +701,7 @@ pwd = iq.fusi.iq.process_to_power_doppler(
 )
 
 # 3. Inspect in napari.
-viewer, layer = pwd.fusi.plot.napari(gamma=0.5)
+viewer, layers = pwd.fusi.plot.napari(gamma=0.5)
 
 # 4. Motion correction.
 registered = pwd.fusi.register.volumewise()

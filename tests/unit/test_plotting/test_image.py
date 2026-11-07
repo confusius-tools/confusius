@@ -1296,7 +1296,7 @@ class TestVolumePlotterAddVolume:
             VolumePlotter(slice_mode="z").add_volume(
                 sample_voxeldata_3d,
                 match_coordinates=False,
-                alpha=alpha,
+                alpha=alpha,  # ty: ignore[invalid-argument-type]
             )
 
     def test_dataarray_alpha_size_mismatch_raises(

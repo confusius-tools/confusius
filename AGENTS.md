@@ -29,7 +29,8 @@ methods remain but do not default/validate acquisition metadata; constructors,
 loaders, and explicit validation own that policy. Primary timestamps may depend
 on `time` plus arbitrary nonspatial axes. Auxiliary `slice_time` semantics and
 correction remain in ConfUSIus. Extraction works without optional flox/Dask in VoxelData; ConfUSIus
-retains its existing analysis dependencies. When changing the VoxelData API, test
+retains its existing analysis dependencies and requires published `voxeldata>=0.0.4`.
+Validate integration against the published package. When changing the VoxelData API, test
 against the sibling checkout with `uv run --with-editable ../voxeldata pytest ...`;
 the published dependency must support that API before merging the integration.
 
