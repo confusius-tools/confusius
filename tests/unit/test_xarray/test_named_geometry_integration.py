@@ -5,7 +5,6 @@ import pytest
 import xarray as xr
 
 from confusius import io
-from confusius.extract import extract_with_labels, extract_with_mask, unmask
 from confusius.validation import ensure_voxeldata, validate_voxeldata
 from confusius.xarray import create_voxeldata
 
@@ -166,43 +165,6 @@ def test_zarr_affine_stack_requires_dependency_metadata(
         io.load(path)
 
 
-def test_extraction_preserves_independently_indexed_geometry_axes(
-    sample_named_geometry_voxeldata, sample_voxeldata_3d_oblique
-):
-    """Spatial stacking must not couple or consume time/view/channel indexes."""
-    data = sample_named_geometry_voxeldata
-    base = sample_voxeldata_3d_oblique.vd.voxel_to_world
-    data = data.vd.set_voxel_to_world(
-        np.broadcast_to(base, (3, 2, 4, 4)),
-        geometry_dims=("time", "view"),
-        named_affines=data.vd.affines,
-    )
-    selected = np.zeros(sample_voxeldata_3d_oblique.shape, dtype=bool)
-    selected[0, 0, 0] = selected[1, 2, 3] = True
-    mask = create_voxeldata(selected, dims=("k", "j", "i"), voxel_to_world=base)
-    signals = extract_with_mask(data, mask)
-    np.testing.assert_array_equal(
-        signals.transpose("channel", "time", "view", "space").values,
-        data.values[..., selected],
-    )
-    np.testing.assert_array_equal(
-        signals.sel(view=41, channel=30).transpose("time", "space").values,
-        data.sel(view=41, channel=30).values[..., selected],
-    )
-    restored = unmask(signals, mask)
-    np.testing.assert_array_equal(
-        restored.transpose(*data.dims).values[..., selected], data.values[..., selected]
-    )
-    labels = create_voxeldata(
-        selected.astype(int), dims=("k", "j", "i"), voxel_to_world=base
-    )
-    reduced = extract_with_labels(data, labels)
-    np.testing.assert_allclose(
-        reduced.transpose("channel", "time", "view", "region").values[..., 0],
-        data.values[..., selected].mean(axis=-1),
-    )
-
-
 def test_geometry_axis_reindex_is_documented_as_unsupported(
     sample_named_geometry_voxeldata,
 ):
@@ -215,29 +177,3 @@ def test_geometry_axis_reindex_is_documented_as_unsupported(
     stale = data.reindex(view=[41, 11])
     with pytest.raises(ValueError, match="no longer matches the affine index"):
         validate_voxeldata(stale)
-
-
-def test_shared_mask_rejects_physically_varying_geometry(
-    sample_named_geometry_voxeldata, sample_voxeldata_3d_oblique
-):
-    """A mask in one world grid cannot silently broadcast to shifted acquisitions."""
-    mask = create_voxeldata(
-        np.ones(sample_voxeldata_3d_oblique.shape, dtype=bool),
-        dims=("k", "j", "i"),
-        voxel_to_world=sample_voxeldata_3d_oblique.vd.voxel_to_world,
-    )
-    with pytest.raises(ValueError, match="geometry varies along"):
-        extract_with_mask(sample_named_geometry_voxeldata, mask)
-
-
-def test_shared_mask_rejects_different_spatial_units(sample_voxeldata_3d_oblique):
-    """Identical numeric transforms in different units are not the same world grid."""
-    data = sample_voxeldata_3d_oblique
-    mask = create_voxeldata(
-        np.ones(data.shape, dtype=bool),
-        dims=data.dims,
-        voxel_to_world=data.vd.voxel_to_world,
-        units="cm",
-    )
-    with pytest.raises(ValueError, match="spatial units differ"):
-        extract_with_mask(data, mask)

@@ -5,7 +5,6 @@ import pytest
 import voxeldata as vd
 import xarray as xr
 
-from confusius.extract import unmask
 from confusius.validation import ensure_labels, ensure_mask
 
 
@@ -55,7 +54,7 @@ def test_extraction_exports_are_voxeldata_functions(name):
     assert getattr(extract, name) is getattr(vd, name)
 
 
-def test_unmask_preserves_mask_named_frames(sample_voxeldata_3d_oblique):
+def test_fusi_unmask_preserves_mask_named_frames(sample_voxeldata_3d_oblique):
     """Delegated reconstruction retains the mask's index-owned world frames."""
     mask = sample_voxeldata_3d_oblique.copy(
         data=np.zeros(sample_voxeldata_3d_oblique.shape, dtype=bool)
@@ -70,8 +69,9 @@ def test_unmask_preserves_mask_named_frames(sample_voxeldata_3d_oblique):
         ]
     )
     mask = mask.vd.set_affine("reference", frame)
-    result = unmask(np.array([3.0, 8.0]), mask)
-    expected = np.zeros(mask.shape)
+    signals = xr.DataArray([3.0, 8.0], dims="space")
+    result = signals.fusi.extract.unmask(mask, fill_value=-1.0)
+    expected = np.full(mask.shape, -1.0)
     expected.flat[[0, -1]] = [3.0, 8.0]
     np.testing.assert_array_equal(result, expected)
     np.testing.assert_array_equal(result.vd.get_affine("reference"), frame)

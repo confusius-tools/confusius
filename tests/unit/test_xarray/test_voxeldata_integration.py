@@ -3,20 +3,18 @@
 import numpy as np
 import pytest
 import voxeldata
-import xarray as xr
 
 from confusius import io
 from confusius._utils.geometry import VoxelToWorldIndex, attach_voxel_to_world_index
 from confusius.multipose import stack_poses
 from confusius.validation import ensure_voxeldata, validate_voxeldata
-from confusius.xarray import apply_affine, create_voxeldata
+from confusius.xarray import create_voxeldata
 
 
 def test_geometry_owned_by_external_package(sample_voxeldata_3d):
     """ConfUSIus and external consumers use the same index and accessor classes."""
     assert VoxelToWorldIndex is voxeldata.VoxelToWorldIndex
     assert attach_voxel_to_world_index is voxeldata.attach_voxel_to_world_index
-    assert apply_affine is voxeldata.apply_affine
     assert isinstance(sample_voxeldata_3d.vd, voxeldata.VoxelDataAccessor)
     for name in ("affine", "spacing", "origin", "direction"):
         assert not hasattr(sample_voxeldata_3d.fusi, name)
@@ -121,3 +119,30 @@ def test_zarr_roundtrip_preserves_grid_geometry_and_named_frames(tmp_path):
     assert "affines" not in restored.attrs
     assert "voxel_to_world_named_affines" not in restored.attrs
     assert isinstance(restored.vd.index, voxeldata.VoxelToWorldIndex)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "apply_affine",
+        "get_bounding_box",
+        "get_relative_affine",
+        "reindex_voxels",
+        "reindex_voxels_like",
+    ],
+)
+def test_public_affine_exports_are_voxeldata_functions(name):
+    """The public xarray namespace exposes VoxelData's affine implementations."""
+    from confusius import xarray as extensions
+
+    assert getattr(extensions, name) is getattr(voxeldata, name)
+
+
+def test_internal_geometry_exports_are_voxeldata_functions():
+    """Internal consumers share the same geometry classes and helper functions."""
+    from voxeldata import geometry as generic
+
+    from confusius._utils import geometry
+
+    for name in geometry.__all__:
+        assert getattr(geometry, name) is getattr(generic, name)
