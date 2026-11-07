@@ -317,7 +317,7 @@ def _resolve_voxel_to_world(
     spatial_sizes : mapping[str, int]
         Spatial voxel sizes keyed by native `k/j/i` dimension name.
     spacing : sequence[float], optional
-        World spacing in `z/y/x` order.
+        World spacing in `k/j/i` order.
     origin : sequence[float], optional
         World origin in `z/y/x` order. If not provided, ConfUSIus probe defaults are
         used.
@@ -454,7 +454,7 @@ def create_voxeldata(
         `t0` (e.g. a stacked-linear-probe pose acquired simultaneously with another)
         don't count toward the gap.
     spacing : sequence[float], optional
-        World spacing in `z/y/x` order. Mutually exclusive with `voxel_to_world`.
+        World spacing in `k/j/i` order. Mutually exclusive with `voxel_to_world`.
     origin : sequence[float], optional
         World origin in `z/y/x` order. If not provided, ConfUSIus probe defaults are
         used.
