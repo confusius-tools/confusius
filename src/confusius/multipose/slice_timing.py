@@ -106,10 +106,13 @@ def correct_slice_timings(
     """
     if "time" not in da.dims:
         raise ValueError("DataArray must have a 'time' dimension.")
+    original_dims = da.dims
     da = ensure_voxeldata(da, require_time=True, require_unchunked_time=True)
 
     time_coord = da.coords["time"]
-    is_pose_dependent_time = time_coord.dims == ("time", POSE_DIM)
+    is_pose_dependent_time = set(time_coord.dims) == {"time", POSE_DIM}
+    if is_pose_dependent_time:
+        time_coord = time_coord.transpose("time", POSE_DIM)
 
     if "slice_time" in da.coords:
         timing_coord_name = "slice_time"
@@ -172,4 +175,4 @@ def correct_slice_timings(
     del out.coords[timing_coord_name]
     if timing_coord_name == "time":
         out = out.assign_coords(time=target_time_coord)
-    return out
+    return out.transpose(*original_dims)

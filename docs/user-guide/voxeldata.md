@@ -6,27 +6,52 @@ icon: lucide/move-3d
 
 ## VoxelData Arrays
 
-**VoxelData** is ConfUSIus's canonical
-[DataArray](https://docs.xarray.dev/en/stable/getting-started-guide/why-xarray.html#core-data-structures)
-model for any spatially referenced voxel array—beamformed IQ and fUSI recordings, atlas
-volumes, decomposition component maps, displacement fields, and anything else gridded in
-space.
+**VoxelData** is the modality-independent
+[`voxeldata`](https://github.com/confusius-tools/voxeldata) package's
+[xarray.DataArray](https://docs.xarray.dev/en/stable/getting-started-guide/why-xarray.html#core-data-structures)
+model. ConfUSIus uses it for beamformed IQ and fUSI recordings, atlas volumes,
+decomposition maps, and displacement fields. Importing ConfUSIus also registers
+VoxelData's flat **`.vd` accessor**. Use `.vd` for geometry and `.fusi` for
+fUSI analysis, plotting, scaling, and saving; there is no `.fusi.affine` accessor.
 
-A **VoxelData array** is a DataArray that satisfies the following requirements:
+A **VoxelData array** satisfies these requirements:
 
-1. Dimensions `(..., time, pose, k, j, i)` in that order, where `...` maybe be any
-   number of extra dimensions (e.g. decomposition components, channels, etc.) and `time`
-   and `pose` may be absent.
-2. A
-   [**`VoxelToWorldIndex`**](https://docs.xarray.dev/en/stable/user-guide/indexing.html)
-   attached to the world coordinates `(z, y, x)`, which it derives either from `(pose,
-   k, j, i)` through one voxel-to-world affine transformation per pose.
-3. Attributes `units`, `volume_acquisition_reference`, and `volume_acquisition_duration`
-   on `time`.
+1. Dimensions `(*nonspatial_dims, k, j, i)`: spatial dimensions are mandatory and
+   last. Optional `time`, `pose`, and any other leading dimensions may appear in any
+   order.
+2. A **`VoxelToWorldIndex`**, supplied by VoxelData, attached to the derived world
+   coordinates `(z, y, x)`. Geometry is a shared `(4, 4)` affine or a stack indexed
+   by ordered, nonspatial `geometry_dims`. Its batch shape matches those dimensions,
+   independently of the parent array order.
+3. For fUSI time series, attributes `units`, `volume_acquisition_reference`, and
+   `volume_acquisition_duration` on `time`. These acquisition requirements belong
+   to ConfUSIus, not to the generic VoxelData model.
 
-### Dimension Ordering: `(..., time, pose, k, j, i)`
+ConfUSIus probe-pose APIs use **`pose`**. The ConfUSIus constructor interprets probe affine stacks as
+`geometry_dims=("pose",)` and apply across time and other leading dimensions.
+General VoxelData arrays may instead declare dependencies such as
+`geometry_dims=("time", "view")`, requiring `(ntime, nview, 4, 4)` affines. A shared
+matrix has `geometry_dims=()`, even with nonspatial dimensions. Identical matrices
+are allowed. Timestamp dependencies remain independent of geometry dependencies.
 
-VoxelData arrays have the following dimensions, in the order shown:
+!!! warning "Geometry-axis reindexing is unsupported"
+    Use `.isel()` or `.sel()` to select/reorder dimensions listed in
+    `data.vd.geometry_dims`, not native Xarray `.reindex()` or alignment that
+    changes their labels. The world index is separate from their ordinary indexes;
+    raw Xarray world-coordinate access can retain stale transform metadata.
+    VoxelData access/validation detects mismatching indexed geometry labels.
+    `.vd.reindex_voxels()` and `.vd.reindex_voxels_like()` explicitly rebuild geometry
+    and remain supported.
+
+Zarr saves preserve the ordered dependencies in `voxel_to_world_geometry_dims`,
+along with primary geometry and named frames, without storing dense world arrays.
+A shared mask may broadcast across geometry axes only when all corresponding
+affines describe the same physical grid; otherwise select a geometry first.
+
+### Dimension Ordering
+
+Only the trailing `(k, j, i)` order is required. Leading dimensions have these
+usual meanings, but their order is flexible:
 
 | Dimension | Coordinate dtype | Optional | Typical axis meaning | Typical size |
 |---|---|---|---|---|
@@ -37,28 +62,24 @@ VoxelData arrays have the following dimensions, in the order shown:
 | `j` | int | No | Axial / depth | Tens to hundreds |
 | `i` | int | No | Lateral | Tens to hundreds |
 
-!!! question "Why `(..., time, k, j, i)` instead of `(i, j, k, time, ...)`?"
-    Users familiar with neuroimaging are typically accustomed to spatiotemporal
-    conventions like `(i, j, k, time, ...)`. These conventions come from languages like
-    MATLAB and formats like NIfTI where the first axis `i` varies fastest in storage.
-    This is the opposite of NumPy's (and most of Python's) default memory layout, where
-    the last axis varies fastest. ConfUSIus therefore uses `(..., time, pose, k, j, i)`
-    to map NIfTI data naturally onto the memory layout used throughout the Python
-    scientific ecosystem, often without copying or rearranging the data.
+[`create_voxeldata`][confusius.xarray.create_voxeldata] preserves the relative
+order of leading dimensions. Both `(time, pose, k, j, i)` and
+`(pose, time, k, j, i)` are valid, as are arrays with extra leading dimensions.
+Validation checks validity without changing the order.
 
-    Thankfully, Xarray makes dimension ordering transparent in practice: you can always
-    refer to dimensions by name and in any order (e.g. `data.mean("time")`,
-    `data.sel(x=4.54, y=-2.48, z=0.0)`) rather than by axis index, so you won't have to
-    remember the order of the dimensions. Moreover,
-    [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] will automatically
-    reorder dimensions to the canonical order if they are not already, so you can always
-    pass a DataArray to ConfUSIus functions without worrying about its dimension order.
+When a stable order is useful, ConfUSIus's
+[`ensure_voxeldata`][confusius.validation.ensure_voxeldata] uses
+`(...extra_dims, pose, time, k, j, i)` and defaults and validates fUSI acquisition
+metadata. Generic `data.vd.canonicalize()` and `data.vd.ensure()` use
+`(...extra_dims, time, k, j, i)`; `pose` has no special meaning in VoxelData.
+Both preserve the relative order of extra dimensions and restore scalar-selected
+spatial dimensions without inserting absent nonspatial dimensions. Affine stacks
+passed directly to VoxelData must always name their `geometry_dims`.
 
-This ordering pays off beyond the NumPy memory layout above:
+Keeping spatial dimensions last has practical benefits:
 
-- **Contiguous volumes:** the last axes are contiguous in memory, so `data[t]` is one
-  contiguous block—the natural unit for IQ processing, motion correction, and other
-  volume-wise operations.
+- **Spatial blocks:** the last axes describe one volume. Use named selection such
+  as `data.isel(time=t, pose=g)` rather than assuming what the first array axis means.
 - **`(samples, features)` for free:** `data.stack(space=["k", "j", "i"])` reshapes to
   `(time, space)` without copy, matching the
   [scikit-learn](https://scikit-learn.org/stable/)/
@@ -84,8 +105,8 @@ attributes from requirement 3 above have the following meanings:
 Additionally, the `VoxelToWorldIndex` attached to `(z, y, x)` carries its own `units`
 attribute, which is the physical unit of the world coordinates (millimeters is typical).
 It is accessed through the
-[`.fusi.affine.units`][confusius.xarray.FUSIAffineAccessor.units] property and set with
-[`.fusi.affine.set_units(...)`][confusius.xarray.FUSIAffineAccessor.set_units].
+[`.vd.units`][voxeldata.accessors.VoxelDataAccessor.units] property and set with
+[`.vd.set_units(...)`][voxeldata.accessors.VoxelDataAccessor.set_units].
 
 !!! warning "Don't set attributes on world coordinates directly"
     World coordinates `(z, y, x)` are always derived fresh from the
@@ -97,7 +118,7 @@ It is accessed through the
     packages that read it from there still see it — but some xarray operations that
     combine several arrays (e.g. `xr.where`, which only keeps attrs from its `x`
     argument) can drop that copy from the result without touching the index's own
-    `units`. Always trust `.fusi.affine.units`, never `.coords["z"].attrs["units"]`,
+    `units`. Always trust `.vd.units`, never `.coords["z"].attrs["units"]`,
     when correctness matters.
 
 ### Creating and Validating VoxelData Arrays
@@ -109,7 +130,7 @@ VoxelData array and want to check that it still satisfies the VoxelData model, u
 
 All ConfUSIus functions that expect a VoxelData array call
 [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] on their input, which
-canonicalizes the DataArray first—reordering dimensions to `(...extra, time, pose, k,
+canonicalizes the DataArray first—reordering dimensions to `(...extra, pose, time, k,
 j, i)`, restoring a voxel dimension collapsed to a scalar coordinate by a prior
 [`.isel`][xarray.DataArray.isel], and filling in missing `time` metadata with sensible
 defaults—before validating.
@@ -188,7 +209,7 @@ coordinate systems:
 - **World space**: derived from voxel space through the DataArray's voxel-to-world
   affine transformation(s) and exposed as the coordinates `(x, y, z)`.
 - **Reference spaces**: any coordinate system (atlas, scanner, etc.) linked to the world
-  space through affine transforms stored in `.attrs["affines"]`.
+  space through affine transforms stored in `.vd.affines`.
 
 For most recordings, one voxel-to-world affine defines one world grid for the whole
 DataArray. Multi-pose acquisitions are the main exception: they carry one affine per
@@ -213,8 +234,8 @@ flowchart LR
 
     A -->|"integer labels"| V
     V -->|"VoxelToWorldIndex"| P
-    P -->|".attrs[affines]"| W1
-    P -->|".attrs[affines]"| W2
+    P -->|".vd.affines"| W1
+    P -->|".vd.affines"| W2
     P --> ellipsis
 
     ellipsis@{ shape: text }
@@ -246,7 +267,7 @@ array([3, 4, 5])
 3
 ```
 
-Use [`reindex_voxels`][confusius.xarray.reindex_voxels] to rebase voxel labels back to
+Use [`reindex_voxels`][voxeldata.affine.reindex_voxels] to rebase voxel labels back to
 dense array-space positions—see [Rebasing voxel coordinates to dense
 positions](xarray.md#rebasing-voxel-coordinates-to-dense-positions) in Working with
 Xarray.
@@ -258,8 +279,8 @@ transformations, for multi-pose data) contained in the `VoxelToWorldIndex` and e
 as coordinates `(x, y, z)`. For ordinary single-pose data these coordinates are arrays
 with shape `(k, j, i)`. For multi-pose data they are pose-dependent with shape `(pose,
 k, j, i)`, so selecting in world space requires a scalar `pose` first. The unit shared
-by `x`/`y`/`z` is exposed as `data.fusi.affine.units` and set with
-`data.fusi.affine.set_units(...)`; millimeters are the usual default for fUSI
+by `x`/`y`/`z` is exposed as `data.vd.units` and set with
+`data.vd.set_units(...)`; millimeters are the usual default for fUSI
 recordings.
 
 !!! warning "Units are not enforced"
@@ -323,24 +344,29 @@ world-space coordinates:
 ```
 
 The voxel-to-world affine can be read with
-[`.fusi.affine.voxel_to_world`][confusius.xarray.FUSIAffineAccessor.voxel_to_world], or
+[`.vd.voxel_to_world`][voxeldata.accessors.VoxelDataAccessor.voxel_to_world], or
 replaced outright with
-[`.fusi.affine.set_voxel_to_world`][confusius.xarray.FUSIAffineAccessor.set_voxel_to_world].
+[`.vd.set_voxel_to_world`][voxeldata.accessors.VoxelDataAccessor.set_voxel_to_world].
+
+Scalar spatial selection, such as `data.isel(k=0)`, removes a required voxel
+dimension. Before `.vd.apply()` or `.vd.reindex_voxels()`, restore it explicitly:
+`ensure_voxeldata(data.isel(k=0)).vd.apply(matrix)`. A scalar-selected `pose` is
+not restored; it selects one probe pose and its geometry.
 
 That raw mapping is rarely what you want directly, though: most tools that consume
 world-space geometry think in [array space](#array-space), not in whatever labels the
 `(k, j, i)` coordinates happen to carry after upstream cropping or striding. If you
 specifically need the affine mapping array space to world space (that packages like
 NiBabel or the NIfTI format expect) call
-[`reindex_voxels`][confusius.xarray.reindex_voxels] first: it rebases the voxel space to
+[`reindex_voxels`][voxeldata.affine.reindex_voxels] first: it rebases the voxel space to
 the array space and updates `voxel_to_world` to match, so the affine you then read off
 directly maps dense array positions instead of labels.
 
 #### Origin, Spacing, Direction
 
-[`.fusi.origin`][confusius.xarray.FUSIAccessor.origin],
-[`.fusi.spacing`][confusius.xarray.FUSIAccessor.spacing], and
-[`.fusi.direction`][confusius.xarray.FUSIAccessor.direction] (see [Global
+[`.vd.origin`][voxeldata.accessors.VoxelDataAccessor.origin],
+[`.vd.spacing`][voxeldata.accessors.VoxelDataAccessor.spacing], and
+[`.vd.direction`][voxeldata.accessors.VoxelDataAccessor.direction] (see [Global
 Helpers](xarray.md#global-helpers) in Working with Xarray) describe the same
 voxel-to-world affine, but anchored to array space rather than voxel labels. They are
 the typical parameters used to describe a world-space grid in neuroimaging tools like
@@ -357,7 +383,7 @@ ITK:
 
 For example, if `k`'s coordinates are `[0, 2, 4]` (every other voxel was kept, e.g. by
 `.isel(k=slice(None, None, 2))`) and the voxel-to-world affine's scale along `k` is
-`0.1`, then `data.fusi.spacing["k"]` is `0.2`, not `0.1`: consecutive array positions
+`0.1`, then `data.vd.spacing["k"]` is `0.2`, not `0.1`: consecutive array positions
 are two *sampled voxels* apart. Together, `origin`/`spacing`/`direction` reconstruct
 world coordinates from array position rather than from labels:
 
@@ -368,28 +394,31 @@ world = origin + direction @ (spacing * array_position)
 ### Reference Spaces
 
 ConfUSIus stores affine transformations relating the DataArray's current world space to
-any number of other named spaces in `.attrs["affines"]`, a dictionary keyed by affine
-name. Reference spaces can be an atlas space, a scanner or lab space, another
+any number of other named spaces on the VoxelData index. Read them through
+`data.vd.affines` or `data.vd.get_affine(name)`; add or remove them with
+`data.vd.set_affine(name, matrix)` and `data.vd.remove_affine(name)`. Mutators return
+a new DataArray unless `inplace=True` is specified. Named frames never live in
+DataArray attributes. Reference spaces can be an atlas space, a scanner or lab space, another
 recording's world space, or a space the data has already moved away from (e.g. the raw
 probe-relative space a recording started in).
 
 A space counts as a "reference space" rather than *the* world space only because
 reaching it currently takes an affine.
-[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] can turn any one of
+[`.vd.apply`][voxeldata.accessors.VoxelDataAccessor.apply] can turn any one of
 them into the world space itself (see [Switching World
-Spaces](#switching-world-spaces)). Each reference space is stored in `.attrs["affines"]`
+Spaces](#switching-world-spaces)). Each reference space is stored in `.vd.affines`
 as a homogeneous affine matrix in `(z, y, x)` convention that maps a world-space point
 to the corresponding point in the reference space. Most are plain `(4, 4)` matrices;
 for multi-pose data they may also be stacked `(pose, 4, 4)` affines with one entry per
 pose.
 
-Several loaders populate `.attrs["affines"]` automatically:
+Several loaders populate `.vd.affines` automatically:
 
 - **NIfTI**: The world space is whichever affine (`sform` or `qform`) was selected; its
   own entry (`"world_to_sform"` or `"world_to_qform"`) is the identity. When the other
   one is also valid, it is stored under the other key, so the world space can be
   switched between the two. [`save_nifti`][confusius.io.save_nifti] can write any
-  named affine in `.attrs["affines"]` back to the header via its `qform=`/`sform=`
+  named affine in `.vd.affines` back to the header via its `qform=`/`sform=`
   arguments, defaulting to `"world_to_qform"`/`"world_to_sform"` when not specified.
 - **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] uses the modified Iconeus
   laboratory space (see [World Space](#world-space)) as world space, so its
@@ -399,13 +428,13 @@ Several loaders populate `.attrs["affines"]` automatically:
   the `"world_to_brain"` entry maps world coordinates to the Iconeus brain space defined
   by the BPS file.
 
-Registration transforms are handled separately from `.attrs["affines"]`.
+Registration transforms are handled separately from `.vd.affines`.
 [`register_volume`][confusius.registration.register_volume] returns the estimated
-transform explicitly but does not store automatically in `.attrs["affines"]`.
+transform explicitly but does not store automatically in `.vd.affines`.
 
 !!! question "Why store affines as world → reference instead of voxel → reference?"
     A voxel → reference affine breaks the moment the voxel space is reindexed—via
-    [`reindex_voxels`][confusius.xarray.reindex_voxels] or when saving to NIfTI. A world
+    [`reindex_voxels`][voxeldata.affine.reindex_voxels] or when saving to NIfTI. A world
     → reference affine doesn't have this problem: it operates on world coordinate
     values, which stay physically correct through reindexing.
     [`save_nifti`][confusius.io.save_nifti] reconstructs the voxel → reference NIfTI
@@ -415,8 +444,8 @@ transform explicitly but does not store automatically in `.attrs["affines"]`.
 ## Switching World Spaces
 
 To switch a DataArray's world space to one of its reference spaces, apply the affine
-that relates them: [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply]
-takes a `(4, 4)` affine (or a key into `.attrs["affines"]`) and re-expresses the
+that relates them: [`.vd.apply`][voxeldata.accessors.VoxelDataAccessor.apply]
+takes a `(4, 4)` affine (or a key into `.vd.affines`) and re-expresses the
 DataArray's world coordinates in that space, which becomes the new world space. For
 multi-pose data, applying a single affine broadcasts it over every pose, while a
 stacked affine is applied pose-by-pose.
@@ -431,7 +460,7 @@ carried on the `world_to_qform` affine attribute:
 array([-1., -1., -1., -1.,  0.,  0.,  0.,  0.,  1.,  1.,  1.,  1.])
 >>> da.coords["y"].values.flatten()
 array([0.5, 1.5, 2.5, 3.5, 0.5, 1.5, 2.5, 3.5, 0.5, 1.5, 2.5, 3.5])
->>> da.attrs["affines"]["world_to_qform"]
+>>> da.vd.affines["world_to_qform"]
 array([[ 0., -1.,  0.,  0.],
        [ 1.,  0.,  0.,  0.],
        [ 0.,  0.,  1.,  0.],
@@ -445,13 +474,13 @@ entry, identity before, now holds the inverse rotation, so the `sform` space sta
 recoverable.
 
 ```pycon
->>> da_q = da.fusi.affine.apply("world_to_qform")
+>>> da_q = da.vd.apply("world_to_qform")
 >>> da_q.coords["z"].values.flatten()
 array([-0.5, -1.5, -2.5, -3.5, -0.5, -1.5, -2.5, -3.5, -0.5, -1.5, -2.5,
        -3.5])
 >>> da_q.coords["y"].values.flatten()
 array([-1., -1., -1., -1.,  0.,  0.,  0.,  0.,  1.,  1.,  1.,  1.])
->>> da_q.attrs["affines"]
+>>> da_q.vd.affines
 {'world_to_sform': array([[ 0.,  1.,  0.,  0.],
        [-1.,  0.,  0.,  0.],
        [ 0.,  0.,  1.,  0.],
@@ -462,4 +491,4 @@ array([-1., -1., -1., -1.,  0.,  0.,  0.,  0.,  1.,  1.,  1.,  1.])
 ```
 
 See [Affine Transforms](xarray.md#affine-transforms) in Working with Xarray for
-the rest of the `.fusi.affine` API (`voxel_to_world`, `set_voxel_to_world`, `to`).
+the rest of the `.vd` API (`voxel_to_world`, `set_voxel_to_world`, `to`).

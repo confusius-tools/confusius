@@ -39,8 +39,8 @@ class TestBuildDataArray:
         da = save_panel._build_da()
         validate_voxeldata(da)
         assert da.dims == ("k", "j", "i")
-        assert da.fusi.spacing == sample_voxeldata_3dt.isel(time=0).fusi.spacing
-        assert da.fusi.origin == sample_voxeldata_3dt.isel(time=0).fusi.origin
+        assert da.vd.spacing == sample_voxeldata_3dt.isel(time=0).vd.spacing
+        assert da.vd.origin == sample_voxeldata_3dt.isel(time=0).vd.origin
 
     def test_reconstruct_without_template_yields_valid_voxeldata(
         self, save_panel, labels_layer, sample_voxeldata_3dt
@@ -50,8 +50,8 @@ class TestBuildDataArray:
         da = save_panel._build_da()
         validate_voxeldata(da)
         assert da.dims == ("k", "j", "i")
-        assert da.fusi.spacing == sample_voxeldata_3dt.isel(time=0).fusi.spacing
-        assert da.fusi.origin == sample_voxeldata_3dt.isel(time=0).fusi.origin
+        assert da.vd.spacing == sample_voxeldata_3dt.isel(time=0).vd.spacing
+        assert da.vd.origin == sample_voxeldata_3dt.isel(time=0).vd.origin
         assert (
             da.coords["x"].attrs["units"]
             == sample_voxeldata_3dt.coords["x"].attrs["units"]

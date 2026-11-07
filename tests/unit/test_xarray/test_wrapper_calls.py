@@ -57,12 +57,14 @@ def test_extract_wrappers_forward_calls(
         calls["unmask"] = (data, mask, fill_value)
         return expected
 
-    monkeypatch.setattr("confusius.extract.labels.extract_with_labels", _with_labels)
-    monkeypatch.setattr("confusius.extract.mask.extract_with_mask", _with_mask)
-    monkeypatch.setattr("confusius.extract.reconstruction.unmask", _unmask)
+    monkeypatch.setattr("confusius.extract.extract_with_labels", _with_labels)
+    monkeypatch.setattr("confusius.extract.extract_with_mask", _with_mask)
+    monkeypatch.setattr("confusius.extract.unmask", _unmask)
 
     assert (
-        sample_voxeldata_3dt.fusi.extract.with_labels(sample_roi_labels, reduction="sum")
+        sample_voxeldata_3dt.fusi.extract.with_labels(
+            sample_roi_labels, reduction="sum"
+        )
         is expected
     )
     assert calls["labels"] == (sample_voxeldata_3dt, sample_roi_labels, "sum")
@@ -72,32 +74,6 @@ def test_extract_wrappers_forward_calls(
 
     assert sample_voxeldata_3dt.fusi.extract.unmask(mask, fill_value=-1.0) is expected
     assert calls["unmask"] == (sample_voxeldata_3dt, mask, -1.0)
-
-
-def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
-    """Affine accessor methods forward arguments to helper functions."""
-    expected_to = np.eye(4)
-    expected_apply = sample_voxeldata_3dt
-    other = sample_voxeldata_3dt.copy()
-    affine = np.diag([1.0, 2.0, 3.0, 1.0])
-    calls: dict[str, tuple] = {}
-
-    def _to(data, other_, via):
-        calls["to"] = (data, other_, via)
-        return expected_to
-
-    def _apply(data, affine_, inplace=False):
-        calls["apply"] = (data, affine_, inplace)
-        return expected_apply
-
-    monkeypatch.setattr("confusius.xarray.affine.get_relative_affine", _to)
-    monkeypatch.setattr("confusius.xarray.affine.apply_affine", _apply)
-
-    assert sample_voxeldata_3dt.fusi.affine.to(other, via="world_to_lab") is expected_to
-    assert calls["to"] == (sample_voxeldata_3dt, other, "world_to_lab")
-
-    assert sample_voxeldata_3dt.fusi.affine.apply(affine, inplace=True) is expected_apply
-    assert calls["apply"] == (sample_voxeldata_3dt, affine, True)
 
 
 def test_iq_wrappers_forward_calls(monkeypatch, sample_voxeldata_iq_3dt):
@@ -410,7 +386,9 @@ def test_connectivity_seed_map_with_signals_constructs_and_fits(
     }
 
 
-def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_roi_labels):
+def test_plot_wrappers_forward_calls(
+    monkeypatch, sample_voxeldata_3d, sample_roi_labels
+):
     """Plot accessor methods forward all arguments to plotting helpers."""
     calls: dict[str, tuple] = {}
 

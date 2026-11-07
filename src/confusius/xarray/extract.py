@@ -10,7 +10,8 @@ class FUSIExtractAccessor:
 
     Provides convenient methods for extracting signals from VoxelData arrays by
     flattening spatial dimensions, and reconstructing VoxelData arrays from processed
-    signals.
+    signals. These methods call VoxelData's generic functions; they preserve timing
+    metadata without applying ConfUSIus acquisition defaults or validation.
 
     Parameters
     ----------
@@ -117,7 +118,7 @@ class FUSIExtractAccessor:
         >>> # Sum per region instead of mean.
         >>> sums = data.fusi.extract.with_labels(labels, reduction="sum")
         """
-        from confusius.extract.labels import extract_with_labels
+        from confusius.extract import extract_with_labels
 
         return extract_with_labels(self._obj, labels, reduction=reduction)
 
@@ -164,7 +165,7 @@ class FUSIExtractAccessor:
         >>> # Full mask shape reconstruction
         >>> full = signals.fusi.extract.unmask(mask)
         """
-        from confusius.extract.mask import extract_with_mask
+        from confusius.extract import extract_with_mask
 
         return extract_with_mask(self._obj, mask)
 
@@ -202,6 +203,6 @@ class FUSIExtractAccessor:
         >>> reconstructed.dims
         ('time', 'k', 'j', 'i')
         """
-        from confusius.extract.reconstruction import unmask
+        from confusius.extract import unmask
 
         return unmask(self._obj, mask=mask, fill_value=fill_value)

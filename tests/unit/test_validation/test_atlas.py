@@ -143,25 +143,22 @@ def test_require_mesh_use_without_meshes_raises() -> None:
         validate_atlas(ds, require_mesh_use=True)
 
 
-def test_matching_variable_affines_pass() -> None:
-    """Two variables sharing an equal same-named affine are valid."""
+def test_named_frames_shared_by_atlas_variables() -> None:
+    """Atlas variables share geometry and named frames through one xarray index."""
     ds = _make_atlas()
-    aff = np.eye(4)
-    aff[0, 3] = 5.0
-    ds["template"].attrs["affines"] = {"world_to_sform": aff}
-    ds["annotation"].attrs["affines"] = {"world_to_sform": aff.copy()}
+    affine = np.eye(4)
+    affine[0, 3] = 5.0
+    ds = xr.Dataset(
+        {
+            name: ds[name].vd.set_affine("world_to_sform", affine)
+            for name in ds.data_vars
+        },
+        attrs=ds.attrs,
+    )
     validate_atlas(ds)
-
-
-def test_mismatched_variable_affines_raise() -> None:
-    """Two variables disagreeing on a same-named affine are invalid."""
-    ds = _make_atlas()
-    ds["template"].attrs["affines"] = {"world_to_sform": np.eye(4)}
-    other = np.eye(4)
-    other[0, 3] = 5.0
-    ds["hemispheres"].attrs["affines"] = {"world_to_sform": other}
-    with pytest.raises(ValueError, match="world_to_sform"):
-        validate_atlas(ds)
+    for name in ds.data_vars:
+        np.testing.assert_array_equal(ds[name].vd.get_affine("world_to_sform"), affine)
+        assert ds[name].vd.index is ds["annotation"].vd.index
 
 
 _MOCK_STRUCTURES = [

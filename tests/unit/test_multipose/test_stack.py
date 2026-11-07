@@ -47,10 +47,9 @@ class TestStackPoses:
         result = stack_poses(poses)
 
         assert result.dims == ("pose", "k", "j", "i")
+        assert result.vd.geometry_dims == ("pose",)
         np.testing.assert_array_equal(result.coords["pose"].values, [0, 1])
-        np.testing.assert_allclose(
-            get_voxel_to_world_affine(result), np.stack(affines)
-        )
+        np.testing.assert_allclose(get_voxel_to_world_affine(result), np.stack(affines))
         for i, da in enumerate(poses):
             np.testing.assert_array_equal(result.isel(pose=i).values, da.values)
 
@@ -134,8 +133,6 @@ class TestStackPoses:
 
     def test_rejects_pose_already_present(self):
         """A pose already carrying a `pose` dimension raises via allow_pose=False."""
-        already_stacked = stack_poses(
-            [_make_pose(np.eye(4)), _make_pose(np.eye(4))]
-        )
+        already_stacked = stack_poses([_make_pose(np.eye(4)), _make_pose(np.eye(4))])
         with pytest.raises(ValueError, match="pose"):
             stack_poses([already_stacked])

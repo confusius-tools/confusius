@@ -341,9 +341,9 @@ def test_detrend_multipose_pose_dependent_time_matches_per_pose(
     """
     result = detrend(sample_voxeldata_3dt_pose, order=1)
 
-    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
-        expected = detrend(sample_voxeldata_3dt_pose.sel(pose=pose), order=1)
-        xr.testing.assert_allclose(result.sel(pose=pose), expected)
+    for grid in sample_voxeldata_3dt_pose.coords["pose"].values:
+        expected = detrend(sample_voxeldata_3dt_pose.sel(pose=grid), order=1)
+        xr.testing.assert_allclose(result.sel(pose=grid), expected)
 
 
 def test_detrend_dask_compatibility(rng):

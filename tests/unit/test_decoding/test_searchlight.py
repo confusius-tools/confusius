@@ -202,14 +202,14 @@ def test_scores_preserve_input_attrs_and_affines(decoding_volume, full_mask, rng
     y = rng.standard_normal(decoding_volume.sizes["time"])
     affine = np.diag([0.2, 0.2, 1.0, 1.0])
     data = decoding_volume.copy()
-    data.attrs = {**data.attrs, "affines": {"world_to_brain": affine}}
+    data = data.vd.set_affine("world_to_brain", affine)
 
     searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3).fit(
         data, y
     )
 
     np.testing.assert_array_equal(
-        searchlight.scores_.attrs["affines"]["world_to_brain"], affine
+        searchlight.scores_.vd.affines["world_to_brain"], affine
     )
     # The score map describes the score, not the input signal.
     assert searchlight.scores_.attrs["long_name"] == "Searchlight CV score"

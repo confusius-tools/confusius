@@ -263,12 +263,12 @@ def get_coordinate_origins(data: xr.DataArray) -> dict[str, float]:
 
 
 def get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
-    """Return `data.fusi.origin`, re-keyed by dimension name for voxel-to-world data.
+    """Return `data.vd.origin`, re-keyed by dimension name for voxel-to-world data.
 
-    `data.fusi.origin` keys voxel-to-world spatial dims by their world coordinate
+    `data.vd.origin` keys voxel-to-world spatial dims by their world coordinate
     name (e.g. `"z"`), not by the native voxel dimension name (e.g. `"k"`) used
-    elsewhere (e.g. `data.fusi.spacing`, `data.dims`). This aligns the two
-    conventions, keeping any non-spatial dims (e.g. `time`) as `data.fusi.origin`
+    elsewhere (e.g. `data.vd.spacing`, `data.dims`). This aligns the two
+    conventions, keeping any non-spatial dims (e.g. `time`) as `data.vd.origin`
     already keys them.
 
     Parameters
@@ -289,7 +289,7 @@ def get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
     from confusius._dims import WORLD_DIMS
     from confusius._utils.geometry import get_voxel_to_world_spatial_dims
 
-    origin = data.fusi.origin
+    origin = data.vd.origin
     voxel_dims = get_voxel_to_world_spatial_dims(data)
     return {
         **origin,
@@ -323,9 +323,9 @@ def get_grid_info_from_dataarray(
 
     Bundles the `shape`, `spacing`, `origin`, and `dims` that a VoxelData array
     defines into one `dims`-ordered specification, reconciling
-    [`data.fusi.spacing`][confusius.xarray.accessors.FUSIAccessor.spacing] (keyed by
+    [`data.vd.spacing`][voxeldata.accessors.VoxelDataAccessor.spacing] (keyed by
     native voxel dimension name) with
-    [`data.fusi.origin`][confusius.xarray.accessors.FUSIAccessor.origin] (keyed by
+    [`data.vd.origin`][voxeldata.accessors.VoxelDataAccessor.origin] (keyed by
     world coordinate name for spatial dimensions, dimension name otherwise) into a
     single triple per dimension. Non-spatial origins fall back to
     [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins].
@@ -360,7 +360,7 @@ def get_grid_info_from_dataarray(
     data = ensure_voxeldata(data)
     dims = [str(dim) for dim in data.dims] if dims is None else list(dims)
 
-    spacings = data.fusi.spacing
+    spacings = data.vd.spacing
     origin = get_dim_keyed_origin(data)
     missing_spacing = [dim for dim in dims if spacings[dim] is None]
     if missing_spacing:

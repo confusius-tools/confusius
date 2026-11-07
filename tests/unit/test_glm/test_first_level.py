@@ -542,11 +542,11 @@ class TestFirstLevelModelReference:
         z_pose = model.compute_contrast("A - B")
         assert z_pose.dims == ("pose", "k", "j", "i")
 
-        for pose in range(fusi_data_pose.sizes["pose"]):
+        for grid in range(fusi_data_pose.sizes["pose"]):
             single_pose_model = FirstLevelModel(noise_model="ols")
-            single_pose_model.fit(fusi_data_pose.isel(pose=pose), events=events)
+            single_pose_model.fit(fusi_data_pose.isel(pose=grid), events=events)
             z_single = single_pose_model.compute_contrast("A - B")
-            assert_allclose(z_pose.isel(pose=pose).values, z_single.values)
+            assert_allclose(z_pose.isel(pose=grid).values, z_single.values)
 
 
 # -----------------------------------------------------------------------------

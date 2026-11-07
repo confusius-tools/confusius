@@ -705,6 +705,38 @@ def sample_voxeldata_3d_oblique():
 
 
 @pytest.fixture
+def sample_named_geometry_voxeldata(sample_voxeldata_3d_oblique):
+    """Return small multi-channel data with independent time/view geometry axes.
+
+    Parameters
+    ----------
+    sample_voxeldata_3d_oblique : xarray.DataArray
+        Shared sheared spatial geometry used as the base.
+
+    Returns
+    -------
+    xarray.DataArray
+        Distinct signal samples, affine translations, and named frames.
+    """
+    shape = (2, 3, 2, *sample_voxeldata_3d_oblique.shape)
+    geometry = np.broadcast_to(
+        sample_voxeldata_3d_oblique.vd.voxel_to_world, (3, 2, 4, 4)
+    ).copy()
+    frames = np.broadcast_to(np.eye(4), (3, 2, 4, 4)).copy()
+    geometry[..., 0, 3] += np.arange(6).reshape(3, 2)
+    frames[..., 1, 3] = np.arange(6).reshape(3, 2) * 2
+    return create_voxeldata(
+        np.arange(np.prod(shape), dtype=float).reshape(shape),
+        dims=("channel", "time", "view", "k", "j", "i"),
+        extra_coords={"channel": [10, 30], "view": [11, 41]},
+        time=[0.0, 1.0, 2.0],
+        voxel_to_world=geometry,
+        geometry_dims=("time", "view"),
+        affines={"lab": frames},
+    )
+
+
+@pytest.fixture
 def sample_voxeldata_3d_irregular_voxels():
     """Small axis-aligned (k, j, i) volume with irregularly spaced voxel indices.
 
@@ -811,13 +843,15 @@ def make_iconeus_raw_files(tmp_path: Path):
             f.create_dataset("F7", data=_encrypt_hraw([[-10.0], [0.0], [10.0]], 7))
             f.create_dataset(
                 "F8",
-                data=_encrypt_hraw([[lateral_spacing], [elevation_spacing], [axial_spacing]], 8),
+                data=_encrypt_hraw(
+                    [[lateral_spacing], [elevation_spacing], [axial_spacing]], 8
+                ),
             )
             f.create_dataset(
                 "F9",
-                data=_encrypt_hraw([size_x, size_y, size_z, n_compound, n_frames], 9).reshape(
-                    -1, 1
-                ),
+                data=_encrypt_hraw(
+                    [size_x, size_y, size_z, n_compound, n_frames], 9
+                ).reshape(-1, 1),
             )
             f.create_dataset("F10", data=_encrypt_hraw([[float(compound)]], 10))
             f.create_dataset("F11", data=_encrypt_hraw([[float(n_blocks)]], 11))

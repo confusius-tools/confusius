@@ -138,11 +138,12 @@ def consolidate_time_coordinate(time_coord: xr.DataArray) -> xr.DataArray:
     """
     if time_coord.dims == (TIME_DIM,):
         return time_coord
-    if time_coord.dims != (TIME_DIM, POSE_DIM):
+    if set(time_coord.dims) != {TIME_DIM, POSE_DIM}:
         raise ValueError(
             "time coordinate must have dimensions ('time',) or ('time', 'pose'), got "
             f"{time_coord.dims}"
         )
+    time_coord = time_coord.transpose(TIME_DIM, POSE_DIM)
     first_pose_time = xr.DataArray(
         np.asarray(time_coord.isel({POSE_DIM: 0}).values),
         dims=[TIME_DIM],

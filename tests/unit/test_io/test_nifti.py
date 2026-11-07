@@ -22,7 +22,9 @@ from confusius.xarray.affine import apply_affine
 
 def _coord_values(coord) -> np.ndarray:
     """Return one-dimensional coordinate values from an array-like test coord."""
-    return np.atleast_1d(np.asarray(coord.values if hasattr(coord, "values") else coord))
+    return np.atleast_1d(
+        np.asarray(coord.values if hasattr(coord, "values") else coord)
+    )
 
 
 def _regular_world_geometry(
@@ -62,9 +64,7 @@ def _create_nifti_voxeldata(
         raise AssertionError("NIfTI tests must build VoxelData with native k/j/i dims.")
     coords = dict(coords or {})
     core_coords = {
-        dim: coords.pop(dim)
-        for dim in ("time", "pose", "k", "j", "i")
-        if dim in coords
+        dim: coords.pop(dim) for dim in ("time", "pose", "k", "j", "i") if dim in coords
     }
     if "time" in dims and "time" not in core_coords:
         kwargs.setdefault("dt", 1.0)
@@ -190,9 +190,7 @@ class TestLoadNifti:
         np.testing.assert_array_equal(
             get_voxel_to_world_affine(actual), get_voxel_to_world_affine(expected)
         )
-        np.testing.assert_array_equal(
-            actual.attrs["affines"]["world_to_sform"], np.eye(4)
-        )
+        np.testing.assert_array_equal(actual.vd.affines["world_to_sform"], np.eye(4))
         np.testing.assert_array_equal(actual.pose, ordered)
         assert actual.chunks is not None
         assert max(actual.chunks[0]) == 1
@@ -970,10 +968,10 @@ class TestLoadNifti:
         assert "y" in da.coords
         assert "x" in da.coords
         # Qform non-dimension coords are no longer created; only the ConfUSIus-
-        # convention transform is stored in da.attrs["affines"].
+        # convention transform is stored in da.vd.affines.
         assert "z_qform" not in da.coords
-        assert "world_to_qform" in da.attrs["affines"]
-        assert da.attrs["affines"]["world_to_qform"].shape == (4, 4)
+        assert "world_to_qform" in da.vd.affines
+        assert da.vd.affines["world_to_qform"].shape == (4, 4)
 
     def test_load_nifti_qform_anchored_to_sform_world_frame(
         self, tmp_path: Path
@@ -995,7 +993,7 @@ class TestLoadNifti:
         img.to_filename(nifti_path)
 
         da = load_nifti(nifti_path)
-        A = da.attrs["affines"]["world_to_qform"]
+        A = da.vd.affines["world_to_qform"]
 
         # NIfTI shape is (x=5, y=4, z=3). A is in ConfUSIus (z, y, x) convention.
         x_1d = _world_coord_1d(da, "x")
@@ -1026,8 +1024,8 @@ class TestLoadNifti:
         np.testing.assert_allclose(_world_coord_1d(da, "z"), [0.0, 4.0])
         # qform is primary, so its entry is identity (world frame == qform frame);
         # the invalid sform gets no entry at all.
-        np.testing.assert_array_equal(da.attrs["affines"]["world_to_qform"], np.eye(4))
-        assert "world_to_sform" not in da.attrs["affines"]
+        np.testing.assert_array_equal(da.vd.affines["world_to_qform"], np.eye(4))
+        assert "world_to_sform" not in da.vd.affines
 
     def test_load_nifti_coordinate_affine_sform_forces_sform(
         self, tmp_path: Path
@@ -1049,8 +1047,8 @@ class TestLoadNifti:
             get_voxel_to_world_affine(da)[:3, :3], np.diag([4.0, 3.0, 2.0])
         )
         # sform is primary (identity entry); qform is the distinct secondary.
-        np.testing.assert_array_equal(da.attrs["affines"]["world_to_sform"], np.eye(4))
-        assert "world_to_qform" in da.attrs["affines"]
+        np.testing.assert_array_equal(da.vd.affines["world_to_sform"], np.eye(4))
+        assert "world_to_qform" in da.vd.affines
 
     def test_load_nifti_coordinate_affine_qform_forces_qform(
         self, tmp_path: Path
@@ -1072,8 +1070,8 @@ class TestLoadNifti:
             get_voxel_to_world_affine(da)[:3, :3], np.diag([7.0, 6.0, 5.0])
         )
         # qform is primary (identity entry); sform is the distinct secondary.
-        np.testing.assert_array_equal(da.attrs["affines"]["world_to_qform"], np.eye(4))
-        assert "world_to_sform" in da.attrs["affines"]
+        np.testing.assert_array_equal(da.vd.affines["world_to_qform"], np.eye(4))
+        assert "world_to_sform" in da.vd.affines
 
     def test_load_nifti_rotated_affine_voxel_to_world(self, tmp_path: Path) -> None:
         """A rotated sform composes fully into `voxel_to_world` (no decomposition).
@@ -1108,7 +1106,7 @@ class TestLoadNifti:
         np.testing.assert_allclose(
             get_voxel_to_world_affine(da), expected_voxel_to_world
         )
-        np.testing.assert_array_equal(da.attrs["affines"]["world_to_sform"], np.eye(4))
+        np.testing.assert_array_equal(da.vd.affines["world_to_sform"], np.eye(4))
 
     def test_load_nifti_sheared_affine_correct_spacing(self, tmp_path: Path) -> None:
         """Sheared affine uses decompose44 spacings, not (wrong) column norms."""
@@ -1190,7 +1188,7 @@ class TestLoadNifti:
             da = load_nifti(nifti_path)
 
         # No affines stored — neither sform/qform code nor affines dict.
-        assert "affines" not in da.attrs
+        assert not da.vd.affines
         assert "sform_code" not in da.attrs
         assert "qform_code" not in da.attrs
         # Coordinates built from pixdim only: origin 0, step = voxel size.
@@ -1407,14 +1405,14 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert "affines" in da.attrs
-        assert "bspline_initialization" in da.attrs["affines"]
+        assert bool(da.vd.affines)
+        assert "bspline_initialization" in da.vd.affines
         np.testing.assert_allclose(
-            da.attrs["affines"]["bspline_initialization"], extra_affine
+            da.vd.affines["bspline_initialization"], extra_affine
         )
         # The secondary NIfTI header affine (qform, since sform is primary) must
         # still be present alongside the sidecar entry.
-        assert "world_to_qform" in da.attrs["affines"]
+        assert "world_to_qform" in da.vd.affines
 
     def test_load_nifti_invalid_sidecar_warns(self, tmp_path: Path) -> None:
         """Loading warns when the sidecar violates fUSI-BIDS validation rules."""
@@ -1564,22 +1562,24 @@ class TestSaveNifti:
         with pytest.raises(ValueError, match=r"\.nii or \.nii\.gz"):
             save_nifti(da, tmp_path / "not_nifti.json")
 
-    def test_save_non_4x4_affine_raises(self, tmp_path, sample_voxeldata_3d) -> None:
-        """A stored affine in `da.attrs["affines"]` with the wrong shape raises `ValueError`."""
+    def test_invalid_named_affine_rejected_before_save(
+        self, sample_voxeldata_3d
+    ) -> None:
+        """Invalid named geometry is rejected before it can reach a saver."""
         da = sample_voxeldata_3d.drop_vars("time")
-        da.attrs["affines"] = {"world_to_qform": np.zeros((3, 3))}
-
         with pytest.raises(ValueError, match="must have shape"):
-            save_nifti(da, tmp_path / "bad_affine.nii.gz")
+            da.vd.set_affine("world_to_qform", np.zeros((3, 3)))
 
     def test_save_rejects_pose_dimension(
         self, tmp_path, sample_voxeldata_3dt_pose
     ) -> None:
         """A `pose` dimension is rejected; NIfTI has only one spatial qform/sform."""
         with pytest.raises(ValueError, match="'pose'"):
-            save_nifti(sample_voxeldata_3dt_pose, tmp_path / "pose.nii.gz")
+            save_nifti(sample_voxeldata_3dt_pose, tmp_path / "grid.nii.gz")
 
-        save_nifti(sample_voxeldata_3dt_pose.isel(pose=0), tmp_path / "single_pose.nii.gz")
+        save_nifti(
+            sample_voxeldata_3dt_pose.isel(pose=0), tmp_path / "single_pose.nii.gz"
+        )
 
     def test_save_2d_dataarray(self, tmp_path) -> None:
         """Saving 2D DataArray inserts only the missing spatial axis."""
@@ -2126,16 +2126,20 @@ class TestSaveNifti:
     def test_save_sidecar_serializes_extra_affines(self, tmp_path, sample_voxeldata_3d):
         """Extra affines that are not qform/sform are written to the sidecar."""
         da = sample_voxeldata_3d.drop_vars("time").copy()
-        da.attrs["affines"] = {
-            "world_to_template": np.array(
-                [
-                    [1.0, 0.0, 0.0, 4.0],
-                    [0.0, 1.0, 0.0, 5.0],
-                    [0.0, 0.0, 1.0, 6.0],
-                    [0.0, 0.0, 0.0, 1.0],
-                ]
-            )
-        }
+        da.vd.set_voxel_to_world(
+            da.vd.voxel_to_world,
+            named_affines={
+                "world_to_template": np.array(
+                    [
+                        [1.0, 0.0, 0.0, 4.0],
+                        [0.0, 1.0, 0.0, 5.0],
+                        [0.0, 0.0, 1.0, 6.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                )
+            },
+            inplace=True,
+        )
 
         output_path = tmp_path / "extra_affines.nii.gz"
         save_nifti(da, output_path)
@@ -2180,11 +2184,15 @@ class TestSaveNifti:
             ]
         )
         da = sample_voxeldata_3d.drop_vars("time").copy()
-        da.attrs["affines"] = {
-            "world_to_template": template_affine,
-            "world_to_scanner": scanner_affine,
-            "world_to_lab": lab_affine,
-        }
+        da.vd.set_voxel_to_world(
+            da.vd.voxel_to_world,
+            named_affines={
+                "world_to_template": template_affine,
+                "world_to_scanner": scanner_affine,
+                "world_to_lab": lab_affine,
+            },
+            inplace=True,
+        )
 
         output_path = tmp_path / "selected_affines.nii.gz"
         save_nifti(
@@ -2225,7 +2233,8 @@ class TestSaveNifti:
                 "y": np.arange(3, dtype=float),
                 "x": np.arange(2, dtype=float),
             },
-            attrs={"affines": {"world_to_qform": qform_affine}},
+            affines={"world_to_qform": qform_affine},
+            attrs={},
         )
 
         output_path = tmp_path / "qform_not_written.nii.gz"
@@ -2301,7 +2310,9 @@ class TestSaveNifti:
         assert sidecar["VolumeTiming"] == [10.0]
         assert "RepetitionTime" not in sidecar
 
-    def test_save_boolean_data_writes_uint8(self, tmp_path, sample_voxeldata_3d) -> None:
+    def test_save_boolean_data_writes_uint8(
+        self, tmp_path, sample_voxeldata_3d
+    ) -> None:
         """Boolean payloads are stored as uint8 because NIfTI does not support bool."""
         threshold = float(sample_voxeldata_3d.mean().item())
         da = sample_voxeldata_3d.drop_vars("time") > threshold
@@ -2316,7 +2327,9 @@ class TestSaveNifti:
             da.values.transpose(2, 1, 0).astype(np.uint8),
         )
 
-    def test_save_nifti2_writes_nifti2_image(self, tmp_path, sample_voxeldata_3d) -> None:
+    def test_save_nifti2_writes_nifti2_image(
+        self, tmp_path, sample_voxeldata_3d
+    ) -> None:
         """Saving with `nifti_version=2` produces a NIfTI-2 image."""
         da = sample_voxeldata_3d.drop_vars("time")
 
@@ -2859,12 +2872,11 @@ class TestSaveNifti:
                 "y": np.arange(3) * 1.0,
                 "x": np.arange(2) * 1.0,
             },
-            attrs={
-                "affines": {
-                    "world_to_qform": different_affine,
-                    "world_to_template": selected_affine,
-                }
+            affines={
+                "world_to_qform": different_affine,
+                "world_to_template": selected_affine,
             },
+            attrs={},
         )
         output_path = tmp_path / "selected_qform.nii.gz"
         save_nifti(da, output_path, qform="world_to_template")
@@ -2885,7 +2897,8 @@ class TestSaveNifti:
                 "y": np.arange(3) * 3.0,
                 "x": np.arange(2) * 3.0,
             },
-            attrs={"affines": {"world_to_qform": world_to_qform}},
+            affines={"world_to_qform": world_to_qform},
+            attrs={},
         )
         output_path = tmp_path / "default_qform_key.nii.gz"
         save_nifti(da, output_path)
@@ -2914,7 +2927,8 @@ class TestSaveNifti:
                 "y": np.arange(3) * 1.0,
                 "x": np.arange(2) * 1.0,
             },
-            attrs={"affines": {"world_to_qform": sheared_affine}},
+            affines={"world_to_qform": sheared_affine},
+            attrs={},
         )
         output_path = tmp_path / "sheared_qform_promoted.nii.gz"
         with pytest.warns(
@@ -2967,12 +2981,11 @@ class TestSaveNifti:
                 "y": np.arange(3) * 1.0,
                 "x": np.arange(2) * 1.0,
             },
-            attrs={
-                "affines": {
-                    "world_to_qform": sheared_affine,
-                    "world_to_template": world_to_template,
-                }
+            affines={
+                "world_to_qform": sheared_affine,
+                "world_to_template": world_to_template,
             },
+            attrs={},
         )
         output_path = tmp_path / "sheared_qform_explicit_sform.nii.gz"
         with pytest.warns(
@@ -2982,7 +2995,9 @@ class TestSaveNifti:
 
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.header.get_qform(coded=True)[1] == 0
-        np.testing.assert_allclose(loaded.header.get_sform(), world_to_template, atol=1e-6)
+        np.testing.assert_allclose(
+            loaded.header.get_sform(), world_to_template, atol=1e-6
+        )
 
         sidecar_path = tmp_path / "sheared_qform_explicit_sform.json"
         with open(sidecar_path) as f:
@@ -3003,7 +3018,8 @@ class TestSaveNifti:
                 "y": np.arange(3) * 2.0,
                 "x": np.arange(2) * 2.0,
             },
-            attrs={"affines": {"world_to_template": world_to_sform}},
+            affines={"world_to_template": world_to_sform},
+            attrs={},
         )
         output_path = tmp_path / "named_sform.nii.gz"
         save_nifti(da, output_path, sform="world_to_template")
@@ -3023,10 +3039,8 @@ class TestSaveNifti:
                 "y": np.arange(3) * 1.0,
                 "x": np.arange(2) * 1.0,
             },
-            attrs={
-                "affines": {"world_to_sform": world_to_sform},
-                "sform_code": 1,
-            },
+            affines={"world_to_sform": world_to_sform},
+            attrs={"sform_code": 1},
         )
         output_path = tmp_path / "sform_code_override.nii.gz"
         save_nifti(da, output_path, sform="world_to_sform", sform_code=2)
@@ -3065,11 +3079,8 @@ class TestSaveNifti:
                 "y": np.arange(3) * 1.0,
                 "x": np.arange(2) * 1.0,
             },
-            attrs={
-                "affines": {"world_to_sform": world_to_sform},
-                "qform_code": 2,
-                "sform_code": 2,
-            },
+            affines={"world_to_sform": world_to_sform},
+            attrs={"qform_code": 2, "sform_code": 2},
         )
         output_path = tmp_path / "codes_from_attrs.nii.gz"
         save_nifti(da, output_path)
@@ -3089,12 +3100,13 @@ class TestSaveNifti:
                 "y": np.arange(3) * 1.0,
                 "x": np.arange(2) * 1.0,
             },
-            attrs={"affines": {"world_to_template": np.eye(4)}},
+            affines={"world_to_template": np.eye(4)},
+            attrs={},
         )
 
         with pytest.raises(
             ValueError,
-            match=r"qform='world_to_scanner' not found in data_array.attrs\['affines'\]",
+            match=r"qform='world_to_scanner' not found in data_array\.vd\.affines",
         ):
             save_nifti(
                 da, tmp_path / "invalid_qform_key.nii.gz", qform="world_to_scanner"
@@ -3257,7 +3269,7 @@ class TestRoundtrip:
         img.to_filename(in_path)
 
         da = load_nifti(in_path)
-        da = apply_affine(da, da.attrs["affines"]["world_to_qform"])
+        da = apply_affine(da, da.vd.affines["world_to_qform"])
         out_path = tmp_path / "out.nii.gz"
         save_nifti(da, out_path)
         reloaded = nib.nifti1.Nifti1Image.from_filename(out_path)
@@ -3289,8 +3301,8 @@ class TestRoundtrip:
         world_to_sform = np.eye(4)
         world_to_sform[0, 1] = 0.3
         world_to_sform[:3, 3] = [1.0, 2.0, 3.0]
-        da.attrs["affines"]["world_to_sform"] = world_to_sform
-        da.fusi.affine.apply("world_to_sform", inplace=True)
+        da.vd.set_affine("world_to_sform", world_to_sform, inplace=True)
+        da.vd.apply("world_to_sform", inplace=True)
         out_path = tmp_path / "out.nii.gz"
         save_nifti(da, out_path)
         reloaded = nib.nifti1.Nifti1Image.from_filename(out_path)
@@ -3679,14 +3691,14 @@ class TestRoundtrip:
 
     def test_roundtrip_preserves_units(self, tmp_path, sample_voxeldata_3d):
         """Spatial units survive a save/load roundtrip."""
-        da = sample_voxeldata_3d.drop_vars("time").fusi.affine.set_units("um")
+        da = sample_voxeldata_3d.drop_vars("time").vd.set_units("um")
 
         nifti_path = tmp_path / "units_roundtrip.nii.gz"
         save_nifti(da, nifti_path)
 
         loaded = load_nifti(nifti_path)
 
-        assert loaded.fusi.affine.units == "um"
+        assert loaded.vd.units == "um"
 
     def test_load_nii_uncompressed_with_sidecar(self, tmp_path):
         """load_nifti reads an uncompressed .nii file and merges its JSON sidecar."""
@@ -3778,7 +3790,9 @@ class TestRoundtrip:
         assert sidecar["ClutterFilterWindowDuration"] == pytest.approx(300)
         assert sidecar["ClutterFilterWindowStride"] == pytest.approx(200)
         assert sidecar["PowerDopplerIntegrationDuration"] == pytest.approx(80)
-        assert sidecar["ConfUSIusAxialVelocityIntegrationDuration"] == pytest.approx(160)
+        assert sidecar["ConfUSIusAxialVelocityIntegrationDuration"] == pytest.approx(
+            160
+        )
         assert sidecar["ConfUSIusBmodeIntegrationDuration"] == pytest.approx(100)
         loaded = load_nifti(nifti_path)
         if time_unit is None:
@@ -3793,4 +3807,3 @@ class TestRoundtrip:
             "bmode_integration_duration": 0.1,
         }.items():
             assert loaded.attrs[attr] == pytest.approx(seconds)
-

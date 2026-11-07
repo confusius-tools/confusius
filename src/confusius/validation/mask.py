@@ -1,95 +1,22 @@
-"""Mask validation utilities."""
+"""Acquisition-aware validation layered on VoxelData's mask and label helpers."""
 
-import numpy as np
 import xarray as xr
+from voxeldata.masks import check_mask_dtype, check_spatial_alignment
+from voxeldata.masks import ensure_labels as ensure_generic_labels
+from voxeldata.masks import ensure_mask as ensure_generic_mask
+from voxeldata.masks import validate_labels as validate_generic_labels
+from voxeldata.masks import validate_mask as validate_generic_mask
 
 from confusius.validation.voxeldata import ensure_voxeldata, validate_voxeldata
 
-
-def check_spatial_alignment(
-    spatial_da: xr.DataArray, data: xr.DataArray, name: str
-) -> None:
-    """Check that `spatial_da` and `data` share the same VoxelData grid.
-
-    Assumes both are already canonical VoxelData arrays (see
-    [`validate_voxeldata`][confusius.validation.validate_voxeldata]); callers that
-    may not be should canonicalize first via
-    [`ensure_voxeldata`][confusius.validation.ensure_voxeldata]. `xarray.align` with
-    `join="exact"` dispatches to the `VoxelToWorldIndex`'s `equals`, which compares
-    both the voxel-space `k`/`j`/`i` coordinates (what `reindex_like`/`stack` actually
-    key alignment on) and the underlying `voxel_to_world` affine, so two arrays
-    sharing the same voxel-space coordinate labels but different affines are correctly
-    rejected, not silently treated as aligned.
-
-    Parameters
-    ----------
-    spatial_da : xarray.DataArray
-        Canonical VoxelData array to check (for example a mask, labels, or a
-        registration target).
-    data : xarray.DataArray
-        Canonical reference VoxelData array.
-    name : str
-        Label used for `spatial_da` in error messages.
-
-    Raises
-    ------
-    ValueError
-        If `spatial_da`'s voxel-space coordinates or `voxel_to_world` affine don't
-        match `data`'s.
-    """
-    # `xr.align` groups indexes to compare by (coordinate name, dims order) before ever
-    # calling `Index.equals()`, so two VoxelData arrays sharing the same
-    # VoxelToWorldIndex grid but a differently-transposed k/j/i order fall into separate
-    # groups and raise a spurious `AlignmentError`, even though the grids genuinely
-    # match. Aligning on a shared dim order sidesteps that grouping, without changing
-    # what's returned.
-    common_dims = [dim for dim in data.dims if dim in spatial_da.dims]
-    try:
-        xr.align(
-            spatial_da.transpose(*common_dims, ...),
-            data.transpose(*common_dims, ...),
-            join="exact",
-        )
-    except xr.AlignmentError as error:
-        raise ValueError(f"{name} does not share data's voxel grid: {error}") from error
-
-
-def check_mask_dtype(mask: xr.DataArray, mask_name: str) -> None:
-    """Check that `mask` has boolean dtype or binary numeric dtype.
-
-    A binary numeric mask (int or float) contains at most one distinct non-zero
-    value -- e.g. `{0, 1}` or `{0.0, 5.0}` -- which lets masks produced by tools that
-    don't support a boolean dtype (e.g. FSL/NiBabel-written NIfTI masks) pass
-    through unchanged instead of requiring an upfront `.astype(bool)`.
-
-    Parameters
-    ----------
-    mask : xarray.DataArray
-        Mask to check.
-    mask_name : str
-        Label used for `mask` in error messages.
-
-    Raises
-    ------
-    TypeError
-        If `mask` is not a boolean or binary numeric DataArray.
-    """
-    if mask.dtype == bool:
-        return
-    if np.issubdtype(mask.dtype, np.integer) or np.issubdtype(mask.dtype, np.floating):
-        non_zero = np.unique(mask.values[mask.values != 0])
-        if len(non_zero) > 1:
-            raise TypeError(
-                f"{mask_name} has {mask.dtype} dtype with {len(non_zero)} distinct "
-                f"non-zero values. A mask must be boolean or binary (0 = background, "
-                f"one non-zero value = foreground). "
-                f"For multi-region extraction use extract_with_labels instead."
-            )
-        return
-    raise TypeError(
-        f"{mask_name} must be boolean dtype or a binary numeric dtype, "
-        f"got {mask.dtype}."
-    )
+__all__ = [
+    "check_mask_dtype",
+    "check_spatial_alignment",
+    "ensure_labels",
+    "ensure_mask",
+    "validate_labels",
+    "validate_mask",
+]
 
 
 def validate_mask(
@@ -98,57 +25,29 @@ def validate_mask(
     mask_name: str = "mask",
     require_exact_dims: bool = False,
 ) -> None:
-    """Validate that a mask shares data's VoxelData grid.
-
-    `mask` and `data` must already be canonical VoxelData arrays (see
-    [`validate_voxeldata`][confusius.validation.validate_voxeldata]) -- this does not
-    canonicalize either. For a `mask`/`data` pair that may not already be canonical
-    (e.g. a scalar-reduced voxel dim), use
-    [`ensure_mask`][confusius.validation.ensure_mask] instead.
+    """Validate a mask's voxel grid and ConfUSIus acquisition metadata.
 
     Parameters
     ----------
     mask : xarray.DataArray
-        Mask to validate. Must have boolean dtype, or binary numeric dtype (0 =
-        background, at most one non-zero value = foreground). The latter format
-        is produced by [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and also
-        covers masks written by tools without a boolean dtype (e.g. FSL/NiBabel NIfTI
-        masks with values in `{0, 1}` or `{0.0, 1.0}`).
+        Canonical VoxelData mask with boolean or finite binary numeric values.
     data : xarray.DataArray
-        VoxelData array to validate mask against.
+        Canonical reference VoxelData array.
     mask_name : str, default: "mask"
-        Name of the mask parameter (used in error messages).
+        Name of the mask parameter in errors.
     require_exact_dims : bool, default: False
-        Whether `mask.dims` must match all non-`time` dimensions of `data` in the same
-        order.
+        Whether to require all non-time dimensions in the same order as `data`.
 
     Raises
     ------
     TypeError
         If `mask` is not a boolean or binary numeric DataArray.
     ValueError
-        If `mask` or `data` isn't a valid VoxelData array, if `mask`'s voxel
-        grid doesn't match `data`'s, or if `require_exact_dims` is set and `mask`'s
-        dimensions don't match `data`'s.
+        If model, grid, dimensions, or acquisition metadata are invalid.
     """
-    if not isinstance(mask, xr.DataArray):
-        raise TypeError(
-            f"{mask_name} must be an xarray.DataArray, got {type(mask).__name__}."
-        )
-
-    check_mask_dtype(mask, mask_name)
+    validate_generic_mask(mask, data, mask_name, require_exact_dims=require_exact_dims)
     validate_voxeldata(mask, allow_extra_dims=True)
     validate_voxeldata(data, allow_extra_dims=True)
-    check_spatial_alignment(mask, data, mask_name)
-
-    if require_exact_dims:
-        expected_dims = tuple(str(d) for d in data.dims if d != "time")
-        mask_dims = tuple(str(d) for d in mask.dims)
-        if mask_dims != expected_dims:
-            raise ValueError(
-                f"{mask_name} dimensions must match all non-time dimensions of data "
-                f"in the same order. Expected {expected_dims}, got {mask_dims}."
-            )
 
 
 def ensure_mask(
@@ -158,58 +57,45 @@ def ensure_mask(
     require_exact_dims: bool = False,
     coerce_bool: bool = True,
 ) -> xr.DataArray:
-    """Canonicalize `mask` and `data`, then validate that `mask` shares data's grid.
+    """Canonicalize and validate a mask, including acquisition defaults.
 
-    Both `mask` and `data` are canonicalized via
-    [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] (restoring any
-    scalar-reduced voxel dims) before
-    [`validate_mask`][confusius.validation.validate_mask] checks them.
+    Geometry, binary-mask validation, alignment, and coercion belong to VoxelData.
+    ConfUSIus adds its acquisition validation and defaults before delegation.
 
     Parameters
     ----------
     mask : xarray.DataArray
-        Mask to validate. Must have boolean dtype, or binary numeric dtype (0 =
-        background, at most one non-zero value = foreground). The latter format
-        is produced by [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and also
-        covers masks written by tools without a boolean dtype (e.g. FSL/NiBabel NIfTI
-        masks with values in `{0, 1}` or `{0.0, 1.0}`).
+        VoxelData mask with boolean or finite binary numeric values.
     data : xarray.DataArray
-        VoxelData array to validate mask against.
+        Reference VoxelData array.
     mask_name : str, default: "mask"
-        Name of the mask parameter (used in error messages).
+        Name of the mask parameter in errors.
     require_exact_dims : bool, default: False
-        Whether `mask.dims` must match all non-`time` dimensions of `data` in the same
-        order.
+        Whether to require all non-time dimensions in the same order as `data`.
     coerce_bool : bool, default: True
-        Whether to coerce the returned `mask` to boolean dtype. Binary numeric masks
-        (`{0, x}`) become `{False, True}` so callers can index with the result without
-        the non-zero value being misread as a positional index. When False, `mask` is
-        returned with its original dtype unchanged.
+        Whether to coerce validated numeric foreground values to booleans.
 
     Returns
     -------
     xarray.DataArray
-        The canonicalized `mask`, coerced to boolean dtype when `coerce_bool` is `True`
-        (the default), otherwise returned with its original dtype.
+        Canonical mask, optionally coerced to boolean dtype.
 
     Raises
     ------
     TypeError
         If `mask` is not a boolean or binary numeric DataArray.
     ValueError
-        If `mask` or `data` isn't a VoxelData array, if `mask`'s voxel
-        grid doesn't match `data`'s, or if `require_exact_dims` is set and `mask`'s
-        dimensions don't match `data`'s.
+        If model, grid, dimensions, or acquisition metadata are invalid.
     """
     mask = ensure_voxeldata(mask, allow_extra_dims=True)
     data = ensure_voxeldata(data, allow_extra_dims=True)
-    validate_mask(mask, data, mask_name, require_exact_dims=require_exact_dims)
-
-    # Coerce after validation so callers never index with a raw binary numeric
-    # mask (which xarray.isel would treat as positional indices). See PR #197.
-    if coerce_bool:
-        return mask.astype(bool)
-    return mask
+    return ensure_generic_mask(
+        mask,
+        data,
+        mask_name,
+        require_exact_dims=require_exact_dims,
+        coerce_bool=coerce_bool,
+    )
 
 
 def validate_labels(
@@ -217,52 +103,27 @@ def validate_labels(
     data: xr.DataArray,
     labels_name: str = "labels",
 ) -> None:
-    """Validate that a label map shares data's VoxelData grid.
-
-    `labels` and `data` must already be canonical VoxelData arrays (see
-    [`validate_voxeldata`][confusius.validation.validate_voxeldata]) -- this does not
-    canonicalize either. For a `labels`/`data` pair that may not already be canonical
-    (e.g. a scalar-reduced voxel dim), use
-    [`ensure_labels`][confusius.validation.ensure_labels] instead.
+    """Validate label geometry and ConfUSIus acquisition metadata.
 
     Parameters
     ----------
     labels : xarray.DataArray
-        Label map to validate. Must have integer dtype. Accepts two formats:
-
-        - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
-          labeled `0`; each unique non-zero integer identifies a distinct,
-          non-overlapping region. The `regions` coordinate of the output holds the
-          integer label values.
-        - **Stacked mask format**: Has a leading `mask` dimension followed by
-          spatial dims, e.g. `(mask, k, j, i)`. Each layer has values in `{0,
-          region_id}` and regions may overlap. The `region` coordinate of the
-          output holds the `mask` coordinate values (e.g., region label).
-
+        Canonical integer VoxelData labels, flat or stacked along `mask`.
     data : xarray.DataArray
-        VoxelData array to validate labels against.
+        Canonical reference VoxelData array.
     labels_name : str, default: "labels"
-        Name of the labels parameter (used in error messages).
+        Name of the labels parameter in errors.
 
     Raises
     ------
     TypeError
-        If `labels` is not an integer dtype DataArray.
+        If labels are not an integer DataArray.
     ValueError
-        If `labels` or `data` isn't a valid VoxelData array, or if `labels`'s
-        voxel grid doesn't match `data`'s.
+        If model, voxel grid, or acquisition metadata are invalid.
     """
-    if not isinstance(labels, xr.DataArray):
-        raise TypeError(
-            f"{labels_name} must be an xarray.DataArray, got {type(labels).__name__}."
-        )
-
-    if not np.issubdtype(labels.dtype, np.integer):
-        raise TypeError(f"{labels_name} must be integer dtype, got {labels.dtype}.")
-
+    validate_generic_labels(labels, data, labels_name)
     validate_voxeldata(labels, allow_extra_dims=True)
     validate_voxeldata(data, allow_extra_dims=True)
-    check_spatial_alignment(labels, data, labels_name)
 
 
 def ensure_labels(
@@ -270,46 +131,29 @@ def ensure_labels(
     data: xr.DataArray,
     labels_name: str = "labels",
 ) -> xr.DataArray:
-    """Canonicalize `labels` and `data`, then validate labels share data's grid.
-
-    Both `labels` and `data` are canonicalized via
-    [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] (restoring any
-    scalar-reduced voxel dims) before
-    [`validate_labels`][confusius.validation.validate_labels] checks them.
+    """Canonicalize and validate labels, including acquisition defaults.
 
     Parameters
     ----------
     labels : xarray.DataArray
-        Label map to validate. Must have integer dtype. Accepts two formats:
-
-        - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
-          labeled `0`; each unique non-zero integer identifies a distinct,
-          non-overlapping region. The `regions` coordinate of the output holds the
-          integer label values.
-        - **Stacked mask format**: Has a leading `mask` dimension followed by
-          spatial dims, e.g. `(mask, k, j, i)`. Each layer has values in `{0,
-          region_id}` and regions may overlap. The `region` coordinate of the
-          output holds the `mask` coordinate values (e.g., region label).
-
+        Integer VoxelData labels, flat or stacked along `mask`.
     data : xarray.DataArray
-        VoxelData array to validate labels against.
+        Reference VoxelData array.
     labels_name : str, default: "labels"
-        Name of the labels parameter (used in error messages).
+        Name of the labels parameter in errors.
 
     Returns
     -------
     xarray.DataArray
-        The canonicalized `labels`.
+        Canonical integer label array on the reference voxel grid.
 
     Raises
     ------
     TypeError
-        If `labels` is not an integer dtype DataArray.
+        If labels are not an integer DataArray.
     ValueError
-        If `labels` or `data` isn't a VoxelData array, or if `labels`'s
-        voxel grid doesn't match `data`'s.
+        If model, voxel grid, or acquisition metadata are invalid.
     """
     labels = ensure_voxeldata(labels, allow_extra_dims=True)
     data = ensure_voxeldata(data, allow_extra_dims=True)
-    validate_labels(labels, data, labels_name)
-    return labels
+    return ensure_generic_labels(labels, data, labels_name)

@@ -107,7 +107,7 @@ Reading the output from top to bottom, a DataArray has four components:
         without copying or rearranging the data. In practice, this ordering is usually
         transparent because Xarray operations refer to dimensions by name rather than by
         position. See [The VoxelData
-        Model](voxeldata.md#dimension-ordering-time-pose-k-j-i) for the full
+        Model](voxeldata.md#dimension-ordering) for the full
         explanation.
 
 - **Data**: the underlying array. ConfUSIus loaders return
@@ -312,27 +312,29 @@ library-specific functionality explicit; see [Xarray's guide to extending
 Xarray](https://docs.xarray.dev/en/stable/internals/extending-xarray.html) for the
 general mechanism.
 
-ConfUSIus registers two such accessors: `.fusi` on DataArrays, and `.atlas` on Datasets.
-`.atlas` is useful on atlas Datasets such as the one returned by
-[`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas], and is covered
-separately in the [Atlases guide](atlas.md). The rest of this section covers `.fusi`.
+Importing ConfUSIus registers `.fusi` on DataArrays and `.atlas` on Datasets,
+and imports the external VoxelData package, which registers **`.vd`** on
+DataArrays. `.vd` owns geometry; `.fusi` owns fUSI-specific operations.
+`.atlas` works on atlas Datasets such as those returned by
+[`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and is covered
+in the [Atlases guide](atlas.md).
 
 Importing ConfUSIus registers the accessors automatically:
 
 ```python
 import xarray as xr
-import confusius as cf  # Registers the .fusi and .atlas accessors.
+import confusius as cf  # Makes .fusi, .atlas, and VoxelData's .vd available.
 ```
 
-The `.fusi` accessor is organized into focused sub-accessors, plus a set of global
-helper properties:
+The available accessors separate geometry from fUSI analysis. `.vd` is a flat
+root accessor, not a sub-accessor of `.fusi`:
 
 | Accessor | Description |
 |---|---|
 | [`.fusi.save`][confusius.xarray.FUSIAccessor.save] | Save data to file (NIfTI or Zarr), dispatching by extension. |
 | [`.fusi.iq`][confusius.xarray.FUSIIQAccessor] | Process beamformed IQ into power Doppler or axial velocity volumes. |
 | [`.fusi.scale`][confusius.xarray.FUSIScaleAccessor] | Scaling transformations: decibel, log, and power scaling. |
-| [`.fusi.affine`][confusius.xarray.FUSIAffineAccessor] | Inspect and apply voxel-to-world and world-to-reference affine transforms. |
+| [`.vd`][voxeldata.accessors.VoxelDataAccessor] | Inspect and apply voxel-to-world and world-to-reference affine transforms. |
 | [`.fusi.register`][confusius.xarray.FUSIRegistrationAccessor] | Motion correction via volumewise image registration. |
 | [`.fusi.extract`][confusius.xarray.FUSIExtractAccessor] | Extract and reconstruct signals using spatial masks. |
 | [`.fusi.plot`][confusius.xarray.FUSIPlotAccessor] | Visualization with napari and carpet plots. |
@@ -346,16 +348,17 @@ function calls for readability.
 
 ### Global Helpers
 
-Currently, three global helpers are available. Together they decompose the
-DataArray's voxel-to-world affine into origin, spacing, and direction—see [The
+VoxelData supplies `.vd.origin`, `.vd.spacing`, and `.vd.direction`. These are
+not properties of `.fusi`. Together they describe the
+DataArray's voxel-to-world affine—see [The
 voxel-to-world affine](voxeldata.md#world-space) in The VoxelData Model for how the
 three combine:
 
-- [`.fusi.spacing`][confusius.xarray.FUSIAccessor.spacing], which returns the step size
+- [`.vd.spacing`][voxeldata.accessors.VoxelDataAccessor.spacing], which returns the step size
   along each dimension as a dictionary:
 
   ```pycon
-  >>> pwd.fusi.spacing
+  >>> pwd.vd.spacing
   {'time': 0.6, 'k': 0.4, 'j': 0.049, 'i': 0.091}
   ```
 
@@ -368,11 +371,11 @@ three combine:
   `None` is returned with a warning when spacing cannot be determined: non-uniform
   coordinates, a single coordinate point, or no coordinate at all.
 
-- [`.fusi.origin`][confusius.xarray.FUSIAccessor.origin], which returns the coordinate
+- [`.vd.origin`][voxeldata.accessors.VoxelDataAccessor.origin], which returns the coordinate
   values at the origin along each dimension as a dictionary:
 
   ```pycon
-  >>> pwd.fusi.origin
+  >>> pwd.vd.origin
   {'time': 0.299, 'z': 0.0, 'y': 5.664, 'x': -3.583}
   ```
 
@@ -380,11 +383,11 @@ three combine:
   world coordinates of the DataArray, for example when saving to NIfTI. For multi-pose
   data, select a scalar pose first.
 
-- [`.fusi.direction`][confusius.xarray.FUSIAccessor.direction], which returns the
+- [`.vd.direction`][voxeldata.accessors.VoxelDataAccessor.direction], which returns the
   world-space direction matrix for the spatial dimensions:
 
   ```pycon
-  >>> pwd.fusi.direction
+  >>> pwd.vd.direction
   array([[1., 0., 0.],
          [0., 1., 0.],
          [0., 0., 1.]])
@@ -479,7 +482,7 @@ set the first three `optimizer_weights` values to `0` to freeze rotation.
 
 ### Affine Transforms
 
-The [`.fusi.affine`][confusius.xarray.FUSIAffineAccessor] accessor inspects and applies
+The [`.vd`][voxeldata.accessors.VoxelDataAccessor] accessor inspects and applies
 the voxel-to-world and world-to-reference affines described in [The VoxelData
 Model](voxeldata.md#spatial-conventions). The voxel-to-world affine returned by
 `voxel_to_world` below is the same one [Global Helpers](#global-helpers) decomposes
@@ -490,49 +493,49 @@ constructing SimpleITK/ITK images.
 #### Reading and applying affines
 
 Read the DataArray's
-[`voxel_to_world`][confusius.xarray.FUSIAffineAccessor.voxel_to_world] affine, or
+[`voxel_to_world`][voxeldata.accessors.VoxelDataAccessor.voxel_to_world] affine, or
 apply a world-space affine to its coordinates with
-[`apply`][confusius.xarray.FUSIAffineAccessor.apply]—either a `(4, 4)` array directly,
-or a string key naming a reference frame already stored in `attrs["affines"]`:
+[`apply`][voxeldata.accessors.VoxelDataAccessor.apply]—either a `(4, 4)` array directly,
+or a string key naming a reference frame already stored in `.vd.affines`:
 
 ```python
-voxel_to_world = pwd.fusi.affine.voxel_to_world  # (4, 4) array.
+voxel_to_world = pwd.vd.voxel_to_world  # (4, 4) array.
 
 # By key: re-express world coordinates in the "world_to_qform" reference frame; the
 # full affine (including any rotation) is absorbed into the DataArray's
 # VoxelToWorldIndex.
-registered_to_qform = pwd.fusi.affine.apply("world_to_qform")
+registered_to_qform = pwd.vd.apply("world_to_qform")
 
 # By array: apply an arbitrary (4, 4) world-space affine directly.
-shifted = pwd.fusi.affine.apply(my_affine)
+shifted = pwd.vd.apply(my_affine)
 ```
 
-[`bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] gives the extent of
+[`bounding_box`][voxeldata.accessors.VoxelDataAccessor.bounding_box] gives the extent of
 the data in world space, enclosing the full extent of every voxel (half a voxel beyond
 the outermost voxel centers). It is computed from the affine alone (exact for oblique
 geometry, and one bounding box per pose when the geometry is pose-dependent):
 
 ```python
-bbox = pwd.fusi.affine.bounding_box  # Dims (bound, component), e.g. ("max", "x").
+bbox = pwd.vd.bounding_box  # Dims (bound, component), e.g. ("max", "x").
 ```
 
 To replace a DataArray's voxel-to-world geometry outright (e.g. after computing a new
 affine by hand), use
-[`set_voxel_to_world`][confusius.xarray.FUSIAffineAccessor.set_voxel_to_world]:
+[`set_voxel_to_world`][voxeldata.accessors.VoxelDataAccessor.set_voxel_to_world]:
 
 ```python
-pwd = pwd.fusi.affine.set_voxel_to_world(new_voxel_to_world)
+pwd = pwd.vd.set_voxel_to_world(new_voxel_to_world)
 ```
 
 #### Relating two DataArrays
 
 To compute the affine relating two DataArrays' world spaces through a named affine
-they both carry in `attrs["affines"]` (e.g. a shared `"world_to_lab"` key from two
+they both carry in `.vd.affines` (e.g. a shared `"world_to_lab"` key from two
 poses of the same acquisition), use
-[`to`][confusius.xarray.FUSIAffineAccessor.to]:
+[`to`][voxeldata.accessors.VoxelDataAccessor.to]:
 
 ```python
-moving_to_fixed = moving.fusi.affine.to(fixed, via="world_to_lab")
+moving_to_fixed = moving.vd.to(fixed, via="world_to_lab")
 ```
 
 #### Rebasing voxel coordinates to dense positions
@@ -551,12 +554,12 @@ array([3., 4., 5.])
 That's correct as long as you keep indexing by *label*. But tools that assume dense,
 zero-based voxel indices (ITK, nilearn, ...) read array *position* 0 as voxel 0—which
 would silently place this cropped array at the wrong spot in world space.
-[`reindex_voxels`][confusius.xarray.FUSIAffineAccessor.reindex_voxels] relabels `k`/`j`/`i`
+[`reindex_voxels`][voxeldata.accessors.VoxelDataAccessor.reindex_voxels] relabels `k`/`j`/`i`
 back to `0, 1, ..., dim - 1` and adjusts the affine to compensate, so the world
 coordinates stay exactly the same:
 
 ```pycon
->>> dense = cropped.fusi.affine.reindex_voxels()
+>>> dense = cropped.vd.reindex_voxels()
 >>> dense.coords["i"].values
 array([0, 1, 2])
 >>> dense.coords["x"].isel(k=0, j=0).values  # unchanged
@@ -568,12 +571,12 @@ carry different voxel labels—for example one was cropped from a larger array a
 other was freshly built with dense labels. Since `.sel()`, arithmetic, and
 [`xarray.align`][xarray.align] all match by coordinate *label*, two such arrays won't
 align automatically despite describing the same physical space.
-[`reindex_voxels_like`][confusius.xarray.FUSIAffineAccessor.reindex_voxels_like] first
+[`reindex_voxels_like`][voxeldata.accessors.VoxelDataAccessor.reindex_voxels_like] first
 verifies the two DataArrays already occupy the same world grid, then relabels one
 DataArray's voxel coordinates and affine to match the other's:
 
 ```python
-aligned = data.fusi.affine.reindex_voxels_like(reference)
+aligned = data.vd.reindex_voxels_like(reference)
 ```
 
 ### Signal Extraction

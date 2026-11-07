@@ -50,7 +50,7 @@ def make_attrs_zarr_safe(attrs: dict[str, Any]) -> dict[str, Any]:
     """Make attributes safe to store as Zarr attributes.
 
     Zarr stores attributes as JSON. Numpy arrays and scalars, including those nested
-    inside dicts or lists such as `attrs["affines"]`, are converted to native Python
+    inside dicts or lists such as `.vd.affines`, are converted to native Python
     objects. Any remaining value that cannot be JSON-encoded (e.g. matplotlib colormap
     and normalization objects on atlas-derived data) is dropped with a warning.
 
@@ -83,30 +83,6 @@ def make_attrs_zarr_safe(attrs: dict[str, Any]) -> dict[str, Any]:
         )
 
     return safe
-
-
-def restore_affines_in_attrs(attrs: dict[str, Any]) -> None:
-    """Restore `attrs["affines"]` dict values to numpy arrays in place.
-
-    Zarr stores the affines as nested lists (see
-    [`make_attrs_zarr_safe`][confusius.io._utils.make_attrs_zarr_safe]); this converts
-    them back to numpy arrays so a Zarr round-trip matches the NIfTI and SCAN loaders. A
-    no-op when `affines` is absent or not a dict.
-
-    Parameters
-    ----------
-    attrs : dict[str, Any]
-        Attributes to update in place.
-
-    Returns
-    -------
-    None
-        This function mutates `attrs` and returns nothing.
-    """
-    affines = attrs.get("affines")
-    if not isinstance(affines, dict):
-        return
-    attrs["affines"] = {key: np.asarray(value) for key, value in affines.items()}
 
 
 def _read_binary_block(

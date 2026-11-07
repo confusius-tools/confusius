@@ -10,7 +10,7 @@ import xarray as xr
 from confusius.registration._utils import (
     abort_on_sigint,
     expand_thin_dims,
-    replace_affines_attr,
+    replace_named_affines,
     set_sitk_thread_count,
     validate_fill_value,
     validate_intensity_scaling,
@@ -667,7 +667,7 @@ def register_volume(
         the world positions of the control points. Attributes include `type =
         "bspline_transform"`, the spline `order`, and the control-grid `direction`
         matrix. When an affine `initialization` was also supplied, the DataArray also
-        includes `attrs["affines"]["bspline_initialization"]` so that the full
+        includes `attrs["bspline_initialization"]` so that the full
         composite transform (pre-affine + B-spline) can be reconstructed for later
         resampling.
     diagnostics : confusius.registration.RegistrationDiagnostics
@@ -1006,10 +1006,10 @@ def register_volume(
     )
     if resample:
         # result already carries fixed's own VoxelToWorldIndex (reused from
-        # fixed.coords above), so only the unrelated attrs["affines"] metadata --
+        # fixed.coords above), so only the named world-frame metadata --
         # fixed's relationship to other world reference frames -- needs swapping
         # in for moving's.
-        replace_affines_attr(result, fixed)
+        replace_named_affines(result, fixed)
 
     if transform_type == "bspline":
         from confusius.registration.bspline import sitk_bspline_to_dataarray

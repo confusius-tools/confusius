@@ -30,12 +30,23 @@ transformations that record the world position of each pose.
     rotating. Rotational sweeps (so-called tomographic acquisitions) are not yet
     supported and will raise a `ValueError`.
 
+    Named world frames must also be shared across the merged grids. An identical
+    per-pose stack can be reduced to one affine; a frame that genuinely varies
+    across grids cannot describe a single consolidated volume and raises an error.
+    Apply a common frame or explicitly remove the varying frame before consolidation.
+
 ## The Multi-Pose Data Model
 
-A multi-pose VoxelData array follows the same dimension order as any other VoxelData
-array, `(..., time, pose, k, j, i)`, with `pose` sitting between `time` and the native
-voxel dimensions `k`/`j`/`i`. This reflects the fact that probe poses are typically
-acquired sequentially during a single recording.
+A multi-pose VoxelData array uses the **`pose` dimension to represent probe
+poses**. Its dimensions end in `(k, j, i)`; leading dimensions may have any order.
+For example, both `(time, pose, k, j, i)` and `(pose, time, k, j, i)` are valid.
+Creation preserves leading order; canonicalization uses
+`(...extra_dims, pose, time, k, j, i)`.
+
+The probe-specific functions retain their names:
+`stack_poses(poses, pose=labels)` stacks separate probe poses, and
+`consolidate_poses(data)` merges their spatial samples. Geometry is read and
+modified through `data.vd`, not `data.fusi`.
 
 `pose` is not just an extra axis: it changes what the `z`/`y`/`x` world coordinates and
 the `time` coordinate mean, because both are per-pose rather than per-array.
@@ -48,7 +59,7 @@ the `time` coordinate mean, because both are per-pose rather than per-array.
 - **Timing can be per-pose.** When poses are acquired sequentially rather than
   simultaneously, each pose is captured at a slightly different time. The `time`
   coordinate then holds each pose's own acquisition timestamp directly, shaped
-  `(time, pose)` instead of the usual 1D `(time,)`—mirroring how `z`/`y`/`x` require a
+  `(time, pose)` or `(pose, time)` instead of the usual 1D `(time,)`—mirroring how `z`/`y`/`x` require a
   scalar `pose` selection before they resolve to a single value:
 
     ```python
@@ -102,8 +113,6 @@ Coordinates:
     y          (pose, k, j, i) float64 1MB ...
     x          (pose, k, j, i) float64 1MB ...
 Attributes:
-    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
-       ...
     device_serial_number:  ASAO0000
     software_version:      IcoScan v.1.9.0
     iconeus_scan_mode:     4Dscan
@@ -112,6 +121,8 @@ Attributes:
     iconeus_scan:          sub-01_task-awake_pwd
     ...
 ```
+
+Named world frames are available through `pwd.vd.affines`.
 
 The motor moved the probe across 4 positions. Each position gives 4 elevation slices.
 After [consolidation](#pose-consolidation), the array has 16 slices.
@@ -286,8 +297,6 @@ Coordinates:
     y           (k, j, i) float64 1MB ...
     x           (k, j, i) float64 1MB ...
 Attributes:
-    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
-       ...
     device_serial_number:  ASAO0000
     software_version:      IcoScan v.1.9.0
     iconeus_scan_mode:     4Dscan

@@ -293,7 +293,7 @@ Label IDs are preserved, but boundaries can change and thin regions can disappea
 
 Prefer drawing in an existing axis-aligned acquisition/scanner frame when available. A
 known transform can be applied afterward to both the image and extracted labels using
-[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] without resampling.
+[`.vd.apply`][voxeldata.accessors.VoxelDataAccessor.apply] without resampling.
 
 ## Static Volume Plots
 
@@ -737,7 +737,7 @@ fig, ax = cf.plotting.plot_matrix(
     labels=region_order,
     groups=group_labels,
     group_colors=group_colors,
-    grid="gray",
+    pose="gray",
     cbar_label="correlation",
 )
 ```

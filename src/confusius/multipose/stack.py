@@ -100,13 +100,29 @@ def stack_poses(
             expanded = expanded.drop_vars(TIME_DIM)
         promoted.append(
             attach_voxel_to_world_index(
-                expanded, affine, units=get_voxel_to_world_units(da)
+                expanded,
+                affine,
+                units=get_voxel_to_world_units(da),
+                geometry_dims=(POSE_DIM,),
             )
         )
 
+    frame_names = set(poses[0].vd.affines)
+    if any(set(value.vd.affines) != frame_names for value in poses[1:]):
+        raise ValueError("All probe poses must carry the same named affine frames.")
+    named_affines = {}
+    for name in sorted(frame_names):
+        frames = np.stack([value.vd.get_affine(name) for value in poses])
+        named_affines[name] = frames[0] if np.allclose(frames, frames[0]) else frames
+
     stacked = xr.concat(promoted, dim=POSE_DIM, join="exact")
+    stacked = stacked.vd.set_voxel_to_world(
+        stacked.vd.voxel_to_world,
+        geometry_dims=stacked.vd.geometry_dims,
+        named_affines=named_affines,
+    )
     # expand_dims prepends "pose" at axis 0; restore canonical core dim order
-    # (...extra, time, pose, k, j, i).
+    # (...extra, pose, time, k, j, i).
     extra_dims = [d for d in stacked.dims if d not in CORE_DIMS]
     ordered_core = [d for d in CORE_DIMS if d in stacked.dims]
     stacked = stacked.transpose(*extra_dims, *ordered_core)

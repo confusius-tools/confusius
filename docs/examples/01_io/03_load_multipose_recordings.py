@@ -80,7 +80,7 @@ print(f"{npose} poses, each shaped {chunks[0].dims} = {chunks[0].shape}")
 # shared affine. `y`/`x` origins don't vary across chunks, so we only show `z`/`time`.
 
 # %%
-origins = [chunk.fusi.origin for chunk in chunks]
+origins = [chunk.vd.origin for chunk in chunks]
 print("z origins:", tuple(origin["z"] for origin in origins))
 print("time origins:", tuple(origin["time"] for origin in origins))
 
@@ -103,7 +103,7 @@ multipose = cf.multipose.stack_poses(chunks)
 #
 # Some geometry queries are well-defined without picking a pose: voxel spacing must be
 # identical across poses (a stacked affine with differing scale is rejected at
-# construction), so [`.fusi.spacing`][confusius.xarray.FUSIAccessor.spacing] works
+# construction), so [`.vd.spacing`][voxeldata.accessors.VoxelDataAccessor.spacing] works
 # directly on the multi-pose array.
 #
 # Origin and direction, however, are inherently single-grid concepts—there is no one
@@ -117,9 +117,9 @@ multipose = cf.multipose.stack_poses(chunks)
 #     affine first; ConfUSIus never resamples poses onto a shared grid implicitly.
 
 # %%
-pose0_origin = multipose.isel(pose=0).fusi.origin
-pose3_origin = multipose.isel(pose=3).fusi.origin
-print("spacing (pose-transparent):", multipose.fusi.spacing)
+pose0_origin = multipose.isel(pose=0).vd.origin
+pose3_origin = multipose.isel(pose=3).vd.origin
+print("spacing (pose-transparent):", multipose.vd.spacing)
 print("z origins (pose 0, 3):", (pose0_origin["z"], pose3_origin["z"]))
 print("time origins (pose 0, 3):", (pose0_origin["time"], pose3_origin["time"]))
 
@@ -163,7 +163,7 @@ consolidated
 
 # %% [markdown]
 # The consolidated volume has a genuine `k` extent of `npose` elevation slices (each
-# pose here contributes exactly one, since the probe is linear) and no more `pose`
+# grid here contributes exactly one, since the probe is linear) and no more `pose`
 # dimension, positioned by real physical location rather than acquisition order.
 
 # %%

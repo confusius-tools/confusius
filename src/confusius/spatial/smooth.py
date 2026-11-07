@@ -143,7 +143,7 @@ def smooth_volume(
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
-        spacing = data.fusi.spacing
+        spacing = data.vd.spacing
 
     smooth_spacing: dict[str, float] = {}
     for dim in smooth_dims:

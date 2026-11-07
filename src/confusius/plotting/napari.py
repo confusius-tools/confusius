@@ -207,7 +207,7 @@ def plot_napari(
     Napari's axis labels always show world `z`/`y`/`x` names, even though the
     displayed layer keeps `data`'s native voxel dims and index. Oblique or sheared
     data is resampled to an axis-aligned world grid first, because this display path
-    does not yet pass `data.fusi.affine`'s rotation/shear through as a napari layer
+    does not yet pass `data.vd`'s rotation/shear through as a napari layer
     `affine`.
 
     If all displayed dimensions have coordinates, their spacing is used as the scale
@@ -222,7 +222,7 @@ def plot_napari(
 
     For unitary voxel dimensions (e.g., a single-slice elevation axis in 2D+t data),
     the spacing cannot be inferred from consecutive coordinate differences. In that
-    case, `.fusi.spacing` derives it from the voxel-to-world affine column norm
+    case, `.vd.spacing` derives it from the voxel-to-world affine column norm
     instead. For unitary non-voxel dimensions with no affine to fall back on, unit
     spacing is assumed and a warning is emitted.
 
@@ -342,7 +342,7 @@ def draw_napari_labels(
     to the original grid. Thin regions and boundaries can change in this round trip.
     Prefer drawing in an existing axis-aligned acquisition/scanner frame when
     available. A known world-space transform can be applied with
-    [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] without
+    [`.vd.apply`][voxeldata.accessors.VoxelDataAccessor.apply] without
     resampling voxels; labels must be transformed consistently when changing frames.
 
     Examples

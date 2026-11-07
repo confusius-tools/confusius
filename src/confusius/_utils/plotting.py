@@ -13,7 +13,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_index_spacing,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
-    require_scalar_pose_affine,
+    require_single_geometry_affine,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.validation import ensure_voxeldata
@@ -211,7 +211,9 @@ def compute_oblique_axis_aligned_grid_geometry(
                 f"dimension {voxel_dim!r} has no well-defined spacing "
                 "(irregularly spaced coordinates)."
             )
-    affine = require_scalar_pose_affine(data, "Computing axis-aligned grid geometry")
+    affine = require_single_geometry_affine(
+        data, "Computing axis-aligned grid geometry"
+    )
     linear = affine[:3, :3]
     row_to_axis, axis_spacing = qr_axis_spacing(linear)
 
@@ -327,10 +329,10 @@ def resample_to_axis_aligned_world_grid(
         # representative per-axis spacing therefore can't come from
         # `np.diff(values)` (which would default to differencing along the last
         # voxel axis, regardless of which world axis `dim` actually corresponds
-        # to). require_scalar_pose_affine is still called for its validation side
+        # to). require_single_geometry_affine is still called for its validation side
         # effect: rejecting pose-stacked data before attempting to resample it onto
         # one axis-aligned grid.
-        require_scalar_pose_affine(
+        require_single_geometry_affine(
             data, "Resampling to an axis-aligned world grid for display"
         )
 

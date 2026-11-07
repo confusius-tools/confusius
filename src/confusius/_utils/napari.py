@@ -89,9 +89,9 @@ def get_napari_layer_geometry(
     """Return napari layer geometry metadata for `data`.
 
     `data` must carry a voxel-to-world index: `build_napari_layer_data` validates
-    this before reaching this point. Spacing is read from `.fusi.spacing`, falling back to
+    this before reaching this point. Spacing is read from `.vd.spacing`, falling back to
     the plain-coordinate best-effort median only for irregularly spaced coordinates
-    (`.fusi.spacing` returns `None` there).
+    (`.vd.spacing` returns `None` there).
 
     Parameters
     ----------
@@ -118,12 +118,12 @@ def get_napari_layer_geometry(
     all_dims = [str(dim) for dim in data.dims]
 
     coordinate_spacing, non_uniform = get_coordinate_spacings_best_effort(data)
-    fusi_spacing = data.fusi.spacing
+    fusi_spacing = data.vd.spacing
     spacing = {
         dim: fusi_spacing[dim] if fusi_spacing.get(dim) is not None else fallback
         for dim, fallback in coordinate_spacing.items()
     }
-    origin = data.fusi.origin
+    origin = data.vd.origin
     world_dim = {"k": "z", "j": "y", "i": "x"}
     scale: list[float] = []
     translate: list[float] = []
@@ -132,7 +132,7 @@ def get_napari_layer_geometry(
     for dim in all_dims:
         coord_name = world_dim.get(dim, dim)
         coord = data.coords.get(coord_name)
-        # `origin` (`.fusi.origin`) always has an entry for every dim -- spatial
+        # `origin` (`.vd.origin`) always has an entry for every dim -- spatial
         # dims via the voxel-to-world index, others defaulting to 0.0 -- so it's a
         # safe fallback translate whenever `coord` isn't itself 1-D numeric world
         # geometry for `dim`.

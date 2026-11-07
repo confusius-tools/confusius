@@ -341,7 +341,7 @@ GUI_POINT_LEFT = np.array([0.0, left_y, left_x])
 GUI_POINT_RIGHT = np.array([0.0, right_y, right_x])
 console.print(
     "  Using atlas z="
-    f"{atlas_slice.fusi.origin['z']:.3f} "
+    f"{atlas_slice.vd.origin['z']:.3f} "
     f"for acq-slice{_SLICE_INDEX:02d} {_ROI_STRUCTURE_NAME} ROIs "
     f"({len(GUI_LABEL_IDS)} labels)"
 )

@@ -413,8 +413,8 @@ class TestRegisterVolumewise:
                 sample_voxeldata_2dt_registration.coords[coord].values,
             )
         assert_allclose(
-            result.fusi.affine.voxel_to_world,
-            sample_voxeldata_2dt_registration.fusi.affine.voxel_to_world,
+            result.vd.voxel_to_world,
+            sample_voxeldata_2dt_registration.vd.voxel_to_world,
         )
 
     def test_different_reference_time(self, sample_voxeldata_2dt_registration):

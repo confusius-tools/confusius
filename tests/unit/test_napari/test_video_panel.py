@@ -229,7 +229,7 @@ class TestComputeSpatialParams:
         scale = panel._compute_spatial_scale(2, 48)
 
         expected = (
-            sample_voxeldata_3dt.fusi.spacing["j"] * sample_voxeldata_3dt.sizes["j"]
+            sample_voxeldata_3dt.vd.spacing["j"] * sample_voxeldata_3dt.sizes["j"]
         )
         assert scale * 48 == pytest.approx(expected)
 
@@ -238,7 +238,7 @@ class TestComputeSpatialParams:
         scale = panel._compute_spatial_scale(1, 48)  # dim 1 = "z" (k).
 
         expected = (
-            sample_voxeldata_3dt.fusi.spacing["k"] * sample_voxeldata_3dt.sizes["k"]
+            sample_voxeldata_3dt.vd.spacing["k"] * sample_voxeldata_3dt.sizes["k"]
         )
         assert scale * 48 == pytest.approx(expected)
 

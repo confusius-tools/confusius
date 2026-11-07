@@ -53,7 +53,7 @@ def _meta_from_layer(
     import confusius  # noqa: F401 — registers .fusi accessor
 
     world_dim = {"k": "z", "j": "y", "i": "x"}
-    scale = [da.fusi.spacing[d] or 1.0 for d in da.dims]
+    scale = [da.vd.spacing[d] or 1.0 for d in da.dims]
 
     def _origin(dim: Hashable) -> float:
         name = world_dim.get(str(dim), str(dim))
@@ -92,10 +92,14 @@ class TestWriteNiftiWithDataArray:
         )
         assert result == [path]
 
-    def test_file_created(self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> None:
+    def test_file_created(
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
+    ) -> None:
         """NIfTI file is created on disk."""
         path = tmp_path / "out.nii.gz"
-        write_nifti(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
+        write_nifti(
+            str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt)
+        )
         assert path.exists()
 
     def test_roundtrip_values(
@@ -105,7 +109,9 @@ class TestWriteNiftiWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        write_nifti(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
+        write_nifti(
+            str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt)
+        )
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_voxeldata_3dt.values, rtol=1e-5)
 
@@ -116,7 +122,9 @@ class TestWriteNiftiWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        write_nifti(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
+        write_nifti(
+            str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt)
+        )
         loaded = load(path)
         for dim in ("z", "y", "x"):
             npt.assert_allclose(
@@ -142,11 +150,15 @@ class TestWriteNiftiFromReconstruction:
         )
         assert result == [path]
 
-    def test_file_created(self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> None:
+    def test_file_created(
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
+    ) -> None:
         """NIfTI file is created when reconstructing from layer state."""
         path = tmp_path / "out.nii.gz"
         write_nifti(
-            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+            str(path),
+            sample_voxeldata_3dt.values,
+            _meta_from_layer(sample_voxeldata_3dt),
         )
         assert path.exists()
 
@@ -158,7 +170,9 @@ class TestWriteNiftiFromReconstruction:
 
         path = tmp_path / "out.nii.gz"
         write_nifti(
-            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+            str(path),
+            sample_voxeldata_3dt.values,
+            _meta_from_layer(sample_voxeldata_3dt),
         )
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_voxeldata_3dt.values, rtol=1e-5)
@@ -171,7 +185,9 @@ class TestWriteNiftiFromReconstruction:
 
         path = tmp_path / "out.nii.gz"
         write_nifti(
-            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+            str(path),
+            sample_voxeldata_3dt.values,
+            _meta_from_layer(sample_voxeldata_3dt),
         )
         loaded = load(path)
         for dim in ("z", "y", "x"):
@@ -214,10 +230,14 @@ class TestWriteZarrWithDataArray:
         )
         assert result == [path]
 
-    def test_store_created(self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> None:
+    def test_store_created(
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
+    ) -> None:
         """Zarr store directory is created on disk."""
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
+        write_zarr(
+            str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt)
+        )
         assert path.is_dir()
 
     def test_roundtrip_values(
@@ -227,7 +247,9 @@ class TestWriteZarrWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
+        write_zarr(
+            str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt)
+        )
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_voxeldata_3dt.values, rtol=1e-6)
 
@@ -238,7 +260,9 @@ class TestWriteZarrWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt))
+        write_zarr(
+            str(path), sample_voxeldata_3dt.values, _meta_with_da(sample_voxeldata_3dt)
+        )
         loaded = load(path)
         for dim in ("time", "z", "y", "x"):
             npt.assert_allclose(
@@ -264,11 +288,15 @@ class TestWriteZarrFromReconstruction:
         )
         assert result == [path]
 
-    def test_store_created(self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray) -> None:
+    def test_store_created(
+        self, tmp_path: Path, sample_voxeldata_3dt: xr.DataArray
+    ) -> None:
         """Zarr store directory is created when reconstructing from layer state."""
         path = tmp_path / "out.zarr"
         write_zarr(
-            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+            str(path),
+            sample_voxeldata_3dt.values,
+            _meta_from_layer(sample_voxeldata_3dt),
         )
         assert path.is_dir()
 
@@ -280,7 +308,9 @@ class TestWriteZarrFromReconstruction:
 
         path = tmp_path / "out.zarr"
         write_zarr(
-            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+            str(path),
+            sample_voxeldata_3dt.values,
+            _meta_from_layer(sample_voxeldata_3dt),
         )
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_voxeldata_3dt.values, rtol=1e-6)
@@ -293,7 +323,9 @@ class TestWriteZarrFromReconstruction:
 
         path = tmp_path / "out.zarr"
         write_zarr(
-            str(path), sample_voxeldata_3dt.values, _meta_from_layer(sample_voxeldata_3dt)
+            str(path),
+            sample_voxeldata_3dt.values,
+            _meta_from_layer(sample_voxeldata_3dt),
         )
         loaded = load(path)
         coord_pairs = (("time", "time"), ("z", "z"), ("y", "y"), ("x", "x"))
@@ -430,7 +462,7 @@ class TestDaFromNapariLayer:
             },
         )
         assert da["x"].attrs["units"] == "mm"
-        assert da.fusi.affine.units == "mm"
+        assert da.vd.units == "mm"
 
     def test_mismatched_voxel_axis_units_raise(self) -> None:
         """Voxel axes cannot declare different physical units."""

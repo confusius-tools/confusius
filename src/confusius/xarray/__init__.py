@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 
 __all__ = [
     "FUSIAccessor",
-    "FUSIAffineAccessor",
     "FUSIConnectivityAccessor",
     "FUSIExtractAccessor",
     "FUSIIQAccessor",
@@ -26,7 +25,6 @@ __all__ = [
 from confusius.xarray.accessors import FUSIAccessor
 
 _ATTR_TO_MODULE = {
-    "FUSIAffineAccessor": "confusius.xarray.affine",
     "create_voxeldata": "confusius.xarray.create",
     "FUSIConnectivityAccessor": "confusius.xarray.connectivity",
     "FUSIExtractAccessor": "confusius.xarray.extract",
@@ -60,7 +58,6 @@ def __dir__() -> list[str]:
 
 if TYPE_CHECKING:
     from confusius.xarray.affine import (
-        FUSIAffineAccessor,
         apply_affine,
         get_bounding_box,
         get_relative_affine,

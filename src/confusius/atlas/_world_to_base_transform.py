@@ -158,12 +158,10 @@ def _compose_world_to_base_transforms(
     voxel_dims = get_voxel_to_world_spatial_dims(new_template)
     shape = tuple(new_template.sizes[dim] for dim in voxel_dims)
     spacing = np.asarray(
-        [new_template.fusi.spacing[dim] for dim in voxel_dims], dtype=np.float64
+        [new_template.vd.spacing[dim] for dim in voxel_dims], dtype=np.float64
     )
-    origin = np.asarray(
-        [new_template.fusi.origin[dim] for dim in dims], dtype=np.float64
-    )
-    direction = np.asarray(new_template.fusi.direction, dtype=np.float64)
+    origin = np.asarray([new_template.vd.origin[dim] for dim in dims], dtype=np.float64)
+    direction = np.asarray(new_template.vd.direction, dtype=np.float64)
     voxel_positions = np.stack(
         np.meshgrid(*(np.arange(size) for size in shape), indexing="ij"), axis=-1
     ).reshape(-1, len(dims))
@@ -227,8 +225,8 @@ def _interpolate_displacement_field(
         raise ValueError("field must have a voxel-to-world index.")
 
     voxel_dims = get_voxel_to_world_spatial_dims(field)
-    spacing = field.fusi.spacing
-    origin = field.fusi.origin
+    spacing = field.vd.spacing
+    origin = field.vd.origin
     world_dims = WORLD_DIMS
     shape = [field.sizes[dim] for dim in voxel_dims]
 
@@ -343,7 +341,7 @@ def _apply_world_to_base_transform(
         field = sample_displacement_field_like(transform, template)
 
     initial_guess_affine: npt.NDArray[np.float64] | None = None
-    pre_affine = transform.attrs.get("affines", {}).get("bspline_initialization")
+    pre_affine = transform.attrs.get("bspline_initialization")
     if pre_affine is not None:
         initial_guess_affine = cast(
             npt.NDArray[np.float64],

@@ -199,5 +199,5 @@ def test_validate_mask_rejects_noncanonical_mask(sample_voxeldata_3dt):
         units=get_voxel_to_world_units(sample_voxeldata_3dt),
     )
 
-    with pytest.raises(ValueError, match="canonical ConfUSIus order"):
+    with pytest.raises(ValueError, match="dimensions must end with"):
         validate_mask(mask, sample_voxeldata_3dt, require_exact_dims=True)

@@ -211,8 +211,8 @@ def test_create_voxeldata_accepts_dims_in_any_order(
         voxel_to_world=identity_pose_affines(npose),
     )
 
-    assert result.dims == ("component", "time", "pose", "k", "j", "i")
-    assert result.shape == (n_component, n_time, npose, 2, 3, 4)
+    assert result.dims == ("component", "pose", "time", "k", "j", "i")
+    assert result.shape == (n_component, npose, n_time, 2, 3, 4)
     np.testing.assert_array_equal(result.coords["component"], ["a", "b"])
     validate_voxeldata(result, require_time=True)
 
@@ -228,7 +228,7 @@ def test_create_voxeldata_accepts_direction_matrix():
     )
 
     assert_allclose(
-        result.fusi.affine.voxel_to_world,
+        result.vd.voxel_to_world,
         [
             [0.0, 2.0, 0.0, 4.0],
             [1.0, 0.0, 0.0, 5.0],
@@ -256,7 +256,7 @@ def test_create_voxeldata_accepts_voxel_to_world_affine():
     )
 
     np.testing.assert_array_equal(result.coords["i"], np.arange(12))
-    assert_allclose(result.fusi.affine.voxel_to_world, affine)
+    assert_allclose(result.vd.voxel_to_world, affine)
     assert result.coords["z"].attrs == {"units": "mm"}
     validate_voxeldata(result)
 
@@ -354,7 +354,9 @@ def test_create_voxeldata_singleton_time_uses_t0_and_dt():
     )
 
     assert_allclose(result.coords["time"], [3.0])
-    assert result.coords["time"].attrs["volume_acquisition_duration"] == 0.6
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
+        0.6
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +387,7 @@ def test_create_voxeldata_pose_stacked_voxel_to_world_requires_pose_dim():
     """A pose-stacked affine without a `pose` dim in `dims` raises clearly."""
     affine = np.stack([np.eye(4), np.eye(4)])
 
-    with pytest.raises(ValueError, match="requires a 'pose' dimension"):
+    with pytest.raises(ValueError, match="requires explicit geometry_dims"):
         create_voxeldata(
             np.zeros((2, 3, 4)),
             dims=("k", "j", "i"),
@@ -397,7 +399,7 @@ def test_create_voxeldata_pose_stacked_voxel_to_world_rejects_wrong_shape():
     """A pose-stacked affine whose per-pose blocks aren't (4, 4) raises clearly."""
     affine = np.stack([np.eye(3), np.eye(3)])
 
-    with pytest.raises(ValueError, match="must have shape \\(npose, 4, 4\\)"):
+    with pytest.raises(ValueError, match="must have shape"):
         create_voxeldata(
             np.zeros((2, 2, 3, 4)),
             dims=("pose", "k", "j", "i"),
@@ -410,7 +412,7 @@ def test_create_voxeldata_pose_stacked_voxel_to_world_rejects_non_homogeneous():
     affine = np.stack([np.eye(4), np.eye(4)])
     affine[1, -1] = [0.0, 0.0, 0.0, 2.0]  # pose 1's last row is not homogeneous.
 
-    with pytest.raises(ValueError, match="must be a homogeneous affine"):
+    with pytest.raises(ValueError, match="homogeneous final row"):
         create_voxeldata(
             np.zeros((2, 2, 3, 4)),
             dims=("pose", "k", "j", "i"),
@@ -435,7 +437,7 @@ def test_create_voxeldata_pose_stacked_voxel_to_world_rejects_wrong_length():
     """A pose stack length must match the `pose` dimension size."""
     affine = np.stack([np.eye(4)])
 
-    with pytest.raises(ValueError, match="does not match the 'pose' dimension size"):
+    with pytest.raises(ValueError, match="stack length"):
         create_voxeldata(
             np.zeros((2, 2, 3, 4)),
             dims=("pose", "k", "j", "i"),
@@ -443,16 +445,17 @@ def test_create_voxeldata_pose_stacked_voxel_to_world_rejects_wrong_length():
         )
 
 
+def test_create_voxeldata_grid_can_share_geometry():
+    """A shared affine does not depend on unrelated nonspatial dimensions."""
+    result = create_voxeldata(
+        np.zeros((2, 2, 3, 4)),
+        dims=("pose", "k", "j", "i"),
+        voxel_to_world=np.eye(4),
+    )
+    assert result.vd.geometry_dims == ()
+    assert result.z.dims == ("k", "j", "i")
+    assert_allclose(result.vd.voxel_to_world, np.eye(4))
 
-
-def test_create_voxeldata_pose_dim_rejects_shared_voxel_to_world():
-    """A pose dimension requires one affine per pose, not one shared affine."""
-    with pytest.raises(ValueError, match="shared .*affine; every pose must carry"):
-        create_voxeldata(
-            np.zeros((2, 2, 3, 4)),
-            dims=("pose", "k", "j", "i"),
-            voxel_to_world=np.eye(4),
-        )
 
 # ---------------------------------------------------------------------------
 # 5. 3D volumes + pose + time
@@ -482,7 +485,7 @@ def test_create_voxeldata_accepts_2d_per_pose_time(
     assert result.coords["time"].attrs["units"] == "s"
     assert "time" not in result.xindexes
     # spacing along "time" specifically (not the cross-pose 0.6 offset).
-    assert result.fusi.spacing["time"] == pytest.approx(2.4)
+    assert result.vd.spacing["time"] == pytest.approx(2.4)
 
 
 def test_create_voxeldata_2d_time_plain_array_gets_valid_attrs(
@@ -559,7 +562,7 @@ def test_create_voxeldata_2d_time_rejects_wrong_pose_count(
     npose = 3
     time_2d = np.zeros((4, 2))
 
-    with pytest.raises(ValueError, match="pose columns"):
+    with pytest.raises(ValueError, match="time dimension 'pose'.*size"):
         create_voxeldata(
             np.zeros((4, npose, 2, 3, 4)),
             dims=("time", "pose", "k", "j", "i"),
@@ -591,10 +594,12 @@ def test_create_voxeldata_accepts_per_pose_t0_with_shared_dt(
     assert_allclose(result.coords["time"].values, expected)
     assert result.coords["time"].attrs["units"] == "s"
     # Defaults from the spacing between poses' own onsets (0.6), not `dt` (2.4,
-    # the repetition period between successive samples of the *same* pose).
-    assert result.coords["time"].attrs["volume_acquisition_duration"] == 0.6
+    # the repetition period between successive samples of the *same* grid).
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
+        0.6
+    )
     assert "time" not in result.xindexes
-    assert result.fusi.spacing["time"] == pytest.approx(2.4)
+    assert result.vd.spacing["time"] == pytest.approx(2.4)
 
 
 def test_create_voxeldata_per_pose_t0_ignores_simultaneous_ties(
@@ -612,7 +617,9 @@ def test_create_voxeldata_per_pose_t0_ignores_simultaneous_ties(
         voxel_to_world=identity_pose_affines(npose),
     )
 
-    assert result.coords["time"].attrs["volume_acquisition_duration"] == 0.2
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
+        0.2
+    )
 
 
 def test_create_voxeldata_per_pose_t0_honors_explicit_duration(
@@ -684,7 +691,7 @@ def test_create_voxeldata_accepts_extra_dim_with_coords():
         spacing=(0.4, 0.1, 0.2),
     )
 
-    assert result.dims == ("component", "time", "k", "j", "i")
+    assert result.dims == ("time", "component", "k", "j", "i")
     np.testing.assert_array_equal(result.coords["component"], ["a", "b", "c"])
     validate_voxeldata(result, require_time=True)
 
@@ -778,9 +785,7 @@ def test_create_voxeldata_rejects_wrong_length_explicit_coord():
 
 def test_create_voxeldata_rejects_none_t0_with_dt():
     """An explicit `t0=None` cannot serve as the time-coordinate origin."""
-    with pytest.raises(
-        ValueError, match="Origin for dimension 'time' must be provided"
-    ):
+    with pytest.raises(ValueError, match="t0 must be provided"):
         create_voxeldata(
             np.zeros((5, 1, 2, 3)),
             dims=("time", "k", "j", "i"),

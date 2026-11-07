@@ -16,7 +16,7 @@ def _add_identity_affine(da):
 
 def _spacing(da, dim):
     """Return the world voxel spacing for a dimension."""
-    return float(da.fusi.spacing[dim])
+    return float(da.vd.spacing[dim])
 
 
 class TestSmoothVolume:

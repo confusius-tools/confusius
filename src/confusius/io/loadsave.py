@@ -21,7 +21,6 @@ from confusius._utils.geometry import (
 from confusius.io._utils import (
     ZARR_V3_CONSOLIDATED_METADATA_WARNING,
     make_attrs_zarr_safe,
-    restore_affines_in_attrs,
 )
 from confusius.io.utils import check_path
 from confusius.validation import ensure_voxeldata
@@ -117,8 +116,14 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
             data_array.attrs.pop("voxel_to_world"), dtype=np.float64
         )
         units = data_array.attrs.pop("voxel_to_world_units", "mm")
+        named_affines = data_array.attrs.pop("voxel_to_world_named_affines", None)
+        geometry_dims = data_array.attrs.pop("voxel_to_world_geometry_dims", None)
         data_array = attach_voxel_to_world_index(
-            data_array, voxel_to_world, units=units
+            data_array,
+            voxel_to_world,
+            units=units,
+            named_affines=named_affines,
+            geometry_dims=None if geometry_dims is None else tuple(geometry_dims),
         )
     else:
         raise ValueError(
@@ -127,7 +132,6 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         )
 
     restore_atlas_cmap_and_norm(data_array)
-    restore_affines_in_attrs(data_array.attrs)
     return data_array
 
 
@@ -172,14 +176,17 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         data_array = data_array.copy(deep=False)
         voxel_to_world = get_voxel_to_world_affine(data_array)
         units = get_voxel_to_world_units(data_array)
-        # `pose` is its own plain, independently indexed coordinate (not owned by the
-        # VoxelToWorldIndex -- see its docstring), so dropping the world coordinates
-        # here leaves it untouched.
+        named_affines = data_array.vd.affines
+        geometry_dims = data_array.vd.geometry_dims
+        # Geometry-axis labels are independent coordinates and survive dropping the
+        # derived world coordinates.
         data_array = data_array.drop_vars(WORLD_DIMS)
         data_array.attrs = {
             **data_array.attrs,
             "voxel_to_world": voxel_to_world,
             "voxel_to_world_units": units,
+            "voxel_to_world_named_affines": named_affines,
+            "voxel_to_world_geometry_dims": geometry_dims,
         }
         data_array.attrs = make_attrs_zarr_safe(data_array.attrs)
         with warnings.catch_warnings():

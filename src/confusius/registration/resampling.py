@@ -13,7 +13,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_units,
 )
 from confusius.registration._utils import (
-    replace_affines_attr,
+    replace_named_affines,
     set_sitk_thread_count,
     validate_fill_value,
     voxeldata_to_sitk_image,
@@ -133,7 +133,7 @@ def resample_volume(
     coordinate values, which stay unchanged across cropping or striding; it does not
     generally describe where the array's position `(0, ..., 0)` sits, or the world
     distance between consecutive positions, once the array has been cropped or
-    strided. Use `reference.fusi.spacing`/`reference.fusi.origin` (as
+    strided. Use `reference.vd.spacing`/`reference.vd.origin` (as
     [`resample_like`][confusius.registration.resample_like] does) to derive a
     position-anchored grid from an existing DataArray.
 
@@ -164,14 +164,14 @@ def resample_volume(
         `reference.sizes` can be passed directly.
     output_spacing : mapping of str to float
         World distance between consecutive voxel positions along each output voxel
-        axis, read by `k`/`j`/`i` keys. `reference.fusi.spacing` can be passed
+        axis, read by `k`/`j`/`i` keys. `reference.vd.spacing` can be passed
         directly.
     output_origin : mapping of str to float
         World location of output voxel position `(0, 0, 0)`, read by `z`/`y`/`x`
-        keys. `reference.fusi.origin` can be passed directly.
+        keys. `reference.vd.origin` can be passed directly.
     output_direction : numpy.typing.ArrayLike
         `(3, 3)` matrix whose columns are the unit world-space direction of each
-        output voxel axis, in native `k/j/i` column order. `reference.fusi.direction`
+        output voxel axis, in native `k/j/i` column order. `reference.vd.direction`
         can be passed directly.
     interpolation : {"auto", "linear", "nearest", "bspline"}, default: "auto"
         Interpolation method used during resampling. `"auto"` picks `"nearest"` when
@@ -338,7 +338,7 @@ def resample_volume(
         attrs=attrs,
         name=str(moving.name) if moving.name is not None else None,
     )
-    return result.fusi.affine.set_units(get_voxel_to_world_units(moving))
+    return result.vd.set_units(get_voxel_to_world_units(moving))
 
 
 def resample_like(
@@ -441,8 +441,8 @@ def resample_like(
         moving,
         transform,
         output_sizes=reference.sizes,
-        output_spacing=reference.fusi.spacing,
-        output_origin=reference.fusi.origin,
+        output_spacing=reference.vd.spacing,
+        output_origin=reference.vd.origin,
         output_direction=output_direction,
         interpolation=interpolation,
         fill_value=fill_value if fill_value is not None else default_value,
@@ -455,5 +455,5 @@ def resample_like(
     # array). Adopt reference's own labels and affine so the two are directly
     # alignable by voxel label as well as by world position.
     result = reindex_voxels_like(result, reference)
-    replace_affines_attr(result, reference)
+    replace_named_affines(result, reference)
     return result
