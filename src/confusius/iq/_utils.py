@@ -34,7 +34,7 @@ def ensure_iq_voxeldata(
     return ensure_voxeldata(
         iq,
         require_time=True,
-        allow_grid=False,
+        allow_pose=False,
         allow_extra_dims=False,
         require_velocity_attrs=require_velocity_attrs,
         require_dtype=np.complexfloating,

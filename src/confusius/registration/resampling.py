@@ -141,7 +141,7 @@ def resample_volume(
     ----------
     moving : xarray.DataArray
         VoxelData array to resample. May be spatial-only, or have any number of
-        extra non-spatial dimensions (`time` and/or others; `grid` is not supported)
+        extra non-spatial dimensions (`time` and/or others; `pose` is not supported)
         (single-slice recordings use a singleton `k` axis). The same transform is
         applied to every slice along the extra dimensions.
     transform : (4, 4) numpy.ndarray or xarray.DataArray
@@ -209,7 +209,7 @@ def resample_volume(
     moving = ensure_voxeldata(
         moving,
         require_time=False,
-        allow_grid=False,
+        allow_pose=False,
         allow_extra_dims=True,
     )
 
@@ -362,7 +362,7 @@ def resample_like(
     ----------
     moving : xarray.DataArray
         VoxelData array to resample. May be spatial-only, or have any number of
-        extra non-spatial dimensions (`time` and/or others; `grid` is not supported)
+        extra non-spatial dimensions (`time` and/or others; `pose` is not supported)
         (single-slice recordings use a singleton `k` axis). The same transform is
         applied to every slice along the extra dimensions.
     reference : xarray.DataArray
@@ -420,13 +420,13 @@ def resample_like(
     moving = ensure_voxeldata(
         moving,
         require_time=False,
-        allow_grid=False,
+        allow_pose=False,
         allow_extra_dims=True,
     )
     reference = ensure_voxeldata(
         reference,
         require_time=False,
-        allow_grid=False,
+        allow_pose=False,
         allow_extra_dims=False,
     )
     validate_matching_spatial_units((("moving", moving), ("reference", reference)))

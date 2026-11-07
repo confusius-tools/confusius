@@ -331,7 +331,7 @@ def _swap_depth_elevation_axes(arr):
 
     Scan payloads store their last three axes as (depth, elevation, lateral);
     ConfUSIus order is (elevation=`k`, depth=`j`, lateral=`i`). Only the depth/
-    elevation pair needs swapping, regardless of how many leading (`time`/`grid`)
+    elevation pair needs swapping, regardless of how many leading (`time`/`pose`)
     axes precede them.
 
     Parameters
@@ -507,15 +507,15 @@ def load_scan(
         Lazy VoxelData array with dimensions and coordinates:
 
         - v1 `2Dscan` → `(time, k, j, i)`.
-        - v1 `3Dscan` → `(grid, k, j, i)`.
-        - v1 `4Dscan`/`4DscanCustom` → `(time, grid, k, j, i)`.
+        - v1 `3Dscan` → `(pose, k, j, i)`.
+        - v1 `4Dscan`/`4DscanCustom` → `(time, pose, k, j, i)`.
         - v2 single-pose → `(time, k, j, i)`.
-        - v2 multi-pose → `(time, grid, k, j, i)`.
+        - v2 multi-pose → `(time, pose, k, j, i)`.
         - v2 dim6 payloads prepend a `dim6` dimension.
 
         World coordinates `z`, `y`, `x` are in millimeters. The `time` coordinate is in
         seconds. For v1/v2 multi-pose time series, `time` is pose-dependent
-        (`(time, grid)`-shaped), holding each pose's own acquisition timestamps directly.
+        (`(time, pose)`-shaped), holding each pose's own acquisition timestamps directly.
 
     Raises
     ------
@@ -718,8 +718,8 @@ def _load_3dscan(
     data_lazy = _swap_depth_elevation_axes(sq)
     return create_voxeldata(
         data_lazy,
-        dims=("grid", "k", "j", "i"),
-        grid=np.arange(npose),
+        dims=("pose", "k", "j", "i"),
+        pose=np.arange(npose),
         voxel_to_world=voxel_to_world,
         attrs=attrs,
     )
@@ -745,9 +745,9 @@ def _load_4dscan(
     time_attrs = _scan_time_attrs(float(time_raw.min()))
     return create_voxeldata(
         data_lazy,
-        dims=("time", "grid", "k", "j", "i"),
-        time=xr.DataArray(time_raw, dims=["time", "grid"], attrs=time_attrs),
-        grid=np.arange(npose),
+        dims=("time", "pose", "k", "j", "i"),
+        time=xr.DataArray(time_raw, dims=["time", "pose"], attrs=time_attrs),
+        pose=np.arange(npose),
         voxel_to_world=voxel_to_world,
         attrs=attrs,
     )
@@ -1054,7 +1054,7 @@ def _load_scan_v2(
     The header stores Iconeus-ordered dimensions `(size_x=lateral, size_y=elevation,
     size_z=depth, n_time, npose, dim6)`. The payload is Fortran-ordered with the same
     axis order. Output dims are VoxelData-ordered: optional `dim6`, optional `time`,
-    optional `grid`, then `(k, j, i)`.
+    optional `pose`, then `(k, j, i)`.
 
     Parameters
     ----------
@@ -1067,7 +1067,7 @@ def _load_scan_v2(
     -------
     xarray.DataArray
         Lazy VoxelData array with dims `(time, k, j, i)` or
-        `(time, grid, k, j, i)` and
+        `(time, pose, k, j, i)` and
         world coordinates derived from a `VoxelToWorldIndex` affine (depth origin
         from the header when found; lateral/elevation centered on zero — see
         `load_scan` Notes).
@@ -1117,7 +1117,7 @@ def _load_scan_v2(
     scan_mode = _scan_v2_mode(meta)
     include_time = n_time > 1 or scan_mode == "2Dscan"
     include_pose = npose > 1
-    dims_list = ["dim6", "time", "grid", "k", "j", "i"]
+    dims_list = ["dim6", "time", "pose", "k", "j", "i"]
     squeeze_axes = []
     if dim6_count == 1:
         squeeze_axes.append(0)
@@ -1127,7 +1127,7 @@ def _load_scan_v2(
         dims_list.remove("time")
     if not include_pose:
         squeeze_axes.append(2)
-        dims_list.remove("grid")
+        dims_list.remove("pose")
     if squeeze_axes:
         data_lazy = da.squeeze(data_lazy, axis=tuple(squeeze_axes))
 
@@ -1142,7 +1142,7 @@ def _load_scan_v2(
         data_lazy,
         dims=tuple(dims_list),
         time=_build_scan_v2_time_coord(meta) if include_time else None,
-        grid=np.arange(npose) if include_pose else None,
+        pose=np.arange(npose) if include_pose else None,
         voxel_to_world=voxel_to_world,
         affines=affines,
         attrs=attrs,
@@ -1201,7 +1201,7 @@ def _build_scan_v2_probe_to_lab(meta: dict[str, Any]) -> npt.NDArray[np.float64]
     Returns
     -------
     numpy.ndarray
-        `(4, 4)` affine for single-pose scans, or `(grid, 4, 4)` affine stack for
+        `(4, 4)` affine for single-pose scans, or `(pose, 4, 4)` affine stack for
         multi-pose scans.
 
     Raises
@@ -1215,13 +1215,13 @@ def _build_scan_v2_probe_to_lab(meta: dict[str, Any]) -> npt.NDArray[np.float64]
         raise ValueError("SCAN v2 probe-pose block is missing or implausible.")
 
     probe_to_lab = np.repeat(np.eye(4)[None, :, :], meta["npose"], axis=0)
-    for grid, (translation, rotation) in enumerate(zip(translations, rotations)):
+    for pose, (translation, rotation) in enumerate(zip(translations, rotations)):
         # SCAN v2 files are written from MATLAB, whose Euler-angle convention is the
         # opposite of the C++ reader's, so Iconeus negates the stored angles when
         # reading them back. See Iconeus' explanation in
         # https://github.com/confusius-tools/confusius/issues/524#issuecomment-6351099909.
-        probe_to_lab[grid, :3, :3] = _build_rotation_matrix(*(-rotation))
-        probe_to_lab[grid, :3, 3] = translation
+        probe_to_lab[pose, :3, :3] = _build_rotation_matrix(*(-rotation))
+        probe_to_lab[pose, :3, 3] = translation
     converted = _build_probe_to_lab(probe_to_lab)
     return converted[0] if meta["npose"] == 1 else converted
 
@@ -1394,7 +1394,7 @@ def _build_scan_v2_time_coord(meta: dict[str, Any]) -> xr.DataArray:
     Returns
     -------
     xarray.DataArray
-        `time` coordinate. Multi-pose scans use a pose-dependent `(time, grid)` array.
+        `time` coordinate. Multi-pose scans use a pose-dependent `(time, pose)` array.
     """
     times = meta["measured_times"].reshape(
         meta["n_time"], meta["npose"], meta["size_y"]
@@ -1403,4 +1403,4 @@ def _build_scan_v2_time_coord(meta: dict[str, Any]) -> xr.DataArray:
     time_attrs = _scan_time_attrs(float(time_vals.min()) if time_vals.size else 0.0)
     if meta["npose"] == 1:
         return xr.DataArray(time_vals[:, 0], dims=["time"], attrs=time_attrs)
-    return xr.DataArray(time_vals, dims=["time", "grid"], attrs=time_attrs)
+    return xr.DataArray(time_vals, dims=["time", "pose"], attrs=time_attrs)

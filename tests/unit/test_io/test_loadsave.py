@@ -191,7 +191,7 @@ class TestSaveDispatch:
         )
         da = create_voxeldata(
             np.arange(2 * 2 * 3 * 4).reshape(2, 2, 3, 4),
-            dims=("grid", "k", "j", "i"),
+            dims=("pose", "k", "j", "i"),
             voxel_to_world=affine,
         )
         path = tmp_path / "data.zarr"
@@ -200,7 +200,7 @@ class TestSaveDispatch:
         loaded = load(path)
 
         assert loaded.dims == da.dims
-        npt.assert_array_equal(loaded.coords["grid"].values, da.coords["grid"].values)
+        npt.assert_array_equal(loaded.coords["pose"].values, da.coords["pose"].values)
         npt.assert_allclose(loaded.coords["z"].values, da.coords["z"].values)
         npt.assert_allclose(
             get_voxel_to_world_affine(loaded), get_voxel_to_world_affine(da)

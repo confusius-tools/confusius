@@ -125,7 +125,7 @@ class TestCorrectSliceTiming:
         """Raises ValueError if DataArray has neither slice_time nor pose-dependent time."""
         da = _make_consolidated_da(ntime=5, nz=3, ny=2, nx=2).drop_vars("slice_time")
         with pytest.raises(
-            ValueError, match="neither a 'slice_time' coordinate nor a grid-dependent"
+            ValueError, match="neither a 'slice_time' coordinate nor a pose-dependent"
         ):
             correct_slice_timings(da)
 
@@ -263,7 +263,7 @@ class TestCorrectSliceTiming:
         result = correct_slice_timings(da)
 
         base_time_coord = xr.DataArray(
-            da.coords["time"].isel(grid=0).values,
+            da.coords["time"].isel(pose=0).values,
             dims=["time"],
             attrs=dict(da.coords["time"].attrs),
         )
@@ -319,11 +319,11 @@ class TestCorrectSliceTiming:
         affines[:, 0, 3] = np.arange(npose)
         da_unconsolidated = create_voxeldata(
             data[:, :, None],
-            dims=("time", "grid", "k", "j", "i"),
+            dims=("time", "pose", "k", "j", "i"),
             time=xr.DataArray(
-                pose_time_vals, dims=["time", "grid"], attrs=timing_attrs
+                pose_time_vals, dims=["time", "pose"], attrs=timing_attrs
             ),
-            grid=np.arange(npose),
+            pose=np.arange(npose),
             voxel_to_world=affines,
         )
 

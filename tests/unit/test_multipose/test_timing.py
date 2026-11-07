@@ -79,7 +79,7 @@ class TestConsolidateTimeCoordinate:
         values = np.stack([np.arange(3.0), np.arange(3.0) + 0.25], axis=1)
         time_coord = xr.DataArray(
             values,
-            dims=["time", "grid"],
+            dims=["time", "pose"],
             attrs={
                 "volume_acquisition_duration": 0.25,
                 "volume_acquisition_reference": "center",

@@ -38,7 +38,7 @@ def _consolidate_named_affines(
     Returns
     -------
     dict[str, numpy.ndarray]
-        Shared world-to-frame transforms without a grid axis.
+        Shared world-to-frame transforms without a pose axis.
 
     Raises
     ------
@@ -50,7 +50,7 @@ def _consolidate_named_affines(
         if affine.ndim == 3:
             if not np.allclose(affine, affine[0]):
                 raise ValueError(
-                    f"Cannot consolidate grid-dependent named affine {name!r}. "
+                    f"Cannot consolidate pose-dependent named affine {name!r}. "
                     "Apply a common frame or explicitly remove this frame first."
                 )
             affine = affine[0]
@@ -67,7 +67,7 @@ def _detect_sweep_dim(
 
     The per-pose translation `t` isolates pure pose-stepping, independent of any
     voxel dimension (unlike diffing world positions along a candidate voxel
-    dimension, which conflates grid-stepping with intra-grid stepping along that
+    dimension, which conflates pose-stepping with within-pose stepping along that
     same dimension). Its dominant direction, found via SVD to stay robust to more
     than two poses, is dotted against each (normalized) column of the shared
     rotation block -- each column is the world-space direction of a unit step along
@@ -128,9 +128,9 @@ def consolidate_poses(
     rtol: float = 0.01,
     atol: float | None = None,
 ) -> xr.DataArray:
-    """Merge the `grid` dimension into the swept voxel dimension, ordered by position.
+    """Merge the `pose` dimension into the swept voxel dimension, ordered by position.
 
-    Per-`(grid, sweep_dim)` world positions are read directly from `da`'s own world
+    Per-`(pose, sweep_dim)` world positions are read directly from `da`'s own world
     coordinates, which requires `da`'s primary voxel-to-world geometry to itself be
     pose-dependent (a `(npose, 4, 4)` affine stack, one affine per pose).
     This is the case for SCAN data, where lab space (a fixed scanner frame shared by
@@ -139,7 +139,7 @@ def consolidate_poses(
     [`stack_poses`][confusius.multipose.stack_poses] output. If `da`'s primary
     geometry is instead driven by a *secondary*, named affine in
     `da.vd.affines` (e.g. a stack of NIfTI DataArrays with their
-    `world_to_qform` affines stacked, no grid-dependent primary geometry of their
+    `world_to_qform` affines stacked, no pose-dependent primary geometry of their
     own), rebase onto it first with
     [`.vd.apply`][voxeldata.accessors.VoxelDataAccessor.apply], e.g.
     `da.vd.apply("world_to_qform")`, before calling this function.
@@ -159,17 +159,17 @@ def consolidate_poses(
     [`load_scan`][confusius.io.load_scan]:
 
     ```python
-    scan_3d = load_scan("recording.scan")       # dims: (grid, k, j, i)
+    scan_3d = load_scan("recording.scan")       # dims: (pose, k, j, i)
     volume  = consolidate_poses(scan_3d)        # dims: (k, j, i)
 
-    scan_4d = load_scan("recording_4d.scan")    # dims: (time, grid, k, j, i)
+    scan_4d = load_scan("recording_4d.scan")    # dims: (time, pose, k, j, i)
     volume  = consolidate_poses(scan_4d)        # dims: (time, k, j, i)
     ```
 
     Parameters
     ----------
     da : xarray.DataArray
-        VoxelData array with a `grid` dimension and pose-dependent primary
+        VoxelData array with a `pose` dimension and pose-dependent primary
         voxel-to-world geometry. Typically produced by
         [`load_scan`][confusius.io.load_scan] for `3Dscan` or `4Dscan` files, or by
         [`stack_poses`][confusius.multipose.stack_poses].
@@ -186,13 +186,13 @@ def consolidate_poses(
     Returns
     -------
     xarray.DataArray
-        VoxelData array with `grid` merged into the swept voxel dimension, sorted by
+        VoxelData array with `pose` merged into the swept voxel dimension, sorted by
         world position. Every voxel keeps its world position: the output
         voxel-to-world affine carries over the input's non-swept columns (including
         any rotation), uses one regular step along the detected sweep axis for the
         swept column, and is anchored at the first sorted voxel. For inputs whose
         `time` coordinate is itself
-        pose-dependent (`(time, grid)`-shaped -- see
+        pose-dependent (`(time, pose)`-shaped -- see
         [stack_poses][confusius.multipose.stack_poses]), a consolidated `slice_time`
         with dims `("time", <sweep_dim>)` is included: each slice inherits the
         timestamp of the pose it came from.
@@ -200,7 +200,7 @@ def consolidate_poses(
     Raises
     ------
     ValueError
-        If `da` has no `grid` dimension, if `da`'s primary geometry is not
+        If `da` has no `pose` dimension, if `da`'s primary geometry is not
         pose-dependent, if the rotation block of the affine is not constant across
         poses (non-translation sweep), if the swept voxel dimension cannot be
         detected (fewer than two poses, identical grid positions, or a degenerate
@@ -217,8 +217,8 @@ def consolidate_poses(
     """
     da = ensure_voxeldata(da)
 
-    if "grid" not in da.dims:
-        raise ValueError("DataArray has no 'grid' dimension.")
+    if "pose" not in da.dims:
+        raise ValueError("DataArray has no 'pose' dimension.")
 
     units = get_voxel_to_world_units(da)
     if atol is None:
@@ -231,7 +231,7 @@ def consolidate_poses(
     affine = get_voxel_to_world_affine(da)  # (npose, 4, 4) when pose-dependent.
     if affine.ndim != 3:
         raise ValueError(
-            "DataArray has no grid-dependent primary geometry; consolidate_poses "
+            "DataArray has no pose-dependent primary geometry; consolidate_poses "
             "requires a pose-dependent VoxelToWorldIndex (see "
             "VoxelToWorldIndex.geometry_dims). If per-pose geometry instead "
             "lives in a secondary, named affine in da.vd.affines, rebase onto "
@@ -250,7 +250,7 @@ def consolidate_poses(
     sweep_col = voxel_dims.index(sweep_dim)
     other_voxel_dims = [d for d in voxel_dims if d != sweep_dim]
 
-    # Read exact per-(grid, sweep) world positions directly from da's own world
+    # Read exact per-(pose, sweep) world positions directly from da's own world
     # coordinates rather than reconstructing them from a separately stored affine.
     n_sweep = da.sizes[sweep_dim]
     world_positions = []
@@ -304,7 +304,7 @@ def consolidate_poses(
     # actual positions, and a perfect grid avoids floating-point accumulation
     # errors); the other columns are constant across poses (checked above) and carry
     # over from the input; the origin is the world position of the first sorted
-    # (grid, sweep) voxel. Every voxel thus keeps its world position through the
+    # (pose, sweep) voxel. Every voxel thus keeps its world position through the
     # merge, including any rotation of the input geometry.
     new_affine: npt.NDArray[np.float64] = np.eye(4, dtype=np.float64)
     new_affine[:3, :3] = rotations[0]
@@ -318,7 +318,7 @@ def consolidate_poses(
         **{dim: np.arange(da.sizes[dim]) for dim in other_voxel_dims},
     }
 
-    # Use xarray's vectorized isel to select (grid, sweep_dim) pairs simultaneously.
+    # Use xarray's vectorized isel to select (pose, sweep_dim) pairs simultaneously.
     # This stays dask-backed; dask does not support multi-axis fancy indexing via
     # da.data[...] (raises NotImplementedError for N-d fancy indexing).
     # The temporary dimension replaces both pose and sweep_dim; its position in the
@@ -326,11 +326,11 @@ def consolidate_poses(
     _consolidated = "__consolidated__"
     data = da.drop_vars(WORLD_DIMS).isel(
         {
-            "grid": xr.DataArray(pose_idx, dims=[_consolidated]),
+            "pose": xr.DataArray(pose_idx, dims=[_consolidated]),
             sweep_dim: xr.DataArray(sweep_idx, dims=[_consolidated]),
         }
     )
-    nonspatial_dims = [dim for dim in da.dims if dim not in (*voxel_dims, "grid")]
+    nonspatial_dims = [dim for dim in da.dims if dim not in (*voxel_dims, "pose")]
     out_dims = [*nonspatial_dims, *voxel_dims]
     selected_dims = [_consolidated if dim == sweep_dim else dim for dim in out_dims]
     data = data.transpose(*selected_dims).data
@@ -344,18 +344,18 @@ def consolidate_poses(
 
     if "time" in da.dims:
         time_coord = da.coords["time"]
-        is_pose_dependent_time = set(time_coord.dims) == {"time", "grid"}
+        is_pose_dependent_time = set(time_coord.dims) == {"time", "pose"}
         if is_pose_dependent_time:
-            time_coord = time_coord.transpose("time", "grid")
+            time_coord = time_coord.transpose("time", "pose")
 
         if is_pose_dependent_time:
-            # "time" is genuinely (time, grid)-shaped (see
+            # "time" is genuinely (time, pose)-shaped (see
             # confusius.multipose.stack_poses / confusius.io.load_scan's 4Dscan
             # output), holding each pose's own real timestamp directly. Build a 1D
             # base coordinate (pose 0's own column) to inherit units/reference
             # attrs from when building the consolidated "time" below.
             base_time_coord = xr.DataArray(
-                np.asarray(time_coord.isel(grid=0).values),
+                np.asarray(time_coord.isel(pose=0).values),
                 dims=["time"],
                 attrs=dict(time_coord.attrs),
             )

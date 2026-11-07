@@ -8,7 +8,7 @@ icon: lucide/brackets
 
 A typical fUSI recording is a 4D array indexed by time and native voxel dimensions (`i`,
 `j`, `k`). Some experimental paradigms acquire data at multiple probe poses, adding a
-`grid` dimension and making the recording 5D. World coordinates corresponding to the
+`pose` dimension and making the recording 5D. World coordinates corresponding to the
 voxel dimensions are (`x`, `y`, `z`). Storing this as a plain NumPy array means losing
 all of that structure: axes become anonymous integers, world coordinates must be tracked
 separately, and keeping them in sync with the data after slicing or averaging is
@@ -195,11 +195,11 @@ shallow = pwd.sel(y=slice(0, 2.5))              # depth 0-2.5 mm, by coordinate.
 ```
 
 !!! warning "Multi-pose caveat"
-    For recordings with a `grid` dimension, world coordinates become pose-dependent.
+    For recordings with a `pose` dimension, world coordinates become pose-dependent.
     Select a single pose before slicing in world space:
 
     ```python
-    pose0 = pwd.sel(grid=0).sel(y=slice(0, 2.5))  # OK
+    pose0 = pwd.sel(pose=0).sel(y=slice(0, 2.5))  # OK
     shallow = pose0.sel(y=slice(0, 2.5))
     ```
 
@@ -233,7 +233,7 @@ have a NumPy, Dask, or array-like object and want to create a VoxelData
 array. This is useful when you have raw data from a custom acquisition system or a
 non-standard file format. The function will attach VoxelData dimensions, coordinates,
 and metadata. Dimensions can be supplied in any order; the result is canonicalized to
-native `(..., time, grid, k, j, i)` order:
+native `(..., time, pose, k, j, i)` order:
 
 ```python
 import confusius as cf
@@ -267,14 +267,14 @@ Acquisition metadata that describes the whole recording belongs in the DataArray
 
 ### Multi-Pose Data
 
-For multi-pose data, `create_voxeldata` also accepts a `grid` dimension, a 2D `(time,
-grid)` time coordinate, a tuple `t0` time origin, and a stacked `(npose, 4, 4)`
+For multi-pose data, `create_voxeldata` also accepts a `pose` dimension, a 2D `(time,
+pose)` time coordinate, a tuple `t0` time origin, and a stacked `(npose, 4, 4)`
 `voxel_to_world` affine:
 
 ```python
 multipose = cf.create_voxeldata(
     raw_power,
-    dims=("i", "j", "k", "grid", "time"),
+    dims=("i", "j", "k", "pose", "time"),
     dt=2.4,
     t0=[0.0, 0.6, 1.2, 1.8],
     voxel_to_world=pose_affines,
@@ -513,7 +513,7 @@ shifted = pwd.vd.apply(my_affine)
 [`bounding_box`][voxeldata.accessors.VoxelDataAccessor.bounding_box] gives the extent of
 the data in world space, enclosing the full extent of every voxel (half a voxel beyond
 the outermost voxel centers). It is computed from the affine alone (exact for oblique
-geometry, and one bounding box per grid when the geometry is grid-dependent):
+geometry, and one bounding box per pose when the geometry is pose-dependent):
 
 ```python
 bbox = pwd.vd.bounding_box  # Dims (bound, component), e.g. ("max", "x").

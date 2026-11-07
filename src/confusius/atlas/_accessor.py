@@ -447,7 +447,7 @@ class AtlasAccessor:
         reference : xarray.DataArray
             VoxelData array defining the target grid. Only its `k`/`j`/`i` grid
             (`sizes`/`spacing`/`origin`/`direction`) is used, so a `time` dimension, if
-            present, is ignored. Must not have a `grid` or extra non-spatial dimension.
+            present, is ignored. Must not have a `pose` or extra non-spatial dimension.
         transform : (4, 4) numpy.ndarray or xarray.DataArray
             Pull transform mapping reference world coordinates to atlas world
             coordinates.
@@ -466,13 +466,13 @@ class AtlasAccessor:
         Raises
         ------
         ValueError
-            If `reference` has a `grid` or extra non-spatial dimension, or is not a
+            If `reference` has a `pose` or extra non-spatial dimension, or is not a
             VoxelData array.
         """
         reference = ensure_voxeldata(
             reference,
             require_time=False,
-            allow_grid=False,
+            allow_pose=False,
             allow_extra_dims=False,
         )
         grid = reference.vd

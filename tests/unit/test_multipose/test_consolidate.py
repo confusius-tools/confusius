@@ -28,7 +28,7 @@ def _make_rotated_sweep(
     Returns
     -------
     da : xarray.DataArray
-        `(grid, k, j, i)` VoxelData with a pose-dependent primary geometry.
+        `(pose, k, j, i)` VoxelData with a pose-dependent primary geometry.
     linear : (3, 3) numpy.ndarray
         Shared linear block (rotation @ spacing) of every pose's affine.
     """
@@ -48,8 +48,8 @@ def _make_rotated_sweep(
         affines[grid, 3, 3] = 1.0
     da = create_voxeldata(
         np.random.default_rng(0).random((npose, n_k, 3, 4)),
-        dims=("grid", "k", "j", "i"),
-        grid=np.arange(npose),
+        dims=("pose", "k", "j", "i"),
+        pose=np.arange(npose),
         voxel_to_world=affines,
     )
     return da, linear
@@ -112,7 +112,7 @@ class TestConsolidatePoses:
         da, _ = _make_rotated_sweep()
         frame = np.eye(4)
         frame[:3, 3] = [5.0, -2.0, 1.0]
-        frames = np.broadcast_to(frame, (da.sizes["grid"], 4, 4)).copy()
+        frames = np.broadcast_to(frame, (da.sizes["pose"], 4, 4)).copy()
         da = da.vd.set_affine("world_to_shared", frames)
 
         result = consolidate_poses(da)
@@ -150,7 +150,7 @@ class TestConsolidatePoses:
         Pose-dependent primary geometry doesn't require a pose-dependent `time`
         coordinate too (see stack_poses's "shared time stays 1D" behavior) -- when
         every pose shares the same timestamps, `time` stays a plain 1D coordinate,
-        and consolidation must use it directly rather than the (time, grid) path.
+        and consolidation must use it directly rather than the (time, pose) path.
         """
         npose = 3
         n_sweep = 2
@@ -164,7 +164,7 @@ class TestConsolidatePoses:
         data = np.random.default_rng(5).random((4, npose, n_sweep, 4, 3))
         da = create_voxeldata(
             data,
-            dims=["time", "grid", "k", "j", "i"],
+            dims=["time", "pose", "k", "j", "i"],
             time=xr.DataArray(
                 time_values,
                 dims=["time"],
@@ -174,7 +174,7 @@ class TestConsolidatePoses:
                     "volume_acquisition_duration": 0.5,
                 },
             ),
-            grid=np.arange(npose),
+            pose=np.arange(npose),
             voxel_to_world=affines @ np.diag([intra_step, intra_step, intra_step, 1.0]),
         )
 
@@ -187,15 +187,15 @@ class TestConsolidatePoses:
         """4Dscan consolidation keeps absolute per-slice timestamps on (time, k)."""
         result = consolidate_poses(scan_4d)
         assert result.dims == ("time", "k", "j", "i")
-        assert "grid" not in result.dims
+        assert "pose" not in result.dims
         assert "slice_time" in result.coords
         assert result.coords["slice_time"].dims == ("time", "k")
         assert result.coords["slice_time"].shape == (_T, _NPOSE * _SIZE_Y)
         assert result.coords["slice_time"].attrs.get("units") == "s"
         orig_pt = scan_4d.coords["time"].values  # (T, npose)
         # Recover which original pose each consolidated z-slice came from, reading
-        # exact per-(grid, k) world positions directly from scan_4d's own
-        # (already lab-space) world coordinates -- (grid, k, j, i)-shaped since
+        # exact per-(pose, k) world positions directly from scan_4d's own
+        # (already lab-space) world coordinates -- (pose, k, j, i)-shaped since
         # scan_4d's primary geometry is itself pose-dependent.
         lab_pos_flat = np.stack(
             [
@@ -228,7 +228,7 @@ class TestConsolidatePoses:
                     [5.8, 6.4, 7.0],
                     [7.6, 8.2, 8.8],
                 ],
-                dims=("time", "grid"),
+                dims=("time", "pose"),
                 attrs={
                     "units": "s",
                     "volume_acquisition_reference": "end",
@@ -292,7 +292,7 @@ class TestConsolidatePoses:
         scan_3d.vd.set_affine("world_to_unlinked", unlinked, inplace=True)
 
         with pytest.raises(
-            ValueError, match="Cannot consolidate grid-dependent named affine"
+            ValueError, match="Cannot consolidate pose-dependent named affine"
         ):
             consolidate_poses(scan_3d)
 
@@ -309,13 +309,13 @@ class TestConsolidatePoses:
 
     def test_no_pose_dim_raises(self, scan_2d: xr.DataArray) -> None:
         """consolidate_poses raises ValueError when there is no pose dimension."""
-        with pytest.raises(ValueError, match="no 'grid' dimension"):
+        with pytest.raises(ValueError, match="no 'pose' dimension"):
             consolidate_poses(scan_2d)
 
     def test_pose_dim_without_pose_dependent_index_raises(
         self, scan_3d: xr.DataArray
     ) -> None:
-        """consolidate_poses raises ValueError when a `grid` dimension is present but
+        """consolidate_poses raises ValueError when a `pose` dimension is present but
         the primary `VoxelToWorldIndex` is not itself pose-dependent (a `(4, 4)`
         shared affine, not a `(npose, 4, 4)` stack) -- e.g. per-pose geometry instead
         lives in a secondary, named affine in `.vd.affines`.
@@ -325,11 +325,11 @@ class TestConsolidatePoses:
         poses.
         """
         # Reduce the primary geometry to a single pose-independent affine, then
-        # reinstate a plain (non-geometry) `grid` dimension of size 1, mimicking data
+        # reinstate a plain (non-geometry) `pose` dimension of size 1, mimicking data
         # whose real per-pose geometry lives elsewhere (`.vd.affines`).
-        da = scan_3d.isel(grid=0).expand_dims(grid=[0])
+        da = scan_3d.isel(pose=0).expand_dims(pose=[0])
 
-        with pytest.raises(ValueError, match="no grid-dependent primary geometry"):
+        with pytest.raises(ValueError, match="no pose-dependent primary geometry"):
             consolidate_poses(da)
 
     def test_irregular_positions_raises(self, scan_3d_irregular_path: Path) -> None:
@@ -357,8 +357,8 @@ class TestConsolidatePoses:
 
         da = create_voxeldata(
             data,
-            dims=["grid", "k", "j", "i"],
-            grid=np.arange(npose),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
             voxel_to_world=affines,
         )
 
@@ -378,8 +378,8 @@ class TestConsolidatePoses:
 
         da = create_voxeldata(
             data,
-            dims=["grid", "k", "j", "i"],
-            grid=np.arange(npose),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
             voxel_to_world=affines,
         )
 
@@ -431,8 +431,8 @@ class TestConsolidatePoses:
 
         da_primary = create_voxeldata(
             data,
-            dims=["grid", "k", "j", "i"],
-            grid=np.arange(npose),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
             voxel_to_world=translations @ spacing_diag,
         )
         # Primary geometry here is trivially pose-dependent (identical spacing per
@@ -440,8 +440,8 @@ class TestConsolidatePoses:
         # secondary "my_affine" entry.
         da_secondary = create_voxeldata(
             data,
-            dims=["grid", "k", "j", "i"],
-            grid=np.arange(npose),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
             voxel_to_world=np.stack([spacing_diag] * npose),
             affines={"my_affine": translations},
             attrs={},
@@ -468,10 +468,10 @@ class TestConsolidatePoses:
         sweep column (so auto-detection should pick it up unprompted) and verifies
         that:
 
-        - the output dims are `(sweep_dim, <other1>, <other2>)` with no `grid`;
+        - the output dims are `(sweep_dim, <other1>, <other2>)` with no `pose`;
         - the consolidated coordinate is the expected regular grid with propagated units;
         - each consolidated slice contains exactly the data values from the correct
-          `(grid, sweep_dim)` combination.
+          `(pose, sweep_dim)` combination.
         """
         npose = 3
         sizes = {"k": 2, "j": 4, "i": 3}
@@ -492,8 +492,8 @@ class TestConsolidatePoses:
 
         da = create_voxeldata(
             data,
-            dims=["grid", "k", "j", "i"],
-            grid=np.arange(npose),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
             voxel_to_world=affines @ spacing_diag,
         ).vd.set_units(sweep_unit)
 
@@ -501,7 +501,7 @@ class TestConsolidatePoses:
 
         other_dims = [d for d in ["k", "j", "i"] if d != sweep_dim]
         assert result.dims == ("k", "j", "i")
-        assert "grid" not in result.dims
+        assert "pose" not in result.dims
         assert result.sizes[sweep_dim] == npose * n_sweep
         world_sweep_dim = {"k": "z", "j": "y", "i": "x"}[sweep_dim]
         # The world coordinate is (k, j, i)-shaped (backed by a single joint
@@ -532,7 +532,7 @@ class TestConsolidatePoses:
     def test_non_pose_dependent_primary_geometry_raises(self) -> None:
         """consolidate_poses raises ValueError when primary geometry isn't pose-dependent.
 
-        A `grid` dimension alone isn't enough; the primary `voxel_to_world` affine
+        A `pose` dimension alone isn't enough; the primary `voxel_to_world` affine
         must itself be a per-pose stack (not shared identically across poses).
         """
         npose = 3
@@ -542,8 +542,8 @@ class TestConsolidatePoses:
         affine = np.diag([0.2, 0.2, 0.2, 1.0])
         da = create_voxeldata(
             data,
-            dims=["grid", "k", "j", "i"],
-            grid=np.arange(npose),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
             voxel_to_world=np.broadcast_to(affine, (npose, 4, 4)).copy(),
         )
 
@@ -561,8 +561,8 @@ class TestConsolidatePoses:
 
         da = create_voxeldata(
             data,
-            dims=["grid", "k", "j", "i"],
-            grid=np.arange(1),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(1),
             voxel_to_world=affine,
         )
 
@@ -582,8 +582,8 @@ class TestConsolidatePoses:
 
         da = create_voxeldata(
             data,
-            dims=["grid", "k", "j", "i"],
-            grid=np.arange(npose),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
             voxel_to_world=affines,
         )
 
@@ -603,8 +603,8 @@ class TestConsolidatePoses:
 
         da = create_voxeldata(
             data,
-            dims=["grid", "k", "j", "i"],
-            grid=np.arange(npose),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
             voxel_to_world=affines,
         )
 
@@ -627,8 +627,8 @@ class TestConsolidatePoses:
 
         da = create_voxeldata(
             data,
-            dims=["grid", "k", "j", "i"],
-            grid=np.arange(npose),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
             voxel_to_world=affines,
         )
 
@@ -657,8 +657,8 @@ class TestConsolidatePoses:
 
         da = create_voxeldata(
             data,
-            dims=["grid", "k", "j", "i"],
-            grid=np.arange(npose),
+            dims=["pose", "k", "j", "i"],
+            pose=np.arange(npose),
             voxel_to_world=affines @ spacing_diag,
         )
 

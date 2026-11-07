@@ -720,7 +720,7 @@ def test_clean_multipose_numpy_inputs_match_per_pose(
     rng, sample_voxeldata_3dt_pose, filter_method
 ):
     """Test pose-dependent signals clean like each pose separately: NumPy confounds
-    and sample_mask apply to every pose and the `(time, grid)` time coord survives."""
+    and sample_mask apply to every pose and the `(time, pose)` time coord survives."""
     n_time = sample_voxeldata_3dt_pose.sizes["time"]
     confounds = rng.standard_normal((n_time, 2))
     sample_mask = np.ones(n_time, dtype=bool)
@@ -749,10 +749,10 @@ def test_clean_multipose_numpy_inputs_match_per_pose(
     # One alignment warning per NumPy input at entry, none from internal steps.
     assert sum("cannot be verified" in m for m in messages) == 2
     assert sum("regressed from every pose" in m for m in messages) == 1
-    assert result.coords["time"].dims == ("time", "grid")
+    assert result.coords["time"].dims == ("time", "pose")
     assert_allclose(result.coords["time"].values, time_coord[sample_mask])
 
-    for grid in sample_voxeldata_3dt_pose.coords["grid"].values:
+    for grid in sample_voxeldata_3dt_pose.coords["pose"].values:
         with pytest.warns(UserWarning, match="cannot be verified"):
-            expected = run(sample_voxeldata_3dt_pose.sel(grid=grid))
-        xr.testing.assert_allclose(result.sel(grid=grid), expected)
+            expected = run(sample_voxeldata_3dt_pose.sel(pose=grid))
+        xr.testing.assert_allclose(result.sel(pose=grid), expected)

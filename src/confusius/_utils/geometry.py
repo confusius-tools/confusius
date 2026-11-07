@@ -21,7 +21,7 @@ from voxeldata.geometry import (
     get_voxel_to_world_units,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
-    require_scalar_grid_affine,
+    require_single_geometry_affine,
     restore_voxel_to_world_index,
 )
 
@@ -42,6 +42,6 @@ __all__ = [
     "get_voxel_to_world_units",
     "has_axis_aligned_voxel_to_world_index",
     "has_voxel_to_world_index",
-    "require_scalar_grid_affine",
+    "require_single_geometry_affine",
     "restore_voxel_to_world_index",
 ]

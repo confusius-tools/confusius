@@ -128,9 +128,9 @@ pose_affines = np.stack([A, A.copy()])
 pose_affines[1, 0, 3] += 2.0
 multipose = cf.create_voxeldata(
     np.repeat(np.stack([labels_raw, labels_raw + 100])[None], 3, axis=0),
-    dims=("time", "grid", "k", "j", "i"),
+    dims=("time", "pose", "k", "j", "i"),
     voxel_to_world=pose_affines,
-    grid=[10, 20],
+    pose=[10, 20],
     dt=1.0,
     t0=[0.0, 0.25],
     volume_acquisition_reference="start",
@@ -139,7 +139,7 @@ multipose = cf.create_voxeldata(
 validate_voxeldata(multipose, require_time=True)
 assert_allclose(multipose.time, [[0, 0.25], [1, 1.25], [2, 2.25]])
 assert_array_equal(
-    multipose.isel(grid=1).set_xindex("time").sel(time=1.25).data,
+    multipose.isel(pose=1).set_xindex("time").sel(time=1.25).data,
     labels_raw + 100,
 )
 

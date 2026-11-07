@@ -386,11 +386,11 @@ def sample_displacement_field_like(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    transform = ensure_voxeldata(transform, require_time=False, allow_grid=False)
+    transform = ensure_voxeldata(transform, require_time=False, allow_pose=False)
     reference = ensure_voxeldata(
         reference,
         require_time=False,
-        allow_grid=False,
+        allow_pose=False,
         allow_extra_dims=False,
     )
     validate_matching_spatial_units(

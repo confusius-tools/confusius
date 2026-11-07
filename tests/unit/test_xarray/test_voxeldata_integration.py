@@ -25,13 +25,13 @@ def test_geometry_owned_by_external_package(sample_voxeldata_3d):
 @pytest.mark.parametrize(
     "dims",
     [
-        ("time", "component", "grid", "k", "j", "i"),
-        ("grid", "time", "component", "k", "j", "i"),
+        ("time", "component", "pose", "k", "j", "i"),
+        ("pose", "time", "component", "k", "j", "i"),
     ],
 )
 def test_leading_order_preserved_and_canonicalization_optional(dims):
     """Creation and validation preserve order; canonicalization is explicit."""
-    sizes = {"time": 3, "component": 2, "grid": 2, "k": 1, "j": 2, "i": 3}
+    sizes = {"time": 3, "component": 2, "pose": 2, "k": 1, "j": 2, "i": 3}
     values = np.arange(np.prod([sizes[dim] for dim in dims])).reshape(
         tuple(sizes[dim] for dim in dims)
     )
@@ -42,10 +42,10 @@ def test_leading_order_preserved_and_canonicalization_optional(dims):
     assert data.dims == dims
     np.testing.assert_array_equal(data.values, values)
     validate_voxeldata(data)
-    validate_voxeldata(data.assign_coords(time=data.time.transpose("grid", "time")))
+    validate_voxeldata(data.assign_coords(time=data.time.transpose("pose", "time")))
 
     canonical = ensure_voxeldata(data)
-    assert canonical.dims == ("component", "grid", "time", "k", "j", "i")
+    assert canonical.dims == ("component", "pose", "time", "k", "j", "i")
     np.testing.assert_array_equal(canonical.transpose(*dims).values, values)
     assert canonical.time.attrs["volume_acquisition_duration"] == pytest.approx(0.2)
 
@@ -78,7 +78,7 @@ def test_scalar_selection_canonicalized_before_geometry_mutation(sample_voxeldat
 
 
 def test_stack_probe_poses_preserves_distinct_named_frames():
-    """Distinct source frames become a grid-dependent stack, not stale attrs."""
+    """Distinct source frames become a pose-dependent stack, not stale attrs."""
     first_frame = np.eye(4)
     second_frame = np.eye(4)
     second_frame[0, 3] = 5.0
@@ -91,11 +91,11 @@ def test_stack_probe_poses_preserves_distinct_named_frames():
         )
         for value, frame in enumerate((first_frame, second_frame))
     ]
-    result = stack_poses(poses, grid=[10, 20])
+    result = stack_poses(poses, pose=[10, 20])
     np.testing.assert_array_equal(
         result.vd.get_affine("world_to_lab"), np.stack([first_frame, second_frame])
     )
-    np.testing.assert_array_equal(result.isel(grid=1).values, np.ones((1, 2, 3)))
+    np.testing.assert_array_equal(result.isel(pose=1).values, np.ones((1, 2, 3)))
     assert "affines" not in result.attrs
 
 
@@ -107,8 +107,8 @@ def test_zarr_roundtrip_preserves_grid_geometry_and_named_frames(tmp_path):
     frames[1, 1, 3] = 5.0
     data = create_voxeldata(
         np.arange(12).reshape(2, 1, 2, 3),
-        dims=("grid", "k", "j", "i"),
-        grid=[10, 20],
+        dims=("pose", "k", "j", "i"),
+        pose=[10, 20],
         voxel_to_world=geometry,
         affines={"world_to_lab": frames},
     )
@@ -121,21 +121,3 @@ def test_zarr_roundtrip_preserves_grid_geometry_and_named_frames(tmp_path):
     assert "affines" not in restored.attrs
     assert "voxel_to_world_named_affines" not in restored.attrs
     assert isinstance(restored.vd.index, voxeldata.VoxelToWorldIndex)
-
-
-@pytest.mark.parametrize("legacy_key", ["pose", "affines"])
-@pytest.mark.parametrize("loader", [io.load, io.load_atlas])
-def test_legacy_zarr_geometry_rejected_without_silently_losing_frames(
-    tmp_path, legacy_key, loader
-):
-    """Old geometry requires explicit migration rather than silently dropping frames."""
-    attrs = {"voxel_to_world": np.eye(4).tolist()}
-    if legacy_key == "affines":
-        attrs["affines"] = {"world_to_lab": np.eye(4).tolist()}
-    data = xr.DataArray(np.zeros((1, 2, 3)), dims=("k", "j", "i"), attrs=attrs)
-    if legacy_key == "pose":
-        data = data.expand_dims(pose=[0])
-    path = tmp_path / "legacy.zarr"
-    data.to_dataset(name="data").to_zarr(path, consolidated=False)
-    with pytest.raises(ValueError, match="Legacy ConfUSIus"):
-        loader(path, consolidated=False)

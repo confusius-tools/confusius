@@ -5,7 +5,7 @@ from typing import Literal
 import numpy as np
 import xarray as xr
 
-from confusius._dims import GRID_DIM
+from confusius._dims import POSE_DIM
 from confusius._utils.timing import interpolate_timeseries
 from confusius.multipose.timing import build_consolidated_time_coordinate
 from confusius.validation import ensure_voxeldata
@@ -40,8 +40,8 @@ def correct_slice_timings(
     - Consolidated data: dims `(time, <sweep_dim>, ...)` with a `slice_time` coordinate
       with dims `(time, <sweep_dim>)`, typically produced by
       [`consolidate_poses`][confusius.multipose.consolidate_poses].
-    - Unconsolidated data: dims `(time, grid, ...)` with a pose-dependent
-      `(time, grid)`-shaped `time` coordinate (see
+    - Unconsolidated data: dims `(time, pose, ...)` with a pose-dependent
+      `(time, pose)`-shaped `time` coordinate (see
       [stack_poses][confusius.multipose.stack_poses]), holding each pose's own real
       timestamp directly. The result's `time` becomes a genuine 1D coordinate,
       computed the same way [`consolidate_poses`][confusius.multipose.consolidate_poses]
@@ -60,7 +60,7 @@ def correct_slice_timings(
     ----------
     da : xarray.DataArray
         VoxelData array with a `slice_time` coordinate, or a
-        pose-dependent `(time, grid)`-shaped `time` coordinate, with dims
+        pose-dependent `(time, pose)`-shaped `time` coordinate, with dims
         `(time, <sweep_dim>)`.
     method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}, default: "linear"
         Interpolation method passed to `scipy.interpolate.interp1d`:
@@ -110,9 +110,9 @@ def correct_slice_timings(
     da = ensure_voxeldata(da, require_time=True, require_unchunked_time=True)
 
     time_coord = da.coords["time"]
-    is_pose_dependent_time = set(time_coord.dims) == {"time", GRID_DIM}
+    is_pose_dependent_time = set(time_coord.dims) == {"time", POSE_DIM}
     if is_pose_dependent_time:
-        time_coord = time_coord.transpose("time", GRID_DIM)
+        time_coord = time_coord.transpose("time", POSE_DIM)
 
     if "slice_time" in da.coords:
         timing_coord_name = "slice_time"
@@ -126,7 +126,7 @@ def correct_slice_timings(
         timing_coord_name = "time"
         timing_coord = time_coord
         base_time_coord = xr.DataArray(
-            np.asarray(time_coord.isel(grid=0).values),
+            np.asarray(time_coord.isel(pose=0).values),
             dims=["time"],
             attrs=dict(time_coord.attrs),
         )
@@ -135,8 +135,8 @@ def correct_slice_timings(
         )
     else:
         raise ValueError(
-            "DataArray has neither a 'slice_time' coordinate nor a grid-dependent "
-            "(time, grid)-shaped 'time' coordinate. Slice timing correction requires "
+            "DataArray has neither a 'slice_time' coordinate nor a pose-dependent "
+            "(time, pose)-shaped 'time' coordinate. Slice timing correction requires "
             "per-pose or per-slice acquisition timestamps."
         )
 

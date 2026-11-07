@@ -66,7 +66,7 @@ def get_defined_spatial_spacing(da: xr.DataArray) -> tuple[list[str], list[float
     da = ensure_voxeldata(
         da,
         require_time=False,
-        allow_grid=False,
+        allow_pose=False,
         allow_extra_dims=False,
     )
     spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
@@ -153,13 +153,13 @@ def initialize_single_slice_rigid_transform(
     fixed = ensure_voxeldata(
         fixed,
         require_time=False,
-        allow_grid=False,
+        allow_pose=False,
         allow_extra_dims=False,
     )
     moving = ensure_voxeldata(
         moving,
         require_time=False,
-        allow_grid=False,
+        allow_pose=False,
         allow_extra_dims=False,
     )
 

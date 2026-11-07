@@ -91,7 +91,7 @@ def fusi_data_2d(rng, frame_times):
 
 @pytest.fixture
 def fusi_data_pose(rng, frame_times):
-    """Small `(time, grid, k, j, i)` DataArray with two poses.
+    """Small `(time, pose, k, j, i)` DataArray with two poses.
 
     Spatial shape matches `fusi_data`; poses share the same voxel-to-world
     affine, so results should match fitting each pose slice independently.
@@ -101,9 +101,9 @@ def fusi_data_pose(rng, frame_times):
     affine = np.stack([np.eye(4) for _ in range(n_pose)])
     return create_voxeldata(
         rng.standard_normal((n_time, n_pose, 2, 3, 4)),
-        dims=("time", "grid", "k", "j", "i"),
+        dims=("time", "pose", "k", "j", "i"),
         time=frame_times,
-        grid=np.arange(n_pose),
+        pose=np.arange(n_pose),
         voxel_to_world=affine,
     )
 

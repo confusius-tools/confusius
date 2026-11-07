@@ -401,9 +401,9 @@ class TestFilterButterworth:
     def test_multipose_pose_dependent_time_matches_per_pose(
         self, sample_voxeldata_3dt_pose
     ):
-        """Test `grid` is just another dimension: joint filtering matches per-pose runs.
+        """Test `pose` is just another dimension: joint filtering matches per-pose runs.
 
-        `sample_voxeldata_3dt_pose` has a pose-dependent `(time, grid)` `time`
+        `sample_voxeldata_3dt_pose` has a pose-dependent `(time, pose)` `time`
         coordinate holding each pose's own real acquisition timestamps, but every
         pose shares the same sampling rate, so filtering every pose jointly must
         equal filtering each pose separately.
@@ -412,11 +412,11 @@ class TestFilterButterworth:
         # more samples than its padlen, which grows with order).
         result = filter_butterworth(sample_voxeldata_3dt_pose, high_cutoff=0.3, order=1)
 
-        for grid in sample_voxeldata_3dt_pose.coords["grid"].values:
+        for grid in sample_voxeldata_3dt_pose.coords["pose"].values:
             expected = filter_butterworth(
-                sample_voxeldata_3dt_pose.sel(grid=grid), high_cutoff=0.3, order=1
+                sample_voxeldata_3dt_pose.sel(pose=grid), high_cutoff=0.3, order=1
             )
-            xr.testing.assert_allclose(result.sel(grid=grid), expected)
+            xr.testing.assert_allclose(result.sel(pose=grid), expected)
 
 
 class TestFilterCosine:

@@ -46,19 +46,20 @@ class TestStackPoses:
 
         result = stack_poses(poses)
 
-        assert result.dims == ("grid", "k", "j", "i")
-        np.testing.assert_array_equal(result.coords["grid"].values, [0, 1])
+        assert result.dims == ("pose", "k", "j", "i")
+        assert result.vd.geometry_dims == ("pose",)
+        np.testing.assert_array_equal(result.coords["pose"].values, [0, 1])
         np.testing.assert_allclose(get_voxel_to_world_affine(result), np.stack(affines))
         for i, da in enumerate(poses):
-            np.testing.assert_array_equal(result.isel(grid=i).values, da.values)
+            np.testing.assert_array_equal(result.isel(pose=i).values, da.values)
 
     def test_custom_pose_labels(self):
-        """Explicit `grid` labels are used instead of the default range."""
+        """Explicit `pose` labels are used instead of the default range."""
         poses = [_make_pose(np.eye(4)), _make_pose(np.eye(4))]
 
-        result = stack_poses(poses, grid=[10, 20])
+        result = stack_poses(poses, pose=[10, 20])
 
-        np.testing.assert_array_equal(result.coords["grid"].values, [10, 20])
+        np.testing.assert_array_equal(result.coords["pose"].values, [10, 20])
 
     def test_shared_time_stays_one_dimensional(self):
         """Identical per-pose time values keep `time` as a plain 1D coordinate."""
@@ -75,7 +76,7 @@ class TestStackPoses:
         np.testing.assert_allclose(result.coords["time"].values, time)
 
     def test_differing_time_becomes_2d_and_requires_pose_selection(self):
-        """Per-pose time differences produce a (time, grid) `time` coordinate.
+        """Per-pose time differences produce a (time, pose) `time` coordinate.
 
         `.sel(time=...)` is unavailable until a pose is selected (no PandasIndex on a
         2D coordinate); after `.set_xindex("time")` on a pose-selected result, it
@@ -100,12 +101,12 @@ class TestStackPoses:
 
         result = stack_poses(poses)
 
-        assert result.coords["time"].dims == ("time", "grid")
+        assert result.coords["time"].dims == ("time", "pose")
         assert "time" not in result.xindexes
-        np.testing.assert_allclose(result.coords["time"].isel(grid=0).values, time0)
-        np.testing.assert_allclose(result.coords["time"].isel(grid=1).values, time1)
+        np.testing.assert_allclose(result.coords["time"].isel(pose=0).values, time0)
+        np.testing.assert_allclose(result.coords["time"].isel(pose=1).values, time1)
 
-        promoted = result.isel(grid=1).set_xindex("time")
+        promoted = result.isel(pose=1).set_xindex("time")
         assert "time" in promoted.xindexes
         selected = promoted.sel(time=time1[2], method="nearest")
         assert selected.coords["time"].item() == pytest.approx(time1[2])
@@ -119,7 +120,7 @@ class TestStackPoses:
         """A mismatched pose label count raises ValueError."""
         poses = [_make_pose(np.eye(4)), _make_pose(np.eye(4))]
         with pytest.raises(ValueError, match="one label per entry"):
-            stack_poses(poses, grid=[0])
+            stack_poses(poses, pose=[0])
 
     def test_mismatched_time_length_raises(self):
         """Poses with different time lengths raise ValueError."""
@@ -131,7 +132,7 @@ class TestStackPoses:
             stack_poses(poses)
 
     def test_rejects_pose_already_present(self):
-        """A pose already carrying a `grid` dimension raises via allow_grid=False."""
+        """A pose already carrying a `pose` dimension raises via allow_pose=False."""
         already_stacked = stack_poses([_make_pose(np.eye(4)), _make_pose(np.eye(4))])
-        with pytest.raises(ValueError, match="grid"):
+        with pytest.raises(ValueError, match="pose"):
             stack_poses([already_stacked])

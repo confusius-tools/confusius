@@ -39,7 +39,7 @@ def validate_bspline(da: xr.DataArray) -> None:
     validate_voxeldata(
         da,
         require_time=False,
-        allow_grid=False,
+        allow_pose=False,
         allow_extra_dims=True,
     )
     spatial_dims = get_voxel_to_world_spatial_dims(da)
@@ -78,7 +78,7 @@ def validate_displacement_field(da: xr.DataArray) -> None:
     validate_voxeldata(
         da,
         require_time=False,
-        allow_grid=False,
+        allow_pose=False,
         allow_extra_dims=True,
     )
     spatial_dims = get_voxel_to_world_spatial_dims(da)

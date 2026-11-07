@@ -127,7 +127,7 @@ def get_coordinate_spacing_info(
         return CoordinateSpacingInfo(value=None, median=None, warn_msg=None)
 
     # A coordinate named after its dim is not necessarily 1D (e.g. a pose-dependent
-    # array's "time" coordinate can be genuinely (time, grid)-shaped, holding each
+    # array's "time" coordinate can be genuinely (time, pose)-shaped, holding each
     # pose's own real timestamps -- see confusius.multipose.stack_poses). Compute the
     # step along `dim` independently for every combination of the other dims'
     # values (flattened into columns) rather than trusting just one slice: an

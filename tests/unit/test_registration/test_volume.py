@@ -70,7 +70,7 @@ def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
     extra_coords = {
         str(dim): data.coords[dim]
         for dim in data.dims
-        if dim not in {*VOXEL_DIMS, "time", "grid"} and dim in data.coords
+        if dim not in {*VOXEL_DIMS, "time", "pose"} and dim in data.coords
     }
     spacing = []
     origin = []
@@ -86,7 +86,7 @@ def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
         data.values,
         dims=tuple(str(dim) for dim in data.dims),
         time=data.coords.get("time"),
-        grid=data.coords.get("grid"),
+        pose=data.coords.get("pose"),
         extra_coords=extra_coords,
         spacing=spacing,
         origin=origin,

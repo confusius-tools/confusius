@@ -357,7 +357,7 @@ class TestLoadScan2D:
 
     def test_no_pose_coord(self, scan_2d: xr.DataArray) -> None:
         """2Dscan has no pose coordinate."""
-        assert "grid" not in scan_2d.coords
+        assert "pose" not in scan_2d.coords
 
     def test_time_coord_not_pose_dependent(self, scan_2d: xr.DataArray) -> None:
         """2Dscan has a plain 1D time coordinate (no pose dim)."""
@@ -397,8 +397,8 @@ class TestLoadScan3D:
     """Tests for load_scan with 3Dscan files."""
 
     def test_dims(self, scan_3d: xr.DataArray) -> None:
-        """3Dscan produces DataArray with dims (grid, k, j, i)."""
-        assert scan_3d.dims == ("grid", "k", "j", "i")
+        """3Dscan produces DataArray with dims (pose, k, j, i)."""
+        assert scan_3d.dims == ("pose", "k", "j", "i")
 
     def test_shape(self, scan_3d: xr.DataArray) -> None:
         """3Dscan shape matches (npose, sizeY, sizeZ, sizeX)."""
@@ -414,8 +414,8 @@ class TestLoadScan3D:
 
     def test_pose_coord(self, scan_3d: xr.DataArray) -> None:
         """3Dscan has integer pose coordinate from 0 to npose-1."""
-        assert "grid" in scan_3d.coords
-        np.testing.assert_array_equal(scan_3d.coords["grid"].values, np.arange(_NPOSE))
+        assert "pose" in scan_3d.coords
+        np.testing.assert_array_equal(scan_3d.coords["pose"].values, np.arange(_NPOSE))
 
     def test_no_time_coord(self, scan_3d: xr.DataArray) -> None:
         """3Dscan has no time coordinate."""
@@ -439,7 +439,7 @@ class TestLoadScan3D:
 
     def test_matrix_probe_z_dim(self, scan_3d_matrix: xr.DataArray) -> None:
         """3Dscan with matrix probe (sizeY=4) has k dimension size 4."""
-        assert scan_3d_matrix.dims == ("grid", "k", "j", "i")
+        assert scan_3d_matrix.dims == ("pose", "k", "j", "i")
         assert scan_3d_matrix.sizes["k"] == 4
 
     def test_linear_probe_z_singleton(self, scan_3d: xr.DataArray) -> None:
@@ -456,8 +456,8 @@ class TestLoadScan4D:
     """Tests for load_scan with 4Dscan files."""
 
     def test_dims(self, scan_4d: xr.DataArray) -> None:
-        """4Dscan produces DataArray with dims (time, grid, k, j, i)."""
-        assert scan_4d.dims == ("time", "grid", "k", "j", "i")
+        """4Dscan produces DataArray with dims (time, pose, k, j, i)."""
+        assert scan_4d.dims == ("time", "pose", "k", "j", "i")
 
     def test_shape(self, scan_4d: xr.DataArray) -> None:
         """4Dscan shape matches (nscanRepeat, npose, sizeY, sizeZ, sizeX)."""
@@ -472,9 +472,9 @@ class TestLoadScan4D:
         assert isinstance(scan_4d.data, dask_array.Array)
 
     def test_time_coord_pose_dependent(self, scan_4d: xr.DataArray) -> None:
-        """4Dscan time coordinate is (time, grid)-shaped, units seconds."""
+        """4Dscan time coordinate is (time, pose)-shaped, units seconds."""
         time_coord = scan_4d.coords["time"]
-        assert time_coord.dims == ("time", "grid")
+        assert time_coord.dims == ("time", "pose")
         assert time_coord.shape == (_T, _NPOSE)
         assert time_coord.attrs.get("units") == "s"
         assert time_coord.attrs.get("volume_acquisition_reference") == "end"
@@ -499,18 +499,18 @@ class TestLoadScan4D:
 
     def test_pose_coord(self, scan_4d: xr.DataArray) -> None:
         """4Dscan has integer pose coordinate from 0 to npose-1."""
-        assert "grid" in scan_4d.coords
-        np.testing.assert_array_equal(scan_4d.coords["grid"].values, np.arange(_NPOSE))
+        assert "pose" in scan_4d.coords
+        np.testing.assert_array_equal(scan_4d.coords["pose"].values, np.arange(_NPOSE))
 
     def test_time_isel_time(self, scan_4d: xr.DataArray) -> None:
-        """isel on time slices time correctly to shape (grid,)."""
+        """isel on time slices time correctly to shape (pose,)."""
         sliced = scan_4d.isel(time=0)
-        assert sliced.coords["time"].dims == ("grid",)
+        assert sliced.coords["time"].dims == ("pose",)
         assert sliced.coords["time"].shape == (_NPOSE,)
 
     def test_time_isel_pose(self, scan_4d: xr.DataArray) -> None:
         """isel on pose slices time correctly to shape (time,)."""
-        sliced = scan_4d.isel(grid=0)
+        sliced = scan_4d.isel(pose=0)
         assert sliced.coords["time"].dims == ("time",)
         assert sliced.coords["time"].shape == (_T,)
 
@@ -555,7 +555,7 @@ class TestLoadScan4D:
 
         scan_4d = load_scan(path)
 
-        assert scan_4d.dims == ("time", "grid", "k", "j", "i")
+        assert scan_4d.dims == ("time", "pose", "k", "j", "i")
         assert scan_4d.shape == (_T, _NPOSE, _SIZE_Y, _SIZE_Z, _SIZE_X)
         assert scan_4d.attrs["iconeus_acquisition_mode"] == "4DscanCustom"
 

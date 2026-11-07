@@ -64,7 +64,7 @@ def _create_nifti_voxeldata(
         raise AssertionError("NIfTI tests must build VoxelData with native k/j/i dims.")
     coords = dict(coords or {})
     core_coords = {
-        dim: coords.pop(dim) for dim in ("time", "grid", "k", "j", "i") if dim in coords
+        dim: coords.pop(dim) for dim in ("time", "pose", "k", "j", "i") if dim in coords
     }
     if "time" in dims and "time" not in core_coords:
         kwargs.setdefault("dt", 1.0)
@@ -184,14 +184,14 @@ class TestLoadNifti:
                 load_nifti(paths[i], chunks=1, coordinate_affine="sform")
                 for i in ordered
             ],
-            grid=ordered,
+            pose=ordered,
         )
         xr.testing.assert_equal(actual, expected)
         np.testing.assert_array_equal(
             get_voxel_to_world_affine(actual), get_voxel_to_world_affine(expected)
         )
         np.testing.assert_array_equal(actual.vd.affines["world_to_sform"], np.eye(4))
-        np.testing.assert_array_equal(actual.grid, ordered)
+        np.testing.assert_array_equal(actual.pose, ordered)
         assert actual.chunks is not None
         assert max(actual.chunks[0]) == 1
 
@@ -1573,12 +1573,12 @@ class TestSaveNifti:
     def test_save_rejects_pose_dimension(
         self, tmp_path, sample_voxeldata_3dt_pose
     ) -> None:
-        """A `grid` dimension is rejected; NIfTI has only one spatial qform/sform."""
-        with pytest.raises(ValueError, match="'grid'"):
+        """A `pose` dimension is rejected; NIfTI has only one spatial qform/sform."""
+        with pytest.raises(ValueError, match="'pose'"):
             save_nifti(sample_voxeldata_3dt_pose, tmp_path / "grid.nii.gz")
 
         save_nifti(
-            sample_voxeldata_3dt_pose.isel(grid=0), tmp_path / "single_pose.nii.gz"
+            sample_voxeldata_3dt_pose.isel(pose=0), tmp_path / "single_pose.nii.gz"
         )
 
     def test_save_2d_dataarray(self, tmp_path) -> None:

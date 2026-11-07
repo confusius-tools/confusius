@@ -17,7 +17,7 @@ fUSI analysis, plotting, scaling, and saving; there is no `.fusi.affine` accesso
 A **VoxelData array** satisfies these requirements:
 
 1. Dimensions `(*nonspatial_dims, k, j, i)`: spatial dimensions are mandatory and
-   last. Optional `time`, `grid`, and any other leading dimensions may appear in any
+   last. Optional `time`, `pose`, and any other leading dimensions may appear in any
    order.
 2. A **`VoxelToWorldIndex`**, supplied by VoxelData, attached to the derived world
    coordinates `(z, y, x)`. Geometry is a shared `(4, 4)` affine or a stack indexed
@@ -27,8 +27,8 @@ A **VoxelData array** satisfies these requirements:
    `volume_acquisition_duration` on `time`. These acquisition requirements belong
    to ConfUSIus, not to the generic VoxelData model.
 
-ConfUSIus probe-pose APIs use **`grid`**. The ConfUSIus constructor interprets probe affine stacks as
-`geometry_dims=("grid",)` and apply across time and other leading dimensions.
+ConfUSIus probe-pose APIs use **`pose`**. The ConfUSIus constructor interprets probe affine stacks as
+`geometry_dims=("pose",)` and apply across time and other leading dimensions.
 General VoxelData arrays may instead declare dependencies such as
 `geometry_dims=("time", "view")`, requiring `(ntime, nview, 4, 4)` affines. A shared
 matrix has `geometry_dims=()`, even with nonspatial dimensions. Identical matrices
@@ -57,36 +57,29 @@ usual meanings, but their order is flexible:
 |---|---|---|---|---|
 | `...` | any | Yes | Components, regions, ... | Any  |
 | `time` | float | Yes | Acquisition time | Thousands |
-| `grid` | int | Yes | Probe poses | Tens |
+| `pose` | int | Yes | Probe poses | Tens |
 | `k` | int | No | Elevation (stacking direction) | One to tens |
 | `j` | int | No | Axial / depth | Tens to hundreds |
 | `i` | int | No | Lateral | Tens to hundreds |
 
 [`create_voxeldata`][confusius.xarray.create_voxeldata] preserves the relative
-order of leading dimensions. Both `(time, grid, k, j, i)` and
-`(grid, time, k, j, i)` are valid, as are arrays with extra leading dimensions.
+order of leading dimensions. Both `(time, pose, k, j, i)` and
+`(pose, time, k, j, i)` are valid, as are arrays with extra leading dimensions.
 Validation checks validity without changing the order.
 
 When a stable order is useful, ConfUSIus's
 [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] uses
-`(...extra_dims, grid, time, k, j, i)` and defaults and validates fUSI acquisition
+`(...extra_dims, pose, time, k, j, i)` and defaults and validates fUSI acquisition
 metadata. Generic `data.vd.canonicalize()` and `data.vd.ensure()` use
-`(...extra_dims, time, k, j, i)`; `grid` has no special meaning in VoxelData.
+`(...extra_dims, time, k, j, i)`; `pose` has no special meaning in VoxelData.
 Both preserve the relative order of extra dimensions and restore scalar-selected
 spatial dimensions without inserting absent nonspatial dimensions. Affine stacks
 passed directly to VoxelData must always name their `geometry_dims`.
 
-!!! note "Migrating existing data"
-    There is no `.fusi.affine` alias. Probe-pose APIs use `grid`; arbitrary geometry
-    dimensions are not aliases for it. Older Zarr stores with a `pose` dimension
-    but no explicit geometry-dependency metadata, or named frames in
-    `attrs["affines"]`, are rejected rather than silently losing their frames. Load them with xarray, rename `pose` to
-    `grid`, rebuild the index with explicit `named_affines=`, and save again.
-
 Keeping spatial dimensions last has practical benefits:
 
 - **Spatial blocks:** the last axes describe one volume. Use named selection such
-  as `data.isel(time=t, grid=g)` rather than assuming what the first array axis means.
+  as `data.isel(time=t, pose=g)` rather than assuming what the first array axis means.
 - **`(samples, features)` for free:** `data.stack(space=["k", "j", "i"])` reshapes to
   `(time, space)` without copy, matching the
   [scikit-learn](https://scikit-learn.org/stable/)/
@@ -137,7 +130,7 @@ VoxelData array and want to check that it still satisfies the VoxelData model, u
 
 All ConfUSIus functions that expect a VoxelData array call
 [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] on their input, which
-canonicalizes the DataArray first—reordering dimensions to `(...extra, grid, time, k,
+canonicalizes the DataArray first—reordering dimensions to `(...extra, pose, time, k,
 j, i)`, restoring a voxel dimension collapsed to a scalar coordinate by a prior
 [`.isel`][xarray.DataArray.isel], and filling in missing `time` metadata with sensible
 defaults—before validating.
@@ -159,20 +152,20 @@ rather than acquired simultaneously.
 
 ### Unconsolidated Multi-Pose Data
 
-While a VoxelData array still carries a `grid` dimension, `time` must be pose-dependent
-with shape `(time, grid)` instead of the plain 1D coordinate above. `time` then
+While a VoxelData array still carries a `pose` dimension, `time` must be pose-dependent
+with shape `(time, pose)` instead of the plain 1D coordinate above. `time` then
 describes each pose's acquisition timestamp. 
 
 In this shape, `volume_acquisition_duration` and `volume_acquisition_reference` describe
 **one pose's own `(k, j, i)` acquisition window**, not the time it takes to sweep
-through every pose. Resolving a single real timestamp requires selecting a scalar `grid`
+through every pose. Resolving a single real timestamp requires selecting a scalar `pose`
 first, which reduces `time` back to the plain 1D case.
 
 ### Consolidated Multi-Pose Data
 
-[`consolidate_poses`][confusius.multipose.consolidate_poses] merges `grid` into the
+[`consolidate_poses`][confusius.multipose.consolidate_poses] merges `pose` into the
 sweep voxel dimension the poses were stepped along (`i`, `j`, or `k`, detected
-automatically), so the result has no `grid` dimension left. Two things happen to
+automatically), so the result has no `pose` dimension left. Two things happen to
 timing:
 
 - `time` becomes an ordinary whole-array 1D coordinate again, but
@@ -220,7 +213,7 @@ coordinate systems:
 
 For most recordings, one voxel-to-world affine defines one world grid for the whole
 DataArray. Multi-pose acquisitions are the main exception: they carry one affine per
-`grid`, so `(x, y, z)` become pose-dependent coordinates and a scalar `grid` selection
+`pose`, so `(x, y, z)` become pose-dependent coordinates and a scalar `pose` selection
 is required before selecting by world coordinate.
 
 Each space feeds the next: array position gets a voxel label, a voxel label gets a world
@@ -282,10 +275,10 @@ Xarray.
 ### World Space
 
 The world space is defined by the DataArray's voxel-to-world affine transformation (or
-transformations, for multi-grid data) contained in the `VoxelToWorldIndex` and exposed
+transformations, for multi-pose data) contained in the `VoxelToWorldIndex` and exposed
 as coordinates `(x, y, z)`. For ordinary single-pose data these coordinates are arrays
-with shape `(k, j, i)`. For multi-pose data they are pose-dependent with shape `(grid,
-k, j, i)`, so selecting in world space requires a scalar `grid` first. The unit shared
+with shape `(k, j, i)`. For multi-pose data they are pose-dependent with shape `(pose,
+k, j, i)`, so selecting in world space requires a scalar `pose` first. The unit shared
 by `x`/`y`/`z` is exposed as `data.vd.units` and set with
 `data.vd.set_units(...)`; millimeters are the usual default for fUSI
 recordings.
@@ -342,7 +335,7 @@ Hand-constructed DataArrays get whatever voxel-to-world affine the user provides
 
 #### Voxel-to-World Affine
 
-The voxel-to-world affine is a `(4, 4)` homogeneous matrix (or a `(grid, 4, 4)` stack
+The voxel-to-world affine is a `(4, 4)` homogeneous matrix (or a `(pose, 4, 4)` stack
 for multi-pose data) mapping `(k, j, i)` voxel-space coordinates to `(z, y, x)`
 world-space coordinates:
 
@@ -357,7 +350,7 @@ replaced outright with
 
 Scalar spatial selection, such as `data.isel(k=0)`, removes a required voxel
 dimension. Before `.vd.apply()` or `.vd.reindex_voxels()`, restore it explicitly:
-`ensure_voxeldata(data.isel(k=0)).vd.apply(matrix)`. A scalar-selected `grid` is
+`ensure_voxeldata(data.isel(k=0)).vd.apply(matrix)`. A scalar-selected `pose` is
 not restored; it selects one probe pose and its geometry.
 
 That raw mapping is rarely what you want directly, though: most tools that consume
@@ -416,7 +409,7 @@ them into the world space itself (see [Switching World
 Spaces](#switching-world-spaces)). Each reference space is stored in `.vd.affines`
 as a homogeneous affine matrix in `(z, y, x)` convention that maps a world-space point
 to the corresponding point in the reference space. Most are plain `(4, 4)` matrices;
-for multi-pose data they may also be stacked `(grid, 4, 4)` affines with one entry per
+for multi-pose data they may also be stacked `(pose, 4, 4)` affines with one entry per
 pose.
 
 Several loaders populate `.vd.affines` automatically:

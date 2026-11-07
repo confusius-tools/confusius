@@ -75,7 +75,7 @@ def _fill_interpolated_boundary_non_finite(
     last_kept = len(boolean_mask) - int(np.argmax(boolean_mask[::-1])) - 1
     n_time = signals.sizes["time"]
 
-    # Work without the `time` coordinate: a pose-dependent (time, grid) one can
+    # Work without the `time` coordinate: a pose-dependent (time, pose) one can
     # neither sit on the (time,) boundary masks nor survive the broadcasting below.
     result = signals.drop_vars("time")
     finite = xr.apply_ufunc(np.isfinite, result, dask="allowed")
@@ -301,12 +301,12 @@ def clean(
         If `confounds` or `sample_mask` has no `time` coordinates, since alignment
         with `signals` cannot be verified.
     UserWarning
-        If `confounds` is given and `signals` has a `grid` dimension, since the same
+        If `confounds` is given and `signals` has a `pose` dimension, since the same
         confounds are regressed from every pose.
 
     Notes
     -----
-    Signals with pose-dependent `(time, grid)` `time` coordinates are cleaned pose by
+    Signals with pose-dependent `(time, pose)` `time` coordinates are cleaned pose by
     pose along `time`. `confounds` and `sample_mask` are per-volume quantities and
     align with the whole-volume time (see
     [`ensure_time_aligned`][confusius.validation.ensure_time_aligned]), so the same

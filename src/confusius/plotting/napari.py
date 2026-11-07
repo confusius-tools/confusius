@@ -15,7 +15,7 @@ import napari
 import numpy as np
 import xarray as xr
 
-from confusius._dims import CORE_DIMS, GRID_DIM, TIME_DIM, WORLD_DIMS
+from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM, WORLD_DIMS
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_units,
@@ -50,7 +50,7 @@ def plot_napari(
     ----------
     data : xarray.DataArray
         Input data array to visualize. Must carry a `VoxelToWorldIndex` (native
-        voxel dimensions `(..., time, grid, k, j, i)` deriving world `z/y/x`
+        voxel dimensions `(..., time, pose, k, j, i)` deriving world `z/y/x`
         coordinates). Use `dim_order` to specify a different displayed spatial
         ordering. Can be image data or label/mask data (e.g., ROIs, segmentations).
     show_colorbar : bool, default: True
@@ -426,8 +426,8 @@ def extract_labels_from_layer(
             k=display_data.coords["k"],
             j=display_data.coords["j"],
             i=display_data.coords["i"],
-            grid=display_data.coords.get(GRID_DIM)
-            if GRID_DIM in display_dims
+            pose=display_data.coords.get(POSE_DIM)
+            if POSE_DIM in display_dims
             else None,
             voxel_to_world=get_voxel_to_world_affine(display_data),
             units=get_voxel_to_world_units(display_data),
@@ -436,7 +436,7 @@ def extract_labels_from_layer(
             painted, data, np.eye(4), interpolation="nearest", fill_value=0
         ).values
 
-    # Copy auxiliary spatial coordinates only. Native voxel coords and `grid` are
+    # Copy auxiliary spatial coordinates only. Native voxel coords and `pose` are
     # passed through `create_voxeldata`; derived `z`/`y`/`x` are rebuilt from the index.
     aux_coords = {
         name: coord
@@ -476,7 +476,7 @@ def extract_labels_from_layer(
         stacked,
         dims=["mask", *spatial_dims],
         extra_coords={"mask": unique_labels.astype(np.int32)},
-        grid=data.coords.get(GRID_DIM) if GRID_DIM in spatial_dims else None,
+        pose=data.coords.get(POSE_DIM) if POSE_DIM in spatial_dims else None,
         k=data.coords.get("k") if "k" in spatial_dims else None,
         j=data.coords.get("j") if "j" in spatial_dims else None,
         i=data.coords.get("i") if "i" in spatial_dims else None,

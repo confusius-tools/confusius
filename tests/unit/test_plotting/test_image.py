@@ -91,10 +91,10 @@ class TestPlotVolume:
             )
 
     def test_slice_mode_pose_facets_over_poses(self, matplotlib_pyplot):
-        """plot_volume facets over `grid` with world-coordinate axis labels.
+        """plot_volume facets over `pose` with world-coordinate axis labels.
 
-        Regression: `grid`-containing data was never recognized as "plottable
-        voxel-to-world" data, so slice_mode="grid" happened to work by accident
+        Regression: `pose`-containing data was never recognized as "plottable
+        voxel-to-world" data, so slice_mode="pose" happened to work by accident
         (the validation/labeling gate silently no-opped) but produced plain
         voxel-index axis labels instead of world-coordinate ones.
         """
@@ -122,12 +122,12 @@ class TestPlotVolume:
         )
         data = create_voxeldata(
             np.random.default_rng(0).random((npose, 1, 6, 8)),
-            dims=("grid", "k", "j", "i"),
-            grid=np.arange(npose),
+            dims=("pose", "k", "j", "i"),
+            pose=np.arange(npose),
             voxel_to_world=affine,
         )
 
-        plotter = plot_volume(data.isel(k=0), slice_mode="grid", show_colorbar=False)
+        plotter = plot_volume(data.isel(k=0), slice_mode="pose", show_colorbar=False)
 
         axes = _axes(plotter).ravel()
         assert sum(len(ax.collections) for ax in axes) == npose
@@ -137,7 +137,7 @@ class TestPlotVolume:
     def test_spatial_slice_mode_squeezes_singleton_pose_dependent_affine(
         self, matplotlib_pyplot
     ):
-        """A single-pose `grid` dim with a technically stacked affine is squeezed
+        """A single-pose `pose` dim with a technically stacked affine is squeezed
         away before spatial slicing, not rejected.
 
         Regression: `stack_poses`-style construction always produces a per-pose
@@ -149,8 +149,8 @@ class TestPlotVolume:
         affine = np.diag([0.2, 0.1, 0.05, 1.0])[np.newaxis]
         data = create_voxeldata(
             np.random.default_rng(0).random((1, 2, 3, 4)),
-            dims=("grid", "k", "j", "i"),
-            grid=[0],
+            dims=("pose", "k", "j", "i"),
+            pose=[0],
             voxel_to_world=affine,
         )
 
@@ -168,7 +168,7 @@ class TestPlotVolume:
         pose-stacked array up front whenever it happened to report
         axis-aligned (each grid individually diagonal, even with a different
         origin per grid) -- materializing collapses every non-spatial dim,
-        including `grid`, to its first index when building the new `z`/`y`/`x`
+        including `pose`, to its first index when building the new `z`/`y`/`x`
         dim-coordinates, silently mislabeling every pose with pose 0's world
         position.
         """
@@ -187,12 +187,12 @@ class TestPlotVolume:
         )
         data = create_voxeldata(
             np.random.default_rng(0).random((2, 1, 6, 8)),
-            dims=("grid", "k", "j", "i"),
-            grid=[0, 1],
+            dims=("pose", "k", "j", "i"),
+            pose=[0, 1],
             voxel_to_world=affine,
         )
 
-        plotter = plot_volume(data.isel(k=0), slice_mode="grid", show_colorbar=False)
+        plotter = plot_volume(data.isel(k=0), slice_mode="pose", show_colorbar=False)
 
         axes = _axes(plotter).ravel()
         assert axes[0].get_xlim()[0] < 10.0
@@ -987,17 +987,17 @@ class TestVolumePlotterAddVolume:
         assert plotter.axes is None
 
     def test_non_spatial_slice_mode_never_nearest_matches(self, matplotlib_pyplot):
-        """A non-spatial `slice_mode` (e.g. `grid`) never nearest-matches.
+        """A non-spatial `slice_mode` (e.g. `pose`) never nearest-matches.
 
-        Regression: numeric non-spatial coordinates (e.g. an integer `grid` id)
+        Regression: numeric non-spatial coordinates (e.g. an integer `pose` id)
         were matched by nearest-neighbour like spatial ones, so requesting pose 2
         when only poses 0/1 exist silently returned pose 1's data mislabeled as
         pose 2 -- nearness has no physical meaning for a discrete facet.
         """
         data = create_voxeldata(
             np.random.default_rng(0).random((2, 1, 6, 8)),
-            dims=("grid", "k", "j", "i"),
-            grid=[0, 1],
+            dims=("pose", "k", "j", "i"),
+            pose=[0, 1],
             voxel_to_world=np.broadcast_to(
                 np.diag([0.2, 0.1, 0.05, 1.0]), (2, 4, 4)
             ).copy(),
@@ -1006,7 +1006,7 @@ class TestVolumePlotterAddVolume:
         with pytest.warns(UserWarning, match="No slice found"):
             plotter = plot_volume(
                 data.isel(k=0),
-                slice_mode="grid",
+                slice_mode="pose",
                 slice_coords=[2],
                 show_colorbar=False,
             )
@@ -1704,7 +1704,7 @@ class TestVolumePlotterAddContours:
         Each pose-faceted panel displayed in world space must keep its own
         native resolution, never get forced onto another panel's grid via a
         shared reference. `_resample_pose_slices_to_world_grid`'s per-panel loop is
-        now only exercised for `slice_mode="grid"` -- any other non-spatial
+        now only exercised for `slice_mode="pose"` -- any other non-spatial
         `slice_mode` (e.g. `"region"`) is resampled once for the whole array in
         `_prepare_slice_inputs`, which structurally can't share a reference grid
         across panels (there's only one array).
@@ -1713,7 +1713,7 @@ class TestVolumePlotterAddContours:
         first panel processed on a plotter and reused for every later one,
         silently downsampling a finer-resolution overlay (e.g. atlas
         annotations) to a coarser background's resolution -- exactly the
-        `plot_stat_map(..., slice_mode="grid") + add_contours(seed_masks)`
+        `plot_stat_map(..., slice_mode="pose") + add_contours(seed_masks)`
         scenario, where seed_masks (25 um) got downsampled to bg_volume's
         (100 um) resolution.
         """
@@ -1727,7 +1727,7 @@ class TestVolumePlotterAddContours:
             dims=("k", "j", "i"),
             voxel_to_world=np.diag([0.2, 0.1 / 3, 0.1 / 3, 1.0]),
         )
-        plotter = VolumePlotter(slice_mode="grid")
+        plotter = VolumePlotter(slice_mode="pose")
 
         resampled_coarse = plotter._resample_pose_slices_to_world_grid([coarse])[0]
         resampled_fine = plotter._resample_pose_slices_to_world_grid([fine])[0]

@@ -198,7 +198,7 @@ def test_numpy_mask_rejects_wrong_length(make_sample_timeseries):
 
 
 def test_numpy_mask_with_pose_dependent_time_coordinates(sample_voxeldata_3dt_pose):
-    """Test a NumPy sample_mask works when signals carry `(time, grid)` time coords."""
+    """Test a NumPy sample_mask works when signals carry `(time, pose)` time coords."""
     mask = np.ones(sample_voxeldata_3dt_pose.sizes["time"], dtype=bool)
     mask[[2, 5]] = False
 
@@ -209,7 +209,7 @@ def test_numpy_mask_with_pose_dependent_time_coordinates(sample_voxeldata_3dt_po
 
 
 def test_interpolate_pose_dependent_time_matches_per_pose(sample_voxeldata_3dt_pose):
-    """Test `(time, grid)` signals are interpolated pose by pose on their own
+    """Test `(time, pose)` signals are interpolated pose by pose on their own
     timestamps and keep the pose-dependent coordinate."""
     n_time = sample_voxeldata_3dt_pose.sizes["time"]
     mask = np.ones(n_time, dtype=bool)
@@ -218,16 +218,16 @@ def test_interpolate_pose_dependent_time_matches_per_pose(sample_voxeldata_3dt_p
     with pytest.warns(UserWarning, match="cannot be verified"):
         result = interpolate_samples(sample_voxeldata_3dt_pose, mask)
 
-    assert result.coords["time"].dims == ("time", "grid")
+    assert result.coords["time"].dims == ("time", "pose")
     assert_allclose(
         result.coords["time"].values, sample_voxeldata_3dt_pose.coords["time"].values
     )
-    for grid in sample_voxeldata_3dt_pose.coords["grid"].values:
+    for grid in sample_voxeldata_3dt_pose.coords["pose"].values:
         with pytest.warns(UserWarning, match="cannot be verified"):
             expected = interpolate_samples(
-                sample_voxeldata_3dt_pose.sel(grid=grid), mask
+                sample_voxeldata_3dt_pose.sel(pose=grid), mask
             )
-        assert_allclose(result.sel(grid=grid).values, expected.values)
+        assert_allclose(result.sel(pose=grid).values, expected.values)
 
 
 def test_interpolate_rejects_mask_without_time_dimension(make_sample_timeseries):

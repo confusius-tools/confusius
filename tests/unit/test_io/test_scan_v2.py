@@ -136,7 +136,7 @@ def _write_scan_v2(
     path : pathlib.Path
         Destination path.
     payload : numpy.ndarray
-        Payload in `(x, y, z, time, grid, dim6)` order.
+        Payload in `(x, y, z, time, pose, dim6)` order.
     size_x, size_y, size_z, n_time, npose, nblock_repeat : int
         Header dimension fields.
     dt : float, default: `_DT`
@@ -152,7 +152,7 @@ def _write_scan_v2(
         Unix timestamp for acquisition metadata.
     acquisition : bool, default: False
         Whether to write a non-identity probe pose and acquisition depth.
-    corrupt_acquisition : {"grid", "angles", "toggles"}, optional
+    corrupt_acquisition : {"pose", "angles", "toggles"}, optional
         Corruption mode used by error-path tests.
     payload_bytes_override : int, optional
         Payload byte count to write into the header.
@@ -218,7 +218,7 @@ def _write_scan_v2(
         if acquisition:
             translations[grid] = _POSE[:3]
             translations[grid, 1] += grid * 0.001
-    if corrupt_acquisition == "grid":
+    if corrupt_acquisition == "pose":
         translations[0, 0] = 5.0
     header += translations.tobytes()
     header += rotations.tobytes()
@@ -287,7 +287,7 @@ def _raw_payload(
     Returns
     -------
     numpy.ndarray
-        Payload with shape `(x, y, z, time, grid, dim6)`.
+        Payload with shape `(x, y, z, time, pose, dim6)`.
     """
     shape = (size_x, size_y, size_z, n_time, npose, nblock_repeat)
     return np.arange(int(np.prod(shape)), dtype=np.float64).reshape(shape, order="F")
@@ -299,7 +299,7 @@ def _expected_confusius(raw: np.ndarray) -> np.ndarray:
     Parameters
     ----------
     raw : numpy.ndarray
-        Payload with shape `(x, y, z, time, grid, dim6)`.
+        Payload with shape `(x, y, z, time, pose, dim6)`.
 
     Returns
     -------
@@ -574,7 +574,7 @@ class TestLoadScanV2Multipose:
     def test_loads_with_pose_affines(self, scan_v2_multipose_path: Path) -> None:
         """Multi-pose v2 files carry a pose dim and one affine per pose."""
         da = load_scan(scan_v2_multipose_path)
-        assert da.dims == ("time", "grid", "k", "j", "i")
+        assert da.dims == ("time", "pose", "k", "j", "i")
         assert da.shape == (_N_TIME, 2, 2, _SIZE_Z, _SIZE_X)
         assert get_voxel_to_world_affine(da).shape == (2, 4, 4)
 
@@ -589,7 +589,7 @@ class TestLoadScanV2Multipose:
             npose=2,
         )
         da = load_scan(path)
-        assert da.dims == ("grid", "k", "j", "i")
+        assert da.dims == ("pose", "k", "j", "i")
         assert da.attrs["iconeus_acquisition_mode"] == "3Dscan"
 
 
@@ -778,7 +778,7 @@ class TestLoadScanV2Acquisition:
         """An implausible v2 pose fails loading instead of using probe geometry."""
         path = tmp_path / "scan_v2_badpose.scan"
         _write_scan_v2(
-            path, _raw_payload(), acquisition=True, corrupt_acquisition="grid"
+            path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
         )
         with pytest.raises(ValueError, match="probe-pose block"):
             load_scan(path)
@@ -815,7 +815,7 @@ class TestLoadScanV2WithBPS:
         """v2 files with implausible pose fail loading, with or without bps_path."""
         path = tmp_path / "scan_v2_noaffine.scan"
         _write_scan_v2(
-            path, _raw_payload(), acquisition=True, corrupt_acquisition="grid"
+            path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
         )
         with pytest.raises(ValueError, match="probe-pose block"):
             load_scan(path, bps_path=bps_path)

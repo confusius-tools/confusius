@@ -96,7 +96,7 @@ class FUSIExtractAccessor:
             For example:
 
             - `(time, k, j, i)` → `(time, region)`
-            - `(time, grid, k, j, i)` → `(time, grid, region)`
+            - `(time, pose, k, j, i)` → `(time, pose, region)`
             - `(k, j, i)` → `(region,)`
 
         Raises

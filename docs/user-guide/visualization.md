@@ -375,7 +375,7 @@ plotter = angio.fusi.scale.db().fusi.plot.volume(
 ### Slicing Over a Non-Spatial Dimension
 
 `slice_mode` can be a world axis (`z`/`y`/`x`) or any extra non-voxel dim, e.g.
-`time`, `grid`, or a `region` dim such as the one a seed-based connectivity map is
+`time`, `pose`, or a `region` dim such as the one a seed-based connectivity map is
 stacked along (see [below](#statistical-maps) and the [seed-based connectivity
 example](../examples/_built/connectivity/atlas_seed_map.md)). Native voxel dims
 (`k`/`j`/`i`) are not valid slice modes. Each requested coordinate along that dim
@@ -730,7 +730,7 @@ fig, ax = cf.plotting.plot_matrix(
     labels=region_order,
     groups=group_labels,
     group_colors=group_colors,
-    grid="gray",
+    pose="gray",
     cbar_label="correlation",
 )
 ```

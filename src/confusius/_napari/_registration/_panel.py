@@ -32,7 +32,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._dims import GRID_DIM, TIME_DIM, VOXEL_DIMS, WORLD_DIMS
+from confusius._dims import POSE_DIM, TIME_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._napari._registration._metric_plotter import (
     RegistrationMetricPlotter,
 )
@@ -1483,7 +1483,7 @@ class RegistrationPanel(QWidget):
             return
 
         dims = tuple(
-            str(d) for d in source.dims if d in (GRID_DIM, *VOXEL_DIMS, *WORLD_DIMS)
+            str(d) for d in source.dims if d in (POSE_DIM, *VOXEL_DIMS, *WORLD_DIMS)
         )
         if not dims:
             self._set_error(f"Layer {layer.name!r} has no spatial dimensions.")

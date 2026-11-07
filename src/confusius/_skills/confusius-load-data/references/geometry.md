@@ -2,9 +2,9 @@
 
 ## Spatial coordinates
 
-`VoxelData` is an `xarray.DataArray` with canonical dimensions `(...extra, time, grid,
+`VoxelData` is an `xarray.DataArray` with canonical dimensions `(...extra, time, pose,
 k, j, i)` and a `VoxelToWorldIndex` defining world coordinates `z/y/x`. `time` and
-`grid` are optional; all three spatial dimensions are required, including for slices and
+`pose` are optional; all three spatial dimensions are required, including for slices and
 lines.
 
 Distinguish three coordinate spaces:
@@ -112,15 +112,15 @@ the original affine parameters.
 
 ## Multiple probe poses
 
-The `grid` dimension selects geometry; ConfUSIus uses it to represent probe poses,
-not components or repetitions. It requires `voxel_to_world.shape == (ngrid, 4, 4)`,
+The `pose` dimension selects geometry; ConfUSIus uses it to represent probe poses,
+not components or repetitions. It requires `voxel_to_world.shape == (npose, 4, 4)`,
 even for a single probe pose. Spatial scale magnitudes must agree across grids;
 origins and orientations may differ, and identical affines are valid. Do not
 silently resample mismatched grids. Leading dimensions may have any order;
-optional canonicalization uses `(...extra_dims, grid, time, k, j, i)`.
+optional canonicalization uses `(...extra_dims, pose, time, k, j, i)`.
 
 Sequential probe poses need their own timestamps, represented by a `time`
-coordinate with dimensions `(time, grid)` or `(grid, time)`. Simultaneous poses
+coordinate with dimensions `(time, pose)` or `(pose, time)`. Simultaneous poses
 may share a 1D time coordinate:
 
 - Provide measured `time` for irregular acquisitions.
@@ -132,11 +132,11 @@ may share a 1D time coordinate:
 sweep. Determine it from the acquisition protocol rather than relying on the fallback
 inferred from inter-pose timing.
 
-World coordinates depend on `(grid, k, j, i)`. Select one pose before world-coordinate
+World coordinates depend on `(pose, k, j, i)`. Select one pose before world-coordinate
 selection. For time-label selection:
 
 ```python
-one = data.isel(grid=0).set_xindex("time")
+one = data.isel(pose=0).set_xindex("time")
 one.sel(time=...)
 ```
 

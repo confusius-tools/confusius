@@ -16,7 +16,7 @@ ConfUSIus uses [Xarray](https://docs.xarray.dev/) as its core data structure for
 representing multi-dimensional fUSI data. Xarray provides several advantages over raw
 NumPy arrays:
 
-- **Named dimensions**: Access data using meaningful names (e.g., `i`, `j`, `k`, `grid`,
+- **Named dimensions**: Access data using meaningful names (e.g., `i`, `j`, `k`, `pose`,
   `time`) instead of remembering axis indices.
 - **Coordinates**: Associate time and world coordinates with the native dimensions
   (e.g., `x`, `y`, and `z` in millimeters).
@@ -351,8 +351,8 @@ acquisitions.
 
     anat = cf.load("sub-01_acq-anat_pwd.scan")
     for pose in anat.pose:
-        pose_da = anat.sel(grid=pose)
-        cf.save(pose_da, f"sub-01_acq-anat_pose-{grid.values}.nii.gz")
+        pose_da = anat.sel(pose=pose)
+        cf.save(pose_da, f"sub-01_acq-anat_pose-{pose.values}.nii.gz")
     ```
 
 #### BPS Files

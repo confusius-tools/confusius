@@ -119,10 +119,10 @@ def _validate_register_volume_inputs(
     from confusius.validation import ensure_voxeldata
 
     moving = ensure_voxeldata(
-        moving, require_time=False, allow_grid=False, allow_extra_dims=False
+        moving, require_time=False, allow_pose=False, allow_extra_dims=False
     )
     fixed = ensure_voxeldata(
-        fixed, require_time=False, allow_grid=False, allow_extra_dims=False
+        fixed, require_time=False, allow_pose=False, allow_extra_dims=False
     )
     validate_matching_spatial_units((("moving", moving), ("fixed", fixed)))
 

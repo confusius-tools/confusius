@@ -78,7 +78,7 @@ convert the full affine instead.
 
 Spacing must be positive. Units label coordinates but do not convert them. See [geometry
 details](references/geometry.md) for affine conversions, rotations, cropping, defaults,
-and multi-pose acquisitions. A `grid` dimension requires one affine per pose and, for
+and multi-pose acquisitions. A `pose` dimension requires one affine per pose and, for
 recordings, pose-dependent timestamps.
 
 For example, suppose two NPY exports share a spatial grid stored in
@@ -118,8 +118,8 @@ validate_voxeldata(power)
 validate_voxeldata(seed_map)
 ```
 
-The constructor reorders dimensions to `(...extra, grid, time, k, j, i)`,
-omitting unused `time`/`grid` axes and adding missing singleton spatial axes.
+The constructor reorders dimensions to `(...extra, pose, time, k, j, i)`,
+omitting unused `time`/`pose` axes and adding missing singleton spatial axes.
 World coordinates `z/y/x` are derived from the affine, not used as dimension names.
 
 Verify array values, dimensions, timing (if present), and physical positions

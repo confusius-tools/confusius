@@ -324,13 +324,13 @@ class SecondLevelModel(BaseEstimator):
                 m.compute_contrast(first_level_contrast, output_type="effect")
                 for m in second_level_input
             ]
-            maps = [ensure_voxeldata(m, allow_grid=False) for m in maps]
+            maps = [ensure_voxeldata(m, allow_pose=False) for m in maps]
             _validate_second_level_maps(maps)
             return maps
 
         if all(isinstance(m, xr.DataArray) for m in second_level_input):
             maps = [m for m in second_level_input if isinstance(m, xr.DataArray)]
-            maps = [ensure_voxeldata(m, allow_grid=False) for m in maps]
+            maps = [ensure_voxeldata(m, allow_pose=False) for m in maps]
             _validate_second_level_maps(maps)
             return maps
 

@@ -239,7 +239,7 @@ def register_volumewise(
     data_moved = ensure_voxeldata(
         data,
         require_time=True,
-        allow_grid=False,
+        allow_pose=False,
         allow_extra_dims=False,
     )
 
@@ -254,7 +254,7 @@ def register_volumewise(
                 f"dimension; got dims {fixed.dims}."
             )
         ref_da = ensure_voxeldata(
-            fixed, require_time=False, allow_grid=False, allow_extra_dims=False
+            fixed, require_time=False, allow_pose=False, allow_extra_dims=False
         )
         # Output reuses `data`'s shape and coordinates, so the target must live on
         # the same voxel grid.

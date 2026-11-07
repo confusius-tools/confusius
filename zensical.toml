@@ -288,7 +288,7 @@ custom_checkbox = true
 [project.plugins.llmstxt]
 full_output = "llms-full.txt"
 markdown_description = """
-This file describes ConfUSIus version 0.10.0.dev0. ConfUSIus is a Python library built on xarray for loading, registering, extracting signals from, and visualizing functional ultrasound imaging (fUSI) data. Every spatial array follows the external VoxelData package's `xarray.DataArray` model: trailing `(k, j, i)` dimensions, optional leading `time`/`grid` dimensions in any order, and a voxel-to-world affine index. Use `.vd` for geometry and `.fusi` for fUSI analysis. Probe poses are represented by `grid`. Install with `pip install confusius`. The package is in beta and the API may change between releases.
+This file describes ConfUSIus version 0.10.0.dev0. ConfUSIus is a Python library built on xarray for loading, registering, extracting signals from, and visualizing functional ultrasound imaging (fUSI) data. Every spatial array follows the external VoxelData package's `xarray.DataArray` model: trailing `(k, j, i)` dimensions, optional leading `time`/`pose` dimensions in any order, and a voxel-to-world affine index. Use `.vd` for geometry and `.fusi` for fUSI analysis. Probe poses are represented by `pose`. Install with `pip install confusius`. The package is in beta and the API may change between releases.
 """
 
 [project.plugins.llmstxt.sections]

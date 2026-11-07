@@ -338,7 +338,7 @@ class SearchLight(BaseEstimator):
 
     This estimator wraps scikit-learn while keeping xarray metadata:
 
-    - Input data must be a VoxelData array with dims `(time, k, j, i)`—no `grid` or
+    - Input data must be a VoxelData array with dims `(time, k, j, i)`—no `pose` or
       extra dimensions.
     - The `time` dimension is the sample axis. It need not be temporally ordered. For
       trial-averaged data, rename the trial dimension with `.rename(trial="time")`.
@@ -514,7 +514,7 @@ class SearchLight(BaseEstimator):
             X,
             require_time=True,
             require_unchunked_time=True,
-            allow_grid=False,
+            allow_pose=False,
             allow_extra_dims=False,
         )
 

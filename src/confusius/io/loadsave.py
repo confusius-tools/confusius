@@ -63,7 +63,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     ----------
     path : str or pathlib.Path
         Path to the file to load. For NIfTI files, a `{chunk}` placeholder in the
-        filename loads matching integer chunks in numeric order along `grid`;
+        filename loads matching integer chunks in numeric order along `pose`;
         see [load_nifti][confusius.io.load_nifti].
     variable : str, optional
         Zarr only. Name of the variable to extract as a DataArray. If not provided, the
@@ -112,27 +112,12 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
                 "attrs['voxel_to_world']). Use xarray.open_zarr directly to load an "
                 "arbitrary Zarr store."
             )
-        if (
-            "pose" in data_array.dims
-            and "voxel_to_world_geometry_dims" not in data_array.attrs
-        ) or "affines" in data_array.attrs:
-            raise ValueError(
-                "Legacy ConfUSIus Zarr geometry is not supported. Load with xarray, "
-                "rename 'pose' to 'grid', and explicitly attach named affine frames "
-                "with VoxelData before saving again."
-            )
         voxel_to_world = np.asarray(
             data_array.attrs.pop("voxel_to_world"), dtype=np.float64
         )
         units = data_array.attrs.pop("voxel_to_world_units", "mm")
         named_affines = data_array.attrs.pop("voxel_to_world_named_affines", None)
         geometry_dims = data_array.attrs.pop("voxel_to_world_geometry_dims", None)
-        if (
-            geometry_dims is None
-            and voxel_to_world.ndim == 3
-            and "grid" in data_array.dims
-        ):
-            geometry_dims = ("grid",)
         data_array = attach_voxel_to_world_index(
             data_array,
             voxel_to_world,

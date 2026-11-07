@@ -277,7 +277,7 @@ class SeedBasedMaps(BaseEstimator):
         X = ensure_voxeldata(X, require_time=True)
 
         if self.seed_masks is not None:
-            self.seed_masks = ensure_voxeldata(self.seed_masks, allow_grid=False)
+            self.seed_masks = ensure_voxeldata(self.seed_masks, allow_pose=False)
             validate_labels(self.seed_masks, X, "seed_masks")
         else:
             # self.seed_signals is not None, guaranteed by the mutual-exclusivity check
@@ -287,7 +287,7 @@ class SeedBasedMaps(BaseEstimator):
 
         if self.mask is not None:
             self.mask = ensure_voxeldata(
-                self.mask, allow_grid=False, allow_extra_dims=False
+                self.mask, allow_pose=False, allow_extra_dims=False
             )
             validate_mask(self.mask, X, "mask")
 

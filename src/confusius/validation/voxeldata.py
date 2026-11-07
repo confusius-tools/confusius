@@ -177,7 +177,7 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
     Scalar indexing such as `data.isel(j=0)` removes `j` from the array dimensions
     but retains it as a scalar coordinate. This function restores every missing
     native voxel dimension (`k`, `j`, `i`) as a length-one dimension, then orders all
-    dimensions as `(...extra_dims, grid, time, k, j, i)`. It preserves coordinate
+    dimensions as `(...extra_dims, pose, time, k, j, i)`. It preserves coordinate
     values and their order. When scalar indexing fixed a dimension in a
     `VoxelToWorldIndex`, its geometry is rebuilt from the unchanged voxel-to-world
     affine, preserving the world-space units. Missing time acquisition metadata
@@ -223,7 +223,7 @@ def ensure_voxeldata(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray
 
     This is the normal entry point for spatial inputs: it restores scalar-indexed
     native voxel dimensions and geometry, and orders dimensions as
-    `(...extra_dims, grid, time, k, j, i)` with
+    `(...extra_dims, pose, time, k, j, i)` with
     [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata], then checks
     the resulting DataArray against the VoxelData model. Use
     [validate_voxeldata][confusius.validation.validate_voxeldata] when the input must
@@ -261,7 +261,7 @@ def validate_voxeldata(
     require_unchunked_time: bool = False,
     require_uniform_time: bool = False,
     uniformity_tolerance: float = 1e-2,
-    allow_grid: bool = True,
+    allow_pose: bool = True,
     allow_extra_dims: bool = True,
     require_regular_spacing: bool = False,
     regular_spacing_tolerance: float = 1e-2,
@@ -295,10 +295,10 @@ def validate_voxeldata(
         value.
     uniformity_tolerance : float, default: 1e-2
         Maximum relative variation allowed between consecutive time intervals.
-    allow_grid : bool, default: True
-        Whether to allow a `grid` dimension.
+    allow_pose : bool, default: True
+        Whether to allow a `pose` dimension.
     allow_extra_dims : bool, default: True
-        Whether to allow dimensions outside `time`, `grid`, `k`, `j`, and `i`.
+        Whether to allow dimensions outside `time`, `pose`, `k`, `j`, and `i`.
     require_regular_spacing : bool, default: False
         Whether to require regular spacing for selected numeric dimension coordinates.
     regular_spacing_tolerance : float, default: 1e-2
@@ -333,8 +333,8 @@ def validate_voxeldata(
         extra_dims = sorted(str(d) for d in data.dims if d not in CORE_DIMS)
         if extra_dims:
             raise ValueError(f"Unexpected dimensions {extra_dims!r}.")
-    if not allow_grid and "grid" in data.dims:
-        raise ValueError("DataArray must not have a 'grid' dimension.")
+    if not allow_pose and "pose" in data.dims:
+        raise ValueError("DataArray must not have a 'pose' dimension.")
     if require_time or require_unchunked_time or require_uniform_time:
         validate_required_time_dimension(data)
         validate_timepoint_count(data, "VoxelData validation")

@@ -23,9 +23,9 @@ if TYPE_CHECKING:
 def _default_per_pose_time_duration(
     per_pose_time: npt.NDArray[np.float64], dt_fallback: float | None
 ) -> float | None:
-    """Infer one pose's own acquisition duration from a `(time, grid)` array.
+    """Infer one pose's own acquisition duration from a `(time, pose)` array.
 
-    `dt` (the shared spacing between successive samples of the *same* grid, i.e. the
+    `dt` (the shared spacing between successive samples of the *same* pose, i.e. the
     repetition period) is not a safe default: it describes a completely different
     quantity. Instead, default from the smallest nonzero gap between poses' own
     timestamps, per time point -- poses sharing the same timestamp (e.g. a
@@ -111,7 +111,7 @@ def create_voxeldata(
     dims: Sequence[str],
     extra_coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
     time: npt.ArrayLike | xr.DataArray | None = None,
-    grid: npt.ArrayLike | xr.DataArray | None = None,
+    pose: npt.ArrayLike | xr.DataArray | None = None,
     k: npt.ArrayLike | xr.DataArray | None = None,
     j: npt.ArrayLike | xr.DataArray | None = None,
     i: npt.ArrayLike | xr.DataArray | None = None,
@@ -139,7 +139,7 @@ def create_voxeldata(
         Input dimension names. Core dimensions are:
 
         - `i`/`j`/`k`: native voxel dimensions,
-        - `grid`: probe pose dimension,
+        - `pose`: probe pose dimension,
         - `time`: time dimension.
 
         Any other extra dimensions are allowed. The returned DataArray will have
@@ -154,16 +154,16 @@ def create_voxeldata(
         analysis. A 2D `(n_time, npose)` array or
         DataArray gives each pose its own real timestamps directly (poses acquired
         sequentially rather than simultaneously) rather than a single shared `time`
-        axis: there is no single answer for "the" time of a `(grid, k, j, i)` voxel
+        axis: there is no single answer for "the" time of a `(pose, k, j, i)` voxel
         any more than there is a single answer for its `z`/`y`/`x` position, so
-        `time` requires a scalar `grid` selection first, exactly like world
-        coordinates already do. Requires a `grid` dimension in `dims` with a
+        `time` requires a scalar `pose` selection first, exactly like world
+        coordinates already do. Requires a `pose` dimension in `dims` with a
         matching length. A 2D `time` is not itself an index (xarray dimension
         coordinates must be 1D), so `.sel(time=...)` is unavailable until a pose is
         selected; after that, `.set_xindex("time")` promotes the resulting 1D `time`
         back into a real, selectable index.
-    grid : numpy.typing.ArrayLike or xarray.DataArray, optional
-        Integer coordinates for the `grid` dimension.
+    pose : numpy.typing.ArrayLike or xarray.DataArray, optional
+        Integer coordinates for the `pose` dimension.
     k, j, i : numpy.typing.ArrayLike or xarray.DataArray, optional
         Integer native voxel coordinates for the corresponding voxel dimensions. If
         not provided, dense zero-based coordinates are generated.
@@ -172,14 +172,14 @@ def create_voxeldata(
         arrays, `dt` is shared across poses.
     t0 : float or numpy.typing.ArrayLike, default: 0.0
         First time coordinate value when `dt` is used. For multi-pose arrays, a 1D
-        `t0` with one value per pose generates a pose-dependent `(time, grid)` time
+        `t0` with one value per pose generates a pose-dependent `(time, pose)` time
         coordinate using the shared `dt`.
     volume_acquisition_reference : {"start", "center", "end"}, default: "start"
         Time reference stored on generated `time` coordinates.
     volume_acquisition_duration : float, optional
         Acquisition duration stored on generated `time` coordinates. If not provided,
         it defaults to `dt` for a plain 1D `time` coordinate, or to the smallest
-        nonzero gap between `t0` values for a pose-dependent `(time, grid)`
+        nonzero gap between `t0` values for a pose-dependent `(time, pose)`
         coordinate—`dt` there is the repetition period between successive samples of
         the *same* pose, not one pose's own acquisition time. Poses sharing the same
         `t0` (e.g. a stacked-linear-probe pose acquired simultaneously with another)
@@ -193,13 +193,13 @@ def create_voxeldata(
         3x3 direction matrix in world `z/y/x` row and voxel `k/j/i` column order.
     voxel_to_world : numpy.typing.ArrayLike, optional
         4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order,
-        or a stack indexed by `geometry_dims`. Legacy `(npose, 4, 4)` stacks infer
-        the `grid` dimension. Mutually exclusive with `spacing`, `origin`, and
+        or a stack indexed by `geometry_dims`. `(npose, 4, 4)` stacks use
+        the `pose` dimension. Mutually exclusive with `spacing`, `origin`, and
         `direction`.
     geometry_dims : tuple[str, ...], optional
         Ordered nonspatial dimensions indexing the affine stack. Its shape must
         be `(*[sizes[d] for d in geometry_dims], 4, 4)`. A shared affine uses `()`.
-        Omitted 3D stacks infer `grid`, or legacy `pose` when no `grid` is present.
+        If not provided, 3D stacks use `("pose",)` when a `pose` dimension is present.
         Timing dependencies are independent of geometry dependencies.
     affines : mapping[str, numpy.typing.ArrayLike], optional
         Named world-frame transforms stored on the VoxelData index.
@@ -250,25 +250,23 @@ def create_voxeldata(
 
     # Probe acquisition defaults belong here; VoxelData requires named dependencies.
     coords = {} if extra_coords is None else dict(extra_coords)
-    if grid is not None:
-        coords["grid"] = grid
+    if pose is not None:
+        coords["pose"] = pose
     if (
         geometry_dims is None
         and voxel_to_world is not None
         and np.ndim(voxel_to_world) == 3
+        and "pose" in dims
     ):
-        if "grid" in dims:
-            geometry_dims = ("grid",)
-        elif "pose" in dims:
-            geometry_dims = ("pose",)
-    timing_dim = "grid" if "grid" in dims else "pose"
+        geometry_dims = ("pose",)
+    timing_dim = "pose"
     if (
         time is not None
         and np.ndim(time) == 2
         and (not isinstance(time, xr.DataArray) or time.dims == ("dim_0", "dim_1"))
     ):
         if timing_dim not in dims:
-            raise ValueError("A 2D time array requires a 'grid' dimension in dims.")
+            raise ValueError("A 2D time array requires a 'pose' dimension in dims.")
         time = xr.DataArray(
             np.asarray(time),
             dims=(TIME_DIM, timing_dim),
@@ -276,13 +274,13 @@ def create_voxeldata(
         )
     if time is None and TIME_DIM in dims and np.ndim(t0) > 0:
         if timing_dim not in dims:
-            raise ValueError("A 1D t0 array requires a 'grid' dimension in dims.")
+            raise ValueError("A 1D t0 array requires a 'pose' dimension in dims.")
         offsets = np.asarray(t0, dtype=float)
         if offsets.ndim != 1:
             raise ValueError(f"t0 must be scalar or 1D, got shape {offsets.shape}.")
         if offsets.size != np.shape(data)[dims.index(timing_dim)]:
             raise ValueError(
-                f"t0 has length {offsets.size}, but the 'grid' dimension size is {np.shape(data)[dims.index(timing_dim)]}."
+                f"t0 has length {offsets.size}, but the 'pose' dimension size is {np.shape(data)[dims.index(timing_dim)]}."
             )
         if dt is None:
             raise ValueError("Spacing for dimension 'time' is required. Provide dt.")

@@ -16,9 +16,10 @@ Current development version for the next ConfUSIus release.
   accessor instead of `.fusi.affine`, `.fusi.spacing`, `.fusi.origin`, or
   `.fusi.direction`. Named world frames live on the VoxelData index and are
   managed with `.vd.set_affine`/`.vd.get_affine`, not DataArray attributes.
-- Probe poses are represented by `grid`, replacing the `pose` dimension and
-  corresponding coordinate/validation keywords. Leading dimensions may appear
-  in any order; optional canonicalization uses `(...extra, grid, time, k, j, i)`.
+- Probe positions use `pose` with `geometry_dims=("pose",)`. Leading dimensions
+  may appear in any order; optional canonicalization uses
+  `(...extra, pose, time, k, j, i)`
+  ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 - Canonicalize scalar-selected spatial dimensions before `.vd` geometry mutators,
   for example `ensure_voxeldata(data.isel(k=0)).vd.apply(matrix)`.
 - Import extraction functions from `confusius.extract`, not its former `mask`,
@@ -41,7 +42,7 @@ Current development version for the next ConfUSIus release.
   Native Xarray `.reindex()` on geometry axes remains unsupported; use `.isel()` or
   `.sel()` instead ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 - Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
-  them along `grid` in numeric chunk order while preserving geometry and timing
+  them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
 
 ### :bug: Fixes

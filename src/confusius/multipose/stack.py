@@ -5,7 +5,7 @@ from collections.abc import Hashable, Sequence
 import numpy as np
 import xarray as xr
 
-from confusius._dims import CORE_DIMS, GRID_DIM, TIME_DIM
+from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
@@ -16,11 +16,11 @@ from confusius.validation import ensure_voxeldata
 
 def stack_poses(
     poses: Sequence[xr.DataArray],
-    grid: Sequence[Hashable] | None = None,
+    pose: Sequence[Hashable] | None = None,
 ) -> xr.DataArray:
     """Stack independently loaded single-pose VoxelData arrays into one pose-dependent array.
 
-    Unlike a direct [`xr.concat(..., dim="grid")`][xarray.concat] call on
+    Unlike a direct [`xr.concat(..., dim="pose")`][xarray.concat] call on
     single-pose inputs, this function preserves each input's voxel-to-world affine
     in a pose-dependent `VoxelToWorldIndex`. The output's world coordinates
     (`z`/`y`/`x`) therefore reflect each probe position, with pose labels and
@@ -30,28 +30,28 @@ def stack_poses(
     ----------
     poses : sequence[xarray.DataArray]
         VoxelData arrays to stack, one per pose, in pose order. Each
-        must have no existing `grid` dimension (see
-        [ensure_voxeldata][confusius.validation.ensure_voxeldata]'s `allow_grid` parameter).
+        must have no existing `pose` dimension (see
+        [ensure_voxeldata][confusius.validation.ensure_voxeldata]'s `allow_pose` parameter).
         Voxel dimensions, shape, voxel-space (`k`/`j`/`i`) coordinate values, and any
         non-core dimensions must otherwise agree across poses, exactly as required to
         merge non-concatenated variables in any `xr.concat` call.
-    grid : sequence[hashable], optional
+    pose : sequence[hashable], optional
         Pose coordinate labels, one per entry of `poses`. If not provided, defaults to
         `0, 1, ..., len(poses) - 1`.
 
     Returns
     -------
     xarray.DataArray
-        Stacked DataArray with a new `grid` dimension and pose-dependent
+        Stacked DataArray with a new `pose` dimension and pose-dependent
         voxel-to-world geometry (an `(npose, 4, 4)` affine stack, one affine per
         input). If a `time` dimension is present and every pose shares identical
         `time` values, `time` stays an ordinary 1D dimension coordinate. If per-pose
         `time` values differ (poses acquired sequentially rather than
-        simultaneously), `time` instead becomes a genuine `(time, grid)`-shaped
+        simultaneously), `time` instead becomes a genuine `(time, pose)`-shaped
         coordinate holding each pose's own real timestamp directly -- there is no
-        single answer for "the" time of a `(grid, k, j, i)` voxel any more than
+        single answer for "the" time of a `(pose, k, j, i)` voxel any more than
         there is a single answer for its `z`/`y`/`x` position, so `time` requires a
-        scalar `grid` selection first, exactly like world coordinates already do.
+        scalar `pose` selection first, exactly like world coordinates already do.
         A 2D `time` is not itself an index (xarray dimension coordinates must be
         1D), so `.sel(time=...)` is unavailable until a pose is selected; after
         that, `.set_xindex("time")` promotes the resulting 1D `time` back into a
@@ -60,20 +60,20 @@ def stack_poses(
     Raises
     ------
     ValueError
-        If `poses` is empty, if `grid` does not have one label per entry of `poses`,
-        if any pose already has a `grid` dimension, or if poses have mismatched
+        If `poses` is empty, if `pose` does not have one label per entry of `poses`,
+        if any pose already has a `pose` dimension, or if poses have mismatched
         `time` lengths.
     """
     if not poses:
         raise ValueError("poses must contain at least one DataArray.")
-    if grid is not None and len(grid) != len(poses):
+    if pose is not None and len(pose) != len(poses):
         raise ValueError(
-            f"pose must have one label per entry of poses; got {len(grid)} labels "
+            f"pose must have one label per entry of poses; got {len(pose)} labels "
             f"for {len(poses)} poses."
         )
 
-    poses = [ensure_voxeldata(p, allow_grid=False) for p in poses]
-    pose_labels = list(range(len(poses))) if grid is None else list(grid)
+    poses = [ensure_voxeldata(p, allow_pose=False) for p in poses]
+    pose_labels = list(range(len(poses))) if pose is None else list(pose)
     has_time = TIME_DIM in poses[0].dims
 
     per_pose_time: np.ndarray | None = None
@@ -87,7 +87,7 @@ def stack_poses(
             )
         time_values = np.stack(
             [np.asarray(da.coords[TIME_DIM].values) for da in poses], axis=1
-        )  # (time, grid)
+        )  # (time, pose)
         if not np.all(time_values == time_values[:, [0]]):
             per_pose_time = time_values
             time_attrs = dict(poses[0].coords[TIME_DIM].attrs)
@@ -95,7 +95,7 @@ def stack_poses(
     promoted = []
     for da, label in zip(poses, pose_labels, strict=True):
         affine = get_voxel_to_world_affine(da)[np.newaxis]
-        expanded = da.expand_dims({GRID_DIM: [label]})
+        expanded = da.expand_dims({POSE_DIM: [label]})
         if per_pose_time is not None:
             expanded = expanded.drop_vars(TIME_DIM)
         promoted.append(
@@ -103,7 +103,7 @@ def stack_poses(
                 expanded,
                 affine,
                 units=get_voxel_to_world_units(da),
-                geometry_dims=(GRID_DIM,),
+                geometry_dims=(POSE_DIM,),
             )
         )
 
@@ -115,19 +115,19 @@ def stack_poses(
         frames = np.stack([value.vd.get_affine(name) for value in poses])
         named_affines[name] = frames[0] if np.allclose(frames, frames[0]) else frames
 
-    stacked = xr.concat(promoted, dim=GRID_DIM, join="exact")
+    stacked = xr.concat(promoted, dim=POSE_DIM, join="exact")
     stacked = stacked.vd.set_voxel_to_world(
         stacked.vd.voxel_to_world,
         geometry_dims=stacked.vd.geometry_dims,
         named_affines=named_affines,
     )
-    # expand_dims prepends "grid" at axis 0; restore canonical core dim order
-    # (...extra, grid, time, k, j, i).
+    # expand_dims prepends "pose" at axis 0; restore canonical core dim order
+    # (...extra, pose, time, k, j, i).
     extra_dims = [d for d in stacked.dims if d not in CORE_DIMS]
     ordered_core = [d for d in CORE_DIMS if d in stacked.dims]
     stacked = stacked.transpose(*extra_dims, *ordered_core)
     if per_pose_time is not None:
         stacked = stacked.assign_coords(
-            {TIME_DIM: ((TIME_DIM, GRID_DIM), per_pose_time, time_attrs)}
+            {TIME_DIM: ((TIME_DIM, POSE_DIM), per_pose_time, time_attrs)}
         )
     return stacked

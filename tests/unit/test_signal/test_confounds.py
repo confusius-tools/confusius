@@ -302,7 +302,7 @@ def test_regress_confounds_dataframe_bool_column_is_spike_regressor(
 def test_regress_confounds_multipose_regresses_every_pose_with_same_confounds(
     rng, sample_voxeldata_3dt_pose
 ):
-    """Test `grid` is just another dimension: the joint result matches per-pose runs."""
+    """Test `pose` is just another dimension: the joint result matches per-pose runs."""
     confounds = rng.standard_normal((sample_voxeldata_3dt_pose.sizes["time"], 2))
 
     with pytest.warns(UserWarning) as record:
@@ -311,12 +311,12 @@ def test_regress_confounds_multipose_regresses_every_pose_with_same_confounds(
     assert any("regressed from every pose" in message for message in messages)
     assert any("cannot be verified" in message for message in messages)
 
-    for grid in sample_voxeldata_3dt_pose.coords["grid"].values:
+    for grid in sample_voxeldata_3dt_pose.coords["pose"].values:
         with pytest.warns(UserWarning, match="cannot be verified"):
             expected = regress_confounds(
-                sample_voxeldata_3dt_pose.sel(grid=grid), confounds
+                sample_voxeldata_3dt_pose.sel(pose=grid), confounds
             )
-        xr.testing.assert_allclose(result.sel(grid=grid), expected)
+        xr.testing.assert_allclose(result.sel(pose=grid), expected)
 
 
 def test_regress_confounds_multipose_aligns_with_whole_volume_time(
@@ -329,7 +329,7 @@ def test_regress_confounds_multipose_aligns_with_whole_volume_time(
     signals = sample_voxeldata_3dt_pose.assign_coords(
         time=time_coord.assign_attrs(volume_acquisition_reference="center")
     )
-    first_pose_time = signals.coords["time"].isel(grid=0, drop=True).values
+    first_pose_time = signals.coords["time"].isel(pose=0, drop=True).values
 
     confounds = compute_compcor_confounds(
         signals, variance_threshold=0.5, n_components=2

@@ -1185,7 +1185,7 @@ def load_nifti(
         Path to the NIfTI file (`.nii` or `.nii.gz`). A single `{chunk}` placeholder
         in the filename loads all matching integer chunk indices in numeric order
         and stacks them with [stack_poses][confusius.multipose.stack_poses]. Chunk
-        indices become integer `grid` labels, even when only one file matches.
+        indices become integer `pose` labels, even when only one file matches.
         Each chunk must satisfy `stack_poses`' single-pose input requirements.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
         How to chunk the array. Must be one of the following forms.
@@ -1309,7 +1309,7 @@ def load_nifti(
                 )
                 for _, candidate in matches
             ],
-            grid=[index for index, _ in matches],
+            pose=[index for index, _ in matches],
         )
     path = check_path(path, type="file")
 
@@ -2525,8 +2525,8 @@ def save_nifti(
     """
     # NIfTI exposes only one spatial qform/sform, so it cannot represent per-pose
     # geometry (or even a shared affine ambiguously labeled per pose). Callers must
-    # select one pose first, e.g. `save_nifti(data.isel(grid=0), path)`.
-    data_array = ensure_voxeldata(data_array, allow_grid=False)
+    # select one pose first, e.g. `save_nifti(data.isel(pose=0), path)`.
+    data_array = ensure_voxeldata(data_array, allow_pose=False)
     path = Path(path)
     if not path.name.endswith(".nii") and not path.name.endswith(".nii.gz"):
         raise ValueError("Output file must have .nii or .nii.gz extension.")

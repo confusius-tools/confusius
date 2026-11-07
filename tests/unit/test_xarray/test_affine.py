@@ -122,15 +122,15 @@ def test_pose_dependent_bounds_per_pose(rng):
     shifted[:3, 3] += [5.0, -2.0, 1.5]
     data = create_voxeldata(
         rng.random((2, 3, 4, 5)),
-        dims=("grid", "k", "j", "i"),
-        grid=[10, 20],
+        dims=("pose", "k", "j", "i"),
+        pose=[10, 20],
         voxel_to_world=np.stack([OBLIQUE_AFFINE, shifted]),
     )
     bbox = get_bounding_box(data)
-    assert bbox.dims == ("grid", "bound", "component")
-    assert list(bbox.coords["grid"].values) == [10, 20]
+    assert bbox.dims == ("pose", "bound", "component")
+    assert list(bbox.coords["pose"].values) == [10, 20]
     expected = np.stack(
-        [_materialized_edge_bounds(data.isel(grid=p)) for p in range(2)]
+        [_materialized_edge_bounds(data.isel(pose=p)) for p in range(2)]
     )
     assert_allclose(bbox.values, expected)
 

@@ -133,11 +133,11 @@ def test_named_multiaxis_timestamps_roundtrip(
     np.testing.assert_array_equal(restored.transpose(*data.dims).values, data.values)
 
 
-def test_zarr_shared_grid_affine_does_not_infer_dependency(tmp_path):
-    """The empty dependency list must be distinguished from absent legacy metadata."""
+def test_zarr_shared_pose_affine_does_not_infer_dependency(tmp_path):
+    """Shared geometry remains shared when a pose dimension is present."""
     data = create_voxeldata(
         np.arange(12).reshape(2, 1, 2, 3),
-        dims=("grid", "k", "j", "i"),
+        dims=("pose", "k", "j", "i"),
         voxel_to_world=np.eye(4),
     )
     path = tmp_path / "shared.zarr"
@@ -148,11 +148,11 @@ def test_zarr_shared_grid_affine_does_not_infer_dependency(tmp_path):
     np.testing.assert_allclose(restored.vd.voxel_to_world, np.eye(4))
 
 
-def test_zarr_legacy_grid_stack_without_dependency_metadata(
+def test_zarr_affine_stack_requires_dependency_metadata(
     tmp_path, sample_named_geometry_voxeldata
 ):
-    """Existing grid-based stores without the new metadata retain their geometry."""
-    data = sample_named_geometry_voxeldata.isel(time=0, drop=True).rename(view="grid")
+    """Serialized affine stacks must name their geometry dependencies."""
+    data = sample_named_geometry_voxeldata.isel(time=0, drop=True).rename(view="pose")
     raw = data.drop_vars(["z", "y", "x"])
     raw.attrs = {
         "voxel_to_world": data.vd.voxel_to_world.tolist(),
@@ -160,14 +160,10 @@ def test_zarr_legacy_grid_stack_without_dependency_metadata(
             name: value.tolist() for name, value in data.vd.affines.items()
         },
     }
-    path = tmp_path / "old-grid.zarr"
+    path = tmp_path / "missing-dependencies.zarr"
     raw.to_dataset(name="data").to_zarr(path)
-    restored = io.load(path)
-    assert restored.vd.geometry_dims == ("grid",)
-    np.testing.assert_allclose(restored.vd.voxel_to_world, data.vd.voxel_to_world)
-    np.testing.assert_array_equal(
-        restored.vd.get_affine("lab"), data.vd.get_affine("lab")
-    )
+    with pytest.raises(ValueError, match="explicit geometry_dims"):
+        io.load(path)
 
 
 def test_extraction_preserves_independently_indexed_geometry_axes(

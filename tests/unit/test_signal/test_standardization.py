@@ -71,20 +71,20 @@ def test_standardize_no_time_dimension(rng):
 def test_standardize_multipose_pose_dependent_time_matches_per_pose(
     sample_voxeldata_3dt_pose,
 ):
-    """Test `grid` is just another dimension: joint standardization matches per-pose runs.
+    """Test `pose` is just another dimension: joint standardization matches per-pose runs.
 
-    `sample_voxeldata_3dt_pose` has a pose-dependent `(time, grid)` `time`
+    `sample_voxeldata_3dt_pose` has a pose-dependent `(time, pose)` `time`
     coordinate holding each pose's own real acquisition timestamps, but
     `standardize` only relies on positional order along `time`, so standardizing
     every pose jointly must equal standardizing each pose separately.
     """
     result = standardize(sample_voxeldata_3dt_pose, method="zscore")
 
-    for grid in sample_voxeldata_3dt_pose.coords["grid"].values:
+    for grid in sample_voxeldata_3dt_pose.coords["pose"].values:
         expected = standardize(
-            sample_voxeldata_3dt_pose.sel(grid=grid), method="zscore"
+            sample_voxeldata_3dt_pose.sel(pose=grid), method="zscore"
         )
-        xr.testing.assert_allclose(result.sel(grid=grid), expected)
+        xr.testing.assert_allclose(result.sel(pose=grid), expected)
 
 
 def test_standardize_psc_zero_mean():

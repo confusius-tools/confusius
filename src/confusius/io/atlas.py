@@ -366,16 +366,6 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
     path = check_path(path)
     _check_zarr_suffix(path)
     ds = xr.open_zarr(path, **kwargs)
-    if (
-        ("pose" in ds.dims and "voxel_to_world_geometry_dims" not in ds.attrs)
-        or "affines" in ds.attrs
-        or any("affines" in ds[name].attrs for name in ds.data_vars)
-    ):
-        raise ValueError(
-            "Legacy ConfUSIus atlas Zarr geometry is not supported. "
-            "Rebuild its VoxelData index and named frames before saving again."
-        )
-
     # Voxel-to-world geometry was stored as attrs["voxel_to_world"] rather than dense
     # z/y/x coordinate arrays (see save_atlas); rebuild the world coordinates and
     # VoxelToWorldIndex on each data variable from that affine. `world_to_base`, when
