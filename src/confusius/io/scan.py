@@ -572,7 +572,9 @@ def load_scan(
             affines = dict(data_array.vd.affines)
             _add_world_to_brain(affines, bps_path)
             data_array = data_array.vd.set_voxel_to_world(
-                data_array.vd.voxel_to_world, named_affines=affines
+                data_array.vd.voxel_to_world,
+                geometry_dims=data_array.vd.geometry_dims,
+                named_affines=affines,
             )
         return data_array
 
@@ -673,7 +675,9 @@ def _load_scan_v1(
         if bps_path is not None:
             _add_world_to_brain(affines, bps_path)
         data_array = data_array.vd.set_voxel_to_world(
-            data_array.vd.voxel_to_world, named_affines=affines
+            data_array.vd.voxel_to_world,
+            geometry_dims=data_array.vd.geometry_dims,
+            named_affines=affines,
         )
     except Exception:
         h5.close()

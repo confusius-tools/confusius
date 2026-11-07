@@ -248,18 +248,63 @@ def create_voxeldata(
     if dt is not None and t0 is None:
         raise ValueError("t0 must be provided when dt is provided.")
 
+    # Probe acquisition defaults belong here; VoxelData requires named dependencies.
+    coords = {} if extra_coords is None else dict(extra_coords)
+    if grid is not None:
+        coords["grid"] = grid
+    if (
+        geometry_dims is None
+        and voxel_to_world is not None
+        and np.ndim(voxel_to_world) == 3
+    ):
+        if "grid" in dims:
+            geometry_dims = ("grid",)
+        elif "pose" in dims:
+            geometry_dims = ("pose",)
+    timing_dim = "grid" if "grid" in dims else "pose"
+    if (
+        time is not None
+        and np.ndim(time) == 2
+        and (not isinstance(time, xr.DataArray) or time.dims == ("dim_0", "dim_1"))
+    ):
+        if timing_dim not in dims:
+            raise ValueError("A 2D time array requires a 'grid' dimension in dims.")
+        time = xr.DataArray(
+            np.asarray(time),
+            dims=(TIME_DIM, timing_dim),
+            attrs=dict(time.attrs) if isinstance(time, xr.DataArray) else {},
+        )
+    if time is None and TIME_DIM in dims and np.ndim(t0) > 0:
+        if timing_dim not in dims:
+            raise ValueError("A 1D t0 array requires a 'grid' dimension in dims.")
+        offsets = np.asarray(t0, dtype=float)
+        if offsets.ndim != 1:
+            raise ValueError(f"t0 must be scalar or 1D, got shape {offsets.shape}.")
+        if offsets.size != np.shape(data)[dims.index(timing_dim)]:
+            raise ValueError(
+                f"t0 has length {offsets.size}, but the 'grid' dimension size is {np.shape(data)[dims.index(timing_dim)]}."
+            )
+        if dt is None:
+            raise ValueError("Spacing for dimension 'time' is required. Provide dt.")
+        step = require_positive_finite(dt, "dt")
+        time = xr.DataArray(
+            offsets[None, :]
+            + np.arange(np.shape(data)[dims.index(TIME_DIM)])[:, None] * step,
+            dims=(TIME_DIM, timing_dim),
+        )
+    generic_t0 = float(np.asarray(t0).item()) if np.ndim(t0) == 0 else 0.0
+
     # VoxelData accepts Dask arrays, but its ArrayLike annotation excludes them.
     result = create_generic_voxeldata(
         data,  # ty: ignore[invalid-argument-type]
         dims=dims,
-        extra_coords=extra_coords,
+        extra_coords=coords,
         time=time,
-        grid=grid,
         k=k,
         j=j,
         i=i,
         dt=dt,
-        t0=t0,
+        t0=generic_t0,
         spacing=spacing,
         origin=origin,
         direction=direction,

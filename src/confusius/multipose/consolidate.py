@@ -233,7 +233,7 @@ def consolidate_poses(
         raise ValueError(
             "DataArray has no grid-dependent primary geometry; consolidate_poses "
             "requires a pose-dependent VoxelToWorldIndex (see "
-            "VoxelToWorldIndex.is_grid_dependent). If per-pose geometry instead "
+            "VoxelToWorldIndex.geometry_dims). If per-pose geometry instead "
             "lives in a secondary, named affine in da.vd.affines, rebase onto "
             "it first with da.vd.apply(<key>)."
         )

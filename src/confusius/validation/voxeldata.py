@@ -11,7 +11,7 @@ from voxeldata import require_positive_finite
 from voxeldata import validate_voxeldata as validate_generic_voxeldata
 from voxeldata.validation import RegularSpacingDims
 
-from confusius._dims import TIME_DIM
+from confusius._dims import CORE_DIMS, TIME_DIM
 from confusius.timing import (
     TIMING_REFERENCE_FACTORS,
     convert_time_reference,
@@ -210,6 +210,10 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
         If missing `time` or `slice_time` acquisition metadata is defaulted.
     """
     result = canonicalize_generic_voxeldata(data)
+    result = result.transpose(
+        *(d for d in result.dims if d not in CORE_DIMS),
+        *(d for d in CORE_DIMS if d in result.dims),
+    )
     result = ensure_time_acquisition_attrs(result)
     return ensure_slice_time_acquisition_attrs(result)
 
@@ -319,13 +323,18 @@ def validate_voxeldata(
     """
     validate_generic_voxeldata(
         data,
-        allow_grid=allow_grid,
-        allow_extra_dims=allow_extra_dims,
+        allow_extra_dims=True,
         require_regular_spacing=require_regular_spacing,
         regular_spacing_tolerance=regular_spacing_tolerance,
         regular_spacing_dims=regular_spacing_dims,
         require_dtype=require_dtype,
     )
+    if not allow_extra_dims:
+        extra_dims = sorted(str(d) for d in data.dims if d not in CORE_DIMS)
+        if extra_dims:
+            raise ValueError(f"Unexpected dimensions {extra_dims!r}.")
+    if not allow_grid and "grid" in data.dims:
+        raise ValueError("DataArray must not have a 'grid' dimension.")
     if require_time or require_unchunked_time or require_uniform_time:
         validate_required_time_dimension(data)
         validate_timepoint_count(data, "VoxelData validation")

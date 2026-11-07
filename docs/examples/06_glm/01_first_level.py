@@ -161,6 +161,9 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
         dims=relabeled_dims,
         time=da.time,
         voxel_to_world=swapped_voxel_to_world,
+        # Relabeling voxel axes preserves the world frame and its named transforms.
+        affines=da.vd.affines,
+        units=da.vd.units,
         attrs=da.attrs,
         name=str(da.name) if da.name is not None else None,
     )

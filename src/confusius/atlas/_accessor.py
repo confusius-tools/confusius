@@ -489,7 +489,9 @@ class AtlasAccessor:
         for name in output.data_vars:
             value = output[name].vd.reindex_voxels_like(reference)
             data_vars[name] = value.vd.set_voxel_to_world(
-                value.vd.voxel_to_world, named_affines=reference.vd.affines
+                value.vd.voxel_to_world,
+                geometry_dims=value.vd.geometry_dims,
+                named_affines=reference.vd.affines,
             )
         world_to_base = output.attrs["world_to_base"]
         if isinstance(world_to_base, xr.DataArray):

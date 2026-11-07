@@ -127,6 +127,12 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         units = data_array.attrs.pop("voxel_to_world_units", "mm")
         named_affines = data_array.attrs.pop("voxel_to_world_named_affines", None)
         geometry_dims = data_array.attrs.pop("voxel_to_world_geometry_dims", None)
+        if (
+            geometry_dims is None
+            and voxel_to_world.ndim == 3
+            and "grid" in data_array.dims
+        ):
+            geometry_dims = ("grid",)
         data_array = attach_voxel_to_world_index(
             data_array,
             voxel_to_world,

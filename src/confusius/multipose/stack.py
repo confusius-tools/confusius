@@ -100,7 +100,10 @@ def stack_poses(
             expanded = expanded.drop_vars(TIME_DIM)
         promoted.append(
             attach_voxel_to_world_index(
-                expanded, affine, units=get_voxel_to_world_units(da)
+                expanded,
+                affine,
+                units=get_voxel_to_world_units(da),
+                geometry_dims=(GRID_DIM,),
             )
         )
 
@@ -114,7 +117,9 @@ def stack_poses(
 
     stacked = xr.concat(promoted, dim=GRID_DIM, join="exact")
     stacked = stacked.vd.set_voxel_to_world(
-        stacked.vd.voxel_to_world, named_affines=named_affines
+        stacked.vd.voxel_to_world,
+        geometry_dims=stacked.vd.geometry_dims,
+        named_affines=named_affines,
     )
     # expand_dims prepends "grid" at axis 0; restore canonical core dim order
     # (...extra, grid, time, k, j, i).

@@ -562,7 +562,7 @@ def test_create_voxeldata_2d_time_rejects_wrong_pose_count(
     npose = 3
     time_2d = np.zeros((4, 2))
 
-    with pytest.raises(ValueError, match="grid columns"):
+    with pytest.raises(ValueError, match="time dimension 'grid'.*size"):
         create_voxeldata(
             np.zeros((4, npose, 2, 3, 4)),
             dims=("time", "grid", "k", "j", "i"),

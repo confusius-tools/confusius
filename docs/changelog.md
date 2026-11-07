@@ -46,6 +46,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- The first-level GLM example preserves named NIfTI frames when relabeling voxel
+  axes, allowing its `world_to_qform` correction and full analysis to complete
+  ([#569](https://github.com/confusius-tools/confusius/pull/569)).
+
 - Scalar-indexed VoxelData geometry was restored automatically before the external
   VoxelData integration. Explicit canonicalization is now required before applying
   or reindexing geometry on these arrays (see breaking changes above)

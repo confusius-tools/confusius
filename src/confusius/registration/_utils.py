@@ -271,6 +271,7 @@ def replace_named_affines(result: xr.DataArray, reference: xr.DataArray) -> None
     """
     result.vd.set_voxel_to_world(
         result.vd.voxel_to_world,
+        geometry_dims=result.vd.geometry_dims,
         named_affines=reference.vd.affines,
         inplace=True,
     )

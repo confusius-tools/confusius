@@ -616,7 +616,9 @@ class SearchLight(BaseEstimator):
             fill_value=np.nan,
         )
         self.scores_ = self.scores_.vd.set_voxel_to_world(
-            self.scores_.vd.voxel_to_world, named_affines=X_ordered.vd.affines
+            self.scores_.vd.voxel_to_world,
+            geometry_dims=self.scores_.vd.geometry_dims,
+            named_affines=X_ordered.vd.affines,
         )
         return self
 

@@ -29,22 +29,24 @@ methods remain but do not default/validate acquisition metadata; constructors,
 loaders, and explicit validation own that policy. Primary timestamps may depend
 on `time` plus arbitrary nonspatial axes. Auxiliary `slice_time` semantics and
 correction remain in ConfUSIus. Extraction works without optional flox/Dask in VoxelData; ConfUSIus
-retains its existing analysis dependencies. The draft integration targets the
-published `voxeldata>=0.0.3` release, without a Git dependency.
+retains its existing analysis dependencies. When changing the VoxelData API, test
+against the sibling checkout with `uv run --with-editable ../voxeldata pytest ...`;
+the published dependency must support that API before merging the integration.
 
 VoxelData includes fUSI recordings, brain atlas volumes, PCA/decomposition component maps, dense displacement fields, B-spline control-point grids, and anything
 else gridded in space. A VoxelData array is **always**:
 
 - Dims `(*nonspatial_dims, k, j, i)` — `time`/`grid` are optional and all leading
   dimensions may appear in any order. Creation preserves leading order. Optional
-  canonicalization/ensure uses `(...extra, grid, time, k, j, i)`, preserving extra
-  dimensions' relative order. Native voxel indices `k`/`j`/`i` are mandatory and last.
+  ConfUSIus canonicalization/ensure uses `(...extra, grid, time, k, j, i)`; generic
+  `.vd.canonicalize()`/`.vd.ensure()` uses `(...extra, time, k, j, i)`, preserving
+  extra dimensions' relative order. Native voxel indices `k`/`j`/`i` are mandatory and last.
 - Backed by a `VoxelToWorldIndex` attached to `z`/`y`/`x`
   (`voxeldata.VoxelToWorldIndex`/`VoxelToWorldTransform`), which
   lazily derives those world coordinates from `k`/`j`/`i` via the voxel-to-world affine:
   a shared `(4, 4)` affine or a stack indexed by ordered nonspatial `geometry_dims`.
-  Omitted 3D stacks infer `grid` (or legacy `pose` when no `grid` exists); arbitrary
-  stacks need explicit names. Shared geometry uses `()`, even with nonspatial axes.
+  VoxelData stacks always need explicit names. ConfUSIus's constructor alone
+  supplies probe-pose defaults (`grid`, or legacy `pose`). Shared geometry uses `()`, even with nonspatial axes.
   Probe-pose APIs use `grid`; general geometry may depend on time/views/other axes.
   Native `.reindex()`/alignment that changes geometry labels is unsupported: use
   `.isel()`/`.sel()`. Keep geometry axes independently indexed so extraction and

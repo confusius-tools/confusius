@@ -27,7 +27,7 @@ A **VoxelData array** satisfies these requirements:
    `volume_acquisition_duration` on `time`. These acquisition requirements belong
    to ConfUSIus, not to the generic VoxelData model.
 
-ConfUSIus probe-pose APIs use **`grid`**. Existing affine stacks infer
+ConfUSIus probe-pose APIs use **`grid`**. The ConfUSIus constructor interprets probe affine stacks as
 `geometry_dims=("grid",)` and apply across time and other leading dimensions.
 General VoxelData arrays may instead declare dependencies such as
 `geometry_dims=("time", "view")`, requiring `(ntime, nview, 4, 4)` affines. A shared
@@ -67,12 +67,14 @@ order of leading dimensions. Both `(time, grid, k, j, i)` and
 `(grid, time, k, j, i)` are valid, as are arrays with extra leading dimensions.
 Validation checks validity without changing the order.
 
-When a stable order is useful, call `data.vd.canonicalize()` or
-[`ensure_voxeldata`][confusius.validation.ensure_voxeldata]. Canonical order is
-`(...extra_dims, grid, time, k, j, i)`, retaining the relative order of extra
-dimensions. Neither inserts an absent `grid` or `time` dimension. ConfUSIus's
-`ensure_voxeldata` additionally defaults and validates fUSI acquisition metadata;
-`data.vd.ensure()` only applies the generic VoxelData contract.
+When a stable order is useful, ConfUSIus's
+[`ensure_voxeldata`][confusius.validation.ensure_voxeldata] uses
+`(...extra_dims, grid, time, k, j, i)` and defaults and validates fUSI acquisition
+metadata. Generic `data.vd.canonicalize()` and `data.vd.ensure()` use
+`(...extra_dims, time, k, j, i)`; `grid` has no special meaning in VoxelData.
+Both preserve the relative order of extra dimensions and restore scalar-selected
+spatial dimensions without inserting absent nonspatial dimensions. Affine stacks
+passed directly to VoxelData must always name their `geometry_dims`.
 
 !!! note "Migrating existing data"
     There is no `.fusi.affine` alias. Probe-pose APIs use `grid`; arbitrary geometry
@@ -135,7 +137,7 @@ VoxelData array and want to check that it still satisfies the VoxelData model, u
 
 All ConfUSIus functions that expect a VoxelData array call
 [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] on their input, which
-canonicalizes the DataArray first—reordering dimensions to `(...extra, time, grid, k,
+canonicalizes the DataArray first—reordering dimensions to `(...extra, grid, time, k,
 j, i)`, restoring a voxel dimension collapsed to a scalar coordinate by a prior
 [`.isel`][xarray.DataArray.isel], and filling in missing `time` metadata with sensible
 defaults—before validating.
