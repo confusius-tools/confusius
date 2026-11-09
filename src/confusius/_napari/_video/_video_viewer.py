@@ -40,7 +40,7 @@ from confusius._napari._timeaxis import find_time_dim_index
 from confusius.timing import convert_time_units, get_representative_time_step
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable
 
     import napari
     import napari.layers
@@ -92,7 +92,7 @@ class _VideoArray:
     """
 
     def __init__(self, video: VideoReaderNP, *, step: int = 1) -> None:
-        self._video = video
+        self.video = video
         self._step = step
         # Reader metadata avoids seeking back to frame zero on every step change.
         self._frame_shape = video.frame_shape
@@ -118,7 +118,7 @@ class _VideoArray:
         numpy.ndarray
             The decoded `(H, W[, C])` frame.
         """
-        return np.ascontiguousarray(self._video[t * self._step])
+        return np.ascontiguousarray(self.video[t * self._step])
 
     def __getitem__(self, key):
         if not isinstance(key, tuple):
@@ -423,6 +423,7 @@ class VideoViewer:
         self._wire_play_buttons()
         viewer.dims.events.ndim.connect(self._wire_play_buttons)
         self.model.dims.events.ndim.connect(self._wire_play_buttons)
+        self.frame_step_spin.valueChanged.connect(self.set_frame_step)
 
     def _place_under_layer_list(self) -> None:
         """Dock the video layer list below napari's main layer list."""
@@ -463,9 +464,8 @@ class VideoViewer:
         video: VideoReaderNP,
         *,
         name: str,
-        step: int = 1,
     ) -> napari.layers.Image:
-        """Add a video as a plain `(time, y, x[, rgb])` image layer.
+        """Add a video image layer using the viewer's current frame step.
 
         Parameters
         ----------
@@ -473,14 +473,13 @@ class VideoViewer:
             The opened video reader. Its frame rate sets the time scale in seconds.
         name : str
             Layer name.
-        step : int, default: 1
-            Show every *step*-th frame.
 
         Returns
         -------
         napari.layers.Image
             The new video layer in the video viewer.
         """
+        step = self.frame_step_spin.value()
         data = _VideoArray(video, step=step)
         is_rgb = data.ndim == 4 and data.shape[-1] in (3, 4)
         # Adding a layer resets the video model's point to mid-range; that
@@ -499,10 +498,12 @@ class VideoViewer:
         finally:
             self._syncing = False
         assert not isinstance(layer, list)
+        if len(self.model.layers) == 1:
+            if self.qt_viewer.isHidden():
+                self.show()
+            self._warn_if_irregular_time()
         self._sync_from_main()
         self._update_time_text()
-        if len(self.model.layers) == 1:
-            self._warn_if_irregular_time()
         # The canvas is laid out on the next event-loop pass; only then does
         # it have its real size, so fitting the view must wait.
         QTimer.singleShot(0, self._reset_view)
@@ -524,23 +525,27 @@ class VideoViewer:
         self._main_reset_view(*args, **kwargs)
         self._reset_view()
 
-    def set_frame_step(
-        self,
-        videos: Sequence[tuple[napari.layers.Image, VideoReaderNP]],
-        step: int,
-    ) -> None:
+    def set_frame_step(self, step: int) -> None:
         """Rebuild video layers with a new frame step, keeping the current time.
 
-        A running playback carries on from that time.
+        A running playback carries on from that time. Custom playback bounds
+        follow the nearest available frames at their original world times.
 
         Parameters
         ----------
-        videos : sequence of (napari.layers.Image, VideoReaderNP)
-            The layers previously returned by `add_video`, with their readers.
         step : int
             Show every *step*-th frame.
         """
+        if self.frame_step_spin.value() != step:
+            self.frame_step_spin.setValue(step)
+            return
+        if not self.model.layers:
+            return
         qt_dims = self.qt_viewer.dims
+        slider = qt_dims.slider_widgets[0]
+        frame_range = slider.frame_range
+        origin, _, spacing = self.model.dims.range[0]
+        playback_times = tuple(origin + frame * spacing for frame in frame_range)
         thread = qt_dims._animation_thread
         playing = thread.isRunning()
         if playing:
@@ -550,7 +555,7 @@ class VideoViewer:
             QCoreApplication.sendPostedEvents(None, QEvent.Type.MetaCall)
 
         current_time = float(self.model.dims.point[0])
-        shown = [layer for layer, _ in videos if layer.visible]
+        shown = [layer for layer in self.model.layers if layer.visible]
         self._syncing = True
         try:
             # Data and scale cannot change together, and the states in between map
@@ -558,7 +563,8 @@ class VideoViewer:
             # decode them, and nothing paints before the refresh below.
             for layer in shown:
                 layer._visible = False
-            for layer, video in videos:
+            for layer in self.model.layers:
+                video = layer.data.video
                 layer.data = _VideoArray(video, step=step)
                 layer.scale = (_time_scale(video.frame_rate, step), 1.0, 1.0)  # ty: ignore[invalid-assignment]
             self.model.dims.set_point(0, current_time)
@@ -569,9 +575,23 @@ class VideoViewer:
         for layer in shown:
             layer.refresh()
 
+        if frame_range != (0, 0):
+            origin, _, spacing = self.model.dims.range[0]
+            last = self.model.dims.nsteps[0] - 1
+            lower, upper = (
+                min(last, max(0, round((value - origin) / spacing)))
+                for value in playback_times
+            )
+            # napari needs two distinct bounds; a narrower interval uses the
+            # nearest adjacent frames, or the full range for a one-frame video.
+            if lower == upper:
+                upper = min(last, upper + 1)
+                lower = max(0, upper - 1)
+            slider.frame_range = (lower, upper)
+
         if playing:
             # This also updates the thread's position and loop range to the new step.
-            thread.set_slider(thread.slider)
+            thread.set_slider(slider)
             thread.start()
             # The thread clears its stop flag once running. A stop before that is
             # lost and `QtDims.stop` hangs, which fast step changes would hit.
@@ -589,6 +609,8 @@ class VideoViewer:
         self._update_time_text()
         if self.model.layers:
             self.model.reset_view()
+        else:
+            self.hide()
 
     def build_layer_context_menu(self) -> QMenu:
         """Build the right-click menu of the video layer list.

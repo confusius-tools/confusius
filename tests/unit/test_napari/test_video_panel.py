@@ -32,12 +32,12 @@ from confusius.plotting import plot_napari
 class _FakeVideo:
     """Minimal VideoReaderNP stub."""
 
-    def __init__(self, n_frames=20, h=48, w=64, rgb=False):
+    def __init__(self, n_frames=20, h=48, w=64, rgb=False, fps=30.0, seed=0):
         c = (3,) if rgb else ()
         self.number_of_frames = n_frames
-        self.frame_rate = 30.0
+        self.frame_rate = fps
         self.reads = []
-        self._frames = np.random.default_rng(0).integers(
+        self._frames = np.random.default_rng(seed).integers(
             0, 255, size=(n_frames, h, w, *c), dtype=np.uint8
         )
         self.frame_shape = self._frames.shape[1:]
@@ -137,7 +137,7 @@ def add_video(panel, monkeypatch, tmp_path):
         path.touch()
         monkeypatch.setattr(panel_module, "VideoReaderNP", lambda p, **kw: fv)
         panel.add_video(path)
-        return panel._videos[-1]
+        return panel._video_viewer.model.layers[-1]
 
     return _add
 
@@ -153,7 +153,7 @@ def _delete_video(panel, name: str) -> None:
 def test_add_video_opens_video_viewer_and_leaves_main_viewer_alone(
     viewer, panel, add_video
 ):
-    entry = add_video(_FakeVideo(n_frames=10, rgb=True))
+    layer = add_video(_FakeVideo(n_frames=10, rgb=True))
     video_viewer = panel._video_viewer
     # The video canvas sits beside the main canvas, not in a dock.
     central = viewer.window._qt_window.centralWidget()
@@ -161,9 +161,9 @@ def test_add_video_opens_video_viewer_and_leaves_main_viewer_alone(
     assert central.isAncestorOf(viewer.window._qt_viewer)
     assert "Video" not in viewer.window.dock_widgets
     assert viewer.window.dock_widgets["video layer list"] is video_viewer.controls
-    assert entry.layer.data.shape == (10, 48, 64, 3)
-    assert entry.layer.rgb
-    np.testing.assert_allclose(entry.layer.scale, (1 / 30, 1.0, 1.0))
+    assert layer.data.shape == (10, 48, 64, 3)
+    assert layer.rgb
+    np.testing.assert_allclose(layer.scale, (1 / 30, 1.0, 1.0))
     assert len(viewer.layers) == 1
     assert not viewer.canvas.grid.enabled
     assert panel.isAncestorOf(video_viewer.controls) is False
@@ -289,7 +289,6 @@ def test_remove_last_video_hides_video_viewer(viewer, panel, add_video):
     assert panel._show_layer_list_btn.text() == "Hide video list"
     video_viewer = panel._video_viewer
     _delete_video(panel, "Video: a")
-    assert [e.layer.name for e in panel._videos] == ["Video: b"]
     assert [layer.name for layer in video_viewer.model.layers] == ["Video: b"]
 
     _delete_video(panel, "Video: b")
@@ -343,13 +342,25 @@ def test_closed_video_windows_can_be_reopened_from_data_io(viewer, panel, add_vi
     assert panel._show_viewer_btn.text() == "Hide video viewer"
 
 
-def test_layer_removed_from_the_model_is_forgotten(viewer, panel, add_video):
-    a = add_video(_FakeVideo(), "a")
-    add_video(_FakeVideo(), "b")
+def test_frame_step_updates_only_remaining_videos(viewer, panel, add_video):
+    removed_video = _FakeVideo(n_frames=450, h=2, w=2)
+    remaining_video = _FakeVideo(n_frames=450, h=2, w=2, seed=1)
+    removed = add_video(removed_video, "a")
+    remaining = add_video(remaining_video, "b")
+    video_viewer = panel._video_viewer
+    viewer.dims.set_point(find_time_dim_index(viewer), 12.0)
     # Any removal path (keyboard Delete, scripting) goes through the model.
-    panel._video_viewer.model.layers.remove(a.layer)
-    assert [e.layer.name for e in panel._videos] == ["Video: b"]
-    assert panel._video_viewer is not None
+    video_viewer.model.layers.remove(removed)
+    removed_video.reads.clear()
+    remaining_video.reads.clear()
+
+    video_viewer.frame_step_spin.setValue(3)
+
+    assert removed_video.reads == []
+    assert remaining_video.reads == [360]
+    np.testing.assert_array_equal(
+        remaining._slice.image.raw, remaining_video._frames[360]
+    )
 
 
 def test_removing_longer_video_does_not_move_main_time(viewer, panel, add_video):
@@ -358,7 +369,7 @@ def test_removing_longer_video_does_not_move_main_time(viewer, panel, add_video)
     t_idx = find_time_dim_index(viewer)
     viewer.dims.set_point(t_idx, 12.0)
 
-    panel._video_viewer.model.layers.remove(longer.layer)
+    panel._video_viewer.model.layers.remove(longer)
 
     assert viewer.dims.point[t_idx] == pytest.approx(12.0)
     assert panel._video_viewer.model.dims.point[0] == pytest.approx(29 / 30)
@@ -368,42 +379,42 @@ def test_removing_longer_video_does_not_move_main_time(viewer, panel, add_video)
 
 def test_frame_step_decodes_only_the_frame_at_the_kept_time(viewer, panel, add_video):
     video = _FakeVideo(n_frames=450)
-    entry = add_video(video)
+    layer = add_video(video)
     viewer.dims.set_point(find_time_dim_index(viewer), 12.0)
     video.reads.clear()
 
-    panel._video_viewer.frame_step_spin.setValue(3)
+    panel._video_viewer.set_frame_step(3)
 
+    assert panel._video_viewer.frame_step_spin.value() == 3
     assert video.reads == [360]
-    assert entry.layer.visible
-    np.testing.assert_array_equal(entry.layer.data[120], video._frames[360])
+    assert layer.visible
+    np.testing.assert_array_equal(layer.data[120], video._frames[360])
 
 
-def test_frame_step_leaves_hidden_videos_hidden_and_undecoded(
-    viewer, panel, add_video
-):
+def test_frame_step_leaves_hidden_videos_hidden_and_undecoded(viewer, panel, add_video):
     video = _FakeVideo(n_frames=450)
-    entry = add_video(video)
+    layer = add_video(video)
     viewer.dims.set_point(find_time_dim_index(viewer), 12.0)
-    entry.layer.visible = False
+    layer.visible = False
     video.reads.clear()
 
     panel._video_viewer.frame_step_spin.setValue(3)
 
-    assert not entry.layer.visible
+    assert not layer.visible
     assert video.reads == []
 
-    entry.layer.visible = True
+    layer.visible = True
     assert video.reads == [360]
 
 
-@pytest.mark.parametrize("old_step, new_step", [(1, 5), (5, 1)])
-def test_frame_step_change_keeps_running_playback_in_place(
-    viewer, panel, add_video, qtbot, old_step, new_step
+@pytest.mark.parametrize("steps", [(1, 5), (5, 1), tuple(range(1, 40))])
+def test_frame_step_changes_preserve_time_and_resume_playback(
+    viewer, panel, add_video, qtbot, steps
 ):
-    add_video(_FakeVideo(n_frames=1800, h=2, w=2))
+    video = _FakeVideo(n_frames=1800, h=2, w=2)
+    layer = add_video(video)
     video_viewer = panel._video_viewer
-    video_viewer.frame_step_spin.setValue(old_step)
+    video_viewer.frame_step_spin.setValue(steps[0])
     dims = video_viewer.model.dims
     dims.set_point(0, 12.0)
     qt_dims = video_viewer.qt_viewer.dims
@@ -411,34 +422,73 @@ def test_frame_step_change_keeps_running_playback_in_place(
     # Frames queue up in the old step's units while the event loop is busy.
     time.sleep(0.05)
 
-    video_viewer.frame_step_spin.setValue(new_step)
-    # Tests draw nothing, and only a draw lets the next queued frame through.
-    dims._play_ready = True
-    qtbot.wait(20)
-    qt_dims.stop()
+    try:
+        for step in steps[1:]:
+            video_viewer.frame_step_spin.setValue(step)
+        assert dims.point[0] == pytest.approx(12.0, abs=steps[0] / 30)
+        before = dims.point[0]
+        # Tests draw nothing, so acknowledge the previous frame as a canvas would.
+        dims._play_ready = True
+        qtbot.waitUntil(lambda: dims.point[0] > before)
+        qt_dims.stop()
+        assert qt_dims._animation_thread.max_point == dims.nsteps[0]
+        source_frame = dims.current_step[0] * steps[-1]
+        assert source_frame in video.reads
+        np.testing.assert_array_equal(
+            layer._slice.image.raw, video._frames[source_frame]
+        )
+    finally:
+        qt_dims.stop()
 
-    assert dims.point[0] == pytest.approx(12.0, abs=1.0)
-    # Playback must loop at the new end, not at the old step's.
-    assert qt_dims._animation_thread.max_point == dims.nsteps[0]
 
-
-def test_fast_frame_step_changes_keep_playback_running(
-    viewer, panel, add_video, qtbot
+@pytest.mark.parametrize("playing", [False, True])
+@pytest.mark.parametrize(
+    "old_step, new_step, frame_range, expected",
+    [
+        (1, 5, (300, 1500), (60, 300)),
+        (5, 1, (60, 300), (300, 1500)),
+        (1, 100, (1798, 1799), (16, 17)),
+    ],
+)
+def test_frame_step_preserves_custom_playback_times(
+    viewer, panel, add_video, qtbot, playing, old_step, new_step, frame_range, expected
 ):
     add_video(_FakeVideo(n_frames=1800, h=2, w=2))
     video_viewer = panel._video_viewer
+    video_viewer.frame_step_spin.setValue(old_step)
+    dims = video_viewer.model.dims
     qt_dims = video_viewer.qt_viewer.dims
-    qt_dims.play(0, fps=100)
-    time.sleep(0.05)
+    qt_dims.slider_widgets[0].frame_range = frame_range
+    if playing:
+        qt_dims.play(0, fps=100, frame_range=frame_range)
+        time.sleep(0.05)
+    try:
+        video_viewer.frame_step_spin.setValue(new_step)
+        assert qt_dims.slider_widgets[0].frame_range == expected
+        # Observe an actual wrap at the remapped upper bound.
+        dims.set_current_step(0, expected[1])
+        if not playing:
+            qt_dims.play(0, fps=100, frame_range=qt_dims.slider_widgets[0].frame_range)
+        dims._play_ready = True
+        qtbot.waitUntil(lambda: dims.current_step[0] < expected[1])
+        assert expected[0] <= dims.current_step[0]
+    finally:
+        qt_dims.stop()
 
-    for step in range(2, 40):
-        video_viewer.frame_step_spin.setValue(step)
 
-    qtbot.waitUntil(
-        lambda: qt_dims.slider_widgets[0].play_button.property("playing") == "True"
-    )
-    assert qt_dims._animation_thread.isRunning()
-    qt_dims.stop()
+def test_frame_step_with_one_remaining_frame_clears_custom_playback_range(
+    panel, add_video
+):
+    video = _FakeVideo(n_frames=3, h=2, w=2)
+    layer = add_video(video)
+    video_viewer = panel._video_viewer
+    slider = video_viewer.qt_viewer.dims.slider_widgets[0]
+    slider.frame_range = (1, 2)
+
+    video_viewer.frame_step_spin.setValue(3)
+
+    assert slider.frame_range == (0, 0)
+    np.testing.assert_array_equal(layer._slice.image.raw, video._frames[0])
 
 
 def test_closed_video_dock_does_not_decode_until_reopened(
@@ -538,28 +588,36 @@ def test_closing_video_viewer_restores_main_play_buttons(
     main_dims.stop()
 
 
-def test_frame_step_persists_across_viewer_reopen(viewer, panel, add_video):
+@pytest.mark.parametrize("update_while_empty", [False, True])
+def test_frame_step_persists_across_viewer_reopen(panel, add_video, update_while_empty):
     add_video(_FakeVideo(n_frames=30), "a")
     panel._video_viewer.frame_step_spin.setValue(3)
     _delete_video(panel, "Video: a")
-    assert not panel._videos
+    assert not panel._video_viewer.model.layers
+    if update_while_empty:
+        panel._video_viewer.set_frame_step(5)
 
-    entry = add_video(_FakeVideo(n_frames=30), "b")
-    assert panel._video_viewer.frame_step_spin.value() == 3
-    assert entry.layer.data.shape[0] == 10
+    layer = add_video(_FakeVideo(n_frames=30), "b")
+    assert panel._video_viewer.frame_step_spin.value() == (
+        5 if update_while_empty else 3
+    )
+    assert layer.data.shape[0] == (6 if update_while_empty else 10)
 
 
 def test_frame_step_rebuilds_all_videos_and_keeps_time(viewer, panel, add_video):
-    a = add_video(_FakeVideo(n_frames=450), "a")
-    b = add_video(_FakeVideo(n_frames=450), "b")
+    a_video = _FakeVideo(n_frames=450, h=2, w=2)
+    b_video = _FakeVideo(n_frames=240, h=2, w=2, fps=15, seed=1)
+    a = add_video(a_video, "a")
+    b = add_video(b_video, "b")
     model = panel._video_viewer.model
     model.dims.set_point(0, 6.0)
 
     panel._video_viewer.frame_step_spin.setValue(3)
 
-    for entry in (a, b):
-        assert entry.layer.data.shape[0] == 150
-        np.testing.assert_allclose(entry.layer.scale[0], 3 / 30)
+    for layer, video, count, frame in ((a, a_video, 150, 180), (b, b_video, 80, 90)):
+        assert layer.data.shape[0] == count
+        np.testing.assert_allclose(layer.scale[0], 3 / video.frame_rate)
+        np.testing.assert_array_equal(layer._slice.image.raw, video._frames[frame])
     assert model.dims.point[0] == pytest.approx(6.0, abs=3 / 30)
 
 
@@ -574,10 +632,10 @@ def test_time_sync_converts_main_time_units(
     viewer.layers.clear()
     video = _FakeVideo(n_frames=450)
     if video_first:
-        entry = add_video(video)
+        layer = add_video(video)
     plot_napari(scan, viewer=viewer, show_colorbar=False, show_scale_bar=False)
     if not video_first:
-        entry = add_video(video)
+        layer = add_video(video)
     t_idx = find_time_dim_index(viewer)
     model = panel._video_viewer.model
     assert model.dims.point[0] == pytest.approx(viewer.dims.point[t_idx] / factor)
@@ -586,7 +644,7 @@ def test_time_sync_converts_main_time_units(
 
     assert model.dims.point[0] == pytest.approx(12.0)
     assert model.dims.current_step[0] == 360
-    np.testing.assert_array_equal(entry.layer.data[360], video._frames[360])
+    np.testing.assert_array_equal(layer.data[360], video._frames[360])
     # 11.2 s falls between the 11.0 s and 11.5 s fUSI frames.
     model.dims.set_point(0, 11.2)
     assert viewer.dims.point[t_idx] == pytest.approx(11.2 * factor)
@@ -620,7 +678,7 @@ def test_main_reset_view_also_resets_video_view(viewer, panel, add_video):
     main_camera = viewer.scene.camera
     camera.zoom = 123.0
     main_camera.zoom = 456.0
-    # Same entry point as napari's Home button and Ctrl+R.
+    # Same layer point as napari's Home button and Ctrl+R.
     reset_view(viewer)
     assert camera.zoom != 123.0
     assert main_camera.zoom != 456.0
@@ -675,11 +733,6 @@ def test_viewer_controls_act_on_video_viewer_only(viewer, panel, add_video):
         controls.minimumSizeHint().width() <= native_controls.minimumSizeHint().width()
     )
     assert controls.sizePolicy() == native_controls.sizePolicy()
-    bottom_row = controls.layout().itemAt(controls.layout().count() - 1).widget()
-    assert bottom_row is buttons
-    assert buttons.layout().itemAt(buttons.layout().count() - 1).widget() is (
-        video_viewer.frame_step_spin
-    )
     for hidden in (
         buttons.consoleButton,
         buttons.ndisplayButton,
@@ -715,7 +768,7 @@ def test_layer_context_menu_acts_on_video_layers(viewer, panel, add_video):
     video_viewer = panel._video_viewer
     fusi = viewer.layers[0]
     viewer.layers.selection = {fusi}
-    video_viewer.model.layers.selection = {a.layer}
+    video_viewer.model.layers.selection = {a}
 
     def trigger(text: str) -> None:
         menu = video_viewer.build_layer_context_menu()
@@ -723,16 +776,16 @@ def test_layer_context_menu_acts_on_video_layers(viewer, panel, add_video):
         actions[text].trigger()
 
     trigger("Toggle visibility")
-    assert (a.layer.visible, b.layer.visible) == (False, True)
+    assert (a.visible, b.visible) == (False, True)
     trigger("Toggle visibility")
     trigger("Hide other videos")
-    assert (a.layer.visible, b.layer.visible) == (True, False)
+    assert (a.visible, b.visible) == (True, False)
     trigger("Show all videos")
-    assert (a.layer.visible, b.layer.visible) == (True, True)
+    assert (a.visible, b.visible) == (True, True)
     assert fusi.visible is True
 
     trigger("Remove selected videos")
-    assert [e.layer.name for e in panel._videos] == ["Video: b"]
+    assert [layer.name for layer in panel._video_viewer.model.layers] == ["Video: b"]
     assert len(viewer.layers) == 1
 
     # Nothing napari offers that a video cannot run (duplicate, split RGB, ...).
@@ -743,20 +796,6 @@ def test_layer_context_menu_acts_on_video_layers(viewer, panel, add_video):
         "Hide other videos",
         "Remove selected videos",
     ]
-
-
-def test_layer_context_menu_is_reused(viewer, panel, add_video, monkeypatch):
-    from qtpy.QtCore import QPoint
-    from qtpy.QtWidgets import QMenu
-
-    add_video(_FakeVideo())
-    shown = []
-    monkeypatch.setattr(QMenu, "exec", lambda menu, *args: shown.append(menu))
-    delegate = panel._video_viewer.layer_list.itemDelegate()
-    for _ in range(2):
-        delegate.show_context_menu(None, None, QPoint(), None)
-    assert len(shown) == 2
-    assert shown[0] is shown[1]
 
 
 def test_overlay_shows_video_time(viewer, panel, add_video):
@@ -1021,7 +1060,9 @@ def test_closing_panel_dock_closes_video_viewer(
     # What the panel dock's close button does.
     viewer.window.remove_dock_widget(panel_dock)
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    qtbot.waitUntil(lambda: central.findChildren(QtViewer) == [viewer.window._qt_viewer])
+    qtbot.waitUntil(
+        lambda: central.findChildren(QtViewer) == [viewer.window._qt_viewer]
+    )
     assert "video layer list" not in viewer.window.dock_widgets
     assert "reset_view" not in viewer.__dict__
 

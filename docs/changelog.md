@@ -60,6 +60,8 @@ Current development version for the next ConfUSIus release.
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 - Fix video synchronization with recordings timed in milliseconds or microseconds
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- Preserve custom video playback intervals when changing the frame step
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 
 ### :frame_photo: Napari plugin
 

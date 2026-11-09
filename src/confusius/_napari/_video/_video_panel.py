@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,15 +18,6 @@ from confusius._napari._video._video_viewer import VideoViewer
 
 if TYPE_CHECKING:
     import napari
-    import napari.layers
-
-
-@dataclass
-class _VideoEntry:
-    """Per-video state held by `VideoPanel` for each loaded video."""
-
-    video: VideoReaderNP
-    layer: napari.layers.Image
 
 
 class VideoPanel(QWidget):
@@ -43,8 +33,8 @@ class VideoPanel(QWidget):
 
     The video layers and their controls are not shown here: they live in a
     dedicated "video layer list" dock below napari's own layer list (see
-    `VideoViewer.controls`).  Videos removed there, by any means, are
-    forgotten by this widget.
+    `VideoViewer.controls`). The video viewer owns the layers, readers, and
+    frame-step setting; this widget only loads files and toggles its windows.
 
     Parameters
     ----------
@@ -55,10 +45,7 @@ class VideoPanel(QWidget):
     def __init__(self, viewer: napari.Viewer) -> None:
         super().__init__()
         self._viewer = viewer
-        self._videos: list[_VideoEntry] = []
         self._video_viewer: VideoViewer | None = None
-        # Remembered across video viewer instances.
-        self._frame_step = 1
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -104,7 +91,7 @@ class VideoPanel(QWidget):
     def _update_window_buttons(self) -> None:
         """Update the window toggles for the loaded videos."""
         video_viewer = self._video_viewer
-        enabled = video_viewer is not None and bool(self._videos)
+        enabled = video_viewer is not None and bool(video_viewer.model.layers)
         viewer_hidden = not enabled or video_viewer.qt_viewer.isHidden()
         list_hidden = not enabled or video_viewer.controls_dock.isHidden()
         self._show_viewer_btn.setEnabled(enabled)
@@ -143,13 +130,8 @@ class VideoPanel(QWidget):
 
         if self._video_viewer is None:
             self._video_viewer = self._open_video_viewer()
-        elif not self._videos:
-            self._video_viewer.show()
 
-        layer = self._video_viewer.add_video(
-            video, name=f"Video: {path.stem}", step=self._frame_step
-        )
-        self._videos.append(_VideoEntry(video=video, layer=layer))
+        self._video_viewer.add_video(video, name=f"Video: {path.stem}")
         self._update_window_buttons()
 
     def _show_error(self, message: str) -> None:
@@ -177,49 +159,11 @@ class VideoPanel(QWidget):
             The new video viewer.
         """
         video_viewer = VideoViewer(self._viewer, anchor=self)
-        video_viewer.frame_step_spin.setValue(self._frame_step)
-        video_viewer.frame_step_spin.valueChanged.connect(self._on_frame_step_changed)
         video_viewer.controls_dock.visibilityChanged.connect(
             self._update_window_buttons
         )
-        # Let the viewer resynchronize and refit before the panel hides it.
+        # Update the toggles after the viewer handles an empty layer list.
         video_viewer.model.layers.events.removed.connect(
-            self._on_layer_removed, position="last"
+            self._update_window_buttons, position="last"
         )
         return video_viewer
-
-    # ------------------------------------------------------------------
-    # Remove
-    # ------------------------------------------------------------------
-
-    def _on_layer_removed(self, event) -> None:
-        """Forget a removed video; hide the viewer when none is left.
-
-        Parameters
-        ----------
-        event : napari.utils.events.Event
-            Layer-list removal event whose `value` is the removed layer.
-        """
-        self._videos = [e for e in self._videos if e.layer is not event.value]
-        if not self._videos and self._video_viewer is not None:
-            self._video_viewer.hide()
-        self._update_window_buttons()
-
-    # ------------------------------------------------------------------
-    # Frame step
-    # ------------------------------------------------------------------
-
-    def _on_frame_step_changed(self, value: int) -> None:
-        """Rebuild every video layer with a new frame step.
-
-        Parameters
-        ----------
-        value : int
-            Show every *value*-th frame.
-        """
-        self._frame_step = value
-        if self._video_viewer is None or not self._videos:
-            return
-        self._video_viewer.set_frame_step(
-            [(entry.layer, entry.video) for entry in self._videos], value
-        )
