@@ -136,3 +136,16 @@ class TestStackPoses:
         already_stacked = stack_poses([_make_pose(np.eye(4)), _make_pose(np.eye(4))])
         with pytest.raises(ValueError, match="pose"):
             stack_poses([already_stacked])
+
+    @pytest.mark.parametrize(
+        "frame_names", [("lab", None), (None, "lab"), ("lab", "atlas")]
+    )
+    def test_mismatched_named_frames_raise(self, frame_names):
+        """Stacking rejects missing or differently named reference frames."""
+        poses = [_make_pose(np.eye(4)), _make_pose(np.eye(4))]
+        for position, name in enumerate(frame_names):
+            if name is not None:
+                poses[position] = poses[position].vd.set_affine(name, np.eye(4))
+
+        with pytest.raises(ValueError, match="same named affine frames"):
+            stack_poses(poses)

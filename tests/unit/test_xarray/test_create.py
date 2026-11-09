@@ -665,6 +665,36 @@ def test_create_voxeldata_per_pose_t0_requires_matching_pose_count():
         )
 
 
+def test_create_voxeldata_per_pose_t0_rejects_multidimensional_offsets():
+    """Per-pose time origins must be a vector, not a matrix of offsets."""
+    with pytest.raises(ValueError, match="t0 must be scalar or 1D"):
+        create_voxeldata(
+            np.zeros((3, 2, 1, 1, 1)),
+            dims=("time", "pose", "k", "j", "i"),
+            dt=1.0,
+            t0=np.array([[0.0, 0.25]]),
+            spacing=(1.0, 1.0, 1.0),
+        )
+
+
+def test_create_voxeldata_rejects_invalid_time_coordinate_reference():
+    """A supplied time coordinate's acquisition reference is validated too."""
+    time = xr.DataArray(
+        [0.0, 1.0, 2.0],
+        dims="time",
+        attrs={"units": "s", "volume_acquisition_reference": "invalid"},
+    )
+    with pytest.raises(
+        ValueError, match="volume_acquisition_reference must be one of.*'invalid'"
+    ):
+        create_voxeldata(
+            np.zeros((3, 1, 1, 1)),
+            dims=("time", "k", "j", "i"),
+            time=time,
+            spacing=(1.0, 1.0, 1.0),
+        )
+
+
 def test_create_voxeldata_per_pose_t0_requires_dt():
     """A 1D `t0` array still needs a shared `dt` to build `time`."""
     with pytest.raises(ValueError, match="Spacing for dimension 'time' is required"):
