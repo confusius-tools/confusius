@@ -3310,6 +3310,25 @@ class TestFromNifti:
 
         assert "time" not in da.dims
 
+    @pytest.mark.parametrize("filename", ["test.nii", "test.nii.gz"])
+    def test_from_nifti_names_file_backed_image_like_load_nifti(
+        self, tmp_path, filename
+    ):
+        """A file-backed image is named after its file, without the NIfTI extension."""
+        nifti_path = tmp_path / filename
+        nib.Nifti1Image(np.zeros((4, 3, 2), dtype=np.float32), np.eye(4)).to_filename(
+            nifti_path
+        )
+        img = nib.nifti1.Nifti1Image.from_filename(nifti_path)
+
+        assert from_nifti(img).name == load_nifti(nifti_path).name == "test"
+
+    def test_from_nifti_leaves_in_memory_image_unnamed(self):
+        """An image with no backing file has no filename to derive a name from."""
+        img = nib.Nifti1Image(np.zeros((4, 3, 2), dtype=np.float32), np.eye(4))
+
+        assert from_nifti(img).name is None
+
 
 class TestRoundtrip:
     """Tests for save/load roundtrip consistency."""

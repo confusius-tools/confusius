@@ -1169,13 +1169,13 @@ def _dask_array_from_nifti_dataobj(
     """Build a Dask array in ConfUSIus voxel order from a NiBabel image's dataobj.
 
     For an image loaded from disk, `img.dataobj` is a nibabel `ArrayProxy`, which
-    already exposes `.shape`, `.dtype`, and numpy-style `__getitem__` slicing
-    (applying any slope/intercept scaling lazily per chunk). Passing it to
-    `da.from_array` directly keeps the array lazy; converting it through
-    `np.asanyarray` first would force it into a concrete `numpy.memmap`, which
-    `da.from_array` then copies while building the graph. For an in-memory image built
-    directly from an array (e.g. `nib.Nifti1Image(data, affine)`), `dataobj` is already
-    a plain `numpy.ndarray`, so it is wrapped as-is instead.
+    already exposes `.shape`, `.dtype`, and numpy-style `__getitem__` slicing (applying
+    any slope/intercept scaling lazily per chunk). Passing it to `da.from_array`
+    directly keeps the array lazy; converting it through `np.asanyarray` first would
+    force it into a concrete `numpy.memmap`, which `da.from_array` then copies while
+    building the graph. For an in-memory image built directly from an array (e.g.
+    `nib.Nifti1Image(data, affine)`), `dataobj` is already a plain `numpy.ndarray`, so
+    it is wrapped as-is instead.
 
     NIfTI stores data with shape (x, y, z, time) in column-major order. `ArrayProxy`
     has no `.T`, so the Dask array is built in that native order and transposed
@@ -1218,7 +1218,7 @@ def _dataarray_from_nifti_image(
     *,
     chunks: int | tuple[int, ...] | str | None,
     coordinate_affine: Literal["auto", "sform", "qform"],
-    name: str | None,
+    name: str | None = None,
 ) -> xr.DataArray:
     """Build a VoxelData array from a NiBabel image plus resolved header/sidecar attrs.
 
@@ -1238,8 +1238,9 @@ def _dataarray_from_nifti_image(
         Chunk specification, as documented for `load_nifti`.
     coordinate_affine : {"auto", "sform", "qform"}
         Header affine to use as the primary coordinate-defining geometry.
-    name : str or None
-        Name to assign to the returned DataArray.
+    name : str, optional
+        Name to assign to the returned DataArray. Defaults to filename stem if the image
+        was loaded from disk.
 
     Returns
     -------
@@ -1335,6 +1336,16 @@ def _dataarray_from_nifti_image(
         attrs=attrs,
         name=name,
     )
+    if name is None:
+        data_array.name = None
+        if (nifti_filename := img.get_filename()) is not None:
+            nifti_filename = Path(nifti_filename)
+            data_array.name = (
+                nifti_filename.with_suffix("").stem
+                if nifti_filename.suffix == ".gz"
+                else nifti_filename.stem
+            )
+
     if scalar_time_coord is not None:
         data_array = data_array.assign_coords(time=scalar_time_coord)
     if slice_time_coord is not None:
@@ -1505,15 +1516,12 @@ def load_nifti(
     attrs = extractor.to_attrs()
     attrs.update(_load_nifti_sidecar(path))
 
-    nifti_name = path.with_suffix("").stem if path.suffix == ".gz" else path.stem
-
     return _dataarray_from_nifti_image(
         img,
         extractor,
         attrs,
         chunks=chunks,
         coordinate_affine=coordinate_affine,
-        name=nifti_name,
     )
 
 
@@ -1531,6 +1539,10 @@ def from_nifti(
     a path, and consults no BIDS JSON sidecar (a bare NiBabel image carries none).
     Useful for interoperating with libraries such as `nilearn` that hand back NIfTI
     images rather than file paths.
+
+    An image backed by a file on disk (e.g. from `nibabel.load`, whose `img.dataobj` is
+    a NiBabel `ArrayProxy`) stays lazy: voxel data is read from that file only when the
+    returned array is computed, so the file must still exist at that point.
 
     Parameters
     ----------
@@ -1580,7 +1592,6 @@ def from_nifti(
         attrs,
         chunks=chunks,
         coordinate_affine=coordinate_affine,
-        name=None,
     )
 
 
