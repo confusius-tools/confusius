@@ -14,6 +14,7 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
 )
+from confusius.bids import from_bids
 from confusius.io.nifti import from_nifti, load_nifti, save_nifti, to_nifti
 from confusius.multipose import stack_poses
 from confusius.xarray import create_voxeldata
@@ -3297,18 +3298,38 @@ class TestFromNifti:
             atol=1e-6,
         )
 
-    def test_from_nifti_ignores_bids_sidecar_metadata(self, nifti_with_sidecar):
-        """A bare NiBabel image carries no sidecar, so its metadata is not read.
+    @pytest.fixture
+    def nifti_4d_with_sidecar(self, tmp_path):
+        """Write a 4D NIfTI with 1 s header spacing and a 0.4 s sidecar spacing."""
+        path = tmp_path / "test.nii.gz"
+        img = nib.Nifti1Image(np.zeros((4, 3, 2, 5), dtype=np.float32), np.eye(4))
+        img.header.set_xyzt_units(xyz="mm", t="sec")
+        img.to_filename(path)
+        (tmp_path / "test.json").write_text(json.dumps({"RepetitionTime": 0.4}))
+        return path
 
-        `nifti_with_sidecar` writes a `RepetitionTime` sidecar entry alongside the
-        file; `load_nifti` (which reads the sidecar) would surface it via the `time`
-        coordinate's regular spacing, but `from_nifti` never touches the sidecar.
-        """
-        img = nib.nifti1.Nifti1Image.from_filename(nifti_with_sidecar)
+    def test_from_nifti_does_not_look_up_sidecar_on_disk(self, nifti_4d_with_sidecar):
+        """Without `sidecar`, timing comes from the header even if a JSON file exists."""
+        img = nib.nifti1.Nifti1Image.from_filename(nifti_4d_with_sidecar)
 
         da = from_nifti(img)
 
-        assert "time" not in da.dims
+        np.testing.assert_allclose(da.time.values, [0.0, 1.0, 2.0, 3.0, 4.0])
+
+    @pytest.mark.filterwarnings("ignore:Sidecar RepetitionTime")
+    def test_from_nifti_with_sidecar_matches_load_nifti(self, nifti_4d_with_sidecar):
+        """Sidecar attrs passed explicitly reproduce what load_nifti reads from disk."""
+        img = nib.nifti1.Nifti1Image.from_filename(nifti_4d_with_sidecar)
+
+        da = from_nifti(img, sidecar=from_bids({"RepetitionTime": 0.4}))
+
+        expected = load_nifti(nifti_4d_with_sidecar)
+        np.testing.assert_allclose(da.time.values, [0.0, 0.4, 0.8, 1.2, 1.6])
+        # Not `assert_identical`: xarray cannot compare the nested `affines` attr.
+        xr.testing.assert_equal(da, expected)
+        assert da.name == expected.name
+        assert da.attrs.keys() == expected.attrs.keys()
+        assert da.time.attrs == expected.time.attrs
 
     @pytest.mark.parametrize("filename", ["test.nii", "test.nii.gz"])
     def test_from_nifti_names_file_backed_image_like_load_nifti(

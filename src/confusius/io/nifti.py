@@ -425,11 +425,8 @@ def _load_nifti_sidecar(path: Path) -> dict[str, Any]:
 
 def _load_nifti_with_nibabel(
     path: Path,
-) -> tuple[
-    "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
-    "_NiftiHeaderExtractor",
-]:
-    """Load a NIfTI file and return the image object with its header extractor.
+) -> "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image":
+    """Load a NIfTI file as a NiBabel image object.
 
     Parameters
     ----------
@@ -438,10 +435,8 @@ def _load_nifti_with_nibabel(
 
     Returns
     -------
-    img : nib.nifti1.Nifti1Image or nib.nifti2.Nifti2Image
+    nib.nifti1.Nifti1Image or nib.nifti2.Nifti2Image
         NiBabel NIfTI image object with proxy data array.
-    extractor : _NiftiHeaderExtractor
-        Header extractor for the loaded image.
     """
     import nibabel as nib
 
@@ -452,7 +447,7 @@ def _load_nifti_with_nibabel(
             " .nii or .nii.gz suffixes."
         )
 
-    return img, _NiftiHeaderExtractor(img.header)
+    return img
 
 
 def _resolve_spatial_geometry_from_nifti(
@@ -1211,43 +1206,76 @@ def _dask_array_from_nifti_dataobj(
     return dask_arr.T
 
 
-def _dataarray_from_nifti_image(
+def from_nifti(
     img: "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
-    extractor: "_NiftiHeaderExtractor",
-    attrs: dict[str, Any],
+    chunks: int | tuple[int, ...] | str | None = "auto",
     *,
-    chunks: int | tuple[int, ...] | str | None,
-    coordinate_affine: Literal["auto", "sform", "qform"],
-    name: str | None = None,
+    coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
+    sidecar: dict[str, Any] | None = None,
 ) -> xr.DataArray:
-    """Build a VoxelData array from a NiBabel image plus resolved header/sidecar attrs.
+    """Convert an in-memory NiBabel NIfTI image to a VoxelData array.
 
-    Shared by `load_nifti` (`attrs` merges NIfTI header and BIDS sidecar metadata) and
-    `from_nifti` (`attrs` is header metadata only -- a bare NiBabel image carries no
-    sidecar).
+    This is the no-file-I/O counterpart to `load_nifti`, which opens the file, reads its
+    BIDS JSON sidecars, and delegates to this function. It reads directly from an
+    already-constructed `nibabel.Nifti1Image`/`nibabel.Nifti2Image` instance instead of
+    a path, and never looks for a sidecar on disk: sidecar metadata is used only when
+    passed through `sidecar`. Useful for interoperating with libraries such as `nilearn`
+    that hand back NIfTI images rather than file paths.
+
+    An image backed by a file on disk (e.g. from `nibabel.load`, whose `img.dataobj` is
+    a NiBabel `ArrayProxy`) stays lazy: voxel data is read from that file only when the
+    returned array is computed, so the file must still exist at that point.
 
     Parameters
     ----------
-    img : nib.nifti1.Nifti1Image or nib.nifti2.Nifti2Image
-        NiBabel NIfTI image.
-    extractor : _NiftiHeaderExtractor
-        Header extractor for `img`.
-    attrs : dict[str, Any]
-        DataArray attributes seeding geometry, timing, and extra-dim reconstruction.
-    chunks : int or tuple[int, ...] or str or None
-        Chunk specification, as documented for `load_nifti`.
-    coordinate_affine : {"auto", "sform", "qform"}
-        Header affine to use as the primary coordinate-defining geometry.
-    name : str, optional
-        Name to assign to the returned DataArray. Defaults to filename stem if the image
-        was loaded from disk.
+    img : nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
+        In-memory NiBabel NIfTI image.
+    chunks : int or tuple[int, ...] or str or None, default: "auto"
+        How to chunk the array. See `load_nifti` for the accepted forms.
+    coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
+        Header affine to use as the primary coordinate-defining geometry. See
+        `load_nifti` for the selection rules.
+    sidecar : dict[str, Any], optional
+        Sidecar metadata using ConfUSIus (snake_case) attribute names. Entries override
+        the header-derived attributes and feed the geometry, timing, and extra-dimension
+        reconstruction, as sidecars do in `load_nifti`. Convert a BIDS JSON sidecar with
+        `confusius.bids.from_bids` first. If not provided, only the NIfTI header is
+        used.
 
     Returns
     -------
     xarray.DataArray
-        VoxelData array, as documented for `load_nifti`.
+        VoxelData array with voxel-space dimensions in ConfUSIus order (`k`, `j`, `i`
+        plus optional `time`) and world coordinates `z`, `y`, `x`.
+
+    Raises
+    ------
+    TypeError
+        If `img` is not a `nibabel.Nifti1Image` or `nibabel.Nifti2Image`.
+
+    Examples
+    --------
+    >>> import nibabel as nib
+    >>> import numpy as np
+    >>> import confusius as cf
+    >>> img = nib.Nifti1Image(np.random.rand(64, 64, 32).astype(np.float32), np.eye(4))
+    >>> da = cf.io.from_nifti(img)
+    >>> print(da.dims)
+    ("k", "j", "i")
     """
-    attrs = dict(attrs)
+    import nibabel as nib
+
+    if not isinstance(img, nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image):
+        raise TypeError(
+            "img must be a nibabel.Nifti1Image or nibabel.Nifti2Image, got "
+            f"{type(img).__name__}."
+        )
+
+    extractor = _NiftiHeaderExtractor(img.header)
+    attrs = extractor.to_attrs()
+    if sidecar is not None:
+        attrs.update(sidecar)
+
     dask_arr = _dask_array_from_nifti_dataobj(img, chunks)
 
     # NIfTI dim order is (i, j, k, time, ...); ConfUSIus order is the reverse.
@@ -1334,17 +1362,16 @@ def _dataarray_from_nifti_image(
         voxel_to_world=voxel_to_world,
         units=units,
         attrs=attrs,
-        name=name,
     )
-    if name is None:
-        data_array.name = None
-        if (nifti_filename := img.get_filename()) is not None:
-            nifti_filename = Path(nifti_filename)
-            data_array.name = (
-                nifti_filename.with_suffix("").stem
-                if nifti_filename.suffix == ".gz"
-                else nifti_filename.stem
-            )
+    # With no explicit name, xarray keeps the Dask array's graph key as the name.
+    data_array.name = None
+    if (nifti_filename := img.get_filename()) is not None:
+        nifti_filename = Path(nifti_filename)
+        data_array.name = (
+            nifti_filename.with_suffix("").stem
+            if nifti_filename.suffix == ".gz"
+            else nifti_filename.stem
+        )
 
     if scalar_time_coord is not None:
         data_array = data_array.assign_coords(time=scalar_time_coord)
@@ -1511,87 +1538,11 @@ def load_nifti(
         )
     path = check_path(path, type="file")
 
-    img, extractor = _load_nifti_with_nibabel(path)
-
-    attrs = extractor.to_attrs()
-    attrs.update(_load_nifti_sidecar(path))
-
-    return _dataarray_from_nifti_image(
-        img,
-        extractor,
-        attrs,
-        chunks=chunks,
+    return from_nifti(
+        _load_nifti_with_nibabel(path),
+        chunks,
         coordinate_affine=coordinate_affine,
-    )
-
-
-def from_nifti(
-    img: "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
-    chunks: int | tuple[int, ...] | str | None = "auto",
-    *,
-    coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
-) -> xr.DataArray:
-    """Convert an in-memory NiBabel NIfTI image to a VoxelData array.
-
-    This is the no-file-I/O counterpart to `load_nifti`: it reuses the same header
-    geometry, dtype, and timing reconstruction, but reads directly from an
-    already-constructed `nibabel.Nifti1Image`/`nibabel.Nifti2Image` instance instead of
-    a path, and consults no BIDS JSON sidecar (a bare NiBabel image carries none).
-    Useful for interoperating with libraries such as `nilearn` that hand back NIfTI
-    images rather than file paths.
-
-    An image backed by a file on disk (e.g. from `nibabel.load`, whose `img.dataobj` is
-    a NiBabel `ArrayProxy`) stays lazy: voxel data is read from that file only when the
-    returned array is computed, so the file must still exist at that point.
-
-    Parameters
-    ----------
-    img : nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
-        In-memory NiBabel NIfTI image.
-    chunks : int or tuple[int, ...] or str or None, default: "auto"
-        How to chunk the array. See `load_nifti` for the accepted forms.
-    coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
-        Header affine to use as the primary coordinate-defining geometry. See
-        `load_nifti` for the selection rules.
-
-    Returns
-    -------
-    xarray.DataArray
-        VoxelData array with voxel-space dimensions in ConfUSIus order (`k`, `j`, `i`
-        plus optional `time`) and world coordinates `z`, `y`, `x`.
-
-    Raises
-    ------
-    TypeError
-        If `img` is not a `nibabel.Nifti1Image` or `nibabel.Nifti2Image`.
-
-    Examples
-    --------
-    >>> import nibabel as nib
-    >>> import numpy as np
-    >>> import confusius as cf
-    >>> img = nib.Nifti1Image(np.random.rand(64, 64, 32).astype(np.float32), np.eye(4))
-    >>> da = cf.io.from_nifti(img)
-    >>> print(da.dims)
-    ("k", "j", "i")
-    """
-    import nibabel as nib
-
-    if not isinstance(img, nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image):
-        raise TypeError(
-            "img must be a nibabel.Nifti1Image or nibabel.Nifti2Image, got "
-            f"{type(img).__name__}."
-        )
-
-    extractor = _NiftiHeaderExtractor(img.header)
-    attrs = extractor.to_attrs()
-
-    return _dataarray_from_nifti_image(
-        img,
-        extractor,
-        attrs,
-        chunks=chunks,
-        coordinate_affine=coordinate_affine,
+        sidecar=_load_nifti_sidecar(path),
     )
 
 
