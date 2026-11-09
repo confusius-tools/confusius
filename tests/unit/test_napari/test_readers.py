@@ -181,6 +181,22 @@ class TestReadIconeusRawGating:
 class TestReaderLayerData:
     """The ReaderFunction returns physically correct napari LayerData."""
 
+    def test_multivariable_store_loads_first_variable(self, zarr_3d_path: Path) -> None:
+        """The reader explicitly selects its first variable for VoxelData loading."""
+        with xr.open_zarr(zarr_3d_path) as stored:
+            dataset = stored.load()
+        first_name = next(iter(dataset.data_vars))
+        dataset["another"] = dataset[first_name] + 100
+        dataset["another"].attrs = dataset[first_name].attrs.copy()
+        dataset.to_zarr(zarr_3d_path, mode="w")
+        with xr.open_zarr(zarr_3d_path) as stored:
+            expected = stored[next(iter(stored.data_vars))].values
+        reader = read_zarr(str(zarr_3d_path))
+        assert reader is not None
+        layers = reader(str(zarr_3d_path))
+        assert len(layers) == 1
+        npt.assert_array_equal(layers[0][0], expected)
+
     def test_3d_scale_and_translate(self, zarr_3d_path: Path) -> None:
         """3D scale matches fusi.spacing; translate matches fusi.origin; layer type is image."""
         reader = read_zarr(str(zarr_3d_path))

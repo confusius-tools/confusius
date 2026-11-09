@@ -12,6 +12,10 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Zarr loading requires `variable=` for stores with multiple data variables.
+  Incremental Zarr writes are rejected to avoid inconsistent geometry metadata;
+  save the complete array instead
+  ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 - Geometry now comes from the external `voxeldata>=0.0.4` package. Use the flat `.vd`
   accessor instead of `.fusi.affine`, `.fusi.spacing`, `.fusi.origin`, or
   `.fusi.direction`. Named world frames live on the VoxelData index and are
@@ -84,6 +88,9 @@ Current development version for the next ConfUSIus release.
 
 ### :wrench: Maintenance
 
+- Share ordinary Zarr array persistence with VoxelData, retaining ConfUSIus's
+  Dask-backed loading default, acquisition validation, and atlas color restoration
+  ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 - Re-export extraction and reconstruction directly from VoxelData, retaining
   `.fusi.extract` methods but not acquisition-defaulting extraction wrappers.
   Acquisition-aware mask/label validators, constructors, and loaders remain in

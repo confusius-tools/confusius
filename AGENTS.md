@@ -33,6 +33,10 @@ retains its existing analysis dependencies and requires published `voxeldata>=0.
 Validate integration against the published package. When changing the VoxelData API, test
 against the sibling checkout with `uv run --with-editable ../voxeldata pytest ...`;
 the published dependency must support that API before merging the integration.
+The ordinary Zarr dispatcher now delegates to `voxeldata.load`/`save`, which are
+not included in published VoxelData 0.0.4. Keep this PR in draft until a release
+containing persistence is published, then update the minimum dependency and lockfile.
+Do not replace the published dependency with a permanent local or Git source.
 
 VoxelData includes fUSI recordings, brain atlas volumes, PCA/decomposition component maps, dense displacement fields, B-spline control-point grids, and anything
 else gridded in space. A VoxelData array is **always**:
