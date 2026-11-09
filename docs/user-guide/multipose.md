@@ -72,11 +72,19 @@ and cannot do with it directly, and what consolidation resolves.
 
 ### Iconeus SCAN Files
 
-When loading Iconeus SCAN files containing multi-pose data (`3Dscan` or `4Dscan`
-acquisition modes), the resulting VoxelData array has a `pose` dimension. The example
-below illustrates a recording from a mouse acquired with an **IcoPrime-4D MultiArray
-probe**—four linear probes stacked along the elevation axis, giving 4 elevation slices
-per pose—translated across multiple regularly spaced positions:
+ConfUSIus reads two Iconeus SCAN formats: SCAN v1 (HDF5) and SCAN v2 (binary). The two
+formats keep multi-pose recordings in different forms:
+
+- SCAN v1 keeps one `pose` entry for each probe position.
+- SCAN v2 keeps the recording as one volume that IcoScan already consolidated.
+
+#### SCAN v1 (HDF5)
+
+When you load a multi-pose SCAN v1 file (`3Dscan` or `4Dscan` acquisition mode), the
+VoxelData array has a `pose` dimension. The example that follows shows a mouse
+recording with an **IcoPrime-4D MultiArray probe**. This probe has four linear arrays
+along the elevation axis, which give 4 elevation slices per pose. A motor moved the
+probe across a series of positions with a regular spacing:
 
 ```pycon
 >>> from confusius.io import load_scan
@@ -94,7 +102,8 @@ Coordinates:
     y          (pose, k, j, i) float64 1MB ...
     x          (pose, k, j, i) float64 1MB ...
 Attributes:
-    affines:               {}
+    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
+       ...
     device_serial_number:  ASAO0000
     software_version:      IcoScan v.1.9.0
     iconeus_scan_mode:     4Dscan
@@ -104,8 +113,46 @@ Attributes:
     ...
 ```
 
-The probe was stepped across 4 positions, each contributing 4 elevation slices—a total
-of 16 slices once consolidated.
+The motor moved the probe across 4 positions. Each position gives 4 elevation slices.
+After [consolidation](#pose-consolidation), the array has 16 slices.
+
+#### SCAN v2 (binary)
+
+IcoScan writes multi-pose SCAN v2 recordings that are already consolidated, if possible.
+Thus, [`load_scan`][confusius.io.load_scan] gives an array without a `pose` dimension.
+The `k` dimension holds all the slices of the volume. The example that follows shows a
+SCAN v2 recording with an IcoPrime-4D MultiArray probe:
+
+```pycon
+>>> from confusius.io import load_scan
+>>> pwd = load_scan("sub-02_task-awake_pwd.scan")
+>>> pwd
+<xarray.DataArray 'sub-02_task-awake_pwd' (time: 1000, k: 16, j: 92, i: 102)> Size: 1GB
+dask.array<getitem, shape=(1000, 16, 92, 102), dtype=float64, chunksize=(111, 16, 92, 102), chunktype=numpy.ndarray>
+Coordinates:
+  * time        (time) float64 8kB 2.2 4.6 7.0 ... 2.395e+03 2.397e+03 2.4e+03
+  * k           (k) int64 128B 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+    slice_time  (time, k) float64 128kB 0.4 2.2 1.0 ... 2.399e+03 2.399e+03
+  * j           (j) int64 736B 0 1 2 3 4 5 6 7 8 ... 83 84 85 86 87 88 89 90 91
+  * i           (i) int64 816B 0 1 2 3 4 5 6 7 8 ... 94 95 96 97 98 99 100 101
+  * z           (k, j, i) float64 1MB ...
+  * y           (k, j, i) float64 1MB ...
+  * x           (k, j, i) float64 1MB ...
+Attributes:
+    probe_model:                         IcoPrime 4D MultiArray
+    iconeus_scan_format:                 v2
+    iconeus_acquisition_mode:            4Dscan
+    ...
+```
+
+The 16 slices come from 4 linear arrays (2.1 mm apart) and 4 motor steps (0.525 mm
+apart). The `time` coordinate gives the end time of each volume, with a period of
+2.4 s. The `slice_time` coordinate gives the end time of each slice, with dims
+`(time, k)`. The 4 arrays acquire at the same time. Thus, slices that are 4 positions
+apart have the same timestamp. In the first volume, the slices end at 0.4, 2.2, 1.0,
+and 1.6 s, and this pattern occurs 4 times. [Slice Timing
+Correction](#slice-timing-correction) can be used to resample the slices onto a shared
+reference time.
 
 ### Reloading from Zarr
 
@@ -164,6 +211,11 @@ in one of two ways:
 Most Xarray operations that don't touch world coordinates or timing work on multi-pose
 arrays exactly as on any other VoxelData array—reductions, arithmetic, `.isel`, mask
 extraction, and so on all treat `pose` as an ordinary dimension.
+
+For [napari visualization](visualization.md#interactive-exploration-with-napari),
+`viewer, layers = pwd.fusi.plot.napari()` opens one layer per pose, each positioned
+using its own affine and named `<data name> [pose <value>]`. The CLI does the same;
+no consolidation is needed.
 
 Operations that resolve *positions* or *timestamps*, however, need a scalar `pose`
 first, per [The Multi-Pose Data Model](#the-multi-pose-data-model) above:
@@ -234,7 +286,8 @@ Coordinates:
     y           (k, j, i) float64 1MB ...
     x           (k, j, i) float64 1MB ...
 Attributes:
-    affines:               {}
+    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
+       ...
     device_serial_number:  ASAO0000
     software_version:      IcoScan v.1.9.0
     iconeus_scan_mode:     4Dscan
@@ -244,10 +297,10 @@ Attributes:
     ...
 ```
 
-4 poses × 4 slices = 16 consolidated z positions, spanning −4.95 to 2.93 mm in world
-space. The pose-dependent `time` coordinate is reduced to a single whole-volume `time`
-and a `slice_time` coordinate with dims `(time, k)`: each slice retains the timestamp
-of the pose it came from.
+4 poses × 4 slices = 16 consolidated z positions, spanning −3.85 to 4.02 mm along
+elevation. The pose-dependent `time` coordinate is reduced to a single whole-volume
+`time` and a `slice_time` coordinate with dims `(time, k)`: each slice retains the
+timestamp of the pose it came from.
 
 After consolidation, the per-pose affine stack is reduced to a single `(4, 4)` matrix
 representing the consolidated volume's orientation in world space.

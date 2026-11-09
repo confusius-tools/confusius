@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -25,7 +26,9 @@ def _fetch_all_meshes(atlas: BrainGlobeAtlas) -> None:
 
     BrainGlobe fetches meshes lazily, one S3 round trip per region on first access.
     Fetching them all up front in a single concurrent `s3fs` call is an order of
-    magnitude faster and leaves the meshes available offline.
+    magnitude faster and leaves the meshes available offline. Region IDs with no
+    remote mesh are cached in the versioned mesh directory so later fetches skip
+    them without network access or warnings.
 
     Parameters
     ----------
@@ -35,9 +38,9 @@ def _fetch_all_meshes(atlas: BrainGlobeAtlas) -> None:
     Warns
     -----
     UserWarning
-        If the BrainGlobe S3 bucket is unreachable, or if some regions have no mesh on
-        the remote store. Either way the affected meshes are left to BrainGlobe's lazy
-        per-region download on first use.
+        If the BrainGlobe S3 bucket is unreachable or mesh availability cannot be
+        cached. Uncached meshes are left to BrainGlobe's lazy per-region download
+        on first use.
     """
     missing = {
         str(structure["id"]): Path(structure["mesh_filename"])
@@ -45,6 +48,23 @@ def _fetch_all_meshes(atlas: BrainGlobeAtlas) -> None:
         if structure.get("mesh_filename") is not None
     }
     missing = {rid: path for rid, path in missing.items() if not path.exists()}
+    if not missing:
+        return
+
+    # BrainGlobe scopes this directory to the annotation-set version, not resolution.
+    unavailable_path = next(iter(missing.values())).parent / (
+        ".confusius-unavailable-meshes.json"
+    )
+    try:
+        unavailable_ids = json.loads(unavailable_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        unavailable_ids = []
+    if not isinstance(unavailable_ids, list) or not all(
+        isinstance(rid, str) for rid in unavailable_ids
+    ):
+        unavailable_ids = []
+    unavailable = set(unavailable_ids)
+    missing = {rid: path for rid, path in missing.items() if rid not in unavailable}
     if not missing:
         return
 
@@ -64,20 +84,23 @@ def _fetch_all_meshes(atlas: BrainGlobeAtlas) -> None:
     location = atlas.metadata["annotation_set"]["location"].strip("/")
     remote_dir = remote_url_s3.format(f"{location}/{V3_MESHES_DIRECTORY}")
     fs = s3fs.S3FileSystem(anon=True)
-    # One LIST call replaces BrainGlobe's per-mesh `fs.exists` and names the exact keys
-    # absent remotely: a batched `fs.get` only raises a bare "The specified key does
-    # not exist." with no path in it.
+    # A missing upstream mesh is normal (e.g. Allen mouse RSPd4), not a failed fetch.
     remote_names = {Path(key).name for key in fs.ls(remote_dir)}
-    absent = sorted(missing.keys() - remote_names, key=int)
-    if absent:
+    unavailable.update(missing.keys() - remote_names)
+    try:
+        # The mesh directory may have been removed while the atlas volumes stayed cached.
+        unavailable_path.parent.mkdir(parents=True, exist_ok=True)
+        unavailable_path.write_text(json.dumps(sorted(unavailable)))
+    except OSError as error:
+        # Optional metadata must not prevent loading an otherwise usable shared cache.
         warnings.warn(
-            f"BrainGlobe provides no mesh for region id(s) {absent} of atlas "
-            f"'{atlas.atlas_name}'; requesting their mesh will fail.",
+            f"Could not cache unavailable mesh IDs: {error}. "
+            "Later fetches may check the network again.",
             stacklevel=2,
         )
-        missing = {rid: path for rid, path in missing.items() if rid in remote_names}
-        if not missing:
-            return
+    missing = {rid: path for rid, path in missing.items() if rid in remote_names}
+    if not missing:
+        return
 
     print(f"Downloading {atlas.atlas_name} atlas meshes:")
     try:
@@ -94,57 +117,6 @@ def _fetch_all_meshes(atlas: BrainGlobeAtlas) -> None:
         raise
 
 
-def _load_lazy_ngff_array(
-    atlas: BrainGlobeAtlas, location: str, name: str, pyramid_level: int
-) -> da.Array:
-    """Lazily load one BrainGlobe v3 zarr array as a Dask array.
-
-    `brainglobe_atlasapi.core.Atlas.template`/`.annotation`/`.hemispheres`
-    resolve the on-disk zarr path, download it if missing, then call
-    `.compute()` before returning — there is no public lazy-loading entry
-    point (see [brainglobe/brainglobe-atlasapi#882](https://github.com/brainglobe/brainglobe-atlasapi/issues/882)).
-    This reimplements that resolve/download logic but stops short of
-    `.compute()`, so it depends on `BrainGlobeAtlas` v3 internals
-    (`root_dir`, `metadata`, `fs`, the `_template_pyramid_level`/
-    `_annotation_pyramid_level` attrs) that aren't part of BrainGlobe's public
-    API and may change without notice.
-
-    Parameters
-    ----------
-    atlas : brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas
-        An already-loaded
-        [`BrainGlobeAtlas`][brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas] instance.
-    location : str
-        Atlas-relative directory containing the zarr store, e.g.
-        `atlas.metadata["annotation_set"]["location"][1:]`.
-    name : str
-        Zarr store directory name, e.g. `brainglobe_atlasapi.descriptors.V3_ANNOTATION_NAME`.
-    pyramid_level : int
-        Resolution pyramid level to load, e.g. `atlas._annotation_pyramid_level`.
-
-    Returns
-    -------
-    dask.array.Array
-        Lazy array for the requested resolution level, not yet computed.
-    """
-    import ngff_zarr as nz
-    from brainglobe_atlasapi.descriptors import remote_url_s3
-    from fsspec.callbacks import TqdmCallback
-
-    path = atlas.root_dir / location / name
-    multiscale = nz.from_ngff_zarr(path)
-    dataset_path = multiscale.metadata.datasets[pyramid_level].path
-    resolution_path = path / dataset_path
-
-    if not (resolution_path / "c").exists():
-        remote_path = remote_url_s3.format(f"{location}/{name}/{dataset_path}/")
-        atlas.fs.get(
-            remote_path, resolution_path, recursive=True, callback=TqdmCallback()
-        )
-
-    return multiscale.images[pyramid_level].data
-
-
 def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     """Build an atlas Dataset from a loaded BrainGlobe atlas.
 
@@ -157,9 +129,9 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     Returns
     -------
     xarray.Dataset
-        Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
+        Atlas Dataset with data variables `template`, `annotation`, and `hemispheres`
         on a common voxel-to-world `(k, j, i)` grid, with world `z`/`y`/`x` coordinates
-        in millimetres.
+        in millimetres. Data variables stay backed by lazy `dask.array.Array` data.
     """
     metadata = atlas.metadata
     resolution_mm = [r * 1e-3 for r in metadata["resolution"]]
@@ -182,27 +154,10 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
             attrs=attrs,
         )
 
-    from brainglobe_atlasapi.descriptors import (
-        V3_ANNOTATION_NAME,
-        V3_HEMISPHERES_NAME,
-        V3_TEMPLATE_NAME,
-    )
+    template = _build(atlas.template.astype(np.float32), {"cmap": "gray"})
 
-    template_location = metadata["annotation_set"]["template"]["location"][1:]
-    template = _load_lazy_ngff_array(
-        atlas, template_location, V3_TEMPLATE_NAME, atlas._template_pyramid_level
-    )
-    reference = _build(template.astype(np.float32), {"cmap": "gray"})
-
-    annotation_location = metadata["annotation_set"]["location"][1:]
-    annotation_data = _load_lazy_ngff_array(
-        atlas,
-        annotation_location,
-        V3_ANNOTATION_NAME,
-        atlas._annotation_pyramid_level,
-    )
     annotation = _build(
-        annotation_data.view(np.int32),  # type: ignore
+        atlas.annotation.view(np.int32),
         {
             "rgb_lookup": rgb_lookup,
             "roi_labels": roi_labels,
@@ -213,19 +168,8 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
 
     world_to_base = np.eye(4)
 
-    if metadata["symmetric"]:
-        # Synthesized in-memory from `shape` by BrainGlobe itself, not read from disk —
-        # no laziness to preserve here.
-        hemispheres_data = atlas.hemispheres
-    else:
-        hemispheres_data = _load_lazy_ngff_array(
-            atlas,
-            annotation_location,
-            V3_HEMISPHERES_NAME,
-            atlas._annotation_pyramid_level,
-        )
     hemispheres = _build(
-        hemispheres_data.view(np.int8),  # type: ignore
+        atlas.hemispheres.view(np.int8),
         {
             "left": int(getattr(atlas, "left_hemisphere_value", 1)),
             "right": int(getattr(atlas, "right_hemisphere_value", 2)),
@@ -236,7 +180,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
 
     return xr.Dataset(
         {
-            "reference": reference,
+            "template": template,
             "annotation": annotation,
             "hemispheres": hemispheres,
         },
@@ -265,11 +209,15 @@ def fetch_brainglobe_atlas(
     BrainGlobe tools), then builds a self-describing atlas
     [`xarray.Dataset`][xarray.Dataset].
 
-    The first fetch of an atlas also downloads every region surface mesh, in one batched
-    call rather than BrainGlobe's one-at-a-time lazy download, so
-    [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes] works offline afterwards.
-    If the BrainGlobe bucket is unreachable, meshes fall back to that lazy download on
-    first use.
+    The first fetch of an atlas also downloads every available region surface mesh,
+    in one batched call rather than BrainGlobe's one-at-a-time lazy download, so
+    [`get_meshes`][confusius.atlas.AtlasAccessor.get_meshes] works offline afterwards
+    for those regions. Regions with no upstream mesh are recorded in
+    `.confusius-unavailable-meshes.json` in the versioned BrainGlobe mesh directory;
+    later fetches skip them silently without network access. Delete this record to
+    recheck availability if upstream meshes change without a version bump.
+    If the BrainGlobe bucket is unreachable, uncached meshes fall back to that lazy
+    download on first use.
 
     Parameters
     ----------
@@ -286,10 +234,10 @@ def fetch_brainglobe_atlas(
     Returns
     -------
     xarray.Dataset
-        Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
+        Atlas Dataset with data variables `template`, `annotation`, and `hemispheres`
         on a common voxel-to-world `(k, j, i)` grid with world `z`/`y`/`x` coordinates
         in millimetres, and the `.atlas` accessor for structure queries, masks, and
-        meshes.
+        meshes. Data variables stay backed by lazy `dask.array.Array` data.
 
     Examples
     --------
@@ -304,5 +252,6 @@ def fetch_brainglobe_atlas(
         atlas_name,
         brainglobe_dir=data_dir,
         check_latest=check_latest,
+        dask=True,
     )
     return _build_dataset_from_brainglobe(bg_atlas)

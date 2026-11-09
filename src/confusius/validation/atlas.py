@@ -11,7 +11,7 @@ from confusius._utils.geometry import has_voxel_to_world_index
 if TYPE_CHECKING:
     from brainglobe_atlasapi.structure_class import StructuresDict
 
-_REQUIRED_ATLAS_DATA_VARS = ("reference", "annotation", "hemispheres")
+_REQUIRED_ATLAS_DATA_VARS = ("template", "annotation", "hemispheres")
 """Data variables every atlas Dataset must carry."""
 
 _REQUIRED_ATLAS_ATTRS = ("structures",)
@@ -100,12 +100,12 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
     by the `.atlas` accessor:
 
     1. **Type**: `ds` is an `xarray.Dataset`.
-    2. **Data variables**: `reference`, `annotation`, and `hemispheres` are all present as
+    2. **Data variables**: `template`, `annotation`, and `hemispheres` are all present as
        data variables (a `hemispheres` stored as a coordinate is reported as missing).
     3. **Grid**: the three variables share identical dimensions, those dimensions are a
        subset of `(k, j, i)` (a resampled single slice has a singleton `k`), and each
        variable carries a `VoxelToWorldIndex` deriving its world `z`/`y`/`x` coordinates.
-    4. **Data types**: `reference` is floating-point; `annotation` and `hemispheres` are
+    4. **Data types**: `template` is floating-point; `annotation` and `hemispheres` are
        integer-valued.
     5. **Attributes**: `attrs["structures"]` is present and is a brainglobe
        `StructuresDict`. The descriptive metadata the builder adds (`name`, `citation`,
@@ -128,7 +128,7 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
     Raises
     ------
     TypeError
-        If `ds` is not an `xarray.Dataset`, or if `reference` is not floating-point or
+        If `ds` is not an `xarray.Dataset`, or if `template` is not floating-point or
         `annotation`/`hemispheres` are not integer-valued.
     ValueError
         If any required data variable or attribute is missing, if the variables do not
@@ -154,16 +154,16 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
             "(hemispheres must be a data variable, not a coordinate)."
         )
 
-    reference_dims = ds["reference"].dims
+    template_dims = ds["template"].dims
     for name in _REQUIRED_ATLAS_DATA_VARS:
-        if ds[name].dims != reference_dims:
+        if ds[name].dims != template_dims:
             raise ValueError(
                 f"Atlas variables must share dimensions; '{name}' has dims "
-                f"{ds[name].dims} but 'reference' has {reference_dims}."
+                f"{ds[name].dims} but 'template' has {template_dims}."
             )
-    if not set(reference_dims).issubset(VOXEL_DIMS):
+    if not set(template_dims).issubset(VOXEL_DIMS):
         raise ValueError(
-            f"Atlas dimensions must be a subset of {VOXEL_DIMS}, got {reference_dims}."
+            f"Atlas dimensions must be a subset of {VOXEL_DIMS}, got {template_dims}."
         )
     for name in _REQUIRED_ATLAS_DATA_VARS:
         if not has_voxel_to_world_index(ds[name]):
@@ -172,9 +172,9 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
                 "confusius.xarray.create_voxeldata."
             )
 
-    if not np.issubdtype(ds["reference"].dtype, np.floating):
+    if not np.issubdtype(ds["template"].dtype, np.floating):
         raise TypeError(
-            f"Atlas 'reference' must be floating-point, got dtype {ds['reference'].dtype}."
+            f"Atlas 'template' must be floating-point, got dtype {ds['template'].dtype}."
         )
     for name in ("annotation", "hemispheres"):
         if not np.issubdtype(ds[name].dtype, np.integer):

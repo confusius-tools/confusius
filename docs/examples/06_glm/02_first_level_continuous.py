@@ -2,7 +2,7 @@
 # # Lagged first-level GLM analysis of fUSI data with a continuous regressor
 #
 # This example reproduces the lagged-GLM analysis reported by [Cybis Pereira *et al.*
-# 2026](https://doi.org/10.1016/j.celrep.2025.116791), which uses functional ultrasound
+# 2026](https://doi.org/10.1016/j.celrep.2025.116791)[^collection], which uses functional ultrasound
 # imaging of a freely moving rat exploring an open field with its body position tracked
 # from video.
 # Unlike the block-design task in the [First-level GLM analysis of fUSI
@@ -22,6 +22,9 @@
 # 4. **Fit** a [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel] at a range of
 #    temporal lags between speed and signal.
 # 5. **Threshold** the resulting maps and visualize the response at each lag.
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 #
 # ## Fetch the recording
 #
@@ -43,7 +46,6 @@ import confusius as cf
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
-is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
 
 # Keep notebook output compact for large DataArray displays. The coordinates section is
 # left expanded on purpose; `display_expand_data` alone does not cover the attributes.
@@ -133,7 +135,7 @@ speed = (
 )
 speed = speed.interp(time=data.time, method="linear").ffill("time")
 
-fig, ax = plt.subplots(figsize=(7, 3), facecolor=bg_color)
+fig, ax = plt.subplots(figsize=(7, 3))
 ax.plot(speed.time, speed, color="#d93a54")
 ax.set_xlabel("Time (s)")
 _ = ax.set_ylabel("Animal speed (cm/s)")
@@ -253,12 +255,10 @@ thresholded_zscore, threshold = cf.stats.apply_statistical_threshold(
     cluster_threshold=30,
 )
 
-cmap = "berlin" if is_dark_theme else None
 _ = thresholded_zscore.fusi.plot.stat_map(
     bg_volume=data.mean("time").fusi.scale.db().expand_dims(lag=z_score.lag),
     slice_mode="lag",
     nrows=3,
-    cmap=cmap,
     threshold=threshold,
     bg_color=bg_color,
     fontsize=20,

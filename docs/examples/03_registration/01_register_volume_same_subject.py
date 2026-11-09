@@ -7,11 +7,14 @@
 # which is appropriate when the imaged anatomy is the same but the probe placement
 # differs slightly between the two recordings.
 #
-# We pick two `angio` acquisitions from the [Cybis Pereira 2026
-# dataset](https://doi.org/10.1016/j.celrep.2025.116791) using
+# We pick two `susi` acquisitions from the [Cybis Pereira 2026
+# dataset](https://doi.org/10.1016/j.celrep.2025.116791)[^collection] using
 # [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026]: subject
 # `rat75`, slice `slice32`, recorded on consecutive days (sessions `20220523` and
 # `20220524`).
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Fetch and load both recordings
@@ -43,7 +46,7 @@ bids_root = cf.datasets.fetch_cybis_pereira_2026(
     datasets="rawdata",
     subjects="rat75",
     sessions=sessions,
-    datatypes="angio",
+    datatypes="susi",
     acqs=acq,
 )
 
@@ -55,7 +58,7 @@ def _load_angio_for_registration(session: str) -> xr.DataArray:
         Path(bids_root)
         / "sub-rat75"
         / f"ses-{session}"
-        / "angio"
+        / "susi"
         / f"sub-rat75_ses-{session}_acq-{acq}_rec-minframe2d_pwd.nii.gz"
     )
     angio = cf.load(path).fusi.scale.db().compute()
@@ -133,7 +136,6 @@ print(f"Rigid transform:\n{rigid_transform}")
 
 # %% tags=["thumbnail"]
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-fig.patch.set_facecolor(bg_color)
 
 for ax, moving_view, title in [
     (axes[0], moving, "Before"),
@@ -155,7 +157,6 @@ _ = fig.suptitle("Fixed (red) / moving (cyan)")
 
 # %%
 fig, ax = plt.subplots(figsize=(7, 3))
-fig.patch.set_facecolor(bg_color)
 ax.plot(diagnostics.metric_values, color="#d93a54")
 ax.set_xlabel("Iteration")
 ax.set_ylabel(f"Similarity metric ({diagnostics.metric})")
@@ -210,7 +211,6 @@ print(f"Rigid + B-spline final metric: {diagnostics_bspline.final_metric_value:.
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-fig.patch.set_facecolor(bg_color)
 
 for ax, moving_view, title in [
     (axes[0], registered, "Rigid"),
@@ -226,7 +226,6 @@ _ = fig.suptitle("Fixed (red) / moving (cyan)")
 
 # %%
 fig, ax = plt.subplots(figsize=(7, 3))
-fig.patch.set_facecolor(bg_color)
 ax.plot(diagnostics_bspline.metric_values, color="#d93a54")
 ax.set_xlabel("Iteration")
 ax.set_ylabel(f"Similarity metric ({diagnostics_bspline.metric})")
@@ -277,7 +276,6 @@ local_inverse_field = cf.registration.invert_displacement_field(local_field)
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(8, 3))
-fig.patch.set_facecolor(bg_color)
 
 for ax, background, field, title in [
     (axes[0], fixed, composite_inverse_field, "Approximate inverse combined warp"),

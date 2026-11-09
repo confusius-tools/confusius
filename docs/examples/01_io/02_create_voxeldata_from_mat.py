@@ -2,7 +2,7 @@
 # # Create a VoxelData array from a MAT file
 #
 # This example downloads a power Doppler MAT file from the public dataset accompanying
-# [Rabut *et al.* (2024)](https://doi.org/10.1126/scitranslmed.adj3143)[^1] and wraps it
+# [Rabut *et al.* (2024)](https://doi.org/10.1126/scitranslmed.adj3143)[^1][^collection] and wraps it
 # in a VoxelData array with
 # [`create_voxeldata`][confusius.xarray.create_voxeldata].
 #
@@ -10,6 +10,10 @@
 # point of this example is to show the shortest path from a lab-specific MAT file array
 # plus metadata to a VoxelData array. This example then
 # reproduces figure 4D from Rabut *et al.* (2024) using a simple general linear model.
+#
+# [^collection]: This example downloads an external archive, not a collection release.
+#     See [The ConfUSIus Dataset Collection](dataset_collection.md) for
+#     the fUSI-BIDS studies and templates hosted by ConfUSIus.
 
 # %%
 from functools import partial
@@ -27,10 +31,8 @@ from remotezip import RemoteZip
 import confusius as cf
 from confusius.glm import FirstLevelModel, gamma_hrf
 
-# Adapt colors to the current Matplotlib style.
+# Adapt the background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
-is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
-stat_cmap = "berlin" if is_dark_theme else None
 
 # Keep notebook output compact for large DataArray displays.
 _ = xr.set_options(display_expand_attrs=False, display_expand_data=False)
@@ -75,7 +77,7 @@ print(run_label)
 print(f"Data shape: {doppler.shape}")
 
 # %% [markdown]
-# ## Wrap the raw array with [`create_voxeldata`][cf.xarray.create_voxeldata]
+# ## Wrap the raw array with [`create_voxeldata`][confusius.xarray.create_voxeldata]
 #
 # The MATLAB array is `(time, i, j)` natively: 128 lateral positions matching the probe
 # pitch, and 240 depth samples. ConfUSIus adds the missing singleton `k` axis and
@@ -198,7 +200,6 @@ active_voxels = z_map > active_threshold
 plotter = z_map.fusi.plot.stat_map(
     bg_volume=mean_doppler,
     threshold=active_threshold,
-    cmap=stat_cmap,
     cbar_label="task z-score",
     bg_color=bg_color,
 )
@@ -213,7 +214,7 @@ plotter = z_map.fusi.plot.stat_map(
 # %%
 active_signal = scaled.where(active_voxels).mean(("k", "j", "i"))
 mean_signal = scaled.mean(("k", "j", "i"))
-fig, ax = plt.subplots(figsize=(9, 4), facecolor=bg_color)
+fig, ax = plt.subplots(figsize=(9, 4))
 mean_signal.plot(ax=ax, color="#808080", label="Whole-plane mean")
 active_signal.plot(ax=ax, color="#d93a54", label="Top task-positive voxels")
 for idx, event in enumerate(events.itertuples()):
@@ -221,7 +222,7 @@ for idx, event in enumerate(events.itertuples()):
     ax.axvspan(
         event.onset,
         event.onset + event.duration,
-        color="#3ad9a4",
+        color="#27906d",
         alpha=0.12,
         label=label,
     )

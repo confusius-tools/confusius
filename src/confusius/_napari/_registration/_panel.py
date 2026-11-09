@@ -6,6 +6,7 @@ from threading import Event
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, cast
 
 import numpy as np
+from napari.layers import Layer
 from napari.qt.threading import thread_worker
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
@@ -94,7 +95,7 @@ from confusius.registration import register_volume, register_volumewise
 if TYPE_CHECKING:
     import napari
     import numpy.typing as npt
-    from napari.layers import Image, Layer
+    from napari.layers import Image
 
 
 ScaleMode = Literal["none", "db", "sqrt"]
@@ -121,8 +122,10 @@ RegistrationOperation = Literal["register_volume", "register_volumewise"]
 TransformSourceKind = Literal["loaded", "layer", "manual"]
 """Kinds of transform sources offered in the transforms UI."""
 
-TransformSourceData = tuple[TransformSourceKind, str]
-"""Validated transform-source selector payload `(kind, name)`."""
+TransformSourceData = (
+    tuple[Literal["loaded"], None] | tuple[Literal["layer", "manual"], Layer]
+)
+"""Validated transform-source selector payload `(kind, layer)`."""
 
 InitializationSelection = CenterInitialization | TransformSourceData | None
 """Validated initialization selection from the registration UI."""
@@ -304,6 +307,7 @@ class RegistrationPanel(QWidget):
         self._setup_ui()
         self.viewer.layers.events.inserted.connect(self._refresh_layers)
         self.viewer.layers.events.removed.connect(self._refresh_layers)
+        self.viewer.layers.events.renamed.connect(self._refresh_layers)
 
     def _make_scale_combo(self, tooltip: str) -> QComboBox:
         """Return an intensity-scaling selector (decibel / square root / none).

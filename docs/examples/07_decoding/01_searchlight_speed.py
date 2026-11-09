@@ -9,11 +9,14 @@
 # voxels rather than by any one alone.
 #
 # We follow the experimental setting and dataset of [Cybis Pereira et al.
-# 2026](https://doi.org/10.1016/j.celrep.2025.116791), decoding locomotion speed from a
+# 2026](https://doi.org/10.1016/j.celrep.2025.116791)[^collection], decoding locomotion speed from a
 # single sagittal plane, and compare the searchlight map against a GLM fit on the same
 # data. Both analyses receive the same preprocessing steps, so the only thing that
 # differs between them is univariate versus multivariate, which is the comparison we
 # actually want to make.
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Load the recording and the tracking data
@@ -254,10 +257,6 @@ z_scores = glm.compute_contrast("speed")
 # contrast. Both maps cover the whole plane.
 
 # %% tags=["thumbnail"]
-is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
-searchlight_cmap = "inferno" if is_dark_theme else "inferno_r"
-glm_cmap = "berlin" if is_dark_theme else "coolwarm"
-
 background_data = data.mean("time").fusi.scale.db()
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 3), constrained_layout=True)
@@ -265,7 +264,7 @@ fig, axes = plt.subplots(1, 2, figsize=(10, 3), constrained_layout=True)
 searchlight.scores_.fusi.plot.stat_map(
     bg_volume=background_data,
     axes=axes[0],
-    cmap=searchlight_cmap,
+    cmap="inferno_r",
     vmin=0,
     auto_range=False,
     cbar_label="Cross-validated $R^2$",
@@ -277,7 +276,6 @@ axes[0].set_title("Searchlight decoding of speed")
 z_scores.where(mask).fusi.plot.stat_map(
     bg_volume=background_data,
     axes=axes[1],
-    cmap=glm_cmap,
     cbar_label="z-score",
     show_titles=False,
     bg_color=bg_color,

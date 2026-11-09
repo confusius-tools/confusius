@@ -1,9 +1,10 @@
 """Plotting module for fUSI data."""
 
 __all__ = [
+    "ThresholdedColormap",
     "VolumePlotter",
     "draw_napari_labels",
-    "labels_from_layer",
+    "extract_labels_from_layer",
     "plot_carpet",
     "plot_composite",
     "plot_contours",
@@ -16,6 +17,7 @@ __all__ = [
     "plot_volume",
 ]
 
+from confusius.plotting.colormap import ThresholdedColormap
 from confusius.plotting.image import (
     VolumePlotter,
     plot_carpet,
@@ -32,6 +34,6 @@ from confusius.plotting.matrix import (
 from confusius.plotting.motion import plot_motion_diagnostics
 from confusius.plotting.napari import (
     draw_napari_labels,
-    labels_from_layer,
+    extract_labels_from_layer,
     plot_napari,
 )

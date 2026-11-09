@@ -116,7 +116,7 @@ def finalize_registration_layer(
     display_kwargs = (
         _get_image_display_kwargs_from_layer(source_layer)
         if source_layer is not None
-        else {}
+        else {"layer_type": "image"}
     )
     if payload["operation"] == "register_volume":
         display_kwargs["colormap"] = "cyan"
@@ -140,7 +140,7 @@ def finalize_registration_layer(
             layer.contrast_limits = contrast_limits
         teardown_volumewise_progress(panel, remove_layer=False)
     else:
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             registered,
             viewer=panel.viewer,
             name=layer_name,

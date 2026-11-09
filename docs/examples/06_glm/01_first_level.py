@@ -10,7 +10,7 @@
 #
 # In this example we run a complete first-level (single-subject) GLM on stimulus-evoked
 # fUSI data from the [Khallaf et al. 2026
-# dataset](https://doi.org/10.1038/s41586-026-10772-5)—functional
+# dataset](https://doi.org/10.1038/s41586-026-10772-5)[^collection]—functional
 # ultrasound imaging of a naked mole-rat exposed to repeated olfactory stimulation. The notebook
 # will go through the following steps:
 #
@@ -26,6 +26,9 @@
 # !!! warning "Download size"
 #     Running this notebook fetches the five recordings for subject `5622`, session
 #     `IPM` (about 200 MB each, ~1 GB in total) into the ConfUSIus dataset cache.
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 #
 #
 # ## Fetch the olfactory-stimulation recordings
@@ -50,7 +53,6 @@ import confusius as cf
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
-is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
 
 # Keep notebook output compact for large DataArray displays. The coordinates section is
 # left expanded on purpose; `display_expand_data` alone does not cover the attributes.
@@ -235,14 +237,11 @@ average_fusi = xr.concat([fusi.mean("time") for fusi in fusi_list], dim="extra")
 # space in which we can draw region boundaries and pull out anatomically defined masks.
 #
 # [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] gives us the
-# Allen atlas as an `xarray.Dataset`, holding the `reference`, `annotation` and
+# Allen atlas as an `xarray.Dataset`, holding the `template`, `annotation` and
 # `hemispheres` volumes on a common grid plus an `.atlas` accessor for structure
-# queries. The template already carries the affine that maps it into atlas space
-# (`world_to_sform`), so inverting it gives us what
-# [`resample_like`][confusius.registration.resample_like] needs to reslice the
-# template onto the atlas grid. Registering against that resampled template means the
-# transform we estimate maps the recording directly to the atlas space, with no further
-# composition needed.
+# queries. The template carries its scanner-to-Allen transform in `world_to_sform`.
+# Composing its inverse with the estimated registration transform maps atlas
+# coordinates back to the recording's world space.
 #
 # The registration itself gives us the transform between template and average fUSI
 # image. We initialize the registration from a coarse manual alignment
@@ -276,9 +275,9 @@ _, template_to_fusi_transform, _ = cf.registration.register_volume(
 )
 
 # %% [markdown]
-# The estimated transform maps atlas coordinates back onto the recording's world
-# space, so inverting it gives exactly the recording's world-to-atlas mapping
-# (`world_to_sform`). With that affine in hand,
+# The estimated transform maps template scanner coordinates back onto the recording's
+# world space. Compose it with the inverse scanner-to-Allen transform to obtain the
+# atlas-to-recording mapping. With that affine in hand,
 # [`resample_like`][confusius.registration.resample_like] reslices each volume onto the
 # atlas grid. We resample the averaged image (for display) and every individual run (the
 # GLM input).
@@ -319,7 +318,7 @@ modified_claron2021 = partial(cf.glm.claron2021_hrf, beta=6.7)
 hrf_kernel = modified_claron2021(dt=1.0)
 hrf_time = np.linspace(0, 32, len(hrf_kernel))
 
-fig, ax = plt.subplots(figsize=(7, 3), facecolor=bg_color)
+fig, ax = plt.subplots(figsize=(7, 3))
 ax.plot(hrf_time, hrf_kernel, color="#d93a54")
 ax.set_xlabel("Time since stimulus onset (s)")
 ax.set_ylabel("Response (a.u.)")
@@ -422,14 +421,12 @@ z_score = glm.compute_contrast("active")
 z_1d = resampled_average_in_atlas.z.isel(j=0, i=0).values
 slice_coords = z_1d[(z_1d > 5.5) & (z_1d < 9)][::4]
 
-cmap = "berlin" if is_dark_theme else None
 plotter = cf.plotting.plot_stat_map(
     z_score,
     slice_coords=slice_coords,
     nrows=3,
     vmax=10,
     bg_color=bg_color,
-    cmap=cmap,
     fontsize=20,
 )
 _ = plotter.add_contours(
@@ -502,7 +499,6 @@ plotter = cf.plotting.plot_stat_map(
     bg_kwargs={"vmin": -20, "vmax": 0},
     bg_color=bg_color,
     alpha=1 - adjusted_p_values,
-    cmap=cmap,
     fontsize=20,
 )
 _ = plotter.add_contours(

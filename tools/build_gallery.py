@@ -9,7 +9,14 @@ to run every example, or pass specific example scripts to run only those::
     uv run python tools/build_gallery.py docs/examples/01_io/01_confusius_xarray_101.py
 
 The whole gallery is still rendered either way; the examples you do not name are
-restored from cache if present, or rendered without outputs (code only).
+restored from cache if present, or rendered without outputs (code only). To run
+nothing at all and only render, pass ``--no-run``::
+
+    uv run python tools/build_gallery.py --no-run
+
+To re-execute examples that already have a cached result, pass ``--no-cache``::
+
+    uv run python tools/build_gallery.py --no-cache docs/examples/01_io/01_confusius_xarray_101.py
 """
 
 from __future__ import annotations
@@ -40,19 +47,20 @@ def _deps_fingerprint() -> str:
     Binder branch/ref is intentionally excluded so expensive gallery execution can be
     reused across branches.
     """
+    # Source text must not depend on the platform's locale (e.g. Windows cp1252).
     parts: list[str] = []
     lockfile = REPO_ROOT / "uv.lock"
     if lockfile.is_file():
-        parts.append(lockfile.read_text())
+        parts.append(lockfile.read_text(encoding="utf-8"))
 
     gallery_root = REPO_ROOT / "tools" / "gallery"
     if gallery_root.is_dir():
         for path in sorted(gallery_root.glob("*.py")):
             parts.append(f"\n# {path.relative_to(REPO_ROOT)}\n")
-            parts.append(path.read_text())
+            parts.append(path.read_text(encoding="utf-8"))
 
     parts.append("\n# tools/build_gallery.py\n")
-    parts.append(Path(__file__).read_text())
+    parts.append(Path(__file__).read_text(encoding="utf-8"))
     return "".join(parts)
 
 
@@ -69,7 +77,25 @@ def main() -> int:
             "rendered without outputs. If not provided, all examples are run."
         ),
     )
+    parser.add_argument(
+        "--no-run",
+        action="store_true",
+        help=(
+            "Run no example at all: every page is taken from cache if present, or "
+            "rendered without outputs. Cannot be combined with example paths."
+        ),
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help=(
+            "Execute the selected examples even if a cached result exists, and "
+            "replace it. Examples not selected still come from cache."
+        ),
+    )
     args = parser.parse_args()
+    if args.no_run and args.examples:
+        parser.error("--no-run cannot be combined with example paths.")
 
     if not EXAMPLES_ROOT.is_dir():
         print(f"No examples directory at {EXAMPLES_ROOT}", file=sys.stderr)
@@ -85,7 +111,8 @@ def main() -> int:
             repo_root=REPO_ROOT,
             binder_repo=BINDER_REPO,
             binder_ref=binder_ref,
-            only=args.examples or None,
+            only=[] if args.no_run else (args.examples or None),
+            use_cache=not args.no_cache,
         )
     except ValueError as exc:
         print(exc, file=sys.stderr)

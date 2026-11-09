@@ -8,12 +8,15 @@
 # [`plot_matrix`][confusius.plotting.plot_matrix].
 #
 # We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
-# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022],
+# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022][^collection],
 # and the [Pepe, Mariani 2026 fUSI template][confusius.datasets.fetch_template_pepe_mariani_2026],
 # which carries the affine transform required to bring it into Allen Common Coordinate
 # Framework (CCF) space. For the full registration workflow, including the diagnostic
 # plots and saving the resampled atlas for reuse, see [Register a recording to an Allen
 # fUSI template](../registration/register_to_allen_fusi_template.md).
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Fetch the recording and the template
@@ -68,7 +71,7 @@ moving
 # - Use [`register_volume`][confusius.registration.register_volume] to refine the
 #   alignment.
 # - Resample the Allen atlas into the recording's native space with
-#   [`resample_like`][confusius.atlas.Atlas.resample_like].
+#   [`resample_like`][confusius.atlas.AtlasAccessor.resample_like].
 #
 # For the full walkthrough, see [Register a recording to an Allen fUSI
 # template](../registration/register_to_allen_fusi_template.md).
@@ -203,19 +206,14 @@ connectivity = cf.connectivity.ConnectivityMatrix(kind="correlation").fit_transf
 # brain area each region belongs to without cluttering the plot with per-region colors.
 # `group_colors` lets us reuse the atlas's own official colors for each area, computed
 # above from `atlas.lookup`, instead of arbitrary ones. The default diverging colormap
-# (`"coolwarm"`) can look washed out on a dark background, so we switch to the more
-# perceptually uniform `"berlin"` colormap in dark mode.
+# follows `bg_color`: `"coolwarm"` on a light background, `"berlin"` on a dark one.
 
 # %% tags=["thumbnail"]
-is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
-cmap = "berlin" if is_dark_theme else None
-
 fig, ax = cf.plotting.plot_matrix(
     connectivity,
     labels=region_order,
     groups=group_labels,
     group_colors=group_colors,
-    cmap=cmap,
     vmax=0.8,
     cbar_label="Pearson correlation",
     title="Region correlation matrix",

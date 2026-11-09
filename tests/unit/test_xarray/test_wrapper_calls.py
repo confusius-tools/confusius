@@ -416,7 +416,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
 
     def _napari(data, **kwargs):
         calls["napari"] = (data, kwargs)
-        return "viewer", "layer"
+        return "viewer", ["layer"]
 
     def _draw(data, **kwargs):
         calls["draw"] = (data, kwargs)
@@ -444,14 +444,14 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
 
     monkeypatch.setattr("confusius.xarray.plotting.plot_napari", _napari)
     monkeypatch.setattr("confusius.xarray.plotting.draw_napari_labels", _draw)
-    monkeypatch.setattr("confusius.xarray.plotting.labels_from_layer", _labels)
+    monkeypatch.setattr("confusius.xarray.plotting.extract_labels_from_layer", _labels)
     monkeypatch.setattr("confusius.xarray.plotting.plot_carpet", _carpet)
     monkeypatch.setattr("confusius.xarray.plotting.plot_volume", _volume)
     monkeypatch.setattr("confusius.xarray.plotting.plot_contours", _contours)
     monkeypatch.setattr("confusius.xarray.plotting.plot_composite", _composite)
 
     viewer = object()
-    assert sample_voxeldata_3d.fusi.plot(show_scale_bar=False) == ("viewer", "layer")
+    assert sample_voxeldata_3d.fusi.plot(show_scale_bar=False) == ("viewer", ["layer"])
     assert calls["napari"] == (
         sample_voxeldata_3d,
         {
@@ -459,7 +459,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
             "show_scale_bar": False,
             "dim_order": None,
             "viewer": None,
-            "layer_type": "image",
+            "layer_type": "auto",
             "resample_interpolation": None,
             "resample_fill_value": None,
         },
@@ -472,7 +472,7 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
         viewer=viewer,
         layer_type="labels",
         opacity=0.4,
-    ) == ("viewer", "layer")
+    ) == ("viewer", ["layer"])
     assert calls["napari"] == (
         sample_voxeldata_3d,
         {
@@ -497,7 +497,10 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_voxeldata_3d, sample_ro
         {"labels_layer_name": "roi", "viewer": viewer, "colormap": "hot"},
     )
 
-    assert sample_voxeldata_3d.fusi.plot.labels_from_layer("layer") is sample_roi_labels
+    assert (
+        sample_voxeldata_3d.fusi.plot.extract_labels_from_layer("layer")
+        is sample_roi_labels
+    )
     assert calls["labels"] == ("layer", sample_voxeldata_3d)
 
     assert sample_voxeldata_3d.fusi.plot.carpet(

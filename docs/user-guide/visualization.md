@@ -10,7 +10,7 @@ generation**:
 | Tool | Backend | Best for |
 |---|---|---|
 | [`plot_napari`][confusius.plotting.plot_napari] / [`.fusi.plot.napari()`][confusius.xarray.FUSIPlotAccessor.napari] | napari | Interactive exploration of 3D+t datasets |
-| [`draw_napari_labels`][confusius.plotting.draw_napari_labels] / [`.fusi.plot.draw_napari_labels()`][confusius.xarray.FUSIPlotAccessor.draw_napari_labels] + [`labels_from_layer`][confusius.plotting.labels_from_layer] / [`.fusi.plot.labels_from_layer()`][confusius.xarray.FUSIPlotAccessor.labels_from_layer] | napari | Interactive manual ROI drawing |
+| [`draw_napari_labels`][confusius.plotting.draw_napari_labels] / [`.fusi.plot.draw_napari_labels()`][confusius.xarray.FUSIPlotAccessor.draw_napari_labels] + [`extract_labels_from_layer`][confusius.plotting.extract_labels_from_layer] / [`.fusi.plot.extract_labels_from_layer()`][confusius.xarray.FUSIPlotAccessor.extract_labels_from_layer] | napari | Interactive manual ROI drawing |
 | [`plot_volume`][confusius.plotting.plot_volume] / [`.fusi.plot.volume()`][confusius.xarray.FUSIPlotAccessor.volume] | Matplotlib | Static slice grids |
 | [`plot_contours`][confusius.plotting.plot_contours] / [`.fusi.plot.contours()`][confusius.xarray.FUSIPlotAccessor.contours] | Matplotlib | Contour-only grids (masks or atlas outlines) |
 | [`plot_composite`][confusius.plotting.plot_composite] / [`.fusi.plot.composite()`][confusius.xarray.FUSIPlotAccessor.composite] | Matplotlib | Composite plots of two volumes |
@@ -84,10 +84,10 @@ concise syntax; both call the same underlying functions.
     )
     mean_vol = pwd.mean("time").compute()
     angio = cf.load(
-        bids_root / "sub-CR022/ses-20201011/angio" / "sub-CR022_ses-20201011_pwd.nii.gz"
+        bids_root / "sub-CR022/ses-20201011/susi" / "sub-CR022_ses-20201011_pwd.nii.gz"
     ).compute()
     angio_2 = cf.load(
-        bids_root / "sub-CR022/ses-20201007/angio" / "sub-CR022_ses-20201007_pwd.nii.gz"
+        bids_root / "sub-CR022/ses-20201007/susi" / "sub-CR022_ses-20201007_pwd.nii.gz"
     ).compute()
     atlas_labels = cf.load(
         bids_root
@@ -118,7 +118,7 @@ the controls and features.
 === "Xarray accessor"
 
     ```python
-    viewer, layer = pwd.fusi.plot.napari()
+    viewer, layers = pwd.fusi.plot.napari()
     ```
 
 === "Function API"
@@ -126,8 +126,14 @@ the controls and features.
     ```python
     import confusius as cf
 
-    viewer, layer = cf.plotting.plot_napari(pwd)
+    viewer, layers = cf.plotting.plot_napari(pwd)
     ```
+
+Both APIs always return `(viewer, layers)`, where `layers` is a list. Arrays with
+a `pose` dimension open as one layer per pose, positioned using each pose's
+voxel-to-world affine and named `<data name> [pose <pose value>]`. An explicit
+`name=` overrides the data name. To unpack a single-layer result, use
+`viewer, [layer] = ...`.
 
 This opens a napari viewer with a scale bar, colorbar, and correct world scaling
 across axes. The viewer is fully interactive: you can zoom, pan, and scroll through time
@@ -149,12 +155,19 @@ and elevation slices with the sliders or mouse wheel.
 
 ### Napari Parameters
 
+Both [`plot_napari`][confusius.plotting.plot_napari] and
+[`data.fusi.plot.napari()`][confusius.xarray.FUSIPlotAccessor.napari] default to
+`layer_type="auto"`: integer and boolean data open as labels layers, and other data
+as image layers. Pass `layer_type="image"` explicitly for integer-valued intensity
+data, or `layer_type="labels"` to explicitly select a labels layer. The shorthand
+[`data.fusi.plot()`][confusius.xarray.FUSIPlotAccessor] uses the same default.
+
 By default napari auto-scales contrast to the data range. For power Doppler, working
 in decibel scale with explicit limits is often more informative:
 
 ```python
 # dB-scaled power Doppler with fixed contrast window.
-viewer, layer = cf.plotting.plot_napari(
+viewer, layers = cf.plotting.plot_napari(
     pwd.fusi.scale.db(),
     contrast_limits=(-20, 0),
     colormap="hot",
@@ -172,13 +185,13 @@ dataset, you can use the precomputed Allen segmentation in `derivatives/allenccf
 
 ```python
 # Load power Doppler mean volume and open viewer.
-viewer, layer = cf.plotting.plot_napari(
+viewer, layers = cf.plotting.plot_napari(
     mean_vol.fusi.scale.db(),
     contrast_limits=(-20, 0),
 )
 
 # Add pre-registered Allen labels as a labels layer.
-viewer, labels_layer = cf.plotting.plot_napari(
+viewer, labels_layers = cf.plotting.plot_napari(
     atlas_labels,
     viewer=viewer,
     layer_type="labels",
@@ -196,8 +209,8 @@ viewer, labels_layer = cf.plotting.plot_napari(
     motion correction:
 
     ```python
-    viewer, layer = pwd_before.fusi.plot.napari(name="Before correction")
-    viewer, layer = pwd_after.fusi.plot.napari(viewer=viewer, name="After correction")
+    viewer, layers = pwd_before.fusi.plot.napari(name="Before correction")
+    viewer, layers = pwd_after.fusi.plot.napari(viewer=viewer, name="After correction")
     ```
 
 ### Slicing Across Different Spatial Dimensions
@@ -209,7 +222,7 @@ axis—for example slicing along `y` (depth) instead of `z` (elevation)—use
 
 ```python
 # Swap z and y: depth becomes the slider axis.
-viewer, layer = pwd_3d.fusi.plot.napari(dim_order=("y", "z", "x"))
+viewer, layers = pwd_3d.fusi.plot.napari(dim_order=("y", "z", "x"))
 ```
 
 ### 3D Rendering
@@ -248,18 +261,18 @@ the spatial scale and origin are consistent regardless of voxel size or data ori
 ![napari viewer with two painted ROI regions](../images/visualization/napari-draw-labels.png)
 
 Once you have finished painting, use
-[`labels_from_layer`][confusius.plotting.labels_from_layer] to convert the Labels layer
+[`extract_labels_from_layer`][confusius.plotting.extract_labels_from_layer] to convert the Labels layer
 into a stacked integer DataArray compatible with
 [`extract_with_labels`][confusius.extract.extract_with_labels],
 [`plot_contours`][confusius.plotting.plot_contours], and
 [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours]:
 
 ```python
-from confusius.plotting import labels_from_layer
+from confusius.plotting import extract_labels_from_layer
 
 # Convert the painted layer to a stacked DataArray.
 # label_map has dims ("mask", "k", "j", "i"), one layer per painted label.
-label_map = labels_from_layer(labels_layer, mean_vol)
+label_map = extract_labels_from_layer(labels_layer, mean_vol)
 
 # Each label's color as painted in napari is stored in attrs["rgb_lookup"]
 # and will be reused automatically by plot_contours and add_contours.
@@ -272,6 +285,15 @@ region_signals = pwd.fusi.extract.with_labels(label_map)
 plotter = mean_vol.fusi.scale.db().fusi.plot.volume(slice_mode="z", cmap="gray")
 plotter.add_contours(label_map)
 ```
+
+For oblique or sheared data, painting takes place on an axis-aligned display grid.
+Extraction maps the painted labels back onto `mean_vol`'s original voxel grid using
+nearest-neighbor interpolation, with zero background outside the display grid.
+Label IDs are preserved, but boundaries can change and thin regions can disappear.
+
+Prefer drawing in an existing axis-aligned acquisition/scanner frame when available. A
+known transform can be applied afterward to both the image and extracted labels using
+[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] without resampling.
 
 ## Static Volume Plots
 
@@ -439,7 +461,8 @@ picks a suitable range + default colormap automatically:
 
 - Both positive and negative values: diverging, symmetric `[-m, m]` range
   (`m = max(|vmin|, |vmax|)` over the bounds you pass, or the largest magnitude in
-  `stat_map` when you pass neither), with `cmap="coolwarm"` by default.
+  `stat_map` when you pass neither), with `cmap="coolwarm"` by default on light backgrounds and
+  `cmap="berlin"` on dark ones (judged from `bg_color`).
 - Only non-negative values (for example R² or F-statistics): sequential `[0, vmax]`
   range, with `cmap="viridis"` by default.
 - Only non-positive values: sequential `[vmin, 0]` range, with `cmap="viridis_r"`
@@ -751,5 +774,5 @@ and the [Xarray Integration API reference](../api/xarray.md).
 [^nunez2022]:
     Nunez-Elizalde, A. O., et al. "A Neurophysiological fUSI-BIDS dataset from awake,
     behaving mice." figshare dataset, 2022. DOI.org (Datacite),
-    <https://doi.org/10.6084/m9.figshare.19316228>; mirrored on OSF at
-    <https://osf.io/43skw/>.
+    <https://doi.org/10.6084/m9.figshare.19316228>; the fUSI-BIDS re-export is hosted
+    in the [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).

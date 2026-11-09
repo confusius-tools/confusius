@@ -525,12 +525,10 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
     native voxel dimension (`k`, `j`, `i`) as a length-one dimension, then orders all
     dimensions as `(...extra_dims, time, pose, k, j, i)`. It preserves coordinate
     values and their order. When scalar indexing fixed a dimension in a
-    `VoxelToWorldIndex`,
-    its geometry is rebuilt from the untouched affine, including its `units`
-    (`VoxelToWorldIndex` always carries one, defaulting to `"mm"` since
-    [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
-    itself defaults it). Missing time acquisition metadata also defaults where
-    possible. This function does not otherwise validate the VoxelData model; use
+    `VoxelToWorldIndex`, its geometry is rebuilt from the unchanged voxel-to-world
+    affine, preserving the world-space units. Missing time acquisition metadata
+    also defaults where possible. This function does not otherwise validate the
+    VoxelData model; use
     [ensure_voxeldata][confusius.validation.ensure_voxeldata] to canonicalize and
     validate.
 

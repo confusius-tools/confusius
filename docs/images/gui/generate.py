@@ -2,12 +2,11 @@
 
 Two datasets are fetched automatically via `confusius.datasets`:
 
-- **Nunez-Elizalde et al. (2022)** fUSI-BIDS dataset on OSF
-  (https://osf.io/43skw/) — used for the Data I/O, Signals, and QC
-  screenshots. First run downloads ~30 MB.
-- **Cybis Pereira et al. (2026)** fUSI-BIDS dataset on OSF
-  (https://osf.io/2v6f7/) — used for the Video panel GIF. First run
-  downloads ~200 MB (raw fUSI + DLC video).
+- **Nunez-Elizalde et al. (2022)** fUSI-BIDS dataset from the ConfUSIus dataset
+  collection — used for the Data I/O, Signals, and QC screenshots. First run
+  downloads ~30 MB.
+- **Cybis Pereira et al. (2026)** fUSI-BIDS dataset from the same collection — used
+  for the Video panel GIF. First run downloads ~200 MB (raw fUSI + DLC video).
 
 Subsequent runs use the local cache.
 
@@ -85,7 +84,7 @@ _DERIVATIVE_STRUCTURE_TREE_REL_PATH = (
 _ANGIO_REL_PATH = (
     Path(f"sub-{_SUBJECT}")
     / f"ses-{_SESSION}"
-    / "angio"
+    / "susi"
     / f"sub-{_SUBJECT}_ses-{_SESSION}_pwd.nii.gz"
 )
 
@@ -268,6 +267,7 @@ bids_root = fetch_nunez_elizalde_2022(
     sessions=[_SESSION, _REGISTRATION_FIXED_SESSION, _REGISTRATION_MOVING_SESSION],
     tasks=[_TASK],
     acqs=[_ACQ_SLICE],
+    print_citation=False,
 )
 
 _FUSI_PATH = (
@@ -299,7 +299,8 @@ if not atlas_path.exists():
     raise RuntimeError(
         "Missing required derivative atlas file: "
         f"{_DERIVATIVE_ATLAS_REL_PATH}. "
-        "Recreate and publish dataset_index.json with this file included."
+        "Check that the published release manifest includes this file and that "
+        "the fetcher downloads it."
     )
 
 structure_tree_csv = bids_root / _DERIVATIVE_STRUCTURE_TREE_REL_PATH
@@ -307,7 +308,8 @@ if not structure_tree_csv.exists():
     raise RuntimeError(
         "Missing required derivative structure tree CSV: "
         f"{_DERIVATIVE_STRUCTURE_TREE_REL_PATH}. "
-        "Recreate and publish dataset_index.json with this file included."
+        "Check that the published release manifest includes this file and that "
+        "the fetcher downloads it."
     )
 
 atlas_mask = cf.load(atlas_path).compute().round().astype(np.int32)
@@ -360,6 +362,7 @@ video_bids_root = fetch_cybis_pereira_2026(
     subjects=[_VIDEO_SUBJECT, _VOLUMEWISE_SUBJECT],
     sessions=[_VIDEO_SESSION, _VOLUMEWISE_SESSION],
     acqs=[_VIDEO_ACQ_SLICE, _VOLUMEWISE_ACQ_SLICE],
+    print_citation=False,
 )
 
 _VIDEO_FUSI_PATH = (
@@ -470,7 +473,7 @@ try:
     from confusius.plotting.napari import plot_napari
 
     viewer = napari.Viewer(show=False)
-    _viewer, _layer = plot_napari(
+    _viewer, [_layer] = plot_napari(
         da,
         viewer=viewer,
         gamma=DISPLAY_GAMMA,
@@ -496,7 +499,7 @@ try:
     import numpy as np
 
     viewer2 = napari.Viewer(show=False)
-    _viewer2, _layer2 = plot_napari(
+    _viewer2, [_layer2] = plot_napari(
         da,
         viewer=viewer2,
         gamma=DISPLAY_GAMMA,
@@ -539,7 +542,7 @@ try:
     from confusius.qc import compute_cv, compute_dvars
 
     viewer3 = napari.Viewer(show=False)
-    _viewer3, _layer3 = plot_napari(
+    _viewer3, [_layer3] = plot_napari(
         da,
         viewer=viewer3,
         gamma=DISPLAY_GAMMA,
@@ -590,7 +593,7 @@ try:
     import numpy as np
 
     viewer4 = napari.Viewer(show=False)
-    _viewer4, _layer4 = plot_napari(
+    _viewer4, [_layer4] = plot_napari(
         da,
         viewer=viewer4,
         gamma=DISPLAY_GAMMA,
@@ -653,7 +656,7 @@ try:
     import numpy as np
 
     viewer5 = napari.Viewer(show=False)
-    _viewer5, _layer5 = plot_napari(
+    _viewer5, [_layer5] = plot_napari(
         da,
         viewer=viewer5,
         gamma=DISPLAY_GAMMA,
@@ -829,12 +832,12 @@ try:
 
     fixed_path = (
         bids_root
-        / f"sub-{_REGISTRATION_SUBJECT}/ses-{_REGISTRATION_FIXED_SESSION}/angio"
+        / f"sub-{_REGISTRATION_SUBJECT}/ses-{_REGISTRATION_FIXED_SESSION}/susi"
         / f"sub-{_REGISTRATION_SUBJECT}_ses-{_REGISTRATION_FIXED_SESSION}_pwd.nii.gz"
     )
     moving_path = (
         bids_root
-        / f"sub-{_REGISTRATION_SUBJECT}/ses-{_REGISTRATION_MOVING_SESSION}/angio"
+        / f"sub-{_REGISTRATION_SUBJECT}/ses-{_REGISTRATION_MOVING_SESSION}/susi"
         / f"sub-{_REGISTRATION_SUBJECT}_ses-{_REGISTRATION_MOVING_SESSION}_pwd.nii.gz"
     )
 
@@ -846,7 +849,7 @@ try:
     )
 
     viewer7 = napari.Viewer(show=False)
-    _viewer7, fixed_layer7 = plot_napari(
+    _viewer7, [fixed_layer7] = plot_napari(
         fixed_da,
         viewer=viewer7,
         name=f"Fixed angio ({_REGISTRATION_FIXED_SESSION})",
@@ -854,7 +857,7 @@ try:
         colormap="red",
         contrast_limits=registration_contrast,
     )
-    _viewer7, moving_layer7 = plot_napari(
+    _viewer7, [moving_layer7] = plot_napari(
         moving_da,
         viewer=viewer7,
         name=f"Moving angio ({_REGISTRATION_MOVING_SESSION})",
@@ -1017,7 +1020,7 @@ try:
     n_frames = volumewise_da.sizes["time"]
 
     viewer8 = napari.Viewer(show=False)
-    _viewer8, moving_layer8 = plot_napari(
+    _viewer8, [moving_layer8] = plot_napari(
         volumewise_da,
         viewer=viewer8,
         name=f"Open field ({_VOLUMEWISE_SESSION})",
@@ -1171,7 +1174,7 @@ try:
     da_gif = cf.load(_VIDEO_FUSI_PATH)
 
     viewer9 = napari.Viewer(show=False)
-    _viewer9, fusi9 = plot_napari(
+    _viewer9, [fusi9] = plot_napari(
         da_gif,
         viewer=viewer9,
         gamma=DISPLAY_GAMMA,

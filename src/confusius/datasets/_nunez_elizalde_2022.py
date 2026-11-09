@@ -6,19 +6,18 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ._osf import (
-    OsfFileInfo,
-    download_osf_files,
+from confusius.datasets._s3 import (
+    S3FileInfo,
+    download_s3_files,
     get_index,
-    read_cached_index,
+    get_release_dir,
     update_cached_index,
 )
-from ._utils import get_datasets_dir, print_citation_message
+from confusius.datasets._utils import get_datasets_dir, print_citation_message
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_OSF_PROJECT_ID = "43skw"
 _BIDS_ROOT = "nunez-elizalde-2022-bids"
 _TOTAL_SIZE_BYTES = 6_982_575_320
 _CITATION = (
@@ -32,19 +31,19 @@ _CITATION = (
 _VALID_DATASETS = frozenset({"rawdata", "allenccf_align"})
 """Valid values for the `datasets` parameter of `fetch_nunez_elizalde_2022`."""
 
-_VALID_DATATYPES = frozenset({"fusi", "angio"})
+_VALID_DATATYPES = frozenset({"fusi", "susi"})
 """Valid values for the `datatypes` parameter of `fetch_nunez_elizalde_2022`."""
 
 
 def _filter_files(
-    index: dict[str, OsfFileInfo],
+    index: dict[str, S3FileInfo],
     datasets: list[str] | None,
     subjects: list[str] | None,
     sessions: list[str] | None,
     tasks: list[str] | None,
     acqs: list[str] | None,
     datatypes: list[str] | None,
-) -> dict[str, OsfFileInfo]:
+) -> dict[str, S3FileInfo]:
     """Filter the index to files matching the requested datasets and entities.
 
     Top-level BIDS metadata files (dataset_description.json, participants.*,
@@ -55,7 +54,7 @@ def _filter_files(
 
     Parameters
     ----------
-    index : dict[str, OsfFileInfo]
+    index : dict[str, S3FileInfo]
         Full dataset index as returned by `get_index`.
     datasets : list[str] or None
         Datasets to include. Use `"rawdata"` for the raw subject data and
@@ -75,16 +74,16 @@ def _filter_files(
         Acquisition labels to include (without `acq-`), e.g. `["slice03"]`. If `None`,
         all acquisitions are included. Only applies to `fusi/` files.
     datatypes : list[str] or None
-        BIDS datatype directories to include, e.g. `["fusi", "angio"]`. If `None`,
+        BIDS datatype directories to include, e.g. `["fusi", "susi"]`. If `None`,
         all datatypes are included. Files that do not sit under a datatype directory
         are passed through.
 
     Returns
     -------
-    dict[str, OsfFileInfo]
+    dict[str, S3FileInfo]
         Subset of the index matching the filters.
     """
-    filtered: dict[str, OsfFileInfo] = {}
+    filtered: dict[str, S3FileInfo] = {}
 
     for path, file_info in index.items():
         parts = Path(path).parts
@@ -142,14 +141,15 @@ def _matches_entities(
         return False
 
     if datatype == "fusi" and parts:
+        # Session-level derivatives need not declare a task or acquisition.
         if tasks is not None:
             match = re.search(r"task-([^_]+)", parts[-1])
-            if match is None or match.group(1) not in tasks:
+            if match is not None and match.group(1) not in tasks:
                 return False
 
         if acqs is not None:
             match = re.search(r"acq-([^_]+)", parts[-1])
-            if match is None or match.group(1) not in acqs:
+            if match is not None and match.group(1) not in acqs:
                 return False
 
     return True
@@ -216,17 +216,14 @@ def fetch_nunez_elizalde_2022(
         `["slice03"]`. Accepts a single string or a list. If not provided,
         all acquisitions are downloaded. Only applies to `fusi/` files.
     datatypes : str or list[str], optional
-        BIDS datatype directories to download, e.g. `"fusi"`, `"angio"`,
-        `["fusi", "angio"]`. Valid values are `"fusi"` and `"angio"`.
+        BIDS datatype directories to download, e.g. `"fusi"`, `"susi"`,
+        `["fusi", "susi"]`. Valid values are `"fusi"` and `"susi"`.
         If not provided, all datatypes are downloaded. Files that do not sit
         under a datatype directory (e.g. subject-level metadata) are always
         included.
     refresh : bool, default: False
-        Whether to re-fetch the dataset index from OSF and reconcile local files against
-        it: missing files are downloaded, and cached files whose MD5 changed upstream
-        (comparing the cached index against the refreshed one) are re-downloaded. If
-        `False` and all requested files are already cached, the function returns
-        immediately without any network access.
+        Whether to resolve the latest published S3 release. Otherwise the cached
+        release is reused offline. Releases are cached in separate version directories.
     progress_callback : Callable[[int, int, str], None], optional
         Callback receiving cumulative downloaded bytes, total bytes to download,
         and a user-facing description. Intended for GUI progress bars.
@@ -252,14 +249,14 @@ def fetch_nunez_elizalde_2022(
         [https://doi.org/10.1016/j.neuron.2022.02.012](https://doi.org/10.1016/j.neuron.2022.02.012)
 
     [^2]:
-        fUSI-BIDS dataset on OSF: [https://osf.io/43skw/](https://osf.io/43skw/)
+        [ConfUSIus dataset collection](https://github.com/confusius-tools/confusius-datasets).
 
     [^3]:
         Dataset license (CC BY 4.0):
         [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/)
     """
-    bids_dir = get_datasets_dir(data_dir) / _BIDS_ROOT
-    bids_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = get_datasets_dir(data_dir) / _BIDS_ROOT
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     if isinstance(datasets, str):
         datasets = [datasets]
@@ -290,8 +287,8 @@ def fetch_nunez_elizalde_2022(
                 f"Valid options: {sorted(_VALID_DATATYPES)}"
             )
 
-    previous_index = read_cached_index(bids_dir) if refresh else None
-    index = get_index(bids_dir, _OSF_PROJECT_ID, _BIDS_ROOT, refresh=refresh)
+    index = get_index(cache_dir, "datasets", _BIDS_ROOT, refresh=refresh)
+    bids_dir = get_release_dir(cache_dir, index)
     files = _filter_files(
         index,
         datasets,
@@ -302,15 +299,10 @@ def fetch_nunez_elizalde_2022(
         datatypes,
     )
 
-    download_osf_files(
-        bids_dir,
-        files,
-        previous_index,
-        refresh=refresh,
-        progress_callback=progress_callback,
+    download_s3_files(
+        bids_dir, files, progress_callback=progress_callback, refresh=refresh
     )
-    if refresh:
-        update_cached_index(bids_dir, index, previous_index or {}, files)
+    update_cached_index(cache_dir, index)
 
     if print_citation:
         print_citation_message(_CITATION, "dataset")

@@ -3,8 +3,11 @@
 #
 # This example demonstrates how to use ConfUSIus to load and handle fUSI data as
 # [DataArray][xarray.DataArray] instances. We will use a small subset of the
-# Nunez-Elizalde 2022 dataset and use a few basic Xarray operations to inspect, subset,
-# and summarize the data.
+# Nunez-Elizalde 2022 dataset[^collection] and use a few basic Xarray operations to
+# inspect, subset, and summarize the data.
+#
+# [^collection]: See [The ConfUSIus Dataset Collection](dataset_collection.md)
+#     for available studies, formats, licenses, and reproducible subset downloads.
 
 # %% [markdown]
 # ## Fetch one recording from the Nunez-Elizalde 2022 dataset
@@ -141,10 +144,10 @@ roi_trace
 # %%
 roi_trace_smooth = roi_trace.rolling(time=15, center=True).mean()
 
-fig, ax = plt.subplots(figsize=(7, 3), facecolor=bg_color)
+fig, ax = plt.subplots(figsize=(7, 3))
 
 roi_trace.plot(ax=ax, color="#d93a54", label="ROI mean")
-roi_trace_smooth.plot(ax=ax, color="#3ad9a4", label="Rolling mean (15 samples)")
+roi_trace_smooth.plot(ax=ax, color="#27906d", label="Rolling mean (15 samples)")
 
 ax.set_title("Mean power Doppler intensity in a central ROI")
 ax.set_xlabel("Time (s)")

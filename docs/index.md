@@ -152,3 +152,10 @@ mean_db.fusi.plot.volume(cmap="gray", cbar_label="Power Doppler (dB)")
 
 </div>
 </div>
+
+## :lucide-bot: Using ConfUSIus with AI Assistants
+
+This documentation is also published as plain Markdown for LLM-based tools. Point your
+assistant at [`llms.txt`](llms.txt) for an index of every page, or at
+[`llms-full.txt`](llms-full.txt) for the whole documentation in a single file. Each page
+also has a "Copy as Markdown" button next to its title.
