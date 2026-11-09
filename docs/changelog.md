@@ -40,6 +40,11 @@ Current development version for the next ConfUSIus release.
 - Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
   them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
+- Added [`from_nifti`][confusius.io.from_nifti]/[`to_nifti`][confusius.io.to_nifti] to
+  convert directly between a VoxelData array and an in-memory
+  `nibabel.Nifti1Image`/`nibabel.Nifti2Image`, with no file I/O, for interoperating
+  with libraries such as nilearn
+  ([#421](https://github.com/confusius-tools/confusius/pull/421)).
 
 ### :bug: Fixes
 
@@ -267,12 +272,6 @@ Released 2026-10-13.
   (0 and at most one non-zero value, e.g. `{0, 1}` or `{0.0, 5.0}`) is now accepted
   and coerced to boolean, covering masks written by tools without a boolean dtype
   (e.g. FSL/NiBabel NIfTI masks stored as float)
-  ([#382](https://github.com/confusius-tools/confusius/issues/382)).
-- Added [`from_nifti`][confusius.io.from_nifti]/[`to_nifti`][confusius.io.to_nifti] to
-  convert directly between a VoxelData array and an in-memory
-  `nibabel.Nifti1Image`/`nibabel.Nifti2Image`, with no file I/O, for interoperating
-  with libraries such as nilearn
-  ([#372](https://github.com/confusius-tools/confusius/issues/372)).
   ([#418](https://github.com/confusius-tools/confusius/pull/418)).
 - [`register_volumewise`][confusius.registration.register_volumewise] and
   `data.fusi.register.volumewise` accept a `fixed` VoxelData volume (for example the
