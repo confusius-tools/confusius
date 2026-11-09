@@ -24,7 +24,7 @@ class VideoPanel(QWidget):
     """Widget for reopening a dedicated video viewer and its layer list.
 
     This widget is embedded in the Data I/O section. Videos are shown in their own
-    napari viewer docked in the main window (see `VideoViewer`), created when the first
+    napari viewer beside the main canvas (see `VideoViewer`), created when the first
     video is added, hidden when the last one is removed and shown again on the next add.
     Each video is a lazy, frame-on-demand image layer in that viewer; several videos sit
     side by side in its grid. The video viewer's time slider follows the main viewer's
@@ -52,6 +52,7 @@ class VideoPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _setup_ui(self) -> None:
+        """Create the viewer and layer-list toggle buttons."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -109,6 +110,8 @@ class VideoPanel(QWidget):
     def add_video(self, path: Path) -> None:
         """Open `path` and add it to the video viewer.
 
+        Missing or unreadable files produce an error notification without adding a layer.
+
         Parameters
         ----------
         path : pathlib.Path
@@ -121,7 +124,7 @@ class VideoPanel(QWidget):
         try:
             video = VideoReaderNP(str(path), remove_leading_singleton=False)
             # Decode one frame now: a file that opens but cannot be decoded (truncated,
-            # zero frames) must fail before the video viewer shows. 
+            # zero frames) must fail before the video viewer shows.
             video[0]
         except Exception as exc:  # noqa: BLE001
             self._show_error(f"Cannot open video: {exc}")
