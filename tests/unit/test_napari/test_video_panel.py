@@ -1,7 +1,7 @@
 """Tests for the VideoPanel widget and its dedicated video viewer.
 
-`_VideoArray` is tested as a pure-logic unit.  Panel tests use real napari
-viewers via `make_napari_viewer` with a stubbed `VideoReaderNP`.
+Panel tests use real napari viewers via `make_napari_viewer` with a stubbed
+`VideoReaderNP`.
 
 See https://napari.org/dev/plugins/testing_and_publishing/test.html
 """
@@ -21,7 +21,7 @@ import confusius._napari._video._video_panel as panel_module
 from confusius._napari._data._load_panel import DataPanel
 from confusius._napari._timeaxis import find_time_dim_index, read_current_time
 from confusius._napari._video._video_panel import VideoPanel
-from confusius._napari._video._video_viewer import VideoViewer, _VideoArray
+from confusius._napari._video._video_viewer import VideoViewer
 from confusius.plotting import plot_napari
 
 # ---------------------------------------------------------------------------
@@ -46,62 +46,6 @@ class _FakeVideo:
     def __getitem__(self, idx):
         self.reads.append(idx)
         return self._frames[idx]
-
-
-def _arr(fv, **kwargs):
-    """Build a `_VideoArray` over a stub reader (untyped so `ty` accepts it)."""
-    return _VideoArray(fv, **kwargs)
-
-
-# ---------------------------------------------------------------------------
-# _VideoArray
-# ---------------------------------------------------------------------------
-
-
-class TestVideoArray:
-    def test_integer_index_matches_source_frame(self):
-        fv = _FakeVideo(n_frames=5, h=4, w=6)
-        arr = _arr(fv)
-        np.testing.assert_array_equal(arr[3], fv[3])
-
-    def test_slice_index_stacks_frames(self):
-        fv = _FakeVideo(n_frames=10, h=4, w=6)
-        arr = _arr(fv)
-        np.testing.assert_array_equal(arr[2:5], fv[2:5])
-
-    def test_tuple_index_with_spatial_slice(self):
-        fv = _FakeVideo(n_frames=5, h=8, w=10)
-        arr = _arr(fv)
-        np.testing.assert_array_equal(arr[1, 2:4, 3:7], fv[1, 2:4, 3:7])
-
-    def test_shape_dtype_len(self):
-        arr = _arr(_FakeVideo(n_frames=7, h=4, w=6, rgb=True))
-        assert arr.shape == (7, 4, 6, 3)
-        assert arr.dtype == np.uint8
-        assert arr.ndim == 4
-        assert len(arr) == 7
-
-    def test_step_subsamples_frames(self):
-        fv = _FakeVideo(n_frames=10, h=4, w=6)
-        arr = _arr(fv, step=3)
-        assert arr.shape[0] == 4
-        np.testing.assert_array_equal(arr[2], fv[6])
-
-    def test_empty_slice(self):
-        arr = _arr(_FakeVideo(n_frames=5, h=4, w=6))
-        assert arr[3:3].shape == (0, 4, 6)
-
-    def test_unbounded_time_slice_returns_single_frame(self):
-        fv = _FakeVideo(n_frames=50, h=4, w=6)
-        arr = _arr(fv)
-        out = arr[:]
-        assert out.shape == (1, 4, 6)
-        np.testing.assert_array_equal(out[0], fv[0])
-
-    def test_unsupported_index_raises(self):
-        arr = _arr(_FakeVideo(n_frames=5, h=4, w=6))
-        with pytest.raises(IndexError):
-            arr[np.array([0, 1])]
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +111,27 @@ def test_add_video_opens_video_viewer_and_leaves_main_viewer_alone(
     assert len(viewer.layers) == 1
     assert not viewer.canvas.grid.enabled
     assert panel.isAncestorOf(video_viewer.controls) is False
+
+
+def test_video_layer_data_supports_lazy_frame_slicing(panel, add_video):
+    video = _FakeVideo(n_frames=10, h=8, w=10, rgb=True)
+    layer = add_video(video)
+    data = layer.data
+    assert data.shape == (10, 8, 10, 3)
+    assert data.dtype == np.uint8
+    assert data.ndim == 4
+    assert len(data) == 10
+    np.testing.assert_array_equal(data[3], video._frames[3])
+    np.testing.assert_array_equal(data[2:5], video._frames[2:5])
+    np.testing.assert_array_equal(data[1, 2:4, 3:7], video._frames[1, 2:4, 3:7])
+    assert data[3:3].shape == (0, 8, 10, 3)
+    np.testing.assert_array_equal(data[:], video._frames[:1])
+    with pytest.raises(IndexError):
+        data[np.array([0, 1])]
+
+    panel._video_viewer.set_frame_step(3)
+    assert layer.data.shape[0] == 4
+    np.testing.assert_array_equal(layer.data[2], video._frames[6])
 
 
 def test_video_layer_list_dock_can_float(viewer, panel, add_video):
@@ -388,7 +353,7 @@ def test_frame_step_decodes_only_the_frame_at_the_kept_time(viewer, panel, add_v
     assert panel._video_viewer.frame_step_spin.value() == 3
     assert video.reads == [360]
     assert layer.visible
-    np.testing.assert_array_equal(layer.data[120], video._frames[360])
+    np.testing.assert_array_equal(layer._slice.image.raw, video._frames[360])
 
 
 def test_frame_step_leaves_hidden_videos_hidden_and_undecoded(viewer, panel, add_video):
@@ -644,7 +609,7 @@ def test_time_sync_converts_main_time_units(
 
     assert model.dims.point[0] == pytest.approx(12.0)
     assert model.dims.current_step[0] == 360
-    np.testing.assert_array_equal(layer.data[360], video._frames[360])
+    np.testing.assert_array_equal(layer._slice.image.raw, video._frames[360])
     # 11.2 s falls between the 11.0 s and 11.5 s fUSI frames.
     model.dims.set_point(0, 11.2)
     assert viewer.dims.point[t_idx] == pytest.approx(11.2 * factor)
@@ -1089,5 +1054,4 @@ class TestTimeOverlayFallback:
 
         time_idx = overlay._time_idx
         viewer.dims.set_current_step(time_idx, 3)
-        expected_text = f"{float(viewer.dims.point[time_idx]):.2f} s"
-        assert viewer.canvas.overlays.text.text == expected_text
+        assert viewer.canvas.overlays.text.text == "0.06 s"

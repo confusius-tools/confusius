@@ -23,18 +23,17 @@ if TYPE_CHECKING:
 class VideoPanel(QWidget):
     """Widget for reopening a dedicated video viewer and its layer list.
 
-    This widget is embedded in the Data I/O section.  Videos are shown in
-    their own napari viewer docked in the main window (see `VideoViewer`),
-    created when the first video is added, hidden when the last one is
-    removed and shown again on the next add.  Each video is a lazy,
-    frame-on-demand image layer in that viewer; several videos sit side by
-    side in its grid.  The video viewer's time slider follows the main
-    viewer's time and vice versa.
+    This widget is embedded in the Data I/O section. Videos are shown in their own
+    napari viewer docked in the main window (see `VideoViewer`), created when the first
+    video is added, hidden when the last one is removed and shown again on the next add.
+    Each video is a lazy, frame-on-demand image layer in that viewer; several videos sit
+    side by side in its grid. The video viewer's time slider follows the main viewer's
+    time and vice versa.
 
-    The video layers and their controls are not shown here: they live in a
-    dedicated "video layer list" dock below napari's own layer list (see
-    `VideoViewer.controls`). The video viewer owns the layers, readers, and
-    frame-step setting; this widget only loads files and toggles its windows.
+    The video layers and their controls are not shown here: they live in a dedicated
+    "video layer list" dock below napari's own layer list (see `VideoViewer.controls`).
+    The video viewer owns the layers, readers, and frame-step setting; this widget only
+    loads files and toggles its windows.
 
     Parameters
     ----------
@@ -121,8 +120,8 @@ class VideoPanel(QWidget):
 
         try:
             video = VideoReaderNP(str(path), remove_leading_singleton=False)
-            # Decode one frame now: a file that opens but cannot be decoded
-            # (truncated, zero frames) must fail before the video viewer shows.
+            # Decode one frame now: a file that opens but cannot be decoded (truncated,
+            # zero frames) must fail before the video viewer shows. 
             video[0]
         except Exception as exc:  # noqa: BLE001
             self._show_error(f"Cannot open video: {exc}")
