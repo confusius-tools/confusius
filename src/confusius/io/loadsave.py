@@ -63,7 +63,8 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     Parameters
     ----------
     path : str or pathlib.Path
-        Path to the file to load. For NIfTI files, a `{chunk}` placeholder in the
+        Local file path, or HTTP(S) URL to a Zarr store. Remote loading of other
+        formats is not currently supported. For NIfTI files, a `{chunk}` placeholder in the
         filename loads matching integer chunks in numeric order along `pose`;
         see [load_nifti][confusius.io.load_nifti].
     variable : str, optional
@@ -91,8 +92,13 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     processing, or `.persist()` before many downstream Dask operations. For larger
     repeated random-access workloads, prefer Zarr or uncompressed `.nii`.
     """
-    path = check_path(path)
-    name = path.name
+    if isinstance(path, str) and path.startswith(("https://", "http://")):
+        name = path.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+        if not name.endswith(".zarr"):
+            raise ValueError("Remote loading is only supported for Zarr stores.")
+    else:
+        path = check_path(path)
+        name = path.name
 
     if name.endswith((".nii", ".nii.gz")):
         data_array = _nifti.load_nifti(path, **kwargs)
