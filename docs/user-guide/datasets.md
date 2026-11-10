@@ -96,7 +96,10 @@ iq = fetch_sample_beamformed_iq()
 segment = iq.isel(time=slice(0, 300)).compute()
 ```
 
-Only the chunks needed by a computation are transferred. Repeated reads may download
+Release metadata is cached like other datasets; use `refresh=True` to check for a
+newer release. Opening the store still requires network access, and IQ chunks are
+not cached locally. Only the chunks needed by a computation are transferred.
+Repeated reads may download
 the same chunks again; computing the entire array transfers the full recording.
 The recording is licensed under CC BY-NC 4.0.
 
