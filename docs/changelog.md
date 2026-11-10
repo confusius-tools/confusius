@@ -43,7 +43,8 @@ Current development version for the next ConfUSIus release.
 - Added [`from_nifti`][confusius.io.from_nifti]/[`to_nifti`][confusius.io.to_nifti] to
   convert directly between a VoxelData array and an in-memory
   `nibabel.Nifti1Image`/`nibabel.Nifti2Image`, with no file I/O, for interoperating
-  with libraries such as nilearn
+  with libraries such as nilearn. `to_nifti` is also available on the `.fusi` accessor,
+  as [`data.fusi.to_nifti`][confusius.xarray.FUSIAccessor.to_nifti]
   ([#421](https://github.com/confusius-tools/confusius/pull/421)).
 
 ### :bug: Fixes
