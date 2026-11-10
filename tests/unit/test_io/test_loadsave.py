@@ -26,6 +26,11 @@ def saveable_volume(sample_voxeldata_3d: xr.DataArray) -> xr.DataArray:
 class TestLoadDispatch:
     """Extension-based dispatch correctness."""
 
+    def test_remote_non_zarr_rejected(self):
+        """Remote URLs are supported only for Zarr stores."""
+        with pytest.raises(ValueError, match="only supported for Zarr"):
+            load("https://example.org/data.nii")
+
     def test_nii_gz_dispatches_to_load_nifti(self, tmp_path):
         """.nii.gz extension calls load_nifti."""
         path = tmp_path / "data.nii.gz"
