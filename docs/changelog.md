@@ -33,6 +33,8 @@ Current development version for the next ConfUSIus release.
   
 ### :sparkles: Enhancements
 
+- Stream the Landemard beamformed IQ sample lazily and open HTTP(S) Zarr stores with
+  `cf.load` ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
   colormap stat maps are drawn with, which remembers its source colormap and
   threshold and can be rebuilt on another colormap with `with_source`
