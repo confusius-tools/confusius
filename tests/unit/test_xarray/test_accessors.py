@@ -2,6 +2,7 @@
 
 from unittest.mock import patch
 
+import nibabel as nib
 import numpy as np
 import pytest
 import xarray as xr
@@ -11,6 +12,7 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
 )
+from confusius.io import to_nifti
 from confusius.xarray import create_voxeldata
 
 
@@ -76,6 +78,30 @@ class TestFUSIAccessor:
             sample_data.fusi.save(out)
 
         mock_save.assert_called_once_with(sample_data, out)
+
+    def test_to_nifti_matches_io_to_nifti(self, sample_voxeldata_3d):
+        """to_nifti forwards every option and returns `confusius.io.to_nifti`'s image."""
+        shifted = np.eye(4)
+        shifted[:3, 3] = [1.0, 2.0, 3.0]
+        data = sample_voxeldata_3d.drop_vars("time").assign_attrs(
+            affines={"world_to_a": np.eye(4), "world_to_b": shifted}
+        )
+
+        img = data.fusi.to_nifti(
+            2, qform="world_to_a", sform="world_to_b", qform_code=3, sform_code=4
+        )
+
+        expected = to_nifti(
+            data, 2, qform="world_to_a", sform="world_to_b", qform_code=3, sform_code=4
+        )
+        assert isinstance(img, nib.Nifti2Image)
+        assert img.header == expected.header
+        assert (int(img.header["qform_code"]), int(img.header["sform_code"])) == (3, 4)
+        # The two keys hold different affines, so swapping them changes the header.
+        assert not np.allclose(img.get_qform(), img.get_sform())
+        np.testing.assert_array_equal(
+            np.asarray(img.dataobj), np.asarray(expected.dataobj)
+        )
 
     def test_db_scale_factor_20(self, sample_data):
         """db_scale with factor=20 (amplitude)."""

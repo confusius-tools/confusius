@@ -330,6 +330,7 @@ helper properties:
 | Accessor | Description |
 |---|---|
 | [`.fusi.save`][confusius.xarray.FUSIAccessor.save] | Save data to file (NIfTI or Zarr), dispatching by extension. |
+| [`.fusi.to_nifti`][confusius.xarray.FUSIAccessor.to_nifti] | Convert data to an in-memory NiBabel NIfTI image, with no file I/O. |
 | [`.fusi.iq`][confusius.xarray.FUSIIQAccessor] | Process beamformed IQ into power Doppler or axial velocity volumes. |
 | [`.fusi.scale`][confusius.xarray.FUSIScaleAccessor] | Scaling transformations: decibel, log, and power scaling. |
 | [`.fusi.affine`][confusius.xarray.FUSIAffineAccessor] | Inspect and apply voxel-to-world and world-to-reference affine transforms. |

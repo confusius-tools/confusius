@@ -173,6 +173,14 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice32",
     )
 
+    # docs/examples/08_interoperability/01_nilearn.py
+    fetch_cybis_pereira_2026(
+        print_citation=False,
+        datasets="glm-speed",
+        subjects="rat75",
+        acqs="slice32",
+    )
+
 
 def _prefetch_khallaf() -> None:
     # docs/examples/05_glm/01_first_level.py

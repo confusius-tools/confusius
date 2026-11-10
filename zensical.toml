@@ -97,6 +97,9 @@ nav = [
         { "Decoding" = [
             { "Searchlight decoding of a continuous variable" = "examples/_built/decoding/searchlight_speed.md" },
         ]},
+        { "Interoperability" = [
+            { "Use nilearn on a VoxelData array" = "examples/_built/interoperability/nilearn.md" },
+        ]},
     ]},
     { "Changelog" = "changelog.md" },
     { "Community" = "contributing.md" },
