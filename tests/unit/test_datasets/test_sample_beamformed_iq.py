@@ -10,7 +10,7 @@ from confusius.datasets import fetch_sample_beamformed_iq
 from confusius.io import save
 
 
-def test_sample_is_loaded_lazily_with_geometry(tmp_path, sample_voxeldata_3d):
+def test_sample_is_loaded_lazily_with_geometry(tmp_path, sample_voxeldata_3d, capsys):
     """Resolve the store URL and preserve lazy data and geometry."""
     path = tmp_path / "input.zarr"
     save(sample_voxeldata_3d.rename("iq"), path)
@@ -26,7 +26,8 @@ def test_sample_is_loaded_lazily_with_geometry(tmp_path, sample_voxeldata_3d):
             side_effect=lambda path, **kw: original_open(tmp_path / "input.zarr", **kw),
         ) as opener,
     ):
-        data = fetch_sample_beamformed_iq(data_dir=tmp_path, print_citation=False)
+        data = fetch_sample_beamformed_iq(data_dir=tmp_path)
+    assert "Landemard" in capsys.readouterr().out
     opener.assert_called_once_with(url, chunks={})
     assert isinstance(data.data, da.Array)
     npt.assert_allclose(data.compute().values, sample_voxeldata_3d.values)
