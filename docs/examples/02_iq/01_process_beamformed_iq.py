@@ -26,7 +26,7 @@ bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 
 # %%
 iq = cf.datasets.fetch_sample_beamformed_iq()
-print(iq)
+iq
 
 # %% [markdown]
 # ## Work with chunks

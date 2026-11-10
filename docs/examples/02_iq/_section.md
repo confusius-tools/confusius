@@ -1,3 +1,3 @@
 # Beamformed IQ
 
-Process beamformed IQ recordings into B-mode, power Doppler, and axial velocity.
+Load, process, and analyze beamformed IQ recordings.
