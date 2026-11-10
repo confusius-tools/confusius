@@ -6,7 +6,7 @@ icon: lucide/waypoints
 
 ## What is Multi-Pose Imaging?
 
-In **multi-pose fUSI**, the ultrasound probe is moves through a series of positions (or
+In **multi-pose fUSI**, the ultrasound probe moves through a series of positions (or
 **poses**). At each pose, it acquires one or more images. Combining these images extends
 the field of view beyond a single probe position.
 
