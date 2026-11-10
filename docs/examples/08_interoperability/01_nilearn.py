@@ -1,4 +1,5 @@
-# %% [markdown] # Use nilearn on a VoxelData array
+# %% [markdown]
+# # Use nilearn on a VoxelData array
 #
 # This example shows how to pass data between ConfUSIus and
 # [nilearn](https://nilearn.github.io). [`to_nifti`][confusius.io.to_nifti] converts a
