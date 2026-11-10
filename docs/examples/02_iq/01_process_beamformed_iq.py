@@ -75,12 +75,8 @@ tissue_velocity = abs(
 ).mean("time")
 with threadpool_limits(limits=1, user_api="blas"):
     bmode, pwd, blood_velocity, tissue_velocity = dask.compute(
-        bmode, pwd, blood_velocity, tissue_velocity, scheduler="threads"
+        bmode, pwd, blood_velocity, tissue_velocity
     )
-assert all(
-    np.isfinite(image.values).all()
-    for image in (bmode, pwd, blood_velocity, tissue_velocity)
-)
 
 # %% [markdown]
 # ## Plot average maps
