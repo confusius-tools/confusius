@@ -25,9 +25,9 @@ Current development version for the next ConfUSIus release.
 - Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
   them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
-- Add [`apply_translation`][confusius.registration.apply_translation],
-  [`apply_rotation`][confusius.registration.apply_rotation] and
-  [`apply_zoom`][confusius.registration.apply_zoom], plus the matching
+- Add [`apply_translation`][confusius.xarray.apply_translation],
+  [`apply_rotation`][confusius.xarray.apply_rotation] and
+  [`apply_zoom`][confusius.xarray.apply_zoom], plus the matching
   `.fusi.translate()`, `.fusi.rotate()` and `.fusi.zoom()` accessor methods, to move
   VoxelData in world space without resampling
   ([#556](https://github.com/confusius-tools/confusius/pull/556)).

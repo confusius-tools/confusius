@@ -527,6 +527,11 @@ moved = pwd.fusi.translate((1.0, 0.0, 0.0)).fusi.rotate(5.0, "x", center="geomet
 tilted = pwd.fusi.rotate((30.0, 20.0, 10.0), "zyx", center="geometry")
 ```
 
+The same moves are also available as functions:
+[`apply_translation`][confusius.xarray.apply_translation],
+[`apply_rotation`][confusius.xarray.apply_rotation] and
+[`apply_zoom`][confusius.xarray.apply_zoom].
+
 [`bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] gives the extent of
 the data in world space, enclosing the full extent of every voxel (half a voxel beyond
 the outermost voxel centers). It is computed from the affine alone (exact for oblique

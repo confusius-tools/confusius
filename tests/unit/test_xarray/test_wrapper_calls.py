@@ -115,10 +115,10 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
         calls["zoom"] = (data, zoom, center, inplace)
         return expected_apply
 
-    # The accessor imports these lazily, so patch the registration module.
-    monkeypatch.setattr("confusius.registration.affines.apply_translation", _translate)
-    monkeypatch.setattr("confusius.registration.affines.apply_rotation", _rotate)
-    monkeypatch.setattr("confusius.registration.affines.apply_zoom", _zoom)
+    # The accessor imports these lazily, so patch the affine module.
+    monkeypatch.setattr("confusius.xarray.affine.apply_translation", _translate)
+    monkeypatch.setattr("confusius.xarray.affine.apply_rotation", _rotate)
+    monkeypatch.setattr("confusius.xarray.affine.apply_zoom", _zoom)
 
     assert sample_voxeldata_3dt.fusi.rotate(5.0, "x") is expected_apply
     assert calls["rotate"] == (sample_voxeldata_3dt, 5.0, "x", "origin", True, False)

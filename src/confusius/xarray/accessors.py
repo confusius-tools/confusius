@@ -10,8 +10,7 @@ import xarray as xr
 if TYPE_CHECKING:
     import numpy.typing as npt
 
-    from confusius.registration.affines import TransformCenter
-    from confusius.xarray.affine import FUSIAffineAccessor
+    from confusius.xarray.affine import FUSIAffineAccessor, TransformCenter
     from confusius.xarray.connectivity import FUSIConnectivityAccessor
     from confusius.xarray.extract import FUSIExtractAccessor
     from confusius.xarray.iq import FUSIIQAccessor
@@ -352,7 +351,7 @@ class FUSIAccessor:
 
         `translation` is given in world `(z, y, x)` order. Only the voxel-to-world
         geometry changes. See
-        [apply_translation][confusius.registration.apply_translation] for details.
+        [apply_translation][confusius.xarray.apply_translation] for details.
 
         Parameters
         ----------
@@ -389,7 +388,7 @@ class FUSIAccessor:
         >>> round(float(box.sel(bound="max", component="x")), 6)
         2.0
         """
-        from confusius.registration.affines import apply_translation
+        from confusius.xarray.affine import apply_translation
 
         return apply_translation(self._obj, translation, inplace=inplace)
 
@@ -407,7 +406,7 @@ class FUSIAccessor:
         Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates,
         so a rotation of +90 degrees about `x` maps `+z` onto `+y`. Only the
         voxel-to-world geometry changes. See
-        [apply_rotation][confusius.registration.apply_rotation] for details.
+        [apply_rotation][confusius.xarray.apply_rotation] for details.
 
         Parameters
         ----------
@@ -461,7 +460,7 @@ class FUSIAccessor:
         3.0
         >>> tilted = data.fusi.rotate((30.0, 20.0, 10.0), "zyx")
         """
-        from confusius.registration.affines import apply_rotation
+        from confusius.xarray.affine import apply_rotation
 
         return apply_rotation(
             self._obj,
@@ -482,7 +481,7 @@ class FUSIAccessor:
         """Rescale a DataArray in world space.
 
         Only the voxel-to-world geometry changes. See
-        [apply_zoom][confusius.registration.apply_zoom] for details.
+        [apply_zoom][confusius.xarray.apply_zoom] for details.
 
         Parameters
         ----------
@@ -530,7 +529,7 @@ class FUSIAccessor:
         >>> float(zoomed.fusi.affine.bounding_box.sel(bound="max", component="x"))
         4.0
         """
-        from confusius.registration.affines import apply_zoom
+        from confusius.xarray.affine import apply_zoom
 
         return apply_zoom(self._obj, zoom, center=center, inplace=inplace)
 
