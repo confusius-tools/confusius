@@ -10,9 +10,9 @@
 # 2026](https://doi.org/10.1016/j.celrep.2025.116791)[^collection]. Then we plot these
 # clusters with ConfUSIus.
 #
-# !!! warning "nilearn is not a dependency of ConfUSIus" ConfUSIus does not install
-# nilearn. If nilearn is not in your environment, install it before you run this
-# example:
+# !!! warning "nilearn is not a dependency of ConfUSIus"
+#     ConfUSIus does not install nilearn. If nilearn is not in your environment, install
+#     it before you run this example:
 #
 #     ```bash pip install nilearn ```
 #
