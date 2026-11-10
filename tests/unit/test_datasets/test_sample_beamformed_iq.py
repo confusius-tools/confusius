@@ -1,6 +1,6 @@
 """Tests for the lazy beamformed IQ sample."""
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import dask.array as da
 import numpy.testing as npt
@@ -26,7 +26,7 @@ def test_sample_is_loaded_lazily_with_geometry(tmp_path, sample_voxeldata_3d):
             side_effect=lambda path, **kw: original_open(tmp_path / "input.zarr", **kw),
         ) as opener,
     ):
-        data = fetch_sample_beamformed_iq(print_citation=False)
+        data = fetch_sample_beamformed_iq(data_dir=tmp_path, print_citation=False)
     opener.assert_called_once_with(url, chunks={})
     assert isinstance(data.data, da.Array)
     npt.assert_allclose(data.compute().values, sample_voxeldata_3d.values)
@@ -34,3 +34,33 @@ def test_sample_is_loaded_lazily_with_geometry(tmp_path, sample_voxeldata_3d):
         data.fusi.affine.voxel_to_world, sample_voxeldata_3d.fusi.affine.voxel_to_world
     )
     assert "Landemard" in data.attrs["citation"]
+
+
+def test_release_metadata_cached_until_refresh(tmp_path, sample_voxeldata_3d):
+    """Reuse the release index without catalog requests unless refreshed."""
+    catalog = Mock(text="[datasets]\nsample-beamformed-iq = 1.0.0\n")
+    manifest = Mock()
+    manifest.json.return_value = {
+        "sub-ALD019_task-awake_acq-ref25_iq.zarr/zarr.json": {
+            "size": 1,
+            "sha256": "0" * 64,
+        }
+    }
+    with (
+        patch(
+            "confusius.datasets._s3.requests.get",
+            side_effect=[catalog, manifest, catalog, manifest],
+        ) as request,
+        patch(
+            "confusius.datasets._sample_beamformed_iq.load",
+            side_effect=lambda *args, **kwargs: sample_voxeldata_3d.copy(),
+        ),
+    ):
+        fetch_sample_beamformed_iq(data_dir=tmp_path, print_citation=False)
+        assert request.call_count == 2
+        fetch_sample_beamformed_iq(data_dir=tmp_path, print_citation=False)
+        assert request.call_count == 2
+        fetch_sample_beamformed_iq(
+            data_dir=tmp_path, refresh=True, print_citation=False
+        )
+        assert request.call_count == 4

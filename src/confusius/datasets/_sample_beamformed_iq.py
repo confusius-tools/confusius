@@ -1,8 +1,10 @@
 """Lazy access to a sample beamformed IQ recording."""
 
+from pathlib import Path
+
 import xarray as xr
 
-from confusius.datasets._s3 import get_index
+from confusius.datasets._s3 import get_index, update_cached_index
 from confusius.datasets._utils import (
     get_datasets_dir,
     plain_citation,
@@ -18,7 +20,11 @@ _CITATION = (
 )
 
 
-def fetch_sample_beamformed_iq(print_citation: bool = True) -> xr.DataArray:
+def fetch_sample_beamformed_iq(
+    data_dir: str | Path | None = None,
+    refresh: bool = False,
+    print_citation: bool = True,
+) -> xr.DataArray:
     """Open a sample beamformed IQ recording lazily from the ConfUSIus collection.
 
     The Landemard et al. (2026) awake ALD019 recording is a Zarr store. Data chunks
@@ -27,6 +33,13 @@ def fetch_sample_beamformed_iq(print_citation: bool = True) -> xr.DataArray:
 
     Parameters
     ----------
+    data_dir : str or pathlib.Path, optional
+        Directory in which to cache release metadata. Defaults to the platform cache
+        directory, overridable via the `CONFUSIUS_DATA` environment variable.
+        IQ chunks are not cached locally.
+    refresh : bool, default: False
+        Whether to resolve the latest published release instead of reusing cached
+        release metadata. Opening the Zarr store still requires network access.
     print_citation : bool, default: True
         Whether to print the citation for the recording.
 
@@ -43,9 +56,12 @@ def fetch_sample_beamformed_iq(print_citation: bool = True) -> xr.DataArray:
     """
     name = "sample-beamformed-iq"
     store = "sub-ALD019_task-awake_acq-ref25_iq.zarr"
-    index = get_index(get_datasets_dir() / name, "datasets", name, refresh=True)
+    cache_dir = get_datasets_dir(data_dir) / name
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    index = get_index(cache_dir, "datasets", name, refresh=refresh)
     url = index[f"{store}/zarr.json"]["url"].removesuffix("/zarr.json")
     data = load(url, variable="iq", chunks={})
+    update_cached_index(cache_dir, index)
     data.attrs["citation"] = plain_citation(_CITATION)
     if print_citation:
         print_citation_message(_CITATION, "dataset")
