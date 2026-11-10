@@ -16,8 +16,8 @@ Current development version for the next ConfUSIus release.
   Incremental Zarr writes are rejected to avoid inconsistent geometry metadata;
   save the complete array instead
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
-- Geometry now comes from the external `voxeldata>=0.0.4` package. Use the flat `.vd`
-  accessor instead of `.fusi.affine`, `.fusi.spacing`, `.fusi.origin`, or
+- Geometry and Zarr persistence now come from the external `voxeldata[io]>=0.0.5`
+  package. Use the flat `.vd` accessor instead of `.fusi.affine`, `.fusi.spacing`, `.fusi.origin`, or
   `.fusi.direction`. Named world frames live on the VoxelData index and are
   managed with `.vd.set_affine`/`.vd.get_affine`, not DataArray attributes.
 - Probe positions use `pose` with `geometry_dims=("pose",)`. Leading dimensions

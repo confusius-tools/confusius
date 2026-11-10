@@ -29,13 +29,12 @@ methods remain but do not default/validate acquisition metadata; constructors,
 loaders, and explicit validation own that policy. Primary timestamps may depend
 on `time` plus arbitrary nonspatial axes. Auxiliary `slice_time` semantics and
 correction remain in ConfUSIus. Extraction works without optional flox/Dask in VoxelData; ConfUSIus
-retains its existing analysis dependencies and requires published `voxeldata>=0.0.4`.
+retains its existing analysis dependencies and requires published `voxeldata[io]>=0.0.5`.
 Validate integration against the published package. When changing the VoxelData API, test
 against the sibling checkout with `uv run --with-editable ../voxeldata pytest ...`;
 the published dependency must support that API before merging the integration.
-The ordinary Zarr dispatcher now delegates to `voxeldata.load`/`save`, which are
-not included in published VoxelData 0.0.4. Keep this PR in draft until a release
-containing persistence is published, then update the minimum dependency and lockfile.
+The ordinary Zarr dispatcher delegates to `voxeldata.load`/`save`, available in
+published VoxelData 0.0.5 with the `io` extra.
 Do not replace the published dependency with a permanent local or Git source.
 
 VoxelData includes fUSI recordings, brain atlas volumes, PCA/decomposition component maps, dense displacement fields, B-spline control-point grids, and anything
