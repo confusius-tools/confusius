@@ -170,7 +170,8 @@ For other formats, you can build a multi-pose array in either of two ways.
     )
     ```
 
-- **From single-pose arrays:** Use [`stack_poses`][confusius.multipose.stack_poses]:
+- **From a list of single-pose arrays:** Use
+  [`stack_poses`][confusius.multipose.stack_poses]:
 
     ```python
     from confusius.multipose import stack_poses

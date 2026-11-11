@@ -2554,10 +2554,10 @@ def save_nifti(
         ):
             raise ValueError("Chunk pose labels must be unique non-negative integers.")
         # Each NIfTI has only one spatial qform/sform and its own timing sidecar.
-        for position, label in enumerate(pose_labels):
+        for pose in pose_labels:
             save_nifti(
-                data_array.isel(pose=position),
-                path.with_name(path.name.replace("{chunk}", str(label))),
+                data_array.sel(pose=pose),
+                path.with_name(path.name.replace("{chunk}", str(pose))),
                 nifti_version=nifti_version,
                 qform=qform,
                 sform=sform,
