@@ -646,7 +646,7 @@ iq = cf.create_voxeldata(
 validate_voxeldata(iq, require_velocity_attrs=True)
 ```
 
-See [Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for the
+See [Processing Beamformed IQ Data](beamformed-iq.md#data-format-and-metadata) for the
 required dimensions, metadata fields, and processing assumptions.
 
 ## Saving Data

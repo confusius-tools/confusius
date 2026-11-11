@@ -108,7 +108,7 @@ with threadpool_limits(limits=1, user_api="blas"):
 #     Moreover, Dask tasks and ConfUSIus computations can each use multiple threads.
 #     Therefore, it's recommended to limit the number of threads used by BLAS (the
 #     underlying linear algebra library used by ConfUSIus) to avoid over-subscription. 
-#     See the [IQ processing guide](../../../user-guide/beamformed-iq.md#memory-and-performance-optimization)
+#     See the [IQ processing guide](../../../user-guide/beamformed-iq.md#working-with-large-recordings)
 #     for more details.
 
 # %% [markdown]
