@@ -155,7 +155,9 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
     data_array : xarray.DataArray
         VoxelData array to save.
     path : str or pathlib.Path
-        Output path. The extension determines the format.
+        Output path. The extension determines the format. For NIfTI, a `{chunk}`
+        placeholder in the filename saves one file and JSON sidecar per pose,
+        using non-negative integer `pose` labels as chunk indices.
     **kwargs
         Additional keyword arguments forwarded to the underlying saver.
 
