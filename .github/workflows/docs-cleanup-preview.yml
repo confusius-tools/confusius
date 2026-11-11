@@ -12,8 +12,11 @@ jobs:
       group: docs-publish
       cancel-in-progress: false
     permissions:
+      contents: read
       pull-requests: write
     steps:
+      - uses: actions/checkout@v7
+
       - name: Remove preview from docs repo
         run: |
           set -euo pipefail
@@ -47,6 +50,17 @@ jobs:
           if [ "$CHANGED" = "true" ]; then
             git commit -m "docs: remove preview for PR #${{ github.event.number }}"
             git push
+          fi
+
+      - name: Deduplicate published assets
+        run: |
+          python tools/deduplicate_docs_assets.py docs-repo
+          git -C docs-repo config user.name "github-actions[bot]"
+          git -C docs-repo config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C docs-repo add -A
+          if ! git -C docs-repo diff --cached --quiet; then
+            git -C docs-repo commit -m "chore: deduplicate documentation assets"
+            git -C docs-repo push
           fi
 
       - name: Delete preview comment

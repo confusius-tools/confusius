@@ -267,6 +267,21 @@ jobs:
               -X PUT --input -
           fi
 
+      - name: Deduplicate published assets
+        if: steps.preview-state.outputs.state == 'open'
+        run: |
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.DOCS_DEPLOY_TOKEN }}@github.com/confusius-tools/confusius-docs.git" \
+            /tmp/confusius-docs-dedupe
+          python tools/deduplicate_docs_assets.py /tmp/confusius-docs-dedupe
+          git -C /tmp/confusius-docs-dedupe config user.name "github-actions[bot]"
+          git -C /tmp/confusius-docs-dedupe config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C /tmp/confusius-docs-dedupe add -A
+          if ! git -C /tmp/confusius-docs-dedupe diff --cached --quiet; then
+            git -C /tmp/confusius-docs-dedupe commit -m "chore: deduplicate documentation assets"
+            git -C /tmp/confusius-docs-dedupe push
+          fi
+
       - name: Post preview URL comment
         if: steps.preview-state.outputs.state == 'open'
         uses: marocchino/sticky-pull-request-comment@v3
@@ -353,3 +368,18 @@ jobs:
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
           uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --push --update-aliases "$VERSION" latest
+
+      - name: Deduplicate published assets
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        run: |
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.DOCS_DEPLOY_TOKEN }}@github.com/confusius-tools/confusius-docs.git" \
+            /tmp/confusius-docs-dedupe
+          python tools/deduplicate_docs_assets.py /tmp/confusius-docs-dedupe
+          git -C /tmp/confusius-docs-dedupe config user.name "github-actions[bot]"
+          git -C /tmp/confusius-docs-dedupe config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C /tmp/confusius-docs-dedupe add -A
+          if ! git -C /tmp/confusius-docs-dedupe diff --cached --quiet; then
+            git -C /tmp/confusius-docs-dedupe commit -m "chore: deduplicate documentation assets"
+            git -C /tmp/confusius-docs-dedupe push
+          fi
