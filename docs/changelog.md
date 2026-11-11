@@ -30,16 +30,19 @@ Current development version for the next ConfUSIus release.
   following BrainGlobe's move to Python 3.12-3.14 and
   [SPEC 0](https://scientific-python.org/specs/spec-0000/)
   ([#561](https://github.com/confusius-tools/confusius/pull/561)).
-  
+
 ### :sparkles: Enhancements
 
 - New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
   colormap stat maps are drawn with, which remembers its source colormap and
   threshold and can be rebuilt on another colormap with `with_source`
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
-- Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
-  them along `pose` in numeric chunk order while preserving geometry and timing
+- Load multi-pose arrays split into several NIfTI files using `{chunk}` in the filename,
+  stacking them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
+- Save multi-pose VoxelData arrays to separate NIfTI files and JSON sidecars with a
+  `{chunk}` filename template, preserving each pose's geometry and timing
+  ([#579](https://github.com/confusius-tools/confusius/pull/579)).
 
 ### :bug: Fixes
 
@@ -81,9 +84,6 @@ Current development version for the next ConfUSIus release.
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 - Fix video synchronization with recordings timed in milliseconds or microseconds
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
-
-### :frame_photo: Napari plugin
-
 - Open multipose arrays as one positioned layer per pose in `plot_napari`, its
   xarray accessors, and the CLI, with pose values in layer names
   ([#562](https://github.com/confusius-tools/confusius/pull/562)).
