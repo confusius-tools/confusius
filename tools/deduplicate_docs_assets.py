@@ -124,7 +124,10 @@ def rewrite_references(
         def replace_reference(match: re.Match[str], text_file: Path = text_file) -> str:
             url = match.group("url")
             split_url = urlsplit(url)
-            if split_url.scheme or split_url.netloc:
+            if (split_url.scheme or split_url.netloc) and not (
+                split_url.scheme in ("", "http", "https")
+                and split_url.netloc == "confusius.tools"
+            ):
                 return url
             asset_url = split_url.path
             if asset_url.startswith("/"):
@@ -136,7 +139,7 @@ def rewrite_references(
                         posixpath.join(source.parent.as_posix(), asset_url)
                     )
                 )
-            original = root / asset_rel
+            original = (root / asset_rel).resolve()
             shared = replacements.get(original)
             if shared is None:
                 return url
@@ -149,7 +152,13 @@ def rewrite_references(
                     text_file.relative_to(root), Path(shared_rel)
                 )
             return urlunsplit(
-                ("", "", replacement_path, split_url.query, split_url.fragment)
+                (
+                    split_url.scheme,
+                    split_url.netloc,
+                    replacement_path,
+                    split_url.query,
+                    split_url.fragment,
+                )
             )
 
         updated = ASSET_REFERENCE_PATTERN.sub(replace_reference, content)

@@ -229,57 +229,28 @@ jobs:
           STATE=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '.state')
           echo "state=$STATE" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy PR preview
-        if: steps.preview-state.outputs.state == 'open'
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          personal_token: ${{ secrets.DOCS_DEPLOY_TOKEN }}
-          external_repository: confusius-tools/confusius-docs
-          publish_branch: main
-          publish_dir: site/
-          destination_dir: pr-preview/pr-${{ github.event.number }}
-          keep_files: true
-
-      - name: Update pr-preview/versions.json for mike version switcher
-        if: steps.preview-state.outputs.state == 'open'
-        env:
-          GH_TOKEN: ${{ secrets.DOCS_DEPLOY_TOKEN }}
-        run: |
-          PR_NUM="${{ github.event.number }}"
-          RESPONSE=$(gh api repos/confusius-tools/confusius-docs/contents/pr-preview/versions.json 2>/dev/null || echo "")
-          if [ -n "$RESPONSE" ]; then
-            SHA=$(echo "$RESPONSE" | jq -r '.sha')
-            OLD_CONTENT=$(echo "$RESPONSE" | jq -r '.content | gsub("\\n"; "") | @base64d')
-          else
-            SHA=""
-            OLD_CONTENT="[]"
-          fi
-          NEW_ENTRY="{\"version\":\"pr-${PR_NUM}\",\"title\":\"PR #${PR_NUM} Preview\",\"aliases\":[]}"
-          NEW_CONTENT=$(echo "$OLD_CONTENT" | jq --argjson e "$NEW_ENTRY" \
-            '[.[] | select(.version != $e.version)] + [$e]')
-          if [ "$NEW_CONTENT" = "$OLD_CONTENT" ]; then
-            echo "pr-preview/versions.json already up to date, skipping"
-          else
-            CONTENT_B64=$(printf '%s' "$NEW_CONTENT" | base64 -w 0)
-            PAYLOAD=$(jq -n --arg sha "$SHA" --arg c "$CONTENT_B64" \
-              '{message:"chore: update pr-preview/versions.json",content:$c,sha:($sha|if .=="" then null else . end)} | del(..|nulls)')
-            echo "$PAYLOAD" | gh api repos/confusius-tools/confusius-docs/contents/pr-preview/versions.json \
-              -X PUT --input -
-          fi
-
-      - name: Deduplicate published assets
+      - name: Deploy deduplicated PR preview
         if: steps.preview-state.outputs.state == 'open'
         run: |
           git clone --depth 1 \
             "https://x-access-token:${{ secrets.DOCS_DEPLOY_TOKEN }}@github.com/confusius-tools/confusius-docs.git" \
-            /tmp/confusius-docs-dedupe
-          python tools/deduplicate_docs_assets.py /tmp/confusius-docs-dedupe
-          git -C /tmp/confusius-docs-dedupe config user.name "github-actions[bot]"
-          git -C /tmp/confusius-docs-dedupe config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C /tmp/confusius-docs-dedupe add -A
-          if ! git -C /tmp/confusius-docs-dedupe diff --cached --quiet; then
-            git -C /tmp/confusius-docs-dedupe commit -m "chore: deduplicate documentation assets"
-            git -C /tmp/confusius-docs-dedupe push
+            /tmp/confusius-docs
+          git -C /tmp/confusius-docs config user.name "github-actions[bot]"
+          git -C /tmp/confusius-docs config user.email "github-actions[bot]@users.noreply.github.com"
+          PR_NUM="${{ github.event.number }}"
+          mkdir -p /tmp/confusius-docs/pr-preview/pr-$PR_NUM
+          rsync -a --delete site/ /tmp/confusius-docs/pr-preview/pr-$PR_NUM/
+          VERSIONS=/tmp/confusius-docs/pr-preview/versions.json
+          [ -f "$VERSIONS" ] || echo '[]' > "$VERSIONS"
+          jq --arg version "pr-$PR_NUM" --arg title "PR #$PR_NUM Preview" \
+            '[.[] | select(.version != $version)] + [{version: $version, title: $title, aliases: []}]' \
+            "$VERSIONS" > "$VERSIONS.tmp"
+          mv "$VERSIONS.tmp" "$VERSIONS"
+          python tools/deduplicate_docs_assets.py /tmp/confusius-docs
+          git -C /tmp/confusius-docs add -A
+          if ! git -C /tmp/confusius-docs diff --cached --quiet; then
+            git -C /tmp/confusius-docs commit -m "docs: deploy preview for PR #$PR_NUM"
+            git -C /tmp/confusius-docs push
           fi
 
       - name: Post preview URL comment
@@ -347,12 +318,12 @@ jobs:
       - name: Deploy dev docs
         if: github.ref == 'refs/heads/main'
         working-directory: /tmp/confusius-docs
-        run: uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --push --update-aliases dev
+        run: uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --update-aliases dev
 
       - name: Expose llms.txt at the site root
         # Root-level symlinks into `latest/`, like the `latest` alias mike maintains.
         # Committed before `mike deploy` because mike writes git objects directly and
-        # leaves the working tree stale; its `--push` then carries this commit too.
+        # leaves the working tree stale.
         # No-op once the symlinks exist.
         if: startsWith(github.ref, 'refs/tags/v')
         working-directory: /tmp/confusius-docs
@@ -367,19 +338,15 @@ jobs:
         working-directory: /tmp/confusius-docs
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --push --update-aliases "$VERSION" latest
+          uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --update-aliases "$VERSION" latest
 
       - name: Deduplicate published assets
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         run: |
-          git clone --depth 1 \
-            "https://x-access-token:${{ secrets.DOCS_DEPLOY_TOKEN }}@github.com/confusius-tools/confusius-docs.git" \
-            /tmp/confusius-docs-dedupe
-          python tools/deduplicate_docs_assets.py /tmp/confusius-docs-dedupe
-          git -C /tmp/confusius-docs-dedupe config user.name "github-actions[bot]"
-          git -C /tmp/confusius-docs-dedupe config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C /tmp/confusius-docs-dedupe add -A
-          if ! git -C /tmp/confusius-docs-dedupe diff --cached --quiet; then
-            git -C /tmp/confusius-docs-dedupe commit -m "chore: deduplicate documentation assets"
-            git -C /tmp/confusius-docs-dedupe push
+          git -C /tmp/confusius-docs reset --hard main
+          python tools/deduplicate_docs_assets.py /tmp/confusius-docs
+          git -C /tmp/confusius-docs add -A
+          if ! git -C /tmp/confusius-docs diff --cached --quiet; then
+            git -C /tmp/confusius-docs commit -m "chore: deduplicate documentation assets"
           fi
+          git -C /tmp/confusius-docs push origin main

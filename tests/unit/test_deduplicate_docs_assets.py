@@ -67,6 +67,34 @@ def test_deduplicate_assets_does_not_rewrite_external_urls(tmp_path: Path) -> No
     assert second_asset.exists()
 
 
+def test_deduplicate_assets_rewrites_same_site_absolute_urls(tmp_path: Path) -> None:
+    for version in ("dev", "0.8.0"):
+        directory = tmp_path / version
+        directory.mkdir()
+        (directory / "example.png").write_bytes(b"identical image")
+        (directory / "index.html").write_text(
+            f'<img src="https://confusius.tools/{version}/example.png?x=1#view">',
+            encoding="utf-8",
+        )
+
+    (tmp_path / "latest").symlink_to("0.8.0", target_is_directory=True)
+    alias_page = tmp_path / "alias.html"
+    alias_page.write_text(
+        '<img src="//confusius.tools/latest/example.png">', encoding="utf-8"
+    )
+
+    assert deduplicate_assets(tmp_path) == (2, 3, 0)
+    shared = next((tmp_path / "shared-assets").iterdir())
+    assert alias_page.read_text(encoding="utf-8") == (
+        f'<img src="//confusius.tools/shared-assets/{shared.name}">'
+    )
+    for version in ("dev", "0.8.0"):
+        assert (tmp_path / version / "index.html").read_text(encoding="utf-8") == (
+            f'<img src="https://confusius.tools/shared-assets/{shared.name}?x=1#view">'
+        )
+        assert not (tmp_path / version / "example.png").exists()
+
+
 def test_deduplicate_assets_does_not_remove_unreferenced_files(tmp_path: Path) -> None:
     first_asset = tmp_path / "dev" / "images" / "example.png"
     second_asset = tmp_path / "0.8.0" / "images" / "example.png"
