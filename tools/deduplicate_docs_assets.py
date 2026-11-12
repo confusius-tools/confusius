@@ -1,4 +1,4 @@
-"""Deduplicate identical image assets in a generated documentation tree."""
+"""Deduplicate identical raster image assets in a generated documentation tree."""
 
 from __future__ import annotations
 
@@ -11,12 +11,22 @@ from collections import defaultdict
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-ASSET_EXTENSIONS = {".gif", ".png"}
+ASSET_EXTENSIONS = {
+    ".avif",
+    ".bmp",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
 TEXT_EXTENSIONS = {".css", ".html", ".js", ".json", ".md", ".mjs", ".txt", ".xml"}
 SHARED_DIRECTORY = Path("shared-assets")
 ASSET_REFERENCE_PATTERN = re.compile(
     r"(?P<url>(?:https?://[^\"'()\s]+|/[^\"'()\s]+|[^\"'()\s]+)"
-    r"\.(?:gif|png)(?:[?#][^\"'()\s]*)?)",
+    r"\.(?:avif|bmp|gif|jpeg|jpg|png|tiff|tif|webp)(?:[?#][^\"'()\s]*)?)",
     re.IGNORECASE,
 )
 
@@ -114,6 +124,8 @@ def rewrite_references(
         def replace_reference(match: re.Match[str], text_file: Path = text_file) -> str:
             url = match.group("url")
             split_url = urlsplit(url)
+            if split_url.scheme or split_url.netloc:
+                return url
             asset_url = split_url.path
             if asset_url.startswith("/"):
                 asset_rel = Path(asset_url.lstrip("/"))
@@ -130,7 +142,7 @@ def rewrite_references(
                 return url
             referenced_assets.add(original)
             shared_rel = shared.relative_to(root).as_posix()
-            if split_url.scheme or asset_url.startswith("/"):
+            if asset_url.startswith("/"):
                 replacement_path = f"/{shared_rel}"
             else:
                 replacement_path = get_relative_url(
@@ -149,7 +161,7 @@ def rewrite_references(
 
 
 def deduplicate_assets(root: Path, dry_run: bool = False) -> tuple[int, int, int]:
-    """Deduplicate identical PNG and GIF files in a documentation tree.
+    """Deduplicate identical raster image files in a documentation tree.
 
     Parameters
     ----------
