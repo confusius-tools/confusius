@@ -358,7 +358,6 @@ class TestComputeAxialVelocityVolume:
             transmit_frequency=transmit_frequency,
             beamforming_sound_velocity=beamforming_sound_velocity,
             lag=lag,
-            spatial_kernel=1,
         )
 
         assert_allclose(result[0], expected, rtol=1e-5)
@@ -1076,7 +1075,7 @@ class TestProcessIqToAxialVelocity:
         result = process_iq_to_axial_velocity(sample_voxeldata_iq_dataarray, lag=2)
 
         assert result.attrs["axial_velocity_lag"] == 2
-        assert result.attrs["axial_velocity_spatial_kernel"] == 3
+        assert result.attrs["axial_velocity_spatial_kernel"] == 1
         assert "axial_velocity_estimation_method" not in result.attrs
         assert "lag" not in result.attrs
         assert "absolute_velocity" not in result.attrs

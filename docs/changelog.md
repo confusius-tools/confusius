@@ -12,6 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`compute_axial_velocity_volume`][confusius.iq.compute_axial_velocity_volume],
+  [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity], and
+  the corresponding xarray accessor now default `spatial_kernel` to `1`, disabling
+  spatial median filtering unless requested
+  ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - [`get_bounding_box`][confusius.xarray.get_bounding_box] and
   [`.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] now
   return a dictionary mapping world coordinate names to `(min, max)` bounds instead
@@ -99,6 +104,8 @@ Current development version for the next ConfUSIus release.
 
 ### :books: Documentation
 
+- Add a beamformed IQ processing example covering B-mode, power Doppler, and axial
+  velocity ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
   archive, and simplify dataset and template citations
   ([#565](https://github.com/confusius-tools/confusius/pull/565)).
