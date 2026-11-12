@@ -462,5 +462,5 @@ array([-1., -1., -1., -1.,  0.,  0.,  0.,  0.,  1.,  1.,  1.,  1.])
 ```
 
 See [Affine Transforms](xarray.md#affine-transforms) in Working with Xarray for
-the rest of the `.fusi.affine` API (`voxel_to_world`, `set_voxel_to_world`, `to`, and
-the `translate`/`rotate`/`zoom` helpers).
+the rest of the `.fusi.affine` API (`voxel_to_world`, `set_voxel_to_world`, `to`) and
+the `.fusi.translate()`, `.fusi.rotate()` and `.fusi.zoom()` helpers.

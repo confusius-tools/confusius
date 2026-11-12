@@ -347,7 +347,7 @@ class FUSIAccessor:
     def translate(
         self, translation: npt.ArrayLike, *, inplace: bool = False
     ) -> xr.DataArray:
-        """Translate a DataArray in world space.
+        """Translate a VoxelData array in world space.
 
         `translation` is given in world `(z, y, x)` order. Only the voxel-to-world
         geometry changes. See
@@ -364,8 +364,8 @@ class FUSIAccessor:
         Returns
         -------
         xarray.DataArray
-            The translated DataArray. This is the DataArray itself if `inplace` is
-            `True`.
+            The translated VoxelData array. This is the wrapped array itself if
+            `inplace` is `True`.
 
         Raises
         ------
@@ -401,7 +401,7 @@ class FUSIAccessor:
         degrees: bool = True,
         inplace: bool = False,
     ) -> xr.DataArray:
-        """Rotate a DataArray in world space.
+        """Rotate a VoxelData array in world space.
 
         Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates,
         so a rotation of +90 degrees about `x` maps `+z` onto `+y`. Only the
@@ -434,8 +434,8 @@ class FUSIAccessor:
         Returns
         -------
         xarray.DataArray
-            The rotated DataArray. This is the DataArray itself if `inplace` is
-            `True`.
+            The rotated VoxelData array. This is the wrapped array itself if
+            `inplace` is `True`.
 
         Raises
         ------
@@ -478,7 +478,7 @@ class FUSIAccessor:
         center: TransformCenter = "origin",
         inplace: bool = False,
     ) -> xr.DataArray:
-        """Rescale a DataArray in world space.
+        """Rescale a VoxelData array in world space.
 
         Only the voxel-to-world geometry changes. See
         [apply_zoom][confusius.xarray.apply_zoom] for details.
@@ -504,8 +504,8 @@ class FUSIAccessor:
         Returns
         -------
         xarray.DataArray
-            The rescaled DataArray. This is the DataArray itself if `inplace` is
-            `True`.
+            The rescaled VoxelData array. This is the wrapped array itself if
+            `inplace` is `True`.
 
         Raises
         ------
@@ -513,9 +513,8 @@ class FUSIAccessor:
             If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
             (singular affine), if `center` is neither `"origin"`, `"geometry"` nor a
             finite `(3,)` vector, if `center` is `"geometry"` and a voxel dim has
-            irregular coordinates, if the DataArray is not a VoxelData array, or if a
-            per-axis `zoom` is applied to pose-stacked geometry whose poses are not
-            parallel (all pose affines must share equal spatial scale magnitudes).
+            irregular coordinates, if the DataArray is not a VoxelData array, or if the
+            transformed pose affines no longer share equal spatial scale magnitudes.
 
         Examples
         --------

@@ -636,9 +636,8 @@ def apply_zoom(
         If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
         (singular affine), if `center` is neither `"origin"`, `"geometry"` nor a finite
         `(3,)` vector, if `center` is `"geometry"` and a voxel dim has irregular
-        coordinates, if `data` is not a VoxelData array, or if a per-axis `zoom` is
-        applied to pose-stacked geometry whose poses are not parallel (all pose affines
-        must share equal spatial scale magnitudes).
+        coordinates, if `data` is not a VoxelData array, or if the transformed pose
+        affines no longer share equal spatial scale magnitudes.
 
     Examples
     --------

@@ -144,10 +144,7 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
         True,
     )
 
-    assert (
-        sample_voxeldata_3dt.fusi.zoom(2.0, center=(1.0, 1.0, 1.0))
-        is expected_apply
-    )
+    assert sample_voxeldata_3dt.fusi.zoom(2.0, center=(1.0, 1.0, 1.0)) is expected_apply
     assert calls["zoom"] == (sample_voxeldata_3dt, 2.0, (1.0, 1.0, 1.0), False)
 
 

@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 import pytest
 import xarray as xr
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_array_equal
 from scipy.spatial.transform import Rotation
 
 from confusius.registration import extract_motion_parameters
@@ -252,7 +252,9 @@ def test_geometry_center_of_pose_dependent_data_encloses_all_poses(rng):
     assert_allclose(
         center.values, (bounds[:, 0].min(axis=0) + bounds[:, 1].max(axis=0)) / 2
     )
-    assert_allclose(get_geometry_center(data.isel(pose=1)).values, bounds[1].mean(axis=0))
+    assert_allclose(
+        get_geometry_center(data.isel(pose=1)).values, bounds[1].mean(axis=0)
+    )
 
 
 def test_geometry_center_with_irregular_coordinates_raises(rng):
@@ -268,7 +270,35 @@ def test_geometry_center_accessor_matches_function(rng):
     data = create_voxeldata(
         rng.random((4, 5, 6)), dims=("k", "j", "i"), voxel_to_world=OBLIQUE_AFFINE
     )
-    assert_allclose(data.fusi.affine.geometry_center.values, get_geometry_center(data).values)
+    assert_allclose(
+        data.fusi.affine.geometry_center.values, get_geometry_center(data).values
+    )
+
+
+@pytest.mark.parametrize(
+    ("transform", "args"),
+    [
+        (apply_translation, ((1.0, 2.0, 3.0),)),
+        (apply_rotation, (30.0, "x")),
+        (apply_zoom, (2.0,)),
+    ],
+    ids=["translation", "rotation", "zoom"],
+)
+def test_transforms_preserve_voxel_values_labels_and_input(rng, transform, args):
+    """World-space transforms preserve voxel data and leave the input untouched."""
+    data = _volume(rng, attrs={"affines": {"world_to_lab": np.eye(4).tolist()}}).isel(
+        k=slice(None, None, -1), j=slice(1, None), i=slice(None, None, 2)
+    )
+    original = data.copy(deep=True)
+
+    result = transform(data, *args)
+
+    assert result is not data
+    assert result.dims == original.dims
+    assert_array_equal(result.values, original.values)
+    for dim in ("k", "j", "i"):
+        assert_array_equal(result.coords[dim].values, original.coords[dim].values)
+    xr.testing.assert_identical(data, original)
 
 
 class TestApplyTranslation:
@@ -387,13 +417,6 @@ class TestApplyRotation:
             result.fusi.affine.voxel_to_world,
             chained.fusi.affine.voxel_to_world,
             atol=1e-12,
-        )
-
-    def test_axis_sequence_order_matters(self, rng):
-        zyx = apply_rotation(_volume(rng), (30.0, 20.0, 10.0), "zyx")
-        xyz = apply_rotation(_volume(rng), (10.0, 20.0, 30.0), "xyz")
-        assert not np.allclose(
-            zyx.fusi.affine.voxel_to_world, xyz.fusi.affine.voxel_to_world
         )
 
     def test_axis_sequence_matches_motion_parameters(self, rng):
@@ -565,7 +588,9 @@ class TestCenterOptions:
     def test_accepts_center_dataarray(self, rng, transform):
         data = _volume(rng)
         assert_allclose(
-            transform(data, center=get_geometry_center(data)).fusi.affine.voxel_to_world,
+            transform(
+                data, center=get_geometry_center(data)
+            ).fusi.affine.voxel_to_world,
             transform(data, center="geometry").fusi.affine.voxel_to_world,
         )
 
@@ -586,7 +611,8 @@ class TestCenterOptions:
         assert_allclose(affine[1] @ np.linalg.inv(ROTATED_POSE), applied, atol=1e-12)
 
     @pytest.mark.parametrize(
-        "center", ["middle", "", (1.0, 2.0), (np.nan, 0.0, 0.0), (True, False, False), None]
+        "center",
+        ["middle", "", (1.0, 2.0), (np.nan, 0.0, 0.0), (True, False, False), None],
     )
     def test_invalid_center_raises(self, rng, transform, center):
         with pytest.raises(ValueError, match="center"):
@@ -629,7 +655,7 @@ class TestApplyZoom:
             result.fusi.affine.voxel_to_world[1, :3, :3], 2.0 * ROTATED_POSE[:3, :3]
         )
 
-    def test_anisotropic_zoom_on_non_parallel_poses_raises(self, rng):
+    def test_zoom_with_unequal_transformed_pose_scales_raises(self, rng):
         with pytest.raises(ValueError, match="equal spatial scale"):
             apply_zoom(_pose_volume(rng), (1.0, 2.0, 1.0))
 

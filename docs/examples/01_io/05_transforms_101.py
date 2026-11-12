@@ -37,8 +37,8 @@ xr.set_options(display_expand_data=False, display_expand_attrs=False)
 
 template = cf.datasets.fetch_template_pepe_mariani_2026()
 
-# ConfUSIus stores world coordinates per voxel. Read the z value of the first voxel of
-# each plane in a 0.6 mm band.
+# World coordinates are lazily derived from the voxel-to-world affine. Read the z value
+# of the first voxel of each plane in a 0.6 mm band.
 slice_coords = template.sel(z=slice(5.8, 6.4)).z.values[:, 0, 0]
 
 # Pass a list so the plane keeps its k dimension and stays a VoxelData array.
@@ -322,7 +322,9 @@ _ = plotter.axes.ravel()[3].plot(
 # Each transform returned a new DataArray with the same values and the same `k`, `j`,
 # `i` grid as `plane`. Only the voxel-to-world affine changed, and with it the world
 # coordinates derived from that affine. Transforms apply in the order that you write
-# them. Thus a rotation followed by a zoom differs from a zoom followed by a rotation.
+# them. A rotation and a zoom with unequal per-axis factors generally give different
+# results when their order is reversed. A uniform zoom, as used here, commutes with
+# rotation about the same fixed point.
 # To resample a moved array onto another grid, use
 # [`resample_like`][confusius.registration.resample_like]. This is what
 # [`plot_composite`][confusius.plotting.plot_composite] did internally for each figure
