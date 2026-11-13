@@ -78,6 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish
+      queue: max
       cancel-in-progress: false
     permissions:
       actions: read
@@ -143,4 +144,4 @@ jobs:
           message: |
             📖 Doc preview for `${{ needs.request-preview.outputs.head_sha }}`: https://confusius.tools/pr-preview/pr-${{ needs.request-preview.outputs.pr_number }}/
 
-            Successful Docs builds will refresh this preview automatically. Remove the `docs-preview` label to stop updates.
+            Successful Docs builds will refresh this preview automatically. Remove the `docs-preview` label to delete this preview.

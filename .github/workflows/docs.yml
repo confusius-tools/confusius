@@ -205,6 +205,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish
+      queue: max
       cancel-in-progress: false
     permissions:
       contents: read

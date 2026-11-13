@@ -2,13 +2,15 @@ name: Clean up doc preview
 
 on:
   pull_request_target:
-    types: [closed]
+    types: [closed, unlabeled]
 
 jobs:
   cleanup:
+    if: github.event.action == 'closed' || github.event.label.name == 'docs-preview'
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish
+      queue: max
       cancel-in-progress: false
     permissions:
       contents: read
@@ -21,6 +23,11 @@ jobs:
           persist-credentials: false
 
       - name: Remove preview from docs repo
+        id: cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.number }}
         run: |
           set -euo pipefail
           git clone --depth 1 \
@@ -29,6 +36,13 @@ jobs:
           cd docs-repo
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Recheck after queueing and cloning in case the PR was reopened or relabeled.
+          PR=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER")
+          if jq -e '.state == "open" and any(.labels[]; .name == "docs-preview")' <<< "$PR" > /dev/null; then
+            echo 'removed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           PR_DIR="pr-preview/pr-${{ github.event.number }}"
           if [ -d "$PR_DIR" ]; then
@@ -53,8 +67,10 @@ jobs:
             git commit -m "docs: remove preview for PR #${{ github.event.number }}"
             git push
           fi
+          echo 'removed=true' >> "$GITHUB_OUTPUT"
 
       - name: Delete preview comment
+        if: steps.cleanup.outputs.removed == 'true'
         uses: marocchino/sticky-pull-request-comment@v3
         with:
           delete: true

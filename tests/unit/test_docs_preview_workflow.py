@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -224,9 +225,11 @@ def test_cleanup_uses_trusted_code_for_all_closed_prs() -> None:
     path = WORKFLOW.with_name("docs-cleanup-preview.yml")
     workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
-    assert workflow["on"] == {"pull_request_target": {"types": ["closed"]}}
+    assert workflow["on"] == {"pull_request_target": {"types": ["closed", "unlabeled"]}}
     cleanup = workflow["jobs"]["cleanup"]
-    assert "if" not in cleanup
+    assert cleanup["if"] == (
+        "github.event.action == 'closed' || github.event.label.name == 'docs-preview'"
+    )
     checkout = cleanup["steps"][0]
     assert checkout["uses"].startswith("actions/checkout@")
     assert checkout["with"] == {
@@ -234,6 +237,120 @@ def test_cleanup_uses_trusted_code_for_all_closed_prs() -> None:
         "persist-credentials": "false",
     }
     assert "python ../tools/deduplicate_docs_assets.py ." in cleanup["steps"][1]["run"]
+
+
+@pytest.mark.parametrize(
+    "filename, job",
+    [
+        ("docs.yml", "deploy-docs"),
+        ("docs-preview.yml", "deploy-preview"),
+        ("docs-cleanup-preview.yml", "cleanup"),
+    ],
+)
+def test_all_docs_publishers_queue_without_replacing_pending_jobs(
+    filename: str, job: str
+) -> None:
+    workflow = yaml.safe_load(WORKFLOW.with_name(filename).read_text(encoding="utf-8"))
+    assert workflow["jobs"][job]["concurrency"] == {
+        "group": "docs-publish",
+        "queue": "max",
+        "cancel-in-progress": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "state, labels, remove",
+    [
+        ("closed", ["docs-preview"], True),
+        ("open", [], True),
+        ("open", ["docs-preview"], False),
+    ],
+)
+def test_cleanup_removes_only_unwanted_previews_and_unused_assets(
+    tmp_path: Path, state: str, labels: list[str], remove: bool
+) -> None:
+    remote = tmp_path / "remote.git"
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    preview = seed / "pr-preview" / "pr-581"
+    preview.mkdir(parents=True)
+    (preview / "index.html").write_text('<img src="../../shared-assets/unused.png">')
+    versions = [{"version": "pr-581", "title": "PR #581 Preview", "aliases": []}]
+    (seed / "pr-preview" / "versions.json").write_text(json.dumps(versions))
+    shared = seed / "shared-assets"
+    shared.mkdir()
+    (shared / "unused.png").write_bytes(b"preview image")
+    (shared / "live.png").write_bytes(b"released image")
+    (seed / "index.html").write_text('<img src="shared-assets/live.png">')
+    for arguments in [
+        ["init", "--bare", str(remote)],
+        ["init", "-b", "main", str(seed)],
+        ["-C", str(seed), "config", "user.name", "Test"],
+        ["-C", str(seed), "config", "user.email", "test@example.com"],
+        ["-C", str(seed), "add", "."],
+        ["-C", str(seed), "commit", "-m", "Initial site"],
+        ["-C", str(seed), "push", str(remote), "main"],
+    ]:
+        subprocess.run(["git", *arguments], check=True, capture_output=True)
+    sandbox = tmp_path / "sandbox"
+    (sandbox / "tools").mkdir(parents=True)
+    shutil.copyfile(
+        WORKFLOW.parents[2] / "tools" / "deduplicate_docs_assets.py",
+        sandbox / "tools" / "deduplicate_docs_assets.py",
+    )
+    workflow = yaml.safe_load(
+        WORKFLOW.with_name("docs-cleanup-preview.yml").read_text(encoding="utf-8")
+    )
+    script = workflow["jobs"]["cleanup"]["steps"][1]["run"]
+    script = script.replace("${{ secrets.DOCS_DEPLOY_TOKEN }}", "test-token")
+    script = script.replace("${{ github.event.number }}", "581")
+    fake_commands = r"""
+    gh() { printf '%s' "$MOCK_PR"; }
+    git() {
+      if [ "$1" = clone ]; then
+        command git clone "$MOCK_REMOTE" docs-repo
+      else
+        command git "$@"
+      fi
+    }
+    """
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-c", fake_commands + script],
+        cwd=sandbox,
+        env={
+            **os.environ,
+            "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"],
+            "GH_REPO": "confusius-tools/confusius",
+            "PR_NUMBER": "581",
+            "GITHUB_OUTPUT": str(output),
+            "MOCK_REMOTE": str(remote),
+            "MOCK_PR": json.dumps(
+                {"state": state, "labels": [{"name": label} for label in labels]}
+            ),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == f"removed={str(remove).lower()}\n"
+    paths = subprocess.run(
+        ["git", "--git-dir", str(remote), "ls-tree", "-r", "--name-only", "main"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    assert ("pr-preview/pr-581/index.html" not in paths) == remove
+    assert ("shared-assets/unused.png" not in paths) == remove
+    assert "shared-assets/live.png" in paths
+    published_versions = subprocess.run(
+        ["git", "--git-dir", str(remote), "show", "main:pr-preview/versions.json"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert json.loads(published_versions) == ([] if remove else versions)
 
 
 def test_preview_rejects_closed_pr(request_environment: dict[str, str]) -> None:

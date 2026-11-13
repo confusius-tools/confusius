@@ -80,7 +80,7 @@ Documentation is built and checked for every pull request. To publish a preview,
 add the **`docs-preview` GitHub label** to the PR. The latest successful Docs build
 for its current commit is deployed, and subsequent successful builds refresh the
 preview automatically. A bot posts the preview URL and commit on the PR. Remove
-the label to stop updates (the existing preview remains until the PR closes).
+the label to delete the preview and stop updates.
 Build artifacts expire after 14 days; rerun the PR's Docs workflow if needed.
 The preview is cleaned up automatically when the PR is closed.
 
