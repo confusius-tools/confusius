@@ -106,15 +106,9 @@ def test_oblique_bounds_match_materialized_coordinates(rng):
     )
 
 
-def test_axis_aligned_bounds_are_voxel_edges(rng):
+def test_axis_aligned_bounds_are_voxel_edges(sample_voxeldata_3d):
     """Axis-aligned geometry gives origin minus half a voxel to the last voxel's far edge."""
-    data = create_voxeldata(
-        rng.random((4, 6, 8)),
-        dims=("k", "j", "i"),
-        spacing=(0.2, 0.1, 0.05),
-        origin=(1.0, 2.0, 3.0),
-    )
-    bbox = get_bounding_box(data)
+    bbox = get_bounding_box(sample_voxeldata_3d)
     expected = np.array(
         [
             [1.0 - 0.1, 2.0 - 0.05, 3.0 - 0.025],
@@ -529,25 +523,30 @@ class TestApplyRotation:
 
 
 @pytest.mark.parametrize(
-    "transform",
+    ("transform", "expected_offset"),
     [
-        lambda data, **kwargs: apply_rotation(data, 30.0, "y", **kwargs),
-        lambda data, **kwargs: apply_zoom(data, 3.0, **kwargs),
-        lambda data, **kwargs: apply_flip(data, "x", **kwargs),
+        (
+            lambda data, **kwargs: apply_rotation(data, 30.0, "y", **kwargs),
+            (np.sqrt(3) / 2 + 1.5, 2.0, 3 * np.sqrt(3) / 2 - 0.5),
+        ),
+        (lambda data, **kwargs: apply_zoom(data, 3.0, **kwargs), (3.0, 6.0, 9.0)),
+        (lambda data, **kwargs: apply_flip(data, "x", **kwargs), (1.0, 2.0, -3.0)),
     ],
     ids=["rotation", "zoom", "flip"],
 )
 class TestCenterOptions:
     """Tests for the `center` options shared by rotation, zoom and flip."""
 
-    def test_default_is_geometry(self, rng, transform):
+    def test_default_is_geometry(self, rng, transform, expected_offset):
         data = _volume(rng)
         assert_allclose(
             transform(data).fusi.affine.voxel_to_world,
             transform(data, center="geometry").fusi.affine.voxel_to_world,
         )
 
-    def test_origin_is_first_sampled_voxel_after_cropping(self, rng, transform):
+    def test_origin_is_first_sampled_voxel_after_cropping(
+        self, rng, transform, expected_offset
+    ):
         # Cropping moves the first voxel away from the affine's translation.
         data = _volume(rng).isel(k=slice(1, None), i=slice(2, None))
         first_voxel = VOXEL_TO_WORLD @ [1.0, 0.0, 2.0, 1.0]
@@ -562,17 +561,19 @@ class TestCenterOptions:
             transform(data, center=(0.0, 0.0, 0.0)).fusi.affine.voxel_to_world,
         )
 
-    def test_origin_ignores_extra_dims_without_coordinates(self, rng, transform):
+    def test_origin_ignores_extra_dims_without_coordinates(
+        self, rng, transform, expected_offset
+    ):
         data = _volume(rng).expand_dims("component")
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            result = transform(data)
+            result = transform(data, center="origin")
         assert_allclose(
             result.fusi.affine.voxel_to_world,
-            transform(_volume(rng)).fusi.affine.voxel_to_world,
+            transform(_volume(rng), center="origin").fusi.affine.voxel_to_world,
         )
 
-    def test_geometry_keeps_bounding_box_center(self, rng, transform):
+    def test_geometry_keeps_bounding_box_center(self, rng, transform, expected_offset):
         data = _volume(rng)
         point = get_geometry_center(data)
         center = np.array([point[d] for d in ("z", "y", "x")])
@@ -583,20 +584,31 @@ class TestCenterOptions:
         result_center = get_geometry_center(result)
         assert_allclose([result_center[d] for d in ("z", "y", "x")], center, atol=1e-12)
 
-    def test_point_is_fixed(self, rng, transform):
+    def test_point_is_fixed(self, rng, transform, expected_offset):
         point = np.array([5.0, -7.0, 2.0])
         result = transform(_volume(rng), center=point)
         assert_allclose(
             _world_affine(result) @ [*point, 1.0], [*point, 1.0], atol=1e-12
         )
+        assert_allclose(
+            (_world_affine(result) @ [*(point + [1.0, 2.0, 3.0]), 1.0])[:3],
+            point + expected_offset,
+            atol=1e-12,
+        )
 
-    def test_mapping_center_uses_world_keys(self, rng, transform):
+    def test_mapping_center_uses_world_keys(self, rng, transform, expected_offset):
         data = _volume(rng)
         center = {"time": 12.0, "x": 2.0, "z": 5.0, "y": -7.0}
         result = transform(data, center=center)
         assert_allclose(
             _world_affine(result) @ [5.0, -7.0, 2.0, 1.0],
             [5.0, -7.0, 2.0, 1.0],
+            atol=1e-12,
+        )
+        point = np.array([5.0, -7.0, 2.0])
+        assert_allclose(
+            (_world_affine(result) @ [*(point + [1.0, 2.0, 3.0]), 1.0])[:3],
+            point + expected_offset,
             atol=1e-12,
         )
         assert_allclose(
@@ -606,11 +618,11 @@ class TestCenterOptions:
             ).fusi.affine.voxel_to_world,
         )
 
-    def test_world_origin_is_a_point(self, rng, transform):
+    def test_world_origin_is_a_point(self, rng, transform, expected_offset):
         result = transform(_volume(rng), center=(0.0, 0.0, 0.0))
         assert_allclose(_world_affine(result)[:3, 3], 0.0, atol=1e-12)
 
-    def test_accepts_geometry_center_mapping(self, rng, transform):
+    def test_accepts_geometry_center_mapping(self, rng, transform, expected_offset):
         data = _volume(rng)
         assert_allclose(
             transform(
@@ -620,7 +632,9 @@ class TestCenterOptions:
         )
 
     @pytest.mark.parametrize("pose_slice", [slice(None), slice(0, 1)])
-    def test_pose_stack_origin_requires_scalar_pose(self, rng, transform, pose_slice):
+    def test_pose_stack_origin_requires_scalar_pose(
+        self, rng, transform, expected_offset, pose_slice
+    ):
         data = _pose_volume(rng).isel(pose=pose_slice)
         with pytest.raises(ValueError, match="select a scalar pose"):
             transform(data, center="origin")
@@ -630,7 +644,9 @@ class TestCenterOptions:
             transform(selected, center=selected.fusi.origin).fusi.affine.voxel_to_world,
         )
 
-    def test_origin_restores_scalar_voxel_dimension(self, rng, transform):
+    def test_origin_restores_scalar_voxel_dimension(
+        self, rng, transform, expected_offset
+    ):
         data = _volume(rng).isel(i=2)
         assert_allclose(
             transform(data, center="origin").fusi.affine.voxel_to_world,
@@ -639,13 +655,20 @@ class TestCenterOptions:
             ).fusi.affine.voxel_to_world,
         )
 
-    def test_pose_stack_geometry_is_center_of_enclosing_box(self, rng, transform):
+    def test_pose_stack_geometry_is_center_of_enclosing_box(
+        self, rng, transform, expected_offset
+    ):
         data = _pose_volume(rng)
         point = get_geometry_center(data)
         center = np.array([point[d] for d in ("z", "y", "x")])
         affine = transform(data, center="geometry").fusi.affine.voxel_to_world
         applied = affine[0] @ np.linalg.inv(VOXEL_TO_WORLD)
         assert_allclose(applied @ [*center, 1.0], [*center, 1.0], atol=1e-12)
+        assert_allclose(
+            (applied @ [*(center + [1.0, 2.0, 3.0]), 1.0])[:3],
+            center + expected_offset,
+            atol=1e-12,
+        )
         # One matrix is applied on top of every pose's own affine.
         assert_allclose(affine[1] @ np.linalg.inv(ROTATED_POSE), applied, atol=1e-12)
 
@@ -662,17 +685,19 @@ class TestCenterOptions:
             {"z": np.nan, "y": 0.0, "x": 0.0},
         ],
     )
-    def test_invalid_center_raises(self, rng, transform, center):
+    def test_invalid_center_raises(self, rng, transform, expected_offset, center):
         with pytest.raises(ValueError, match="center"):
             transform(_volume(rng), center=center)
 
     @pytest.mark.parametrize("center", ["origin", "geometry", (0.0, 0.0, 0.0)])
-    def test_non_voxeldata_raises(self, transform, center):
+    def test_non_voxeldata_raises(self, transform, expected_offset, center):
         plain = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i"))
         with pytest.raises(ValueError, match="voxel"):
             transform(plain, center=center)
 
-    def test_geometry_with_irregular_coordinates_raises(self, rng, transform):
+    def test_geometry_with_irregular_coordinates_raises(
+        self, rng, transform, expected_offset
+    ):
         data = _volume(rng).isel(i=[0, 1, 3])
         with pytest.raises(ValueError, match="irregular"):
             transform(data, center="geometry")
