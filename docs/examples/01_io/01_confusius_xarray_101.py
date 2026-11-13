@@ -144,10 +144,10 @@ roi_trace
 # %%
 roi_trace_smooth = roi_trace.rolling(time=15, center=True).mean()
 
-fig, ax = plt.subplots(figsize=(7, 3), facecolor=bg_color)
+fig, ax = plt.subplots(figsize=(7, 3))
 
 roi_trace.plot(ax=ax, color="#d93a54", label="ROI mean")
-roi_trace_smooth.plot(ax=ax, color="#3ad9a4", label="Rolling mean (15 samples)")
+roi_trace_smooth.plot(ax=ax, color="#27906d", label="Rolling mean (15 samples)")
 
 ax.set_title("Mean power Doppler intensity in a central ROI")
 ax.set_xlabel("Time (s)")

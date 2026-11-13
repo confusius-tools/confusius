@@ -122,7 +122,6 @@ motion_df.head()
 
 # %% tags=["thumbnail"]
 fig, axes = cf.plotting.plot_motion_diagnostics(motion_df)
-fig.patch.set_facecolor(bg_color)
 
 # %% [markdown]
 # ## Compare a representative time series before and after registration
@@ -146,7 +145,6 @@ units = highest_std_voxel.x.units
 xy_position = f"(x, y) = ({x_value:.2f}, {y_value:.2f}) {units}"
 
 fig, axs = plt.subplots(1, 2, figsize=(9, 3.5), constrained_layout=True)
-fig.patch.set_facecolor(bg_color)
 
 plotter = (
     data.mean("time")
@@ -177,7 +175,6 @@ raster_before = data.fusi.scale.db().sel(z=0, x=x_value)
 raster_after = registered.fusi.scale.db().sel(z=0, x=x_value)
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 4), constrained_layout=True, sharey=True)
-fig.patch.set_facecolor(bg_color)
 
 vmin = float(np.nanpercentile(raster_before, 2))
 vmax = float(np.nanpercentile(raster_before, 99.8))
