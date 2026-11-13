@@ -19,7 +19,7 @@ Current development version for the next ConfUSIus release.
 - Geometry and Zarr persistence now come from the external `voxeldata[io]>=0.0.5`
   package. Use the flat `.vd` accessor instead of `.fusi.affine`, `.fusi.spacing`, `.fusi.origin`, or
   `.fusi.direction`. Named world frames live on the VoxelData index and are
-  managed with `.vd.set_affine`/`.vd.get_affine`, not DataArray attributes.
+  managed with `.vd.set_affine` and read with `.vd.affines[name]`, not DataArray attributes.
 - Probe positions use `pose` with `geometry_dims=("pose",)`. Leading dimensions
   may appear in any order; optional canonicalization uses
   `(...extra, pose, time, k, j, i)`
@@ -31,12 +31,19 @@ Current development version for the next ConfUSIus release.
   values. Use `.vd.world_units` / `.vd.set_world_units`, and `.vd.dt` for time
   sampling; `.vd.origin` and `.vd.spacing` describe spatial dimensions only
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
+- `canonicalize_voxeldata` now normalizes and validates in one call, replacing
+  `ensure_voxeldata`; its `.vd.canonicalize()` counterpart replaces `.vd.ensure()`.
+  Use `.vd.get_relative_affine(other, via=...)` instead of `.vd.to(...)`, and
+  `.vd.affines[name]` instead of `.vd.get_affine(name)`. Redundant accessor
+  properties `world_dims`, `voxel_dims`, `fixed_voxel_coords`, and `scalings`
+  are removed; advanced geometry state remains available through `.vd.index`
+  ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 - World transforms restore scalar-selected voxel dimensions automatically unless
   using `inplace=True`; canonicalize before other geometry mutators when needed.
 - Import extraction functions from `confusius.extract`, not its former `mask`,
   `labels`, or `reconstruction` submodules. These are direct VoxelData re-exports:
   extraction preserves timing metadata but no longer adds acquisition defaults
-  or validates fUSI timing semantics. Use ConfUSIus `ensure_voxeldata` explicitly
+  or validates fUSI timing semantics. Use ConfUSIus `canonicalize_voxeldata` explicitly
   when acquisition-aware canonicalization/validation is required.
 - [`plot_stat_map`][confusius.plotting.plot_stat_map] and
   [`plot_matrix`][confusius.plotting.plot_matrix] default to the `"berlin"`
@@ -564,7 +571,7 @@ Released 2026-08-31.
 - Renamed `create_fusi_dataarray` to
   [`create_voxeldata`][confusius.xarray.create_voxeldata], `validate_fusi` to
   [`validate_voxeldata`][confusius.validation.validate_voxeldata], `ensure_fusi` to
-  [`ensure_voxeldata`][confusius.validation.ensure_voxeldata], and
+  `ensure_voxeldata`, and
   `canonicalize_fusi` to `canonicalize_voxeldata`. Removed the separate
   `create_iq_dataarray`, `validate_iq`, and `ensure_iq` APIs; IQ data is now built
   with `create_voxeldata`, with `transmit_frequency` and
@@ -607,7 +614,7 @@ Released 2026-08-31.
   exactly; `load_nifti` composes the full primary qform/sform affine into
   `voxel_to_world` instead of decomposing it into axis-aligned scale/origin
   ([#278](https://github.com/confusius-tools/confusius/pull/278)).
-- Added [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] to canonicalize
+- Added `ensure_voxeldata` to canonicalize
   and validate VoxelData inputs with one call, and added
   [`create_voxeldata`][confusius.xarray.create_voxeldata] to build VoxelData from a
   raw array plus higher-level metadata (`dt`, spacing, axis origins, attrs). It

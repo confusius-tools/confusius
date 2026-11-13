@@ -45,7 +45,7 @@ else gridded in space. A VoxelData array is **always**:
 - Dims `(*nonspatial_dims, k, j, i)` — `time`/`pose` are optional and all leading
   dimensions may appear in any order. Creation preserves leading order. Optional
   ConfUSIus canonicalization/ensure uses `(...extra, pose, time, k, j, i)`; generic
-  `.vd.canonicalize()`/`.vd.ensure()` uses `(...extra, time, k, j, i)`, preserving
+  `.vd.canonicalize()` normalizes and validates, using `(...extra, time, k, j, i)`, preserving
   extra dimensions' relative order. Native voxel indices `k`/`j`/`i` are mandatory and last.
 - Backed by a `VoxelToWorldIndex` attached to `z`/`y`/`x`
   (`voxeldata.VoxelToWorldIndex`/`VoxelToWorldTransform`), which
@@ -59,7 +59,7 @@ else gridded in space. A VoxelData array is **always**:
   spatial stacking continue to work. World coordinates
   are never stored directly—always this index's output.
 - Named world frames live on this index, accessed with `.vd.affines`,
-  `.vd.get_affine`, `.vd.set_affine`, and `.vd.remove_affine`, never in
+  `.vd.affines[name]`, `.vd.set_affine`, and `.vd.remove_affine`, never in
   `attrs["affines"]`. Zarr I/O serializes them under
   `voxel_to_world_named_affines`, with ordered dependencies in
   `voxel_to_world_geometry_dims`, and reconstructs the index on load. NIfTI sidecars
@@ -76,7 +76,7 @@ consistently in code, docstrings, and docs:
 - **VoxelData geometry**: specifically the affine/index/spatial coordinate semantics,
   not the whole array.
 
-Use `confusius.validation.validate_voxeldata`/`ensure_voxeldata` to check any
+Use `confusius.validation.validate_voxeldata`/`canonicalize_voxeldata` to check any
 VoxelData array—by default it enforces the universal `k`/`j`/`i` +
 `VoxelToWorldIndex` structure above (dims, the index itself, `units` coordinate attrs).
 Its optional flags (`require_time`, `require_unchunked_time`, `require_dtype`,
@@ -163,7 +163,7 @@ src/confusius/
 ├── signal/         # Confound regression, censoring, detrending, filtering
 ├── spatial/        # Spatial smoothing
 ├── stats/          # Statistical thresholding
-├── validation/     # validate_voxeldata/ensure_voxeldata, mask/labels/atlas/time-series checks
+├── validation/     # validate_voxeldata/canonicalize_voxeldata, mask/labels/atlas/time-series checks
 ├── xarray/         # FUSIAccessor (`data.fusi.<accessor>.<method>()`), create/scale
 └── _utils/         # cross-module internal helpers (see below)
 ```

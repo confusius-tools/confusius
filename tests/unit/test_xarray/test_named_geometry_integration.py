@@ -5,7 +5,7 @@ import pytest
 import xarray as xr
 
 from confusius import io
-from confusius.validation import ensure_voxeldata, validate_voxeldata
+from confusius.validation import canonicalize_voxeldata, validate_voxeldata
 from confusius.xarray import create_voxeldata
 
 
@@ -18,11 +18,9 @@ def test_constructor_forwards_ordered_geometry_dependencies(
     assert data.z.dims == ("time", "view", "k", "j", "i")
     assert data.time.attrs["volume_acquisition_duration"] == 1.0
     validate_voxeldata(data)
-    canonical = ensure_voxeldata(data.isel(j=1))
+    canonical = canonicalize_voxeldata(data.isel(j=1))
     assert canonical.vd.geometry_dims == ("time", "view")
-    np.testing.assert_array_equal(
-        canonical.vd.get_affine("lab"), data.vd.get_affine("lab")
-    )
+    np.testing.assert_array_equal(canonical.vd.affines["lab"], data.vd.affines["lab"])
     np.testing.assert_allclose(
         canonical.isel(time=2, view=1).z.squeeze("j"), data.isel(time=2, view=1, j=1).z
     )
@@ -70,9 +68,7 @@ def test_zarr_roundtrip_preserves_named_geometry_axes(
     assert restored.vd.geometry_dims == ("time", dim)
     np.testing.assert_array_equal(restored.transpose(*data.dims).values, data.values)
     np.testing.assert_allclose(restored.vd.voxel_to_world, data.vd.voxel_to_world)
-    np.testing.assert_array_equal(
-        restored.vd.get_affine("lab"), data.vd.get_affine("lab")
-    )
+    np.testing.assert_array_equal(restored.vd.affines["lab"], data.vd.affines["lab"])
     assert restored.time.attrs == data.time.attrs
     assert "voxel_to_world_geometry_dims" not in restored.attrs
     np.testing.assert_allclose(
@@ -126,9 +122,7 @@ def test_named_multiaxis_timestamps_roundtrip(
     )
     assert restored.time.attrs == data.time.attrs
     assert restored.vd.geometry_dims == data.vd.geometry_dims
-    np.testing.assert_array_equal(
-        restored.vd.get_affine("lab"), data.vd.get_affine("lab")
-    )
+    np.testing.assert_array_equal(restored.vd.affines["lab"], data.vd.affines["lab"])
     np.testing.assert_array_equal(restored.transpose(*data.dims).values, data.values)
 
 

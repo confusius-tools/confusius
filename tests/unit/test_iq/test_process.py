@@ -19,7 +19,7 @@ from confusius.iq.process import (
     process_iq_to_bmode,
     process_iq_to_power_doppler,
 )
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.xarray import create_voxeldata
 
 
@@ -930,7 +930,7 @@ class TestProcessIqToPowerDoppler:
             doppler_window_stride=2,
         )
 
-        ensure_voxeldata(result)
+        canonicalize_voxeldata(result)
         assert_allclose(
             result.vd.voxel_to_world,
             sample_voxeldata_iq_dataarray.vd.voxel_to_world,
@@ -1133,7 +1133,7 @@ class TestProcessIqToAxialVelocity:
             velocity_window_stride=2,
         )
 
-        ensure_voxeldata(result)
+        canonicalize_voxeldata(result)
         assert_allclose(
             result.vd.voxel_to_world,
             sample_voxeldata_iq_dataarray.vd.voxel_to_world,
@@ -1403,7 +1403,7 @@ class TestProcessIqToBmode:
             bmode_window_stride=5,
         )
 
-        ensure_voxeldata(result)
+        canonicalize_voxeldata(result)
         assert_allclose(
             result.vd.voxel_to_world,
             sample_voxeldata_iq_dataarray.vd.voxel_to_world,

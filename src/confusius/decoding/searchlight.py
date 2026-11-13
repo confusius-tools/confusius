@@ -25,7 +25,7 @@ from confusius._utils.io import is_h5py_backed
 from confusius._utils.progress import progress_bar
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask, unmask
-from confusius.validation import ensure_mask, ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata, ensure_mask
 
 
 def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
@@ -510,7 +510,7 @@ class SearchLight(BaseEstimator):
                 "data first."
             )
 
-        X_ordered = ensure_voxeldata(
+        X_ordered = canonicalize_voxeldata(
             X,
             require_time=True,
             require_unchunked_time=True,

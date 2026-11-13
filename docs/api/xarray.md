@@ -49,5 +49,3 @@ metadata on the time coordinate.
 ::: voxeldata.validation.validate_voxeldata
 
 ::: voxeldata.validation.canonicalize_voxeldata
-
-::: voxeldata.validation.ensure_voxeldata

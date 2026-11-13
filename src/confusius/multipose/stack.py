@@ -11,7 +11,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_units,
 )
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 
 
 def stack_poses(
@@ -31,7 +31,7 @@ def stack_poses(
     poses : sequence[xarray.DataArray]
         VoxelData arrays to stack, one per pose, in pose order. Each
         must have no existing `pose` dimension (see
-        [ensure_voxeldata][confusius.validation.ensure_voxeldata]'s `allow_pose` parameter).
+        [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata]'s `allow_pose` parameter).
         Voxel dimensions, shape, voxel-space (`k`/`j`/`i`) coordinate values, and any
         non-core dimensions must otherwise agree across poses, exactly as required to
         merge non-concatenated variables in any `xr.concat` call.
@@ -72,7 +72,7 @@ def stack_poses(
             f"for {len(poses)} poses."
         )
 
-    poses = [ensure_voxeldata(p, allow_pose=False) for p in poses]
+    poses = [canonicalize_voxeldata(p, allow_pose=False) for p in poses]
     pose_labels = list(range(len(poses))) if pose is None else list(pose)
     has_time = TIME_DIM in poses[0].dims
 
@@ -112,7 +112,7 @@ def stack_poses(
         raise ValueError("All probe poses must carry the same named affine frames.")
     named_affines = {}
     for name in sorted(frame_names):
-        frames = np.stack([value.vd.get_affine(name) for value in poses])
+        frames = np.stack([value.vd.affines[name] for value in poses])
         named_affines[name] = frames[0] if np.allclose(frames, frames[0]) else frames
 
     stacked = xr.concat(promoted, dim=POSE_DIM, join="exact")

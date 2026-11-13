@@ -26,7 +26,7 @@ from confusius._utils.napari import (
     share_image_contrast_limits,
 )
 from confusius.registration import resample_like
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
@@ -355,7 +355,7 @@ def draw_napari_labels(
     >>> # Convert painted labels to an integer label map DataArray.
     >>> label_map = extract_labels_from_layer(labels_layer, pwd.mean("time"))
     """
-    data = ensure_voxeldata(data)
+    data = canonicalize_voxeldata(data)
     if POSE_DIM in data.dims:
         raise ValueError("Select a single pose before drawing labels.")
     # The painting background is an intensity image, regardless of its dtype.
@@ -466,7 +466,7 @@ def extract_labels_from_layer(
     >>> from confusius.extract import extract_with_labels
     >>> signals = extract_with_labels(pwd, label_map)
     """
-    data = ensure_voxeldata(data)
+    data = canonicalize_voxeldata(data)
 
     label_array = np.asarray(labels_layer.data)
     all_dims = [str(dim) for dim in data.dims]
@@ -474,7 +474,7 @@ def extract_labels_from_layer(
     spatial_dims = [d for d in all_dims if d != time_dim]
     metadata_data = labels_layer.metadata.get("xarray")
     display_data = (
-        ensure_voxeldata(metadata_data)
+        canonicalize_voxeldata(metadata_data)
         if isinstance(metadata_data, xr.DataArray)
         else data
     )

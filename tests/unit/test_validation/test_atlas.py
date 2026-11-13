@@ -157,7 +157,7 @@ def test_named_frames_shared_by_atlas_variables() -> None:
     )
     validate_atlas(ds)
     for name in ds.data_vars:
-        np.testing.assert_array_equal(ds[name].vd.get_affine("world_to_sform"), affine)
+        np.testing.assert_array_equal(ds[name].vd.affines["world_to_sform"], affine)
         assert ds[name].vd.index is ds["annotation"].vd.index
 
 

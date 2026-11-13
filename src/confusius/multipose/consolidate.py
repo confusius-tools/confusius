@@ -22,7 +22,7 @@ from confusius._utils.geometry import (
 )
 from confusius._utils.stack import find_stack_level
 from confusius.multipose.timing import build_consolidated_time_coordinate
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 
 
 def _consolidate_named_affines(
@@ -215,7 +215,7 @@ def consolidate_poses(
     UserWarning
         If the sweep is not purely 1D (secondary/primary singular value ratio > 0.01).
     """
-    da = ensure_voxeldata(da)
+    da = canonicalize_voxeldata(da)
 
     if "pose" not in da.dims:
         raise ValueError("DataArray has no 'pose' dimension.")
@@ -224,7 +224,7 @@ def consolidate_poses(
     if atol is None:
         atol = float(convert_length_units(0.005, "mm", to_unit=units))
 
-    # ensure_voxeldata above guarantees da carries a VoxelToWorldIndex, so the voxel dims
+    # canonicalize_voxeldata above guarantees da carries a VoxelToWorldIndex, so the voxel dims
     # (and their derived world coordinates) are always available here.
     voxel_dims = list(get_voxel_to_world_spatial_dims(da))
 

@@ -117,7 +117,7 @@ class TestConsolidatePoses:
 
         result = consolidate_poses(da)
 
-        np.testing.assert_array_equal(result.vd.get_affine("world_to_shared"), frame)
+        np.testing.assert_array_equal(result.vd.affines["world_to_shared"], frame)
 
     def test_scan_affines_pass_through(self, scan_3d: xr.DataArray) -> None:
         """Consolidation keeps the single (4, 4) SCAN affines unchanged.

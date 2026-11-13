@@ -7,7 +7,7 @@ from voxeldata.masks import ensure_mask as ensure_generic_mask
 from voxeldata.masks import validate_labels as validate_generic_labels
 from voxeldata.masks import validate_mask as validate_generic_mask
 
-from confusius.validation.voxeldata import ensure_voxeldata, validate_voxeldata
+from confusius.validation.voxeldata import canonicalize_voxeldata, validate_voxeldata
 
 __all__ = [
     "check_mask_dtype",
@@ -87,8 +87,8 @@ def ensure_mask(
     ValueError
         If model, grid, dimensions, or acquisition metadata are invalid.
     """
-    mask = ensure_voxeldata(mask, allow_extra_dims=True)
-    data = ensure_voxeldata(data, allow_extra_dims=True)
+    mask = canonicalize_voxeldata(mask, allow_extra_dims=True)
+    data = canonicalize_voxeldata(data, allow_extra_dims=True)
     return ensure_generic_mask(
         mask,
         data,
@@ -154,6 +154,6 @@ def ensure_labels(
     ValueError
         If model, voxel grid, or acquisition metadata are invalid.
     """
-    labels = ensure_voxeldata(labels, allow_extra_dims=True)
-    data = ensure_voxeldata(data, allow_extra_dims=True)
+    labels = canonicalize_voxeldata(labels, allow_extra_dims=True)
+    data = canonicalize_voxeldata(data, allow_extra_dims=True)
     return ensure_generic_labels(labels, data, labels_name)

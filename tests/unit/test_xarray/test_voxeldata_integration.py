@@ -7,7 +7,7 @@ import voxeldata
 from confusius import io
 from confusius._utils.geometry import VoxelToWorldIndex, attach_voxel_to_world_index
 from confusius.multipose import stack_poses
-from confusius.validation import ensure_voxeldata, validate_voxeldata
+from confusius.validation import canonicalize_voxeldata, validate_voxeldata
 from confusius.xarray import create_voxeldata
 
 
@@ -51,7 +51,7 @@ def test_leading_order_preserved_and_canonicalization_optional(dims):
     validate_voxeldata(data)
     validate_voxeldata(data.assign_coords(time=data.time.transpose("pose", "time")))
 
-    canonical = ensure_voxeldata(data)
+    canonical = canonicalize_voxeldata(data)
     assert canonical.dims == ("component", "pose", "time", "k", "j", "i")
     np.testing.assert_array_equal(canonical.transpose(*dims).values, values)
     assert canonical.time.attrs["volume_acquisition_duration"] == pytest.approx(0.2)
@@ -69,15 +69,36 @@ def test_generic_validation_does_not_require_fusi_acquisition_metadata():
     with pytest.raises(ValueError, match="volume_acquisition_reference"):
         validate_voxeldata(data)
     with pytest.warns(UserWarning, match="defaulting"):
-        fusi_data = ensure_voxeldata(data)
+        fusi_data = canonicalize_voxeldata(data)
     assert fusi_data.time.attrs["volume_acquisition_duration"] == 0.5
     assert "volume_acquisition_duration" not in data.time.attrs
+
+
+def test_canonicalization_keeps_acquisition_validation_requirements(
+    sample_voxeldata_3dt,
+):
+    """The sole normalization API still forwards ConfUSIus-specific checks."""
+    data = sample_voxeldata_3dt.isel(k=0)
+    result = canonicalize_voxeldata(
+        data, require_time=True, require_unchunked_time=True
+    )
+    assert result.sizes["k"] == 1
+    np.testing.assert_array_equal(
+        result.values, sample_voxeldata_3dt.isel(k=[0]).values
+    )
+    assert result.time.attrs == data.time.attrs
+    with pytest.raises(ValueError, match="transmit_frequency"):
+        canonicalize_voxeldata(data, require_velocity_attrs=True)
+    invalid = data.copy(deep=True)
+    invalid.time.attrs["volume_acquisition_reference"] = "invalid"
+    with pytest.raises(ValueError, match="volume_acquisition_reference"):
+        canonicalize_voxeldata(invalid)
 
 
 def test_scalar_selection_canonicalized_before_geometry_mutation(sample_voxeldata_3d):
     """Restore scalar-selected voxel axes explicitly before using VoxelData mutators."""
     selected = sample_voxeldata_3d.isel(k=1)
-    result = ensure_voxeldata(selected).vd.apply(np.eye(4))
+    result = canonicalize_voxeldata(selected).vd.apply(np.eye(4))
     assert result.sizes["k"] == 1
     np.testing.assert_array_equal(result.squeeze("k").values, selected.values)
     for dim in ("z", "y", "x"):
@@ -100,7 +121,7 @@ def test_stack_probe_poses_preserves_distinct_named_frames():
     ]
     result = stack_poses(poses, pose=[10, 20])
     np.testing.assert_array_equal(
-        result.vd.get_affine("world_to_lab"), np.stack([first_frame, second_frame])
+        result.vd.affines["world_to_lab"], np.stack([first_frame, second_frame])
     )
     np.testing.assert_array_equal(result.isel(pose=1).values, np.ones((1, 2, 3)))
     assert "affines" not in result.attrs
@@ -124,7 +145,7 @@ def test_zarr_roundtrip_preserves_grid_geometry_and_named_frames(tmp_path):
     restored = io.load(path)
     np.testing.assert_array_equal(restored.values, data.values)
     np.testing.assert_array_equal(restored.vd.voxel_to_world, geometry)
-    np.testing.assert_array_equal(restored.vd.get_affine("world_to_lab"), frames)
+    np.testing.assert_array_equal(restored.vd.affines["world_to_lab"], frames)
     assert "affines" not in restored.attrs
     assert "voxel_to_world_named_affines" not in restored.attrs
     assert isinstance(restored.vd.index, voxeldata.VoxelToWorldIndex)

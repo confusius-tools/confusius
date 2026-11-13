@@ -11,7 +11,11 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 from confusius.extract import extract_with_mask, unmask
-from confusius.validation import ensure_mask, ensure_voxeldata, validate_time_series
+from confusius.validation import (
+    canonicalize_voxeldata,
+    ensure_mask,
+    validate_time_series,
+)
 
 
 class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
@@ -246,7 +250,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             If `X` is not a valid VoxelData time series, or has a spatial layout
             inconsistent with the fitted estimator when `check_layout` is `True`.
         """
-        X = ensure_voxeldata(X, allow_extra_dims=True)
+        X = canonicalize_voxeldata(X, allow_extra_dims=True)
         validate_time_series(X, operation_name=operation_name)
 
         input_spatial_dims = tuple(str(dim) for dim in X.dims if dim != "time")
@@ -271,7 +275,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         mask = self.mask
         if mask is None:
             mask_template = X_ordered.isel(time=0, drop=True)
-            mask = ensure_voxeldata(
+            mask = canonicalize_voxeldata(
                 mask_template.copy(data=np.ones(mask_template.shape, dtype=bool)),
                 allow_extra_dims=True,
             )

@@ -558,10 +558,10 @@ for geometric intuition.
 To compute the affine relating two DataArrays' world spaces through a named affine
 they both carry in `.vd.affines` (e.g. a shared `"world_to_lab"` key from two
 poses of the same acquisition), use
-[`to`][voxeldata.accessors.VoxelDataAccessor.to]:
+[`get_relative_affine`][voxeldata.accessors.VoxelDataAccessor.get_relative_affine]:
 
 ```python
-moving_to_fixed = moving.vd.to(fixed, via="world_to_lab")
+moving_to_fixed = moving.vd.get_relative_affine(fixed, via="world_to_lab")
 ```
 
 #### Rebasing voxel coordinates to dense positions

@@ -3,7 +3,7 @@
 import numpy as np
 import xarray as xr
 
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 
 
 def ensure_iq_voxeldata(
@@ -31,7 +31,7 @@ def ensure_iq_voxeldata(
     TypeError
         If `iq` is not complex-valued.
     """
-    return ensure_voxeldata(
+    return canonicalize_voxeldata(
         iq,
         require_time=True,
         allow_pose=False,

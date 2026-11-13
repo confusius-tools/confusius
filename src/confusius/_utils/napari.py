@@ -224,9 +224,9 @@ def build_napari_layer_data(
         resample_to_axis_aligned_world_grid,
         sort_coords_for_plot,
     )
-    from confusius.validation import ensure_voxeldata
+    from confusius.validation import canonicalize_voxeldata
 
-    data = ensure_voxeldata(data)
+    data = canonicalize_voxeldata(data)
     resolved_layer_type = layer_type
     if resolved_layer_type == "auto":
         resolved_layer_type = infer_layer_type(data.dtype)

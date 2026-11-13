@@ -21,7 +21,7 @@ from confusius.atlas._world_to_base_transform import (
     _drop_vertices_outside_grid,
 )
 from confusius.registration.resampling import resample_volume
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.validation.atlas import validate_atlas
 
 if TYPE_CHECKING:
@@ -469,7 +469,7 @@ class AtlasAccessor:
             If `reference` has a `pose` or extra non-spatial dimension, or is not a
             VoxelData array.
         """
-        reference = ensure_voxeldata(
+        reference = canonicalize_voxeldata(
             reference,
             require_time=False,
             allow_pose=False,

@@ -45,7 +45,7 @@ from confusius.plotting._utils import (
 from confusius.plotting.colormap import ThresholdedColormap
 from confusius.signal import clean
 from confusius.validation import (
-    ensure_voxeldata,
+    canonicalize_voxeldata,
     validate_matching_coordinates,
     validate_time_series,
 )
@@ -602,7 +602,7 @@ def _build_axis_label(da: xr.DataArray, dim: str) -> str:
     # `_materialize_axis_aligned_world_grid_for_display`) genuinely has no voxel
     # dim left to restore, so fall back to `da` as-is in that case.
     try:
-        da = ensure_voxeldata(da)
+        da = canonicalize_voxeldata(da)
     except (TypeError, ValueError):
         pass
     if dim != POSE_DIM and has_voxel_to_world_index(da):
@@ -1259,7 +1259,7 @@ class VolumePlotter:
             `self.slice_mode`, or geometry that would not collapse to a 2D plane for a
             non-grid extra `self.slice_mode`).
         """
-        data = ensure_voxeldata(data)
+        data = canonicalize_voxeldata(data)
         data = coerce_complex_to_magnitude(data, caller="VolumePlotter")
         # Data is computed here to avoid repeated computations of the same Dask graph
         # downstream (per-panel .isel, etc.).

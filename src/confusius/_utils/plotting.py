@@ -16,7 +16,7 @@ from confusius._utils.geometry import (
     require_single_geometry_affine,
 )
 from confusius._utils.stack import find_stack_level
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 
 
 def scale_min_max(arr: NDArray[np.floating]) -> NDArray[np.floating]:
@@ -156,7 +156,7 @@ def compute_oblique_axis_aligned_grid_geometry(
     data : xarray.DataArray
         Oblique (non-axis-aligned) VoxelData array. May have a spatial dim already
         squeezed to a scalar coordinate (e.g. a single-slice panel with `k` isel'd
-        away) -- `ensure_voxeldata` restores it, affine and all, before computing
+        away) -- `canonicalize_voxeldata` restores it, affine and all, before computing
         geometry, so the result doesn't depend on whether the caller's dim was
         literal or scalar (see Notes).
     world_dims : collections.abc.Sequence of str
@@ -192,12 +192,12 @@ def compute_oblique_axis_aligned_grid_geometry(
     from the linear block, per `get_voxel_to_world_affine`'s docstring, rather than
     the whole 3-column matrix always being used regardless of array shape), so a
     single-slice panel's predicted resample shape depended on whether the caller
-    happened to squeeze it before or after handing it here. `ensure_voxeldata`
+    happened to squeeze it before or after handing it here. `canonicalize_voxeldata`
     below removes that dependency by always restoring the full, un-folded affine
     first, then QR decomposes it as a whole -- so the result is the same either
     way.
     """
-    data = ensure_voxeldata(data)
+    data = canonicalize_voxeldata(data)
     # QR only needs the affine, not the data's own per-voxel-dim coordinate
     # spacing -- but `resample_volume` (the eventual consumer of this geometry)
     # builds a regular-grid SimpleITK image from *all 3* native voxel dims

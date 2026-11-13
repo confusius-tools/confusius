@@ -12,7 +12,7 @@ import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
 from confusius.io.utils import check_path
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 
 
 def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.DataArray:
@@ -142,7 +142,7 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         _nifti.save_nifti(data_array, path, **kwargs)
         return
     if name.endswith(".zarr"):
-        vd.save(ensure_voxeldata(data_array), path, **kwargs)
+        vd.save(canonicalize_voxeldata(data_array), path, **kwargs)
         return
 
     raise ValueError(

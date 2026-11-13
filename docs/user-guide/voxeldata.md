@@ -68,9 +68,9 @@ order of leading dimensions. Both `(time, pose, k, j, i)` and
 Validation checks validity without changing the order.
 
 When a stable order is useful, ConfUSIus's
-[`ensure_voxeldata`][confusius.validation.ensure_voxeldata] uses
+[`canonicalize_voxeldata`][confusius.validation.canonicalize_voxeldata] uses
 `(...extra_dims, pose, time, k, j, i)` and defaults and validates fUSI acquisition
-metadata. Generic `data.vd.canonicalize()` and `data.vd.ensure()` use
+metadata and validates the result. Generic `data.vd.canonicalize()` uses
 `(...extra_dims, time, k, j, i)`; `pose` has no special meaning in VoxelData.
 Both preserve the relative order of extra dimensions and restore scalar-selected
 spatial dimensions without inserting absent nonspatial dimensions. Affine stacks
@@ -129,7 +129,7 @@ VoxelData array and want to check that it still satisfies the VoxelData model, u
 [`validate_voxeldata`][confusius.validation.validate_voxeldata].
 
 All ConfUSIus functions that expect a VoxelData array call
-[`ensure_voxeldata`][confusius.validation.ensure_voxeldata] on their input, which
+[`canonicalize_voxeldata`][confusius.validation.canonicalize_voxeldata] on their input, which
 canonicalizes the DataArray first—reordering dimensions to `(...extra, pose, time, k,
 j, i)`, restoring a voxel dimension collapsed to a scalar coordinate by a prior
 [`.isel`][xarray.DataArray.isel], and filling in missing `time` metadata with sensible
@@ -176,7 +176,7 @@ timing:
   with dims `(time, <sweep_dim>)` (or a single dim when `time` is scalar or absent),
   inheriting the pre-consolidation `time`'s `volume_acquisition_duration`/
   `volume_acquisition_reference`. `slice_time` requires the same three attributes as
-  `time` and [`ensure_voxeldata`][confusius.validation.ensure_voxeldata] fills in
+  `time` and [`canonicalize_voxeldata`][confusius.validation.canonicalize_voxeldata] fills in
   missing ones the same way, defaulting `volume_acquisition_duration` from the median
   consecutive gap between slices along `<sweep_dim>`.
 
@@ -350,7 +350,7 @@ replaced outright with
 
 Scalar spatial selection, such as `data.isel(k=0)`, removes a required voxel
 dimension. Before `.vd.apply()` or `.vd.reindex_voxels()`, restore it explicitly:
-`ensure_voxeldata(data.isel(k=0)).vd.apply(matrix)`. A scalar-selected `pose` is
+`canonicalize_voxeldata(data.isel(k=0)).vd.apply(matrix)`. A scalar-selected `pose` is
 not restored; it selects one probe pose and its geometry.
 
 That raw mapping is rarely what you want directly, though: most tools that consume
@@ -395,7 +395,7 @@ world = origin + direction @ (spacing * array_position)
 
 ConfUSIus stores affine transformations relating the DataArray's current world space to
 any number of other named spaces on the VoxelData index. Read them through
-`data.vd.affines` or `data.vd.get_affine(name)`; add or remove them with
+`data.vd.affines` (or `data.vd.affines[name]` for one frame); add or remove them with
 `data.vd.set_affine(name, matrix)` and `data.vd.remove_affine(name)`. Mutators return
 a new DataArray unless `inplace=True` is specified. Named frames never live in
 DataArray attributes. Reference spaces can be an atlas space, a scanner or lab space, another
@@ -491,5 +491,5 @@ array([-1., -1., -1., -1.,  0.,  0.,  0.,  0.,  1.,  1.,  1.,  1.])
 ```
 
 See [Affine Transforms](xarray.md#affine-transforms) in Working with Xarray for
-the rest of the `.vd` API (`voxel_to_world`, `set_voxel_to_world`, `to`,
+the rest of the `.vd` API (`voxel_to_world`, `set_voxel_to_world`, `get_relative_affine`,
 `translate`, `rotate`, `zoom`, and `flip`).

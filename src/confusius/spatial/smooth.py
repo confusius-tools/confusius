@@ -7,7 +7,7 @@ import scipy.ndimage
 import xarray as xr
 
 from confusius._utils.coordinates import get_coordinate_spacing_info
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 
 _FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 """FWM to Gaussian sigma conversion factor."""
@@ -124,7 +124,7 @@ def smooth_volume(
 
     >>> smoothed = smooth_volume(data, fwhm=0.3, ensure_finite=True)
     """
-    data = ensure_voxeldata(data)
+    data = canonicalize_voxeldata(data)
 
     all_dims = [str(d) for d in data.dims]
 

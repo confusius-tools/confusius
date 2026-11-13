@@ -1658,7 +1658,7 @@ class TestVolumePlotterAddContours:
     ):
         """add_contours restores a mask whose k dim was fixed away by scalar isel.
 
-        `ensure_voxeldata` canonicalizes `mask` the same way it does the plotter's
+        `canonicalize_voxeldata` canonicalizes `mask` the same way it does the plotter's
         own `data`, so a mask coming from e.g. `full_mask.isel(k=0)` still draws on
         the single z-slice it came from instead of raising.
         """

@@ -60,7 +60,7 @@ from confusius.registration._utils import (
 )
 from confusius.registration.affines import affine_to_sitk_linear_transform
 from confusius.validation import (
-    ensure_voxeldata,
+    canonicalize_voxeldata,
     validate_bspline,
     validate_displacement_field,
     validate_matching_spatial_units,
@@ -386,8 +386,8 @@ def sample_displacement_field_like(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    transform = ensure_voxeldata(transform, require_time=False, allow_pose=False)
-    reference = ensure_voxeldata(
+    transform = canonicalize_voxeldata(transform, require_time=False, allow_pose=False)
+    reference = canonicalize_voxeldata(
         reference,
         require_time=False,
         allow_pose=False,

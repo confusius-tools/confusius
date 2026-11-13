@@ -8,7 +8,7 @@ import xarray as xr
 from confusius._dims import POSE_DIM
 from confusius._utils.timing import interpolate_timeseries
 from confusius.multipose.timing import build_consolidated_time_coordinate
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 
 
 def correct_slice_timings(
@@ -107,7 +107,7 @@ def correct_slice_timings(
     if "time" not in da.dims:
         raise ValueError("DataArray must have a 'time' dimension.")
     original_dims = da.dims
-    da = ensure_voxeldata(da, require_time=True, require_unchunked_time=True)
+    da = canonicalize_voxeldata(da, require_time=True, require_unchunked_time=True)
 
     time_coord = da.coords["time"]
     is_pose_dependent_time = set(time_coord.dims) == {"time", POSE_DIM}

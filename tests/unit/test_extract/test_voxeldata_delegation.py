@@ -74,5 +74,5 @@ def test_fusi_unmask_preserves_mask_named_frames(sample_voxeldata_3d_oblique):
     expected = np.full(mask.shape, -1.0)
     expected.flat[[0, -1]] = [3.0, 8.0]
     np.testing.assert_array_equal(result, expected)
-    np.testing.assert_array_equal(result.vd.get_affine("reference"), frame)
+    np.testing.assert_array_equal(result.vd.affines["reference"], frame)
     np.testing.assert_array_equal(result.vd.voxel_to_world, mask.vd.voxel_to_world)

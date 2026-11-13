@@ -14,7 +14,7 @@ from scipy.spatial.transform import Rotation
 
 from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.geometry import get_voxel_to_world_spatial_dims
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.xarray.affine import get_geometry_center
 
 if TYPE_CHECKING:
@@ -64,7 +64,7 @@ def get_defined_spatial_spacing(da: xr.DataArray) -> tuple[list[str], list[float
     ValueError
         If any spatial spacing is undefined.
     """
-    da = ensure_voxeldata(
+    da = canonicalize_voxeldata(
         da,
         require_time=False,
         allow_pose=False,
@@ -138,19 +138,19 @@ def initialize_single_slice_rigid_transform(
     ------
     ValueError
         If either input is not a VoxelData array with a time-free, pose-free,
-        3D voxel-to-world grid (see `confusius.validation.ensure_voxeldata`), or if a
+        3D voxel-to-world grid (see `confusius.validation.canonicalize_voxeldata`), or if a
         voxel dim has irregular coordinates.
     """
-    # ensure_voxeldata (allow_extra_dims=False) already guarantees spatial_dims ==
+    # canonicalize_voxeldata (allow_extra_dims=False) already guarantees spatial_dims ==
     # VOXEL_DIMS for both inputs, so fixed/moving spatial dims can never actually
     # differ here -- no separate dims-match check needed.
-    fixed = ensure_voxeldata(
+    fixed = canonicalize_voxeldata(
         fixed,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
     )
-    moving = ensure_voxeldata(
+    moving = canonicalize_voxeldata(
         moving,
         require_time=False,
         allow_pose=False,

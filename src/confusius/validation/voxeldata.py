@@ -171,8 +171,8 @@ def _validate_slice_time_within_volume_window(
         )
 
 
-def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
-    """Restore a scalar-indexed VoxelData dimension and its geometry.
+def canonicalize_voxeldata(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
+    """Return a canonical, acquisition-validated VoxelData array.
 
     Scalar indexing such as `data.isel(j=0)` removes `j` from the array dimensions
     but retains it as a scalar coordinate. This function restores every missing
@@ -181,53 +181,9 @@ def canonicalize_voxeldata(data: xr.DataArray) -> xr.DataArray:
     values and their order. When scalar indexing fixed a dimension in a
     `VoxelToWorldIndex`, its geometry is rebuilt from the unchanged voxel-to-world
     affine, preserving the world-space units. Missing time acquisition metadata
-    also defaults where possible. This function does not otherwise validate the
-    VoxelData model; use
-    [ensure_voxeldata][confusius.validation.ensure_voxeldata] to canonicalize and
-    validate.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        DataArray to canonicalize.
-
-    Returns
-    -------
-    xarray.DataArray
-        Canonicalized DataArray with all native voxel dimensions present.
-
-    Raises
-    ------
-    TypeError
-        If `data` is not an `xarray.DataArray`.
-    ValueError
-        If a native voxel dimension is absent and has no scalar coordinate from which
-        to restore it, or its same-named coordinate is not scalar.
-
-    Warns
-    -----
-    UserWarning
-        If missing `time` or `slice_time` acquisition metadata is defaulted.
-    """
-    result = canonicalize_generic_voxeldata(data)
-    result = result.transpose(
-        *(d for d in result.dims if d not in CORE_DIMS),
-        *(d for d in CORE_DIMS if d in result.dims),
-    )
-    result = ensure_time_acquisition_attrs(result)
-    return ensure_slice_time_acquisition_attrs(result)
-
-
-def ensure_voxeldata(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
-    """Return a canonical, validated VoxelData array.
-
-    This is the normal entry point for spatial inputs: it restores scalar-indexed
-    native voxel dimensions and geometry, and orders dimensions as
-    `(...extra_dims, pose, time, k, j, i)` with
-    [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata], then checks
-    the resulting DataArray against the VoxelData model. Use
-    [validate_voxeldata][confusius.validation.validate_voxeldata] when the input must
-    already follow that model.
+    also defaults where possible. The result is checked with
+    [validate_voxeldata][confusius.validation.validate_voxeldata], including any
+    consumer-specific requirements passed through `validate_kwargs`.
 
     Parameters
     ----------
@@ -240,16 +196,28 @@ def ensure_voxeldata(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray
     Returns
     -------
     xarray.DataArray
-        Canonicalized VoxelData array that satisfies the requested validation checks.
+        Canonicalized VoxelData array satisfying the requested checks.
 
     Raises
     ------
     TypeError
         If `data` is not an `xarray.DataArray`.
     ValueError
-        If canonicalization or validation fails.
+        If a native voxel dimension is absent and has no scalar coordinate from which
+        to restore it, its same-named coordinate is not scalar, or validation fails.
+
+    Warns
+    -----
+    UserWarning
+        If missing `time` or `slice_time` acquisition metadata is defaulted.
     """
-    result = canonicalize_voxeldata(data)
+    result = canonicalize_generic_voxeldata(data)
+    result = result.transpose(
+        *(d for d in result.dims if d not in CORE_DIMS),
+        *(d for d in CORE_DIMS if d in result.dims),
+    )
+    result = ensure_time_acquisition_attrs(result)
+    result = ensure_slice_time_acquisition_attrs(result)
     validate_voxeldata(result, **validate_kwargs)
     return result
 
@@ -278,7 +246,7 @@ def validate_voxeldata(
     dimension coordinate. When `time` is present, its acquisition metadata and
     `units` are required. The optional flags add requirements
     needed by a particular consumer. Use
-    [ensure_voxeldata][confusius.validation.ensure_voxeldata] when scalar indexing
+    [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata] when scalar indexing
     may have removed a voxel dimension and the input should be canonicalized first.
 
     Parameters

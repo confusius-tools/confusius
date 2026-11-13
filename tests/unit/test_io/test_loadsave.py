@@ -17,7 +17,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_units,
 )
 from confusius.io.loadsave import load, save
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.xarray import create_voxeldata
 
 
@@ -179,7 +179,7 @@ class TestSaveDispatch:
             save(saveable_volume, path, mode="w", zarr_format=2)
         mock.assert_called_once()
         args, kwargs = mock.call_args
-        xr.testing.assert_identical(args[0], ensure_voxeldata(saveable_volume))
+        xr.testing.assert_identical(args[0], canonicalize_voxeldata(saveable_volume))
         assert args[1] == path.resolve()
         assert kwargs == {"mode": "w", "zarr_format": 2}
 

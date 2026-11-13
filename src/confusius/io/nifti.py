@@ -46,7 +46,7 @@ from confusius.timing import (
     convert_time_reference,
     convert_time_units,
 )
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.xarray.affine import reindex_voxels
 from confusius.xarray.create import create_voxeldata
 
@@ -1842,7 +1842,7 @@ def _prepare_data_for_nifti(
 
     data = np.transpose(data, target_order)
 
-    # save_nifti always canonicalizes data_array via ensure_voxeldata first, which
+    # save_nifti always canonicalizes data_array via canonicalize_voxeldata first, which
     # restores any voxel dim fixed away by a prior scalar isel, so k/j/i are always
     # present here.
     has_time_axis = "time" in current_dims or bool(extras)
@@ -1860,7 +1860,7 @@ def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
 
     `data_array` is always a VoxelData array here: `save_nifti`
     (the only caller)
-    calls `ensure_voxeldata` before reaching this point, so spacing always comes from the
+    calls `canonicalize_voxeldata` before reaching this point, so spacing always comes from the
     `VoxelToWorldIndex` -- there is no plain-coordinate fallback to consider.
 
     Parameters
@@ -2072,7 +2072,7 @@ def _build_nifti_voxel_to_world_affine(
     validation raises for irregular coordinates, but with a generic message, so
     that case is checked explicitly first for a clear NIfTI-specific error. An
     empty voxel coordinate needs no such check here: `save_nifti` validates `data_array`
-    via `ensure_voxeldata` before calling this, which already rejects zero-length
+    via `canonicalize_voxeldata` before calling this, which already rejects zero-length
     dimensions.
     """
     voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data_array.dims)
@@ -2540,7 +2540,7 @@ def save_nifti(
         str(path).count("{chunk}") != 1 or "{chunk}" not in path.name
     ):
         raise ValueError("Use exactly one {chunk} placeholder, in the filename.")
-    data_array = ensure_voxeldata(data_array, allow_pose=chunk_template)
+    data_array = canonicalize_voxeldata(data_array, allow_pose=chunk_template)
     if not path.name.endswith(".nii") and not path.name.endswith(".nii.gz"):
         raise ValueError("Output file must have .nii or .nii.gz extension.")
 

@@ -461,7 +461,7 @@ class TestLoadNifti:
 
         ConfUSIus world coordinates are always mm; every canonical DataArray carries
         `units` on its world coordinates (see
-        [ensure_voxeldata][confusius.validation.ensure_voxeldata]), regardless of what a source
+        [canonicalize_voxeldata][confusius.validation.canonicalize_voxeldata]), regardless of what a source
         NIfTI file's header does or doesn't declare.
         """
         data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
@@ -1618,7 +1618,7 @@ class TestSaveNifti:
         """Unrepresentable labels are rejected without writing any chunks."""
         source = sample_voxeldata_3dt_pose
         original = (
-            source.drop_indexes(list(source.vd.world_dims))
+            source.drop_indexes(["z", "y", "x"])
             .assign_coords(pose=labels)
             .vd.set_voxel_to_world(
                 source.vd.voxel_to_world,
@@ -3236,7 +3236,7 @@ class TestSaveNifti:
     def test_save_empty_voxel_coordinate_raises(self, tmp_path: Path) -> None:
         """Saving a voxel-to-world DataArray with an empty voxel coordinate raises.
 
-        Caught by `ensure_voxeldata`'s zero-length-dimension check, which
+        Caught by `canonicalize_voxeldata`'s zero-length-dimension check, which
         `save_nifti` runs before ever reaching NIfTI-specific serialization logic.
         """
         da = _add_identity_voxel_to_world(
@@ -3706,7 +3706,7 @@ class TestRoundtrip:
         )
 
         nifti_path = tmp_path / "approx_frame_duration.nii.gz"
-        # `ensure_voxeldata` (called at `save_nifti` entry) infers the missing
+        # `canonicalize_voxeldata` (called at `save_nifti` entry) infers the missing
         # `volume_acquisition_duration` from the median `time` spacing before
         # nifti.py's own equivalent fallback ever runs; the non-uniform-sampling
         # warning is unrelated and still fires normally.

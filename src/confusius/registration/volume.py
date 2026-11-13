@@ -116,12 +116,12 @@ def _validate_register_volume_inputs(
             "For volume-wise registration, use register_volumewise."
         )
 
-    from confusius.validation import ensure_voxeldata
+    from confusius.validation import canonicalize_voxeldata
 
-    moving = ensure_voxeldata(
+    moving = canonicalize_voxeldata(
         moving, require_time=False, allow_pose=False, allow_extra_dims=False
     )
-    fixed = ensure_voxeldata(
+    fixed = canonicalize_voxeldata(
         fixed, require_time=False, allow_pose=False, allow_extra_dims=False
     )
     validate_matching_spatial_units((("moving", moving), ("fixed", fixed)))

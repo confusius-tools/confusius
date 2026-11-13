@@ -384,7 +384,7 @@ class TestComputeSvdCumulativeEnergyThreshold:
     def test_single_timepoint_raises(self, sample_voxeldata_iq_dataarray):
         """A single-timepoint `time` dimension raises ValueError.
 
-        Regression test: `ensure_voxeldata` dropped the `require_time=True`
+        Regression test: `canonicalize_voxeldata` dropped the `require_time=True`
         guard the old `ensure_iq` used to pass, so a single-timepoint IQ array
         used to silently pass validation instead of raising here.
         """

@@ -22,7 +22,7 @@ from confusius.registration.bspline import (
     _voxeldata_to_sitk_bspline,
     _voxeldata_to_sitk_displacement_field,
 )
-from confusius.validation import ensure_voxeldata, validate_matching_spatial_units
+from confusius.validation import canonicalize_voxeldata, validate_matching_spatial_units
 from confusius.xarray.affine import reindex_voxels_like
 from confusius.xarray.create import create_voxeldata
 
@@ -206,7 +206,7 @@ def resample_volume(
     """
     import SimpleITK as sitk
 
-    moving = ensure_voxeldata(
+    moving = canonicalize_voxeldata(
         moving,
         require_time=False,
         allow_pose=False,
@@ -417,13 +417,13 @@ def resample_like(
     ValueError
         If `reference` does not contain the spatial dimensions `k`, `j`, and `i`.
     """
-    moving = ensure_voxeldata(
+    moving = canonicalize_voxeldata(
         moving,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=True,
     )
-    reference = ensure_voxeldata(
+    reference = canonicalize_voxeldata(
         reference,
         require_time=False,
         allow_pose=False,
