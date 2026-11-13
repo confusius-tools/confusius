@@ -12,6 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`compute_axial_velocity_volume`][confusius.iq.compute_axial_velocity_volume],
+  [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity], and
+  the corresponding xarray accessor now default `spatial_kernel` to `1`, disabling
+  spatial median filtering unless requested
+  ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - [`plot_stat_map`][confusius.plotting.plot_stat_map] and
   [`plot_matrix`][confusius.plotting.plot_matrix] default to the `"berlin"`
   colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
@@ -33,6 +38,8 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Stream the Landemard beamformed IQ sample lazily and open HTTP(S) Zarr stores with
+  `cf.load` ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
   colormap stat maps are drawn with, which remembers its source colormap and
   threshold and can be rebuilt on another colormap with `with_source`
@@ -57,6 +64,8 @@ Current development version for the next ConfUSIus release.
 
 ### :books: Documentation
 
+- Add a beamformed IQ processing example covering B-mode, power Doppler, and axial
+  velocity ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
   archive, and simplify dataset and template citations
   ([#565](https://github.com/confusius-tools/confusius/pull/565)).

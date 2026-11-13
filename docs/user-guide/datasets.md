@@ -9,7 +9,8 @@ available atlases, templates, and fUSI datasets distributed in
 [fUSI-BIDS](https://bids.neuroimaging.io/) format. Each fetcher downloads the dataset
 on first call, caches it locally for offline reuse, and returns either the path to the
 root directory, or a more specific object (e.g., a DataArray for templates or an
-[atlas Dataset][confusius.atlas] for atlases]).
+[atlas Dataset][confusius.atlas] for atlases]). The sample beamformed IQ fetcher is an
+exception: it reads chunks lazily over the network instead of caching the recording.
 
 !!! tip "Try before you buy"
     Fetchers generally accept filters (subjects, sessions, tasks, derivatives, etc.) so
@@ -82,6 +83,25 @@ Attributes: (12/24)
     transmit_voltage:                    25.0
 ```
 
+
+## Sample beamformed IQ
+
+[`fetch_sample_beamformed_iq`][confusius.datasets.fetch_sample_beamformed_iq] opens a
+Landemard et al. (2026) recording lazily from the collection:
+
+```python
+from confusius.datasets import fetch_sample_beamformed_iq
+
+iq = fetch_sample_beamformed_iq()
+segment = iq.isel(time=slice(0, 300)).compute()
+```
+
+Release metadata is cached like other datasets; use `refresh=True` to check for a
+newer release. Opening the store still requires network access, and IQ chunks are
+not cached locally. Only the chunks needed by a computation are transferred.
+Repeated reads may download
+the same chunks again; computing the entire array transfers the full recording.
+The recording is licensed under CC BY-NC 4.0.
 
 ## Datasets Storage
 
