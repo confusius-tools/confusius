@@ -1,19 +1,25 @@
 name: Clean up doc preview
 
 on:
-  pull_request:
+  pull_request_target:
     types: [closed]
 
 jobs:
   cleanup:
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish
       cancel-in-progress: false
     permissions:
+      contents: read
       pull-requests: write
     steps:
+      # Fork previews need deployment secrets; only run trusted default-branch code.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
       - name: Remove preview from docs repo
         run: |
           set -euo pipefail
@@ -24,11 +30,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          CHANGED=false
           PR_DIR="pr-preview/pr-${{ github.event.number }}"
           if [ -d "$PR_DIR" ]; then
             git rm -rf "$PR_DIR"
-            CHANGED=true
           fi
 
           VERSIONS_FILE="pr-preview/versions.json"
@@ -40,11 +44,12 @@ jobs:
                 '[.[] | select(.version != $ver)]' "$VERSIONS_FILE" > versions_new.json
               mv versions_new.json "$VERSIONS_FILE"
               git add "$VERSIONS_FILE"
-              CHANGED=true
             fi
           fi
 
-          if [ "$CHANGED" = "true" ]; then
+          python ../tools/deduplicate_docs_assets.py .
+          git add -A
+          if ! git diff --cached --quiet; then
             git commit -m "docs: remove preview for PR #${{ github.event.number }}"
             git push
           fi
