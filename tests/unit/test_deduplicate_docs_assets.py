@@ -167,6 +167,40 @@ def test_deduplicate_assets_preserves_other_file_extensions(tmp_path: Path) -> N
         assert (tmp_path / version / "example.png.zip").read_bytes() == b"archive"
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "#example.png",
+        "?download=example.png",
+        "?download=example.png#preview",
+        "#download=example.png?preview=true",
+        "#example%2Epng",
+        "?download=example%2Epng",
+    ],
+)
+def test_deduplicate_assets_preserves_fragment_and_query_links(
+    tmp_path: Path, url: str
+) -> None:
+    for version in ("dev", "0.8.0"):
+        directory = tmp_path / version
+        directory.mkdir()
+        (directory / "example.png").write_bytes(b"identical image")
+        (directory / "index.html").write_text(
+            f'<img src="example.png?size=1#view"><a href="{url}">link</a>',
+            encoding="utf-8",
+        )
+
+    assert deduplicate_assets(tmp_path) == (2, 2, 0)
+    shared = next((tmp_path / "shared-assets").iterdir())
+    for version in ("dev", "0.8.0"):
+        assert (tmp_path / version / "index.html").read_text(encoding="utf-8") == (
+            f'<img src="../shared-assets/{shared.name}?size=1#view">'
+            f'<a href="{url}">link</a>'
+        )
+        assert not (tmp_path / version / "example.png").exists()
+    assert deduplicate_assets(tmp_path) == (0, 0, 0)
+
+
 def test_deduplicate_assets_does_not_remove_unreferenced_files(tmp_path: Path) -> None:
     first_asset = tmp_path / "dev" / "images" / "example.png"
     second_asset = tmp_path / "0.8.0" / "images" / "example.png"

@@ -1,12 +1,11 @@
 name: Clean up doc preview
 
 on:
-  pull_request:
+  pull_request_target:
     types: [closed]
 
 jobs:
   cleanup:
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish
@@ -15,7 +14,11 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      # Fork previews need deployment secrets; only run trusted default-branch code.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
 
       - name: Remove preview from docs repo
         run: |

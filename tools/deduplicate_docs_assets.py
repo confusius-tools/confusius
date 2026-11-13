@@ -27,8 +27,9 @@ TEXT_EXTENSIONS = {".css", ".html", ".js", ".json", ".md", ".mjs", ".txt", ".xml
 SHARED_DIRECTORY = Path("shared-assets")
 # Match complete URL tokens, not image-extension prefixes such as `image.png.zip`.
 ASSET_REFERENCE_PATTERN = re.compile(
-    r"(?P<url>[^\"'()<>\[\],\\\s=?#]+"
-    r"(?:\?[^\"'()<>\[\],\\\s#]*)?(?:\#[^\"'()<>\[\],\\\s]*)?)"
+    r"(?P<url>(?:[^\"'()<>\[\],\\\s=?#]+(?:\?[^\"'()<>\[\],\\\s#]*)?"
+    r"|\?[^\"'()<>\[\],\\\s#]*)(?:\#[^\"'()<>\[\],\\\s]*)?"
+    r"|\#[^\"'()<>\[\],\\\s]*)"
 )
 
 

@@ -225,6 +225,22 @@ def test_deployment_rechecks_pr_before_using_deploy_credentials(
     assert not Path(request_environment["COMMENT_LOG"]).exists()
 
 
+def test_cleanup_uses_trusted_code_for_all_closed_prs() -> None:
+    path = WORKFLOW.with_name("docs-cleanup-preview.yml")
+    workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+    assert workflow["on"] == {"pull_request_target": {"types": ["closed"]}}
+    cleanup = workflow["jobs"]["cleanup"]
+    assert "if" not in cleanup
+    checkout = cleanup["steps"][0]
+    assert checkout["uses"].startswith("actions/checkout@")
+    assert checkout["with"] == {
+        "ref": "${{ github.event.repository.default_branch }}",
+        "persist-credentials": "false",
+    }
+    assert "python ../tools/deduplicate_docs_assets.py ." in cleanup["steps"][1]["run"]
+
+
 def test_preview_rejects_closed_pr(request_environment: dict[str, str]) -> None:
     request_environment["MOCK_PR"] = json.dumps(
         {"state": "closed", "head": {"sha": SHA}}
