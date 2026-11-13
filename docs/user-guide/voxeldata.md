@@ -105,8 +105,8 @@ attributes from requirement 3 above have the following meanings:
 Additionally, the `VoxelToWorldIndex` attached to `(z, y, x)` carries its own `units`
 attribute, which is the physical unit of the world coordinates (millimeters is typical).
 It is accessed through the
-[`.vd.units`][voxeldata.accessors.VoxelDataAccessor.units] property and set with
-[`.vd.set_units(...)`][voxeldata.accessors.VoxelDataAccessor.set_units].
+[`.vd.world_units`][voxeldata.accessors.VoxelDataAccessor.world_units] property and set with
+[`.vd.set_world_units(...)`][voxeldata.accessors.VoxelDataAccessor.set_world_units].
 
 !!! warning "Don't set attributes on world coordinates directly"
     World coordinates `(z, y, x)` are always derived fresh from the
@@ -118,7 +118,7 @@ It is accessed through the
     packages that read it from there still see it — but some xarray operations that
     combine several arrays (e.g. `xr.where`, which only keeps attrs from its `x`
     argument) can drop that copy from the result without touching the index's own
-    `units`. Always trust `.vd.units`, never `.coords["z"].attrs["units"]`,
+    `units`. Always trust `.vd.world_units`, never `.coords["z"].attrs["units"]`,
     when correctness matters.
 
 ### Creating and Validating VoxelData Arrays
@@ -279,8 +279,8 @@ transformations, for multi-pose data) contained in the `VoxelToWorldIndex` and e
 as coordinates `(x, y, z)`. For ordinary single-pose data these coordinates are arrays
 with shape `(k, j, i)`. For multi-pose data they are pose-dependent with shape `(pose,
 k, j, i)`, so selecting in world space requires a scalar `pose` first. The unit shared
-by `x`/`y`/`z` is exposed as `data.vd.units` and set with
-`data.vd.set_units(...)`; millimeters are the usual default for fUSI
+by `x`/`y`/`z` is exposed as `data.vd.world_units` and set with
+`data.vd.set_world_units(...)`; millimeters are the usual default for fUSI
 recordings.
 
 !!! warning "Units are not enforced"
@@ -491,4 +491,5 @@ array([-1., -1., -1., -1.,  0.,  0.,  0.,  0.,  1.,  1.,  1.,  1.])
 ```
 
 See [Affine Transforms](xarray.md#affine-transforms) in Working with Xarray for
-the rest of the `.vd` API (`voxel_to_world`, `set_voxel_to_world`, `to`).
+the rest of the `.vd` API (`voxel_to_world`, `set_voxel_to_world`, `to`,
+`translate`, `rotate`, `zoom`, and `flip`).

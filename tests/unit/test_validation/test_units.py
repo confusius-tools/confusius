@@ -28,7 +28,7 @@ def test_matching_spatial_units_raises_when_lacking_geometry() -> None:
 
 def test_matching_spatial_units_raises_on_mismatch() -> None:
     left = _make_voxeldata()
-    right = _make_voxeldata().vd.set_units("um")
+    right = _make_voxeldata().vd.set_world_units("um")
 
     with pytest.raises(ValueError, match=r"left='mm'.*right='um'"):
         validate_matching_spatial_units((("left", left), ("right", right)))

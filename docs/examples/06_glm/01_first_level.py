@@ -162,7 +162,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
         voxel_to_world=swapped_voxel_to_world,
         # Relabeling voxel axes preserves the world frame and its named transforms.
         affines=da.vd.affines,
-        units=da.vd.units,
+        units=da.vd.world_units,
         attrs=da.attrs,
         name=str(da.name) if da.name is not None else None,
     )
@@ -212,7 +212,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     m_to_mm = np.eye(4)
     m_to_mm[:3, :3] *= 1e3
     da.vd.apply(m_to_mm, inplace=True)
-    da.vd.set_units("mm", inplace=True)
+    da.vd.set_world_units("mm", inplace=True)
 
     return da
 

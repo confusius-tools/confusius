@@ -15,12 +15,25 @@ def _add_identity_affine(da):
 
 
 def _spacing(da, dim):
-    """Return the world voxel spacing for a dimension."""
-    return float(da.vd.spacing[dim])
+    """Return the physical voxel spacing or time sampling interval."""
+    return float(da.vd.dt if dim == "time" else da.vd.spacing[dim])
 
 
 class TestSmoothVolume:
     """Tests for smooth_volume."""
+
+    def test_fwhm_dict_preserves_nonspatial_coordinate_sampling(
+        self, sample_voxeldata_3d
+    ):
+        """Explicit feature-axis smoothing still uses that axis's own coordinates."""
+        data = sample_voxeldata_3d.expand_dims(channel=[2, 4, 6]).copy(deep=True)
+        data.data = np.stack(
+            [sample_voxeldata_3d.values + offset for offset in (0, 10, 30)]
+        )
+        result = smooth_volume(data, fwhm={"channel": 4.0})
+        sigma = 4.0 / (2 * np.sqrt(2 * np.log(2)) * 2.0)
+        expected = scipy.ndimage.gaussian_filter(data.values, [sigma, 0, 0, 0])
+        np.testing.assert_allclose(result.values, expected)
 
     def test_matches_scipy_3d(self, sample_voxeldata_3d):
         """smooth_volume should match scipy.ndimage.gaussian_filter on a 3D volume."""

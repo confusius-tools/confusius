@@ -484,8 +484,10 @@ def test_create_voxeldata_accepts_2d_per_pose_time(
     assert_allclose(result.coords["time"].values, time_2d)
     assert result.coords["time"].attrs["units"] == "s"
     assert "time" not in result.xindexes
-    # spacing along "time" specifically (not the cross-pose 0.6 offset).
-    assert result.vd.spacing["time"] == pytest.approx(2.4)
+    # dt uses a selected timestamp series, not the cross-pose 0.6 offset.
+    with pytest.raises(ValueError, match="Timestamp dependencies"):
+        _ = result.vd.dt
+    assert result.isel(pose=0).vd.dt == pytest.approx(2.4)
 
 
 def test_create_voxeldata_2d_time_plain_array_gets_valid_attrs(
@@ -599,7 +601,7 @@ def test_create_voxeldata_accepts_per_pose_t0_with_shared_dt(
         0.6
     )
     assert "time" not in result.xindexes
-    assert result.vd.spacing["time"] == pytest.approx(2.4)
+    assert result.isel(pose=0).vd.dt == pytest.approx(2.4)
 
 
 def test_create_voxeldata_per_pose_t0_ignores_simultaneous_ties(

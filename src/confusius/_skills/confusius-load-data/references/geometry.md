@@ -102,7 +102,7 @@ A_flipped = A @ F
 When reversing an **existing VoxelData** with `data.isel(i=slice(None, None, -1))`,
 labels already track the reversal; do not modify the affine again.
 
-Read geometry through `data.vd.voxel_to_world` and `data.vd.units`;
+Read geometry through `data.vd.voxel_to_world` and `data.vd.world_units`;
 modify it using `set_voxel_to_world` and `set_units`. Do not edit `z/y/x` coordinate
 attributes directly. Changing units metadata does not rescale coordinates.
 

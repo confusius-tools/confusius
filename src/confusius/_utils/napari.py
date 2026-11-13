@@ -15,7 +15,10 @@ from napari.utils.notifications import show_warning
 
 from confusius._dims import POSE_DIM, TIME_DIM
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.coordinates import get_coordinate_spacings_best_effort
+from confusius._utils.coordinates import (
+    get_coordinate_origins,
+    get_coordinate_spacings_best_effort,
+)
 from confusius._utils.stack import find_stack_level
 
 
@@ -123,7 +126,7 @@ def get_napari_layer_geometry(
         dim: fusi_spacing[dim] if fusi_spacing.get(dim) is not None else fallback
         for dim, fallback in coordinate_spacing.items()
     }
-    origin = data.vd.origin
+    origin = {**get_coordinate_origins(data), **data.vd.origin}
     world_dim = {"k": "z", "j": "y", "i": "x"}
     scale: list[float] = []
     translate: list[float] = []
@@ -132,10 +135,7 @@ def get_napari_layer_geometry(
     for dim in all_dims:
         coord_name = world_dim.get(dim, dim)
         coord = data.coords.get(coord_name)
-        # `origin` (`.vd.origin`) always has an entry for every dim -- spatial
-        # dims via the voxel-to-world index, others defaulting to 0.0 -- so it's a
-        # safe fallback translate whenever `coord` isn't itself 1-D numeric world
-        # geometry for `dim`.
+        # Spatial origins come from geometry; other axes use their own labels.
         is_world_coord = (
             coord is not None
             and coord.dims == (dim,)

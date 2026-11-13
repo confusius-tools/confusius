@@ -338,7 +338,7 @@ def resample_volume(
         attrs=attrs,
         name=str(moving.name) if moving.name is not None else None,
     )
-    return result.vd.set_units(get_voxel_to_world_units(moving))
+    return result.vd.set_world_units(get_voxel_to_world_units(moving))
 
 
 def resample_like(

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
+import confusius._napari._data._save_panel as save_module
 from confusius.plotting.napari import plot_napari
 from confusius.validation import validate_voxeldata
 
@@ -28,6 +31,45 @@ def labels_layer(viewer, sample_voxeldata_3dt):
     plot_napari(sample_voxeldata_3dt, viewer=viewer)
     SignalPanel(viewer)._create_labels_layer()
     return viewer.layers["Labels (3D)"]
+
+
+def test_save_button_requires_layer_and_output_path(
+    viewer, save_panel, sample_voxeldata_3d
+):
+    assert not save_panel._save_btn.isEnabled()
+    save_panel._path_edit.setText("output.nii.gz")
+    assert not save_panel._save_btn.isEnabled()
+    plot_napari(sample_voxeldata_3d, viewer=viewer)
+    assert save_panel._save_btn.isEnabled()
+    save_panel._path_edit.setText("   ")
+    assert not save_panel._save_btn.isEnabled()
+    save_panel._path_edit.setText("output.zarr")
+    assert save_panel._save_btn.isEnabled()
+    viewer.layers.clear()
+    assert not save_panel._save_btn.isEnabled()
+
+
+def test_layer_changes_do_not_enable_save_while_busy(
+    viewer, save_panel, sample_voxeldata_3d, tmp_path, monkeypatch
+):
+    worker = MagicMock()
+    save_data = MagicMock(return_value=worker)
+    monkeypatch.setattr(save_module, "_save_data", save_data)
+    monkeypatch.setattr(save_module, "show_info", MagicMock())
+    plot_napari(sample_voxeldata_3d, viewer=viewer)
+    path = tmp_path / "output.nii.gz"
+    save_panel._path_edit.setText(str(path))
+    save_panel._save_btn.click()
+    worker.start.assert_called_once()
+    assert not save_panel._save_btn.isEnabled()
+    viewer.layers[0].name = "Renamed while saving"
+    assert not save_panel._save_btn.isEnabled()
+    viewer.layers.clear()
+    assert not save_panel._save_btn.isEnabled()
+    worker.returned.connect.call_args.args[0](path)
+    assert not save_panel._save_btn.isEnabled()
+    plot_napari(sample_voxeldata_3d, viewer=viewer)
+    assert save_panel._save_btn.isEnabled()
 
 
 class TestBuildDataArray:

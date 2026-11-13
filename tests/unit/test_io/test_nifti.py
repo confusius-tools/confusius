@@ -1555,6 +1555,82 @@ class TestLoadNifti:
 class TestSaveNifti:
     """Tests for `save_nifti` function."""
 
+    @pytest.mark.parametrize("extension", [".nii", ".nii.gz"])
+    @pytest.mark.parametrize("nifti_version", [1, 2])
+    @pytest.mark.parametrize("single_pose", [False, True])
+    def test_save_chunk_template_roundtrip(
+        self, tmp_path, sample_voxeldata_3dt_pose, extension, nifti_version, single_pose
+    ):
+        """Chunks preserve pose labels, voxel values, geometry, timing, and options."""
+        # Build the labeled stack through the supported pose constructor.
+        original = stack_poses(
+            [sample_voxeldata_3dt_pose.isel(pose=p) for p in range(2)],
+            pose=[2, 10],
+        )
+        if single_pose:
+            original = original.isel(pose=[0])
+        template = tmp_path / f"sub-01_chunk-{{chunk}}_pwd{extension}"
+        original.fusi.save(template, nifti_version=nifti_version, sform_code=4)
+
+        actual = load_nifti(template)
+        np.testing.assert_array_equal(actual.pose, original.pose)
+        np.testing.assert_allclose(actual.values, original.values)
+        for position in range(original.sizes["pose"]):
+            np.testing.assert_allclose(
+                actual.isel(pose=position).time, original.isel(pose=position).time
+            )
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(actual),
+            get_voxel_to_world_affine(original),
+            atol=1e-6,
+        )
+        for label in original.pose.values:
+            path = tmp_path / f"sub-01_chunk-{label}_pwd{extension}"
+            image = nib.load(path)
+            assert isinstance(
+                image, nib.Nifti1Image if nifti_version == 1 else nib.Nifti2Image
+            )
+            assert image.header["sform_code"] == 4
+            assert (tmp_path / f"sub-01_chunk-{label}_pwd.json").is_file()
+        assert not template.exists()
+
+    @pytest.mark.parametrize(
+        "template", ["{chunk}/pwd.nii", "chunk-{chunk}_{chunk}_pwd.nii"]
+    )
+    def test_save_chunk_template_invalid(
+        self, tmp_path, sample_voxeldata_3dt_pose, template
+    ):
+        """Invalid placeholders fail before creating files."""
+        with pytest.raises(ValueError, match="exactly one"):
+            save_nifti(sample_voxeldata_3dt_pose, tmp_path / template)
+        assert not list(tmp_path.iterdir())
+
+    def test_save_chunk_template_requires_pose(self, tmp_path, sample_voxeldata_3dt):
+        """A template requires an actual pose dimension."""
+        with pytest.raises(ValueError, match="requires a 'pose' dimension"):
+            save_nifti(sample_voxeldata_3dt, tmp_path / "chunk-{chunk}.nii")
+        assert not list(tmp_path.iterdir())
+
+    @pytest.mark.parametrize("labels", [[-1, 2], [0.5, 1.5], ["a", "b"], [2, 2]])
+    def test_save_chunk_template_invalid_labels(
+        self, tmp_path, sample_voxeldata_3dt_pose, labels
+    ):
+        """Unrepresentable labels are rejected without writing any chunks."""
+        source = sample_voxeldata_3dt_pose
+        original = (
+            source.drop_indexes(list(source.vd.world_dims))
+            .assign_coords(pose=labels)
+            .vd.set_voxel_to_world(
+                source.vd.voxel_to_world,
+                geometry_dims=source.vd.geometry_dims,
+                units=source.vd.world_units,
+                named_affines=source.vd.affines,
+            )
+        )
+        with pytest.raises(ValueError):
+            save_nifti(original, tmp_path / "chunk-{chunk}.nii")
+        assert not list(tmp_path.iterdir())
+
     def test_save_invalid_extension_raises(self, tmp_path, sample_voxeldata_3d):
         """Saving rejects paths without a NIfTI extension."""
         da = sample_voxeldata_3d.drop_vars("time")
@@ -3691,14 +3767,14 @@ class TestRoundtrip:
 
     def test_roundtrip_preserves_units(self, tmp_path, sample_voxeldata_3d):
         """Spatial units survive a save/load roundtrip."""
-        da = sample_voxeldata_3d.drop_vars("time").vd.set_units("um")
+        da = sample_voxeldata_3d.drop_vars("time").vd.set_world_units("um")
 
         nifti_path = tmp_path / "units_roundtrip.nii.gz"
         save_nifti(da, nifti_path)
 
         loaded = load_nifti(nifti_path)
 
-        assert loaded.vd.units == "um"
+        assert loaded.vd.world_units == "um"
 
     def test_load_nii_uncompressed_with_sidecar(self, tmp_path):
         """load_nifti reads an uncompressed .nii file and merges its JSON sidecar."""

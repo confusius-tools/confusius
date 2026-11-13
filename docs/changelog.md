@@ -24,8 +24,15 @@ Current development version for the next ConfUSIus release.
   may appear in any order; optional canonicalization uses
   `(...extra, pose, time, k, j, i)`
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
-- Canonicalize scalar-selected spatial dimensions before `.vd` geometry mutators,
-  for example `ensure_voxeldata(data.isel(k=0)).vd.apply(matrix)`.
+- World transforms now use VoxelData's flat `.vd.translate`, `.vd.rotate`,
+  `.vd.zoom`, and `.vd.flip` methods, not `.fusi` transform wrappers. Module-level
+  affine functions are direct VoxelData re-exports. Bounds and centers return
+  world-axis dictionaries enclosing all grids; select a geometry for grid-specific
+  values. Use `.vd.world_units` / `.vd.set_world_units`, and `.vd.dt` for time
+  sampling; `.vd.origin` and `.vd.spacing` describe spatial dimensions only
+  ([#569](https://github.com/confusius-tools/confusius/pull/569)).
+- World transforms restore scalar-selected voxel dimensions automatically unless
+  using `inplace=True`; canonicalize before other geometry mutators when needed.
 - Import extraction functions from `confusius.extract`, not its former `mask`,
   `labels`, or `reconstruction` submodules. These are direct VoxelData re-exports:
   extraction preserves timing metadata but no longer adds acquisition defaults
@@ -65,6 +72,15 @@ Current development version for the next ConfUSIus release.
 - Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
   them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
+- Save multi-pose VoxelData arrays to separate NIfTI files and JSON sidecars with a
+  `{chunk}` filename template, preserving each pose's geometry and timing
+  ([#579](https://github.com/confusius-tools/confusius/pull/579)).
+- Move VoxelData in world space without resampling using `apply_translation`,
+  `apply_rotation`, `apply_zoom`, and `apply_flip`, re-exported from VoxelData.
+  Their accessor methods are `.vd.translate`, `.vd.rotate`, `.vd.zoom`, and
+  `.vd.flip` ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Get a world-axis center dictionary using `get_geometry_center` or
+  `.vd.geometry_center` ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 
 ### :bug: Fixes
 
@@ -75,9 +91,9 @@ Current development version for the next ConfUSIus release.
   axes, allowing its `world_to_qform` correction and full analysis to complete
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 
-- Scalar-indexed VoxelData geometry was restored automatically before the external
-  VoxelData integration. Explicit canonicalization is now required before applying
-  or reindexing geometry on these arrays (see breaking changes above)
+- World-space affine application restores scalar-selected voxel dimensions in
+  non-inplace results. Other geometry operations such as voxel reindexing may
+  still require explicit canonicalization (see breaking changes above)
   ([#558](https://github.com/confusius-tools/confusius/pull/558)).
 
 ### :books: Documentation
@@ -85,6 +101,10 @@ Current development version for the next ConfUSIus release.
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
   archive, and simplify dataset and template citations
   ([#565](https://github.com/confusius-tools/confusius/pull/565)).
+
+- Add the [Transforms 101](examples/_built/io/transforms_101.md) example,
+  showing translation, rotation, zoom, reflection, and transform pivots
+  ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 
 ### :wrench: Maintenance
 
@@ -113,6 +133,13 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- Videos open in a separate, time-synchronized viewer with their own layer list.
+  Load recordings and videos from **Data I/O**
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- `confusius --video PATH` opens a video without a data file
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- Fix video synchronization with recordings timed in milliseconds or microseconds
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 - Open multipose arrays as one positioned layer per pose in `plot_napari`, its
   xarray accessors, and the CLI, with pose values in layer names
   ([#562](https://github.com/confusius-tools/confusius/pull/562)).
@@ -480,8 +507,8 @@ Released 2026-08-31.
   unconditionally.
 - World-space `units` moved off the `z`/`y`/`x` coordinates' `.attrs` onto
   `VoxelToWorldIndex` as a single shared property, exposed via
-  [`data.fusi.affine.units`][voxeldata.accessors.VoxelDataAccessor.units] and set with
-  [`data.fusi.affine.set_units`][voxeldata.accessors.VoxelDataAccessor.set_units]. Setting
+  [`data.fusi.affine.units`][voxeldata.accessors.VoxelDataAccessor.world_units] and set with
+  [`data.fusi.affine.set_units`][voxeldata.accessors.VoxelDataAccessor.set_world_units]. Setting
   `data.coords["z"].attrs["units"]` directly no longer has any effect: world coordinates
   are always regenerated fresh from the index.
 - Multi-pose data now carries pose-dependent voxel-to-world geometry. Sequentially

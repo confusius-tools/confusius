@@ -380,7 +380,7 @@ class TestLoadZarr:
     def test_zarr_delegates_to_voxeldata(self, tmp_path, saveable_volume, chunks):
         """The adapter forwards variable selection and explicit chunk options."""
         path = tmp_path / "data.zarr"
-        with patch("voxeldata.load", return_value=saveable_volume) as mock:
+        with patch("voxeldata.load_array", return_value=saveable_volume) as mock:
             result = load(path, variable="power", chunks=chunks)
         mock.assert_called_once_with(path.resolve(), variable="power", chunks=chunks)
         assert result is saveable_volume

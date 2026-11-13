@@ -16,7 +16,16 @@ def test_geometry_owned_by_external_package(sample_voxeldata_3d):
     assert VoxelToWorldIndex is voxeldata.VoxelToWorldIndex
     assert attach_voxel_to_world_index is voxeldata.attach_voxel_to_world_index
     assert isinstance(sample_voxeldata_3d.vd, voxeldata.VoxelDataAccessor)
-    for name in ("affine", "spacing", "origin", "direction"):
+    for name in (
+        "affine",
+        "spacing",
+        "origin",
+        "direction",
+        "translate",
+        "rotate",
+        "zoom",
+        "flip",
+    ):
         assert not hasattr(sample_voxeldata_3d.fusi, name)
 
 
@@ -124,8 +133,14 @@ def test_zarr_roundtrip_preserves_grid_geometry_and_named_frames(tmp_path):
 @pytest.mark.parametrize(
     "name",
     [
+        "TransformCenter",
         "apply_affine",
+        "apply_translation",
+        "apply_rotation",
+        "apply_zoom",
+        "apply_flip",
         "get_bounding_box",
+        "get_geometry_center",
         "get_relative_affine",
         "reindex_voxels",
         "reindex_voxels_like",
@@ -136,6 +151,19 @@ def test_public_affine_exports_are_voxeldata_functions(name):
     from confusius import xarray as extensions
 
     assert getattr(extensions, name) is getattr(voxeldata, name)
+
+
+def test_world_transform_preserves_acquisition_timing(sample_voxeldata_3dt):
+    """VoxelData transforms retain ConfUSIus timing metadata and sample ordering."""
+    source = sample_voxeldata_3dt
+    shifted = source.vd.translate((1.0, -2.0, 3.0))
+    np.testing.assert_array_equal(shifted.values, source.values)
+    np.testing.assert_array_equal(shifted.time, source.time)
+    assert shifted.time.attrs == source.time.attrs
+    assert shifted.vd.dt == pytest.approx(source.vd.dt)
+    for dim, offset in zip(("z", "y", "x"), (1, -2, 3), strict=True):
+        np.testing.assert_allclose(shifted.coords[dim], source.coords[dim] + offset)
+    validate_voxeldata(shifted)
 
 
 def test_internal_geometry_exports_are_voxeldata_functions():

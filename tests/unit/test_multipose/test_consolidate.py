@@ -495,7 +495,7 @@ class TestConsolidatePoses:
             dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
             voxel_to_world=affines @ spacing_diag,
-        ).vd.set_units(sweep_unit)
+        ).vd.set_world_units(sweep_unit)
 
         result = consolidate_poses(da)
 

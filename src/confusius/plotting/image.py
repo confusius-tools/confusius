@@ -14,7 +14,7 @@ import xarray as xr
 from confusius._dims import POSE_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
-    get_voxel_to_world_index_spacing,
+    get_array_spacing,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
     require_single_geometry_affine,
@@ -1301,7 +1301,7 @@ class VolumePlotter:
             # so the two can differ. Captured here, before materialize strips the
             # index.
             voxel_dim = VOXEL_DIMS[WORLD_DIMS.index(self.slice_mode)]
-            slice_spacing = get_voxel_to_world_index_spacing(data)[voxel_dim]
+            slice_spacing = get_array_spacing(data)[voxel_dim]
         elif self.slice_mode != POSE_DIM:
             # Non-pose extra dim (e.g. "region"): slicing along it never touches
             # the voxel-to-world affine (only `pose` can vary geometry), so unlike

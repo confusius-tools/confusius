@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 
 from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.geometry import (
-    get_voxel_to_world_index_spacing,
+    get_array_spacing,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
     require_single_geometry_affine,
@@ -204,7 +204,7 @@ def compute_oblique_axis_aligned_grid_geometry(
     # regardless of which one QR picks as dominant for a given world axis, so an
     # irregularly spaced dim anywhere still breaks it downstream with an opaque
     # error. Check all 3 up front for a clear message instead.
-    for voxel_dim, voxel_spacing in get_voxel_to_world_index_spacing(data).items():
+    for voxel_dim, voxel_spacing in get_array_spacing(data).items():
         if voxel_spacing is None:
             raise ValueError(
                 f"Cannot resample onto an axis-aligned world grid: voxel "

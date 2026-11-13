@@ -30,7 +30,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
       [`load_iconeus_raw`][confusius.io.load_iconeus_raw]. If no metadata path is
       provided, [`load_iconeus_raw`][confusius.io.load_iconeus_raw] looks for the
       matching `.hraw` sidecar next to the RAW file.
-    - **Zarr** (`.zarr`): opened via VoxelData's `load`, which restores spatial
+    - **Zarr** (`.zarr`): opened via VoxelData's `load_array`, which restores spatial
       geometry and named frames. Must be a store previously written by
       [`save`][confusius.io.save] or VoxelData (identified by
       `attrs["voxel_to_world"]`); for an
@@ -96,7 +96,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         data_array = _iconeus_raw.load_iconeus_raw(path, **kwargs)
     elif name.endswith(".zarr"):
         kwargs.setdefault("chunks", "auto")
-        data_array = vd.load(path, variable=variable, **kwargs)
+        data_array = vd.load_array(path, variable=variable, **kwargs)
     else:
         raise ValueError(
             f"Unsupported file extension in {name!r}. Supported"
@@ -124,7 +124,9 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
     data_array : xarray.DataArray
         VoxelData array to save.
     path : str or pathlib.Path
-        Output path. The extension determines the format.
+        Output path. The extension determines the format. For NIfTI, a `{chunk}`
+        placeholder in the filename saves one file and JSON sidecar per pose,
+        using non-negative integer `pose` labels as chunk indices.
     **kwargs
         Additional keyword arguments forwarded to the underlying saver.
 

@@ -273,7 +273,7 @@ def validate_voxeldata(
 
     This requires non-empty native voxel dimensions (`k`, `j`, `i`), their
     coordinates, and a matching `VoxelToWorldIndex` (which carries the world-space
-    `units` shared by `z`/`y`/`x`, exposed via `.vd.units`), and dimensions
+    `units` shared by `z`/`y`/`x`, exposed via `.vd.world_units`), and dimensions
     ordered as `(*nonspatial_dims, k, j, i)`, with any leading order. It also validates every
     dimension coordinate. When `time` is present, its acquisition metadata and
     `units` are required. The optional flags add requirements

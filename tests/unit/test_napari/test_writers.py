@@ -53,7 +53,10 @@ def _meta_from_layer(
     import confusius  # noqa: F401 — registers .fusi accessor
 
     world_dim = {"k": "z", "j": "y", "i": "x"}
-    scale = [da.vd.spacing[d] or 1.0 for d in da.dims]
+    spacing = da.vd.spacing
+    if "time" in da.dims:
+        spacing["time"] = da.vd.dt
+    scale = [spacing[d] or 1.0 for d in da.dims]
 
     def _origin(dim: Hashable) -> float:
         name = world_dim.get(str(dim), str(dim))
@@ -462,7 +465,7 @@ class TestDaFromNapariLayer:
             },
         )
         assert da["x"].attrs["units"] == "mm"
-        assert da.vd.units == "mm"
+        assert da.vd.world_units == "mm"
 
     def test_mismatched_voxel_axis_units_raise(self) -> None:
         """Voxel axes cannot declare different physical units."""

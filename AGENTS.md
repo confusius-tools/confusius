@@ -18,7 +18,9 @@ concern — feel free to make breaking API changes when they improve the design.
 spatially referenced voxel data. ConfUSIus depends on the published package and
 must not duplicate its geometry implementation. Internal dimension/geometry and
 module-level affine imports are re-exports; `.vd` is the geometry accessor, while
-`.fusi` is the fUSI analysis layer. There is no `.fusi.affine` accessor.
+`.fusi` is the fUSI analysis layer. There is no `.fusi.affine` accessor or
+`.fusi.translate`/`rotate`/`zoom`/`flip` wrapper. Use `.vd` for transforms,
+spatial-only `.origin`/`.spacing`, `.world_units`, and shared-time `.dt`.
 
 Generic mask/label validation, extraction, and reconstruction also belong to
 VoxelData (`voxeldata.masks`, `voxeldata.extract`). `confusius.extract` directly
@@ -30,11 +32,11 @@ loaders, and explicit validation own that policy. Primary timestamps may depend
 on `time` plus arbitrary nonspatial axes. Auxiliary `slice_time` semantics and
 correction remain in ConfUSIus. Extraction works without optional flox/Dask in VoxelData; ConfUSIus
 retains its existing analysis dependencies and requires published `voxeldata[io]>=0.0.5`.
-Validate integration against the published package. When changing the VoxelData API, test
-against the sibling checkout with `uv run --with-editable ../voxeldata pytest ...`;
-the published dependency must support that API before merging the integration.
-The ordinary Zarr dispatcher delegates to `voxeldata.load`/`save`, available in
-published VoxelData 0.0.5 with the `io` extra.
+During this draft, test against the sibling checkout with
+`uv run --with-editable ../voxeldata pytest ...`: the transform, spatial metadata,
+and persistence APIs require an upcoming VoxelData release. Once checks pass,
+release VoxelData and update the published dependency before merging this PR.
+The ordinary Zarr dispatcher delegates to `voxeldata.load_array`/`save`.
 Do not replace the published dependency with a permanent local or Git source.
 
 VoxelData includes fUSI recordings, brain atlas volumes, PCA/decomposition component maps, dense displacement fields, B-spline control-point grids, and anything

@@ -52,12 +52,12 @@ def test_seed_maps_preserve_world_coord_units(
     not `y`. `_compute_correlation_maps` used to pass the scalar fill value as `x` and
     the real VoxelData array as `y`, which silently dropped `units` from every world
     coordinate's `.attrs` (though the `VoxelToWorldIndex`'s own `units` survived
-    untouched). Checks both the authoritative `.vd.units` and the cosmetic
+    untouched). Checks both the authoritative `.vd.world_units` and the cosmetic
     `.attrs` copy that external tools may read.
     """
     mapper = SeedBasedMaps(seed_masks=sample_roi_labels).fit(sample_voxeldata_3dt)
 
-    assert mapper.maps_.vd.units == sample_voxeldata_3dt.vd.units
+    assert mapper.maps_.vd.world_units == sample_voxeldata_3dt.vd.world_units
     for name in ("z", "y", "x"):
         assert (
             mapper.maps_.coords[name].attrs == sample_voxeldata_3dt.coords[name].attrs

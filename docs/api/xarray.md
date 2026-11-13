@@ -19,7 +19,17 @@ ConfUSIus re-exports module-level affine functions but does not implement them.
 
 ::: voxeldata.affine.apply_affine
 
+::: voxeldata.affine.apply_translation
+
+::: voxeldata.affine.apply_rotation
+
+::: voxeldata.affine.apply_zoom
+
+::: voxeldata.affine.apply_flip
+
 ::: voxeldata.affine.get_bounding_box
+
+::: voxeldata.affine.get_geometry_center
 
 ::: voxeldata.affine.get_relative_affine
 
@@ -27,7 +37,9 @@ ConfUSIus re-exports module-level affine functions but does not implement them.
 
 ::: voxeldata.affine.reindex_voxels_like
 
-::: voxeldata.geometry.get_voxel_to_world_index_spacing
+::: voxeldata.geometry.get_array_origin
+
+::: voxeldata.geometry.get_array_spacing
 
 ### Generic validation
 

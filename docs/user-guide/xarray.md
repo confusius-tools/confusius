@@ -355,28 +355,25 @@ voxel-to-world affine](voxeldata.md#world-space) in The VoxelData Model for how 
 three combine:
 
 - [`.vd.spacing`][voxeldata.accessors.VoxelDataAccessor.spacing], which returns the step size
-  along each dimension as a dictionary:
+  along each native voxel dimension as a dictionary in world units:
 
   ```pycon
   >>> pwd.vd.spacing
-  {'time': 0.6, 'k': 0.4, 'j': 0.049, 'i': 0.091}
+  {'k': 0.4, 'j': 0.049, 'i': 0.091}
   ```
 
-  This is particularly useful for sanity-checking voxel sizes or sampling periods before
-  passing data to functions that require regular spacing (e.g., temporal filters, affine
-  registration). Spatial dimensions (`k`/`j`/`i`) always have their spacing derived
-  from the voxel-to-world affine, even for a singleton dimension. A singleton `time`
-  dimension
-  falls back to the `volume_acquisition_duration` attribute when present. Otherwise,
-  `None` is returned with a warning when spacing cannot be determined: non-uniform
-  coordinates, a single coordinate point, or no coordinate at all.
+  This is useful for checking voxel sizes before spatial processing. Spacing is
+  derived from the affine and native voxel labels, even for singleton voxel axes;
+  irregular voxel labels return `None`. Use `.vd.dt` for time sampling: select
+  additional timestamp dependencies first. It returns `None` for irregular time
+  sampling or fewer than two timestamps and never substitutes acquisition duration.
 
 - [`.vd.origin`][voxeldata.accessors.VoxelDataAccessor.origin], which returns the coordinate
-  values at the origin along each dimension as a dictionary:
+  world position of the first sampled voxel as a dictionary:
 
   ```pycon
   >>> pwd.vd.origin
-  {'time': 0.299, 'z': 0.0, 'y': 5.664, 'x': -3.583}
+  {'z': 0.0, 'y': 5.664, 'x': -3.583}
   ```
 
   This is typically used for computing the affine transformation corresponding to the
@@ -513,10 +510,14 @@ shifted = pwd.vd.apply(my_affine)
 [`bounding_box`][voxeldata.accessors.VoxelDataAccessor.bounding_box] gives the extent of
 the data in world space, enclosing the full extent of every voxel (half a voxel beyond
 the outermost voxel centers). It is computed from the affine alone (exact for oblique
-geometry, and one bounding box per pose when the geometry is pose-dependent):
+geometry), enclosing all grids for pose-dependent data. The midpoint is
+`.vd.geometry_center`; both properties return world-axis dictionaries in
+`.vd.world_units`. Select a pose first for grid-specific results.
 
 ```python
-bbox = pwd.vd.bounding_box  # Dims (bound, component), e.g. ("max", "x").
+bbox = pwd.vd.bounding_box
+xmin, xmax = bbox["x"]
+center = pwd.vd.geometry_center
 ```
 
 To replace a DataArray's voxel-to-world geometry outright (e.g. after computing a new
@@ -526,6 +527,31 @@ affine by hand), use
 ```python
 pwd = pwd.vd.set_voxel_to_world(new_voxel_to_world)
 ```
+
+#### World-space transforms without resampling
+
+VoxelData owns the transform API. Use its flat accessor rather than `.fusi`:
+
+```python
+shifted = pwd.vd.translate((0, 0, 1.5))
+rotated = pwd.vd.rotate((30, 20, 10), "zyx")
+zoomed = pwd.vd.zoom((1, 2, 2))
+flipped = pwd.vd.flip("x")
+```
+
+Only geometry changes: samples, native labels, and lazy signal data are untouched.
+Named frames are re-expressed in the new world frame. Rotation, zoom, and flip
+use the center of the box enclosing all grids by default. Pass `center="origin"`
+for the first sampled voxel (select geometry dependencies first), an explicit
+world `(z, y, x)` point, or an axis-keyed mapping such as `.vd.origin` or
+`.vd.geometry_center`. Rotations follow the right-hand rule in ordered world
+`(z, y, x)` coordinates; axis names apply left to right about fixed world axes.
+Use `degrees=False` for radians. Translations and pivots use `.vd.world_units`.
+
+These operations return a new array unless `inplace=True`, which requires all
+native voxel dimensions. Without in-place mutation, scalar-selected voxel axes
+are restored automatically. See the [Transforms 101 example](../examples/_built/io/transforms_101.md)
+for geometric intuition.
 
 #### Relating two DataArrays
 

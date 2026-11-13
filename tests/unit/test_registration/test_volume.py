@@ -408,8 +408,8 @@ class TestRegisterVolumeValidation:
 
     def test_mismatched_spatial_units_raise(self, sample_voxeldata_2d_registration):
         """moving and fixed must agree on spatial coordinate units when declared."""
-        moving = sample_voxeldata_2d_registration.vd.set_units("mm")
-        fixed = sample_voxeldata_2d_registration.vd.set_units("um")
+        moving = sample_voxeldata_2d_registration.vd.set_world_units("mm")
+        fixed = sample_voxeldata_2d_registration.vd.set_world_units("um")
 
         with pytest.raises(ValueError, match="units"):
             register_volume(moving, fixed, transform_type="translation")
@@ -1417,6 +1417,16 @@ class TestInitialization:
         with pytest.raises(ValueError, match="Unexpected dimensions"):
             initialize_single_slice_rigid_transform(da, da)
 
+    def test_plane_initializer_rejects_irregular_coordinates(self):
+        """A plane center needs a regular voxel extent."""
+        da = create_voxeldata(
+            np.zeros((1, 5, 6), dtype=np.float32),
+            dims=("k", "j", "i"),
+            voxel_to_world=np.eye(4),
+        ).isel(i=[0, 1, 4])
+        with pytest.raises(ValueError, match="irregular"):
+            initialize_single_slice_rigid_transform(da, da)
+
     def test_linear_initial_transform_is_not_shifted_by_geometry_centering(self):
         """A supplied initial affine is used directly, without extra centering shift."""
         fixed = _add_identity_voxel_to_world(
@@ -2198,8 +2208,8 @@ class TestResampleLike:
         self, sample_voxeldata_2d_registration
     ):
         """moving and reference must agree on spatial coordinate units when declared."""
-        moving = sample_voxeldata_2d_registration.vd.set_units("mm")
-        reference = sample_voxeldata_2d_registration.vd.set_units("um")
+        moving = sample_voxeldata_2d_registration.vd.set_world_units("mm")
+        reference = sample_voxeldata_2d_registration.vd.set_world_units("um")
 
         with pytest.raises(ValueError, match="units"):
             resample_like(moving, reference, np.eye(3))
@@ -2208,14 +2218,14 @@ class TestResampleLike:
         self, sample_voxeldata_2d_registration
     ):
         """DataArray transforms must agree with the reference units when declared."""
-        reference = sample_voxeldata_2d_registration.vd.set_units("mm")
+        reference = sample_voxeldata_2d_registration.vd.set_world_units("mm")
         transform = create_voxeldata(
             np.zeros((2, 1, 2, 2), dtype=np.float64),
             dims=("component", "k", "j", "i"),
             extra_coords={"component": np.arange(2)},
             spacing=(1.0, 1.0, 1.0),
             attrs={"type": "displacement_field_transform"},
-        ).vd.set_units("um")
+        ).vd.set_world_units("um")
 
         with pytest.raises(ValueError, match="units"):
             resample_like(reference, reference, transform)

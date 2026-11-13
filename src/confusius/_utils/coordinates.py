@@ -268,8 +268,8 @@ def get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
     `data.vd.origin` keys voxel-to-world spatial dims by their world coordinate
     name (e.g. `"z"`), not by the native voxel dimension name (e.g. `"k"`) used
     elsewhere (e.g. `data.vd.spacing`, `data.dims`). This aligns the two
-    conventions, keeping any non-spatial dims (e.g. `time`) as `data.vd.origin`
-    already keys them.
+    conventions, supplementing spatial geometry with the first nonspatial
+    coordinate values for consumers such as napari and resampling.
 
     Parameters
     ----------
@@ -292,6 +292,7 @@ def get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
     origin = data.vd.origin
     voxel_dims = get_voxel_to_world_spatial_dims(data)
     return {
+        **get_coordinate_origins(data),
         **origin,
         **{
             voxel_dim: origin[world_name]
@@ -326,9 +327,8 @@ def get_grid_info_from_dataarray(
     [`data.vd.spacing`][voxeldata.accessors.VoxelDataAccessor.spacing] (keyed by
     native voxel dimension name) with
     [`data.vd.origin`][voxeldata.accessors.VoxelDataAccessor.origin] (keyed by
-    world coordinate name for spatial dimensions, dimension name otherwise) into a
-    single triple per dimension. Non-spatial origins fall back to
-    [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins].
+    world coordinate name) into a single triple per dimension. Nonspatial
+    origins and spacing are read from their coordinate labels.
     Each requested dimension must have defined spacing; a singleton non-spatial
     dimension has no defined spacing.
 
@@ -361,6 +361,13 @@ def get_grid_info_from_dataarray(
     dims = [str(dim) for dim in data.dims] if dims is None else list(dims)
 
     spacings = data.vd.spacing
+    spacings.update(
+        {
+            dim: get_coordinate_spacing_info(dim, data, 1e-2).value
+            for dim in dims
+            if dim not in spacings
+        }
+    )
     origin = get_dim_keyed_origin(data)
     missing_spacing = [dim for dim in dims if spacings[dim] is None]
     if missing_spacing:

@@ -457,6 +457,17 @@ Matching integer chunk indices are sorted numerically then combined lazily with
 [`stack_poses`][confusius.multipose.stack_poses]. The chunks must meet `stack_poses`'
 requirements, including equal time lengths and compatible voxel grids.
 
+Use the same pattern to save a multi-pose VoxelData array back to separate files:
+
+```python
+da.fusi.save("sub-01_ses-01_chunk-{chunk}_pwd.nii")
+```
+
+Each pose gets its own NIfTI file and JSON sidecar, preserving its geometry and
+timing. Chunk indices come from the `pose` labels, which must be unique
+non-negative integers. Without `{chunk}`, select a single pose before saving to
+NIfTI, since one file cannot represent distinct per-pose affines.
+
 ### Loading Other Formats
 
 For unsupported formats, such as lab-specific MAT-files, load the array with the
