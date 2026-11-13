@@ -8,8 +8,9 @@ import posixpath
 import re
 import shutil
 from collections import defaultdict
+from html import unescape
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 ASSET_EXTENSIONS = {
     ".avif",
@@ -24,10 +25,10 @@ ASSET_EXTENSIONS = {
 }
 TEXT_EXTENSIONS = {".css", ".html", ".js", ".json", ".md", ".mjs", ".txt", ".xml"}
 SHARED_DIRECTORY = Path("shared-assets")
+# Match complete URL tokens, not image-extension prefixes such as `image.png.zip`.
 ASSET_REFERENCE_PATTERN = re.compile(
-    r"(?P<url>(?:https?://[^\"'()\s]+|/[^\"'()\s]+|[^\"'()\s]+)"
-    r"\.(?:avif|bmp|gif|jpeg|jpg|png|tiff|tif|webp)(?:[?#][^\"'()\s]*)?)",
-    re.IGNORECASE,
+    r"(?P<url>[^\"'()<>\[\],\\\s=?#]+"
+    r"(?:\?[^\"'()<>\[\],\\\s#]*)?(?:\#[^\"'()<>\[\],\\\s]*)?)"
 )
 
 
@@ -92,6 +93,40 @@ def get_relative_url(source: Path, target: Path) -> str:
     return posixpath.relpath(target.as_posix(), start=start)
 
 
+def resolve_asset_url(root: Path, source: Path, url: str) -> Path | None:
+    """Resolve a local image URL without accepting other websites.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        Published documentation root.
+    source : pathlib.Path
+        Text file containing the URL.
+    url : str
+        Relative, root-relative, or same-site URL.
+
+    Returns
+    -------
+    pathlib.Path or None
+        Resolved image path, or no path for a non-image or external URL.
+    """
+    try:
+        split_url = urlsplit(unescape(url))
+    except ValueError:
+        return None
+    if (split_url.scheme or split_url.netloc) and not (
+        split_url.scheme in ("", "http", "https")
+        and split_url.netloc == "confusius.tools"
+    ):
+        return None
+    asset_url = unquote(split_url.path)
+    if Path(asset_url).suffix.lower() not in ASSET_EXTENSIONS:
+        return None
+    if asset_url.startswith("/"):
+        return (root / asset_url.lstrip("/")).resolve()
+    return (source.parent / asset_url).resolve()
+
+
 def rewrite_references(
     root: Path, replacements: dict[Path, Path], dry_run: bool
 ) -> tuple[int, set[Path]]:
@@ -123,29 +158,14 @@ def rewrite_references(
 
         def replace_reference(match: re.Match[str], text_file: Path = text_file) -> str:
             url = match.group("url")
-            split_url = urlsplit(url)
-            if (split_url.scheme or split_url.netloc) and not (
-                split_url.scheme in ("", "http", "https")
-                and split_url.netloc == "confusius.tools"
-            ):
-                return url
-            asset_url = split_url.path
-            if asset_url.startswith("/"):
-                asset_rel = Path(asset_url.lstrip("/"))
-            else:
-                source = text_file.relative_to(root)
-                asset_rel = Path(
-                    posixpath.normpath(
-                        posixpath.join(source.parent.as_posix(), asset_url)
-                    )
-                )
-            original = (root / asset_rel).resolve()
+            original = resolve_asset_url(root, text_file, url)
             shared = replacements.get(original)
             if shared is None:
                 return url
+            split_url = urlsplit(url)
             referenced_assets.add(original)
             shared_rel = shared.relative_to(root).as_posix()
-            if asset_url.startswith("/"):
+            if split_url.path.startswith("/"):
                 replacement_path = f"/{shared_rel}"
             else:
                 replacement_path = get_relative_url(
@@ -206,17 +226,14 @@ def deduplicate_assets(root: Path, dry_run: bool = False) -> tuple[int, int, int
 
     replacements: dict[Path, Path] = {}
     files_to_remove: list[Path] = []
-    created_shared: list[Path] = []
 
     for key, assets in grouped_assets.items():
         if len(assets) < 2 and key not in existing_shared:
             continue
         digest, extension = key
         shared = existing_shared.get(key, shared_root / f"{digest}{extension}")
-        if not shared.exists():
-            if not dry_run:
-                shutil.copy2(assets[0], shared)
-            created_shared.append(shared)
+        if not shared.exists() and not dry_run:
+            shutil.copy2(assets[0], shared)
         for asset in assets:
             replacements[asset] = shared
             files_to_remove.append(asset)
@@ -224,6 +241,32 @@ def deduplicate_assets(root: Path, dry_run: bool = False) -> tuple[int, int, int
     changed_file_count, referenced_assets = rewrite_references(
         root, replacements, dry_run
     )
+    # Keep originals whenever an attribute or CSS URL escaped the token rewriter.
+    remaining_assets: set[Path] = set()
+    if not dry_run:
+        for text_file in iter_files(root):
+            if text_file.suffix.lower() not in TEXT_EXTENSIONS:
+                continue
+            content = text_file.read_text(encoding="utf-8")
+            urls = [
+                match.group("url")
+                for match in ASSET_REFERENCE_PATTERN.finditer(content)
+            ]
+            urls.extend(
+                match.group(2)
+                for match in re.finditer(
+                    r"\b[\w-]+\s*=\s*([\"'])(.*?)\1", content, re.DOTALL
+                )
+            )
+            urls.extend(
+                match.group(1).strip().strip("\"'")
+                for match in re.finditer(r"url\((.*?)\)", content, re.DOTALL)
+            )
+            for url in urls:
+                asset = resolve_asset_url(root, text_file, url)
+                if asset in replacements:
+                    remaining_assets.add(asset)
+
     referenced_shared = set()
     if shared_root.exists():
         for path in iter_files(root):
@@ -238,6 +281,7 @@ def deduplicate_assets(root: Path, dry_run: bool = False) -> tuple[int, int, int
         path
         for path in files_to_remove
         if path in referenced_assets
+        and (dry_run or path not in remaining_assets)
         and (dry_run or replacements[path] in referenced_shared)
     ]
     duplicate_count = len(files_to_remove)

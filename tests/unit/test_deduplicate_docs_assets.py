@@ -95,6 +95,78 @@ def test_deduplicate_assets_rewrites_same_site_absolute_urls(tmp_path: Path) -> 
         assert not (tmp_path / version / "example.png").exists()
 
 
+@pytest.mark.parametrize(
+    "reference, expected",
+    [
+        ("<img src=example.png>", "<img src=../shared-assets/{name}>"),
+        ('<img src="example%2Epng">', '<img src="../shared-assets/{name}">'),
+        ("![image](<example.png>)", "![image](<../shared-assets/{name}>)"),
+        (
+            '<img srcset="example.png,other.png 2x">',
+            '<img srcset="../shared-assets/{name},other.png 2x">',
+        ),
+    ],
+)
+def test_deduplicate_assets_rewrites_every_reference(
+    tmp_path: Path, reference: str, expected: str
+) -> None:
+    for version in ("dev", "0.8.0"):
+        directory = tmp_path / version
+        directory.mkdir()
+        (directory / "example.png").write_bytes(b"identical image")
+        (directory / "index.html").write_text(
+            '<img src="example.png">' + reference, encoding="utf-8"
+        )
+
+    assert deduplicate_assets(tmp_path) == (2, 2, 0)
+    shared = next((tmp_path / "shared-assets").iterdir())
+    for version in ("dev", "0.8.0"):
+        assert (tmp_path / version / "index.html").read_text(encoding="utf-8") == (
+            f'<img src="../shared-assets/{shared.name}">'
+            + expected.format(name=shared.name)
+        )
+        assert not (tmp_path / version / "example.png").exists()
+
+
+def test_deduplicate_assets_retains_partially_rewritten_assets(tmp_path: Path) -> None:
+    for version in ("dev", "0.8.0"):
+        directory = tmp_path / version
+        directory.mkdir()
+        (directory / "example image.png").write_bytes(b"identical image")
+        content = '<img src="example%20image.png">'
+        if version == "dev":
+            content += '<img src="example image.png">'
+        (directory / "index.html").write_text(content, encoding="utf-8")
+
+    assert deduplicate_assets(tmp_path) == (1, 2, 0)
+    assert (tmp_path / "dev" / "example image.png").read_bytes() == b"identical image"
+    assert not (tmp_path / "0.8.0" / "example image.png").exists()
+    assert '<img src="example image.png">' in (
+        tmp_path / "dev" / "index.html"
+    ).read_text(encoding="utf-8")
+
+
+def test_deduplicate_assets_preserves_other_file_extensions(tmp_path: Path) -> None:
+    for version in ("dev", "0.8.0"):
+        directory = tmp_path / version
+        directory.mkdir()
+        (directory / "example.png").write_bytes(b"identical image")
+        (directory / "example.png.zip").write_bytes(b"archive")
+        (directory / "index.html").write_text(
+            '<img src="example.png"><a href="example.png.zip">download</a>',
+            encoding="utf-8",
+        )
+
+    assert deduplicate_assets(tmp_path) == (2, 2, 0)
+    shared = next((tmp_path / "shared-assets").iterdir())
+    for version in ("dev", "0.8.0"):
+        assert (tmp_path / version / "index.html").read_text(encoding="utf-8") == (
+            f'<img src="../shared-assets/{shared.name}">'
+            '<a href="example.png.zip">download</a>'
+        )
+        assert (tmp_path / version / "example.png.zip").read_bytes() == b"archive"
+
+
 def test_deduplicate_assets_does_not_remove_unreferenced_files(tmp_path: Path) -> None:
     first_asset = tmp_path / "dev" / "images" / "example.png"
     second_asset = tmp_path / "0.8.0" / "images" / "example.png"
