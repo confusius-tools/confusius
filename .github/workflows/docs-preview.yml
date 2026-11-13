@@ -28,7 +28,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
-      EVENT_NAME: ${{ github.event_name }}
       BUILD_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Select opted-in PR build
@@ -65,10 +64,6 @@ jobs:
               | if length == 1 then .[0].name else empty end' <<< "$ARTIFACTS")
           fi
           if [ -z "$ARTIFACT" ]; then
-            if [ "$EVENT_NAME" != workflow_run ]; then
-              gh pr comment "$PR_NUMBER" --body \
-                'Docs previews are enabled for this PR. The preview will deploy when a Docs build succeeds for the current commit. If its artifact has expired, rerun the PR Docs workflow. Future successful builds will refresh it automatically; remove the `docs-preview` label to stop updates.'
-            fi
             exit 0
           fi
           echo 'ready=true' >> "$GITHUB_OUTPUT"

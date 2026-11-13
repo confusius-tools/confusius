@@ -138,14 +138,11 @@ def test_preview_rejects_wrong_or_unfinished_builds(
 
     assert result.returncode == 0, result.stderr
     assert not Path(request_environment["GITHUB_OUTPUT"]).exists()
-    assert (
-        "Docs previews are enabled"
-        in Path(request_environment["COMMENT_LOG"]).read_text()
-    )
+    assert not Path(request_environment["COMMENT_LOG"]).exists()
 
 
 @pytest.mark.parametrize("artifacts", [[], [{"name": f"site-{SHA}", "expired": True}]])
-def test_preview_reports_missing_or_expired_artifacts(
+def test_preview_silently_waits_for_missing_or_expired_artifacts(
     request_environment: dict[str, str], artifacts: list[dict[str, object]]
 ) -> None:
     request_environment["MOCK_ARTIFACTS"] = json.dumps({"artifacts": artifacts})
@@ -154,9 +151,7 @@ def test_preview_reports_missing_or_expired_artifacts(
 
     assert result.returncode == 0, result.stderr
     assert not Path(request_environment["GITHUB_OUTPUT"]).exists()
-    assert (
-        "artifact has expired" in Path(request_environment["COMMENT_LOG"]).read_text()
-    )
+    assert not Path(request_environment["COMMENT_LOG"]).exists()
 
 
 def test_preview_finds_fork_pr_without_run_metadata(
