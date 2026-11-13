@@ -26,9 +26,10 @@ Current development version for the next ConfUSIus release.
   them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
 - Add [`apply_translation`][confusius.xarray.apply_translation],
-  [`apply_rotation`][confusius.xarray.apply_rotation] and
-  [`apply_zoom`][confusius.xarray.apply_zoom], plus the matching
-  `.fusi.translate()`, `.fusi.rotate()` and `.fusi.zoom()` accessor methods, to move
+  [`apply_rotation`][confusius.xarray.apply_rotation],
+  [`apply_zoom`][confusius.xarray.apply_zoom] and
+  [`apply_flip`][confusius.xarray.apply_flip], plus the matching `.fusi.translate()`,
+  `.fusi.rotate()`, `.fusi.zoom()` and `.fusi.flip()` accessor methods, to move
   VoxelData in world space without resampling
   ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 - Add [`get_geometry_center`][confusius.xarray.get_geometry_center] and

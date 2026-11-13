@@ -115,16 +115,29 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
         calls["zoom"] = (data, zoom, center, inplace)
         return expected_apply
 
+    def _flip(data, axis, *, center, inplace):
+        calls["flip"] = (data, axis, center, inplace)
+        return expected_apply
+
+    monkeypatch.setattr("confusius.xarray.affine.apply_flip", _flip)
+    assert sample_voxeldata_3dt.fusi.flip("x") is expected_apply
+    assert calls["flip"] == (sample_voxeldata_3dt, "x", "geometry", False)
+    assert (
+        sample_voxeldata_3dt.fusi.flip("yx", center="origin", inplace=True)
+        is expected_apply
+    )
+    assert calls["flip"] == (sample_voxeldata_3dt, "yx", "origin", True)
+
     # The accessor imports these lazily, so patch the affine module.
     monkeypatch.setattr("confusius.xarray.affine.apply_translation", _translate)
     monkeypatch.setattr("confusius.xarray.affine.apply_rotation", _rotate)
     monkeypatch.setattr("confusius.xarray.affine.apply_zoom", _zoom)
 
     assert sample_voxeldata_3dt.fusi.rotate(5.0, "x") is expected_apply
-    assert calls["rotate"] == (sample_voxeldata_3dt, 5.0, "x", "origin", True, False)
+    assert calls["rotate"] == (sample_voxeldata_3dt, 5.0, "x", "geometry", True, False)
 
     assert sample_voxeldata_3dt.fusi.zoom(2.0) is expected_apply
-    assert calls["zoom"] == (sample_voxeldata_3dt, 2.0, "origin", False)
+    assert calls["zoom"] == (sample_voxeldata_3dt, 2.0, "geometry", False)
 
     assert sample_voxeldata_3dt.fusi.translate((1.0, 2.0, 3.0)) is expected_apply
     assert calls["translate"] == (sample_voxeldata_3dt, (1.0, 2.0, 3.0), False)

@@ -13,6 +13,7 @@ __all__ = [
     "FUSIRegistrationAccessor",
     "FUSIScaleAccessor",
     "apply_affine",
+    "apply_flip",
     "apply_rotation",
     "apply_translation",
     "apply_zoom",
@@ -42,6 +43,7 @@ _ATTR_TO_MODULE = {
     "log_scale": "confusius.xarray.scale",
     "power_scale": "confusius.xarray.scale",
     "apply_affine": "confusius.xarray.affine",
+    "apply_flip": "confusius.xarray.affine",
     "apply_rotation": "confusius.xarray.affine",
     "apply_translation": "confusius.xarray.affine",
     "apply_zoom": "confusius.xarray.affine",
@@ -70,6 +72,7 @@ if TYPE_CHECKING:
     from confusius.xarray.affine import (
         FUSIAffineAccessor,
         apply_affine,
+        apply_flip,
         apply_rotation,
         apply_translation,
         apply_zoom,

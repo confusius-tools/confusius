@@ -162,8 +162,10 @@ def initialize_single_slice_rigid_transform(
     moving_normal = _get_voxel_to_world_slice_normal(moving)
     rotation = _rotation_matrix_aligning_vectors(fixed_normal, moving_normal)
 
-    fixed_center = get_geometry_center(fixed).to_numpy()
-    moving_center = get_geometry_center(moving).to_numpy()
+    fixed_point = get_geometry_center(fixed)
+    moving_point = get_geometry_center(moving)
+    fixed_center = np.array([fixed_point[dim] for dim in WORLD_DIMS])
+    moving_center = np.array([moving_point[dim] for dim in WORLD_DIMS])
     translation = moving_center - rotation @ fixed_center
 
     transform = np.eye(4, dtype=np.float64)

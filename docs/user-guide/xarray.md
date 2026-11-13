@@ -489,70 +489,92 @@ constructing SimpleITK/ITK images.
 
 #### Reading and applying affines
 
-Read the DataArray's
-[`voxel_to_world`][confusius.xarray.FUSIAffineAccessor.voxel_to_world] affine, or
-apply a world-space affine to its coordinates with
-[`apply`][confusius.xarray.FUSIAffineAccessor.apply]—either a `(4, 4)` array directly,
-or a string key naming a reference frame already stored in `attrs["affines"]`:
+Read the voxel-to-world affine with
+[`voxel_to_world`][confusius.xarray.FUSIAffineAccessor.voxel_to_world]. To apply a
+world-space transform, use [`apply`][confusius.xarray.FUSIAffineAccessor.apply] with
+either a `(4, 4)` matrix or a reference frame name stored in `attrs["affines"]`:
 
 ```python
-voxel_to_world = pwd.fusi.affine.voxel_to_world  # (4, 4) array.
+voxel_to_world = pwd.fusi.affine.voxel_to_world  # (4, 4) array
 
-# By key: re-express world coordinates in the "world_to_qform" reference frame; the
-# full affine (including any rotation) is absorbed into the DataArray's
-# VoxelToWorldIndex.
+# Re-express coordinates in a stored reference frame.
 registered_to_qform = pwd.fusi.affine.apply("world_to_qform")
 
-# By array: apply an arbitrary (4, 4) world-space affine directly.
+# Apply an arbitrary world-space affine.
 shifted = pwd.fusi.affine.apply(my_affine)
 ```
 
-For the common moves, three helpers directly on `.fusi` build the affine for you:
-[`translate`][confusius.xarray.FUSIAccessor.translate] shifts by a `(z, y, x)` vector in
-world units, [`rotate`][confusius.xarray.FUSIAccessor.rotate] turns by an angle (degrees
-by default) about a world axis name or vector, and
-[`zoom`][confusius.xarray.FUSIAccessor.zoom] rescales by a scalar or per-axis `(z, y, x)`
-factors. `rotate` and `zoom` pivot about `center`, which is the grid origin by default
-(`"origin"`, the world position of the first voxel). Pass `"geometry"` to pivot about
-the center of the data's bounding box, or a `(z, y, x)` point such as `(0, 0, 0)` for
-the world origin. `rotate` follows the right-hand rule in ordered `(z, y, x)` world
-coordinates. Calls chain in order; the voxel grid and data values never change, only
-their placement in world space:
+In both cases, `apply` incorporates the full transform, including any rotation, into the
+DataArray's `VoxelToWorldIndex`.
+
+For common transforms, four helpers are available directly on `.fusi`:
+
+- [`translate`][confusius.xarray.FUSIAccessor.translate]: Shift by a `(z, y, x)` vector
+  in world units.
+- [`rotate`][confusius.xarray.FUSIAccessor.rotate]: Rotate about a world axis (name or
+  vector), using degrees by default and the right-hand rule in `(z, y, x)` world
+  coordinates.
+- [`zoom`][confusius.xarray.FUSIAccessor.zoom]: Scale uniformly or by separate `(z, y,
+  x)` factors.
+- [`flip`][confusius.xarray.FUSIAccessor.flip]: Reflect across planes perpendicular to
+  one or more world axes, without reversing data values.
+
+Rotations, zooms and flips default to the **geometry center** (`center="geometry"`), the
+midpoint of the data's bounding box. Use `center="origin"` for the first sampled voxel's
+world position ([`.fusi.origin`][confusius.xarray.FUSIAccessor.origin]), or pass any
+`(z, y, x)` world point as a sequence or mapping. For pose-dependent data, select a
+scalar pose before using `center="origin"`; each pose has its own grid origin. To
+transform all poses together, use `center="geometry"` or provide an explicit shared
+world point.
 
 ```python
-# Shift 1 mm along z, then tilt 5 degrees about x through the geometry center.
-moved = pwd.fusi.translate((1.0, 0.0, 0.0)).fusi.rotate(5.0, "x", center="geometry")
+# Translate 1 mm along z, then rotate 5° about x around the geometry center.
+moved = pwd.fusi.translate((1, 0, 0)).fusi.rotate(5, "x")
 
-# Rotate about z, then y, then x, each about the fixed world axes.
-tilted = pwd.fusi.rotate((30.0, 20.0, 10.0), "zyx", center="geometry")
+# Rotate about the fixed world z, y and x axes, in order.
+tilted = pwd.fusi.rotate((30, 20, 10), "zyx")
+
+# Reflect along the world x and y axes.
+flipped = pwd.fusi.flip("xy")
+
+# Rotate about the world origin (0, 0, 0).
+rotated_at_world_origin = pwd.fusi.rotate(30, "z", center=(0, 0, 0))
+
+# Or rotate about the first voxel's world position.
+rotated_at_first_voxel = pwd.fusi.rotate(30, "z", center="origin")
 ```
 
-The same moves are also available as functions:
+Transforms can be chained and are applied in order. They update only the voxel-to-world
+affine, leaving the voxel grid and data values unchanged. No resampling takes place.
+
+Equivalent standalone functions are
 [`apply_translation`][confusius.xarray.apply_translation],
-[`apply_rotation`][confusius.xarray.apply_rotation] and
-[`apply_zoom`][confusius.xarray.apply_zoom].
+[`apply_rotation`][confusius.xarray.apply_rotation],
+[`apply_zoom`][confusius.xarray.apply_zoom] and
+[`apply_flip`][confusius.xarray.apply_flip].
 
-[`bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] gives the extent of
-the data in world space, enclosing the full extent of every voxel (half a voxel beyond
-the outermost voxel centers). It is computed from the affine alone (exact for oblique
-geometry, and one bounding box per pose when the geometry is pose-dependent):
+
+To inspect the geometry, use:
+
+- [`bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box]: The world-space
+  bounding box enclosing all voxels, including their full extent. Computed from the
+  affine alone, it also handles oblique and pose-dependent geometries, returning a
+  single box enclosing all poses.
+- [`geometry_center`][confusius.xarray.FUSIAffineAccessor.geometry_center]: The midpoint
+  of this bounding box in `(z, y, x)` world coordinates, shared across all poses.
+
+Both use the world units available as `.fusi.affine.units`.
 
 ```python
-bbox = pwd.fusi.affine.bounding_box  # Dims (bound, component), e.g. ("max", "x").
+bbox = pwd.fusi.affine.bounding_box  # {"z": (min, max), "y": ..., "x": ...}
+bbox["x"][1]  # Maximum x.
+
+center = pwd.fusi.affine.geometry_center  # {"z": ..., "y": ..., "x": ...}
+center["x"]
 ```
 
-[`geometry_center`][confusius.xarray.FUSIAffineAccessor.geometry_center] is the midpoint
-of that box, a single `(z, y, x)` point in world space. For pose-dependent geometry it
-is the center of the box enclosing every pose:
-
-```python
-# Dim (component), e.g. center.sel(component="x").
-center = pwd.fusi.affine.geometry_center
-```
-
-To replace a DataArray's voxel-to-world geometry outright (e.g. after computing a new
-affine by hand), use
-[`set_voxel_to_world`][confusius.xarray.FUSIAffineAccessor.set_voxel_to_world]:
+To replace the voxel-to-world affine entirely, for example after computing one manually,
+use [`set_voxel_to_world`][confusius.xarray.FUSIAffineAccessor.set_voxel_to_world]:
 
 ```python
 pwd = pwd.fusi.affine.set_voxel_to_world(new_voxel_to_world)
