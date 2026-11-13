@@ -12,6 +12,12 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`get_bounding_box`][confusius.xarray.get_bounding_box] and
+  [`.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] now
+  return a dictionary mapping world coordinate names to `(min, max)` bounds instead
+  of a DataArray. Access bounds with `bbox["z"]` instead of `.sel`; pose-dependent
+  data now returns one box enclosing all poses, so select a pose first for its own
+  box ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 - [`plot_stat_map`][confusius.plotting.plot_stat_map] and
   [`plot_matrix`][confusius.plotting.plot_matrix] default to the `"berlin"`
   colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
