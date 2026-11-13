@@ -28,7 +28,6 @@ type TransformCenter = (
     | Sequence[float]
     | Mapping[str, float]
     | npt.NDArray[np.floating]
-    | xr.DataArray
 )
 """Fixed point of a world-space transform: a named point or a world `(z, y, x)` point."""
 
