@@ -387,8 +387,9 @@ def _drop_vertices_outside_grid(
     # the outermost centers keeps vertices at the brain's tips (e.g. the
     # anterior/posterior ends of the Allen brain) that the edge-padded field
     # interpolation still covers.
-    bbox = get_bounding_box(reference).sel(component=list(WORLD_DIMS)).values
-    inside = np.all((vertices >= bbox[0]) & (vertices <= bbox[1]), axis=1)
+    bbox = get_bounding_box(reference)
+    bounds = np.array([bbox[dim] for dim in WORLD_DIMS])
+    inside = np.all((vertices >= bounds[:, 0]) & (vertices <= bounds[:, 1]), axis=1)
 
     keep_idx = np.where(inside)[0]
     old_to_new = np.full(len(vertices), -1, dtype=np.int64)
