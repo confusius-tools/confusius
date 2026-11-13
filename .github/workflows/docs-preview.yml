@@ -1,0 +1,151 @@
+name: Preview docs on request
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_run:
+    workflows: [Docs]
+    types: [completed]
+
+jobs:
+  request-preview:
+    if: >-
+      (github.event_name == 'pull_request_target' && github.event.label.name == 'docs-preview') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.request.outputs.ready }}
+      pr_number: ${{ steps.request.outputs.pr_number }}
+      head_sha: ${{ steps.request.outputs.head_sha }}
+      run_id: ${{ steps.request.outputs.run_id }}
+      artifact: ${{ steps.request.outputs.artifact }}
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+      EVENT_NAME: ${{ github.event_name }}
+      BUILD_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Select opted-in PR build
+        id: request
+        run: |
+          set -euo pipefail
+          # Fork workflow runs can omit pull_requests from their event payload.
+          if [ -z "$PR_NUMBER" ]; then
+            PRS=$(gh api "repos/$GH_REPO/commits/$BUILD_SHA/pulls")
+            PR_NUMBER=$(jq -r --arg sha "$BUILD_SHA" '
+              [.[] | select(.state == "open" and .head.sha == $sha
+                and any(.labels[]; .name == "docs-preview"))]
+              | if length == 1 then .[0].number else empty end' <<< "$PRS")
+            [ -n "$PR_NUMBER" ] || exit 0
+          fi
+          PR=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER")
+          [ "$(jq -r '.state' <<< "$PR")" = open ] || exit 0
+          jq -e 'any(.labels[]; .name == "docs-preview")' <<< "$PR" > /dev/null || exit 0
+          HEAD_SHA=$(jq -r '.head.sha' <<< "$PR")
+          RUNS=$(gh api --method GET "repos/$GH_REPO/actions/workflows/docs.yml/runs" \
+            -f event=pull_request -f head_sha="$HEAD_SHA" -f per_page=100)
+          RUN_ID=$(jq -r --argjson pr "$PR_NUMBER" --arg sha "$HEAD_SHA" \
+            --arg branch "$(jq -r '.head.ref' <<< "$PR")" \
+            --argjson repo "$(jq '.head.repo.id' <<< "$PR")" '
+            [.workflow_runs[] | select(.head_sha == $sha and .head_branch == $branch
+              and .head_repository.id == $repo and .status == "completed" and .conclusion == "success"
+              and ((.pull_requests | length) == 0 or any(.pull_requests[]; .number == $pr)))]
+            | sort_by(.id) | last | .id // empty' <<< "$RUNS")
+          ARTIFACT=""
+          if [ -n "$RUN_ID" ]; then
+            ARTIFACTS=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts")
+            ARTIFACT=$(jq -r '
+              [.artifacts[] | select(.expired == false and (.name | test("^site-[0-9a-f]{40}$")))]
+              | if length == 1 then .[0].name else empty end' <<< "$ARTIFACTS")
+          fi
+          if [ -z "$ARTIFACT" ]; then
+            if [ "$EVENT_NAME" != workflow_run ]; then
+              gh pr comment "$PR_NUMBER" --body \
+                'Docs previews are enabled for this PR. The preview will deploy when a Docs build succeeds for the current commit. If its artifact has expired, rerun the PR Docs workflow. Future successful builds will refresh it automatically; remove the `docs-preview` label to stop updates.'
+            fi
+            exit 0
+          fi
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+
+  deploy-preview:
+    needs: request-preview
+    if: needs.request-preview.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: docs-publish
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ needs.request-preview.outputs.pr_number }}
+    steps:
+      # Never execute scripts from the PR in this privileged workflow.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Download built documentation
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.request-preview.outputs.run_id }}
+          name: ${{ needs.request-preview.outputs.artifact }}
+          path: site/
+
+      - name: Deploy deduplicated preview
+        env:
+          EXPECTED_SHA: ${{ needs.request-preview.outputs.head_sha }}
+          DOCS_DEPLOY_TOKEN: ${{ secrets.DOCS_DEPLOY_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER")
+          jq -e --arg sha "$EXPECTED_SHA" \
+            '.state == "open" and .head.sha == $sha and any(.labels[]; .name == "docs-preview")' \
+            <<< "$PR" > /dev/null
+          git clone --depth 1 \
+            "https://x-access-token:$DOCS_DEPLOY_TOKEN@github.com/confusius-tools/confusius-docs.git" \
+            /tmp/confusius-docs
+          git -C /tmp/confusius-docs config user.name "github-actions[bot]"
+          git -C /tmp/confusius-docs config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p "/tmp/confusius-docs/pr-preview/pr-$PR_NUMBER"
+          rsync -a --delete site/ "/tmp/confusius-docs/pr-preview/pr-$PR_NUMBER/"
+          VERSIONS=/tmp/confusius-docs/pr-preview/versions.json
+          [ -f "$VERSIONS" ] || echo '[]' > "$VERSIONS"
+          jq --arg version "pr-$PR_NUMBER" --arg title "PR #$PR_NUMBER Preview" \
+            '[.[] | select(.version != $version)] + [{version: $version, title: $title, aliases: []}]' \
+            "$VERSIONS" > "$VERSIONS.tmp"
+          mv "$VERSIONS.tmp" "$VERSIONS"
+          python tools/deduplicate_docs_assets.py /tmp/confusius-docs
+          git -C /tmp/confusius-docs add -A
+          if ! git -C /tmp/confusius-docs diff --cached --quiet; then
+            PR=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER")
+            jq -e --arg sha "$EXPECTED_SHA" \
+              '.state == "open" and .head.sha == $sha and any(.labels[]; .name == "docs-preview")' \
+              <<< "$PR" > /dev/null
+            git -C /tmp/confusius-docs commit -m "docs: deploy preview for PR #$PR_NUMBER"
+            git -C /tmp/confusius-docs push
+          fi
+
+      - name: Post preview URL comment
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          number: ${{ needs.request-preview.outputs.pr_number }}
+          message: |
+            📖 Doc preview for `${{ needs.request-preview.outputs.head_sha }}`: https://confusius.tools/pr-preview/pr-${{ needs.request-preview.outputs.pr_number }}/
+
+            Successful Docs builds will refresh this preview automatically. Remove the `docs-preview` label to stop updates.

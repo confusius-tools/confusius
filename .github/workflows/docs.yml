@@ -199,67 +199,6 @@ jobs:
           path: docs/images/
           retention-days: 14
 
-  deploy-preview:
-    needs: build
-    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    concurrency:
-      group: docs-publish
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Download site artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: site-${{ github.sha }}
-          path: site/
-
-      # A build may finish after the PR closes and its preview is removed.
-      - name: Check PR is still open
-        id: preview-state
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.number }}
-        run: |
-          STATE=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '.state')
-          echo "state=$STATE" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy deduplicated PR preview
-        if: steps.preview-state.outputs.state == 'open'
-        run: |
-          git clone --depth 1 \
-            "https://x-access-token:${{ secrets.DOCS_DEPLOY_TOKEN }}@github.com/confusius-tools/confusius-docs.git" \
-            /tmp/confusius-docs
-          git -C /tmp/confusius-docs config user.name "github-actions[bot]"
-          git -C /tmp/confusius-docs config user.email "github-actions[bot]@users.noreply.github.com"
-          PR_NUM="${{ github.event.number }}"
-          mkdir -p /tmp/confusius-docs/pr-preview/pr-$PR_NUM
-          rsync -a --delete site/ /tmp/confusius-docs/pr-preview/pr-$PR_NUM/
-          VERSIONS=/tmp/confusius-docs/pr-preview/versions.json
-          [ -f "$VERSIONS" ] || echo '[]' > "$VERSIONS"
-          jq --arg version "pr-$PR_NUM" --arg title "PR #$PR_NUM Preview" \
-            '[.[] | select(.version != $version)] + [{version: $version, title: $title, aliases: []}]' \
-            "$VERSIONS" > "$VERSIONS.tmp"
-          mv "$VERSIONS.tmp" "$VERSIONS"
-          python tools/deduplicate_docs_assets.py /tmp/confusius-docs
-          git -C /tmp/confusius-docs add -A
-          if ! git -C /tmp/confusius-docs diff --cached --quiet; then
-            git -C /tmp/confusius-docs commit -m "docs: deploy preview for PR #$PR_NUM"
-            git -C /tmp/confusius-docs push
-          fi
-
-      - name: Post preview URL comment
-        if: steps.preview-state.outputs.state == 'open'
-        uses: marocchino/sticky-pull-request-comment@v3
-        with:
-          message: |
-            📖 Doc preview: https://confusius.tools/pr-preview/pr-${{ github.event.number }}/
-
   deploy-docs:
     needs: build
     if: github.event_name != 'pull_request'

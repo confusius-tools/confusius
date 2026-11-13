@@ -110,6 +110,9 @@ def resolve_asset_url(root: Path, source: Path, url: str) -> Path | None:
     pathlib.Path or None
         Resolved image path, or no path for a non-image or external URL.
     """
+    path = url.partition("?")[0].partition("#")[0]
+    if "%" not in path and not path.lower().endswith(tuple(ASSET_EXTENSIONS)):
+        return None
     try:
         split_url = urlsplit(unescape(url))
     except ValueError:
