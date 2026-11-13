@@ -85,6 +85,10 @@ dev = [
     "pytest-qt>=4.5.0",
 ]
 
+# TODO: remove this draft-only override and raise the dependency floor after release.
+[tool.uv.sources]
+voxeldata = { git = "https://github.com/confusius-tools/voxeldata", rev = "9c35a29868cdc9c2435d2e167d5ba6215577f211" }
+
 [tool.numpydoc_validation]
 exclude = [
     '\.__init__$',
