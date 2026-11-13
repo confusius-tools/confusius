@@ -283,7 +283,7 @@ def test_cleanup_removes_only_unwanted_previews_and_unused_assets(
     (shared / "live.png").write_bytes(b"released image")
     (seed / "index.html").write_text('<img src="shared-assets/live.png">')
     for arguments in [
-        ["init", "--bare", str(remote)],
+        ["init", "--bare", "-b", "main", str(remote)],
         ["init", "-b", "main", str(seed)],
         ["-C", str(seed), "config", "user.name", "Test"],
         ["-C", str(seed), "config", "user.email", "test@example.com"],
