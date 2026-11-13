@@ -137,7 +137,7 @@ class TestDecompose44:
 
     def test_identity_zero_shear(self):
         """Identity matrix decomposes to zero shear vector."""
-        T, R, Z, S = decompose_affine(np.eye(4))
+        _T, _R, _Z, S = decompose_affine(np.eye(4))
         assert_array_equal(S, np.zeros(3))
 
     def test_round_trip_random(self):

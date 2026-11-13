@@ -12,6 +12,12 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`get_bounding_box`][confusius.xarray.get_bounding_box] and
+  [`.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] now
+  return a dictionary mapping world coordinate names to `(min, max)` bounds instead
+  of a DataArray. Access bounds with `bbox["z"]` instead of `.sel`; pose-dependent
+  data now returns one box enclosing all poses, so select a pose first for its own
+  box ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 - [`plot_stat_map`][confusius.plotting.plot_stat_map] and
   [`plot_matrix`][confusius.plotting.plot_matrix] default to the `"berlin"`
   colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
@@ -40,6 +46,17 @@ Current development version for the next ConfUSIus release.
 - Load multi-pose arrays split into several NIfTI files using `{chunk}` in the filename,
   stacking them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
+- Add [`apply_translation`][confusius.xarray.apply_translation],
+  [`apply_rotation`][confusius.xarray.apply_rotation],
+  [`apply_zoom`][confusius.xarray.apply_zoom] and
+  [`apply_flip`][confusius.xarray.apply_flip], plus the matching `.fusi.translate()`,
+  `.fusi.rotate()`, `.fusi.zoom()` and `.fusi.flip()` accessor methods, to move
+  VoxelData in world space without resampling
+  ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Add [`get_geometry_center`][confusius.xarray.get_geometry_center] and
+  [`.fusi.affine.geometry_center`][confusius.xarray.FUSIAffineAccessor.geometry_center]
+  to get the world-space center of a VoxelData array
+  ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 - Save multi-pose VoxelData arrays to separate NIfTI files and JSON sidecars with a
   `{chunk}` filename template, preserving each pose's geometry and timing
   ([#579](https://github.com/confusius-tools/confusius/pull/579)).
@@ -60,6 +77,9 @@ Current development version for the next ConfUSIus release.
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
   archive, and simplify dataset and template citations
   ([#565](https://github.com/confusius-tools/confusius/pull/565)).
+- Add the [Transforms 101](examples/_built/io/transforms_101.md) example,
+  which shows how to translate, rotate and zoom a VoxelData array and what the `center`
+  argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 
 ### :wrench: Maintenance
 
@@ -74,7 +94,7 @@ Current development version for the next ConfUSIus release.
   ([#555](https://github.com/confusius-tools/confusius/pull/555)).
 - Use the released xarray 2026.9.0 instead of a git pin now that it ships the
   required fixes ([#559](https://github.com/confusius-tools/confusius/pull/559)).
-  
+
 ### :frame_photo: Napari plugin
 
 - Videos open in a separate, time-synchronized viewer with their own layer list. Load
