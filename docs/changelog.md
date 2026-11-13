@@ -119,6 +119,10 @@ Current development version for the next ConfUSIus release.
   VoxelData provides extraction out of the box through Xarray, with independent
   `accel` (flox), `lazy` (Dask), and combined `all` extras
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
+- Documentation deployments share identical images across versions and previews.
+  PR previews are now opt-in via the `docs-preview` GitHub label and refresh
+  automatically after successful documentation builds
+  ([#581](https://github.com/confusius-tools/confusius/pull/581)).
 - The examples gallery runs each example once and renders its light and dark
   figures from that single run
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).

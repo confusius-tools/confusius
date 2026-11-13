@@ -374,7 +374,7 @@ import numpy as np
 da = cf.load("sub-01_task-awake_pwd.source.scan")
 
 brain_to_world = cf.io.load_bps("sub-01_task-awake_pwd.bps")
-da.vd.affines["world_to_brain"] = np.linalg.inv(brain_to_world)
+da = da.vd.set_affine("world_to_brain", np.linalg.inv(brain_to_world))
 ```
 
 Passing the BPS file path using the `bps_path` argument when loading a SCAN file offers
