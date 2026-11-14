@@ -233,9 +233,9 @@ class TestLoadScan2D:
             + t[0],
             rtol=1e-10,
         )
-        np.testing.assert_array_equal(da.attrs["affines"]["world_to_lab"], np.eye(4))
+        np.testing.assert_array_equal(da.vd.affines["world_to_lab"], np.eye(4))
         np.testing.assert_allclose(
-            da.attrs["affines"]["world_to_probe"],
+            da.vd.affines["world_to_probe"],
             np.linalg.inv(_build_probe_to_lab(_PROBE_TO_LAB_SINGLE)),
             rtol=1e-10,
         )
@@ -702,7 +702,7 @@ class TestLoadScanFoldsWorldToLab:
             rtol=1e-10,
         )
         np.testing.assert_allclose(
-            scan_2d_rotated.attrs["affines"]["world_to_probe"],
+            scan_2d_rotated.vd.affines["world_to_probe"],
             np.linalg.inv(probe_to_lab),
             rtol=1e-10,
         )
@@ -720,7 +720,7 @@ class TestLoadScanFoldsWorldToLab:
         for i in range(1, _NPOSE):
             np.testing.assert_allclose(local_affines[i], local_affines[0], rtol=1e-8)
         np.testing.assert_allclose(
-            scan_3d.attrs["affines"]["world_to_probe"],
+            scan_3d.vd.affines["world_to_probe"],
             np.linalg.inv(probe_to_lab[0]),
             rtol=1e-10,
         )
@@ -821,11 +821,7 @@ class TestLoadScanWithBPS:
         """Brain coordinates of a voxel do not depend on the lab-side coronal rotation."""
         da = load_scan(scan_2d_path, bps_path=bps_path)
         voxel = np.array([0.0, 3.0, 5.0, 1.0])
-        brain = (
-            da.attrs["affines"]["world_to_brain"]
-            @ get_voxel_to_world_affine(da)
-            @ voxel
-        )
+        brain = da.vd.affines["world_to_brain"] @ get_voxel_to_world_affine(da) @ voxel
         # Everything below is in raw ConfUSIus-ordered Iconeus lab space, no constant.
         raw_probe_to_lab = (
             CONFUSIUS_TO_ICONEUS_AXES.T
@@ -855,7 +851,7 @@ class TestLoadScanWithBPS:
         """2Dscan world_to_brain matches the expected affine from fixture metadata."""
         da = load_scan(scan_2d_path, bps_path=bps_path)
         expected = self._expected_world_to_brain(brain_to_lab)
-        result = np.asarray(da.attrs["affines"]["world_to_brain"])
+        result = np.asarray(da.vd.affines["world_to_brain"])
         np.testing.assert_allclose(result, expected, rtol=1e-10, atol=1e-12)
 
     @pytest.mark.parametrize("scan_path", ["scan_3d_path", "scan_4d_path"])
@@ -875,7 +871,7 @@ class TestLoadScanWithBPS:
         """
         da = load_scan(request.getfixturevalue(scan_path), bps_path=bps_path)
         expected = self._expected_world_to_brain(brain_to_lab)
-        result = np.asarray(da.attrs["affines"]["world_to_brain"])
+        result = np.asarray(da.vd.affines["world_to_brain"])
         assert result.shape == (4, 4)
         np.testing.assert_allclose(result, expected, rtol=1e-10, atol=1e-12)
 

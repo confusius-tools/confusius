@@ -26,7 +26,7 @@ from confusius._utils.napari import (
     share_image_contrast_limits,
 )
 from confusius.registration import resample_like
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
@@ -207,7 +207,7 @@ def plot_napari(
     Napari's axis labels always show world `z`/`y`/`x` names, even though the
     displayed layer keeps `data`'s native voxel dims and index. Oblique or sheared
     data is resampled to an axis-aligned world grid first, because this display path
-    does not yet pass `data.fusi.affine`'s rotation/shear through as a napari layer
+    does not yet pass `data.vd`'s rotation/shear through as a napari layer
     `affine`.
 
     If all displayed dimensions have coordinates, their spacing is used as the scale
@@ -222,7 +222,7 @@ def plot_napari(
 
     For unitary voxel dimensions (e.g., a single-slice elevation axis in 2D+t data),
     the spacing cannot be inferred from consecutive coordinate differences. In that
-    case, `.fusi.spacing` derives it from the voxel-to-world affine column norm
+    case, `.vd.spacing` derives it from the voxel-to-world affine column norm
     instead. For unitary non-voxel dimensions with no affine to fall back on, unit
     spacing is assumed and a warning is emitted.
 
@@ -342,7 +342,7 @@ def draw_napari_labels(
     to the original grid. Thin regions and boundaries can change in this round trip.
     Prefer drawing in an existing axis-aligned acquisition/scanner frame when
     available. A known world-space transform can be applied with
-    [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] without
+    [`.vd.apply`][voxeldata.accessors.VoxelDataAccessor.apply] without
     resampling voxels; labels must be transformed consistently when changing frames.
 
     Examples
@@ -355,7 +355,7 @@ def draw_napari_labels(
     >>> # Convert painted labels to an integer label map DataArray.
     >>> label_map = extract_labels_from_layer(labels_layer, pwd.mean("time"))
     """
-    data = ensure_voxeldata(data)
+    data = canonicalize_voxeldata(data)
     if POSE_DIM in data.dims:
         raise ValueError("Select a single pose before drawing labels.")
     # The painting background is an intensity image, regardless of its dtype.
@@ -466,7 +466,7 @@ def extract_labels_from_layer(
     >>> from confusius.extract import extract_with_labels
     >>> signals = extract_with_labels(pwd, label_map)
     """
-    data = ensure_voxeldata(data)
+    data = canonicalize_voxeldata(data)
 
     label_array = np.asarray(labels_layer.data)
     all_dims = [str(dim) for dim in data.dims]
@@ -474,7 +474,7 @@ def extract_labels_from_layer(
     spatial_dims = [d for d in all_dims if d != time_dim]
     metadata_data = labels_layer.metadata.get("xarray")
     display_data = (
-        ensure_voxeldata(metadata_data)
+        canonicalize_voxeldata(metadata_data)
         if isinstance(metadata_data, xr.DataArray)
         else data
     )

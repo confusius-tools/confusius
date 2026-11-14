@@ -254,7 +254,9 @@ def test_clean_interpolate_kwargs_match_manual_pipeline(make_sample_timeseries):
     assert_allclose(result.values, expected.values)
 
 
-def test_clean_noop_preserves_non_finite_when_ensure_finite_false(make_sample_timeseries):
+def test_clean_noop_preserves_non_finite_when_ensure_finite_false(
+    make_sample_timeseries,
+):
     """Test ensure_finite=False leaves non-finite values unchanged."""
     signals = make_sample_timeseries()
     signals.values[0, 0] = np.nan
@@ -370,7 +372,9 @@ def test_clean_ensure_finite_raises_for_all_non_finite_series():
 
 def test_clean_psc_restores_original_mean_after_highpass(make_sample_timeseries):
     """Test PSC uses the original mean after mean-removing filtering."""
-    signals = make_sample_timeseries(n_time=200, n_voxels=3, sampling_rate=100.0) + 100.0
+    signals = (
+        make_sample_timeseries(n_time=200, n_voxels=3, sampling_rate=100.0) + 100.0
+    )
 
     filtered = filter_butterworth(signals, low_cutoff=1.0)
     expected = standardize(filtered + signals.mean(dim="time"), method="psc")
@@ -423,7 +427,9 @@ def test_clean_cosine_filter_kwargs_are_forwarded():
     assert_allclose(result.values, expected.values)
 
 
-def test_clean_cosine_filter_is_jointly_regressed_with_confounds(make_sample_timeseries):
+def test_clean_cosine_filter_is_jointly_regressed_with_confounds(
+    make_sample_timeseries,
+):
     """Test cosine drift terms are regressed jointly with user confounds."""
     signals = make_sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
     time = signals.coords["time"].values
@@ -503,7 +509,6 @@ def test_clean_cosine_filter_joint_regression_with_1d_confounds(make_sample_time
     assert_allclose(result.values, expected.values)
 
 
-
 def _assert_clean_cosine_joint_regression_matches_reference(
     signals: xr.DataArray, confounds: xr.DataArray
 ) -> None:
@@ -538,6 +543,7 @@ def _assert_clean_cosine_joint_regression_matches_reference(
     )
 
     assert_allclose(result.values, expected.values)
+
 
 def test_clean_cosine_filter_joint_regression_renames_2d_confound_dim(
     make_sample_timeseries,
@@ -692,10 +698,18 @@ def test_clean_dataframe_confounds_match_dataarray_confounds(
     )
 
     expected = clean(
-        signals, detrend_order=1, low_cutoff=1.0, filter_method="cosine", confounds=confounds
+        signals,
+        detrend_order=1,
+        low_cutoff=1.0,
+        filter_method="cosine",
+        confounds=confounds,
     )
     result = clean(
-        signals, detrend_order=1, low_cutoff=1.0, filter_method="cosine", confounds=frame
+        signals,
+        detrend_order=1,
+        low_cutoff=1.0,
+        filter_method="cosine",
+        confounds=frame,
     )
 
     xr.testing.assert_allclose(result, expected)
@@ -738,7 +752,7 @@ def test_clean_multipose_numpy_inputs_match_per_pose(
     assert result.coords["time"].dims == ("time", "pose")
     assert_allclose(result.coords["time"].values, time_coord[sample_mask])
 
-    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
+    for grid in sample_voxeldata_3dt_pose.coords["pose"].values:
         with pytest.warns(UserWarning, match="cannot be verified"):
-            expected = run(sample_voxeldata_3dt_pose.sel(pose=pose))
-        xr.testing.assert_allclose(result.sel(pose=pose), expected)
+            expected = run(sample_voxeldata_3dt_pose.sel(pose=grid))
+        xr.testing.assert_allclose(result.sel(pose=grid), expected)

@@ -10,7 +10,7 @@ from numpy.testing import assert_allclose
 
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volumewise import register_volumewise
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.xarray import create_voxeldata
 
 SHIFT_X, SHIFT_Y = 2, 3
@@ -405,7 +405,7 @@ class TestRegisterVolumewise:
         """Coordinates and VoxelData geometry are preserved in output."""
         result = register_volumewise(sample_voxeldata_2dt_registration, n_jobs=1)
 
-        ensure_voxeldata(result)
+        canonicalize_voxeldata(result)
         assert result.dims == sample_voxeldata_2dt_registration.dims
         for coord in ("time", "k", "j", "i", "z", "y", "x"):
             assert_allclose(
@@ -413,8 +413,8 @@ class TestRegisterVolumewise:
                 sample_voxeldata_2dt_registration.coords[coord].values,
             )
         assert_allclose(
-            result.fusi.affine.voxel_to_world,
-            sample_voxeldata_2dt_registration.fusi.affine.voxel_to_world,
+            result.vd.voxel_to_world,
+            sample_voxeldata_2dt_registration.vd.voxel_to_world,
         )
 
     def test_different_reference_time(self, sample_voxeldata_2dt_registration):
@@ -469,7 +469,7 @@ class TestRegisterVolumewise:
             show_progress=False,
         )
 
-        ensure_voxeldata(result)
+        canonicalize_voxeldata(result)
         assert result.dims == data.dims
         assert_allclose(result.coords["time"].values, data.coords["time"].values)
         assert result.attrs["reference_time"] is None

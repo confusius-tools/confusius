@@ -16,9 +16,11 @@ time coordinate and spatial geometry.
 
 ## The Multi-Pose Data Model
 
-Multi-pose arrays follow the usual VoxelData dimension order, with pose between time and
-the voxel dimensions: `(..., time, pose, k, j, i)`. Unlike an ordinary dimension, pose
-affects both spatial coordinates and acquisition times:
+Multi-pose arrays end in `(k, j, i)`, with leading dimensions in any order.
+Creation preserves that order; ConfUSIus canonicalization uses
+`(...extra, pose, time, k, j, i)`. Probe geometry uses
+`geometry_dims=("pose",)` and the flat `.vd` accessor. Unlike an ordinary
+dimension, pose affects both spatial coordinates and acquisition times:
 
 - **Geometry**: Each pose has its own voxel-to-world affine. World coordinates `(z, y,
   x)` therefore have dimensions `(pose, k, j, i)`. Select a pose before selecting by
@@ -66,8 +68,6 @@ Coordinates:
     y          (pose, k, j, i) float64 1MB ...
     x          (pose, k, j, i) float64 1MB ...
 Attributes:
-    affines:               {'world_to_lab': array([[1., 0., 0., 0.],
-       ...
     device_serial_number:  ASAO0000
     software_version:      IcoScan v.1.9.0
     iconeus_scan_mode:     4Dscan
@@ -77,6 +77,7 @@ Attributes:
     ...
 ```
 
+Named world frames are available through `pwd.vd.affines`.
 [Consolidating](#pose-consolidation) the four poses would therefore produce a 3D+t
 recording with **16 elevation slices**.
 
@@ -245,6 +246,10 @@ regular voxel grid with one voxel-to-world affine.
     rotating. Rotational sweeps (e.g., tomographic acquisitions) are not yet supported
     and will raise a `ValueError`.
 
+    Named frames must also agree across merged grids. Identical stacked frames
+    can collapse to one matrix; genuinely varying frames cannot describe one
+    consolidated volume. Apply a common frame or remove the varying frame first.
+
 It does this by:
 
 1. Identifying the sweep dimension from the probe translations and voxel-axis
@@ -299,7 +304,7 @@ volume = cf.multipose.consolidate_poses(anat)
 volume.fusi.save("sub-01_acq-anat_pwd.nii.gz")
 
 # Or Zarr.
-volume.to_zarr("sub-01_acq-anat_pwd.zarr")
+volume.fusi.save("sub-01_acq-anat_pwd.zarr")
 ```
 
 ### Without Consolidation
@@ -307,7 +312,7 @@ volume.to_zarr("sub-01_acq-anat_pwd.zarr")
 **Zarr** preserves the `pose` dimension and its per-pose geometry:
 
 ```python
-anat.to_zarr("sub-01_acq-anat_pwd_multipose.zarr")
+anat.fusi.save("sub-01_acq-anat_pwd_multipose.zarr")
 ```
 
 For **NIfTI**, include `{chunk}` in the filename to save one NIfTI file and JSON sidecar

@@ -80,9 +80,11 @@ def test_standardize_multipose_pose_dependent_time_matches_per_pose(
     """
     result = standardize(sample_voxeldata_3dt_pose, method="zscore")
 
-    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
-        expected = standardize(sample_voxeldata_3dt_pose.sel(pose=pose), method="zscore")
-        xr.testing.assert_allclose(result.sel(pose=pose), expected)
+    for grid in sample_voxeldata_3dt_pose.coords["pose"].values:
+        expected = standardize(
+            sample_voxeldata_3dt_pose.sel(pose=grid), method="zscore"
+        )
+        xr.testing.assert_allclose(result.sel(pose=grid), expected)
 
 
 def test_standardize_psc_zero_mean():

@@ -26,7 +26,7 @@ from confusius.glm._utils import (
     select_contrast_map,
 )
 from confusius.glm.first_level import FirstLevelModel
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.validation.coordinates import validate_matching_coordinates
 
 if TYPE_CHECKING:
@@ -278,10 +278,10 @@ class SecondLevelModel(BaseEstimator):
         self.design_matrix_: pd.DataFrame = dm
         self._input_attrs: dict[str, object] = intersect_attrs(maps)
 
-        # _resolve_input always canonicalizes maps via ensure_voxeldata, so ref is
+        # _resolve_input always canonicalizes maps via canonicalize_voxeldata, so ref is
         # always VoxelData; an all-True mask on its grid lets compute_contrast
         # reconstruct maps via unmask, matching FirstLevelModel's pattern.
-        self._effective_mask_: xr.DataArray = ensure_voxeldata(
+        self._effective_mask_: xr.DataArray = canonicalize_voxeldata(
             ref.copy(data=np.ones(ref.shape, dtype=bool)), allow_extra_dims=False
         )
 
@@ -324,13 +324,13 @@ class SecondLevelModel(BaseEstimator):
                 m.compute_contrast(first_level_contrast, output_type="effect")
                 for m in second_level_input
             ]
-            maps = [ensure_voxeldata(m, allow_pose=False) for m in maps]
+            maps = [canonicalize_voxeldata(m, allow_pose=False) for m in maps]
             _validate_second_level_maps(maps)
             return maps
 
         if all(isinstance(m, xr.DataArray) for m in second_level_input):
             maps = [m for m in second_level_input if isinstance(m, xr.DataArray)]
-            maps = [ensure_voxeldata(m, allow_pose=False) for m in maps]
+            maps = [canonicalize_voxeldata(m, allow_pose=False) for m in maps]
             _validate_second_level_maps(maps)
             return maps
 

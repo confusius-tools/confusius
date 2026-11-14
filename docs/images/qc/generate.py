@@ -119,7 +119,7 @@ brain_mask = pwd_spatial.copy(
 console.print(f"  Brain mask voxels: {int(brain_mask.sum())}")
 
 console.print("Extracting brain signals")
-signals = pwd.fusi.extract.with_mask(brain_mask).compute()
+signals = pwd.vd.extract_with_mask(brain_mask).compute()
 
 _SAVEFIG_KWARGS = {"dpi": 150, "bbox_inches": "tight", "transparent": True}
 

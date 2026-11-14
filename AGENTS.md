@@ -14,23 +14,59 @@ concern — feel free to make breaking API changes when they improve the design.
 
 ## Data Model: VoxelData
 
-**VoxelData** is ConfUSIus's canonical `xarray.DataArray` model for spatially referenced
-voxel data. This includes fUSI recordings, brain atlas volumes, PCA/decomposition
-component maps, dense displacement fields, B-spline control-point grids, and anything
+**VoxelData** is the external `voxeldata` package's `xarray.DataArray` model for
+spatially referenced voxel data. ConfUSIus depends on the published package and
+must not duplicate its geometry implementation. Internal dimension/geometry and
+module-level affine imports are re-exports; `.vd` is the geometry accessor, while
+`.fusi` is the fUSI analysis layer. There is no `.fusi.affine` accessor or
+`.fusi.translate`/`rotate`/`zoom`/`flip` wrapper. Use `.vd` for transforms,
+spatial-only `.origin`/`.spacing`, `.world_units`, and shared-time `.dt`.
+
+Generic mask/label validation, extraction, and reconstruction also belong to
+VoxelData (`voxeldata.masks`, `voxeldata.extract`). `confusius.extract` directly
+re-exports VoxelData functions; do not restore per-function wrapper modules.
+`confusius.validation.mask` retains explicit acquisition-aware adapters. Do not
+reimplement alignment, stacking, reductions, or reconstruction. Extraction methods
+are flat `.vd.extract_with_mask`, `.vd.extract_with_labels`, and `.vd.unmask`
+methods, not `.fusi.extract`, and do not default/validate acquisition metadata; constructors,
+loaders, and explicit validation own that policy. Primary timestamps may depend
+on `time` plus arbitrary nonspatial axes. Auxiliary `slice_time` semantics and
+correction remain in ConfUSIus. Extraction works without optional flox/Dask in VoxelData; ConfUSIus
+retains its existing analysis dependencies and requires published `voxeldata[io]>=0.0.5`.
+During this draft, `tool.uv.sources` and `uv.lock` temporarily pin the tested
+VoxelData Git revision so CI and ordinary `uv run` use the unreleased APIs.
+Use `uv run --with-editable ../voxeldata pytest ...` when testing further changes
+in the sibling checkout. Once checks pass, release VoxelData, remove the temporary
+source override, and update the published dependency and lockfile before merging.
+The ordinary Zarr dispatcher delegates to `voxeldata.load_array`/`save`.
+Do not replace the published dependency with a permanent local or Git source.
+
+VoxelData includes fUSI recordings, brain atlas volumes, PCA/decomposition component maps, dense displacement fields, B-spline control-point grids, and anything
 else gridded in space. A VoxelData array is **always**:
 
-- Dims `(...extra, time, pose, k, j, i)` — `time`/`pose` are optional, extra
-  non-spatial dims (PCA/ICA components, displacement `component`, atlas region
-  masks, ...) may precede them, but native voxel indices `k`/`j`/`i` are always
-  present and always last.
+- Dims `(*nonspatial_dims, k, j, i)` — `time`/`pose` are optional and all leading
+  dimensions may appear in any order. Creation preserves leading order. Optional
+  ConfUSIus canonicalization/ensure uses `(...extra, pose, time, k, j, i)`; generic
+  `.vd.canonicalize()` normalizes and validates, using `(...extra, time, k, j, i)`, preserving
+  extra dimensions' relative order. Native voxel indices `k`/`j`/`i` are mandatory and last.
 - Backed by a `VoxelToWorldIndex` attached to `z`/`y`/`x`
-  (`confusius._utils.geometry.VoxelToWorldIndex`/`VoxelToWorldTransform`), which
+  (`voxeldata.VoxelToWorldIndex`/`VoxelToWorldTransform`), which
   lazily derives those world coordinates from `k`/`j`/`i` via the voxel-to-world affine:
-  one affine shared by all data, or one affine per `pose`. A `pose` dim always
-  represents distinct probe positions, so its presence always requires one affine
-  per pose, even for a single pose — a shared affine is only valid with no `pose`
-  dim at all. World coordinates are never stored directly—always this index's
-  output.
+  a shared `(4, 4)` affine or a stack indexed by ordered nonspatial `geometry_dims`.
+  VoxelData stacks always need explicit names. ConfUSIus's constructor alone
+  supplies probe-pose defaults (`pose`). Shared geometry uses `()`, even with nonspatial axes.
+  Probe-pose APIs use `pose`; general geometry may depend on time/views/other axes.
+  Native `.reindex()`/alignment that changes geometry labels is unsupported: use
+  `.isel()`/`.sel()`. Keep geometry axes independently indexed so extraction and
+  spatial stacking continue to work. World coordinates
+  are never stored directly—always this index's output.
+- Named world frames live on this index, accessed with `.vd.affines`,
+  `.vd.affines[name]`, `.vd.set_affine`, and `.vd.remove_affine`, never in
+  `attrs["affines"]`. Zarr I/O serializes them under
+  `voxel_to_world_named_affines`, with ordered dependencies in
+  `voxel_to_world_geometry_dims`, and reconstructs the index on load. NIfTI sidecars
+  retain their wire-format `ConfUSIusAffines` mapping. B-spline initialization is
+  transform metadata (`attrs["bspline_initialization"]`), not a named world frame.
 
 Every 3D spatial array in the codebase must be VoxelData. Use these terms
 consistently in code, docstrings, and docs:
@@ -42,7 +78,7 @@ consistently in code, docstrings, and docs:
 - **VoxelData geometry**: specifically the affine/index/spatial coordinate semantics,
   not the whole array.
 
-Use `confusius.validation.validate_voxeldata`/`ensure_voxeldata` to check any
+Use `confusius.validation.validate_voxeldata`/`canonicalize_voxeldata` to check any
 VoxelData array—by default it enforces the universal `k`/`j`/`i` +
 `VoxelToWorldIndex` structure above (dims, the index itself, `units` coordinate attrs).
 Its optional flags (`require_time`, `require_unchunked_time`, `require_dtype`,
@@ -117,7 +153,7 @@ src/confusius/
 ├── datasets/       # Downloaders for public fUSI/atlas datasets
 ├── decoding/       # Searchlight decoding
 ├── decomposition/  # PCA/ICA/NMF on VoxelData (_base.py)
-├── extract/        # mask.py, labels.py, reconstruction.py — signal extraction
+├── extract/        # Direct VoxelData function re-exports; methods live on the flat .vd accessor
 ├── glm/            # First-/second-level GLM (design, contrasts, HRF models)
 ├── io/             # NIfTI, AUTC, EchoFrame, SCAN readers/writers (I/O boundary)
 ├── iq/             # IQ data clutter filtering and power reduction
@@ -129,7 +165,7 @@ src/confusius/
 ├── signal/         # Confound regression, censoring, detrending, filtering
 ├── spatial/        # Spatial smoothing
 ├── stats/          # Statistical thresholding
-├── validation/     # validate_voxeldata/ensure_voxeldata, mask/labels/atlas/time-series checks
+├── validation/     # validate_voxeldata/canonicalize_voxeldata, mask/labels/atlas/time-series checks
 ├── xarray/         # FUSIAccessor (`data.fusi.<accessor>.<method>()`), create/scale
 └── _utils/         # cross-module internal helpers (see below)
 ```

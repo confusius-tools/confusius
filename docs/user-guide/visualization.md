@@ -278,7 +278,7 @@ label_map = extract_labels_from_layer(labels_layer, mean_vol)
 # and will be reused automatically by plot_contours and add_contours.
 
 # Extract region-averaged signals.
-region_signals = pwd.fusi.extract.with_labels(label_map)
+region_signals = pwd.vd.extract_with_labels(label_map)
 # region_signals has dims (time, region).
 
 # Overlay contours on a volume plot.
@@ -293,7 +293,7 @@ Label IDs are preserved, but boundaries can change and thin regions can disappea
 
 Prefer drawing in an existing axis-aligned acquisition/scanner frame when available. A
 known transform can be applied afterward to both the image and extracted labels using
-[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] without resampling.
+[`.vd.apply`][voxeldata.accessors.VoxelDataAccessor.apply] without resampling.
 
 ## Static Volume Plots
 
@@ -737,7 +737,7 @@ fig, ax = cf.plotting.plot_matrix(
     labels=region_order,
     groups=group_labels,
     group_colors=group_colors,
-    grid="gray",
+    pose="gray",
     cbar_label="correlation",
 )
 ```

@@ -25,7 +25,7 @@ from confusius._utils.io import is_h5py_backed
 from confusius._utils.progress import progress_bar
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask, unmask
-from confusius.validation import ensure_mask, ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata, ensure_mask
 
 
 def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
@@ -510,7 +510,7 @@ class SearchLight(BaseEstimator):
                 "data first."
             )
 
-        X_ordered = ensure_voxeldata(
+        X_ordered = canonicalize_voxeldata(
             X,
             require_time=True,
             require_unchunked_time=True,
@@ -601,9 +601,7 @@ class SearchLight(BaseEstimator):
             self.show_progress,
         )
 
-        # Carry the input's attributes over, notably any `affines`, so the score map
-        # stays in the same world space. Override the semantic attributes to describe
-        # the score itself rather than the input signal.
+        # Describe the score rather than the input signal, retaining its world frame.
         attrs = {**dict(X_ordered.attrs), "long_name": "Searchlight CV score"}
         units = _get_score_units(self.scoring, classifier=classifier)
         if units is not None:
@@ -616,6 +614,11 @@ class SearchLight(BaseEstimator):
             process_mask,
             attrs=attrs,
             fill_value=np.nan,
+        )
+        self.scores_ = self.scores_.vd.set_voxel_to_world(
+            self.scores_.vd.voxel_to_world,
+            geometry_dims=self.scores_.vd.geometry_dims,
+            named_affines=X_ordered.vd.affines,
         )
         return self
 

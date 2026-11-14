@@ -67,7 +67,7 @@ ConfUSIus provides three QC metrics, divided into two categories:
     with np.load(region_matches_path, allow_pickle=True) as region_matches:
         region_map = region_matches[session]
     brain_mask = pwd.isel(time=0, drop=True).copy(data=(region_map != 0)[None])
-    signals = pwd.fusi.extract.with_mask(brain_mask)
+    signals = pwd.vd.extract_with_mask(brain_mask)
     ```
 
 ## DVARS

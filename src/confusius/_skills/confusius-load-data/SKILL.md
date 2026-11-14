@@ -118,7 +118,7 @@ validate_voxeldata(power)
 validate_voxeldata(seed_map)
 ```
 
-The constructor reorders dimensions to `(...extra, time, pose, k, j, i)`,
+The constructor reorders dimensions to `(...extra, pose, time, k, j, i)`,
 omitting unused `time`/`pose` axes and adding missing singleton spatial axes.
 World coordinates `z/y/x` are derived from the affine, not used as dimension names.
 

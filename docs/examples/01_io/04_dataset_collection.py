@@ -101,7 +101,7 @@ print("Release:", bids_root.name, "\nVoxel dimensions:", dict(image.sizes))
 # [two-session registration](../registration/register_volume_same_subject.md).
 
 # %% tags=["thumbnail"]
-image_qform = image.fusi.affine.apply(image.attrs["affines"]["world_to_qform"])
+image_qform = image.vd.apply(image.vd.affines["world_to_qform"])
 plotter = image_qform.fusi.scale.db().fusi.plot.volume(
     cmap="gray",
     cbar_label="Power Doppler (dB)",

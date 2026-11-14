@@ -302,13 +302,13 @@ def _build_voxel_to_probe(
 def _build_scan_affines(
     probe_to_lab: npt.NDArray[np.float64],
 ) -> dict[str, npt.NDArray[np.float64]]:
-    """Build the named affines stored in `attrs["affines"]` for SCAN data.
+    """Build the named affines stored in `.vd.affines` for SCAN data.
 
     Lab space is the world space, so `world_to_lab` is the identity (like the
     `world_to_sform`/`world_to_qform` entry of the selected NIfTI affine), and
     `world_to_probe` maps world coordinates to the first pose's probe space (`z`
     elevation, `y` depth, `x` lateral). Both are single `(4, 4)` affines so that
-    `.fusi.affine.apply("world_to_probe")` places every pose relative to the first one
+    `.vd.apply("world_to_probe")` places every pose relative to the first one
     and pose consolidation passes them through.
 
     Parameters
@@ -490,7 +490,7 @@ def load_scan(
         Path to the SCAN file (`.scan`).
     bps_path : str or pathlib.Path, optional
         Path to the corresponding BPS file (`.bps`). If provided, a `world_to_brain`
-        affine is added to `da.attrs["affines"]`.
+        affine is added to `da.vd.affines`.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
         Dask chunk specification. Accepted forms:
 
@@ -533,9 +533,9 @@ def load_scan(
     and `x` lateral. This space is shared across poses and scans, while each pose
     retains its own voxel-to-world geometry.
 
-    `da.attrs["affines"]` contains `world_to_lab` (identity) and `world_to_probe`
+    `da.vd.affines` contains `world_to_lab` (identity) and `world_to_probe`
     (relative to the first probe pose). These can be applied with
-    `da.fusi.affine.apply(...)`. If `bps_path` is provided, `world_to_brain` is also
+    `da.vd.apply(...)`. If `bps_path` is provided, `world_to_brain` is also
     stored, mapping world coordinates to native Iconeus brain coordinates.
 
     Provenance metadata (`iconeus_*`, `software_version`, `device_serial_number`) are
@@ -569,7 +569,13 @@ def load_scan(
             ) from error
 
         if bps_path is not None:
-            _add_world_to_brain(data_array.attrs["affines"], bps_path)
+            affines = dict(data_array.vd.affines)
+            _add_world_to_brain(affines, bps_path)
+            data_array = data_array.vd.set_voxel_to_world(
+                data_array.vd.voxel_to_world,
+                geometry_dims=data_array.vd.geometry_dims,
+                named_affines=affines,
+            )
         return data_array
 
     raise ValueError(
@@ -592,7 +598,7 @@ def _load_scan_v1(
         Path to the v1 SCAN file, already validated as HDF5.
     bps_path : str or pathlib.Path, optional
         Path to the corresponding BPS file (`.bps`). If provided, a `world_to_brain`
-        affine is added to `da.attrs["affines"]`.
+        affine is added to `da.vd.affines`.
     chunks : int or tuple[int, ...] or str or None
         Dask chunk specification passed to `dask.array.from_array`.
 
@@ -630,8 +636,8 @@ def _load_scan_v1(
         # physical transforms produces the VoxelData geometry directly.
         voxel_to_world = probe_to_lab @ voxel_to_probe
 
+        affines = _build_scan_affines(probe_to_lab)
         attrs: dict[str, Any] = {
-            "affines": _build_scan_affines(probe_to_lab),
             "device_serial_number": _read_scan_str(h5, "/scanMetaData/Machine_SN"),
             "software_version": _read_scan_str(h5, "/scanMetaData/Neuroscan_version"),
             "iconeus_acquisition_mode": mode,
@@ -667,7 +673,12 @@ def _load_scan_v1(
 
         data_array.name = attrs["iconeus_scan"] or path.stem
         if bps_path is not None:
-            _add_world_to_brain(data_array.attrs["affines"], bps_path)
+            _add_world_to_brain(affines, bps_path)
+        data_array = data_array.vd.set_voxel_to_world(
+            data_array.vd.voxel_to_world,
+            geometry_dims=data_array.vd.geometry_dims,
+            named_affines=affines,
+        )
     except Exception:
         h5.close()
         raise
@@ -1125,7 +1136,7 @@ def _load_scan_v2(
 
     probe_to_lab = _build_scan_v2_probe_to_lab(meta)
     voxel_to_world = probe_to_lab @ _build_scan_v2_voxel_to_probe(meta)
-    attrs["affines"] = _build_scan_affines(probe_to_lab)
+    affines = _build_scan_affines(probe_to_lab)
 
     data_array = create_voxeldata(
         data_lazy,
@@ -1133,6 +1144,7 @@ def _load_scan_v2(
         time=_build_scan_v2_time_coord(meta) if include_time else None,
         pose=np.arange(npose) if include_pose else None,
         voxel_to_world=voxel_to_world,
+        affines=affines,
         attrs=attrs,
         name=attrs.get("iconeus_scan") or path.stem,
     )
@@ -1304,7 +1316,6 @@ def _scan_v2_public_attrs(meta: dict[str, Any], scan_mode: str) -> dict[str, Any
     }
     attrs.update(
         {
-            "affines": {},
             "iconeus_scan_format": "v2",
             "iconeus_acquisition_mode": scan_mode,
         }

@@ -5,13 +5,12 @@ from typing import TYPE_CHECKING, Any
 
 __all__ = [
     "FUSIAccessor",
-    "FUSIAffineAccessor",
     "FUSIConnectivityAccessor",
-    "FUSIExtractAccessor",
     "FUSIIQAccessor",
     "FUSIPlotAccessor",
     "FUSIRegistrationAccessor",
     "FUSIScaleAccessor",
+    "TransformCenter",
     "apply_affine",
     "apply_flip",
     "apply_rotation",
@@ -31,10 +30,8 @@ __all__ = [
 from confusius.xarray.accessors import FUSIAccessor
 
 _ATTR_TO_MODULE = {
-    "FUSIAffineAccessor": "confusius.xarray.affine",
     "create_voxeldata": "confusius.xarray.create",
     "FUSIConnectivityAccessor": "confusius.xarray.connectivity",
-    "FUSIExtractAccessor": "confusius.xarray.extract",
     "FUSIIQAccessor": "confusius.xarray.iq",
     "FUSIPlotAccessor": "confusius.xarray.plotting",
     "FUSIRegistrationAccessor": "confusius.xarray.registration",
@@ -42,6 +39,7 @@ _ATTR_TO_MODULE = {
     "db_scale": "confusius.xarray.scale",
     "log_scale": "confusius.xarray.scale",
     "power_scale": "confusius.xarray.scale",
+    "TransformCenter": "confusius.xarray.affine",
     "apply_affine": "confusius.xarray.affine",
     "apply_flip": "confusius.xarray.affine",
     "apply_rotation": "confusius.xarray.affine",
@@ -70,7 +68,7 @@ def __dir__() -> list[str]:
 
 if TYPE_CHECKING:
     from confusius.xarray.affine import (
-        FUSIAffineAccessor,
+        TransformCenter,
         apply_affine,
         apply_flip,
         apply_rotation,
@@ -84,7 +82,6 @@ if TYPE_CHECKING:
     )
     from confusius.xarray.connectivity import FUSIConnectivityAccessor
     from confusius.xarray.create import create_voxeldata
-    from confusius.xarray.extract import FUSIExtractAccessor
     from confusius.xarray.iq import FUSIIQAccessor
     from confusius.xarray.plotting import FUSIPlotAccessor
     from confusius.xarray.registration import FUSIRegistrationAccessor

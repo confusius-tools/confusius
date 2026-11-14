@@ -242,7 +242,6 @@ def test_validate_voxeldata_can_forbid_extra_dims() -> None:
         validate_voxeldata(data, allow_extra_dims=False)
 
 
-
 def test_validate_voxeldata_can_require_time() -> None:
     """`require_time=True` rejects arrays without a time dimension."""
     spatial = _make_voxel_to_world_time_series().isel(time=0, drop=True)
@@ -300,7 +299,7 @@ def test_validate_voxeldata_rejects_noncanonical_dim_order() -> None:
     """VoxelData dimensions must follow the canonical order."""
     reordered = _make_voxel_to_world_time_series().transpose("j", "i", "time", "k")
 
-    with pytest.raises(ValueError, match="not in canonical ConfUSIus order"):
+    with pytest.raises(ValueError, match="dimensions must end with"):
         validate_voxeldata(reordered)
 
 

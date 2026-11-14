@@ -59,11 +59,9 @@ def test_fetch_template(
     expected = cf.load(source, coordinate_affine=coordinate_affine)
     actual = fetcher(data_dir=tmp_path / "cache")
     assert_array_equal(actual.values, expected.values)
+    assert_allclose(actual.vd.voxel_to_world, expected.vd.voxel_to_world)
     assert_allclose(
-        actual.fusi.affine.voxel_to_world, expected.fusi.affine.voxel_to_world
-    )
-    assert_allclose(
-        actual.affines["world_to_sform"], expected.affines["world_to_sform"]
+        actual.vd.affines["world_to_sform"], expected.vd.affines["world_to_sform"]
     )
     if name == "pepe-mariani-2026-template":
         assert actual.attrs["qform_code"] == 1
