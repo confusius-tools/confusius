@@ -37,45 +37,6 @@ def test_scale_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
     assert calls["power"] == (sample_voxeldata_3dt, 2.0)
 
 
-def test_extract_wrappers_forward_calls(
-    monkeypatch, sample_voxeldata_3dt, sample_roi_labels
-):
-    """Extract accessor methods forward arguments to extraction functions."""
-    expected = xr.DataArray(np.array([1.0]), dims=["k"])
-    mask = sample_roi_labels > 0
-    calls: dict[str, tuple] = {}
-
-    def _with_labels(data, labels, reduction="mean"):
-        calls["labels"] = (data, labels, reduction)
-        return expected
-
-    def _with_mask(data, mask_):
-        calls["mask"] = (data, mask_)
-        return expected
-
-    def _unmask(data, mask, fill_value=0.0):
-        calls["unmask"] = (data, mask, fill_value)
-        return expected
-
-    monkeypatch.setattr("confusius.extract.extract_with_labels", _with_labels)
-    monkeypatch.setattr("confusius.extract.extract_with_mask", _with_mask)
-    monkeypatch.setattr("confusius.extract.unmask", _unmask)
-
-    assert (
-        sample_voxeldata_3dt.fusi.extract.with_labels(
-            sample_roi_labels, reduction="sum"
-        )
-        is expected
-    )
-    assert calls["labels"] == (sample_voxeldata_3dt, sample_roi_labels, "sum")
-
-    assert sample_voxeldata_3dt.fusi.extract.with_mask(mask) is expected
-    assert calls["mask"] == (sample_voxeldata_3dt, mask)
-
-    assert sample_voxeldata_3dt.fusi.extract.unmask(mask, fill_value=-1.0) is expected
-    assert calls["unmask"] == (sample_voxeldata_3dt, mask, -1.0)
-
-
 def test_iq_wrappers_forward_calls(monkeypatch, sample_voxeldata_iq_3dt):
     """IQ accessor methods forward all arguments to processing functions."""
     expected = xr.DataArray(np.array([1.0]), dims=["k"])

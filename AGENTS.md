@@ -26,8 +26,9 @@ Generic mask/label validation, extraction, and reconstruction also belong to
 VoxelData (`voxeldata.masks`, `voxeldata.extract`). `confusius.extract` directly
 re-exports VoxelData functions; do not restore per-function wrapper modules.
 `confusius.validation.mask` retains explicit acquisition-aware adapters. Do not
-reimplement alignment, stacking, reductions, or reconstruction. `.fusi.extract`
-methods remain but do not default/validate acquisition metadata; constructors,
+reimplement alignment, stacking, reductions, or reconstruction. Extraction methods
+are flat `.vd.extract_with_mask`, `.vd.extract_with_labels`, and `.vd.unmask`
+methods, not `.fusi.extract`, and do not default/validate acquisition metadata; constructors,
 loaders, and explicit validation own that policy. Primary timestamps may depend
 on `time` plus arbitrary nonspatial axes. Auxiliary `slice_time` semantics and
 correction remain in ConfUSIus. Extraction works without optional flox/Dask in VoxelData; ConfUSIus
@@ -152,7 +153,7 @@ src/confusius/
 ├── datasets/       # Downloaders for public fUSI/atlas datasets
 ├── decoding/       # Searchlight decoding
 ├── decomposition/  # PCA/ICA/NMF on VoxelData (_base.py)
-├── extract/        # mask.py, labels.py, reconstruction.py — signal extraction
+├── extract/        # Direct VoxelData function re-exports; methods live on the flat .vd accessor
 ├── glm/            # First-/second-level GLM (design, contrasts, HRF models)
 ├── io/             # NIfTI, AUTC, EchoFrame, SCAN readers/writers (I/O boundary)
 ├── iq/             # IQ data clutter filtering and power reduction

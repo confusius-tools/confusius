@@ -87,7 +87,7 @@ dev = [
 
 # TODO: remove this draft-only override and raise the dependency floor after release.
 [tool.uv.sources]
-voxeldata = { git = "https://github.com/confusius-tools/voxeldata", rev = "9c35a29868cdc9c2435d2e167d5ba6215577f211" }
+voxeldata = { git = "https://github.com/confusius-tools/voxeldata", rev = "f44ebc2abc20684870f42edc76b95f8f134b51e7" }
 
 [tool.numpydoc_validation]
 exclude = [

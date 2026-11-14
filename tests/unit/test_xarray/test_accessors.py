@@ -60,11 +60,15 @@ class TestFUSIAccessor:
 
         assert isinstance(sample_data.fusi.scale, FUSIScaleAccessor)
 
-    def test_extract_accessor_is_available(self, sample_data):
-        """Extract accessor is available as a property."""
-        from confusius.xarray.extract import FUSIExtractAccessor
+    def test_extraction_is_owned_by_voxeldata(self, sample_data):
+        """Extraction lives on VoxelData, not the fUSI analysis accessor."""
+        from voxeldata import VoxelDataAccessor
 
-        assert isinstance(sample_data.fusi.extract, FUSIExtractAccessor)
+        assert isinstance(sample_data.vd, VoxelDataAccessor)
+        assert callable(sample_data.vd.extract_with_mask)
+        assert callable(sample_data.vd.extract_with_labels)
+        assert callable(sample_data.vd.unmask)
+        assert not hasattr(sample_data.fusi, "extract")
 
     def test_save_dispatches_to_io_loadsave(self, sample_data, tmp_path):
         """save delegates to `confusius.io.loadsave.save`."""

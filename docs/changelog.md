@@ -31,6 +31,11 @@ Current development version for the next ConfUSIus release.
   values. Use `.vd.world_units` / `.vd.set_world_units`, and `.vd.dt` for time
   sampling; `.vd.origin` and `.vd.spacing` describe spatial dimensions only
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
+- Use VoxelData's `.vd.extract_with_mask`, `.vd.extract_with_labels`, and
+  `.vd.unmask` instead of `.fusi.extract`. `FUSIExtractAccessor` and
+  `confusius.xarray.extract` are removed; module-level `confusius.extract`
+  function re-exports remain available
+  ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 - `canonicalize_voxeldata` now normalizes and validates in one call, replacing
   `ensure_voxeldata`; its `.vd.canonicalize()` counterpart replaces `.vd.ensure()`.
   Use `.vd.get_relative_affine(other, via=...)` instead of `.vd.to(...)`, and
@@ -118,8 +123,8 @@ Current development version for the next ConfUSIus release.
 - Share ordinary Zarr array persistence with VoxelData, retaining ConfUSIus's
   Dask-backed loading default, acquisition validation, and atlas color restoration
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
-- Re-export extraction and reconstruction directly from VoxelData, retaining
-  `.fusi.extract` methods but not acquisition-defaulting extraction wrappers.
+- Re-export extraction and reconstruction directly from VoxelData; accessor
+  methods live on the flat `.vd` accessor, without acquisition-defaulting wrappers.
   Acquisition-aware mask/label validators, constructors, and loaders remain in
   ConfUSIus. Named timestamps support any number of nonspatial dependencies;
   `slice_time` stays consumer-defined in VoxelData and interpreted by ConfUSIus.

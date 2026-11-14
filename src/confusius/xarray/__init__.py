@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 __all__ = [
     "FUSIAccessor",
     "FUSIConnectivityAccessor",
-    "FUSIExtractAccessor",
     "FUSIIQAccessor",
     "FUSIPlotAccessor",
     "FUSIRegistrationAccessor",
@@ -33,7 +32,6 @@ from confusius.xarray.accessors import FUSIAccessor
 _ATTR_TO_MODULE = {
     "create_voxeldata": "confusius.xarray.create",
     "FUSIConnectivityAccessor": "confusius.xarray.connectivity",
-    "FUSIExtractAccessor": "confusius.xarray.extract",
     "FUSIIQAccessor": "confusius.xarray.iq",
     "FUSIPlotAccessor": "confusius.xarray.plotting",
     "FUSIRegistrationAccessor": "confusius.xarray.registration",
@@ -84,7 +82,6 @@ if TYPE_CHECKING:
     )
     from confusius.xarray.connectivity import FUSIConnectivityAccessor
     from confusius.xarray.create import create_voxeldata
-    from confusius.xarray.extract import FUSIExtractAccessor
     from confusius.xarray.iq import FUSIIQAccessor
     from confusius.xarray.plotting import FUSIPlotAccessor
     from confusius.xarray.registration import FUSIRegistrationAccessor

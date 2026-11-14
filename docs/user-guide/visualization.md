@@ -278,7 +278,7 @@ label_map = extract_labels_from_layer(labels_layer, mean_vol)
 # and will be reused automatically by plot_contours and add_contours.
 
 # Extract region-averaged signals.
-region_signals = pwd.fusi.extract.with_labels(label_map)
+region_signals = pwd.vd.extract_with_labels(label_map)
 # region_signals has dims (time, region).
 
 # Overlay contours on a volume plot.

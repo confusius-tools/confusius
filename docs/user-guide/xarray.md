@@ -336,7 +336,7 @@ root accessor, not a sub-accessor of `.fusi`:
 | [`.fusi.scale`][confusius.xarray.FUSIScaleAccessor] | Scaling transformations: decibel, log, and power scaling. |
 | [`.vd`][voxeldata.accessors.VoxelDataAccessor] | Inspect and apply voxel-to-world and world-to-reference affine transforms. |
 | [`.fusi.register`][confusius.xarray.FUSIRegistrationAccessor] | Motion correction via volumewise image registration. |
-| [`.fusi.extract`][confusius.xarray.FUSIExtractAccessor] | Extract and reconstruct signals using spatial masks. |
+| `.vd.extract_with_mask`, `.vd.extract_with_labels`, `.vd.unmask` | Generic mask extraction, label aggregation, and reconstruction. |
 | [`.fusi.plot`][confusius.xarray.FUSIPlotAccessor] | Visualization with napari and carpet plots. |
 | [`.fusi.connectivity`][confusius.xarray.FUSIConnectivityAccessor] | Seed-based functional connectivity maps. |
 
@@ -607,9 +607,9 @@ aligned = data.vd.reindex_voxels_like(reference)
 
 ### Signal Extraction
 
-The [`.fusi.extract`][confusius.xarray.FUSIExtractAccessor] accessor provides access to
-signal extraction and reconstruction functions, making it easy to pass fUSI data to
-scikit-learn, pandas, or other tools that expect a 2D matrix of shape
+VoxelData's flat `.vd` accessor provides extraction and reconstruction methods,
+making it easy to pass fUSI data to scikit-learn, pandas, or other tools that expect
+a 2D matrix of shape
 `(samples, features)`.
 
 #### Mask-based extraction
@@ -621,19 +621,19 @@ by a boolean (or single-label integer) mask into a `space` dimension:
 mask = cf.load("brain_mask.zarr")
 
 # signals has dims (time, space).
-signals = registered.fusi.extract.with_mask(mask)
+signals = registered.vd.extract_with_mask(mask)
 ```
 
 For a quick round-trip,
 [`.unstack("space")`](https://docs.xarray.dev/en/stable/generated/xarray.DataArray.unstack.html)
 reconstructs the spatial dimensions within the bounding box of the mask. To reconstruct
 the full spatial volume, use
-[`.fusi.extract.unmask()`][confusius.xarray.FUSIExtractAccessor.unmask] with the
+[`.vd.unmask()`][voxeldata.accessors.VoxelDataAccessor.unmask] with the
 original mask:
 
 ```python
 # reconstructed is a VoxelData array.
-reconstructed = signals.fusi.extract.unmask(mask)
+reconstructed = signals.vd.unmask(mask)
 ```
 
 #### Label-based extraction
@@ -652,10 +652,10 @@ brain region using an integer label map. It accepts two label formats:
 label_map = cf.load("atlas_labels.zarr")
 
 # region_signals has dims (time, region).
-region_signals = registered.fusi.extract.with_labels(label_map)
+region_signals = registered.vd.extract_with_labels(label_map)
 
 # Use a different aggregation (default is "mean").
-region_signals = registered.fusi.extract.with_labels(label_map, reduction="sum")
+region_signals = registered.vd.extract_with_labels(label_map, reduction="sum")
 ```
 
 ### Functional Connectivity
@@ -739,7 +739,7 @@ fig, ax = registered.fusi.plot.carpet(mask=brain_mask)
 registered.fusi.save("sub-01_task-awake_pwd.nii.gz")
 
 # 7. Extract global signal using the (boolean) brain mask.
-global_signal = registered.fusi.extract.with_mask(brain_mask).mean("space")
+global_signal = registered.vd.extract_with_mask(brain_mask).mean("space")
 
 # 8. Denoise and standardize power Doppler signals.
 pwd_denoised = cf.signal.clean(

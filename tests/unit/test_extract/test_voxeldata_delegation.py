@@ -22,7 +22,7 @@ def test_mask_validators_retain_acquisition_validation(sample_voxeldata_3dt, ope
 
 @pytest.mark.parametrize("kind", ["mask", "labels"])
 @pytest.mark.parametrize("use_flox", [False, True])
-def test_fusi_accessors_preserve_timestamps_without_defaults(
+def test_voxeldata_accessors_preserve_timestamps_without_defaults(
     sample_voxeldata_3dt, kind, use_flox
 ):
     """Extraction preserves timestamp metadata without acquisition interpretation."""
@@ -32,7 +32,7 @@ def test_fusi_accessors_preserve_timestamps_without_defaults(
     membership[0, 0, 0] = membership[1, 1, 1] = 1
     spatial = data.isel(time=0, drop=True).copy(data=membership)
     operation = (
-        data.fusi.extract.with_mask if kind == "mask" else data.fusi.extract.with_labels
+        data.vd.extract_with_mask if kind == "mask" else data.vd.extract_with_labels
     )
     with xr.set_options(use_flox=use_flox):
         result = operation(spatial)
@@ -54,7 +54,7 @@ def test_extraction_exports_are_voxeldata_functions(name):
     assert getattr(extract, name) is getattr(vd, name)
 
 
-def test_fusi_unmask_preserves_mask_named_frames(sample_voxeldata_3d_oblique):
+def test_voxeldata_unmask_preserves_mask_named_frames(sample_voxeldata_3d_oblique):
     """Delegated reconstruction retains the mask's index-owned world frames."""
     mask = sample_voxeldata_3d_oblique.copy(
         data=np.zeros(sample_voxeldata_3d_oblique.shape, dtype=bool)
@@ -70,7 +70,7 @@ def test_fusi_unmask_preserves_mask_named_frames(sample_voxeldata_3d_oblique):
     )
     mask = mask.vd.set_affine("reference", frame)
     signals = xr.DataArray([3.0, 8.0], dims="space")
-    result = signals.fusi.extract.unmask(mask, fill_value=-1.0)
+    result = signals.vd.unmask(mask, fill_value=-1.0)
     expected = np.full(mask.shape, -1.0)
     expected.flat[[0, -1]] = [3.0, 8.0]
     np.testing.assert_array_equal(result, expected)

@@ -9,7 +9,6 @@ import xarray as xr
 
 if TYPE_CHECKING:
     from confusius.xarray.connectivity import FUSIConnectivityAccessor
-    from confusius.xarray.extract import FUSIExtractAccessor
     from confusius.xarray.iq import FUSIIQAccessor
     from confusius.xarray.plotting import FUSIPlotAccessor
     from confusius.xarray.registration import FUSIRegistrationAccessor
@@ -141,29 +140,6 @@ class FUSIAccessor:
         from confusius.xarray.iq import FUSIIQAccessor
 
         return FUSIIQAccessor(self._obj)
-
-    @property
-    def extract(self) -> FUSIExtractAccessor:
-        """Access signal extraction operations.
-
-        Returns
-        -------
-        FUSIExtractAccessor
-            Accessor for extracting signals from fUSI data and reconstructing fUSI data
-            from processed signals.
-
-        Examples
-        --------
-        >>> import xarray as xr
-        >>> data = xr.open_zarr("output.zarr")["power_doppler"]
-        >>> mask = xr.open_zarr("brain_mask.zarr")["mask"]
-        >>> signals = data.fusi.extract.with_mask(mask)
-        >>> # ... process signals ...
-        >>> restored = signals.fusi.extract.unmask(mask)
-        """
-        from confusius.xarray.extract import FUSIExtractAccessor
-
-        return FUSIExtractAccessor(self._obj)
 
     def save(self, path: str | Path, **kwargs: Any) -> None:
         """Save the DataArray to file, dispatching by extension.
