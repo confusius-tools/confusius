@@ -76,15 +76,15 @@ class TestClutterFilterSvdFromIndices:
                 sample_voxeldata_iq_block_4d, high_cutoff=max_components + 1
             )
 
-    def test_empty_mask_returns_unchanged(self, sample_voxeldata_iq_block_4d):
-        """Empty mask (all False) returns block unchanged."""
-        _, z, y, x = sample_voxeldata_iq_block_4d.shape
-        empty_mask = np.zeros((z, y, x), dtype=bool)
+    @pytest.mark.parametrize("kwargs", [{}, {"low_cutoff": 1, "high_cutoff": 5}])
+    def test_empty_mask_raises(self, sample_voxeldata_iq_block_4d, kwargs):
+        """An all-False mask raises even when no cutoffs are supplied."""
+        empty_mask = np.zeros(sample_voxeldata_iq_block_4d.shape[1:], dtype=bool)
 
-        result = clutter_filter_svd_from_indices(
-            sample_voxeldata_iq_block_4d, mask=empty_mask, low_cutoff=1, high_cutoff=5
-        )
-        assert_array_equal(result, sample_voxeldata_iq_block_4d)
+        with pytest.raises(ValueError, match="select at least one voxel"):
+            clutter_filter_svd_from_indices(
+                sample_voxeldata_iq_block_4d, mask=empty_mask, **kwargs
+            )
 
     def test_mask_shape_mismatch_raises(self, sample_voxeldata_iq_block_4d):
         """Mask with wrong shape raises ValueError."""
@@ -139,15 +139,15 @@ class TestClutterFilterSvdFromEnergy:
         with pytest.raises(ValueError, match="must be 4D"):
             clutter_filter_svd_from_energy(sample_voxeldata_iq_block_4d[..., 0])
 
-    def test_empty_mask_returns_unchanged(self, sample_voxeldata_iq_block_4d):
-        """Empty mask returns block unchanged."""
-        _, z, y, x = sample_voxeldata_iq_block_4d.shape
-        empty_mask = np.zeros((z, y, x), dtype=bool)
+    @pytest.mark.parametrize("kwargs", [{}, {"low_cutoff": 1e5, "high_cutoff": 1e10}])
+    def test_empty_mask_raises(self, sample_voxeldata_iq_block_4d, kwargs):
+        """An all-False mask raises even when no cutoffs are supplied."""
+        empty_mask = np.zeros(sample_voxeldata_iq_block_4d.shape[1:], dtype=bool)
 
-        result = clutter_filter_svd_from_energy(
-            sample_voxeldata_iq_block_4d, mask=empty_mask, low_cutoff=1e5, high_cutoff=1e10
-        )
-        assert_array_equal(result, sample_voxeldata_iq_block_4d)
+        with pytest.raises(ValueError, match="select at least one voxel"):
+            clutter_filter_svd_from_energy(
+                sample_voxeldata_iq_block_4d, mask=empty_mask, **kwargs
+            )
 
     def test_negative_cutoff_raises(self, sample_voxeldata_iq_block_4d):
         """Negative cutoff raises ValueError."""
@@ -213,15 +213,15 @@ class TestClutterFilterSvdFromCumulativeEnergy:
         with pytest.raises(ValueError, match="must be 4D"):
             clutter_filter_svd_from_cumulative_energy(sample_voxeldata_iq_block_4d[..., 0])
 
-    def test_empty_mask_returns_unchanged(self, sample_voxeldata_iq_block_4d):
-        """Empty mask returns block unchanged."""
-        _, z, y, x = sample_voxeldata_iq_block_4d.shape
-        empty_mask = np.zeros((z, y, x), dtype=bool)
+    @pytest.mark.parametrize("kwargs", [{}, {"low_cutoff": 1e5}])
+    def test_empty_mask_raises(self, sample_voxeldata_iq_block_4d, kwargs):
+        """An all-False mask raises even when no cutoffs are supplied."""
+        empty_mask = np.zeros(sample_voxeldata_iq_block_4d.shape[1:], dtype=bool)
 
-        result = clutter_filter_svd_from_cumulative_energy(
-            sample_voxeldata_iq_block_4d, mask=empty_mask, low_cutoff=1e5
-        )
-        assert_array_equal(result, sample_voxeldata_iq_block_4d)
+        with pytest.raises(ValueError, match="select at least one voxel"):
+            clutter_filter_svd_from_cumulative_energy(
+                sample_voxeldata_iq_block_4d, mask=empty_mask, **kwargs
+            )
 
     def test_negative_cutoff_raises(self, sample_voxeldata_iq_block_4d):
         """Negative cutoff raises ValueError."""
@@ -432,6 +432,15 @@ class TestComputeSvdCumulativeEnergyThreshold:
         ).compute()
 
         assert_allclose(result, expected, rtol=1e-10)
+
+    def test_empty_mask_raises(self, sample_voxeldata_iq_dataarray):
+        """An all-False mask cannot calibrate a cumulative-energy threshold."""
+        iq = sample_voxeldata_iq_dataarray
+        mask = iq.isel(time=0, drop=True).copy(data=np.zeros(iq.shape[1:], dtype=bool))
+        with pytest.raises(ValueError, match="select at least one voxel"):
+            compute_svd_cumulative_energy_threshold(
+                iq, singular_value_index=2, clutter_mask=mask, window_width=10
+            ).compute()
 
     def test_multiple_windows_returns_minimum(
         self, sample_voxeldata_iq_dataarray, sample_spatial_mask_xarray
