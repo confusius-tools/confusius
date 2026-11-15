@@ -1111,6 +1111,21 @@ class TestProcessIqToAxialVelocity:
 class TestDataArrayClutterMask:
     """Tests for DataArray clutter mask support in wrapper functions."""
 
+    @pytest.mark.parametrize(
+        "process", [process_iq_to_power_doppler, process_iq_to_axial_velocity]
+    )
+    @pytest.mark.parametrize(
+        "filter_method", ["svd_indices", "svd_energy", "svd_cumulative_energy"]
+    )
+    def test_empty_mask_raises(
+        self, sample_voxeldata_iq_dataarray, process, filter_method
+    ):
+        """Wrappers reject empty SVD masks rather than producing unfiltered output."""
+        iq = sample_voxeldata_iq_dataarray
+        mask = iq.isel(time=0, drop=True).copy(data=np.zeros(iq.shape[1:], dtype=bool))
+        with pytest.raises(ValueError, match="select at least one voxel"):
+            process(iq, clutter_mask=mask, filter_method=filter_method)
+
     def test_dataarray_mask_matches_reference_power_doppler(
         self, sample_voxeldata_iq_dataarray, spatial_mask
     ):

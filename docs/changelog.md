@@ -53,6 +53,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- SVD clutter filters and cumulative-energy threshold calibration now raise `ValueError`
+  when a supplied mask selects no voxels, preventing silently unfiltered outputs or
+  invalid thresholds. Omitting the mask still uses all voxels
+  ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] draws the
   iteration count in a darker turquoise, readable on light backgrounds
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
