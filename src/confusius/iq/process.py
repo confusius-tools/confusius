@@ -8,6 +8,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.coordinates import get_representative_step
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_units,
@@ -25,6 +26,7 @@ from confusius.timing import (
     VolumeAcquisitionReference,
     convert_time_reference,
     get_representative_time_step,
+    get_time_coord_to_seconds_factor,
 )
 from confusius.validation import ensure_voxeldata, validate_mask
 from confusius.xarray import create_voxeldata
@@ -182,27 +184,51 @@ def _get_filter_sampling_frequency(
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ],
+    window_width: int,
+    window_stride: int,
 ) -> float | None:
-    """Return the sampling frequency to use for clutter filtering.
+    """Return a sampling frequency, validating Butterworth windows at a shared rate.
 
-    Butterworth filtering requires regular sampling. For now this is checked globally on
-    the full input time coordinate; a more precise implementation would validate each
-    clutter-filter window separately to allow for dead times or irregular sampling
-    between windows.
+    Parameters
+    ----------
+    iq : xarray.DataArray
+        Input IQ VoxelData array.
+    filter_method : str
+        Clutter filtering method.
+    window_width : int
+        Clutter window width in volumes.
+    window_stride : int
+        Clutter window stride in volumes.
+
+    Returns
+    -------
+    float or None
+        Sampling frequency in hertz, or `None` when spacing is undefined.
+
+    Raises
+    ------
+    ValueError
+        If Butterworth windows are not regularly sampled at one shared rate within
+        a 1% relative tolerance.
     """
-    time_step, approximate = get_representative_time_step(iq, unit="s")
-    if time_step is None:
-        return None
-
-    if filter_method == "butterworth" and approximate:
-        # TODO: Check temporal regularity on each clutter-filter window rather than on
-        # the full input time coordinate.
-        raise ValueError(
-            "Butterworth clutter filtering requires a regularly sampled `time` "
-            "coordinate."
-        )
-
-    return 1.0 / time_step
+    if filter_method == "butterworth":
+        times = iq.coords["time"].values * get_time_coord_to_seconds_factor(iq)
+        time_step, _ = get_representative_step(times[:window_width])
+        for start in range(0, len(times) - window_width + 1, window_stride):
+            if time_step is None or not np.allclose(
+                np.diff(times[start : start + window_width]),
+                time_step,
+                rtol=1e-2,
+                atol=0.0,
+            ):
+                raise ValueError(
+                    "Butterworth clutter filtering requires a regularly sampled `time` "
+                    "coordinate at the same sampling rate in every clutter window; "
+                    f"invalid window starts at volume {start}."
+                )
+    else:
+        time_step, _ = get_representative_time_step(iq, unit="s")
+    return None if time_step is None else 1.0 / time_step
 
 
 def _summarize_window_duration(
@@ -1112,7 +1138,8 @@ def process_iq_to_power_doppler(
     nested sliding windows. A first sliding window is used for clutter filtering. Inside
     each clutter-filtered window, power Doppler volumes are computed using a second
     sliding window. See the notes section for an illustration of the nested sliding
-    window approach.
+    window approach. Butterworth filtering requires regular sampling at the same rate in
+    every clutter window (1% tolerance); gaps between windows are allowed.
 
     Parameters
     ----------
@@ -1230,7 +1257,12 @@ def process_iq_to_power_doppler(
     if doppler_window_stride is None:
         doppler_window_stride = doppler_window_width
 
-    fs = _get_filter_sampling_frequency(iq, filter_method=filter_method)
+    fs = _get_filter_sampling_frequency(
+        iq,
+        filter_method=filter_method,
+        window_width=clutter_window_width,
+        window_stride=clutter_window_stride,
+    )
 
     result = process_iq_blocks(
         dask_iq,
@@ -1406,7 +1438,8 @@ def process_iq_to_axial_velocity(
     nested sliding windows. A first sliding window is used for clutter filtering. Inside
     each clutter-filtered window, axial velocity volumes are computed using a second
     sliding window. See the notes section for an illustration of the nested sliding
-    window approach.
+    window approach. Butterworth filtering requires regular sampling at the same rate
+    in every clutter window (1% tolerance); gaps between windows are allowed.
 
     Parameters
     ----------
@@ -1538,7 +1571,12 @@ def process_iq_to_axial_velocity(
     if velocity_window_stride is None:
         velocity_window_stride = velocity_window_width
 
-    fs = _get_filter_sampling_frequency(iq, filter_method=filter_method)
+    fs = _get_filter_sampling_frequency(
+        iq,
+        filter_method=filter_method,
+        window_width=clutter_window_width,
+        window_stride=clutter_window_stride,
+    )
 
     # Validation ensures these attributes exist, so we can safely access them here.
     transmit_frequency = iq.attrs["transmit_frequency"]
