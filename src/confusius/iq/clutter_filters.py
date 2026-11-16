@@ -5,40 +5,12 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import numpy.typing as npt
 
-from confusius.iq._utils import ensure_iq_voxeldata
+from confusius.iq._utils import ensure_iq_voxeldata, validate_filter_frequency
 from confusius.validation import ensure_voxeldata, validate_mask
 
 if TYPE_CHECKING:
     import dask.array as da
     import xarray as xr
-
-
-def _check_frequency(freq: float, nyquist: float) -> float:
-    """Validate frequency parameter for digital filters.
-
-    Checks that the given frequency is within the valid range for digital signal
-    processing (0, Nyquist frequency) and returns it unchanged if valid.
-
-    Parameters
-    ----------
-    freq : float
-        Frequency value to validate, in hertz.
-    nyquist : float
-        Nyquist frequency (half of sampling frequency), in hertz.
-
-    Returns
-    -------
-    float
-        The input frequency unchanged (if valid).
-
-    Raises
-    ------
-    ValueError
-        If `freq` is not in the range `(0, nyquist)`.
-    """
-    if not 0 < freq < nyquist:
-        raise ValueError(f"Frequency {freq} must be in range (0, {nyquist})")
-    return freq
 
 
 def _validate_block_and_clutter_mask(
@@ -184,7 +156,10 @@ def _apply_clutter_filter(
             clutter_vectors.conj().T @ signals
         )
     else:
-        filtered_signals = signals
+        # Adaptive selection must not change output precision between windows.
+        filtered_signals = signals.astype(
+            np.result_type(signals.dtype, clutter_vectors.dtype), copy=False
+        )
 
     return filtered_signals
 
@@ -661,14 +636,14 @@ def clutter_filter_butterworth(
 
     if low_cutoff is not None:
         btype = "high"
-        critical_freq.append(_check_frequency(low_cutoff, nyquist))
+        critical_freq.append(validate_filter_frequency(low_cutoff, nyquist))
 
     if high_cutoff is not None:
         if btype is None:
             btype = "low"
         else:
             btype = "band"
-        critical_freq.append(_check_frequency(high_cutoff, nyquist))
+        critical_freq.append(validate_filter_frequency(high_cutoff, nyquist))
 
     # For single cutoff filters, butter expects a scalar, for band filters it expects a
     # length-2 sequence.
@@ -813,6 +788,8 @@ def compute_svd_cumulative_energy_threshold(
         window_width=window_width,
         window_stride=window_stride,
         drop_axis=(1, 2, 3),
+        output_shape=(1,),
+        output_dtype=np.float64,
     )
 
     return energies.min()

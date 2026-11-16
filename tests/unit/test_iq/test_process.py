@@ -52,7 +52,11 @@ def test_butterworth_window_sampling(
     compute = (
         compute_axial_velocity_volume if velocity else compute_power_doppler_volume
     )
-    kwargs = {"filter_method": "butterworth", "low_cutoff": 1.0, "butterworth_order": 2}
+    kwargs: dict[str, Any] = {
+        "filter_method": "butterworth",
+        "low_cutoff": 1.0,
+        "butterworth_order": 2,
+    }
     velocity_kwargs = (
         {
             "transmit_frequency": iq.attrs["transmit_frequency"],
@@ -408,7 +412,9 @@ class TestComputePowerDopplerVolume:
         # Result has shape (1, z, y, x) due to single window.
         assert_allclose(result[0], expected)
 
-    def test_matches_reference_with_svd_filter(self, sample_voxeldata_iq_block_4d, spatial_mask):
+    def test_matches_reference_with_svd_filter(
+        self, sample_voxeldata_iq_block_4d, spatial_mask
+    ):
         """Result with SVD filter matches reference implementation."""
         low_cutoff, high_cutoff = 2, 8
         time, _z, _y, _x = sample_voxeldata_iq_block_4d.shape
@@ -473,7 +479,9 @@ class TestComputeAxialVelocityVolume:
         transmit_frequency = 15.625e6
         beamforming_sound_velocity = 1540.0
 
-        autocorrelation = sample_voxeldata_iq_block_4d[lag:] * np.conj(sample_voxeldata_iq_block_4d[:-lag])
+        autocorrelation = sample_voxeldata_iq_block_4d[lag:] * np.conj(
+            sample_voxeldata_iq_block_4d[:-lag]
+        )
         average_phase = np.angle(autocorrelation.mean(axis=0))
         expected = (
             average_phase
@@ -515,7 +523,9 @@ class TestComputeAxialVelocityVolume:
 
         assert kernel_sizes == [(1, 3, 5)]
 
-    def test_spatial_kernel_rejects_invalid_sequences(self, sample_voxeldata_iq_block_4d):
+    def test_spatial_kernel_rejects_invalid_sequences(
+        self, sample_voxeldata_iq_block_4d
+    ):
         """Spatial kernels must be positive length-3 integer sizes."""
         with pytest.raises(ValueError, match="length-3 sequence"):
             compute_axial_velocity_volume(
@@ -535,17 +545,27 @@ class TestComputeAxialVelocityVolume:
 class TestProcessIqBlocks:
     """Tests for process_iq_blocks function."""
 
-    def test_defaults_window_width_and_stride_to_chunk_size(self, sample_voxeldata_iq_dataarray):
+    def test_defaults_window_width_and_stride_to_chunk_size(
+        self, sample_voxeldata_iq_dataarray
+    ):
         """Missing window params default to the time chunk size."""
         iq = da.from_array(sample_voxeldata_iq_dataarray.values, chunks=(5, 4, 6, 8))
 
         def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
             return block.mean(axis=0, keepdims=True)
 
-        result = process_iq_blocks(iq, process_func=process_func)
+        result = process_iq_blocks(
+            iq,
+            process_func=process_func,
+            output_shape=(1, 4, 6, 8),
+            output_dtype=np.complex128,
+        )
 
         expected = np.stack(
-            [sample_voxeldata_iq_dataarray.values[i : i + 5].mean(axis=0) for i in range(0, 20, 5)],
+            [
+                sample_voxeldata_iq_dataarray.values[i : i + 5].mean(axis=0)
+                for i in range(0, 20, 5)
+            ],
             axis=0,
         )
         assert result.shape == expected.shape
@@ -572,6 +592,8 @@ class TestProcessIqBlocks:
             process_func=process_func,
             window_width=5,
             window_stride=5,
+            output_shape=(1, 2, 3),
+            output_dtype=np.float64,
         )
 
         expected = np.stack(
@@ -606,6 +628,8 @@ class TestProcessIqBlocks:
             window_width=5,
             window_stride=5,
             drop_axis=(1, 2, 3),
+            output_shape=(5,),
+            output_dtype=np.int64,
         )
 
         expected = iq.compute().sum(axis=(1, 2, 3))
@@ -625,6 +649,8 @@ class TestProcessIqBlocks:
             process_func=process_func,
             window_width=5,
             window_stride=2,
+            output_shape=(1, 2, 3),
+            output_dtype=np.float64,
         )
 
         iq_values = iq.compute()
@@ -653,6 +679,8 @@ class TestProcessIqBlocks:
             process_func=process_func,
             window_width=5,
             window_stride=2,
+            output_shape=(1, 4, 6, 8),
+            output_dtype=np.float64,
         )
 
         iq_values = iq.compute()
@@ -677,6 +705,8 @@ class TestProcessIqBlocks:
                 process_func=compute_power_doppler_volume,
                 window_width=5,
                 window_stride=10,
+                output_shape=(1, 4, 6, 8),
+                output_dtype=np.float64,
             )
 
     def test_warns_when_frames_dropped(self, sample_voxeldata_iq_dataarray):
@@ -691,6 +721,8 @@ class TestProcessIqBlocks:
                 process_func=compute_power_doppler_volume,
                 window_width=7,
                 window_stride=7,
+                output_shape=(1, 4, 6, 8),
+                output_dtype=np.float64,
             )
 
 
@@ -773,7 +805,9 @@ class TestProcessIqToPowerDoppler:
     ) -> None:
         """Chunked overlapping power Doppler windows match a naive reference."""
         iq = sample_voxeldata_iq_dataarray.copy(
-            data=da.from_array(sample_voxeldata_iq_dataarray.values, chunks=(5, 4, 6, 8))
+            data=da.from_array(
+                sample_voxeldata_iq_dataarray.values, chunks=(5, 4, 6, 8)
+            )
         )
 
         result = process_iq_to_power_doppler(
@@ -807,7 +841,9 @@ class TestProcessIqToPowerDoppler:
         assert_allclose(result.values, expected)
         assert_allclose(result.coords["time"].values, expected_times)
 
-    def test_butterworth_uses_time_coord_step_as_fs(self, sample_voxeldata_iq_dataarray):
+    def test_butterworth_uses_time_coord_step_as_fs(
+        self, sample_voxeldata_iq_dataarray
+    ):
         """Butterworth filter design uses the time coordinate step, not scanner provenance."""
         iq = sample_voxeldata_iq_dataarray.copy()
         iq.attrs["compound_sampling_frequency"] = 100.0
@@ -822,7 +858,9 @@ class TestProcessIqToPowerDoppler:
                 low_cutoff=30.0,
             )
 
-    def test_duration_metadata_from_actual_timestamps(self, sample_voxeldata_iq_dataarray):
+    def test_duration_metadata_from_actual_timestamps(
+        self, sample_voxeldata_iq_dataarray
+    ):
         """volume_acquisition_duration is computed from actual window timestamps."""
         result = process_iq_to_power_doppler(
             sample_voxeldata_iq_dataarray,
@@ -836,7 +874,9 @@ class TestProcessIqToPowerDoppler:
             "volume_acquisition_duration"
         ] == pytest.approx(0.4)
 
-    def test_duration_metadata_set_without_time_coord_units(self, sample_voxeldata_iq_dataarray):
+    def test_duration_metadata_set_without_time_coord_units(
+        self, sample_voxeldata_iq_dataarray
+    ):
         """volume_acquisition_duration is always set even when time coord has no units."""
         iq = sample_voxeldata_iq_dataarray.assign_coords(
             time=xr.DataArray(np.arange(20) * 0.1, dims=("time",))
@@ -875,7 +915,9 @@ class TestProcessIqToPowerDoppler:
         ] == pytest.approx(1000.0)
         assert result.attrs["bmode_integration_duration"] == pytest.approx(1000.0)
 
-    def test_varying_window_durations_warn_and_store_median(self, sample_voxeldata_iq_dataarray):
+    def test_varying_window_durations_warn_and_store_median(
+        self, sample_voxeldata_iq_dataarray
+    ):
         """Variable output-window durations warn and store the median metadata value."""
         iq = sample_voxeldata_iq_dataarray.isel(time=slice(0, 5)).assign_coords(
             time=xr.DataArray(
@@ -1020,7 +1062,9 @@ class TestProcessIqToPowerDoppler:
             doppler_window_stride=5,
         )
 
-    def test_output_preserves_voxel_to_world_geometry(self, sample_voxeldata_iq_dataarray):
+    def test_output_preserves_voxel_to_world_geometry(
+        self, sample_voxeldata_iq_dataarray
+    ):
         """Output carries over the input's voxel-to-world geometry, not just its shape.
 
         Regression test: constructing the output via a bare `xr.DataArray(coords=...)`
@@ -1134,7 +1178,9 @@ class TestProcessIqToAxialVelocity:
 
         assert result.name == "axial_velocity"
 
-    def test_svd_cumulative_energy_filter_method(self, sample_voxeldata_iq_dataarray) -> None:
+    def test_svd_cumulative_energy_filter_method(
+        self, sample_voxeldata_iq_dataarray
+    ) -> None:
         """Cumulative-energy SVD filtering produces a power Doppler output."""
         result = process_iq_to_power_doppler(
             sample_voxeldata_iq_dataarray,
@@ -1151,7 +1197,9 @@ class TestProcessIqToAxialVelocity:
     ) -> None:
         """Missing clutter window width defaults to the time chunk size."""
         iq = sample_voxeldata_iq_dataarray.copy(
-            data=da.from_array(sample_voxeldata_iq_dataarray.values, chunks=(5, 4, 6, 8))
+            data=da.from_array(
+                sample_voxeldata_iq_dataarray.values, chunks=(5, 4, 6, 8)
+            )
         )
 
         result = process_iq_to_power_doppler(iq)
@@ -1212,7 +1260,9 @@ class TestProcessIqToAxialVelocity:
         assert "spatial_kernel" not in result.attrs
         assert "estimation_method" not in result.attrs
 
-    def test_axial_velocity_accepts_per_axis_spatial_kernel(self, sample_voxeldata_iq_dataarray):
+    def test_axial_velocity_accepts_per_axis_spatial_kernel(
+        self, sample_voxeldata_iq_dataarray
+    ):
         """Axial velocity metadata preserves explicit per-axis kernel sizes."""
         result = process_iq_to_axial_velocity(
             sample_voxeldata_iq_dataarray,
@@ -1221,7 +1271,9 @@ class TestProcessIqToAxialVelocity:
 
         assert result.attrs["axial_velocity_spatial_kernel"] == (1, 3, 5)
 
-    def test_output_preserves_voxel_to_world_geometry(self, sample_voxeldata_iq_dataarray):
+    def test_output_preserves_voxel_to_world_geometry(
+        self, sample_voxeldata_iq_dataarray
+    ):
         """Output carries over the input's voxel-to-world geometry, not just its shape."""
         result = process_iq_to_axial_velocity(
             sample_voxeldata_iq_dataarray,
@@ -1489,7 +1541,9 @@ class TestProcessIqToBmode:
 
         assert result.sizes["time"] == 1
 
-    def test_accessor_delegates_to_process_iq_to_bmode(self, sample_voxeldata_iq_dataarray):
+    def test_accessor_delegates_to_process_iq_to_bmode(
+        self, sample_voxeldata_iq_dataarray
+    ):
         """Xarray accessor calls process_iq_to_bmode with the correct arguments."""
         from unittest.mock import patch
 
@@ -1504,7 +1558,9 @@ class TestProcessIqToBmode:
             iq, bmode_window_width=10, bmode_window_stride=5
         )
 
-    def test_output_preserves_voxel_to_world_geometry(self, sample_voxeldata_iq_dataarray):
+    def test_output_preserves_voxel_to_world_geometry(
+        self, sample_voxeldata_iq_dataarray
+    ):
         """Output carries over the input's voxel-to-world geometry, not just its shape."""
         result = process_iq_to_bmode(
             sample_voxeldata_iq_dataarray,
