@@ -1,6 +1,7 @@
 """Plotting module for fUSI data."""
 
 __all__ = [
+    "ThresholdedColormap",
     "VolumePlotter",
     "draw_napari_labels",
     "extract_labels_from_layer",
@@ -16,6 +17,7 @@ __all__ = [
     "plot_volume",
 ]
 
+from confusius.plotting.colormap import ThresholdedColormap
 from confusius.plotting.image import (
     VolumePlotter,
     plot_carpet,

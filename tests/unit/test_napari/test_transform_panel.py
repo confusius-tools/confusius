@@ -23,8 +23,7 @@ from confusius._napari._transform._model import (
 )
 from confusius._napari._transform._panel import TransformPanel
 from confusius._utils.napari import build_napari_layer_data
-from confusius.registration import apply_zoom
-from confusius.xarray import create_voxeldata
+from confusius.xarray import apply_zoom, create_voxeldata
 
 AXES = ("z", "y", "x")
 
@@ -44,7 +43,7 @@ def volume():
 
 def _add_layer(viewer, data, **kwargs):
     """Add `data` to `viewer` the way the plugin readers and `plot_napari` do."""
-    array, layer_kwargs, layer_type = build_napari_layer_data(data, **kwargs)
+    ((array, layer_kwargs, layer_type),) = build_napari_layer_data(data, **kwargs)
     return getattr(viewer, f"add_{layer_type}")(array, **layer_kwargs)
 
 
@@ -190,7 +189,7 @@ def test_rotation_release_keeps_rotation_and_the_dial_stays(panel, layer, volume
     assert row.slider.value() == position
     assert row.spin.value() == pytest.approx(20.0)
     # Released on the tight grid `plot_napari` would use.
-    array, kwargs, _ = build_napari_layer_data(
+    ((array, kwargs, _),) = build_napari_layer_data(
         volume.fusi.affine.apply(expected.matrix()),
         resample_fill_value=panel._target.session.fill_value,
     )
@@ -455,7 +454,7 @@ def test_release_flushes_a_pending_update(panel, layer):
 
 def _fresh_display(panel, matrix):
     """Return what `plot_napari` displays for `matrix` on the panel's source."""
-    array, _, _ = build_napari_layer_data(
+    ((array, _, _),) = build_napari_layer_data(
         panel._target.session.source.fusi.affine.apply(matrix),
         resample_fill_value=panel._target.session.fill_value,
     )
@@ -730,7 +729,8 @@ def test_geometry_center_follows_the_transform(panel, volume):
 
     panel._center_geometry_btn.click()
 
-    expected = volume.fusi.affine.geometry_center.to_numpy() + (1.0, 0.0, 0.0)
+    point = volume.fusi.affine.geometry_center
+    expected = np.array([point[name] for name in AXES]) + (1.0, 0.0, 0.0)
     np.testing.assert_allclose(panel.state.pivot(), expected)
 
 
@@ -1392,4 +1392,3 @@ def test_rotation_dials_sit_side_by_side_with_their_boxes_below(panel):
         assert row.plus_btn.geometry().bottom() <= row.minus_btn.geometry().top()
         assert abs(row.spin.geometry().left() - row.slider.geometry().left()) <= 1
         assert abs(row.spin.geometry().right() - row.plus_btn.geometry().right()) <= 1
-

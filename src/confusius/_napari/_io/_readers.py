@@ -36,7 +36,7 @@ def _make_reader(path: str | Path) -> Callable[[PathOrPaths], list[FullLayerData
         # `_path`, which may be a list when napari replays the reader.
         da = load(path)
         name = Path(path).name
-        return [convert_dataarray_to_layer_data(da, name)]
+        return convert_dataarray_to_layer_data(da, name)
 
     return _read
 

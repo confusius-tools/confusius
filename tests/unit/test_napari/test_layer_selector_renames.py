@@ -18,7 +18,6 @@ from confusius._napari._registration._transform_payloads import (
 )
 from confusius._napari._signals._panel import SignalPanel
 from confusius._napari._transform._panel import TransformPanel
-from confusius._napari._video._video_panel import VideoPanel
 from confusius.registration import RegistrationDiagnostics
 
 
@@ -34,7 +33,6 @@ from confusius.registration import RegistrationDiagnostics
         (SignalPanel, "_labels_combo", "labels"),
         (SignalPanel, "_ref_combo", "image"),
         (QCPanel, "_layer_combo", "image"),
-        (VideoPanel, "_ref_combo", "image"),
         (SavePanel, "_layer_combo", "image"),
         (SavePanel, "_template_combo", "image"),
         (TransformPanel, "_target_combo", "image"),

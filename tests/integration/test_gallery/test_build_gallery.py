@@ -100,6 +100,49 @@ def test_build_gallery_prints_progress_when_non_interactive(
     assert "[cached]" in capsys.readouterr().out
 
 
+def test_build_gallery_no_cache_reexecutes_selected_and_restores_the_rest(
+    gallery_paths: GalleryPaths, capsys: pytest.CaptureFixture[str]
+) -> None:
+    examples_root, built_dir, cache_root = gallery_paths
+    wanted = _seed_example(
+        examples_root,
+        "io",
+        "hello",
+        "# %% [markdown]\n# # Hello\n\n# %%\nprint('hi')\n",
+    )
+    _seed_example(
+        examples_root,
+        "misc",
+        "other",
+        "# %% [markdown]\n# # Other\n\n# %%\nprint('bye')\n",
+    )
+    build_gallery(
+        examples_root=examples_root,
+        built_dir=built_dir,
+        cache_root=cache_root,
+        deps_fingerprint="testdeps==1.0",
+    )
+    capsys.readouterr()
+    cached_md = next(cache_root.glob("**/io/hello/hello.md"))
+    cached_md.write_text("stale cached page\n")
+
+    build_gallery(
+        examples_root=examples_root,
+        built_dir=built_dir,
+        cache_root=cache_root,
+        deps_fingerprint="testdeps==1.0",
+        only=[wanted],
+        use_cache=False,
+    )
+
+    out = capsys.readouterr().out
+    assert "-> io/hello (1 cells)" in out
+    assert "-> misc/other [cached]" in out
+    # The fresh run replaced the tampered cache entry and the built page.
+    assert "stale cached page" not in cached_md.read_text()
+    assert "print('hi')" in (built_dir / "io" / "hello.md").read_text()
+
+
 @pytest.mark.slow
 def test_build_gallery_runs_only_selected_and_stubs_the_rest(
     gallery_paths: GalleryPaths,

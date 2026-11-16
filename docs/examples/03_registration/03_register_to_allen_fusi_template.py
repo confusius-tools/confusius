@@ -129,7 +129,6 @@ registered, affine, _ = cf.registration.register_volume(
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-fig.patch.set_facecolor(bg_color)
 for ax, moving_view, title in [
     (axes[0], initialized, "Manual initialization"),
     (axes[1], registered, "Affine registration refinement"),

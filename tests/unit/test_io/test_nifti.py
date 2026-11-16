@@ -15,6 +15,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
 )
 from confusius.io.nifti import load_nifti, save_nifti
+from confusius.multipose import stack_poses
 from confusius.xarray import create_voxeldata
 from confusius.xarray.affine import apply_affine
 
@@ -155,6 +156,59 @@ def nifti_with_sidecar(tmp_path: Path) -> Path:
 
 class TestLoadNifti:
     """Tests for load_nifti function."""
+
+    @pytest.mark.parametrize("extension", [".nii", ".nii.gz"])
+    @pytest.mark.parametrize("indices", [(10, 2, 1), (2,)])
+    def test_load_chunk_template(self, tmp_path, rng, extension, indices):
+        """Templates stack numeric chunks lazily with their geometry and timing."""
+        paths = {}
+        for index in indices:
+            label = "01" if index == 1 else str(index)
+            path = tmp_path / f"sub-01_chunk-{label}_pwd{extension}"
+            affine = np.eye(4)
+            affine[0, 3] = index
+            image = nib.Nifti1Image(rng.random((2, 3, 4, 5)).astype(np.float32), affine)
+            image.header.set_xyzt_units("mm", "sec")
+            image.header["toffset"] = index
+            image.to_filename(path)
+            paths[index] = path
+        # Non-integer chunks and unrelated filenames must not be loaded.
+        (tmp_path / f"sub-01_chunk-other_pwd{extension}").touch()
+        (tmp_path / f"sub-02_chunk-03_pwd{extension}").touch()
+        (tmp_path / f"sub-01_chunk-03_pwd{extension}").mkdir()
+        template = tmp_path / f"sub-01_chunk-{{chunk}}_pwd{extension}"
+        actual = load_nifti(template, chunks=1, coordinate_affine="sform")
+        ordered = sorted(indices)
+        expected = stack_poses(
+            [
+                load_nifti(paths[i], chunks=1, coordinate_affine="sform")
+                for i in ordered
+            ],
+            pose=ordered,
+        )
+        xr.testing.assert_equal(actual, expected)
+        np.testing.assert_array_equal(
+            get_voxel_to_world_affine(actual), get_voxel_to_world_affine(expected)
+        )
+        np.testing.assert_array_equal(
+            actual.attrs["affines"]["world_to_sform"], np.eye(4)
+        )
+        np.testing.assert_array_equal(actual.pose, ordered)
+        assert actual.chunks is not None
+        assert max(actual.chunks[0]) == 1
+
+    def test_load_chunk_template_no_matches(self, tmp_path):
+        """An unmatched template reports the missing chunks explicitly."""
+        with pytest.raises(FileNotFoundError, match="No NIfTI chunks match"):
+            load_nifti(tmp_path / "sub-01_chunk-{chunk}_pwd.nii")
+
+    @pytest.mark.parametrize(
+        "template", ["{chunk}/pwd.nii", "chunk-{chunk}_{chunk}_pwd.nii"]
+    )
+    def test_load_chunk_template_invalid(self, tmp_path, template):
+        """Only one filename placeholder is supported."""
+        with pytest.raises(ValueError, match="exactly one"):
+            load_nifti(tmp_path / template)
 
     def test_load_2d_nifti(self, nifti_2d_path: tuple[Path, np.ndarray]) -> None:
         """Loading 2D NIfTI pads the missing spatial dim to a canonical singleton `k`.
@@ -1502,6 +1556,68 @@ class TestLoadNifti:
 
 class TestSaveNifti:
     """Tests for `save_nifti` function."""
+
+    @pytest.mark.parametrize("extension", [".nii", ".nii.gz"])
+    @pytest.mark.parametrize("nifti_version", [1, 2])
+    @pytest.mark.parametrize("single_pose", [False, True])
+    def test_save_chunk_template_roundtrip(
+        self, tmp_path, sample_voxeldata_3dt_pose, extension, nifti_version, single_pose
+    ):
+        """Chunks preserve pose labels, voxel values, geometry, timing, and options."""
+        original = sample_voxeldata_3dt_pose.assign_coords(pose=[2, 10])
+        if single_pose:
+            original = original.isel(pose=[0])
+        template = tmp_path / f"sub-01_chunk-{{chunk}}_pwd{extension}"
+        original.fusi.save(template, nifti_version=nifti_version, sform_code=4)
+
+        actual = load_nifti(template)
+        np.testing.assert_array_equal(actual.pose, original.pose)
+        np.testing.assert_allclose(actual.values, original.values)
+        for position in range(original.sizes["pose"]):
+            np.testing.assert_allclose(
+                actual.isel(pose=position).time, original.isel(pose=position).time
+            )
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(actual),
+            get_voxel_to_world_affine(original),
+            atol=1e-6,
+        )
+        for label in original.pose.values:
+            path = tmp_path / f"sub-01_chunk-{label}_pwd{extension}"
+            image = nib.load(path)
+            assert isinstance(
+                image, nib.Nifti1Image if nifti_version == 1 else nib.Nifti2Image
+            )
+            assert image.header["sform_code"] == 4
+            assert (tmp_path / f"sub-01_chunk-{label}_pwd.json").is_file()
+        assert not template.exists()
+
+    @pytest.mark.parametrize(
+        "template", ["{chunk}/pwd.nii", "chunk-{chunk}_{chunk}_pwd.nii"]
+    )
+    def test_save_chunk_template_invalid(
+        self, tmp_path, sample_voxeldata_3dt_pose, template
+    ):
+        """Invalid placeholders fail before creating files."""
+        with pytest.raises(ValueError, match="exactly one"):
+            save_nifti(sample_voxeldata_3dt_pose, tmp_path / template)
+        assert not list(tmp_path.iterdir())
+
+    def test_save_chunk_template_requires_pose(self, tmp_path, sample_voxeldata_3dt):
+        """A template requires an actual pose dimension."""
+        with pytest.raises(ValueError, match="requires a 'pose' dimension"):
+            save_nifti(sample_voxeldata_3dt, tmp_path / "chunk-{chunk}.nii")
+        assert not list(tmp_path.iterdir())
+
+    @pytest.mark.parametrize("labels", [[-1, 2], [0.5, 1.5], ["a", "b"], [2, 2]])
+    def test_save_chunk_template_invalid_labels(
+        self, tmp_path, sample_voxeldata_3dt_pose, labels
+    ):
+        """Unrepresentable labels are rejected without writing any chunks."""
+        original = sample_voxeldata_3dt_pose.assign_coords(pose=labels)
+        with pytest.raises(ValueError):
+            save_nifti(original, tmp_path / "chunk-{chunk}.nii")
+        assert not list(tmp_path.iterdir())
 
     def test_save_invalid_extension_raises(self, tmp_path, sample_voxeldata_3d):
         """Saving rejects paths without a NIfTI extension."""

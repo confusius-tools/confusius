@@ -107,7 +107,7 @@ class _NoWheelSlider(QSlider):
     scrolling the sidebar with the cursor over a slider would move the layer.
     """
 
-    def wheelEvent(self, event: QWheelEvent | None) -> None:  # ty: ignore[invalid-method-override]
+    def wheelEvent(self, event: QWheelEvent | None) -> None:  # ty: ignore[lost-keyword-for-regular-parameter]
         """Ignore the wheel, so it reaches the scroll area.
 
         Parameters
@@ -122,7 +122,7 @@ class _NoWheelSlider(QSlider):
 class _NoWheelDial(QDial):
     """Dial leaving the wheel to the sidebar's scroll area, like `_NoWheelSlider`."""
 
-    def wheelEvent(self, event: QWheelEvent | None) -> None:  # ty: ignore[invalid-method-override]
+    def wheelEvent(self, event: QWheelEvent | None) -> None:  # ty: ignore[lost-keyword-for-regular-parameter]
         """Ignore the wheel, so it reaches the scroll area.
 
         Parameters
@@ -1004,12 +1004,12 @@ class TransformPanel(QWidget):
         origin = source.fusi.origin
         state = TransformState.identity(center=[origin[name] for name in WORLD_AXES])
         bounds = source.fusi.affine.bounding_box
-        extent = bounds.sel(bound="max") - bounds.sel(bound="min")
+        extent = [upper - lower for lower, upper in bounds.values()]
         target = _Target(
             session=session,
             state=state,
             history=History(state),
-            half_range=float(extent.max()),
+            half_range=max(extent),
             voxel_steps=compute_tight_grid(source, np.eye(4)).spacing,
         )
         self._targets[layer] = target
@@ -1514,7 +1514,7 @@ class TransformPanel(QWidget):
             TransformState.from_matrix(matrix, center=self._target.state.center)
         )
 
-    def keyPressEvent(self, event: QKeyEvent | None) -> None:  # ty: ignore[invalid-method-override]
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:  # ty: ignore[lost-keyword-for-regular-parameter]
         """Translate along the displayed axes with the arrow and page keys.
 
         Parameters
@@ -1674,7 +1674,8 @@ class TransformPanel(QWidget):
     def _on_center_geometry(self) -> None:
         """Move the center of rotation to the center of the volume's box."""
         assert self._target is not None
-        center = self._target.session.source.fusi.affine.geometry_center.to_numpy()
+        point = self._target.session.source.fusi.affine.geometry_center
+        center = np.array([point[name] for name in WORLD_AXES])
         self._set_pivot(self._map_source_point(center))
 
     def _on_marker_toggled(self, checked: bool) -> None:

@@ -11,7 +11,7 @@ from confusius._napari._transform._model import (
     parse_matrix,
     to_itk_transform,
 )
-from confusius.registration import apply_rotation, apply_translation, apply_zoom
+from confusius.xarray import apply_rotation, apply_translation, apply_zoom
 
 CENTER = np.array([11.0, 21.0, 31.0])
 
@@ -87,7 +87,9 @@ def test_global_rotations_compose_like_apply_rotation(sample_voxeldata_3d_obliqu
 def test_plus_90_about_x_maps_z_onto_y():
     state = TransformState.identity().rotated("x", 90.0, frame="global")
 
-    np.testing.assert_allclose(state.matrix()[:3, :3] @ [1, 0, 0], [0, 1, 0], atol=1e-12)
+    np.testing.assert_allclose(
+        state.matrix()[:3, :3] @ [1, 0, 0], [0, 1, 0], atol=1e-12
+    )
 
 
 def test_local_rotation_is_about_the_volume_axis():
@@ -128,7 +130,9 @@ def test_zoom_matches_apply_zoom(sample_voxeldata_3d_oblique):
 
 
 def test_zoom_keeps_the_sign_from_a_flip():
-    state = TransformState.identity().flipped("z", frame="local").zoomed((2.0, 1.0, 1.0))
+    state = (
+        TransformState.identity().flipped("z", frame="local").zoomed((2.0, 1.0, 1.0))
+    )
 
     np.testing.assert_allclose(state.scale, [-2.0, 1.0, 1.0])
 

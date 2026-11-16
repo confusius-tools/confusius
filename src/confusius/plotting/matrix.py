@@ -437,7 +437,8 @@ def plot_matrix(
         - Both positive and negative values: diverging, symmetric `[-m, m]` range
           where `m = max(|vmin|, |vmax|)` over the bounds actually provided,
           falling back to the largest magnitude in `matrix` when neither is given,
-          with `cmap` defaulting to `"coolwarm"`.
+          with `cmap` defaulting to `"coolwarm"` on light backgrounds and `"berlin"` on
+          dark ones (judged from `bg_color`).
         - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
           defaulting to `"viridis"`.
         - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
@@ -446,7 +447,8 @@ def plot_matrix(
           cases).
 
         Set to `False` to use the resolved `vmin`/`vmax` directly with no zero-anchoring
-        (`cmap` then defaults to `"coolwarm"` regardless of sign).
+        (`cmap` then defaults to the same background-dependent diverging colormap
+        regardless of sign).
     show_colorbar : bool, default: True
         Whether to add a colorbar for `matrix` to the figure.
     cbar_label : str, optional
@@ -510,7 +512,9 @@ def plot_matrix(
         )
 
     masked = _mask_triangle(values, triangle)
-    vmin, vmax, cmap = _resolve_colormap_style(values, vmin, vmax, cmap, auto_range)
+    vmin, vmax, cmap = _resolve_colormap_style(
+        values, vmin, vmax, cmap, auto_range, bg_color=bg_color
+    )
 
     text_color = fg_color if fg_color is not None else _auto_fg_color(bg_color)
     title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)

@@ -1,7 +1,7 @@
 """Pure state of the transform panel: the user's world-space transform and its history."""
 
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -16,10 +16,10 @@ from confusius.registration.affines import (
 if TYPE_CHECKING:
     import SimpleITK as sitk
 
-Frame: TypeAlias = Literal["global", "local"]
+type Frame = Literal["global", "local"]
 """Axes a step acts along: fixed world axes, or axes that rotate with the volume."""
 
-WorldAxis: TypeAlias = Literal["z", "y", "x"]
+type WorldAxis = Literal["z", "y", "x"]
 """World axis name."""
 
 WORLD_AXES: tuple[WorldAxis, WorldAxis, WorldAxis] = ("z", "y", "x")
@@ -202,7 +202,7 @@ class TransformState:
             Rotation row.
         angle : float
             Step in degrees, following the right-hand rule in ordered world `(z, y, x)`
-            as [`apply_rotation`][confusius.registration.apply_rotation] does.
+            as [`apply_rotation`][confusius.xarray.apply_rotation] does.
         frame : {"global", "local"}
             Axes the row acts along.
 

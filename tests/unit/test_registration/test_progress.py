@@ -184,9 +184,9 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
         class ZMQInteractiveShell:
             pass
 
-        fake_getipython.get_ipython = lambda: ZMQInteractiveShell()  # ty: ignore[unresolved-attribute]
+        fake_getipython.get_ipython = lambda: ZMQInteractiveShell()  # ty: ignore[missing-attribute]
         fake_display = types.ModuleType("IPython.display")
-        fake_display.display = lambda fig, clear=False: display_calls.append(  # ty: ignore[unresolved-attribute]
+        fake_display.display = lambda fig, clear=False: display_calls.append(  # ty: ignore[missing-attribute]
             (fig, clear)
         )
         monkeypatch.setitem(sys.modules, "IPython.core.getipython", fake_getipython)

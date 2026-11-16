@@ -14,3 +14,7 @@ contrast against the pale background."""
 
 TURQUOISE = "#3ad9a4"
 """Brand turquoise; the DOI link in printed dataset citations."""
+
+TURQUOISE_DARK = "#27906d"
+"""Darker brand turquoise for light backgrounds, where `TURQUOISE` lacks contrast
+against the pale background."""

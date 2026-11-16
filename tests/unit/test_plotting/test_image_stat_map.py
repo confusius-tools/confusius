@@ -1,10 +1,17 @@
 """Tests for the top-level plot_stat_map helper."""
 
+import matplotlib.colors as mcolors
 import numpy as np
 import pytest
 import xarray as xr
+from matplotlib import colormaps
 
-from confusius.plotting import VolumePlotter, plot_stat_map, plot_volume
+from confusius.plotting import (
+    ThresholdedColormap,
+    VolumePlotter,
+    plot_stat_map,
+    plot_volume,
+)
 from confusius.xarray import create_voxeldata
 
 
@@ -62,7 +69,7 @@ class TestPlotStatMapVisualRegression:
         savefig_kwargs={"facecolor": "auto"},
     )
     def test_plot_stat_map_default(self, matplotlib_pyplot):
-        """Baseline test for default plot_stat_map appearance (gray bg + coolwarm overlay)."""
+        """Baseline test for default plot_stat_map appearance (gray bg + berlin overlay)."""
         bg_volume, stat_map = _create_deterministic_bg_and_stat_map()
         plotter = plot_stat_map(stat_map, bg_volume=bg_volume, slice_mode="z")
         return plotter.figure
@@ -148,13 +155,19 @@ class TestPlotStatMap:
         overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.get_alpha() == 0.5
 
-    def test_overlay_uses_coolwarm_by_default_for_signed_data(
-        self, sample_voxeldata_3d, matplotlib_pyplot
+    @pytest.mark.parametrize(
+        ("bg_color", "expected"), [("black", "berlin"), ("white", "coolwarm")]
+    )
+    def test_default_diverging_cmap_follows_bg_color(
+        self, sample_voxeldata_3d, matplotlib_pyplot, bg_color, expected
     ):
+        """coolwarm's white midpoint vanishes on dark backgrounds; berlin's is black."""
         stat_map = _signed_stat_map(sample_voxeldata_3d)
-        plotter = plot_stat_map(stat_map, bg_volume=sample_voxeldata_3d, slice_mode="z")
+        plotter = plot_stat_map(
+            stat_map, bg_volume=sample_voxeldata_3d, slice_mode="z", bg_color=bg_color
+        )
         overlay = _axes(plotter).ravel()[0].collections[-1]
-        assert overlay.cmap.name.startswith("coolwarm")
+        assert overlay.cmap.name.startswith(expected)
 
     def test_default_bounds_are_symmetric_min_max_for_signed_data(
         self, sample_voxeldata_3d, matplotlib_pyplot
@@ -223,7 +236,7 @@ class TestPlotStatMap:
             auto_range=False,
         )
         overlay = _axes(plotter).ravel()[0].collections[-1]
-        assert overlay.cmap.name.startswith("coolwarm")
+        assert overlay.cmap.name.startswith("berlin")
         assert overlay.norm.vmin == -2.0
         assert overlay.norm.vmax == 5.0
 
@@ -352,3 +365,58 @@ class TestStatMapAccessor:
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == stat_map.sizes["k"]
         assert all(len(ax.collections) == 1 for ax in rendered)
+
+
+class TestThresholdedColormap:
+    """The gray-banded colormap add_stat_map draws with remembers how it was built."""
+
+    def test_with_source_keeps_gray_band_and_swaps_colors(
+        self, sample_voxeldata_3d, matplotlib_pyplot
+    ):
+        stat_map = _signed_stat_map(sample_voxeldata_3d)
+        plotter = plot_stat_map(
+            stat_map,
+            bg_volume=sample_voxeldata_3d,
+            slice_mode="z",
+            threshold=5.0,
+            bg_color="white",
+        )
+        cmap = _axes(plotter).ravel()[0].collections[-1].cmap
+        assert isinstance(cmap, ThresholdedColormap)
+        assert cmap.source.name == "coolwarm"
+        assert cmap.threshold == 5.0
+        assert cmap.threshold_mode == "lower"
+
+        rebuilt = cmap.with_source("berlin")
+
+        assert rebuilt.name == "berlin_thresholded"
+        assert rebuilt.threshold == 5.0
+        gray = mcolors.to_rgba("gray")
+        # The band covers |value| < 5 in both: the norm is inherited.
+        assert cmap(cmap.norm(0.0)) == pytest.approx(gray)
+        assert rebuilt(rebuilt.norm(0.0)) == pytest.approx(gray)
+        # Outside the band the new source shows through.
+        berlin = colormaps["berlin"]
+        assert rebuilt(0.0) == pytest.approx(berlin(0.0))
+        assert rebuilt(1.0) == pytest.approx(berlin(1.0))
+
+    def test_without_threshold_matches_source(self, matplotlib_pyplot):
+        norm = mcolors.Normalize(-1.0, 1.0)
+        cmap = ThresholdedColormap(colormaps["coolwarm"], norm)
+        coolwarm = colormaps["coolwarm"]
+        for value in (0.0, 0.25, 0.5, 0.75, 1.0):
+            assert cmap(value) == pytest.approx(coolwarm(value))
+        assert cmap.with_source("berlin")(0.5) == pytest.approx(
+            colormaps["berlin"](0.5)
+        )
+
+    def test_upper_mode_without_threshold_matches_source(self, matplotlib_pyplot):
+        norm = mcolors.Normalize(-1.0, 1.0)
+        cmap = ThresholdedColormap(colormaps["coolwarm"], norm, threshold_mode="upper")
+        coolwarm = colormaps["coolwarm"]
+        for value in (0.0, 0.5, 1.0):
+            assert cmap(value) == pytest.approx(coolwarm(value))
+
+    def test_rejects_norm_without_finite_bounds(self, matplotlib_pyplot):
+        with pytest.raises(ValueError, match="must be finite"):
+            ThresholdedColormap(colormaps["coolwarm"], mcolors.Normalize())

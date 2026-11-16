@@ -58,13 +58,14 @@ def series(volume):
 
 def _add_layer(viewer, data, **kwargs):
     """Add `data` to `viewer` the way the plugin readers and `plot_napari` do."""
-    array, layer_kwargs, layer_type = build_napari_layer_data(data, **kwargs)
+    ((array, layer_kwargs, layer_type),) = build_napari_layer_data(data, **kwargs)
     return getattr(viewer, f"add_{layer_type}")(array, **layer_kwargs)
 
 
 def _rotation(data, axis="x", angle=20.0):
     """Return a state rotating `data` about its geometry center."""
-    center = data.fusi.affine.geometry_center.to_numpy()
+    point = data.fusi.affine.geometry_center
+    center = [point[name] for name in ("z", "y", "x")]
     return TransformState.identity(center=center).rotated(axis, angle, frame="global")
 
 
@@ -76,7 +77,7 @@ def test_show_positions_layer_like_plot_napari(make_napari_viewer, volume):
 
     session.show(transform)
 
-    expected, kwargs, _ = build_napari_layer_data(
+    ((expected, kwargs, _),) = build_napari_layer_data(
         volume.fusi.affine.apply(transform),
         resample_fill_value=session.fill_value,
     )
@@ -218,7 +219,7 @@ def test_show_after_drag_returns_to_the_tight_grid(make_napari_viewer, volume):
 
     session.show(moved)
 
-    expected, kwargs, _ = build_napari_layer_data(
+    ((expected, kwargs, _),) = build_napari_layer_data(
         volume.fusi.affine.apply(moved), resample_fill_value=session.fill_value
     )
     assert layer.data.shape == expected.shape
@@ -233,7 +234,8 @@ def test_world_plane_stays_within_a_step_while_the_grid_changes(
     viewer.dims.set_current_step(0, 4)
     point = viewer.dims.point[0]
     session = PreviewSession(layer)
-    state = TransformState.identity(center=volume.fusi.affine.geometry_center.to_numpy())
+    center = volume.fusi.affine.geometry_center
+    state = TransformState.identity(center=[center[name] for name in ("z", "y", "x")])
 
     for angle in (5.0, 10.0, 15.0, 20.0):
         session.show(state.rotated("x", angle, frame="global").matrix())
@@ -246,14 +248,22 @@ def test_cursor_time_course_matches_the_preview(make_napari_viewer, series):
     layer = _add_layer(viewer, series)
     session = PreviewSession(layer)
     session.show(_rotation(series).matrix())
-    world = [0.0, *(layer.translate[1:] + layer.scale[1:] * (np.array(layer.data.shape[1:]) // 2))]
+    world = [
+        0.0,
+        *(
+            layer.translate[1:]
+            + layer.scale[1:] * (np.array(layer.data.shape[1:]) // 2)
+        ),
+    ]
 
     # The read `SignalPlotter._extract_signals` does.
     index = [round(x) for x in layer.world_to_data(world)]
     index[0] = slice(None)
     course = layer.data[tuple(index)]
 
-    expected = [layer.data[(frame, *index[1:])] for frame in range(series.sizes["time"])]
+    expected = [
+        layer.data[(frame, *index[1:])] for frame in range(series.sizes["time"])
+    ]
     np.testing.assert_allclose(course, expected, atol=1e-10)
 
 
@@ -286,7 +296,9 @@ def test_drag_does_not_read_the_source_again(make_napari_viewer, series):
     assert counting.reads == reads
 
 
-def test_restarting_a_preview_does_not_read_the_source_again(make_napari_viewer, series):
+def test_restarting_a_preview_does_not_read_the_source_again(
+    make_napari_viewer, series
+):
     counting = CountingArray(series.values)
     lazy = da.from_array(
         counting,
@@ -356,7 +368,7 @@ def test_same_shape_update_still_displays_the_new_transform(make_napari_viewer, 
 
     session.show(moved)
 
-    expected, kwargs, _ = build_napari_layer_data(
+    ((expected, kwargs, _),) = build_napari_layer_data(
         volume.fusi.affine.apply(moved), resample_fill_value=session.fill_value
     )
     plane = int(viewer.dims.current_step[0])
@@ -437,9 +449,9 @@ def test_paint_on_integer_labels_survives_apply(make_napari_viewer, volume):
     layer = _add_layer(viewer, _labels_of(volume))
     layer.data[2, 3, 4] = 9
     session = PreviewSession(layer)
-    transform = TransformState.identity().translated(
-        (0.4, 0.0, 0.0), frame="global"
-    ).matrix()
+    transform = (
+        TransformState.identity().translated((0.4, 0.0, 0.0), frame="global").matrix()
+    )
     session.show(transform)
 
     data, kwargs, _ = build_applied_layer(
@@ -467,7 +479,9 @@ def test_apply_refuses_to_lose_paint_on_cast_labels(make_napari_viewer, volume):
 
 
 @pytest.mark.parametrize("builder", [build_applied_layer, build_resampled_layer])
-def test_commit_refuses_to_lose_paint_on_oblique_labels(make_napari_viewer, volume, builder):
+def test_commit_refuses_to_lose_paint_on_oblique_labels(
+    make_napari_viewer, volume, builder
+):
     # The layer displays a resampled copy of an oblique source.
     viewer = make_napari_viewer()
     state = _rotation(volume)
@@ -507,19 +521,23 @@ def test_images_are_not_checked_for_paint(make_napari_viewer, volume):
     assert PreviewSession(layer).committed_labels is None
 
 
-def test_resampled_labels_do_not_share_memory_with_the_source(make_napari_viewer, volume):
+def test_resampled_labels_do_not_share_memory_with_the_source(
+    make_napari_viewer, volume
+):
     # A translation is not resampled, so the new layer could alias the original.
     labels = _labels_of(volume)
-    transform = TransformState.identity().translated(
-        (0.4, 0.0, 0.0), frame="global"
-    ).matrix()
+    transform = (
+        TransformState.identity().translated((0.4, 0.0, 0.0), frame="global").matrix()
+    )
 
     array, kwargs, _ = build_resampled_layer(
         labels, transform, layer_type="labels", fill_value=0.0, name="resampled"
     )
 
     assert not np.shares_memory(np.asarray(array), labels.values)
-    assert not np.shares_memory(kwargs["metadata"]["source_xarray"].values, labels.values)
+    assert not np.shares_memory(
+        kwargs["metadata"]["source_xarray"].values, labels.values
+    )
 
 
 def test_restore_works_when_the_view_cannot_be_read(
@@ -769,4 +787,3 @@ def test_build_resampled_layer_on_a_reference_grid(volume, series):
     np.testing.assert_allclose(kwargs["scale"], (0.5, 0.2, 0.3))
     np.testing.assert_allclose(kwargs["translate"], (0.0, 1.0, 2.0))
     assert kwargs["metadata"]["source_xarray"].shape == (5, 6, 7)
-

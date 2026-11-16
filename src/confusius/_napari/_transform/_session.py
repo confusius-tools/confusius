@@ -57,7 +57,7 @@ def _raise_if_paint_would_be_lost(
     """
     if committed is None:
         return
-    rebuilt, _, _ = build_napari_layer_data(
+    ((rebuilt, _, _),) = build_napari_layer_data(
         source, layer_type="labels", resample_fill_value=committed.fill_value
     )
     if rebuilt is not committed.data and not np.array_equal(
@@ -385,7 +385,7 @@ def build_applied_layer(
         name=name,
         layer_type=layer_type,
         resample_fill_value=fill_value,
-    )
+    )[0]
 
 
 def build_resampled_layer(
@@ -454,7 +454,7 @@ def build_resampled_layer(
             interpolation="nearest" if layer_type == "labels" else "linear",
             fill_value=fill_value,
         )
-    data, kwargs, resolved_type = build_napari_layer_data(
+    ((data, kwargs, resolved_type),) = build_napari_layer_data(
         moved,
         name=name,
         layer_type=layer_type,

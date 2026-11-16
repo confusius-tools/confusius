@@ -1,10 +1,14 @@
 """Xarray accessor for affine transform operations."""
 
 import itertools
-from typing import TYPE_CHECKING
+import math
+from collections.abc import Mapping, Sequence
+from typing import Literal
 
 import numpy as np
+import numpy.typing as npt
 import xarray as xr
+from scipy.spatial.transform import Rotation
 
 from confusius._dims import POSE_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.geometry import (
@@ -19,13 +23,16 @@ from confusius._utils.geometry import (
     has_voxel_to_world_index,
 )
 
-if TYPE_CHECKING:
-    from typing import Literal
+type TransformCenter = (
+    Literal["origin", "geometry"]
+    | Sequence[float]
+    | Mapping[str, float]
+    | npt.NDArray[np.floating]
+)
+"""Fixed point of a world-space transform: a named point or a world `(z, y, x)` point."""
 
-    import numpy.typing as npt
 
-
-def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
+def get_bounding_box(data: xr.DataArray) -> dict[str, tuple[float, float]]:
     """Return the world-space bounding box of a VoxelData array.
 
     The box encloses the full extent of every voxel, not just the voxel centers: the
@@ -36,7 +43,8 @@ def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
     any affine, including oblique ones, without
     materializing the lazily derived world coordinates: each world coordinate is an
     affine function of the voxel coordinates, so its extremes over the grid are
-    attained at the corners of the (extended) voxel-coordinate box.
+    attained at the corners of the (extended) voxel-coordinate box. For pose-dependent
+    geometry, the box encloses every pose; select a pose first for its own box.
 
     Parameters
     ----------
@@ -47,12 +55,9 @@ def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
 
     Returns
     -------
-    (2, 3) xarray.DataArray
-        Bounding box with dims `(bound, component)`, where `bound` is
-        `["min", "max"]` and `component` is `["z", "y", "x"]`, and a `units` attr
-        from the voxel-to-world index. Pose-dependent geometry adds a leading
-        `pose` dim carrying the input's `pose` coordinate, one bounding box per
-        pose.
+    dict[str, tuple[float, float]]
+        World coordinate names `z`, `y`, `x` mapped to `(min, max)` bounds in the
+        DataArray's world units (`.fusi.affine.units`).
 
     Raises
     ------
@@ -65,7 +70,7 @@ def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
     Examples
     --------
     >>> bbox = get_bounding_box(volume)
-    >>> bbox.sel(bound="min", component="z").item()
+    >>> bbox["z"][0]
     """
     from confusius.validation import ensure_voxeldata
 
@@ -106,25 +111,15 @@ def get_bounding_box(data: xr.DataArray) -> xr.DataArray:
 
     # (npose, 4, 4) @ (4, 8) broadcasts to one corner set per pose.
     world_corners = (affine @ corners_h)[..., :-1, :]
-    bounds = np.stack([world_corners.min(axis=-1), world_corners.max(axis=-1)], axis=-2)
-
-    coords: dict[str, npt.ArrayLike] = {
-        "bound": np.array(["min", "max"], dtype=np.str_),
-        "component": np.array(WORLD_DIMS, dtype=np.str_),
-    }
-    dims = ("bound", "component")
+    lower = world_corners.min(axis=-1)
+    upper = world_corners.max(axis=-1)
     if affine.ndim == 3:
-        dims = (POSE_DIM, *dims)
-        coords[POSE_DIM] = data.coords[POSE_DIM].values
-    return xr.DataArray(
-        bounds,
-        dims=dims,
-        coords=coords,
-        attrs={"units": get_voxel_to_world_units(data)},
-    )
+        lower = lower.min(axis=0)
+        upper = upper.max(axis=0)
+    return {dim: (float(lower[i]), float(upper[i])) for i, dim in enumerate(WORLD_DIMS)}
 
 
-def get_geometry_center(data: xr.DataArray) -> xr.DataArray:
+def get_geometry_center(data: xr.DataArray) -> dict[str, float]:
     """Return the world-space center of a VoxelData array.
 
     The center is the midpoint of the box returned by
@@ -141,9 +136,9 @@ def get_geometry_center(data: xr.DataArray) -> xr.DataArray:
 
     Returns
     -------
-    (3,) xarray.DataArray
-        Center with dim `component`, where `component` is `["z", "y", "x"]`, and a
-        `units` attr from the voxel-to-world index.
+    dict[str, float]
+        Center keyed by `z`, `y`, `x`, in the DataArray's world units
+        (`.fusi.affine.units`).
 
     Raises
     ------
@@ -160,16 +155,13 @@ def get_geometry_center(data: xr.DataArray) -> xr.DataArray:
     >>> data = create_voxeldata(
     ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
     ... )
-    >>> get_geometry_center(data).values
-    array([0.5, 1. , 1.5])
+    >>> get_geometry_center(data)
+    {'z': 0.5, 'y': 1.0, 'x': 1.5}
     """
-    bounds = get_bounding_box(data)
-    lower = bounds.sel(bound="min", drop=True)
-    upper = bounds.sel(bound="max", drop=True)
-    if POSE_DIM in bounds.dims:
-        lower = lower.min(POSE_DIM)
-        upper = upper.max(POSE_DIM)
-    return ((lower + upper) / 2).assign_attrs(bounds.attrs)
+    return {
+        dim: (lower + upper) / 2
+        for dim, (lower, upper) in get_bounding_box(data).items()
+    }
 
 
 def get_relative_affine(
@@ -360,6 +352,375 @@ def apply_affine(
     return result
 
 
+def _as_finite_array(
+    value: npt.ArrayLike, name: str, shape: tuple[int, ...]
+) -> npt.NDArray[np.float64]:
+    """Validate a finite real array of a given shape.
+
+    Parameters
+    ----------
+    value : array-like
+        Candidate array.
+    name : str
+        Argument name used in error messages.
+    shape : tuple[int, ...]
+        Required shape.
+
+    Returns
+    -------
+    numpy.ndarray
+        The array as `float64`, with shape `shape`.
+
+    Raises
+    ------
+    ValueError
+        If `value` is not a finite integer or float array of shape `shape`.
+    """
+    msg = f"{name} must be finite real numbers with shape {shape}."
+    try:
+        array = np.asarray(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(msg) from error
+    # Casting straight to float64 would parse strings, silently accepting `"2"`, and
+    # would turn booleans into numbers.
+    if (
+        array.dtype.kind not in "iuf"
+        or array.shape != shape
+        or not np.all(np.isfinite(array))
+    ):
+        raise ValueError(msg)
+    return array.astype(np.float64)
+
+
+def apply_translation(
+    data: xr.DataArray, translation: npt.ArrayLike, *, inplace: bool = False
+) -> xr.DataArray:
+    """Translate a VoxelData array in world space.
+
+    Only the voxel-to-world geometry changes: data values and voxel coordinates are
+    untouched, and any `attrs["affines"]` entries are re-expressed accordingly.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to translate.
+    translation : (3,) array-like
+        Translation in world `(z, y, x)` order, in units of `data.fusi.affine.units`.
+    inplace : bool, default: False
+        Whether to modify `data` in place instead of returning a copy.
+
+    Returns
+    -------
+    xarray.DataArray
+        The translated VoxelData array. This is `data` itself if `inplace` is `True`.
+
+    Raises
+    ------
+    ValueError
+        If `translation` is not a finite `(3,)` vector, or if `data` is not a VoxelData
+        array.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from confusius.xarray import apply_translation, create_voxeldata
+    >>> data = create_voxeldata(
+    ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
+    ... )
+    >>> shifted = apply_translation(data, (0.0, 0.0, 1.5))
+    >>> shifted.fusi.affine.voxel_to_world[:3, 3]
+    array([0. , 0. , 1.5])
+    """
+    matrix = np.eye(4)
+    matrix[:3, 3] = _as_finite_array(translation, "translation", (3,))
+    return apply_affine(data, matrix, inplace=inplace)
+
+
+def _resolve_center(
+    data: xr.DataArray, center: TransformCenter
+) -> npt.NDArray[np.float64]:
+    """Return the world point a transform pivots about.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array being transformed.
+    center : {"origin", "geometry"} or (3,) array-like or mapping
+        `"origin"` for the first sampled voxel's world position, `"geometry"` for the
+        center of the bounding box, a world point in `(z, y, x)` order, or a mapping
+        with `z`, `y`, `x` keys.
+
+    Returns
+    -------
+    (3,) numpy.ndarray
+        The pivot in world `(z, y, x)` order.
+
+    Raises
+    ------
+    ValueError
+        If `center` is neither `"origin"`, `"geometry"` nor a finite `(3,)` vector, or
+        if `data` cannot provide the requested pivot.
+    """
+    if isinstance(center, Mapping):
+        missing = [dim for dim in WORLD_DIMS if dim not in center]
+        if missing:
+            raise ValueError(f"center mapping is missing world coordinates: {missing}.")
+        center = [center[dim] for dim in WORLD_DIMS]
+    if not isinstance(center, str):
+        return _as_finite_array(center, "center", (3,))
+    if center == "geometry":
+        point = get_geometry_center(data)
+        return np.array([point[dim] for dim in WORLD_DIMS])
+    if center == "origin":
+        from confusius.validation import ensure_voxeldata
+
+        point = get_voxel_to_world_index_origin(ensure_voxeldata(data))
+        return np.array([point[dim] for dim in WORLD_DIMS])
+    raise ValueError(
+        f"center must be 'origin', 'geometry' or a (3,) world point, got {center!r}."
+    )
+
+
+def apply_rotation(
+    data: xr.DataArray,
+    angle: npt.ArrayLike,
+    axis: str | npt.ArrayLike,
+    *,
+    center: TransformCenter = "geometry",
+    degrees: bool = True,
+    inplace: bool = False,
+) -> xr.DataArray:
+    """Rotate a VoxelData array in world space.
+
+    Only the voxel-to-world geometry changes: data values and voxel coordinates are
+    untouched, and any `attrs["affines"]` entries are re-expressed accordingly.
+    Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates, so a
+    rotation of +90 degrees about `x` maps `+z` onto `+y`.
+    With `axis="zyx"`, the angles match the rotations reported by
+    [extract_motion_parameters][confusius.registration.extract_motion_parameters].
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to rotate.
+    angle : float or (N,) array-like
+        Rotation angle, or one angle per name when `axis` names several axes.
+    axis : str or (3,) array-like
+        Rotation axis. Either one or more world dimension names among `"z"`, `"y"` and
+        `"x"`, or a vector in world `(z, y, x)` order, which is normalized. Several
+        names rotate in sequence from left to right about the fixed world axes, so
+        `"zyx"` rotates about `z` first. Names may repeat, as in `"zyz"`, and their
+        order changes the result.
+    center : {"origin", "geometry"} or (3,) array-like or mapping, default: "geometry"
+        Fixed point of the rotation. `"origin"` is the first sampled voxel's world
+        position and requires selecting a scalar pose for pose-dependent data.
+        `"geometry"` is the center of the bounding box, see
+        [get_geometry_center][confusius.xarray.get_geometry_center]. Otherwise a world
+        point in `(z, y, x)` order, in units of `data.fusi.affine.units`, such as
+        `(0, 0, 0)` for the world origin. A mapping must contain `z`, `y`, and `x`
+        keys; other keys are ignored.
+    degrees : bool, default: True
+        Whether to read `angle` in degrees rather than radians.
+    inplace : bool, default: False
+        Whether to modify `data` in place instead of returning a copy.
+
+    Returns
+    -------
+    xarray.DataArray
+        The rotated VoxelData array. This is `data` itself if `inplace` is `True`.
+
+    Raises
+    ------
+    ValueError
+        If `angle` is not finite, if it does not hold one value per axis name, if
+        `axis` is neither world dimension names nor a non-zero finite `(3,)` vector,
+        if `center` is neither `"origin"`, `"geometry"` nor a finite `(3,)` vector, if
+        `center` is `"geometry"` and a voxel dim has irregular coordinates, or if `data`
+        is not a VoxelData array.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from confusius.registration import extract_motion_parameters
+    >>> from confusius.xarray import apply_rotation, create_voxeldata
+    >>> data = create_voxeldata(
+    ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
+    ... )
+    >>> rotated = apply_rotation(data, 90.0, "x")
+    >>> np.round(rotated.fusi.affine.voxel_to_world[:3, :3])
+    array([[ 0., -1.,  0.],
+           [ 1.,  0.,  0.],
+           [ 0.,  0.,  1.]])
+    >>> tilted = apply_rotation(data, (30.0, 20.0, 10.0), "zyx")
+    >>> params = extract_motion_parameters([tilted.fusi.affine.voxel_to_world])
+    >>> np.round(np.rad2deg(params[0, :3]))
+    array([30., 20., 10.])
+    """
+    axes = dict(zip(WORLD_DIMS, np.eye(3), strict=True))
+    if isinstance(axis, str):
+        if not axis or not set(axis) <= axes.keys():
+            raise ValueError(
+                f"axis must be one or more of 'z', 'y', 'x' or a vector, got {axis!r}."
+            )
+        unit_axes = np.array([axes[name] for name in axis])
+    else:
+        unit_axis = _as_finite_array(axis, "axis", (3,))
+        norm = math.hypot(*unit_axis)
+        if not 0 < norm < math.inf:
+            raise ValueError("axis must have a non-zero, finite length.")
+        unit_axes = unit_axis[np.newaxis] / norm
+
+    angles = _as_finite_array(np.atleast_1d(angle), "angle", (len(unit_axes),))
+    if degrees:
+        angles = np.deg2rad(angles)
+
+    # The rotation vectors stay in (z, y, x) component order, so the right-hand rule
+    # applies to that ordered triad. Using (x, y, z) components instead would reverse
+    # the sense of every rotation, since the two orders differ by an odd permutation.
+    rotation = np.eye(3)
+    for step in Rotation.from_rotvec(angles[:, np.newaxis] * unit_axes).as_matrix():
+        rotation = step @ rotation
+    pivot = _resolve_center(data, center)
+    matrix = np.eye(4)
+    matrix[:3, :3] = rotation
+    matrix[:3, 3] = pivot - rotation @ pivot
+    return apply_affine(data, matrix, inplace=inplace)
+
+
+def apply_zoom(
+    data: xr.DataArray,
+    zoom: npt.ArrayLike,
+    *,
+    center: TransformCenter = "geometry",
+    inplace: bool = False,
+) -> xr.DataArray:
+    """Rescale a VoxelData array in world space.
+
+    Only the voxel-to-world geometry changes: data values and voxel coordinates are
+    untouched, and any `attrs["affines"]` entries are re-expressed accordingly.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to rescale.
+    zoom : float or (3,) array-like
+        Scale factor, either a scalar applied to all axes or per-axis factors in world
+        `(z, y, x)` order. Negative factors reflect the volume along that axis.
+        Unequal factors shear the voxel grid when it is oblique to the world axes, so
+        rotating then zooming differs from zooming then rotating.
+    center : {"origin", "geometry"} or (3,) array-like or mapping, default: "geometry"
+        Fixed point of the rescaling. `"origin"` is the first sampled voxel's world
+        position and requires selecting a scalar pose for pose-dependent data.
+        `"geometry"` is the center of the bounding box, see
+        [get_geometry_center][confusius.xarray.get_geometry_center]. Otherwise a world
+        point in `(z, y, x)` order, in units of `data.fusi.affine.units`, such as
+        `(0, 0, 0)` for the world origin. A mapping must contain `z`, `y`, and `x`
+        keys; other keys are ignored.
+    inplace : bool, default: False
+        Whether to modify `data` in place instead of returning a copy.
+
+    Returns
+    -------
+    xarray.DataArray
+        The rescaled VoxelData array. This is `data` itself if `inplace` is `True`.
+
+    Raises
+    ------
+    ValueError
+        If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
+        (singular affine), if `center` is neither `"origin"`, `"geometry"` nor a finite
+        `(3,)` vector, if `center` is `"geometry"` and a voxel dim has irregular
+        coordinates, if `data` is not a VoxelData array, or if the transformed pose
+        affines no longer share equal spatial scale magnitudes.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from confusius.xarray import apply_zoom, create_voxeldata
+    >>> data = create_voxeldata(
+    ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
+    ... )
+    >>> zoomed = apply_zoom(data, 2.0)
+    >>> np.diag(zoomed.fusi.affine.voxel_to_world)
+    array([2., 2., 2., 1.])
+    """
+    if np.ndim(zoom) == 0:
+        zoom = np.full(3, zoom)
+    factors = _as_finite_array(zoom, "zoom", (3,))
+    if np.any(factors == 0):
+        raise ValueError("zoom factors must be non-zero, got a singular scaling.")
+    pivot = _resolve_center(data, center)
+    matrix = np.eye(4)
+    matrix[:3, :3] = np.diag(factors)
+    matrix[:3, 3] = pivot - factors * pivot
+    return apply_affine(data, matrix, inplace=inplace)
+
+
+def apply_flip(
+    data: xr.DataArray,
+    axis: str,
+    *,
+    center: TransformCenter = "geometry",
+    inplace: bool = False,
+) -> xr.DataArray:
+    """Reflect a VoxelData array along world axes without resampling.
+
+    Only the voxel-to-world geometry changes: data values and voxel coordinates are
+    untouched, and any `attrs["affines"]` entries are re-expressed accordingly.
+    This is equivalent to negative zoom factors along the selected world axes,
+    not reversing the voxel array along native `k`, `j`, or `i` dimensions.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        VoxelData array to reflect.
+    axis : str
+        One or more distinct world dimension names among `"z"`, `"y"` and `"x"`,
+        such as `"x"` or `"yx"`. Order does not matter.
+    center : {"origin", "geometry"} or (3,) array-like or mapping, default: "geometry"
+        Fixed point of the reflection. `"geometry"` is the center of the bounding
+        box; `"origin"` is the first sampled voxel's world position and requires a
+        scalar pose. Otherwise a world point in `(z, y, x)` order, in units of `data.fusi.affine.units`, or
+        a mapping containing `z`, `y`, and `x` keys; other keys are ignored.
+    inplace : bool, default: False
+        Whether to modify `data` in place instead of returning a copy.
+
+    Returns
+    -------
+    xarray.DataArray
+        The reflected VoxelData array. This is `data` itself if `inplace` is `True`.
+
+    Raises
+    ------
+    ValueError
+        If `axis` is not a non-empty string of distinct world dimension names,
+        if `center` is invalid, if `center` is `"geometry"` and a voxel dim has
+        irregular coordinates, or if `data` is not a VoxelData array.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from confusius.xarray import apply_flip, create_voxeldata
+    >>> data = create_voxeldata(
+    ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), voxel_to_world=np.eye(4)
+    ... )
+    >>> flipped = apply_flip(data, "x")
+    >>> flipped.fusi.affine.voxel_to_world[2]
+    array([ 0.,  0., -1.,  3.])
+    """
+    if (
+        not isinstance(axis, str)
+        or not axis
+        or not set(axis) <= set(WORLD_DIMS)
+        or len(set(axis)) != len(axis)
+    ):
+        raise ValueError(
+            f"axis must be one or more distinct names among 'z', 'y', 'x', got {axis!r}."
+        )
+    factors = [-1.0 if name in axis else 1.0 for name in WORLD_DIMS]
+    return apply_zoom(data, factors, center=center, inplace=inplace)
+
+
 def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     """Rebase voxel coordinates to dense positions without moving world coordinates.
 
@@ -529,8 +890,7 @@ class FUSIAffineAccessor:
     """Accessor for affine transform operations on VoxelData arrays.
 
     Provides methods to compute relative transforms between scans and to
-    apply affines to a scan's spatial coordinates, including translating, rotating
-    and zooming it in world space.
+    apply affines to a scan's spatial coordinates.
 
     Parameters
     ----------
@@ -629,21 +989,19 @@ class FUSIAffineAccessor:
         return result
 
     @property
-    def bounding_box(self) -> xr.DataArray:
+    def bounding_box(self) -> dict[str, tuple[float, float]]:
         """World-space bounding box of the wrapped VoxelData array.
 
         Encloses the full extent of every voxel (half a voxel beyond the outermost
-        voxel centers), see
-        [get_bounding_box][confusius.xarray.affine.get_bounding_box] for details.
+        voxel centers). For pose-dependent geometry, the box encloses every pose;
+        select a pose first for its own box. See
+        [get_bounding_box][confusius.xarray.get_bounding_box] for details.
 
         Returns
         -------
-        (2, 3) xarray.DataArray
-            Bounding box with dims `(bound, component)`, where `bound` is
-            `["min", "max"]` and `component` is `["z", "y", "x"]`, and a `units` attr
-            from the voxel-to-world index. Pose-dependent geometry adds a leading
-            `pose` dim carrying the input's `pose` coordinate, one bounding box per
-            pose.
+        dict[str, tuple[float, float]]
+            World coordinate names `z`, `y`, `x` mapped to `(min, max)` bounds in
+            `.fusi.affine.units`.
 
         Raises
         ------
@@ -659,13 +1017,13 @@ class FUSIAffineAccessor:
         >>> data = create_voxeldata(
         ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
         ... )
-        >>> data.fusi.affine.bounding_box.sel(bound="max", component="x").item()
-        2.0
+        >>> data.fusi.affine.bounding_box["x"][1]
+        (-2.0, 2.0)
         """
         return get_bounding_box(self._obj)
 
     @property
-    def geometry_center(self) -> xr.DataArray:
+    def geometry_center(self) -> dict[str, float]:
         """World-space center of the wrapped VoxelData array.
 
         The midpoint of
@@ -675,9 +1033,8 @@ class FUSIAffineAccessor:
 
         Returns
         -------
-        (3,) xarray.DataArray
-            Center with dim `component`, where `component` is `["z", "y", "x"]`, and a
-            `units` attr from the voxel-to-world index.
+        dict[str, float]
+            Center keyed by `z`, `y`, `x`, in `.fusi.affine.units`.
 
         Raises
         ------
@@ -693,7 +1050,7 @@ class FUSIAffineAccessor:
         >>> data = create_voxeldata(
         ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
         ... )
-        >>> data.fusi.affine.geometry_center.sel(component="y").item()
+        >>> data.fusi.affine.geometry_center["y"]
         1.5
         """
         return get_geometry_center(self._obj)
@@ -794,195 +1151,6 @@ class FUSIAffineAccessor:
         10.0
         """
         return apply_affine(self._obj, affine, inplace=inplace)
-
-    def translate(
-        self, translation: "npt.ArrayLike", *, inplace: bool = False
-    ) -> xr.DataArray:
-        """Translate a DataArray in world space.
-
-        `translation` is given in world `(z, y, x)` order. Only the voxel-to-world
-        geometry changes. See
-        [apply_translation][confusius.registration.apply_translation] for details.
-
-        Parameters
-        ----------
-        translation : (3,) array-like
-            Translation in world `(z, y, x)` order, in the DataArray's world units
-            (`.fusi.affine.units`).
-        inplace : bool, default: False
-            Whether to modify the DataArray in place instead of returning a copy.
-
-        Returns
-        -------
-        xarray.DataArray
-            The translated DataArray. This is the DataArray itself if `inplace` is
-            `True`.
-
-        Raises
-        ------
-        ValueError
-            If `translation` is not a finite `(3,)` vector, or if the DataArray is not a
-            VoxelData array.
-
-        Examples
-        --------
-        >>> import numpy as np
-        >>> import confusius  # noqa: F401
-        >>> from confusius.xarray import create_voxeldata
-        >>> data = create_voxeldata(
-        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
-        ... )
-        >>> moved = data.fusi.affine.translate((1.0, 0.0, 0.0)).fusi.affine.rotate(
-        ...     5.0, "x"
-        ... )
-        >>> box = moved.fusi.affine.bounding_box
-        >>> round(float(box.sel(bound="max", component="x")), 6)
-        2.0
-        """
-        from confusius.registration.affines import apply_translation
-
-        return apply_translation(self._obj, translation, inplace=inplace)
-
-    def rotate(
-        self,
-        angle: "float | npt.ArrayLike",
-        axis: "str | npt.ArrayLike",
-        *,
-        center: 'Literal["origin", "geometry"] | npt.ArrayLike' = "origin",
-        degrees: bool = True,
-        inplace: bool = False,
-    ) -> xr.DataArray:
-        """Rotate a DataArray in world space.
-
-        Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates,
-        so a rotation of +90 degrees about `x` maps `+z` onto `+y`. Only the
-        voxel-to-world geometry changes. See
-        [apply_rotation][confusius.registration.apply_rotation] for details.
-
-        Parameters
-        ----------
-        angle : float or (N,) array-like
-            Rotation angle, or one angle per name when `axis` names several axes.
-        axis : str or (3,) array-like
-            Rotation axis. Either one or more world dimension names among `"z"`, `"y"`
-            and `"x"`, or a vector in world `(z, y, x)` order, which is normalized.
-            Several names rotate in sequence from left to right about the fixed world
-            axes, so `"zyx"` rotates about `z` first. Names may repeat, as in `"zyz"`,
-            and their order changes the result.
-        center : {"origin", "geometry"} or (3,) array-like, default: "origin"
-            Fixed point of the rotation. `"origin"` is the grid origin, the world
-            position of the first sampled voxel (of the first pose for pose-stacked
-            geometry). `"geometry"` is
-            [geometry_center][confusius.xarray.FUSIAffineAccessor.geometry_center], the
-            center of the bounding box. Otherwise a world point in `(z, y, x)` order, in
-            the DataArray's world units (`.fusi.affine.units`), such as `(0, 0, 0)` for
-            the world origin.
-        degrees : bool, default: True
-            Whether to read `angle` in degrees rather than radians.
-        inplace : bool, default: False
-            Whether to modify the DataArray in place instead of returning a copy.
-
-        Returns
-        -------
-        xarray.DataArray
-            The rotated DataArray. This is the DataArray itself if `inplace` is
-            `True`.
-
-        Raises
-        ------
-        ValueError
-            If `angle` is not finite, if it does not hold one value per axis name, if
-            `axis` is neither world dimension names nor a non-zero finite `(3,)`
-            vector, if `center` is neither `"origin"`, `"geometry"` nor a finite
-            `(3,)` vector, if `center` is `"geometry"` and a voxel dim has irregular
-            coordinates, or if the DataArray is not a VoxelData array.
-
-        Examples
-        --------
-        >>> import numpy as np
-        >>> import confusius  # noqa: F401
-        >>> from confusius.xarray import create_voxeldata
-        >>> data = create_voxeldata(
-        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
-        ... )
-        >>> rotated = data.fusi.affine.rotate(90.0, "z", center=(0.0, 0.0, 0.0))
-        >>> box = rotated.fusi.affine.bounding_box
-        >>> round(float(box.sel(bound="max", component="x")), 6)
-        3.0
-        >>> tilted = data.fusi.affine.rotate((30.0, 20.0, 10.0), "zyx")
-        """
-        from confusius.registration.affines import apply_rotation
-
-        return apply_rotation(
-            self._obj,
-            angle,
-            axis,
-            center=center,
-            degrees=degrees,
-            inplace=inplace,
-        )
-
-    def zoom(
-        self,
-        zoom: "float | npt.ArrayLike",
-        *,
-        center: 'Literal["origin", "geometry"] | npt.ArrayLike' = "origin",
-        inplace: bool = False,
-    ) -> xr.DataArray:
-        """Rescale a DataArray in world space.
-
-        Only the voxel-to-world geometry changes. See
-        [apply_zoom][confusius.registration.apply_zoom] for details.
-
-        Parameters
-        ----------
-        zoom : float or (3,) array-like
-            Scale factor, either a scalar applied to all axes or per-axis factors in
-            world `(z, y, x)` order. Negative factors reflect the volume along that
-            axis. Unequal factors shear the voxel grid when it is oblique to the world
-            axes, so rotating then zooming differs from zooming then rotating.
-        center : {"origin", "geometry"} or (3,) array-like, default: "origin"
-            Fixed point of the rescaling. `"origin"` is the grid origin, the world
-            position of the first sampled voxel (of the first pose for pose-stacked
-            geometry). `"geometry"` is
-            [geometry_center][confusius.xarray.FUSIAffineAccessor.geometry_center], the
-            center of the bounding box. Otherwise a world point in `(z, y, x)` order, in
-            the DataArray's world units (`.fusi.affine.units`), such as `(0, 0, 0)` for
-            the world origin.
-        inplace : bool, default: False
-            Whether to modify the DataArray in place instead of returning a copy.
-
-        Returns
-        -------
-        xarray.DataArray
-            The rescaled DataArray. This is the DataArray itself if `inplace` is
-            `True`.
-
-        Raises
-        ------
-        ValueError
-            If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
-            (singular affine), if `center` is neither `"origin"`, `"geometry"` nor a
-            finite `(3,)` vector, if `center` is `"geometry"` and a voxel dim has
-            irregular coordinates, if the DataArray is not a VoxelData array, or if a
-            per-axis `zoom` is applied to pose-stacked geometry whose poses are not
-            parallel (all pose affines must share equal spatial scale magnitudes).
-
-        Examples
-        --------
-        >>> import numpy as np
-        >>> import confusius  # noqa: F401
-        >>> from confusius.xarray import create_voxeldata
-        >>> data = create_voxeldata(
-        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
-        ... )
-        >>> zoomed = data.fusi.affine.zoom(2.0, center="geometry")
-        >>> float(zoomed.fusi.affine.bounding_box.sel(bound="max", component="x"))
-        4.0
-        """
-        from confusius.registration.affines import apply_zoom
-
-        return apply_zoom(self._obj, zoom, center=center, inplace=inplace)
 
     def reindex_voxels(self, *, inplace: bool = False) -> xr.DataArray:
         """Rebase voxel coordinates to dense positions without moving world coordinates.

@@ -45,7 +45,7 @@ def _make_4d_da(rng, time_attrs=None):
 def test_plotter_shades_events(rng, make_napari_viewer):
     """The plotter draws one background band per event over the signal plot."""
     viewer = make_napari_viewer()
-    _, layer = plot_napari(
+    _, [layer] = plot_napari(
         _make_4d_da(rng), viewer=viewer, show_colorbar=False, show_scale_bar=False
     )
     store = EventStore()

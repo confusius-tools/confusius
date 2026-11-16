@@ -115,22 +115,35 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
         calls["zoom"] = (data, zoom, center, inplace)
         return expected_apply
 
-    # The accessor imports these lazily, so patch the registration module.
-    monkeypatch.setattr("confusius.registration.affines.apply_translation", _translate)
-    monkeypatch.setattr("confusius.registration.affines.apply_rotation", _rotate)
-    monkeypatch.setattr("confusius.registration.affines.apply_zoom", _zoom)
+    def _flip(data, axis, *, center, inplace):
+        calls["flip"] = (data, axis, center, inplace)
+        return expected_apply
 
-    assert sample_voxeldata_3dt.fusi.affine.rotate(5.0, "x") is expected_apply
-    assert calls["rotate"] == (sample_voxeldata_3dt, 5.0, "x", "origin", True, False)
+    monkeypatch.setattr("confusius.xarray.affine.apply_flip", _flip)
+    assert sample_voxeldata_3dt.fusi.flip("x") is expected_apply
+    assert calls["flip"] == (sample_voxeldata_3dt, "x", "geometry", False)
+    assert (
+        sample_voxeldata_3dt.fusi.flip("yx", center="origin", inplace=True)
+        is expected_apply
+    )
+    assert calls["flip"] == (sample_voxeldata_3dt, "yx", "origin", True)
 
-    assert sample_voxeldata_3dt.fusi.affine.zoom(2.0) is expected_apply
-    assert calls["zoom"] == (sample_voxeldata_3dt, 2.0, "origin", False)
+    # The accessor imports these lazily, so patch the affine module.
+    monkeypatch.setattr("confusius.xarray.affine.apply_translation", _translate)
+    monkeypatch.setattr("confusius.xarray.affine.apply_rotation", _rotate)
+    monkeypatch.setattr("confusius.xarray.affine.apply_zoom", _zoom)
 
-    assert sample_voxeldata_3dt.fusi.affine.translate((1.0, 2.0, 3.0)) is expected_apply
+    assert sample_voxeldata_3dt.fusi.rotate(5.0, "x") is expected_apply
+    assert calls["rotate"] == (sample_voxeldata_3dt, 5.0, "x", "geometry", True, False)
+
+    assert sample_voxeldata_3dt.fusi.zoom(2.0) is expected_apply
+    assert calls["zoom"] == (sample_voxeldata_3dt, 2.0, "geometry", False)
+
+    assert sample_voxeldata_3dt.fusi.translate((1.0, 2.0, 3.0)) is expected_apply
     assert calls["translate"] == (sample_voxeldata_3dt, (1.0, 2.0, 3.0), False)
 
     assert (
-        sample_voxeldata_3dt.fusi.affine.rotate(
+        sample_voxeldata_3dt.fusi.rotate(
             5.0, "x", center=(0.0, 0.0, 0.0), degrees=False, inplace=True
         )
         is expected_apply
@@ -144,10 +157,7 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_voxeldata_3dt):
         True,
     )
 
-    assert (
-        sample_voxeldata_3dt.fusi.affine.zoom(2.0, center=(1.0, 1.0, 1.0))
-        is expected_apply
-    )
+    assert sample_voxeldata_3dt.fusi.zoom(2.0, center=(1.0, 1.0, 1.0)) is expected_apply
     assert calls["zoom"] == (sample_voxeldata_3dt, 2.0, (1.0, 1.0, 1.0), False)
 
 
@@ -469,7 +479,7 @@ def test_plot_wrappers_forward_calls(
 
     def _napari(data, **kwargs):
         calls["napari"] = (data, kwargs)
-        return "viewer", "layer"
+        return "viewer", ["layer"]
 
     def _draw(data, **kwargs):
         calls["draw"] = (data, kwargs)
@@ -504,7 +514,7 @@ def test_plot_wrappers_forward_calls(
     monkeypatch.setattr("confusius.xarray.plotting.plot_composite", _composite)
 
     viewer = object()
-    assert sample_voxeldata_3d.fusi.plot(show_scale_bar=False) == ("viewer", "layer")
+    assert sample_voxeldata_3d.fusi.plot(show_scale_bar=False) == ("viewer", ["layer"])
     assert calls["napari"] == (
         sample_voxeldata_3d,
         {
@@ -525,7 +535,7 @@ def test_plot_wrappers_forward_calls(
         viewer=viewer,
         layer_type="labels",
         opacity=0.4,
-    ) == ("viewer", "layer")
+    ) == ("viewer", ["layer"])
     assert calls["napari"] == (
         sample_voxeldata_3d,
         {

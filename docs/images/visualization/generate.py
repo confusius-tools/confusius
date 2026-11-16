@@ -480,7 +480,7 @@ if atlas_mask is not None:
         from napari.utils.colormaps import DirectLabelColormap
 
         viewer2 = napari.Viewer(show=False)
-        viewer2, _layer2 = mean_vol.fusi.scale.db().fusi.plot.napari(
+        viewer2, _layers2 = mean_vol.fusi.scale.db().fusi.plot.napari(
             viewer=viewer2,
             contrast_limits=_MEAN_DB_LIMITS,
             colormap="gray",
@@ -497,7 +497,7 @@ if atlas_mask is not None:
                 },
             }
         )
-        viewer2, _labels_layer = atlas_mask.fusi.plot.napari(
+        viewer2, _labels_layers = atlas_mask.fusi.plot.napari(
             viewer=viewer2,
             layer_type="labels",
             colormap=label_colormap,
@@ -520,7 +520,7 @@ _section("napari 3D orbit GIF")
 
 try:
     viewer_orbit = napari.Viewer(show=True)
-    viewer_orbit, _orbit_layer = vol_3d.fusi.scale.db().fusi.plot.napari(
+    viewer_orbit, _orbit_layers = vol_3d.fusi.scale.db().fusi.plot.napari(
         viewer=viewer_orbit,
         colormap="gray",
         contrast_limits=_ANGIO_DB_LIMITS,

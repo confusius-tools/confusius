@@ -431,7 +431,7 @@ class FirstLevelModel(BaseEstimator):
         )
         flat = select_contrast_map(contrast_obj, output_type)
 
-        attrs = {**self._input_attrs, "long_name": output_type, "cmap": "coolwarm"}
+        attrs = {**self._input_attrs, "long_name": output_type, "cmap": "berlin"}
         if flat.ndim == 1:
             result = unmask(flat, self._effective_mask_, attrs=attrs, fill_value=0.0)
         else:

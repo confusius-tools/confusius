@@ -150,7 +150,7 @@ class SeedBasedMaps(BaseEstimator):
         dimension; the remaining dimensions match the spatial dimensions of the data
         passed to [`fit`][confusius.connectivity.SeedBasedMaps.fit]. If a single region
         is present the `region` dimension is squeezed out. `attrs["cmap"]` is set to
-        `"coolwarm"`, `attrs["norm"]` to `Normalize(vmin=-1, vmax=1)`, and
+        `"berlin"`, `attrs["norm"]` to `Normalize(vmin=-1, vmax=1)`, and
         `attrs["long_name"]` to `"Pearson r"` so that plotting functions pick up
         sensible defaults automatically.
 
@@ -346,7 +346,7 @@ class SeedBasedMaps(BaseEstimator):
         maps.attrs.update(
             {
                 "long_name": "Pearson r",
-                "cmap": "coolwarm",
+                "cmap": "berlin",
                 "norm": Normalize(vmin=-1.0, vmax=1.0),
             }
         )

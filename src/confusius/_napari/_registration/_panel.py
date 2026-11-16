@@ -1509,7 +1509,7 @@ class RegistrationPanel(QWidget):
             kwargs["units"] = units
         # `add_labels` exists at runtime, but napari injects it dynamically onto
         # `ViewerModel`, so ty does not see it on `napari.Viewer`.
-        self.viewer.add_labels(  # ty: ignore[unresolved-attribute]
+        self.viewer.add_labels(  # ty: ignore[missing-attribute]
             np.zeros(tuple(source.sizes[d] for d in dims), dtype=np.int32),
             name=name,
             scale=tuple(spacings[d] for d in dims),

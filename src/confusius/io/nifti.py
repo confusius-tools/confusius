@@ -7,9 +7,10 @@ processing. Following the VoxelData model, data is stored with native voxel dime
 """
 
 import json
+import re
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal
 
 import dask.array as da
 import numpy as np
@@ -37,6 +38,7 @@ from confusius.bids import (
 from confusius.bids.mapping import CONFUSIUS_INTERNAL_FIELDS
 from confusius.bids.validation import format_validation_error, validate_metadata
 from confusius.io.utils import check_path
+from confusius.multipose import stack_poses
 from confusius.registration.affines import decompose_affine
 from confusius.timing import (
     TIMING_REFERENCE_FACTORS,
@@ -51,7 +53,7 @@ from confusius.xarray.create import create_voxeldata
 if TYPE_CHECKING:
     import nibabel as nib
 
-NiftiVersion: TypeAlias = Literal[1, 2]
+type NiftiVersion = Literal[1, 2]
 """Type alias for NIfTI file format version."""
 
 _NIFTI_DIM_ORDER = ("i", "j", "k", "time", "dim4", "dim5", "dim6")
@@ -1180,7 +1182,11 @@ def load_nifti(
     Parameters
     ----------
     path : str or pathlib.Path
-        Path to the NIfTI file (`.nii` or `.nii.gz`).
+        Path to the NIfTI file (`.nii` or `.nii.gz`). A single `{chunk}` placeholder
+        in the filename loads all matching integer chunk indices in numeric order
+        and stacks them with [stack_poses][confusius.multipose.stack_poses]. Chunk
+        indices become integer `pose` labels, even when only one file matches.
+        Each chunk must satisfy `stack_poses`' single-pose input requirements.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
         How to chunk the array. Must be one of the following forms.
 
@@ -1213,6 +1219,14 @@ def load_nifti(
         order (`k`, `j`, `i` plus optional `time`) and world coordinates `z`, `y`,
         `x`. Data is wrapped
         in a Dask array for out-of-core computation.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no files match a `{chunk}` filename template.
+    ValueError
+        If `{chunk}` occurs outside the filename or more than once, or the loaded
+        chunks cannot be stacked with `stack_poses`.
 
     Notes
     -----
@@ -1275,6 +1289,28 @@ def load_nifti(
     ("time", "k", "j", "i")
     >>> da = cf.io.load_nifti("brain.nii.gz", coordinate_affine="qform")
     """
+    path = check_path(path)
+    if "{chunk}" in str(path):
+        if str(path).count("{chunk}") != 1 or "{chunk}" not in path.name:
+            raise ValueError("Use exactly one {chunk} placeholder, in the filename.")
+        pattern = re.compile(re.escape(path.name).replace(r"\{chunk\}", r"([0-9]+)"))
+        matches = []
+        for candidate in path.parent.iterdir():
+            match = pattern.fullmatch(candidate.name)
+            if match is not None and candidate.is_file():
+                matches.append((int(match[1]), candidate))
+        matches.sort()
+        if not matches:
+            raise FileNotFoundError(f"No NIfTI chunks match {path}.")
+        return stack_poses(
+            [
+                load_nifti(
+                    candidate, chunks=chunks, coordinate_affine=coordinate_affine
+                )
+                for _, candidate in matches
+            ],
+            pose=[index for index, _ in matches],
+        )
     path = check_path(path, type="file")
 
     img, extractor = _load_nifti_with_nibabel(path)
@@ -2432,7 +2468,10 @@ def save_nifti(
         VoxelData array to save.
     path : str or pathlib.Path
         Output path for the NIfTI file, with `.nii` or `.nii.gz` extension. If
-        `.nii.gz` is used, the file will be saved in compressed format.
+        `.nii.gz` is used, the file will be saved in compressed format. A single
+        `{chunk}` placeholder in the filename saves each pose to a separate file
+        and JSON sidecar, using its non-negative integer `pose` label as the chunk
+        index. Without a placeholder, select a single pose before saving.
     nifti_version : {1, 2}, default: 1
         NIfTI format version to use. Version 2 is a simple extension to support
         larger files and arrays with dimension sizes greater than 32,767.
@@ -2460,6 +2499,14 @@ def save_nifti(
         `attrs["sform_code"]` is used if present; otherwise defaults to `2`
         (`NIFTI_XFORM_ALIGNED_ANAT`).
 
+    Raises
+    ------
+    ValueError
+        If the array is not valid VoxelData, the output extension is unsupported,
+        or a `pose` dimension is present without a `{chunk}` template. Also raised
+        if the template does not contain exactly one filename placeholder, has no
+        `pose` dimension, or pose labels are not unique non-negative integers.
+
     Notes
     -----
     Time coordinates are automatically converted to seconds for BIDS compliance. If the
@@ -2486,13 +2533,38 @@ def save_nifti(
     >>> da.attrs["affines"] = {"world_to_template": np.eye(4)}
     >>> cf.io.save_nifti(da, "output.nii.gz", sform="world_to_template")
     """
-    # NIfTI exposes only one spatial qform/sform, so it cannot represent per-pose
-    # geometry (or even a shared affine ambiguously labeled per pose). Callers must
-    # select one pose first, e.g. `save_nifti(data.isel(pose=0), path)`.
-    data_array = ensure_voxeldata(data_array, allow_pose=False)
     path = Path(path)
+    chunk_template = "{chunk}" in str(path)
+    if chunk_template and (
+        str(path).count("{chunk}") != 1 or "{chunk}" not in path.name
+    ):
+        raise ValueError("Use exactly one {chunk} placeholder, in the filename.")
+    data_array = ensure_voxeldata(data_array, allow_pose=chunk_template)
     if not path.name.endswith(".nii") and not path.name.endswith(".nii.gz"):
         raise ValueError("Output file must have .nii or .nii.gz extension.")
+
+    if chunk_template:
+        if "pose" not in data_array.dims:
+            raise ValueError("A {chunk} filename template requires a 'pose' dimension.")
+        pose_labels = data_array.coords["pose"].values
+        if (
+            pose_labels.dtype.kind not in "iu"
+            or np.any(pose_labels < 0)
+            or np.unique(pose_labels).size != pose_labels.size
+        ):
+            raise ValueError("Chunk pose labels must be unique non-negative integers.")
+        # Each NIfTI has only one spatial qform/sform and its own timing sidecar.
+        for pose in pose_labels:
+            save_nifti(
+                data_array.sel(pose=pose),
+                path.with_name(path.name.replace("{chunk}", str(pose))),
+                nifti_version=nifti_version,
+                qform=qform,
+                sform=sform,
+                qform_code=qform_code,
+                sform_code=sform_code,
+            )
+        return
 
     data, has_time_axis, extra_dims = _prepare_data_for_nifti(data_array)
     spatial_spacings = _get_spatial_spacings(data_array)

@@ -11,8 +11,8 @@ from confusius._utils.plotting import (
     qr_axis_spacing,
     scale_min_max,
 )
-from confusius.registration import apply_rotation
 from confusius.validation import ensure_voxeldata
+from confusius.xarray import apply_rotation
 
 
 def test_scale_min_max_ignores_inf_but_preserves_nan():

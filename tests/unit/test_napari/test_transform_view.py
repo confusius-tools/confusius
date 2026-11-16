@@ -46,7 +46,8 @@ def _as_counted_dask(data):
 
 def _rotation(data, axis="x", angle=17.0):
     """Return a rotation of `data` about its geometry center."""
-    center = data.fusi.affine.geometry_center.to_numpy()
+    point = data.fusi.affine.geometry_center
+    center = [point[name] for name in ("z", "y", "x")]
     return TransformState.identity(center=center).rotated(axis, angle, frame="global")
 
 
@@ -59,7 +60,7 @@ def _view(source, transform, *, layer_type="image", fill_value=0.0):
 
 def _plot_napari_layer(source, transform, *, layer_type="image", fill_value=0.0):
     """Return the array, scale and translate `plot_napari` would display."""
-    array, kwargs, _ = build_napari_layer_data(
+    ((array, kwargs, _),) = build_napari_layer_data(
         source.fusi.affine.apply(transform),
         layer_type=layer_type,
         resample_fill_value=fill_value,
@@ -81,7 +82,9 @@ def _assert_matches_plot_napari(source, transform):
 
 
 def test_rotation_matches_plot_napari(sample_voxeldata_3d):
-    _assert_matches_plot_napari(sample_voxeldata_3d, _rotation(sample_voxeldata_3d).matrix())
+    _assert_matches_plot_napari(
+        sample_voxeldata_3d, _rotation(sample_voxeldata_3d).matrix()
+    )
 
 
 def test_oblique_source_matches_plot_napari(sample_voxeldata_3d_oblique):
@@ -143,7 +146,9 @@ def test_extra_leading_dims_match_plot_napari(sample_voxeldata_3dt):
 def test_unsorted_extra_dim_matches_plot_napari(sample_voxeldata_3d):
     # `build_napari_layer_data` sorts leading dims other than time, so a slider index
     # must select the same element in the preview as on the committed layer.
-    stacked = np.stack([sample_voxeldata_3d.values * scale for scale in (3.0, 2.0, 1.0)])
+    stacked = np.stack(
+        [sample_voxeldata_3d.values * scale for scale in (3.0, 2.0, 1.0)]
+    )
     data = create_voxeldata(
         stacked,
         dims=("component", "k", "j", "i"),
@@ -157,8 +162,12 @@ def test_unsorted_extra_dim_matches_plot_napari(sample_voxeldata_3d):
 @pytest.mark.parametrize("byte_order", [">f4", ">f8"])
 def test_big_endian_source_is_displayed(sample_voxeldata_3d, byte_order):
     # SimpleITK rejects non-native byte orders, and NIfTI files can be big-endian.
-    native = sample_voxeldata_3d.copy(data=sample_voxeldata_3d.values.astype(byte_order[1:]))
-    source = sample_voxeldata_3d.copy(data=sample_voxeldata_3d.values.astype(byte_order))
+    native = sample_voxeldata_3d.copy(
+        data=sample_voxeldata_3d.values.astype(byte_order[1:])
+    )
+    source = sample_voxeldata_3d.copy(
+        data=sample_voxeldata_3d.values.astype(byte_order)
+    )
     transform = _rotation(source).matrix()
 
     view = _view(source, transform)
@@ -289,7 +298,9 @@ def test_length_one_slices_keep_their_dimensions(sample_voxeldata_3dt):
     np.testing.assert_allclose(result[0, 0], view[2, 1, :, :], atol=1e-10)
 
 
-def test_length_one_time_slice_around_a_volume_keeps_its_dimension(sample_voxeldata_3dt):
+def test_length_one_time_slice_around_a_volume_keeps_its_dimension(
+    sample_voxeldata_3dt,
+):
     view = _view(sample_voxeldata_3dt, _rotation(sample_voxeldata_3dt).matrix())
 
     result = view[4:5]

@@ -63,7 +63,9 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     Parameters
     ----------
     path : str or pathlib.Path
-        Path to the file to load.
+        Path to the file to load. For NIfTI files, a `{chunk}` placeholder in the
+        filename loads matching integer chunks in numeric order along `pose`;
+        see [load_nifti][confusius.io.load_nifti].
     variable : str, optional
         Zarr only. Name of the variable to extract as a DataArray. If not provided, the
         first variable in the dataset is returned.
@@ -147,7 +149,9 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
     data_array : xarray.DataArray
         VoxelData array to save.
     path : str or pathlib.Path
-        Output path. The extension determines the format.
+        Output path. The extension determines the format. For NIfTI, a `{chunk}`
+        placeholder in the filename saves one file and JSON sidecar per pose,
+        using non-negative integer `pose` labels as chunk indices.
     **kwargs
         Additional keyword arguments forwarded to the underlying saver.
 
