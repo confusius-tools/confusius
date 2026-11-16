@@ -367,6 +367,41 @@ def test_callback_contract_is_checked_at_execution(
         result.compute()
 
 
+@pytest.mark.parametrize(
+    "process", [process_iq_to_power_doppler, process_iq_to_axial_velocity]
+)
+def test_unknown_clutter_filter_raises_before_iq_execution(
+    sample_voxeldata_iq_dataarray, process
+):
+    """Unknown filter names are rejected without executing IQ tasks."""
+    iq = sample_voxeldata_iq_dataarray.chunk({"time": 10})
+    with (
+        Callback(
+            pretask=lambda *args: pytest.fail("IQ executed for an invalid filter")
+        ),
+        pytest.raises(ValueError, match="Unknown clutter filter method: unsupported"),
+    ):
+        process(iq, filter_method="unsupported")
+
+
+@pytest.mark.parametrize(
+    "process", [process_iq_to_power_doppler, process_iq_to_axial_velocity]
+)
+@pytest.mark.parametrize("high_cutoff", [1.0, 2.0])
+def test_butterworth_cutoff_order_raises_before_iq_execution(
+    sample_voxeldata_iq_dataarray, process, high_cutoff
+):
+    """Reversed and equal band cutoffs fail before any IQ processing."""
+    iq = sample_voxeldata_iq_dataarray.chunk({"time": 10})
+    with (
+        Callback(pretask=lambda *args: pytest.fail("IQ executed for invalid cutoffs")),
+        pytest.raises(ValueError, match="must be greater than low cutoff frequency"),
+    ):
+        process(
+            iq, filter_method="butterworth", low_cutoff=2.0, high_cutoff=high_cutoff
+        )
+
+
 @pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
 @pytest.mark.parametrize(
     "method", ["svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"]
