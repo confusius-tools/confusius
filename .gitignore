@@ -32,3 +32,6 @@ eda.py
 docs/examples/_built/
 docs/examples/index.md
 .gallery-cache/
+
+# Benchmark results (generated)
+tools/benchmarks/iq_blocks_results.json
