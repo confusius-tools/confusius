@@ -158,7 +158,7 @@ class ThresholdedColormap(mcolors.LinearSegmentedColormap):
         # subclass is initialised from the segment data it computed.
         super().__init__(
             base.name,
-            base._segmentdata,  # ty: ignore[unresolved-attribute]
+            base._segmentdata,  # ty: ignore[missing-attribute]
             N=base.N,
             **extremes,
         )

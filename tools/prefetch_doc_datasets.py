@@ -105,7 +105,7 @@ def _prefetch_pepe_mariani_template() -> None:
     # docs/examples/05_atlases_and_templates/01_saving_resampled_atlas.py
     fetch_template_pepe_mariani_2026(print_citation=False)
 
-    # docs/examples/01_io/03_load_multipose_recordings.py
+    # docs/examples/02_multipose/01_load_multipose_recordings.py
     fetch_pepe_mariani_2026(
         print_citation=False,
         datasets="rawdata",

@@ -109,7 +109,7 @@ class QCPanel(QWidget):
         viewer.layers.events.removed.connect(self._refresh_layers)
         viewer.layers.events.renamed.connect(self._refresh_layers)
         viewer.events.theme.connect(self._on_theme_changed)
-        viewer.dims.events.current_step.connect(self._on_time_step_changed)
+        viewer.dims.events.point.connect(self._on_time_step_changed)
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)

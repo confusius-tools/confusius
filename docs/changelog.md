@@ -12,6 +12,12 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`get_bounding_box`][confusius.xarray.get_bounding_box] and
+  [`.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] now
+  return a dictionary mapping world coordinate names to `(min, max)` bounds instead
+  of a DataArray. Access bounds with `bbox["z"]` instead of `.sel`; pose-dependent
+  data now returns one box enclosing all poses, so select a pose first for its own
+  box ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 - [`plot_stat_map`][confusius.plotting.plot_stat_map] and
   [`plot_matrix`][confusius.plotting.plot_matrix] default to the `"berlin"`
   colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
@@ -30,15 +36,15 @@ Current development version for the next ConfUSIus release.
   following BrainGlobe's move to Python 3.12-3.14 and
   [SPEC 0](https://scientific-python.org/specs/spec-0000/)
   ([#561](https://github.com/confusius-tools/confusius/pull/561)).
-  
+
 ### :sparkles: Enhancements
 
 - New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
   colormap stat maps are drawn with, which remembers its source colormap and
   threshold and can be rebuilt on another colormap with `with_source`
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
-- Load fUSI-BIDS NIfTI chunks together using `{chunk}` in the filename, stacking
-  them along `pose` in numeric chunk order while preserving geometry and timing
+- Load multi-pose arrays split into several NIfTI files using `{chunk}` in the filename,
+  stacking them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
 - Added [`from_nifti`][confusius.io.from_nifti]/[`to_nifti`][confusius.io.to_nifti] to
   convert directly between a VoxelData array and an in-memory
@@ -46,6 +52,20 @@ Current development version for the next ConfUSIus release.
   with libraries such as nilearn. `to_nifti` is also available on the `.fusi` accessor,
   as [`data.fusi.to_nifti`][confusius.xarray.FUSIAccessor.to_nifti]
   ([#421](https://github.com/confusius-tools/confusius/pull/421)).
+- Add [`apply_translation`][confusius.xarray.apply_translation],
+  [`apply_rotation`][confusius.xarray.apply_rotation],
+  [`apply_zoom`][confusius.xarray.apply_zoom] and
+  [`apply_flip`][confusius.xarray.apply_flip], plus the matching `.fusi.translate()`,
+  `.fusi.rotate()`, `.fusi.zoom()` and `.fusi.flip()` accessor methods, to move
+  VoxelData in world space without resampling
+  ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Add [`get_geometry_center`][confusius.xarray.get_geometry_center] and
+  [`.fusi.affine.geometry_center`][confusius.xarray.FUSIAffineAccessor.geometry_center]
+  to get the world-space center of a VoxelData array
+  ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Save multi-pose VoxelData arrays to separate NIfTI files and JSON sidecars with a
+  `{chunk}` filename template, preserving each pose's geometry and timing
+  ([#579](https://github.com/confusius-tools/confusius/pull/579)).
 
 ### :bug: Fixes
 
@@ -63,9 +83,16 @@ Current development version for the next ConfUSIus release.
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
   archive, and simplify dataset and template citations
   ([#565](https://github.com/confusius-tools/confusius/pull/565)).
+- Add the [Transforms 101](examples/_built/io/transforms_101.md) example,
+  which shows how to translate, rotate and zoom a VoxelData array and what the `center`
+  argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 
 ### :wrench: Maintenance
 
+- Documentation deployments share identical images across versions and previews.
+  PR previews are now opt-in via the `docs-preview` GitHub label and refresh
+  automatically after successful documentation builds
+  ([#581](https://github.com/confusius-tools/confusius/pull/581)).
 - The examples gallery runs each example once and renders its light and dark
   figures from that single run
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
@@ -80,6 +107,13 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- Videos open in a separate, time-synchronized viewer with their own layer list. Load
+  recordings and videos from **Data I/O**
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- `confusius --video PATH` opens a video without a data file
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- Fix video synchronization with recordings timed in milliseconds or microseconds
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
 - Open multipose arrays as one positioned layer per pose in `plot_napari`, its
   xarray accessors, and the CLI, with pose values in layer names
   ([#562](https://github.com/confusius-tools/confusius/pull/562)).
