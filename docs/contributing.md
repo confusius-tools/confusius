@@ -76,7 +76,12 @@ just pre-commit
 
 Documentation is built on GitHub Actions and deployed to a separate GitHub Pages
 repository ([confusius-tools/confusius-docs](https://github.com/confusius-tools/confusius-docs)).
-Every pull request gets an automatic preview, with a link posted as a comment on the PR.
+Documentation is built and checked for every pull request. To publish a preview,
+add the **`docs-preview` GitHub label** to the PR. The latest successful Docs build
+for its current commit is deployed, and subsequent successful builds refresh the
+preview automatically. A bot posts the preview URL and commit on the PR. Remove
+the label to delete the preview and stop updates.
+Build artifacts expire after 14 days; rerun the PR's Docs workflow if needed.
 The preview is cleaned up automatically when the PR is closed.
 
 To build and serve the docs locally:

@@ -78,7 +78,7 @@ def compose_affine(
     R: npt.NDArray[np.floating],
     Z: npt.NDArray[np.floating],
     S: npt.NDArray[np.floating] | None = None,
-) -> npt.NDArray[np.floating]:
+) -> npt.NDArray[np.float64]:
     """Compose translations, rotations, zooms, and shears into an affine matrix.
 
     Parameters
