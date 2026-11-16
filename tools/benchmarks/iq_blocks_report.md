@@ -57,7 +57,8 @@ uv run python tools/benchmarks/iq_blocks.py \
     --output tools/benchmarks/iq_blocks_results.json
 ```
 
-[Benchmark script](iq_blocks.py) · [Raw results](iq_blocks_results.json)
+[Benchmark script](iq_blocks.py). Its JSON output is a local generated artifact,
+ignored by Git and intentionally excluded from the PR.
 
 For a shorter run, use `--repeats 3 --memory-repeats 0`. The full recorded run used
 the defaults: five measured small-case repetitions, three large-case repetitions,
