@@ -31,16 +31,24 @@ iq
 # %% [markdown]
 # ## Understanding chunks
 #
-# Zarr stores this recording in independently readable `(300, 1, 125, 80)` chunks
-# (~23 MiB), matching its original 300-frame acquisition ensembles. Dask processes these 
-# chunks lazily, downloading IQ samples only when results are computed.
+# Zarr stores data in independently readable chunks, allowing subsets to be loaded
+# without downloading the whole recording. Here, each chunk has shape
+# `(300, 1, 125, 80)` and size ~23 MiB, as shown above. The 300-frame time chunks
+# match the original ensemble size used during acquisition.
+#
+# Dask breaks processing into tasks that operate on these chunks. The tasks stay
+# lazy: IQ samples are downloaded and processed when we call
+# [`dask.compute`][dask.compute], not when we select data or set up processing.
 #
 # !!! tip "Choosing chunk sizes"
-#     [Rechunking][xarray.DataArray.chunk] changes Dask's task layout, not the stored
-#     chunks. Set window widths explicitly to choose scientific windows independently
-#     of the input chunking.
+#     You can [rechunk][xarray.DataArray.chunk] the array to work with, for example,
+#     600-frame blocks instead of 300. This changes Dask's layout, not the stored
+#     chunks: smaller Dask chunks may still require reading a full storage chunk.
+#     When writing IQ data, choose storage chunks that suit your workflow. Processing
+#     window widths can also be set explicitly, independently of the chunking.
 #
-# We select the first 900 frames (three chunks) without loading the IQ samples.
+# We select the first 900 frames (three chunks) for this short demonstration. The
+# slice stays lazy and preserves the 300-frame chunks without loading IQ samples.
 
 # %%
 iq = iq.isel(time=slice(0, 900))
@@ -57,11 +65,12 @@ iq = iq.isel(time=slice(0, 900))
 # - Axial velocity: the velocity of tissue or blood along the ultrasound beam, which is
 #   a measure of motion.
 #
-# For blood measurements, an SVD clutter filter removes tissue contributions. For tissue
-# velocity, we instead retain the tissue components.
+# For blood measurements, an SVD clutter filter removes tissue contributions before
+# computing power Doppler and axial blood velocity. For tissue velocity, we instead
+# retain the tissue components.
 #
-# Window widths default to the 300-frame time chunks. With the default strides, each
-# call below yields one output volume per chunk.
+# By default, each 300-frame time chunk is one processing window. The windows do
+# not overlap, and each call below produces one output volume per window.
 
 # %%
 bmode = cf.iq.process_iq_to_bmode(iq)
@@ -76,8 +85,13 @@ with threadpool_limits(limits=1, user_api="blas"):
 
 # %% [markdown]
 # !!! tip "Dask, threading, and BLAS"
-#     [`dask.compute`][dask.compute] lets the outputs share upstream IQ reads. Limiting 
-#     BLAS threads avoids over-subscription with Dask's parallel tasks. See the 
+#     The processing calls above only build lazy computations. A single
+#     [`dask.compute`][dask.compute] executes all four together, letting them share
+#     IQ reads. Computing each output separately may download the same data again.
+#
+#     BLAS, the linear algebra library used by SVD, can use multiple threads. Dask
+#     also runs tasks in parallel, so we limit BLAS to one thread to avoid too many
+#     competing threads slowing processing down. See the
 #     [IQ processing guide](../../../user-guide/beamformed-iq.md#working-with-large-recordings)
 #     for more details.
 
