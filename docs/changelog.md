@@ -14,7 +14,10 @@ Current development version for the next ConfUSIus release.
 
 - Custom [`process_iq_blocks`][confusius.iq.process_iq_blocks] calls now require
   `output_shape` and `output_dtype` for one processing window. Callbacks must return
-  NumPy arrays matching both declarations and retain the leading output-time axis;
+  NumPy arrays matching both declarations and retain the leading output-time axis.
+  Execution options are keyword-only, non-temporal axes are inferred automatically,
+  and callback settings must be bound with `functools.partial` instead of forwarded
+  keywords. The Dask-specific `drop_axis` and `new_axis` options are removed;
   built-in wrapper signatures are unchanged
   ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 - [`compute_axial_velocity_volume`][confusius.iq.compute_axial_velocity_volume],

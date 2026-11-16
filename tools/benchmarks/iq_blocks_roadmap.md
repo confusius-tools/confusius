@@ -11,6 +11,8 @@ sweep are complete; see [results and recommendations](iq_blocks_report.md).
 - Promote potentially active filters consistently, including adaptive windows that
   select no clutter components; do not narrow wider input dtypes.
 - Require per-window `output_shape` and `output_dtype` in `process_iq_blocks`.
+- Infer non-temporal output axes, keep execution options keyword-only, and bind
+  callback settings with `functools.partial` instead of forwarding keywords.
 - Remove real-data metadata probes; validate declared results inside worker tasks.
 - Supply declarations from power Doppler, B-mode, velocity, and threshold helpers.
 - Keep wrapper/accessor signatures, scientific windows, geometry, and timestamps.
@@ -19,8 +21,8 @@ sweep are complete; see [results and recommendations](iq_blocks_report.md).
 
 - Verify no IQ source tasks or callback calls occur during graph construction.
 - Compare numerical outputs and execution counts with independent window loops.
-- Cover dtype/shape mismatches, adaptive dtype consistency, nested outputs,
-  added/dropped axes, partial batches, and invalid windows.
+- Cover dtype/shape mismatches, adaptive dtype consistency, multiple output times,
+  automatic output-rank mapping, partial-bound settings, and invalid windows.
 - Preserve early validation that does not require IQ samples, including empty masks.
 - Update API docs, custom-processing skill, and development changelog.
 - Run focused tests, typing/lint/docstring checks, and broader relevant tests.
@@ -37,7 +39,8 @@ sweep are complete; see [results and recommendations](iq_blocks_report.md).
 - Add only the low-level opt-in batching control needed to exercise actual
   production orchestration; do not add wrapper options or change default batching
   based on a synthetic benchmark.
-- Publish reproducible results and recommendations, not a universal batch-size claim.
+- Publish reproducible scripts and readable recommendations, not a universal
+  batch-size claim. Generated JSON results remain local and are excluded from Git.
 
 ## 4. Ship the stacked PR
 

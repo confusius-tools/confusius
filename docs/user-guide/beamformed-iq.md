@@ -338,10 +338,42 @@ or a batch of windows. Every callback must return a NumPy array with exactly tha
 shape and dtype; mismatches raise when the graph executes. The dtype declaration
 does not cast callback outputs.
 
-For example, a callback producing one map per window declares
-`output_shape=(1, *iq.shape[1:])`. A callback producing two maps on an added axis
-uses `output_shape=(1, 2, *iq.shape[1:])` and `new_axis=1`. Built-in wrappers supply
-these declarations internally; their calling signatures are unchanged.
+For example, `output_shape=(2, *iq.shape[1:])` means **two output time points**
+per window. In contrast, `output_shape=(1, 2, *iq.shape[1:])` means **one time
+point with two component maps**. Non-temporal axis mapping is automatic, including
+spatially reduced outputs such as `(1,)` for a scalar measurement. Built-in wrappers
+supply declarations internally; their calling signatures are unchanged.
+
+Only IQ and the callback are positional arguments; execution settings are keyword-only.
+The callback receives just the NumPy IQ window. Bind its settings with
+`functools.partial` rather than forwarding them through `process_iq_blocks`.
+For complex64 or complex128 IQ, this example emits two 50-volume power measurements
+from each 100-volume SVD window:
+
+```python
+from functools import partial
+
+import numpy as np
+
+processor = partial(
+    cf.iq.compute_power_doppler_volume,
+    low_cutoff=2,
+    doppler_window_width=50,
+    doppler_window_stride=50,
+)
+result = cf.iq.process_iq_blocks(
+    iq.data,
+    processor,
+    output_shape=(2, *iq.shape[1:]),
+    output_dtype=np.float64,
+    window_width=100,
+    window_stride=100,
+)
+```
+
+Results are concatenated in outer-window order, then within-window output-time order.
+The low-level function does not assign timestamps or deduplicate measurements from
+overlapping windows.
 
 Constructing an IQ-processing graph does not read IQ samples or invoke the callback.
 A supplied clutter mask is still loaded for validation. Callbacks should remain

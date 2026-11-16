@@ -14,7 +14,9 @@ Implemented in order:
    `process_iq_blocks`, describing one callback on one scientific window. Both eager
    inference sites are gone. Callback shape/dtype errors are checked during execution.
    All three image wrappers and the cumulative-energy threshold helper supply
-   metadata internally; wrapper/accessor signatures are unchanged.
+   metadata internally; wrapper/accessor signatures are unchanged. Non-temporal
+   axis mapping is automatic; execution settings are keyword-only, and callbacks
+   accept only the IQ window with other settings bound using `functools.partial`.
 3. Public-API regression tests for zero IQ work during construction, one callback
    per scientific window, dtype/shape mismatches, added/dropped axes, one/two/partial
    batches, nested output volumes, invalid windows/lags, and adaptive dtype stability.
@@ -23,8 +25,11 @@ Implemented in order:
 
 There is no eager compatibility fallback for the low-level API. Existing custom
 calls must declare their per-window shape/dtype. Those names, plus
-`windows_per_task`, are now reserved rather than forwarded to callbacks. Bind
-callback arguments with `functools.partial` if they use the same names.
+`windows_per_task`, are orchestration settings rather than forwarded callback
+arguments. Public Dask axis arguments have been removed: `output_shape` alone
+specifies the output rank. For example, `(2, k, j, i)` produces two time points per
+window; `(1, 2, k, j, i)` produces one time point with two component maps. Configure
+all callback settings using `functools.partial`.
 
 Supplied masks are still materialized for validation; NumPy inputs are still
 converted to Dask arrays by the wrappers. This is a guarantee of no speculative
@@ -42,7 +47,7 @@ the computed input batch there.
 Original 64 MiB SVD measurements at parent revision `7400965` showed construction
 falling from about 127 ms to 1.4 ms with explicit metadata and unchanged low-level
 batching; end-to-end time fell about 13%. Those were the earlier investigation's
-measurements, **not** the wrapper-level batch sweep below. The current sweep also
+measurements, **not** the wrapper-level batch sweep below. The batch sweep also
 includes wrapper geometry/timing construction and three inner measurements per
 power/velocity window, so its absolute times should not be compared directly.
 
@@ -63,6 +68,10 @@ ignored by Git and intentionally excluded from the PR.
 For a shorter run, use `--repeats 3 --memory-repeats 0`. The full recorded run used
 the defaults: five measured small-case repetitions, three large-case repetitions,
 one warm-up per variant, and two isolated subprocesses per memory configuration.
+Those timings were recorded at commit `1ef4cf1`, before the API-only simplification.
+After that simplification, all 280 case/batch variants were rechecked against the
+serial reference with one measured run plus a warm-up (560 executions). That was a
+correctness smoke run, not a new performance comparison; its JSON remained in `/tmp`.
 
 ### Method
 
@@ -235,9 +244,10 @@ filter temporaries add to that working set.
 
 ## Validation
 
-- 246 IQ tests passed, including the new laziness/dtype/batching regressions.
-- 462 focused IQ, xarray, skills, and packaging tests passed.
-- 2,919 non-napari unit tests passed with visual regression enabled.
+- 281 IQ tests passed, including laziness/dtype/batching regressions, automatic
+  output ranks, multiple output times, and partial-bound callback settings.
+- 497 focused IQ, xarray, skills, and packaging tests passed.
+- 2,954 non-napari unit tests passed with visual regression enabled.
 - Repository-wide `ty`, focused Ruff/format checks, and all source pre-commit hooks
   passed (`uv run prek run --files ...`).
 - Strict documentation build passed after rendering a fresh gallery with

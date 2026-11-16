@@ -6,6 +6,10 @@ Declare `output_shape` and `output_dtype` for one callback invocation on one win
 Callbacks must return NumPy `(output_time, ...)` arrays matching that contract; shape
 and dtype are checked during execution. Graph construction does not read IQ samples
 or call the callback. Keep callbacks side-effect-free because Dask may retry tasks.
+Non-temporal axis mapping is automatic: `(2, k, j, i)` emits two time points per
+window, while `(1, 2, k, j, i)` emits one time point with two component maps.
+Execution options are keyword-only. Bind callback settings with `functools.partial`;
+`process_iq_blocks` calls the configured function with only the IQ window.
 
 ## Example: directional power Doppler
 
@@ -50,7 +54,6 @@ result = cf.iq.process_iq_blocks(
     window_stride=width,
     output_shape=(1, 2, *iq.shape[1:]),
     output_dtype=np.float64,
-    new_axis=1,  # Separate direction from output time.
 )
 ```
 
@@ -62,8 +65,9 @@ maps for analysis: subtraction is useful for signed display but cancels opposing
 This multi-map callback uses a public clutter filter directly. For single-map custom
 measurements with nested integration windows, reuse
 `process_iq_block_with_clutter_filter`: its inner callback returns `(k, j, i)` and
-accepts forwarded `fs`/keywords. Bind inner `window_width` / `window_stride` using
-`functools.partial` so they do not collide with the outer arguments.
+accepts forwarded `fs`/keywords. Configure this inner helper with
+`functools.partial`, including its callback, filtering settings, and inner
+`window_width` / `window_stride`; the outer orchestrator passes only the IQ window.
 
 ## Reconstruct VoxelData
 

@@ -603,8 +603,8 @@ class TestProcessIqBlocks:
         assert map_blocks_called
         assert_allclose(result.compute(), expected)
 
-    def test_non_overlapping_windows_with_drop_axis_use_map_blocks(self, monkeypatch):
-        """Non-overlapping windows preserve drop_axis behavior with `map_blocks`."""
+    def test_non_overlapping_reduced_outputs_use_map_blocks(self, monkeypatch):
+        """Non-overlapping windows infer reduced output axes with `map_blocks`."""
         iq = da.from_array(
             np.arange(20 * 2 * 3 * 4).reshape(20, 2, 3, 4),
             chunks=(5, 2, 3, 4),
@@ -627,7 +627,6 @@ class TestProcessIqBlocks:
             process_func=process_func,
             window_width=5,
             window_stride=5,
-            drop_axis=(1, 2, 3),
             output_shape=(5,),
             output_dtype=np.int64,
         )
