@@ -2,6 +2,7 @@
 
 import warnings
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, Any, Concatenate, Literal, cast
 
 import numpy as np
@@ -993,16 +994,13 @@ def compute_axial_velocity_volume(
 
 def process_iq_blocks(
     iq: "da.Array",
-    process_func: Callable[Concatenate[npt.NDArray, ...], npt.NDArray],
-    window_width: int | None = None,
-    window_stride: int | None = None,
-    drop_axis: int | tuple[int, ...] | None = None,
-    new_axis: int | tuple[int, ...] | None = None,
+    process_func: Callable[[npt.NDArray], npt.NDArray],
     *,
     output_shape: tuple[int, ...],
     output_dtype: npt.DTypeLike,
+    window_width: int | None = None,
+    window_stride: int | None = None,
     windows_per_task: int | None = None,
-    **kwargs: Any,
 ) -> "da.Array":
     """Process blocks of IQ data using sliding windows.
 
@@ -1022,31 +1020,28 @@ def process_iq_blocks(
     iq : (time, k, j, i) dask.array.Array
         Dask array of complex IQ data.
     process_func : callable
-        Function to apply to each temporal window. It must accept a `(window_volumes,
-        z, y, x)` array as first argument and return a `(output_volumes, ...)` array.
+        Function accepting one `(window_volumes, k, j, i)` NumPy array and
+        returning a NumPy array with `output_shape` and `output_dtype`. Configure
+        additional callback arguments with `functools.partial`.
+    output_shape : tuple[int, ...]
+        Fixed shape returned by one callback on one temporal window. The leading
+        axis is output time: `(2, k, j, i)` produces two time points per window;
+        `(1, 2, k, j, i)` produces one time point with two component maps. All
+        sizes must be positive integers. Non-temporal axis mapping is automatic.
+    output_dtype : numpy.typing.DTypeLike
+        Dtype returned by every callback invocation. This declares the dtype;
+        it does not cast callback outputs.
     window_width : int, optional
         Width of the sliding temporal window, in volumes. If not provided, uses the
         chunk size along the first dimension.
     window_stride : int, optional
         Stride of the sliding temporal window, in volumes. Must be less than or equal
         to `window_width`. If not provided, equals `window_width`.
-    drop_axis : int or tuple[int, ...], optional
-        Non-temporal input axes dropped by `process_func`.
-    new_axis : int or tuple[int, ...], optional
-        Non-temporal output axes added by `process_func`.
-    output_shape : tuple[int, ...]
-        Fixed shape returned by one callback on one temporal window, including
-        its leading output-time dimension. All sizes must be positive integers.
-    output_dtype : numpy.typing.DTypeLike
-        Dtype returned by every callback invocation. This declares the dtype;
-        it does not cast callback outputs.
     windows_per_task : int, optional
         Requested number of outer windows per Dask task. If not provided, uses
         the minimum needed for temporal overlap. Smaller requests are increased
         to that minimum. Larger batches do not change scientific windows, but
         increase task memory and can reduce parallelism.
-    **kwargs
-        Additional keyword arguments passed to `process_func`.
 
     Returns
     -------
@@ -1057,7 +1052,7 @@ def process_iq_blocks(
     ------
     ValueError
         If window sizes are invalid, no complete window fits, input sizes are
-        unknown, axis mappings are invalid, or a callback returns the wrong shape.
+        unknown, output sizes are invalid, or a callback returns the wrong shape.
     TypeError
         If `iq` is not a Dask array, or a callback returns a non-NumPy array or
         a dtype different from `output_dtype`. Callback errors occur at execution.
@@ -1082,33 +1077,10 @@ def process_iq_blocks(
             "`output_shape` must be a nonempty tuple of positive integers."
         )
     dtype = np.dtype(output_dtype)
-    for name, axes in (("drop_axis", drop_axis), ("new_axis", new_axis)):
-        if axes is not None and not isinstance(axes, (int, np.integer, tuple)):
-            raise ValueError(f"`{name}` must be an integer or a tuple of integers.")
-    drop_axes = (
-        (drop_axis,) if isinstance(drop_axis, (int, np.integer)) else (drop_axis or ())
-    )
-    new_axes = (
-        (new_axis,) if isinstance(new_axis, (int, np.integer)) else (new_axis or ())
-    )
-    if any(
-        not isinstance(axis, (int, np.integer)) or isinstance(axis, (bool, np.bool_))
-        for axis in (*drop_axes, *new_axes)
-    ):
-        raise ValueError("`drop_axis` and `new_axis` must contain integer axes.")
-    if any(axis < -iq.ndim or axis >= iq.ndim for axis in drop_axes):
-        raise ValueError("`drop_axis` contains an out-of-range input axis.")
-    drop_axes = tuple(axis % iq.ndim for axis in drop_axes)
-    if len(set(drop_axes)) != len(drop_axes) or 0 in drop_axes:
-        raise ValueError("`drop_axis` must contain distinct non-temporal input axes.")
-    if len(set(new_axes)) != len(new_axes) or any(
-        axis < 1 or axis >= len(output_shape) for axis in new_axes
-    ):
-        raise ValueError("`new_axis` must contain distinct non-temporal output axes.")
-    if len(output_shape) != iq.ndim - len(drop_axes) + len(new_axes):
-        raise ValueError(
-            "`output_shape` rank does not match `drop_axis` and `new_axis`."
-        )
+    # Only time is chunk-mapped; full spatial windows make output rank sufficient.
+    rank_change = len(output_shape) - iq.ndim
+    drop_axes = tuple(range(1, 1 - rank_change)) if rank_change < 0 else ()
+    new_axes = tuple(range(1, 1 + rank_change)) if rank_change > 0 else ()
 
     if window_width is None:
         window_width = cast(int, iq.chunksize[0])  # type: ignore
@@ -1135,15 +1107,13 @@ def process_iq_blocks(
         )
         iq = iq[:total_volumes_in_windows]
 
-    def process_window(block: npt.NDArray, **window_kwargs: Any) -> npt.NDArray:
+    def process_window(block: npt.NDArray) -> npt.NDArray:
         """Apply the callback and enforce its declared output contract.
 
         Parameters
         ----------
         block : numpy.ndarray
             One input temporal window.
-        **window_kwargs
-            Keyword arguments forwarded to the callback.
 
         Returns
         -------
@@ -1157,7 +1127,7 @@ def process_iq_blocks(
         ValueError
             If the callback returns the wrong shape.
         """
-        result = process_func(block, **window_kwargs)
+        result = process_func(block)
         if not isinstance(result, np.ndarray):
             raise TypeError("`process_func` must return a NumPy array.")
         if result.shape != output_shape:
@@ -1194,7 +1164,6 @@ def process_iq_blocks(
             new_axis=new_axes,
             dtype=dtype,
             meta=meta,
-            **kwargs,
         )
 
     overlap_window_width = window_width
@@ -1223,15 +1192,13 @@ def process_iq_blocks(
             allow_rechunk=False,
         )
 
-    def process_batch(block: npt.NDArray, **batch_kwargs: Any) -> npt.NDArray:
+    def process_batch(block: npt.NDArray) -> npt.NDArray:
         """Apply `process_func` to every outer window in a batch.
 
         Parameters
         ----------
         block : numpy.ndarray
             Batched input block containing one or more overlapping windows.
-        **batch_kwargs
-            Additional keyword arguments passed to `process_func`.
 
         Returns
         -------
@@ -1239,7 +1206,7 @@ def process_iq_blocks(
             Concatenated outputs from all sliding windows in `block`.
         """
         outputs = [
-            process_window(block[start : start + overlap_window_width], **batch_kwargs)
+            process_window(block[start : start + overlap_window_width])
             for start in range(
                 0,
                 block.shape[0] - overlap_window_width + 1,
@@ -1259,7 +1226,6 @@ def process_iq_blocks(
         new_axis=new_axes,
         dtype=dtype,
         meta=meta,
-        **kwargs,
     )
 
 
@@ -1432,19 +1398,21 @@ def process_iq_to_power_doppler(
 
     result = process_iq_blocks(
         dask_iq,
-        process_func=compute_power_doppler_volume,
-        window_width=clutter_window_width,
-        window_stride=clutter_window_stride,
+        partial(
+            compute_power_doppler_volume,
+            filter_method=filter_method,
+            clutter_mask=clutter_mask_array,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,
+            fs=fs,
+            butterworth_order=butterworth_order,
+            doppler_window_width=doppler_window_width,
+            doppler_window_stride=doppler_window_stride,
+        ),
         output_shape=(n_outputs,) + dask_iq.shape[1:],
         output_dtype=np.empty((), dtype=filtered_dtype).real.dtype,
-        filter_method=filter_method,
-        clutter_mask=clutter_mask_array,
-        low_cutoff=low_cutoff,
-        high_cutoff=high_cutoff,
-        fs=fs,
-        butterworth_order=butterworth_order,
-        doppler_window_width=doppler_window_width,
-        doppler_window_stride=doppler_window_stride,
+        window_width=clutter_window_width,
+        window_stride=clutter_window_stride,
     )
 
     output_times_values, doppler_window_durations = compute_processed_volume_timings(
@@ -1771,9 +1739,21 @@ def process_iq_to_axial_velocity(
 
     result = process_iq_blocks(
         dask_iq,
-        process_func=compute_axial_velocity_volume,
-        window_width=clutter_window_width,
-        window_stride=clutter_window_stride,
+        partial(
+            compute_axial_velocity_volume,
+            fs=cast(float, fs),
+            filter_method=filter_method,
+            clutter_mask=clutter_mask_array,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,
+            butterworth_order=butterworth_order,
+            velocity_window_width=velocity_window_width,
+            velocity_window_stride=velocity_window_stride,
+            lag=lag,
+            spatial_kernel=spatial_kernel,
+            transmit_frequency=transmit_frequency,
+            beamforming_sound_velocity=beamforming_sound_velocity,
+        ),
         output_shape=(n_outputs,) + dask_iq.shape[1:],
         output_dtype=np.result_type(
             np.empty((), dtype=filtered_dtype).real.dtype,
@@ -1782,18 +1762,8 @@ def process_iq_to_axial_velocity(
             beamforming_sound_velocity,
             lag,
         ),
-        fs=fs,
-        filter_method=filter_method,
-        clutter_mask=clutter_mask_array,
-        low_cutoff=low_cutoff,
-        high_cutoff=high_cutoff,
-        butterworth_order=butterworth_order,
-        velocity_window_width=velocity_window_width,
-        velocity_window_stride=velocity_window_stride,
-        lag=lag,
-        spatial_kernel=spatial_kernel,
-        transmit_frequency=transmit_frequency,
-        beamforming_sound_velocity=beamforming_sound_velocity,
+        window_width=clutter_window_width,
+        window_stride=clutter_window_stride,
     )
 
     output_times_values, velocity_window_durations = compute_processed_volume_timings(

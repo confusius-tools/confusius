@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from contextlib import nullcontext
+from functools import partial
 from math import ceil
 from typing import Any
 
@@ -42,7 +43,13 @@ def test_block_graph_is_lazy_and_executes_each_window_once(
 
     def process(block):
         calls.append(True)
-        return np.stack([block.real.mean(axis=0), block.imag.mean(axis=0)])
+        midpoint = len(block) // 2
+        return np.stack(
+            [
+                np.abs(block[:midpoint]).mean(axis=0),
+                np.abs(block[midpoint:]).mean(axis=0),
+            ]
+        )
 
     iq = da.from_delayed(load(), shape=values.shape, dtype=values.dtype).rechunk(
         (5, 2, 3, 4)
@@ -53,8 +60,8 @@ def test_block_graph_is_lazy_and_executes_each_window_once(
         result = process_iq_blocks(
             iq,
             process,
-            width,
-            stride,
+            window_width=width,
+            window_stride=stride,
             output_shape=(2,) + values.shape[1:],
             output_dtype=np.float32,
             windows_per_task=windows_per_task,
@@ -66,8 +73,8 @@ def test_block_graph_is_lazy_and_executes_each_window_once(
         [
             np.stack(
                 [
-                    values[start : start + width].real.mean(axis=0),
-                    values[start : start + width].imag.mean(axis=0),
+                    np.abs(values[start : start + width // 2]).mean(axis=0),
+                    np.abs(values[start + width // 2 : start + width]).mean(axis=0),
                 ]
             )
             for start in starts
@@ -169,11 +176,10 @@ def test_added_map_axis_preserves_window_mapping(
         result = process_iq_blocks(
             da.from_array(values, chunks=(5, 2, 3, 4)),
             process,
-            8,
-            stride,
+            window_width=8,
+            window_stride=stride,
             output_shape=(1, 2) + values.shape[1:],
             output_dtype=np.float32,
-            new_axis=1,
             windows_per_task=windows_per_task,
         )
     expected = np.concatenate(
@@ -187,7 +193,7 @@ def test_added_map_axis_preserves_window_mapping(
 
 @pytest.mark.parametrize("stride", [10, 5, 1])
 @pytest.mark.parametrize("windows_per_task", [None, 8])
-def test_spatial_drop_axes_and_multiple_output_times(
+def test_spatially_reduced_outputs_and_multiple_times(
     sample_voxeldata_iq_dataarray, stride, windows_per_task
 ):
     """Spatially reduced outputs concatenate on output time, not input time."""
@@ -199,11 +205,10 @@ def test_spatial_drop_axes_and_multiple_output_times(
     result = process_iq_blocks(
         da.from_array(values, chunks=(5, 2, 3, 4)),
         process,
-        10,
-        stride,
+        window_width=10,
+        window_stride=stride,
         output_shape=(2,),
         output_dtype=np.float32,
-        drop_axis=(1, 2, 3),
         windows_per_task=windows_per_task,
     )
     expected = np.concatenate(
@@ -226,8 +231,8 @@ def test_invalid_windows_fail_without_running_callback(
         process_iq_blocks(
             da.from_array(sample_voxeldata_iq_dataarray.values),
             lambda block: pytest.fail("callback ran"),
-            width,
-            stride,
+            window_width=width,
+            window_stride=stride,
             output_shape=(1, 4, 6, 8),
             output_dtype=np.float64,
         )
@@ -261,27 +266,78 @@ def test_invalid_output_shape_raises(sample_voxeldata_iq_dataarray, shape):
 
 
 @pytest.mark.parametrize(
-    "axes",
+    "shape",
     [
-        {"drop_axis": 0},
-        {"drop_axis": -4},
-        {"drop_axis": (1, 1)},
-        {"drop_axis": 4},
-        {"new_axis": 0},
-        {"new_axis": (1, 1)},
-        {"new_axis": 0.5},
+        (2,),
+        (2, 5, 7),
+        (2, 4, 6, 8),
+        (1, 2, 4, 6, 8),
+        (1, 4, 2, 6, 8),
+        (2, 3, 4, 5, 6, 8),
     ],
 )
-def test_invalid_axis_mapping_raises(sample_voxeldata_iq_dataarray, axes):
-    """Temporal, repeated, and non-integral axes cannot define callback mapping."""
-    with pytest.raises(ValueError, match="axis"):
-        process_iq_blocks(
-            da.from_array(sample_voxeldata_iq_dataarray.values),
-            compute_bmode_volume,
-            output_shape=(1, 4, 6, 8),
-            output_dtype=np.float64,
-            **axes,
+@pytest.mark.parametrize("stride", [10, 5, 1])
+@pytest.mark.parametrize("windows_per_task", [None, 8])
+def test_output_shape_alone_defines_axis_mapping(
+    sample_voxeldata_iq_dataarray, shape, stride, windows_per_task
+):
+    """Arbitrary output ranks and sizes retain every time/map value in order."""
+    values = sample_voxeldata_iq_dataarray.values.astype(np.complex64)
+
+    def process(block):
+        return (
+            np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+            + block.real.mean()
         )
+
+    result = process_iq_blocks(
+        da.from_array(values, chunks=(5, 2, 3, 4)),
+        process,
+        output_shape=shape,
+        output_dtype=np.float32,
+        window_width=10,
+        window_stride=stride,
+        windows_per_task=windows_per_task,
+    )
+    expected = np.concatenate(
+        [
+            process(values[start : start + 10])
+            for start in range(0, len(values) - 10 + 1, stride)
+        ]
+    )
+    assert_allclose(result.compute(), expected, rtol=1e-6)
+
+
+@pytest.mark.parametrize("stride", [10, 5, 1])
+@pytest.mark.parametrize("windows_per_task", [None, 8])
+def test_partial_keeps_callback_settings_separate(
+    sample_voxeldata_iq_dataarray, stride, windows_per_task
+):
+    """A partial can bind callback settings named like orchestration settings."""
+    values = sample_voxeldata_iq_dataarray.values.astype(np.complex64)
+
+    def process(block, *, window_width, output_dtype):
+        return (
+            block[:window_width].real.mean(axis=0, keepdims=True).astype(output_dtype)
+        )
+
+    processor = partial(process, window_width=2, output_dtype=np.float32)
+    result = process_iq_blocks(
+        da.from_array(values, chunks=(5, 2, 3, 4)),
+        processor,
+        output_shape=(1,) + values.shape[1:],
+        output_dtype=np.float32,
+        window_width=10,
+        window_stride=stride,
+        windows_per_task=windows_per_task,
+    )
+    expected = np.stack(
+        [
+            values[start : start + 2].real.mean(axis=0)
+            for start in range(0, len(values) - 9, stride)
+        ]
+    )
+    assert_allclose(result.compute(), expected, rtol=1e-6)
 
 
 @pytest.mark.parametrize("stride", [10, 1])
@@ -301,8 +357,8 @@ def test_callback_contract_is_checked_at_execution(
     result = process_iq_blocks(
         da.from_array(sample_voxeldata_iq_dataarray.values),
         process,
-        10,
-        stride,
+        window_width=10,
+        window_stride=stride,
         output_shape=(1, 4, 6, 8),
         output_dtype=np.float64,
     )

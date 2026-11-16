@@ -786,7 +786,6 @@ def compute_svd_cumulative_energy_threshold(
         _window_energy,
         window_width=window_width,
         window_stride=window_stride,
-        drop_axis=(1, 2, 3),
         output_shape=(1,),
         output_dtype=np.float64,
     )
