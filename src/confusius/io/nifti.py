@@ -399,8 +399,8 @@ def _load_nifti_sidecar(path: Path) -> dict[str, Any]:
     Returns
     -------
     dict[str, Any]
-        Sidecar attributes converted to ConfUSIus (snake_case) naming via `from_bids`.
-        Empty dict when no matching sidecar is found.
+        Metadata using fUSI-BIDS field names and units. Empty dict when no
+        matching sidecar is found.
     """
     sidecar_data: dict[str, Any] = {}
     for sidecar_path in _find_bids_sidecars(path):
@@ -420,7 +420,7 @@ def _load_nifti_sidecar(path: Path) -> dict[str, Any]:
                 f"fUSI-BIDS validation warning: {e}", stacklevel=find_stack_level()
             )
 
-    return from_bids(sidecar_data)
+    return sidecar_data
 
 
 def _load_nifti_with_nibabel(
@@ -1157,7 +1157,7 @@ def _reverse_chunk_spec(
     return chunks[::-1]
 
 
-def _dask_array_from_nifti_dataobj(
+def _build_dask_array_from_nifti_dataobj(
     img: "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
     chunks: int | tuple[int, ...] | str | None,
 ) -> da.Array:
@@ -1206,7 +1206,7 @@ def _dask_array_from_nifti_dataobj(
     return dask_arr.T
 
 
-def from_nifti(
+def convert_from_nifti(
     img: "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
     chunks: int | tuple[int, ...] | str | None = "auto",
     *,
@@ -1236,11 +1236,10 @@ def from_nifti(
         Header affine to use as the primary coordinate-defining geometry. See
         `load_nifti` for the selection rules.
     sidecar : dict[str, Any], optional
-        Sidecar metadata using ConfUSIus (snake_case) attribute names. Entries override
-        the header-derived attributes and feed the geometry, timing, and extra-dimension
-        reconstruction, as sidecars do in `load_nifti`. Convert a BIDS JSON sidecar with
-        `confusius.bids.from_bids` first. If not provided, only the NIfTI header is
-        used.
+        Metadata using fUSI-BIDS field names and units, as returned by
+        `convert_to_nifti` or read from a BIDS JSON sidecar. Entries override
+        header-derived attributes and feed timing and extra-dimension reconstruction.
+        If not provided, only the NIfTI header is used.
 
     Returns
     -------
@@ -1252,6 +1251,9 @@ def from_nifti(
     ------
     TypeError
         If `img` is not a `nibabel.Nifti1Image` or `nibabel.Nifti2Image`.
+    ValueError
+        If the chunk specification, requested coordinate affine, or reconstructed
+        VoxelData geometry is invalid.
 
     Examples
     --------
@@ -1259,7 +1261,7 @@ def from_nifti(
     >>> import numpy as np
     >>> import confusius as cf
     >>> img = nib.Nifti1Image(np.random.rand(64, 64, 32).astype(np.float32), np.eye(4))
-    >>> da = cf.io.from_nifti(img)
+    >>> da = cf.io.convert_from_nifti(img)
     >>> print(da.dims)
     ("k", "j", "i")
     """
@@ -1274,9 +1276,9 @@ def from_nifti(
     extractor = _NiftiHeaderExtractor(img.header)
     attrs = extractor.to_attrs()
     if sidecar is not None:
-        attrs.update(sidecar)
+        attrs.update(from_bids(sidecar))
 
-    dask_arr = _dask_array_from_nifti_dataobj(img, chunks)
+    dask_arr = _build_dask_array_from_nifti_dataobj(img, chunks)
 
     # NIfTI dim order is (i, j, k, time, ...); ConfUSIus order is the reverse.
     nifti_dims = _NIFTI_DIM_ORDER[: dask_arr.ndim]
@@ -1538,7 +1540,7 @@ def load_nifti(
         )
     path = check_path(path, type="file")
 
-    return from_nifti(
+    return convert_from_nifti(
         _load_nifti_with_nibabel(path),
         chunks,
         coordinate_affine=coordinate_affine,
@@ -1948,7 +1950,7 @@ def _prepare_data_for_nifti(
 
     data = np.transpose(data, target_order)
 
-    # save_nifti always canonicalizes data_array via ensure_voxeldata first, which
+    # convert_to_nifti canonicalizes data_array via ensure_voxeldata first, which
     # restores any voxel dim fixed away by a prior scalar isel, so k/j/i are always
     # present here.
     has_time_axis = "time" in current_dims or bool(extras)
@@ -1964,10 +1966,8 @@ def _prepare_data_for_nifti(
 def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
     """Return signed spatial spacings for NIfTI header serialization.
 
-    `data_array` is always a VoxelData array here: `save_nifti`
-    (the only caller)
-    calls `ensure_voxeldata` before reaching this point, so spacing always comes from the
-    `VoxelToWorldIndex` -- there is no plain-coordinate fallback to consider.
+    `convert_to_nifti` calls `ensure_voxeldata` before reaching this point, so
+    spacing always comes from the `VoxelToWorldIndex`.
 
     Parameters
     ----------
@@ -2177,9 +2177,8 @@ def _build_nifti_voxel_to_world_affine(
     replacing each voxel dim's coordinate with `0, 1, ..., dim - 1`. Its own
     validation raises for irregular coordinates, but with a generic message, so
     that case is checked explicitly first for a clear NIfTI-specific error. An
-    empty voxel coordinate needs no such check here: `save_nifti` validates `data_array`
-    via `ensure_voxeldata` before calling this, which already rejects zero-length
-    dimensions.
+    empty voxel coordinate needs no such check here: `convert_to_nifti` calls
+    `ensure_voxeldata` first, which already rejects zero-length dimensions.
     """
     voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data_array.dims)
     for dim in voxel_dims:
@@ -2553,115 +2552,7 @@ def _create_nifti_image(
     return nifti_img
 
 
-def _build_nifti_image_and_metadata(
-    data_array: xr.DataArray,
-    nifti_version: NiftiVersion,
-    *,
-    qform: str | None,
-    sform: str | None,
-    qform_code: int | None,
-    sform_code: int | None,
-) -> tuple[
-    "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
-    xr.DataArray,
-    dict[str, Any],
-    dict[str, Any],
-    set[str],
-]:
-    """Build a nibabel NIfTI image plus the metadata needed for a BIDS sidecar.
-
-    Shared by `to_nifti` (which only needs the image) and `save_nifti` (which also
-    writes a BIDS-style JSON sidecar alongside the file, using the remaining
-    returned values).
-
-    Parameters
-    ----------
-    data_array : xarray.DataArray
-        VoxelData array to serialize.
-    nifti_version : {1, 2}
-        NIfTI image version to instantiate.
-    qform : str, optional
-        Key in `data_array.attrs["affines"]` to write into the NIfTI qform, as
-        documented for `save_nifti`.
-    sform : str, optional
-        Key in `data_array.attrs["affines"]` to write into the NIfTI sform, as
-        documented for `save_nifti`.
-    qform_code : int, optional
-        NIfTI qform code to write, as documented for `save_nifti`.
-    sform_code : int, optional
-        NIfTI sform code to write, as documented for `save_nifti`.
-
-    Returns
-    -------
-    nifti_img : nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
-        Configured image with spacings, qform/sform, and units written to the header.
-    data_array : xarray.DataArray
-        `data_array` canonicalized via `ensure_voxeldata`.
-    timing_metadata : dict[str, Any]
-        Timing-related BIDS metadata for the sidecar.
-    stored_affines : dict[str, Any]
-        Affines stored in `data_array.attrs["affines"]`.
-    written_header_affine_keys : set of str
-        Keys from `stored_affines` that were actually written into the NIfTI header.
-    """
-    # NIfTI exposes only one spatial qform/sform, so it cannot represent per-pose
-    # geometry (or even a shared affine ambiguously labeled per pose). Callers must
-    # select one pose first, e.g. `save_nifti(data.isel(pose=0), path)`.
-    data_array = ensure_voxeldata(data_array, allow_pose=False)
-
-    data, has_time_axis, extra_dims = _prepare_data_for_nifti(data_array)
-    spatial_spacings = _get_spatial_spacings(data_array)
-    timing_metadata, tr_pixdim = _build_nifti_timing_metadata(data_array)
-
-    spacings = spatial_spacings.copy()
-    if has_time_axis:
-        temporal_spacing = tr_pixdim if tr_pixdim is not None else 0.0
-        spacings.append(temporal_spacing)
-    for dim_name in extra_dims:
-        spacing = get_coordinate_spacing_info(
-            dim_name, data_array, uniformity_tolerance=1e-2
-        )
-        if spacing.value is not None:
-            spacings.append(float(spacing.value))
-        else:
-            spacings.append(1.0)
-
-    (
-        stored_affines,
-        qform_affine,
-        sform_affine,
-        resolved_qform_code,
-        resolved_sform_code,
-        written_header_affine_keys,
-    ) = _prepare_nifti_xforms(
-        data_array,
-        qform=qform,
-        sform=sform,
-        qform_code=qform_code,
-        sform_code=sform_code,
-    )
-
-    nifti_img = _create_nifti_image(
-        data_array,
-        data,
-        nifti_version=nifti_version,
-        spacings=spacings,
-        qform_affine=qform_affine,
-        sform_affine=sform_affine,
-        resolved_qform_code=resolved_qform_code,
-        resolved_sform_code=resolved_sform_code,
-    )
-
-    return (
-        nifti_img,
-        data_array,
-        timing_metadata,
-        stored_affines,
-        written_header_affine_keys,
-    )
-
-
-def to_nifti(
+def convert_to_nifti(
     data_array: xr.DataArray,
     nifti_version: NiftiVersion = 1,
     *,
@@ -2669,17 +2560,16 @@ def to_nifti(
     sform: str | None = None,
     qform_code: int | None = None,
     sform_code: int | None = None,
-) -> "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image":
-    """Convert a VoxelData array to an in-memory NiBabel NIfTI image.
+) -> tuple["nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image", dict[str, Any]]:
+    """Convert a VoxelData array to a NiBabel NIfTI image and fUSI-BIDS metadata.
 
     This is the no-file-I/O counterpart to `save_nifti`: it builds the same NIfTI
     header geometry, dtype, and pixdim as `save_nifti`, but returns the
     `nibabel.Nifti1Image`/`nibabel.Nifti2Image` object directly instead of writing a
     file and a BIDS JSON sidecar. Useful for interoperating with libraries such as
-    `nilearn` that expect NIfTI image objects rather than file paths. Metadata that
-    only `save_nifti` writes to the sidecar (e.g. `SliceTiming`, extra-dim names) is
-    not represented on the returned image, since a bare NiBabel image carries no
-    sidecar.
+    `nilearn` that expect NIfTI image objects rather than file paths. The returned
+    metadata carries sidecar-only information such as `SliceTiming` and extra-dimension
+    names. Pass it as `sidecar` to `convert_from_nifti` to preserve that information.
 
     Parameters
     ----------
@@ -2701,9 +2591,17 @@ def to_nifti(
 
     Returns
     -------
-    nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
+    img : nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
         In-memory NIfTI image with spacings, qform/sform, and units written to the
         header.
+    metadata : dict[str, Any]
+        JSON-serializable sidecar metadata using fUSI-BIDS field names and units.
+
+    Raises
+    ------
+    ValueError
+        If the input is not valid VoxelData, has a `pose` dimension, exceeds NIfTI's
+        dimension limit, or requests an invalid affine or transform code.
 
     Examples
     --------
@@ -2715,17 +2613,48 @@ def to_nifti(
     ...     dt=0.5,
     ...     spacing=(0.4, 0.1, 0.1),
     ... )
-    >>> img = cf.io.to_nifti(da)
+    >>> img, metadata = cf.io.convert_to_nifti(da)
     """
-    nifti_img, _, _, _, _ = _build_nifti_image_and_metadata(
+    data_array = ensure_voxeldata(data_array, allow_pose=False)
+    data, has_time_axis, extra_dims = _prepare_data_for_nifti(data_array)
+    spacings = _get_spatial_spacings(data_array)
+    timing_metadata, tr_pixdim = _build_nifti_timing_metadata(data_array)
+    if has_time_axis:
+        spacings.append(tr_pixdim if tr_pixdim is not None else 0.0)
+    for dim_name in extra_dims:
+        spacing = get_coordinate_spacing_info(
+            dim_name, data_array, uniformity_tolerance=1e-2
+        )
+        spacings.append(float(spacing.value) if spacing.value is not None else 1.0)
+
+    (
+        stored_affines,
+        qform_affine,
+        sform_affine,
+        resolved_qform_code,
+        resolved_sform_code,
+        written_header_affine_keys,
+    ) = _prepare_nifti_xforms(
         data_array,
-        nifti_version,
         qform=qform,
         sform=sform,
         qform_code=qform_code,
         sform_code=sform_code,
     )
-    return nifti_img
+    nifti_img = _create_nifti_image(
+        data_array,
+        data,
+        nifti_version=nifti_version,
+        spacings=spacings,
+        qform_affine=qform_affine,
+        sform_affine=sform_affine,
+        resolved_qform_code=resolved_qform_code,
+        resolved_sform_code=resolved_sform_code,
+    )
+    sidecar_attrs = _build_nifti_sidecar_metadata(
+        data_array, timing_metadata, stored_affines, written_header_affine_keys
+    )
+    return nifti_img, to_bids(sidecar_attrs)
 
 
 def save_nifti(
@@ -2848,30 +2777,7 @@ def save_nifti(
             )
         return
 
-    _, has_time_axis, extra_dims = _prepare_data_for_nifti(data_array)
-    spatial_spacings = _get_spatial_spacings(data_array)
-    _, tr_pixdim = _build_nifti_timing_metadata(data_array)
-
-    spacings = spatial_spacings.copy()
-    if has_time_axis:
-        temporal_spacing = tr_pixdim if tr_pixdim is not None else 0.0
-        spacings.append(temporal_spacing)
-    for dim_name in extra_dims:
-        spacing = get_coordinate_spacing_info(
-            dim_name, data_array, uniformity_tolerance=1e-2
-        )
-        if spacing.value is not None:
-            spacings.append(float(spacing.value))
-        else:
-            spacings.append(1.0)
-
-    (
-        nifti_img,
-        data_array,
-        timing_metadata,
-        stored_affines,
-        written_header_affine_keys,
-    ) = _build_nifti_image_and_metadata(
+    nifti_img, bids_attrs = convert_to_nifti(
         data_array,
         nifti_version,
         qform=qform,
@@ -2882,16 +2788,10 @@ def save_nifti(
 
     nifti_img.to_filename(path)
 
-    sidecar_attrs = _build_nifti_sidecar_metadata(
-        data_array, timing_metadata, stored_affines, written_header_affine_keys
-    )
-
     if path.suffix == ".gz":
         sidecar_path = path.with_suffix("").with_suffix(".json")
     else:
         sidecar_path = path.with_suffix(".json")
-
-    bids_attrs = to_bids(sidecar_attrs)
 
     if bids_attrs:
         try:

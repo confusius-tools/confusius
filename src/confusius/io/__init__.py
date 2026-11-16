@@ -7,7 +7,8 @@ __all__ = [
     "IconeusRawMetadata",
     "check_path",
     "convert_autc_dats_to_zarr",
-    "from_nifti",
+    "convert_from_nifti",
+    "convert_to_nifti",
     "load",
     "load_atlas",
     "load_bps",
@@ -20,7 +21,6 @@ __all__ = [
     "save",
     "save_atlas",
     "save_nifti",
-    "to_nifti",
 ]
 
 from confusius.io.atlas import load_atlas, save_atlas
@@ -36,6 +36,11 @@ from confusius.io.iconeus_raw import (
     load_iconeus_raw_metadata,
 )
 from confusius.io.loadsave import load, save
-from confusius.io.nifti import from_nifti, load_nifti, save_nifti, to_nifti
+from confusius.io.nifti import (
+    convert_from_nifti,
+    convert_to_nifti,
+    load_nifti,
+    save_nifti,
+)
 from confusius.io.scan import load_bps, load_scan
 from confusius.io.utils import check_path

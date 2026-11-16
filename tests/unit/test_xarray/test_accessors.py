@@ -12,7 +12,7 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
 )
-from confusius.io import to_nifti
+from confusius.io import convert_to_nifti
 from confusius.xarray import create_voxeldata
 
 
@@ -80,22 +80,23 @@ class TestFUSIAccessor:
         mock_save.assert_called_once_with(sample_data, out)
 
     def test_to_nifti_matches_io_to_nifti(self, sample_voxeldata_3d):
-        """to_nifti forwards every option and returns `confusius.io.to_nifti`'s image."""
+        """The accessor forwards all options and returns the image and metadata."""
         shifted = np.eye(4)
         shifted[:3, 3] = [1.0, 2.0, 3.0]
         data = sample_voxeldata_3d.drop_vars("time").assign_attrs(
             affines={"world_to_a": np.eye(4), "world_to_b": shifted}
         )
 
-        img = data.fusi.to_nifti(
+        img, metadata = data.fusi.to_nifti(
             2, qform="world_to_a", sform="world_to_b", qform_code=3, sform_code=4
         )
 
-        expected = to_nifti(
+        expected, expected_metadata = convert_to_nifti(
             data, 2, qform="world_to_a", sform="world_to_b", qform_code=3, sform_code=4
         )
         assert isinstance(img, nib.Nifti2Image)
         assert img.header == expected.header
+        assert metadata == expected_metadata
         assert (int(img.header["qform_code"]), int(img.header["sform_code"])) == (3, 4)
         # The two keys hold different affines, so swapping them changes the header.
         assert not np.allclose(img.get_qform(), img.get_sform())

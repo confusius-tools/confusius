@@ -619,16 +619,14 @@ class FUSIAccessor:
         sform: str | None = None,
         qform_code: int | None = None,
         sform_code: int | None = None,
-    ) -> nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image:
-        """Convert the VoxelData array to an in-memory NiBabel NIfTI image.
+    ) -> tuple[nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image, dict[str, Any]]:
+        """Convert the VoxelData array to a NIfTI image and fUSI-BIDS metadata.
 
-        Builds the same NIfTI header geometry, dtype, and pixdim as
-        [`save_nifti`][confusius.io.save_nifti], but returns the image object instead of
-        writing a file and a BIDS JSON sidecar. Useful for interoperating with libraries
-        such as `nilearn` that expect NIfTI image objects rather than file paths.
-        Metadata that only the sidecar carries (e.g. `SliceTiming`, extra-dim names) is
-        not represented on the returned image. This is a convenience wrapper around
-        [`to_nifti`][confusius.io.to_nifti].
+        Builds the same image and metadata as [`save_nifti`][confusius.io.save_nifti]
+        without writing files. Pass the metadata as `sidecar` to
+        [`convert_from_nifti`][confusius.io.convert_from_nifti] to preserve timing and
+        named extra dimensions. This is a convenience wrapper around
+        [`convert_to_nifti`][confusius.io.convert_to_nifti].
 
         Parameters
         ----------
@@ -659,9 +657,10 @@ class FUSIAccessor:
 
         Returns
         -------
-        nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
-            In-memory NIfTI image with spacings, qform/sform, and units written to the
-            header.
+        img : nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
+            In-memory NIfTI image with spacings, qform/sform, and units in the header.
+        metadata : dict[str, Any]
+            JSON-serializable sidecar metadata using fUSI-BIDS field names and units.
 
         Examples
         --------
@@ -673,11 +672,11 @@ class FUSIAccessor:
         ...     dt=0.5,
         ...     spacing=(0.4, 0.1, 0.1),
         ... )
-        >>> img = data.fusi.to_nifti()
+        >>> img, metadata = data.fusi.to_nifti()
         """
-        from confusius.io.nifti import to_nifti
+        from confusius.io.nifti import convert_to_nifti
 
-        return to_nifti(
+        return convert_to_nifti(
             self._obj,
             nifti_version,
             qform=qform,

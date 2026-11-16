@@ -46,10 +46,11 @@ Current development version for the next ConfUSIus release.
 - Load multi-pose arrays split into several NIfTI files using `{chunk}` in the filename,
   stacking them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
-- Added [`from_nifti`][confusius.io.from_nifti]/[`to_nifti`][confusius.io.to_nifti] to
-  convert directly between a VoxelData array and an in-memory
-  `nibabel.Nifti1Image`/`nibabel.Nifti2Image`, with no file I/O, for interoperating
-  with libraries such as nilearn. `to_nifti` is also available on the `.fusi` accessor,
+- Add [`convert_from_nifti`][confusius.io.convert_from_nifti] and
+  [`convert_to_nifti`][confusius.io.convert_to_nifti] to convert directly between
+  VoxelData and in-memory NiBabel NIfTI images, with no file I/O. Conversion returns
+  fUSI-BIDS metadata alongside the image to preserve timing and named extra dimensions.
+  Conversion to NIfTI is also available on the `.fusi` accessor,
   as [`data.fusi.to_nifti`][confusius.xarray.FUSIAccessor.to_nifti]
   ([#421](https://github.com/confusius-tools/confusius/pull/421)).
 - Add [`apply_translation`][confusius.xarray.apply_translation],
@@ -88,8 +89,9 @@ Current development version for the next ConfUSIus release.
   does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 - Added the [Use nilearn on a VoxelData
   array](examples/_built/interoperability/nilearn.md) example, which shows how to use
-  [`from_nifti`][confusius.io.from_nifti]/[`to_nifti`][confusius.io.to_nifti] for easier
-  interporability with [nilearn](https://nilearn.github.io)
+  [`convert_from_nifti`][confusius.io.convert_from_nifti] and
+  [`convert_to_nifti`][confusius.io.convert_to_nifti] for easier interoperability
+  with [nilearn](https://nilearn.github.io)
   ([#421](https://github.com/confusius-tools/confusius/pull/421)).
 
 ### :wrench: Maintenance

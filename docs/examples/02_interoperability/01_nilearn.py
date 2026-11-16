@@ -2,8 +2,9 @@
 # # Use nilearn on a VoxelData array
 #
 # This example shows how to pass data between ConfUSIus and
-# [nilearn](https://nilearn.github.io). [`to_nifti`][confusius.io.to_nifti] converts a
-# VoxelData array to an in-memory NIfTI image. [`from_nifti`][confusius.io.from_nifti]
+# [nilearn](https://nilearn.github.io).
+# [`convert_to_nifti`][confusius.io.convert_to_nifti] returns an in-memory NIfTI image
+# and fUSI-BIDS metadata. [`convert_from_nifti`][confusius.io.convert_from_nifti]
 # converts a NIfTI image back to a VoxelData array.
 #
 # We use nilearn to find the clusters of a statistical map from [Cybis Pereira *et al.*
@@ -72,13 +73,13 @@ stat.attrs["long_name"] = "t statistic"
 # plane is aligned with the `x` and `y` axes, which makes the cluster coordinates easy
 # to read. Thus we move the world coordinates to that space with
 # [`affine.apply`][confusius.xarray.FUSIAffineAccessor.apply]. Then we set `sform_code`
-# to 0, and [`to_nifti`][confusius.io.to_nifti] writes only the `qform`.
+# to 0, and [`convert_to_nifti`][confusius.io.convert_to_nifti] writes only the `qform`.
 
 # %%
 stat = stat.fusi.affine.apply("world_to_qform")
 stat.attrs["sform_code"] = 0
 
-img = cf.io.to_nifti(stat)
+img, metadata = stat.fusi.to_nifti
 
 # %% [markdown]
 # ## Find the clusters with nilearn
@@ -103,11 +104,11 @@ table
 # %% [markdown]
 # ## Convert the cluster labels to a VoxelData array
 #
-# [`from_nifti`][confusius.io.from_nifti] converts the label image to a VoxelData
-# array. This array has the same world coordinates as `stat`.
+# [`convert_from_nifti`][confusius.io.convert_from_nifti] converts the label image to
+# a VoxelData array. This array has the same world coordinates as `stat`.
 
 # %%
-labels = cf.io.from_nifti(label_maps[0])
+labels = cf.io.convert_from_nifti(label_maps[0])
 labels
 
 # %% [markdown]
@@ -117,24 +118,27 @@ labels
 # each cluster at its coordinates from the nilearn table.
 
 # %% tags=["thumbnail"]
+# Subpeak IDs such as "1a" belong to an existing cluster, not a new label.
+peaks = table[table["Cluster ID"].astype(str).str.fullmatch(r"\d+")]
+colors = {
+    int(row["Cluster ID"]): mpl.colors.to_hex(mpl.colormaps["tab10"](i % 10))
+    for i, (_, row) in enumerate(peaks.iterrows())
+}
+assert set(colors) == set(labels.values.ravel()) - {0}
+
 plotter = cf.plotting.plot_stat_map(stat, bg_color=bg_color)
-plotter.add_contours(labels)
+plotter.add_contours(labels, colors=colors)
 ax = plotter.axes[0][0]
 
-colors = []
-for line in ax.get_lines():
-    color = line.get_color()
-    if color not in colors:
-        colors.append(color)
-
-for (i, row), color in zip(table.iterrows(), colors):
+for _, row in peaks.iterrows():
+    cluster_id = int(row["Cluster ID"])
     ax.plot(
         row["X"],
         row["Y"],
         marker="o",
-        color=color,
+        color=colors[cluster_id],
         markersize=7,
-        label=f"Cluster ID {i + 1}",
+        label=f"Cluster ID {cluster_id}",
     )
 
 _ = ax.legend()
