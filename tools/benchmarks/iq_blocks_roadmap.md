@@ -1,7 +1,9 @@
 # Lazy IQ processing roadmap
 
 Branch: `feat/lazy-iq-blocks`, based on `feat/sample-beamformed-iq` (parent PR #576).
-The new PR targets the parent branch, not `main`.
+Stacked PR: [#586](https://github.com/confusius-tools/confusius/pull/586), targeting
+that parent branch, not `main`. Implementation, regression checks, and the batch
+sweep are complete; see [results and recommendations](iq_blocks_report.md).
 
 ## 1. Establish deterministic output contracts
 
