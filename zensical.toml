@@ -74,6 +74,7 @@ nav = [
             { "ConfUSIus and Xarray 101" = "examples/_built/io/confusius_xarray_101.md" },
             { "Create a VoxelData array from a MAT file" = "examples/_built/io/create_voxeldata_from_mat.md" },
             { "The ConfUSIus Dataset Collection" = "examples/_built/io/dataset_collection.md" },
+            { "Transforms 101" = "examples/_built/io/transforms_101.md" },
         ]},
         { "Beamformed IQ" = [
             { "Processing beamformed IQ recordings" = "examples/_built/iq/process_beamformed_iq.md" },

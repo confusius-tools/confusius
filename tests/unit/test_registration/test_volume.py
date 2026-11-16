@@ -1411,6 +1411,16 @@ class TestInitialization:
         with pytest.raises(ValueError, match="Unexpected dimensions"):
             initialize_single_slice_rigid_transform(da, da)
 
+    def test_plane_initializer_rejects_irregular_coordinates(self):
+        """A plane center needs a regular voxel extent."""
+        da = create_voxeldata(
+            np.zeros((1, 5, 6), dtype=np.float32),
+            dims=("k", "j", "i"),
+            voxel_to_world=np.eye(4),
+        ).isel(i=[0, 1, 4])
+        with pytest.raises(ValueError, match="irregular"):
+            initialize_single_slice_rigid_transform(da, da)
+
     def test_linear_initial_transform_is_not_shifted_by_geometry_centering(self):
         """A supplied initial affine is used directly, without extra centering shift."""
         fixed = _add_identity_voxel_to_world(
