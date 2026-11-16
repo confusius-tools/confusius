@@ -3463,7 +3463,8 @@ class TestRoundtrip:
 
         assert len(evaluations) == 1
         np.testing.assert_array_equal(
-            np.asarray(nib.load(path).dataobj), sample_voxeldata_3d.values.T
+            np.asarray(nib.Nifti1Image.from_filename(path).dataobj),
+            sample_voxeldata_3d.values.T,
         )
 
     def test_object_roundtrip_preserves_sidecar_metadata(self, sample_voxeldata_3dt):
