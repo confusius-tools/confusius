@@ -28,36 +28,22 @@ bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 iq = cf.datasets.fetch_sample_beamformed_iq()
 iq
 
-# %% [markdown] 
+# %% [markdown]
 # ## Understanding chunks
 #
-# Zarr stores data in independently readable chunks. This allows for efficient access to
-# subsets of the data. This particular IQ recording is stored in chunks of 300 frames
-# along the time dimension. The chunking is visible in the VoxelData array
-# representation above: each chunk has shape `(300, 1, 125, 80)` and size ~23 MiB.
-#
-# Dask breaks operations on the array into tasks that operate on individual chunks.
-# These tasks are executed when [`.compute()`][xarray.DataArray.compute] is called.
-# Here, our example beamformed IQ recording was chunked into blocks of 300 frames
-# because that was the original ensemble size used during acquisition.
+# Zarr stores this recording in independently readable `(300, 1, 125, 80)` chunks
+# (~23 MiB), matching its original 300-frame acquisition ensembles. Dask processes these 
+# chunks lazily, downloading IQ samples only when results are computed.
 #
 # !!! tip "Choosing chunk sizes"
-#     If the chunk size doesn't match your processing workflow—say you want to process
-#     blocks of 600 frames instead of 300—you can [re-chunk][xarray.DataArray.chunk] the
-#     array. However, be aware that re-chunking an array does not change the actual
-#     chunking on disk. Thus, if you re-chunk an IQ recording to use smaller chunks,
-#     each new chunk will require reading the original chunk from disk. If you're
-#     responsible for generating the IQ data, choose a chunk size that is appropriate
-#     for your processing workflow!
+#     [Rechunking][xarray.DataArray.chunk] changes Dask's task layout, not the stored
+#     chunks. Set window widths explicitly to choose scientific windows independently
+#     of the input chunking.
 #
-# Here, we select the first 900 frames (3 chunks) to demonstrate the processing workflow
-# on a small segment of the recording. We download the data to memory with
-# [`.compute()`][xarray.DataArray.compute] to accelerate the. In practice, you'll often
-# want to process entire IQ recordings lazily without downloading the entire dataset to
-# memory.
+# We select the first 900 frames (three chunks) without loading the IQ samples.
 
 # %%
-iq = iq.isel(time=slice(0, 900)).compute()
+iq = iq.isel(time=slice(0, 900))
 
 # %% [markdown]
 # ## Compute B-mode, power Doppler, and axial velocity
@@ -71,44 +57,28 @@ iq = iq.isel(time=slice(0, 900)).compute()
 # - Axial velocity: the velocity of tissue or blood along the ultrasound beam, which is
 #   a measure of motion.
 #
-# For blood measurements, these functions apply an SVD clutter filter to remove tissue
-# contributions from the IQ signals. The filtered signal is used to compute power
-# Doppler and axial blood velocity. For tissue measurements, we instead retain only the
-# tissue signal, which is used to compute axial tissue velocity.
+# For blood measurements, an SVD clutter filter removes tissue contributions. For tissue
+# velocity, we instead retain the tissue components.
+#
+# Window widths default to the 300-frame time chunks. With the default strides, each
+# call below yields one output volume per chunk.
 
 # %%
-bmode = cf.iq.process_iq_to_bmode(iq, bmode_window_width=300)
+bmode = cf.iq.process_iq_to_bmode(iq)
 # The low_cutoff/high_cutoff parameters define the cutoff index for the SVD clutter
 # filter. This cutoff was chosen manually and may not be optimal for all recordings.
-pwd = cf.iq.process_iq_to_power_doppler(iq, clutter_window_width=300, low_cutoff=40)
-blood_vel = cf.iq.process_iq_to_axial_velocity(
-    iq, clutter_window_width=300, low_cutoff=40
-)
-tissue_vel = cf.iq.process_iq_to_axial_velocity(
-    iq, clutter_window_width=300, high_cutoff=40
-)
+pwd = cf.iq.process_iq_to_power_doppler(iq, low_cutoff=40)
+blood_vel = cf.iq.process_iq_to_axial_velocity(iq, low_cutoff=40)
+tissue_vel = cf.iq.process_iq_to_axial_velocity(iq, high_cutoff=40)
 
-# Since all four processing run on the same IQ data, we use dask.compute to compute all
-# four outputs in parallel. If we had called .compute() on each output separately, Dask
-# would have executed four separate computations and needed to download the IQ data four
-# times.
 with threadpool_limits(limits=1, user_api="blas"):
-    bmode, pwd, blood_vel, tissue_vel = dask.compute(
-        bmode, pwd, blood_vel, tissue_vel
-    )
+    bmode, pwd, blood_vel, tissue_vel = dask.compute(bmode, pwd, blood_vel, tissue_vel)
 
 # %% [markdown]
 # !!! tip "Dask, threading, and BLAS"
-#     Since all four processing run on the same IQ data, we used
-#     [`dask.compute`][dask.compute] to compute all four outputs in parallel. If we had
-#     called [`.compute()`][xarray.DataArray.compute] on each output separately, Dask
-#     would have executed four separate computations and needed to download the IQ data
-#     four times.
-#
-#     Moreover, Dask tasks and ConfUSIus computations can each use multiple threads.
-#     Therefore, it's recommended to limit the number of threads used by BLAS (the
-#     underlying linear algebra library used by ConfUSIus) to avoid over-subscription. 
-#     See the [IQ processing guide](../../../user-guide/beamformed-iq.md#working-with-large-recordings)
+#     [`dask.compute`][dask.compute] lets the outputs share upstream IQ reads. Limiting 
+#     BLAS threads avoids over-subscription with Dask's parallel tasks. See the 
+#     [IQ processing guide](../../../user-guide/beamformed-iq.md#working-with-large-recordings)
 #     for more details.
 
 # %% [markdown]
