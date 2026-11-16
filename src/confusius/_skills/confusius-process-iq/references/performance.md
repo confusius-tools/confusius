@@ -49,7 +49,10 @@ Use `dask.distributed.Client` for multiple machines, worker-level memory/resourc
 controls, or its dashboard. A local Client is not inherently faster; compare measured
 throughput, memory, and transfer overhead on representative data.
 
-Set worker count, `threads_per_worker`, and `memory_limit` deliberately. Limit BLAS
-inside worker processes (environment before startup or worker initialization); the
-parent's `threadpool_limits` alone is insufficient. Monitor spilling/transfers and
-close the client when finished.
+Set worker count, `threads_per_worker`, and `memory_limit` deliberately. Dask's
+nanny-managed process workers normally set `OMP_NUM_THREADS`, `MKL_NUM_THREADS`,
+and `OPENBLAS_NUM_THREADS` to `1` before startup, so the default process-based
+`Client()` setup usually needs no additional BLAS limits. Existing environment
+variables can override these defaults; check worker settings for overrides or custom
+deployments. Connecting a client to an existing cluster does not configure its workers.
+Monitor spilling/transfers and close the client when finished.

@@ -475,21 +475,23 @@ with the threaded scheduler and switch if you need its monitoring or resource-ma
 features.
 
 !!! note "BLAS threads with distributed workers"
-    When using separate worker processes, BLAS thread limits must also be applied within
-    those processes. Dask Distributed generally sets thread-related environment
-    variables for its workers, but you can configure them explicitly if needed.
+    Dask's nanny-managed process workers normally set `OMP_NUM_THREADS`,
+    `MKL_NUM_THREADS`, and `OPENBLAS_NUM_THREADS` to `1` before startup. The default
+    process-based `Client()` setup therefore usually needs no additional BLAS limits.
+    Existing environment variables can override these defaults; check worker settings
+    if you override them or use a custom deployment.
 
 ### Processing remote recordings
 
-IQ processing functions read and process the **first window while building the Dask task
-graph**, before [`.compute()`][xarray.DataArray.compute] or
-[`confusius.save`][confusius.save] runs. For remote Zarr recordings, this can cause
-repeated downloads when creating multiple processing results.
+IQ processing graphs are built without reading or filtering IQ samples. For remote
+Zarr recordings, IQ data are downloaded when [`.compute()`][xarray.DataArray.compute]
+or [`confusius.save`][confusius.save] executes the graph. Separate computations can
+still download the same chunks again; compute multiple measures together as shown below.
 
-For small subsets, load the data into memory once with
-[`.compute()`][xarray.DataArray.compute]. For larger recordings, consider using a local
-Zarr copy. After loading an array into memory, specify window widths explicitly because
-the original Dask chunking is no longer available.
+For repeated analyses, consider a local Zarr copy. You can also load a small subset
+into memory with [`.compute()`][xarray.DataArray.compute], but this is not required to
+build processing graphs. After doing so, specify window widths explicitly because the
+original Dask chunking is no longer available.
 
 ### Computing multiple measures together
 
