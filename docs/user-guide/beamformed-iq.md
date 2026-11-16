@@ -332,6 +332,35 @@ or filters.
     The built-in power Doppler, velocity, and B-mode functions handle those details for
     you.
 
+Custom callbacks must declare `output_shape` and `output_dtype`. The shape describes
+**one outer window**, including its leading output-time axis, not a whole recording
+or a batch of windows. Every callback must return a NumPy array with exactly that
+shape and dtype; mismatches raise when the graph executes. The dtype declaration
+does not cast callback outputs.
+
+For example, a callback producing one map per window declares
+`output_shape=(1, *iq.shape[1:])`. A callback producing two maps on an added axis
+uses `output_shape=(1, 2, *iq.shape[1:])` and `new_axis=1`. Built-in wrappers supply
+these declarations internally; their calling signatures are unchanged.
+
+Constructing an IQ-processing graph does not read IQ samples or invoke the callback.
+A supplied clutter mask is still loaded for validation. Callbacks should remain
+side-effect-free because Dask can retry or recompute tasks.
+
+The low-level function also accepts `windows_per_task` to batch several outer
+windows into one Dask task. This changes execution granularity, not window width,
+stride, filtering, or output times. Requests smaller than the minimum needed for
+an overlap halo are increased to that minimum. Larger batches can reduce scheduler
+overhead but increase memory and reduce parallelism; benchmark representative data
+before changing them. Built-in wrappers retain their existing minimum-batch default.
+
+B-mode and statically identifiable no-op clutter filters preserve the input's real
+precision (`complex64` gives `float32`; `complex128` gives `float64`). Potentially
+active clutter filters promote to at least double precision, even when an adaptive
+window selects no components to remove. This keeps dtype independent of the first
+window's contents. Velocity parameters represented by NumPy scalars can additionally
+promote output precision under NumPy's normal arithmetic rules.
+
 ```mermaid
 ---
 config:

@@ -2,8 +2,10 @@
 
 Use `cf.iq.process_iq_blocks` when built-in IQ processing does not fit. It calls
 `process_func` on NumPy `(time, k, j, i)` windows and returns a bare Dask array.
-Callbacks must return `(output_time, ...)` with consistent shape/dtype and no side
-effects: they run during eager inference and again during execution.
+Declare `output_shape` and `output_dtype` for one callback invocation on one window.
+Callbacks must return NumPy `(output_time, ...)` arrays matching that contract; shape
+and dtype are checked during execution. Graph construction does not read IQ samples
+or call the callback. Keep callbacks side-effect-free because Dask may retry tasks.
 
 ## Example: directional power Doppler
 
@@ -46,6 +48,8 @@ result = cf.iq.process_iq_blocks(
     process_func=directional_power,
     window_width=width,
     window_stride=width,
+    output_shape=(1, 2, *iq.shape[1:]),
+    output_dtype=np.float64,
     new_axis=1,  # Separate direction from output time.
 )
 ```
