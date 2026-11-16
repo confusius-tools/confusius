@@ -52,7 +52,11 @@ def test_butterworth_window_sampling(
     compute = (
         compute_axial_velocity_volume if velocity else compute_power_doppler_volume
     )
-    kwargs = {"filter_method": "butterworth", "low_cutoff": 1.0, "butterworth_order": 2}
+    kwargs: dict[str, Any] = {
+        "filter_method": "butterworth",
+        "low_cutoff": 1.0,
+        "butterworth_order": 2,
+    }
     velocity_kwargs = (
         {
             "transmit_frequency": iq.attrs["transmit_frequency"],
