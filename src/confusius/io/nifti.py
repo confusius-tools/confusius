@@ -2848,9 +2848,9 @@ def save_nifti(
             )
         return
 
-    data, has_time_axis, extra_dims = _prepare_data_for_nifti(data_array)
+    _, has_time_axis, extra_dims = _prepare_data_for_nifti(data_array)
     spatial_spacings = _get_spatial_spacings(data_array)
-    timing_metadata, tr_pixdim = _build_nifti_timing_metadata(data_array)
+    _, tr_pixdim = _build_nifti_timing_metadata(data_array)
 
     spacings = spatial_spacings.copy()
     if has_time_axis:
