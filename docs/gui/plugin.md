@@ -422,8 +422,8 @@ use the rows to move it:
 - **Zoom and flip** rescales or mirrors the layer about the center of rotation.
 
 **Axes** chooses between world axes (**Global**) and axes that rotate with the layer
-(**Local**). **Center of rotation** sets the point that rotations leave fixed: the
-layer's first voxel, the cursor, or the center of the layer's box. Moving it never moves
+(**Local**). **Center of rotation** defaults to the center of the layer's box. You can
+also use the layer's first voxel or the cursor. Moving it never moves
 the layer. With the panel in focus, the arrow keys translate within the displayed plane
 and Page Up and Page Down translate through it. Hold Shift for steps ten times larger,
 or Alt for steps ten times smaller. Esc cancels a drag, and Ctrl+Z and Ctrl+Shift+Z undo

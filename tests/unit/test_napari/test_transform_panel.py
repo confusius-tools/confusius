@@ -719,9 +719,10 @@ def test_moving_the_center_is_not_an_undo_step(panel):
     assert panel.state.is_identity()
 
 
-def test_center_starts_at_the_grid_origin(panel):
-    np.testing.assert_allclose(panel.state.pivot(), (1.0, 2.0, 3.0))
-    assert panel._center_readout.text().startswith("1")
+def test_center_starts_at_the_geometry_center(panel, volume):
+    center = volume.fusi.affine.geometry_center
+    np.testing.assert_allclose(panel.state.pivot(), [center[name] for name in AXES])
+    assert panel._center_readout.text().startswith(f"{center['z']:.4g}")
 
 
 def test_geometry_center_follows_the_transform(panel, volume):
@@ -744,11 +745,11 @@ def test_grid_origin_follows_the_transform(panel):
     np.testing.assert_allclose(panel.state.pivot(), origin)
 
 
-def test_center_readout_follows_the_pivot(panel):
+def test_center_readout_follows_the_pivot(panel, volume):
     panel._translate_rows["z"].spin.setValue(1.0)
 
-    # The center moves along with the volume, from z = 1.
-    assert panel._center_readout.text().startswith("2")
+    expected = volume.fusi.affine.geometry_center["z"] + 1.0
+    assert panel._center_readout.text().startswith(f"{expected:.4g}")
 
 
 def test_marker_follows_the_pivot(panel, viewer, layer):
@@ -760,7 +761,7 @@ def test_marker_follows_the_pivot(panel, viewer, layer):
     assert viewer.layers.selection.active is layer
     np.testing.assert_allclose(marker.data[0], panel.state.pivot())
 
-    panel._center_geometry_btn.click()
+    panel._center_origin_btn.click()
     np.testing.assert_allclose(marker.data[0], panel.state.pivot())
 
     panel._translate_rows["y"].spin.setValue(0.5)
@@ -768,6 +769,13 @@ def test_marker_follows_the_pivot(panel, viewer, layer):
 
     panel._center_marker_check.setChecked(False)
     assert marker not in viewer.layers
+
+
+def test_marker_size_uses_the_smallest_voxel_spacing(panel, volume):
+    panel._center_marker_check.setChecked(True)
+
+    expected = 2.0 * min(volume.fusi.spacing.values())
+    np.testing.assert_allclose(panel._marker_layer.size, [expected])
 
 
 def test_deleting_the_marker_layer_unchecks_the_box(panel, viewer):
@@ -784,7 +792,7 @@ def test_zoom_matches_apply_zoom(panel, volume):
     panel._zoom_spins["y"].setValue(0.5)
     panel._zoom_spins["x"].setValue(1.25)
 
-    expected = apply_zoom(volume, (2.0, 0.5, 1.25), center="origin")
+    expected = apply_zoom(volume, (2.0, 0.5, 1.25))
     np.testing.assert_allclose(
         panel.state.matrix() @ volume.fusi.affine.voxel_to_world,
         expected.fusi.affine.voxel_to_world,
@@ -814,7 +822,7 @@ def test_zoom_is_one_undo_step(panel):
 def test_flip_matches_a_negative_zoom_factor(panel, volume):
     panel._flip_btns["y"].click()
 
-    expected = apply_zoom(volume, (1.0, -1.0, 1.0), center="origin")
+    expected = apply_zoom(volume, (1.0, -1.0, 1.0))
     np.testing.assert_allclose(
         panel.state.matrix() @ volume.fusi.affine.voxel_to_world,
         expected.fusi.affine.voxel_to_world,

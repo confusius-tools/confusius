@@ -1001,8 +1001,8 @@ class TransformPanel(QWidget):
             return self._targets[layer]
         session = PreviewSession(layer)
         source = session.source
-        origin = source.fusi.origin
-        state = TransformState.identity(center=[origin[name] for name in WORLD_AXES])
+        center = source.fusi.affine.geometry_center
+        state = TransformState.identity(center=[center[name] for name in WORLD_AXES])
         bounds = source.fusi.affine.bounding_box
         extent = [upper - lower for lower, upper in bounds.values()]
         target = _Target(
@@ -1698,7 +1698,7 @@ class TransformPanel(QWidget):
         self._marker_layer = self.viewer.add_points(  # type: ignore
             self._target.state.pivot()[np.newaxis],
             name="Center of rotation",
-            size=float(self._target.voxel_steps.max()) * 5.0,
+            size=float(self._target.voxel_steps.min()) * 2.0,
             symbol="cross",
             face_color="yellow",
         )
