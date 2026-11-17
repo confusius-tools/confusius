@@ -93,6 +93,28 @@ class TestLoadDispatch:
         mock.assert_called_once_with(path.resolve())
         assert result is mock_da
 
+    def test_raw_dispatches_to_load_iconeus_raw(self, tmp_path):
+        """.raw extension calls load_iconeus_raw."""
+        path = tmp_path / "data.raw"
+        mock_da = MagicMock(spec=xr.DataArray)
+        with patch(
+            "confusius.io.iconeus_raw.load_iconeus_raw", return_value=mock_da
+        ) as mock:
+            result = load(path)
+        mock.assert_called_once_with(path.resolve())
+        assert result is mock_da
+
+    def test_compound_raw_extension(self, tmp_path):
+        """.source.raw compound extension calls load_iconeus_raw."""
+        path = tmp_path / "data.source.raw"
+        mock_da = MagicMock(spec=xr.DataArray)
+        with patch(
+            "confusius.io.iconeus_raw.load_iconeus_raw", return_value=mock_da
+        ) as mock:
+            result = load(path)
+        mock.assert_called_once_with(path.resolve())
+        assert result is mock_da
+
     def test_kwargs_forwarded_to_loader(self, tmp_path):
         """Extra kwargs are forwarded to the underlying loader."""
         path = tmp_path / "data.nii.gz"

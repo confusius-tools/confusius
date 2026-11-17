@@ -6,17 +6,162 @@ icon: lucide/history
 
 # Changelog
 
-## 0.9.0.dev0
+## 0.10.0.dev0
 
 Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`get_bounding_box`][confusius.xarray.get_bounding_box] and
+  [`.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] now
+  return a dictionary mapping world coordinate names to `(min, max)` bounds instead
+  of a DataArray. Access bounds with `bbox["z"]` instead of `.sel`; pose-dependent
+  data now returns one box enclosing all poses, so select a pose first for its own
+  box ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 - [`plot_stat_map`][confusius.plotting.plot_stat_map] and
   [`plot_matrix`][confusius.plotting.plot_matrix] default to the `"berlin"`
   colormap for signed data on dark backgrounds (`"coolwarm"` stays the default on
   light ones), judged from `bg_color`
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- Seed-based correlation maps, decomposition maps, GLM contrast maps and
+  [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity] outputs
+  carry `attrs["cmap"] = "berlin"`, the colormap
+  [`plot_volume`][confusius.plotting.plot_volume] and
+  [`plot_napari`][confusius.plotting.plot_napari] draw them with
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- `plot_napari` and its xarray accessors always return `(viewer, layers)`;
+  use `viewer, [layer] = ...` for single-layer results
+  ([#562](https://github.com/confusius-tools/confusius/pull/562)).
+- Python 3.11 is no longer supported; ConfUSIus now requires Python 3.12 or newer,
+  following BrainGlobe's move to Python 3.12-3.14 and
+  [SPEC 0](https://scientific-python.org/specs/spec-0000/)
+  ([#561](https://github.com/confusius-tools/confusius/pull/561)).
+
+### :sparkles: Enhancements
+
+- New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
+  colormap stat maps are drawn with, which remembers its source colormap and
+  threshold and can be rebuilt on another colormap with `with_source`
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- Load multi-pose arrays split into several NIfTI files using `{chunk}` in the filename,
+  stacking them along `pose` in numeric chunk order while preserving geometry and timing
+  ([#564](https://github.com/confusius-tools/confusius/pull/564)).
+- Add [`apply_translation`][confusius.xarray.apply_translation],
+  [`apply_rotation`][confusius.xarray.apply_rotation],
+  [`apply_zoom`][confusius.xarray.apply_zoom] and
+  [`apply_flip`][confusius.xarray.apply_flip], plus the matching `.fusi.translate()`,
+  `.fusi.rotate()`, `.fusi.zoom()` and `.fusi.flip()` accessor methods, to move
+  VoxelData in world space without resampling
+  ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Add [`get_geometry_center`][confusius.xarray.get_geometry_center] and
+  [`.fusi.affine.geometry_center`][confusius.xarray.FUSIAffineAccessor.geometry_center]
+  to get the world-space center of a VoxelData array
+  ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Save multi-pose VoxelData arrays to separate NIfTI files and JSON sidecars with a
+  `{chunk}` filename template, preserving each pose's geometry and timing
+  ([#579](https://github.com/confusius-tools/confusius/pull/579)).
+
+### :bug: Fixes
+
+- [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] draws the
+  iteration count in a darker turquoise, readable on light backgrounds
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- [`apply_affine`][confusius.xarray.apply_affine] and
+  [`reindex_voxels`][confusius.xarray.reindex_voxels] now accept scalar-indexed VoxelData
+  arrays and restore the indexed voxel dimension in their result. `inplace=True` raises a
+  `ValueError` on such arrays
+  ([#558](https://github.com/confusius-tools/confusius/pull/558)).
+
+### :books: Documentation
+
+- Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
+  archive, and simplify dataset and template citations
+  ([#565](https://github.com/confusius-tools/confusius/pull/565)).
+- Add the [Transforms 101](examples/_built/io/transforms_101.md) example,
+  which shows how to translate, rotate and zoom a VoxelData array and what the `center`
+  argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+
+### :wrench: Maintenance
+
+- Documentation deployments share identical images across versions and previews.
+  PR previews are now opt-in via the `docs-preview` GitHub label and refresh
+  automatically after successful documentation builds
+  ([#581](https://github.com/confusius-tools/confusius/pull/581)).
+- The examples gallery runs each example once and renders its light and dark
+  figures from that single run
+  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- The examples gallery is built with the
+  [zallery](https://github.com/confusius-tools/zallery) package, extracted from
+  ConfUSIus ([#519](https://github.com/confusius-tools/confusius/pull/519)).
+- [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] now uses
+  BrainGlobe's public lazy-loading API instead of reimplementing its Zarr internals,
+  so atlas arrays stay lazy without depending on private upstream code
+  ([#377](https://github.com/confusius-tools/confusius/issues/377)).
+- Test that every function in the napari plugin manifest can be imported
+  ([#555](https://github.com/confusius-tools/confusius/pull/555)).
+- Use the released xarray 2026.9.0 instead of a git pin now that it ships the
+  required fixes ([#559](https://github.com/confusius-tools/confusius/pull/559)).
+
+### :frame_photo: Napari plugin
+
+- Videos open in a separate, time-synchronized viewer with their own layer list. Load
+  recordings and videos from **Data I/O**
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- `confusius --video PATH` opens a video without a data file
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- Fix video synchronization with recordings timed in milliseconds or microseconds
+  ([#521](https://github.com/confusius-tools/confusius/pull/521)).
+- Open multipose arrays as one positioned layer per pose in `plot_napari`, its
+  xarray accessors, and the CLI, with pose values in layer names
+  ([#562](https://github.com/confusius-tools/confusius/pull/562)).
+
+## 0.9.0
+
+Released 2026-10-31.
+
+### :boom: Breaking changes
+
+- Iconeus SCAN world coordinates are now computed from a modified Iconeus laboratory
+  frame, reordered to `(z, y, x)` and rotated by 90 degrees about the axial axis. This
+  aligns typical coronal recordings have `z` elevation, `y` depth, and `x` lateral.
+  [`load_bps`][confusius.io.load_bps] applies the same modification so the resulting
+  affine can be composed with the modified laboratory space
+  ([#526](https://github.com/confusius-tools/confusius/pull/526)).
+- `convert_echoframe_dat_to_zarr` was removed. EchoFrame DAT files load lazily with
+  [`confusius.load`][confusius.load], so save them with
+  [`confusius.save`][confusius.save] using the I/O guide's conversion recipes for
+  measured time coordinates and sharding. The EchoFrame loader no longer stores
+  `n_volumes_per_block` in attrs; use `data.chunks[0]` for acquisition block sizes
+  ([#551](https://github.com/confusius-tools/confusius/pull/551)).
+- Iconeus SCAN metadata now uses fUSI-BIDS field names and units:
+  `iconeus_scan_mode` becomes `iconeus_acquisition_mode`, `imaging_depth` becomes
+  `depth`, and `probe_center_frequency`/`transmit_frequency` are reported in hertz.
+  Nonstandard scanner metadata now consistently uses the `iconeus_` prefix,
+  including probe model numbers, ADC sampling frequency (in native MHz),
+  stimulation toggle times, filter types, SVD cutoffs, and velocity-band limits
+  ([#548](https://github.com/confusius-tools/confusius/pull/548)).
+- Fix matrix initialization incorrectly allowing full affine optimization for
+  rigid/translation registration. Refinement now respects the requested transform;
+  in 3D, use 6 rigid or 3 translation optimizer weights instead of 12. Results may differ
+  ([#547](https://github.com/confusius-tools/confusius/pull/547)).
+- Matrix-initialized rigid/affine registration now optimizes around the fixed image's
+  physical center rather than the world origin. Initial alignment is unchanged,
+  but convergence and final results may differ; recheck tuned optimizer settings
+  ([#543](https://github.com/confusius-tools/confusius/pull/543)).
+- [`compute_dvars`][confusius.qc.compute_dvars] now defaults to median-based relative
+  DVARS, following the empirical baseline estimator recommended by Afyouni and Nichols
+  (2018). The median is less sensitive to unusually large DVARS values, and their
+  simulations found it reliable under heterogeneous voxel variances. The previous
+  mean-SD normalization used in 0.8.0 and earlier has been removed. Choose
+  `baseline_estimator="ar1"` for the alternative RMS-based model baseline. **Existing
+  DVARS thresholds must be adjusted for the new normalization**. The `standardize`
+  argument was removed: use `variant="raw"` instead of `standardize=False`. The first
+  output value is now `NaN` for all variants and estimators. Robust SDs retain lower
+  IQR interpolation, following Nipype's FSL-compatible convention also used by
+  fMRIPrep. All variants preserve Dask laziness. Relative DVARS and unnormalized raw
+  DVARS reduce spatial blocks; raw
+  intensity normalization gathers the full recording at compute time to preserve the
+  exact global median ([#540](https://github.com/confusius-tools/confusius/pull/540)).
 - Use
   [`fetch_template_brunner_grillet_2021`][confusius.datasets.fetch_template_brunner_grillet_2021]
   instead of `fetch_template_huang_2025` for the vascular mouse template. The fetcher
@@ -39,10 +184,17 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
-- New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
-  colormap stat maps are drawn with, which remembers its source colormap and
-  threshold and can be rebuilt on another colormap with `with_source`
-  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- [`load_scan`][confusius.io.load_scan] stores `world_to_lab` (the identity, since
+  lab space is the world space) and `world_to_probe` affines in `attrs["affines"]`,
+  so `da.fusi.affine.apply("world_to_probe")` switches to the first pose's probe
+  space (`z` elevation, `y` depth, `x` lateral) and `apply("world_to_lab")` returns
+  to lab space ([#526](https://github.com/confusius-tools/confusius/pull/526)).
+- Add Agent Skills support with `confusius skills list` and `confusius skills install`.
+  The first skill, `confusius-load-data`, helps agents load custom data into `VoxelData`
+  ([#539](https://github.com/confusius-tools/confusius/pull/539)).
+- [`confusius.load`][confusius.load] now loads compounded Iconeus RAW/HRAW
+  beamformed IQ files as lazy VoxelData arrays, preserving acquisition blocks as
+  Dask chunks ([#548](https://github.com/confusius-tools/confusius/pull/548)).
 
 ### :zap: Performance
 
@@ -53,9 +205,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
-- [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] draws the
-  iteration count in a darker turquoise, readable on light backgrounds
-  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- SCAN v2 files negate the stored probe-pose Euler angles when loading
+  so their lab-space world coordinates match SCAN v1 for the same
+  acquisition ([#526](https://github.com/confusius-tools/confusius/pull/526)).
 - Labels painted over oblique or sheared data in napari now return to the original
   reference voxel grid using nearest-neighbor interpolation, rather than retaining
   the display grid or being assigned incorrect geometry. The drawing documentation
@@ -68,6 +220,10 @@ Current development version for the next ConfUSIus release.
 
 ### :books: Documentation
 
+- Document how to convert EchoFrame DAT and Iconeus RAW recordings to Zarr with
+  [`confusius.load`][confusius.load] and [`confusius.save`][confusius.save], including
+  measured time coordinates, sharding, and memory-bounded writes
+  ([#551](https://github.com/confusius-tools/confusius/pull/551)).
 - The documentation site publishes [`llms.txt`](https://confusius.tools/latest/llms.txt)
   and `llms-full.txt` for AI assistants, along with a Markdown copy of every page
   and a "Copy as Markdown" button in the page header
@@ -77,15 +233,14 @@ Current development version for the next ConfUSIus release.
 
 - Boolean arrays open as labels layers
   ([#504](https://github.com/confusius-tools/confusius/pull/504)).
-  
-### :wrench: Maintenance
-
-- The examples gallery runs each example once and renders its light and dark
-  figures from that single run
-  ([#518](https://github.com/confusius-tools/confusius/pull/518)).
-- The examples gallery is built with the
-  [zallery](https://github.com/confusius-tools/zallery) package, extracted from
-  ConfUSIus ([#519](https://github.com/confusius-tools/confusius/pull/519)).
+- Files opened with **File > Open** or by drag-and-drop now display the same way as
+  with [`plot_napari`][confusius.plotting.plot_napari]: complex data shows its
+  magnitude, reversed axes are shown in ascending order, a last axis of length 3 or 4
+  is never read as RGB colors, and image layers use napari's default blending
+  ([#549](https://github.com/confusius-tools/confusius/pull/549)).
+- Iconeus RAW files open from the Data I/O panel, the `confusius` command, **File >
+  Open**, or by drag-and-drop, when their `.hraw` metadata file is in the same folder
+  ([#549](https://github.com/confusius-tools/confusius/pull/549)).
 
 ## 0.8.0
 
@@ -222,9 +377,8 @@ Released 2026-10-13.
 - [`apply_affine`][confusius.xarray.apply_affine] keeps the applied key in
   `.attrs["affines"]` as the identity when the affine is given by key
   ([#463](https://github.com/confusius-tools/confusius/pull/463)).
-- [`convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr] now
-  preserves time coordinate attributes when passing `block_times`
-  ([#473](https://github.com/confusius-tools/confusius/pull/473)).
+- `convert_echoframe_dat_to_zarr` now preserves time coordinate attributes when
+  passing `block_times` ([#473](https://github.com/confusius-tools/confusius/pull/473)).
 
 ### :books: Documentation
 

@@ -27,6 +27,7 @@ from confusius.datasets import (
     fetch_brainglobe_atlas,
     fetch_cybis_pereira_2026,
     fetch_khallaf_2026,
+    fetch_landemard_2026,
     fetch_nunez_elizalde_2022,
     fetch_pepe_mariani_2026,
     fetch_template_pepe_mariani_2026,
@@ -42,17 +43,8 @@ def _prefetch_nunez_elizalde() -> None:
     # docs/images/home/generate.py
     fetch_nunez_elizalde_2022(
         print_citation=False,
-        subjects=["CR022", "CR024"],
-        sessions=["20201011", "20201029"],
-        tasks="spontaneous",
-        acqs="slice03",
-    )
-
-    # docs/images/qc/generate.py
-    fetch_nunez_elizalde_2022(
-        print_citation=False,
-        subjects="CR024",
-        sessions="20201029",
+        subjects="CR022",
+        sessions="20201011",
         tasks="spontaneous",
         acqs="slice03",
     )
@@ -96,13 +88,24 @@ def _prefetch_nunez_elizalde() -> None:
     )
 
 
+def _prefetch_landemard() -> None:
+    # docs/images/qc/generate.py
+    fetch_landemard_2026(
+        print_citation=False,
+        datasets=["rawdata", "atlas_mapping"],
+        subjects=["ALD001"],
+        acqs=["ref20"],
+        datatypes=["fusi"],
+    )
+
+
 def _prefetch_pepe_mariani_template() -> None:
     # docs/examples/04_connectivity/01_atlas_correlation_matrix.py,
     # docs/examples/04_connectivity/02_atlas_seed_map.py,
     # docs/examples/05_atlases_and_templates/01_saving_resampled_atlas.py
     fetch_template_pepe_mariani_2026(print_citation=False)
 
-    # docs/examples/01_io/03_load_multipose_recordings.py
+    # docs/examples/02_multipose/01_load_multipose_recordings.py
     fetch_pepe_mariani_2026(
         print_citation=False,
         datasets="rawdata",
@@ -201,6 +204,7 @@ def _prefetch_rabut_2024_human_glm() -> None:
 
 def main() -> None:
     _prefetch_nunez_elizalde()
+    _prefetch_landemard()
     _prefetch_cybis_pereira()
     _prefetch_rabut_2024_human_glm()
     _prefetch_pepe_mariani_template()

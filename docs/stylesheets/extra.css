@@ -589,8 +589,8 @@
 }
 
 /* Alternating row colors mirroring the xarray coordinate repr, theme-aware. These
-   hex values match the `--xr-background-color-row-*` variables injected alongside
-   the xarray HTML repr in tools/gallery/render.py. The first (odd) row uses the
+   hex values match the `--xr-background-color-row-*` variables zallery's `Xarray`
+   integration class writes next to the xarray HTML repr. The first (odd) row uses the
    stronger shade, matching xarray's `nth-child(odd)` override. */
 [data-md-color-scheme="default"]
   .gallery-rich-output
@@ -665,8 +665,8 @@
   --sklearn-color-fitted-level-3: cornflowerblue;
 }
 
-/* Neutral shades match the `--xr-*` variables injected alongside the xarray repr in
-   tools/gallery/render.py, so both reprs read as one surface in dark mode. */
+/* Neutral shades match the `--xr-*` variables zallery's `Xarray` integration class
+   writes next to the xarray repr, so both reprs read as one surface in dark mode. */
 [data-md-color-scheme="slate"] .gallery-rich-output .sk-global {
   --sklearn-color-text: rgba(255, 255, 255, 0.95);
   --sklearn-color-text-muted: rgba(255, 255, 255, 0.68);

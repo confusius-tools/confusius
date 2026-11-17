@@ -1,9 +1,8 @@
 """Generate documentation images for the Quality Control user guide.
 
-Data is fetched automatically from the Nunez-Elizalde et al. (2022) fUSI-BIDS
-dataset from the ConfUSIus dataset collection via `confusius.datasets`.
-The first run
-downloads ~30 MB; subsequent runs use the local cache.
+Data is fetched automatically from the Landemard et al. (2026) fUSI-BIDS dataset
+from the ConfUSIus dataset collection via `confusius.datasets`. The first run
+downloads ~450 MB; subsequent runs use the local cache.
 
 Usage
 -----
@@ -14,6 +13,7 @@ Run from the project root::
 All images are saved to docs/images/qc/.
 """
 
+import csv
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -21,24 +21,27 @@ import numpy as np
 from rich.console import Console
 
 import confusius as cf
-from confusius.datasets import fetch_nunez_elizalde_2022
+from confusius.datasets import fetch_landemard_2026
 from confusius.plotting import plot_carpet
 from confusius.qc import compute_cv, compute_dvars, compute_tsnr
 
 HERE = Path(__file__).parent
 
-_SUBJECT = "CR024"
-_SESSION = "20201029"
-_TASK = "spontaneous"
-_ACQ_SLICE = "slice03"
+_SUBJECT = "ALD001"
+_REF = 20
 
-_DERIVATIVE_ATLAS_REL_PATH = (
-    Path("derivatives")
-    / "allenccf_align"
-    / f"sub-{_SUBJECT}"
-    / f"ses-{_SESSION}"
+_ACQ = f"ref{_REF:02d}"
+_FUSI_REL_PATH = (
+    Path(f"sub-{_SUBJECT}")
     / "fusi"
-    / f"sub-{_SUBJECT}_ses-{_SESSION}_space-fusi_desc-allenccf_dseg.nii.gz"
+    / f"sub-{_SUBJECT}_task-awake_acq-{_ACQ}_pwd.nii.gz"
+)
+_SCANS_REL_PATH = Path(f"sub-{_SUBJECT}") / f"sub-{_SUBJECT}_scans.tsv"
+_ATLAS_REGION_MATCHES_REL_PATH = (
+    Path("derivatives")
+    / "atlas_mapping"
+    / f"sub-{_SUBJECT}"
+    / f"AnatomyRegionMatches_{_SUBJECT}.npz"
 )
 
 _MEAN_DB_LIMITS = (-25.0, 0.0)
@@ -55,45 +58,64 @@ def _ok(message: str) -> None:
     console.print(f"[green]✓[/green] {message}")
 
 
+def _get_anatomy_session(scans_path: Path, fusi_rel_path: Path) -> str:
+    """Return the anatomy session key matching a fUSI recording.
+
+    Landemard stores per-session atlas region matches under
+    ``"<acq_time date>_<experiment_id>"`` keys, derived from the scans table.
+    """
+    with scans_path.open(newline="") as file:
+        for row in csv.DictReader(file, delimiter="\t"):
+            if Path(row["filename"]).name == fusi_rel_path.name:
+                date = row["acq_time"].split("T")[0]
+                return f"{date}_{int(row['experiment_id'])}"
+
+    raise RuntimeError(
+        f"Could not find {fusi_rel_path.name} in {scans_path}. "
+        "The scans table does not map this acquisition to an experiment."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fetch dataset and load data
 # ---------------------------------------------------------------------------
 
 _section("Load Data")
-console.print("Fetching Nunez-Elizalde 2022 dataset")
-bids_root = fetch_nunez_elizalde_2022(
+console.print("Fetching Landemard 2026 dataset")
+bids_root = fetch_landemard_2026(
+    datasets=["rawdata", "atlas_mapping"],
     subjects=[_SUBJECT],
-    sessions=[_SESSION],
-    tasks=[_TASK],
-    acqs=[_ACQ_SLICE],
+    acqs=[_ACQ],
+    datatypes=["fusi"],
     print_citation=False,
 )
 
-_FUSI_PATH = (
-    bids_root
-    / f"sub-{_SUBJECT}/ses-{_SESSION}/fusi"
-    / f"sub-{_SUBJECT}_ses-{_SESSION}_task-{_TASK}_acq-{_ACQ_SLICE}_pwd.nii.gz"
-)
-
 console.print("Loading fUSI data")
-pwd = cf.load(_FUSI_PATH)
+pwd = cf.load(bids_root / _FUSI_REL_PATH)
 console.print(f"  {pwd.dims}, shape {dict(pwd.sizes)}")
 
-console.print("Loading Allen dseg mask")
-atlas_path = bids_root / _DERIVATIVE_ATLAS_REL_PATH
+console.print("Loading Allen region map")
+atlas_path = bids_root / _ATLAS_REGION_MATCHES_REL_PATH
 if not atlas_path.exists():
     raise RuntimeError(
         "Missing required derivative atlas file: "
-        f"{_DERIVATIVE_ATLAS_REL_PATH}. "
+        f"{_ATLAS_REGION_MATCHES_REL_PATH}. "
         "Recreate and publish dataset_index.json with this file included."
     )
-atlas_labels = cf.load(atlas_path).round().astype(np.int32)
-pwd_spatial = pwd.isel(time=0, drop=True)
-if "z" in atlas_labels.coords and "z" in pwd_spatial.coords:
-    atlas_labels = atlas_labels.sel(z=[pwd_spatial.fusi.origin["z"]], method="nearest")
-    atlas_labels = pwd_spatial.copy(data=np.asarray(atlas_labels.data))
+anatomy_session = _get_anatomy_session(bids_root / _SCANS_REL_PATH, _FUSI_REL_PATH)
+console.print(f"  Anatomy session: {anatomy_session}")
+with np.load(atlas_path, allow_pickle=True) as atlas_data:
+    atlas_labels = np.asarray(atlas_data[anatomy_session])
 
-brain_mask = atlas_labels > 0
+pwd_spatial = pwd.isel(time=0, drop=True)
+if atlas_labels.shape != pwd_spatial.shape[-2:]:
+    raise RuntimeError(
+        f"Atlas region map shape {atlas_labels.shape} does not match the fUSI "
+        f"slice shape {pwd_spatial.shape[-2:]}."
+    )
+brain_mask = pwd_spatial.copy(
+    data=np.broadcast_to(atlas_labels != 0, pwd_spatial.shape)
+)
 console.print(f"  Brain mask voxels: {int(brain_mask.sum())}")
 
 console.print("Extracting brain signals")

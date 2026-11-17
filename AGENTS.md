@@ -105,8 +105,9 @@ Docs are built on CI and deployed to a separate `confusius-docs` repo; see
 for the human contributor workflow. The example gallery is built by the
 [zallery](https://github.com/confusius-tools/zallery) package (a dev dependency),
 invoked as `uv run zallery`; the `[tool.zallery]` table in `pyproject.toml` and
-`tools/gallery_hooks.py` are the ConfUSIus-side configuration and theme hook, and
-`docs/examples/_index.md` is the header of the gallery index page.
+`tools/gallery.py` are the ConfUSIus-side configuration and integration class (the
+look of the figures on the light and the dark page), and `docs/examples/_index.md`
+is the header of the gallery index page.
 
 Use the `/release NEW_VERSION` skill (`.claude/skills/release/SKILL.md`) for the full
 release process (version bumps, changelog, tag, push, announcements).

@@ -492,6 +492,91 @@ class TestReindexVoxels:
                 cropped.coords[dim].values, np.arange(cropped.sizes[dim], dtype=float)
             )
 
+    def test_scalar_indexed_restores_voxel_dim(self):
+        """A scalar-indexed voxel dim comes back rebased, with world coords unchanged."""
+        data = _make_voxel_to_world_volume()
+
+        result = data.isel(k=1).fusi.affine.reindex_voxels()
+
+        assert result.dims == ("k", "j", "i")
+        np.testing.assert_array_equal(result.coords["k"].values, [0])
+        np.testing.assert_array_equal(result.coords["j"].values, [0, 1, 2])
+        # At k = 1, j = 2, i = 3 the input sits at (z, y, x) = (14, 26, 42).
+        voxel = result.isel(k=0, j=1, i=3)
+        assert float(voxel.coords["z"]) == pytest.approx(14.0)
+        assert float(voxel.coords["y"]) == pytest.approx(26.0)
+        assert float(voxel.coords["x"]) == pytest.approx(42.0)
+
+    def test_scalar_indexed_two_voxel_dims(self):
+        """Every scalar-indexed voxel dim is folded into the rebuilt affine."""
+        data = create_voxeldata(
+            np.zeros((2, 3, 4)),
+            dims=("k", "j", "i"),
+            spacing=(2.0, 3.0, 4.0),
+            origin=(1.0, 2.0, 3.0),
+        )
+
+        result = data.isel(k=1, j=2).fusi.affine.reindex_voxels()
+
+        assert result.shape == (1, 1, 4)
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(result),
+            [
+                [2.0, 0.0, 0.0, 3.0],
+                [0.0, 3.0, 0.0, 8.0],
+                [0.0, 0.0, 4.0, 3.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        )
+
+    def test_scalar_indexed_time_series_keeps_data(self, sample_voxeldata_3dt):
+        """A slice of a recording keeps its samples in `(time, k, j, i)` order."""
+        result = sample_voxeldata_3dt.isel(k=2).fusi.affine.reindex_voxels()
+
+        assert result.dims == ("time", "k", "j", "i")
+        np.testing.assert_array_equal(
+            result.values[:, 0], sample_voxeldata_3dt.values[:, 2]
+        )
+        # z = 0.2 * k + 1 at k = 2.
+        np.testing.assert_allclose(result.coords["z"].values, 1.4)
+
+    def test_scalar_indexed_pose_dependent(self, sample_voxeldata_3dt_pose):
+        """Each pose keeps its own origin when a voxel dim is scalar-indexed."""
+        result = sample_voxeldata_3dt_pose.isel(k=2).fusi.affine.reindex_voxels()
+
+        assert result.dims == ("time", "pose", "k", "j", "i")
+        # z = 0.2 * k + 1 at k = 2, and pose 1 sits 0.4 further along z.
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(result)[:, 0, 3], [1.4, 1.8]
+        )
+
+    def test_scalar_indexed_inplace_raises_and_leaves_input_unchanged(self):
+        """`inplace=True` raises because the input cannot gain the missing dim back."""
+        data = _make_voxel_to_world_volume().isel(k=1)
+
+        with pytest.raises(ValueError, match="inplace"):
+            data.fusi.affine.reindex_voxels(inplace=True)
+
+        assert data.dims == ("j", "i")
+        np.testing.assert_array_equal(data.coords["j"].values, [0, 2, 4])
+
+    def test_complete_array_skips_voxeldata_validation(self, recwarn):
+        """An array with all voxel dims does not get bare `time` metadata warnings."""
+        base = xr.DataArray(
+            np.zeros((5, 2, 3, 4)),
+            dims=("time", "k", "j", "i"),
+            coords={
+                "time": np.arange(5.0),
+                "k": np.arange(2),
+                "j": np.arange(3),
+                "i": np.arange(4),
+            },
+        )
+
+        attach_voxel_to_world_index(base, np.eye(4)).fusi.affine.reindex_voxels()
+
+        assert len(recwarn) == 0
+
 
 class TestReindexVoxelsLike:
     """Tests for fusi.reindex_voxels_like."""
@@ -1104,6 +1189,118 @@ class TestAffineApplyMethod:
 
         assert returned is da
         np.testing.assert_allclose(da.coords["z"].values, original_z + 2.0)
+
+    def test_scalar_indexed_restores_voxel_dim(self):
+        """A scalar-indexed voxel dim comes back as a singleton in the result."""
+        da = self._make_scan(spacing=(2.0, 3.0, 4.0), origin=(1.0, 2.0, 3.0))
+        shift = np.eye(4)
+        shift[0, 3] = 10.0
+
+        result = da.isel(k=2).fusi.affine.apply(shift)
+
+        assert result.dims == ("k", "j", "i")
+        assert result.shape == (1, 4, 5)
+        np.testing.assert_array_equal(result.coords["k"].values, [2])
+        # z = 2 * k + 1 + 10 at k = 2.
+        np.testing.assert_allclose(result.coords["z"].values, 15.0)
+        np.testing.assert_allclose(
+            result.fusi.affine.voxel_to_world,
+            [
+                [2.0, 0.0, 0.0, 11.0],
+                [0.0, 3.0, 0.0, 2.0],
+                [0.0, 0.0, 4.0, 3.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        )
+
+    def test_scalar_indexed_oblique_geometry(self):
+        """World coordinates stay correct when the indexed dim feeds an oblique axis."""
+        da = _make_voxel_to_world_volume()
+        swap_zy_and_shift = np.array(
+            [
+                [0.0, 1.0, 0.0, 100.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+
+        result = da.isel(k=1).fusi.affine.apply(swap_zy_and_shift)
+
+        # At k = 1, j = 2, i = 3 the input sits at (z, y, x) = (14, 26, 42).
+        voxel = result.isel(k=0, j=1, i=3)
+        assert float(voxel.coords["z"]) == pytest.approx(126.0)
+        assert float(voxel.coords["y"]) == pytest.approx(14.0)
+        assert float(voxel.coords["x"]) == pytest.approx(42.0)
+
+    def test_scalar_indexed_two_voxel_dims(self):
+        """Every scalar-indexed voxel dim comes back, not only the first."""
+        da = self._make_scan(spacing=(2.0, 3.0, 4.0), origin=(1.0, 2.0, 3.0))
+        shift = np.eye(4)
+        shift[0, 3] = 10.0
+
+        result = da.isel(k=2, j=3).fusi.affine.apply(shift)
+
+        assert result.dims == ("k", "j", "i")
+        np.testing.assert_array_equal(result.coords["j"].values, [3])
+        np.testing.assert_allclose(result.coords["z"].values, 15.0)
+        # y = 3 * j + 2 at j = 3.
+        np.testing.assert_allclose(result.coords["y"].values, 11.0)
+
+    def test_scalar_indexed_time_series_keeps_data(self, sample_voxeldata_3dt):
+        """A slice of a recording keeps its samples in `(time, k, j, i)` order."""
+        shift = np.eye(4)
+        shift[0, 3] = 10.0
+
+        result = sample_voxeldata_3dt.isel(k=2).fusi.affine.apply(shift)
+
+        assert result.dims == ("time", "k", "j", "i")
+        np.testing.assert_array_equal(
+            result.values[:, 0], sample_voxeldata_3dt.values[:, 2]
+        )
+        # z = 0.2 * k + 1 + 10 at k = 2.
+        np.testing.assert_allclose(result.coords["z"].values, 11.4)
+
+    def test_scalar_indexed_pose_dependent_scan(self):
+        """Single and per-pose affines both apply to a scalar-indexed pose stack."""
+        da = self._make_pose_dependent_scan().isel(k=1)
+        shift = np.eye(4)
+        shift[0, 3] = 5.0
+
+        broadcast = da.fusi.affine.apply(shift)
+        per_pose = da.fusi.affine.apply(np.stack([shift, np.eye(4)]))
+
+        assert broadcast.dims == ("pose", "k", "j", "i")
+        # Before the shift, k = 1 sits at z = 1 in pose 0 and z = 101 in pose 1.
+        np.testing.assert_allclose(
+            broadcast.coords["z"].isel(k=0, j=0, i=0).values, [6.0, 106.0]
+        )
+        np.testing.assert_allclose(
+            per_pose.coords["z"].isel(k=0, j=0, i=0).values, [6.0, 101.0]
+        )
+
+    def test_scalar_indexed_named_affine(self):
+        """A named affine applies to scalar-indexed data and is stored as identity."""
+        shift = np.eye(4)
+        shift[0, 3] = 10.0
+        da = self._make_scan(affines={"world_to_lab": shift})
+
+        result = da.isel(k=2).fusi.affine.apply("world_to_lab")
+
+        np.testing.assert_allclose(result.coords["z"].values, 12.0)
+        np.testing.assert_array_equal(result.attrs["affines"]["world_to_lab"], np.eye(4))
+
+    def test_scalar_indexed_inplace_raises_and_leaves_input_unchanged(self):
+        """`inplace=True` raises because the input cannot gain the missing dim back."""
+        da = self._make_scan().isel(k=2)
+        shift = np.eye(4)
+        shift[0, 3] = 10.0
+
+        with pytest.raises(ValueError, match="inplace"):
+            da.fusi.affine.apply(shift, inplace=True)
+
+        assert da.dims == ("j", "i")
+        np.testing.assert_allclose(da.coords["z"].values, 2.0)
 
     def test_rotation_composes_fully_into_voxel_to_world(self):
         """A rotation composes fully into `voxel_to_world` (no residual)."""

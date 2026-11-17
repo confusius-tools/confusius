@@ -74,18 +74,13 @@ Released YYYY-MM-DD.
 - Keep the rest of the entry intact unless the user asked for content edits.
 
 ### `CITATION.cff`
-- Replace `version: OLD` with `version: VERSION`.
-- Replace `date-released: 'OLD_DATE'` with `date-released: 'TODAY'`.
+- Replace the top-level `version: OLD` with `version: VERSION`.
+- Replace the top-level `date-released: 'OLD_DATE'` with `date-released: 'TODAY'`.
+- Leave `preferred-citation` unchanged: it describes the preprint, not the software release.
 
-### `README.md`
-In the citation section only:
-
-- Replace `ConfUSIus (vOLD)` with `ConfUSIus (vVERSION)`.
-- Replace `version   = {vOLD}` with `version   = {vVERSION}`.
-- Replace the citation year if needed.
-
-### `docs/citing.md`
-Apply the same citation replacements as in `README.md`.
+### `README.md` and `docs/citing.md`
+Leave the citation sections unchanged: they cite the preprint and link to the Zenodo
+archive without embedding a software version.
 
 Update any other release/version/date files only if they actually exist and clearly need to
 track the release version.
@@ -289,14 +284,13 @@ In `[project.plugins.llmstxt]`, replace `ConfUSIus version OLD` with
 `ConfUSIus version VERSION` inside `markdown_description`.
 
 ### `CITATION.cff`
-- **Do not modify.** Citation metadata must keep pointing at the last tagged release so
-  users cite the released version, not an unreleased development snapshot. `CITATION.cff`
-  is only updated in `prepare` mode.
+- **Do not modify.** Top-level software metadata must keep pointing at the last tagged
+  release, not an unreleased development snapshot. `preferred-citation` describes the
+  preprint and is independent of software releases.
 
 ### `README.md` and `docs/citing.md`
-- **Do not modify** the citation section. Same reason as `CITATION.cff`: the rendered
-  citation must reference the last tagged release, not a development version. These files
-  are only updated in `prepare` mode.
+- **Do not modify** the citation sections. They cite the preprint and link to the Zenodo
+  archive without embedding a software version.
 
 ### Step 3 — Sync and verify
 

@@ -76,7 +76,12 @@ just pre-commit
 
 Documentation is built on GitHub Actions and deployed to a separate GitHub Pages
 repository ([confusius-tools/confusius-docs](https://github.com/confusius-tools/confusius-docs)).
-Every pull request gets an automatic preview, with a link posted as a comment on the PR.
+Documentation is built and checked for every pull request. To publish a preview,
+add the **`docs-preview` GitHub label** to the PR. The latest successful Docs build
+for its current commit is deployed, and subsequent successful builds refresh the
+preview automatically. A bot posts the preview URL and commit on the PR. Remove
+the label to delete the preview and stop updates.
+Build artifacts expire after 14 days; rerun the PR's Docs workflow if needed.
 The preview is cleaned up automatically when the PR is closed.
 
 To build and serve the docs locally:
@@ -100,8 +105,10 @@ covers `docs/examples/**/*.py`). After adding a script, add its built output pat
 the `nav` in `zensical.toml`.
 
 The gallery is built by [zallery](https://github.com/confusius-tools/zallery)
-(`just gallery`). Its README covers the example format, the cell tags, and how a
-single run yields both the light and the dark figures. What is specific to ConfUSIus:
+(`just gallery`). Its
+[user guide](https://github.com/confusius-tools/zallery/tree/main/docs/user-guide)
+covers the example format, the cell tags, and how a single run yields both the light
+and the dark figures. What is specific to ConfUSIus:
 
 - Pass the background to the plotting functions rather than relying on their
   `"black"` default: `bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])`.
@@ -112,8 +119,11 @@ single run yields both the light and the dark figures. What is specific to ConfU
   background-aware default applies.
 - For brand-colored lines, draw with the light-page variants `#d93a54` (red) and
   `#27906d` (turquoise); the dark rendering switches them to `#e94b5f` and `#3ad9a4`.
-  Default-cycle line colors switch to Matplotlib's `dark_background` cycle, and
-  `inferno_r` becomes `inferno`. These swaps live in `tools/gallery_hooks.py`;
+  Default-cycle colors switch to Matplotlib's `dark_background` cycle, also in
+  scatter plots and filled areas and when named explicitly (`"tab:blue"`), and
+  `inferno_r` becomes `inferno`. These pairs are the data of the `Figures` class in
+  `tools/gallery.py`, a zallery
+  [integration class](https://github.com/confusius-tools/zallery/blob/main/docs/user-guide/integrations.md);
   editing it invalidates the gallery cache.
 
 ### Reporting Issues

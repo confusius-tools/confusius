@@ -36,7 +36,7 @@ def _make_reader(path: str | Path) -> Callable[[PathOrPaths], list[FullLayerData
         # `_path`, which may be a list when napari replays the reader.
         da = load(path)
         name = Path(path).name
-        return [convert_dataarray_to_layer_data(da, name)]
+        return convert_dataarray_to_layer_data(da, name)
 
     return _read
 
@@ -81,6 +81,33 @@ def read_scan(path: PathOrPaths) -> Callable[[PathOrPaths], list[FullLayerData]]
     if isinstance(path, list) or not isinstance(path, (str, Path)):
         return None
     if not Path(path).is_file():
+        return None
+    return _make_reader(path)
+
+
+def read_iconeus_raw(
+    path: PathOrPaths,
+) -> Callable[[PathOrPaths], list[FullLayerData]] | None:
+    """Get reader for Iconeus RAW files (`.raw`).
+
+    `.raw` is a common extension, so only RAW files next to their matching `.hraw`
+    metadata sidecar are claimed; any other `.raw` file is left to other plugins.
+
+    Parameters
+    ----------
+    path : PathOrPaths
+        Path passed by napari.
+
+    Returns
+    -------
+    Callable or None
+        Reader function, or `None` if the path is a list, the file does not exist, or
+        it has no matching `.hraw` sidecar (napari will fall back to other plugins).
+    """
+    if isinstance(path, list) or not isinstance(path, (str, Path)):
+        return None
+    raw_path = Path(path)
+    if not raw_path.is_file() or not raw_path.with_suffix(".hraw").is_file():
         return None
     return _make_reader(path)
 

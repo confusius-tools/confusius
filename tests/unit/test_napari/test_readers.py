@@ -6,6 +6,7 @@ scale/translate/axis_labels/units/colormap values produced for napari are physic
 correct.
 """
 
+import warnings
 from pathlib import Path
 
 import dask.array as da
@@ -15,14 +16,21 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 from dask.callbacks import Callback
+from napari.layers import Image
 
-from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
+from confusius._napari._io._readers import (
+    read_iconeus_raw,
+    read_nifti,
+    read_scan,
+    read_zarr,
+)
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
 )
 from confusius.io.loadsave import save
+from confusius.xarray import create_voxeldata
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -139,6 +147,32 @@ class TestReadZarrGating:
         assert read_zarr(str(path)) is None
 
 
+class TestReadIconeusRawGating:
+    """read_iconeus_raw returns a callable only for RAW files with an HRAW sidecar."""
+
+    def test_returns_none_for_list(self, make_iconeus_raw_files) -> None:
+        """Path list is rejected."""
+        raw_path, _, _ = make_iconeus_raw_files()
+        assert read_iconeus_raw([str(raw_path)]) is None
+
+    def test_returns_none_for_missing_file(self, tmp_path: Path) -> None:
+        """Non-existent path is rejected."""
+        assert read_iconeus_raw(str(tmp_path / "missing.raw")) is None
+
+    def test_returns_none_without_hraw_sidecar(self, tmp_path: Path) -> None:
+        """A `.raw` file from another format defers to other plugins."""
+        path = tmp_path / "foreign.raw"
+        path.write_bytes(bytes(16))
+        assert read_iconeus_raw(str(path)) is None
+
+    def test_returns_callable_for_raw_with_hraw_sidecar(
+        self, make_iconeus_raw_files
+    ) -> None:
+        """A `.raw` file next to its `.hraw` sidecar returns a reader function."""
+        raw_path, _, _ = make_iconeus_raw_files()
+        assert callable(read_iconeus_raw(str(raw_path)))
+
+
 # ---------------------------------------------------------------------------
 # LayerData structure
 # ---------------------------------------------------------------------------
@@ -159,6 +193,34 @@ class TestReaderLayerData:
         npt.assert_allclose(kwargs["scale"], [0.2, 0.1, 0.05], rtol=1e-5)
         npt.assert_allclose(kwargs["translate"], [1.0, 2.0, 3.0], rtol=1e-5)
         assert kwargs["axis_labels"] == ["z", "y", "x"]
+
+    def test_multipose_data_returns_one_layer_per_pose_with_shared_contrast(
+        self, tmp_path: Path, sample_voxeldata_3dt_pose: xr.DataArray
+    ) -> None:
+        """Readers split poses and aggregate their automatic contrast limits."""
+        data = sample_voxeldata_3dt_pose + xr.DataArray(
+            [0.0, 100.0], dims="pose", coords={"pose": sample_voxeldata_3dt_pose.pose}
+        )
+        path = tmp_path / "multipose.zarr"
+        save(data, path)
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        layers = reader(str(path))
+
+        assert len(layers) == data.sizes["pose"]
+        assert [kwargs["name"] for _, kwargs, _ in layers] == [
+            "multipose.zarr [pose 0]",
+            "multipose.zarr [pose 1]",
+        ]
+        for _layer_data, kwargs, _layer_type in layers:
+            contrast_limits = kwargs["contrast_limits"]
+            assert contrast_limits[0] < 1.0
+            assert contrast_limits[1] > 100.0
+        for pose, (layer_data, kwargs, layer_type) in enumerate(layers):
+            assert layer_type == "image"
+            npt.assert_array_equal(layer_data, data.isel(pose=pose).values)
+            assert kwargs["metadata"]["source_xarray"].coords["pose"].item() == pose
 
     def test_4d_scale_uses_time_spacing(self, zarr_4d_path: Path) -> None:
         """4D scale uses fusi.spacing for all dims, including time."""
@@ -341,6 +403,31 @@ class TestReaderLayerData:
         assert len(warnings_seen) == 1
         assert "not a valid napari colormap" in warnings_seen[0]
 
+    def test_non_user_warning_is_reemitted(
+        self, zarr_3d_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Non-UserWarnings are re-emitted instead of shown as notifications."""
+        import confusius._utils.napari as napari_utils
+
+        warnings_seen: list[str] = []
+        monkeypatch.setattr(napari_utils, "show_warning", warnings_seen.append)
+        build_layer_data = napari_utils.build_napari_layer_data
+
+        def build_with_runtime_warning(*args, **kwargs):
+            warnings.warn("dependency warning", RuntimeWarning)
+            return build_layer_data(*args, **kwargs)
+
+        monkeypatch.setattr(
+            napari_utils, "build_napari_layer_data", build_with_runtime_warning
+        )
+
+        reader = read_zarr(str(zarr_3d_path))
+        assert reader is not None
+        with pytest.warns(RuntimeWarning, match="dependency warning"):
+            reader(str(zarr_3d_path))
+
+        assert warnings_seen == []
+
     def test_xarray_stored_in_metadata(self, zarr_3d_path: Path) -> None:
         """The original DataArray is stored in metadata for downstream access."""
         reader = read_zarr(str(zarr_3d_path))
@@ -376,6 +463,74 @@ class TestReaderLayerData:
                 [0.0, 0.0, 0.0, 0.0],
             ],
         )
+
+    def test_complex_data_is_displayed_as_magnitude(self, tmp_path: Path) -> None:
+        """Complex IQ data opens as its magnitude instead of crashing napari."""
+        data = (np.arange(24).reshape(2, 3, 4) * (3 + 4j)).astype(np.complex64)
+        path = tmp_path / "iq.zarr"
+        save(
+            create_voxeldata(data, name="iq", dims=("k", "j", "i"), spacing=(1, 1, 1)),
+            path,
+        )
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        layer_data, _, layer_type = reader(str(path))[0]
+
+        assert layer_type == "image"
+        # |n * (3 + 4j)| = 5 * n.
+        npt.assert_allclose(
+            np.asarray(layer_data), 5.0 * np.arange(24).reshape(2, 3, 4), rtol=1e-6
+        )
+
+    def test_iconeus_raw_is_displayed_as_iq_magnitude(
+        self, make_iconeus_raw_files
+    ) -> None:
+        """Iconeus RAW IQ opens as an image layer of its magnitude."""
+        raw_path, _, expected_iq = make_iconeus_raw_files()
+
+        reader = read_iconeus_raw(str(raw_path))
+        assert reader is not None
+        layer_data, kwargs, layer_type = reader(str(raw_path))[0]
+
+        assert layer_type == "image"
+        assert kwargs["name"] == "sample.raw"
+        npt.assert_allclose(np.asarray(layer_data), np.abs(expected_iq), rtol=1e-6)
+
+    def test_length_three_spatial_axis_not_treated_as_rgb(self, tmp_path: Path) -> None:
+        """A last spatial axis of length 3 stays spatial instead of becoming RGB."""
+        # napari guesses RGB when the last axis has length 3 or 4 and both displayed
+        # axes before it are longer than 30.
+        data = np.random.default_rng(0).random((31, 31, 3)).astype(np.float32)
+        path = tmp_path / "three_wide.zarr"
+        save(
+            create_voxeldata(data, name="pwd", dims=("k", "j", "i"), spacing=(1, 1, 1)),
+            path,
+        )
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        layer_data, kwargs, _ = reader(str(path))[0]
+
+        assert not Image(layer_data, **kwargs).rgb
+
+    def test_reversed_spatial_coords_are_sorted(
+        self, tmp_path: Path, sample_voxeldata_3d: xr.DataArray
+    ) -> None:
+        """Reversed voxel axes are displayed in ascending world order."""
+        reversed_data = sample_voxeldata_3d.isel(
+            j=slice(None, None, -1), i=slice(None, None, -1)
+        )
+        path = tmp_path / "reversed.zarr"
+        save(reversed_data, path)
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        layer_data, kwargs, _ = reader(str(path))[0]
+
+        # Ascending world coordinates start at the fixture origin.
+        npt.assert_allclose(kwargs["translate"], [1.0, 2.0, 3.0], rtol=1e-5)
+        npt.assert_allclose(np.asarray(layer_data), sample_voxeldata_3d.values)
 
     def test_integer_dtype_is_labels_layer(self, integer_zarr_path: Path) -> None:
         """Integer-dtype arrays are returned as a 'labels' layer, not 'image'."""
