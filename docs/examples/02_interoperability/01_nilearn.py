@@ -15,7 +15,7 @@
 #     ConfUSIus does not install nilearn. If nilearn is not in your environment, install
 #     it before you run this example:
 #
-#     ```bash pip install nilearn ```
+#     ```pip install nilearn```
 #
 # [^collection]: See [The ConfUSIus Dataset Collection](../io/dataset_collection.md) for
 # available studies, formats, licenses, and reproducible subset downloads.
@@ -79,7 +79,7 @@ stat.attrs["long_name"] = "t statistic"
 stat = stat.fusi.affine.apply("world_to_qform")
 stat.attrs["sform_code"] = 0
 
-img, metadata = stat.fusi.to_nifti
+img, metadata = stat.fusi.to_nifti()
 
 # %% [markdown]
 # ## Find the clusters with nilearn
