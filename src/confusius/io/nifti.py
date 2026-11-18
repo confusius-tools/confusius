@@ -1163,14 +1163,14 @@ def _build_dask_array_from_nifti_dataobj(
 ) -> da.Array:
     """Build a Dask array in ConfUSIus voxel order from a NiBabel image's dataobj.
 
-    For an image loaded from disk, `img.dataobj` is a nibabel `ArrayProxy`, which
-    already exposes `.shape`, `.dtype`, and numpy-style `__getitem__` slicing (applying
-    any slope/intercept scaling lazily per chunk). Passing it to `da.from_array`
-    directly keeps the array lazy; converting it through `np.asanyarray` first would
-    force it into a concrete `numpy.memmap`, which `da.from_array` then copies while
-    building the graph. For an in-memory image built directly from an array (e.g.
-    `nib.Nifti1Image(data, affine)`), `dataobj` is already a plain `numpy.ndarray`, so
-    it is wrapped as-is instead.
+    `img.dataobj` is either a nibabel `ArrayProxy` (image loaded from disk) or a plain
+    `numpy.ndarray` (in-memory image, e.g. `nib.Nifti1Image(data, affine)`). Both
+    expose `.shape`, `.dtype`, and numpy-style `__getitem__` slicing (the proxy
+    applying any slope/intercept scaling lazily per chunk), so both are passed to
+    `da.from_array` as-is. Converting a proxy through `np.asanyarray` first would force
+    it into a concrete `numpy.memmap`, which `da.from_array` then copies while building
+    the graph. `name=False` gives the graph a random key instead of one derived by
+    hashing every voxel of an in-memory array.
 
     NIfTI stores data with shape (x, y, z, time) in column-major order. `ArrayProxy`
     has no `.T`, so the Dask array is built in that native order and transposed
@@ -1178,7 +1178,7 @@ def _build_dask_array_from_nifti_dataobj(
 
     Parameters
     ----------
-    img : nib.nifti1.Nifti1Image or nib.nifti2.Nifti2Image
+    img : nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
         NiBabel NIfTI image.
     chunks : int or tuple[int, ...] or str or None
         Chunk specification in ConfUSIus (post-transpose) axis order, as documented
@@ -1189,21 +1189,16 @@ def _build_dask_array_from_nifti_dataobj(
     dask.array.Array
         Data transposed to ConfUSIus voxel order `(..., time, k, j, i)`.
     """
-    from nibabel.arrayproxy import ArrayProxy
-
-    proxy = img.dataobj
-    if isinstance(proxy, ArrayProxy):
-        dask_arr = da.from_array(
-            proxy,
-            chunks=_reverse_chunk_spec(chunks, proxy.ndim),
-            asarray=False,
-            name=False,
-            meta=np.empty((), dtype=proxy.dtype),
-        )
-    else:
-        array = np.asanyarray(proxy)
-        dask_arr = da.from_array(array, chunks=_reverse_chunk_spec(chunks, array.ndim))
-    return dask_arr.T
+    dataobj = img.dataobj
+    return da.from_array(
+        dataobj,
+        chunks=_reverse_chunk_spec(chunks, dataobj.ndim),
+        asarray=False,
+        name=False,
+        # nibabel types `dataobj` as its `ArrayLike` protocol, which omits `dtype`;
+        # both concrete types it can be (`ArrayProxy`, `numpy.ndarray`) define it.
+        meta=np.empty((), dtype=dataobj.dtype),  # ty: ignore[missing-attribute]
+    ).T
 
 
 def convert_from_nifti(
