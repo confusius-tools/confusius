@@ -10,7 +10,12 @@ import pytest
 from confusius._cli import build_parser, main
 from confusius._utils.skills import install_skills, list_skills
 
-SKILL = "confusius-load-data"
+BUNDLED_SKILLS = sorted(
+    child.name
+    for child in resources.files("confusius").joinpath("_skills").iterdir()
+    if child.is_dir() and child.joinpath("SKILL.md").is_file()
+)
+REPRESENTATIVE_SKILL = BUNDLED_SKILLS[0]
 
 
 def _snapshot(root: Path) -> dict[Path, bytes]:
@@ -23,11 +28,11 @@ def _snapshot(root: Path) -> dict[Path, bytes]:
 
 
 def test_discover_bundled_skills() -> None:
-    """The distributed import skill is discoverable, unlike the release workflow."""
+    """Every bundled skill is discoverable with a description, in sorted order."""
     skills = list_skills()
-    assert skills.get(SKILL)
+    assert list(skills) == BUNDLED_SKILLS
+    assert all(skills.values())
     assert "release" not in skills
-    assert list(skills) == sorted(skills)
 
 
 def test_discovery_requires_skill_file(tmp_path: Path, monkeypatch) -> None:
@@ -94,8 +99,9 @@ def test_invalid_frontmatter(tmp_path: Path, monkeypatch, document: str) -> None
     "target", [".agents/skills", "custom/skills", "~/tilde/skills", "absolute"]
 )
 @pytest.mark.parametrize("global_install", [False, True])
+@pytest.mark.parametrize("skill", BUNDLED_SKILLS)
 def test_install_location(
-    tmp_path: Path, monkeypatch, target: str, global_install: bool
+    tmp_path: Path, monkeypatch, target: str, global_install: bool, skill: str
 ) -> None:
     """Relative targets follow the scope; absolute and `~` targets are used directly."""
     home, project = tmp_path / "home", tmp_path / "project"
@@ -112,9 +118,9 @@ def test_install_location(
         expected = home / "tilde/skills"
     else:
         expected = (home if global_install else project) / target
-    (destination,) = install_skills(SKILL, global_install=global_install, target=target)
-    assert destination == expected / SKILL
-    source = Path(str(resources.files("confusius").joinpath("_skills", SKILL)))
+    (destination,) = install_skills(skill, global_install=global_install, target=target)
+    assert destination == expected / skill
+    source = Path(str(resources.files("confusius").joinpath("_skills", skill)))
     assert _snapshot(destination) == _snapshot(source)
     # Nothing is written outside the skill, and no staging directory is left behind.
     for file in tmp_path.rglob("*"):
@@ -126,7 +132,7 @@ def test_install_location(
 def test_overwrite_protection(tmp_path: Path, monkeypatch, kind: str) -> None:
     """Replacement requires force, removes stale content, and never follows a skill symlink."""
     monkeypatch.chdir(tmp_path)
-    destination = tmp_path / ".agents" / "skills" / SKILL
+    destination = tmp_path / ".agents" / "skills" / REPRESENTATIVE_SKILL
     destination.parent.mkdir(parents=True)
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -146,7 +152,7 @@ def test_overwrite_protection(tmp_path: Path, monkeypatch, kind: str) -> None:
             pytest.skip("Creating symlinks is unavailable on this platform.")
 
     with pytest.raises(FileExistsError, match="--force"):
-        install_skills(SKILL)
+        install_skills(REPRESENTATIVE_SKILL)
     if kind == "directory":
         assert (destination / "stale.txt").read_text(encoding="utf-8") == "custom skill"
     elif kind == "file":
@@ -154,7 +160,7 @@ def test_overwrite_protection(tmp_path: Path, monkeypatch, kind: str) -> None:
     else:
         assert destination.is_symlink()
 
-    assert install_skills(SKILL, force=True) == [destination]
+    assert install_skills(REPRESENTATIVE_SKILL, force=True) == [destination]
     assert not destination.is_symlink()
     assert (destination / "SKILL.md").is_file()
     assert not (destination / "stale.txt").exists()
@@ -274,7 +280,8 @@ def test_cli_list(tmp_path: Path, monkeypatch, capsys) -> None:
     listing = capsys.readouterr().out
     assert "Available Agent Skills" in listing
     assert "Name" in listing and "Description" in listing
-    assert SKILL in listing
+    for skill in BUNDLED_SKILLS:
+        assert skill in listing
 
 
 def test_cli_install(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -289,14 +296,14 @@ def test_cli_install(tmp_path: Path, monkeypatch, capsys) -> None:
             "confusius",
             "skills",
             "install",
-            SKILL,
+            REPRESENTATIVE_SKILL,
             "--global",
             "--target",
             ".claude/skills",
         ],
     )
     main()
-    destination = home / ".claude" / "skills" / SKILL
+    destination = home / ".claude" / "skills" / REPRESENTATIVE_SKILL
     assert (destination / "SKILL.md").is_file()
     assert str(destination) in capsys.readouterr().out
 
@@ -304,7 +311,9 @@ def test_cli_install(tmp_path: Path, monkeypatch, capsys) -> None:
 def test_cli_install_requires_force(tmp_path: Path, monkeypatch, capsys) -> None:
     """Reinstalling an existing skill fails until `--force` is passed."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("sys.argv", ["confusius", "skills", "install", SKILL])
+    monkeypatch.setattr(
+        "sys.argv", ["confusius", "skills", "install", REPRESENTATIVE_SKILL]
+    )
     main()
     capsys.readouterr()
     with pytest.raises(SystemExit) as error:

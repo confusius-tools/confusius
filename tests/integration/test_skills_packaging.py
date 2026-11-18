@@ -90,10 +90,11 @@ main()
         timeout=120,
     )
     assert "Available Agent Skills" in result.stdout
-    assert "confusius-load-data" in result.stdout
-    destination = installed / ".agents/skills/confusius-load-data"
+    destination = installed / ".agents/skills"
     for name, content in expected.items():
-        relative = Path(name).relative_to("confusius/_skills/confusius-load-data")
+        relative = Path(name).relative_to("confusius/_skills")
+        if relative.name == "SKILL.md":
+            assert relative.parts[0] in result.stdout
         assert (destination / relative).read_bytes() == content
 
 

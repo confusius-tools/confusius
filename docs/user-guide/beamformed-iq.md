@@ -4,112 +4,76 @@ icon: lucide/audio-waveform
 
 # Processing Beamformed IQ Data
 
-## Introduction
+Beamformed IQ signals contains very rich information about tissue and blood. ConfUSIus
+lets you process these recordings to produce the following measures:
 
-After [loading your beamformed IQ data](io.md#loading-data), the next step in most fUSI
-workflows is processing it to extract hemodynamic signals. This guide explains how to
-use ConfUSIus to transform beamformed IQ data into measures like B-mode, power Doppler,
-and axial velocity.
+- **B-mode**, to visualize tissue anatomy.
+- **Power Doppler**, to track changes in blood signal power, commonly used as a measure
+  of relative cerebral blood volume in fUSI.
+- **Axial velocity**, to estimate motion along the ultrasound beam.
 
-## Why Process IQ Data?
+You can also apply your own processing functions to compute other measures.
+Blood-related measures usually require **clutter filtering** to suppress the much
+stronger tissue echoes before calculating the output.
 
-Beamformed IQ data contains signals from all moving and stationary structures in the
-imaging field:
+This guide covers IQ data requirements, built-in measures, clutter filtering, processing
+windows, and custom workflows. To learn how to load beamformed IQ data into ConfUSIus,
+see [Loading data](io.md#loading-data).
 
-- **Tissue signals**: Strong echoes from slow-moving tissue (~40-60 dB stronger than
-  blood).
-- **Blood signals**: Weak echoes from fast-moving red blood cells.
+## Understanding Beamformed IQ Data
 
-Beamformed IQ signals can be processed to extract different types of information
-depending on your application:
+### What Are Beamformed IQ Signals?
 
-- **Structural imaging** (B-mode): Use amplitude information to visualize tissue
-  anatomy.
-- **Blood volume** (power Doppler): Separate blood from tissue to quantify
-  cerebral blood volume changes.
-- **Blood flow velocimetry** (color Doppler): Estimate blood flow speed and direction.
-- **Tissue motion**: Track tissue displacement (e.g., cardiac pulsatility, respiration).
+A fUSI scanner transmits high-frequency pulses and records the returning echoes as
+radio-frequency (RF) signals. IQ demodulation then converts these echoes into
+complex-valued signals that preserve amplitude and phase while discarding the
+high-frequency carrier. Finally, a beamforming algorithm combines the signals into a
+volume; a sequence of volumes forms a **beamformed IQ recording**.
 
-This guide covers the **IQ processing functions in ConfUSIus**, which focus primarily on
-extracting blood volume information for fUSI applications. The typical workflow
-involves:
-
-1. **Filtering** to isolate signals of interest (e.g., blood).
-2. **Computing derived measures** from the filtered IQ signals (e.g., power Doppler,
-   velocity).
-
-For fUSI specifically, this means using clutter filtering to separate blood from tissue,
-then computing measures like power Doppler or axial velocity. The result is a series of
-volumes showing changes in cerebral blood volume or flow.
-
-## Understanding Your IQ Data
-
-Before processing, it's important to understand what beamformed IQ data represents and
-how it's structured.
-
-### Quick Primer on Beamformed IQ Signals
-
-Most fUSI users work with beamformed IQ signals rather than raw radio-frequency (RF)
-signals. Indeed, ultrasound systems emit pulses at high frequencies (typically 1–30
-MHz). The received echoes oscillate at these same high frequencies. However, for imaging
-we only care about:
-
-- **Amplitude**: How strong is the reflection (related to tissue properties)?
-- **Phase**: How much has the phase shifted (related to motion via Doppler effect)?
-
-IQ demodulation extracts this amplitude and phase information while discarding the
-high-frequency carrier, allowing for a significant reduction in sampling rate and thus
-drastically reducing data volume. A beamformed IQ sample can be represented as
+Each beamformed IQ sample can be written as
 
 $$
-\text{IQ}(i, j, k, t) = A(i, j, k, t) \, e^{j\phi(i, j, k, t)},
+\mathrm{IQ}(i,j,k,t)=A(i,j,k,t)e^{j\phi(i,j,k,t)},
 $$
 
-where $A$ is amplitude, $\phi$ is phase, $(i, j, k)$ are spatial coordinates, and $t$ is
-the **slow-time** index.
+where $A$ is the echo amplitude, $\phi$ its phase, $(i,j,k)$ the voxel position, and $t$
+the time. **Amplitude** reflects echo strength; **changes in phase** can reveal motion.
 
-!!! info "Slow time vs. fast time"
-    - **Fast time**: RF signals sampled at MHz rates.
-    - **Slow time**: Beamformed IQ signals sampled once per pulse, at kHz rates.
+!!! info "Pulse repetition and compound sampling frequencies"
+    With single plane-wave imaging, beamformed IQ volumes are acquired at the *pulse
+    repetition frequency (PRF)*, usually in the kilohertz range. In **compounded
+    imaging**, echoes from several plane-wave angles are combined into one
+    volume[^montaldo2009]. The resulting *compound sampling frequency* is typically the
+    PRF divided by the number of angles, often giving hundreds of volumes per second.
+    However, some fUSI scanners add a delay between each beamformed IQ volume (often to
+    avoid probe heating, or because of computer processing limits). In this case, the
+    compound sampling frequency is lower.
 
-For single plane-wave imaging, the sampling rate of the beamformed IQ signals equals the
-pulse repetition frequency (PRF), typically kHz rates. With **compound imaging** (common
-in fUSI), multiple plane waves are emitted at different angles and their echoes are
-combined to form a single compound volume[^montaldo2009]. In this case, the effective
-sampling rate, the **compound frequency**, is the PRF divided by the number of angles,
-typically hundreds of hertz.
+### Data Format and Metadata
 
-### Expected Data Structure
+ConfUSIus represents IQ recordings as complex-valued
+[VoxelData](voxeldata.md#the-voxeldata-model) arrays. For axial velocity computation,
+the VoxelData array must also have `transmit_frequency` and `beamforming_sound_velocity`
+attributes. Some formats contain these attributes, but others do not. You may supply
+them manually after loading, or when creating an array with
+[`create_voxeldata`][confusius.xarray.create_voxeldata].
 
-Beamformed IQ data in ConfUSIus is a complex-valued, [VoxelData
-model](voxeldata.md#the-voxeldata-model) DataArray, with `time` as
-the slow-time dimension. This dimension order keeps IQ processing's sliding-window
-operations efficient.
-
-Beyond the VoxelData requirements, axial velocity estimation also requires the
-`transmit_frequency` and `beamforming_sound_velocity` DataArray attributes.
-[`create_voxeldata`][confusius.xarray.create_voxeldata] accepts both as optional
-arguments, and [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity]
-checks for their presence internally via
-[`validate_voxeldata`][confusius.validation.validate_voxeldata].
-
-Here is what a valid IQ DataArray looks like once loaded:
+For example:
 
 ```pycon
 >>> import confusius as cf
->>>
 >>> iq = cf.load("sub-01_task-rest_iq.zarr")
 >>> iq
 <xarray.DataArray 'iq' (time: 50000, k: 1, j: 118, i: 52)> Size: 2GB
-dask.array<xarray-<this-array>, shape=(50000, 1, 118, 52), dtype=complex64, chunksize=(1000, 1, 118, 52), chunktype=numpy.ndarray>
+dask.array<... shape=(50000, 1, 118, 52), dtype=complex64, chunksize=(1000, 1, 118, 52)>
 Coordinates:
-  * time     (time) float64 400kB 0.0 0.002 0.004 ... 99.99 100.0 100.0
-  * k        (k) int64 8B 0
-  * j        (j) int64 944B 0 1 2 3 4 5 6 7 ... 110 111 112 113 114 115 116 117
-  * i        (i) int64 416B 0 1 2 3 4 5 6 7 8 9 ... 43 44 45 46 47 48 49 50 51
-  * z        (k, j, i) float64 49kB dask.array<chunksize=(1, 118, 52), meta=np.ndarray>
-  * y        (k, j, i) float64 49kB dask.array<chunksize=(1, 118, 52), meta=np.ndarray>
-  * x        (k, j, i) float64 49kB dask.array<chunksize=(1, 118, 52), meta=np.ndarray>
+  * time     (time) float64 0.0 0.002 0.004 ... 100.0
+  * k        (k) int64 0
+  * j        (j) int64 0 1 2 ... 117
+  * i        (i) int64 0 1 2 ... 51
+  * z        (k, j, i) float64 ...
+  * y        (k, j, i) float64 ...
+  * x        (k, j, i) float64 ...
 Indexes:
   ┌ z        VoxelToWorldIndex
   │ y
@@ -121,82 +85,208 @@ Attributes:
     beamforming_sound_velocity:   1540.0
 ```
 
-ConfUSIus loads AUTC DAT, EchoFrame DAT, and Iconeus RAW beamformed IQ files directly;
-see the [I/O guide](io.md) for more details. If your acquisition system isn't directly
-supported, see [Other Systems](io.md#other-systems) for how to wrap a custom complex
-array as an IQ DataArray.
+ConfUSIus can load beamformed IQ files from AUTC DAT, EchoFrame DAT, and Iconeus RAW
+recordings. See the [I/O guide](io.md) for supported formats, or [Other
+systems](io.md#other-systems) to convert your own complex-valued arrays.
 
-!!! question "Finding metadata values"
-    If you're unsure about the correct values:
+!!! tip "Finding acquisition metadata"
+    - `volume_acquisition_duration`: Usually the number of plane-wave angles divided by
+      the PRF, with an optional delay between volumes.
+    - `transmit_frequency`: Look in your probe specifications or acquisition settings
+      (typically 5–10 MHz for clinical probes and 12–30 MHz for high-frequency
+      small-animal probes).
+    - `beamforming_sound_velocity`: Often set to 1540 m/s for soft tissue, but depends
+      on tissue and temperature.
 
-    - `volume_acquisition_duration`: This is usually equal to the number of plane wave
-      angles divided by the pulse repetition frequency.
-    - `transmit_frequency`: Found in your probe specifications or acquisition settings.
-      Generally around 5-10 MHz for clinical probes, and 12-20 MHz for high-frequency
-      probes used in small animal imaging.
-    - `beamforming_sound_velocity`: Typically 1540 m/s for brain tissues, but may vary
-      with temperature and tissue type.
+## Computing B-Mode, Power Doppler, and Velocity
 
-## How ConfUSIus Processes IQ Data
+ConfUSIus provides built-in functions to process beamformed IQ data using sliding
+temporal windows. All IQ processing functions return Dask-backed VoxelData arrays. Call
+[`.compute()`][xarray.DataArray.compute] to load the result into memory, or use
+[`confusius.save`][confusius.io.save] to write it in chunks. See the [Processing
+beamformed IQ recordings](../examples/_built/iq/process_beamformed_iq.md) for a
+practical example.
 
-ConfUSIus offers a flexible framework for processing IQ data using sliding windows. At
-its core is the [`process_iq_blocks`][confusius.iq.process_iq_blocks] function, which
-allows you to run any user-defined function on sliding windows of IQ signals along the
-temporal dimension. This base function is then wrapped by specialized processing
-functions for common fUSI applications.
+### Power Doppler
 
-### Generic IQ Processing
+**Power Doppler** is the most common fUSI measure of relative cerebral blood volume
+changes. After removing tissue echoes with a clutter filter, ConfUSIus averages the
+squared IQ magnitude over each Doppler window.
 
-The [`process_iq_blocks`][confusius.iq.process_iq_blocks] function is the
-foundation of IQ processing in ConfUSIus. It provides a generic interface for applying
-any user-defined function to "blocks" of IQ data using sliding temporal windows. You
-will generally not call this function directly, but it is worth knowing it exists if you
-ever need to implement a custom processing workflow (for example, when implementing new
-clutter filters).
+[`process_iq_to_power_doppler`][confusius.iq.process_iq_to_power_doppler] uses
+`clutter_window_width` to determine the clutter filter window size and
+`doppler_window_width` for power Doppler averaging. Its output is **signal power in
+arbitrary units**, not an absolute measure blood volume.
 
-```mermaid
----
-config:
-  layout: elk
----
-
-flowchart LR
-    IQ -->|Window 1| F1{{"User Function"}}
-    IQ --> ellipsis{{"..."}}
-    IQ -->|Window <em>n</em>| F2{{"User Function"}}
-
-    F1 -->|"Output Volume(s)"| output
-    F2 -->|"Output Volume(s)"| output
-
-    IQ@{ shape: processes, label: "Input IQ Volumes" }
-    output@{ shape: processes, label: "Stacked Output Volumes" }
-    ellipsis@{ shape: text}
+```python
+pwd = cf.iq.process_iq_to_power_doppler(
+    iq, filter_method="svd_indices", low_cutoff=40
+).compute()
 ```
 
-!!! note
-    Contrary to most ConfUSIus functions,
-    [`process_iq_blocks`][confusius.iq.process_iq_blocks] is a low-level function that
-    expects a [Dask array](https://examples.dask.org/array.html) instead of an Xarray
-    DataArray. This is because it operates on IQ data directly and returns processed
-    data without metadata and coordinate handling. The wrapper functions for power
-    Doppler and axial velocity handle the Xarray integration and metadata management for
-    you.
+### Axial Velocity
 
-### Convenience Wrappers
+**Axial velocity** describes motion along the ultrasound beam.
+[`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity] estimates
+it from phase changes between beamformed IQ samples, averaged over
+`velocity_window_width` frames[^kasai1985]. The `lag` parameter determines the
+separation between samples (`lag=1` compares consecutive frames).
 
-The specialized functions [`process_iq_to_power_doppler`][confusius.iq.process_iq_to_power_doppler]
-and [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity] wrap
-[`process_iq_blocks`][confusius.iq.process_iq_blocks] to implement a **nested sliding
-window** approach. [`process_iq_to_bmode`][confusius.iq.process_iq_to_bmode] is
-similar but uses a single window level since no clutter filtering is involved:
+Clutter filtering controls which motion dominates the estimate:
 
-1. **Outer windows (clutter filtering)**: A first sliding window is used for clutter
-   filtering. Within each window, the clutter filter is applied to separate blood from
-    tissue signals.
+- **With tissue suppression:** the estimate primarily reflects blood motion.
+- **Without a filter**: strong tissue echoes dominate, making it useful for tracking
+  tissue motion associated with cardiac pulsatility, respiration[^zucker2025], or
+  movement[^lemeurdiebolt2025].
 
-2. **Inner windows (derived measure computation)**: Inside each clutter-filtered window,
-   a second sliding window runs to compute the desired measure (power Doppler or axial
-    velocity). Multiple output volumes can be extracted from each clutter window.
+```python
+blood_velocity = cf.iq.process_iq_to_axial_velocity(
+    iq, filter_method="svd_indices", low_cutoff=40, spatial_kernel=1
+).compute()
+
+tissue_velocity = cf.iq.process_iq_to_axial_velocity(iq).compute()
+```
+
+Values are in **m/s** and represent only the velocity component along the beam. The sign
+depends on the scanner's IQ convention; verify which direction is positive using a
+phantom or known flow.
+
+!!! warning "Velocity aliasing"
+    If the phase changes too much between compared samples, the velocity estimate
+    becomes ambiguous and may appear to reverse direction. Reduce `lag` or increase the
+    IQ sampling rate to measure faster motion without aliasing.
+
+### B-Mode
+
+**B-mode** visualizes tissue anatomy from echo strength.
+[`process_iq_to_bmode`][confusius.iq.process_iq_to_bmode] averages the IQ magnitude
+over `bmode_window_width` frames. It does not apply clutter filtering. Longer windows
+give smoother images but may blur moving structures.
+
+```python
+bmode = cf.iq.process_iq_to_bmode(iq).compute()
+```
+
+## Clutter Filtering
+
+Blood echoes are typically 40–60 dB weaker than tissue echoes (roughly 100–1000 times
+lower in amplitude). **Clutter filtering** suppresses tissue signals so blood-related
+measures can be computed reliably.
+
+Tissue echoes are often strong and vary together across many voxels, while blood echoes
+tend to be weaker and more localized. Tissue usually moves more slowly than blood, but
+their Doppler frequencies can overlap—especially when the subject moves. This is why
+frequency filtering alone is often insufficient.
+
+### Available methods
+
+=== "SVD filters"
+
+    **Singular value decomposition (SVD)** separates IQ data into components ordered by
+    their signal strength[^demene2015]. Strong, spatially coherent tissue signals tend
+    to appear in the leading components, while weaker blood signals are spread across
+    later ones. Removing leading components can therefore suppress tissue echoes.
+
+    - **`svd_indices` (fixed cutoff):** Removes a fixed set of components in every
+      window. This is the widely used default in fUSI
+      studies[^ferrier2020][^rabut2020][^brunner2021][^nunez-elizalde2022].
+    - **`svd_energy` (adaptive):** Chooses components to remove using their individual
+      energies. Can respond to changing motion, but may over-filter and cause power
+      Doppler drops during motion.
+    - **`svd_cumulative_energy` (adaptive):** Uses the cumulative distribution of
+      component energy. Can adapt to changing motion, but also suppresses global power
+      changes, potentially removing meaningful widespread signals.
+
+    !!! tip "Which SVD filter should I use?"
+        Start with **`svd_indices`** for most recordings. For awake subjects with
+        strong, variable motion, adaptive methods may
+        help[^lemeurdiebolt2025][^bertolo2023]. However, they are less established and
+        can impact the signals you want to measure. In particular, avoid
+        `svd_cumulative_energy` when global hemodynamic changes are of interest.
+
+=== "Butterworth filter"
+
+    **`butterworth`** filters IQ signals by temporal frequency. A high-pass setting
+    suppresses slow motion, but it cannot separate tissue from blood when their
+    frequency ranges overlap. It may also remove slow flow in small vessels.
+
+    For these reasons, **Butterworth filtering alone is generally unsuitable for fUSI**.
+    It can be useful before SVD
+    filtering[^brunner2020][^nunez-elizalde2022][^lemeurdiebolt2025] or in specialized
+    applications such as tissue-motion tracking.
+
+### Filter cutoffs
+
+The meaning of `low_cutoff` and `high_cutoff` depends on the chosen method:
+
+| Method | `low_cutoff` | `high_cutoff` |
+| --- | --- | --- |
+| `svd_indices` | Remove components with indices below this value (usually strong tissue components). | Remove components at or above this index (usually weak noise components). |
+| `svd_energy` | Remove components with energy below this value. | Remove components with energy above this value. |
+| `svd_cumulative_energy` | Remove components with cumulative energy below this value. | Remove components with cumulative energy above this value. |
+| `butterworth` | Remove frequencies below this value (Hz). | Remove frequencies above this value (Hz). |
+
+### Masks for SVD filtering
+
+You can supply a `clutter_mask` to use only selected voxels when identifying
+tissue-related components, which may improve filtering[^lemeurdiebolt2025].
+
+```python
+brain_mask = cf.load("brain_mask.zarr")
+
+pwd = iq.fusi.iq.process_to_power_doppler(
+    filter_method="svd_indices", clutter_mask=brain_mask, low_cutoff=50,
+)
+```
+
+### Choosing a cumulative-energy cutoff
+
+Because the energy distribution varies across time windows, choosing `high_cutoff` for
+`svd_cumulative_energy` can be difficult.
+[`compute_svd_cumulative_energy_threshold`][confusius.iq.compute_svd_cumulative_energy_threshold]
+examines each window and finds the **minimum cumulative energy** corresponding to a
+chosen singular-value index (accumulated from low-energy to high-energy components).
+Using this minimum helps prevent excessive filtering in any window[^lemeurdiebolt2025].
+
+```python
+import confusius as cf
+
+iq = cf.load("recording.zarr")["iq"]
+brain_mask = cf.load("brain_mask.zarr")["mask"]
+
+threshold = cf.iq.compute_svd_cumulative_energy_threshold(
+    iq,
+    singular_value_index=40,
+    clutter_mask=brain_mask,
+    window_width=200,
+).compute()
+
+pwd = iq.fusi.iq.process_to_power_doppler(
+    filter_method="svd_cumulative_energy",
+    clutter_mask=brain_mask,
+    high_cutoff=threshold,
+    clutter_window_width=200,
+)
+```
+
+## Processing Windows and Custom Functions
+
+### Nested Sliding Windows
+
+For power Doppler and axial velocity, ConfUSIus uses **two nested slilding windows**:
+
+1. **Clutter window:** Filter a block of IQ volumes to suppress tissue echoes.
+2. **Measurement windows:** Compute one or more power Doppler or velocity volumes from
+   smaller windows within that filtered block.
+
+This lets you choose the filtering window independently of the output time resolution:
+
+- `clutter_window_width` and `clutter_window_stride` control how much IQ data is used
+  for each clutter-filtering step and how far that window advances.
+- `doppler_window_width` / `velocity_window_width` and the corresponding strides control
+  each measurement and its spacing in time.
+
+B-mode uses only one window level because it does not need clutter filtering.
 
 ```mermaid
 ---
@@ -229,550 +319,146 @@ flowchart LR
     e2@{ shape: text}
 ```
 
-This nested approach allows independent control over:
+### Custom processing
 
-- **Clutter filtering temporal resolution**: Controlled by `clutter_window_width` and
-  `clutter_window_stride`.
-- **Measure computation temporal resolution**: Controlled by `doppler_window_width` /
-  `velocity_window_width` and their corresponding strides.
+The underlying [`process_iq_blocks`][confusius.iq.process_iq_blocks] function applies
+**any user-defined function** to successive time windows. The built-in processing
+methods use it internally, but you can call it directly to implement your own measures
+or filters.
 
-### Memory and Performance Optimization
+!!! note "Low-level interface"
+    Unlike most ConfUSIus functions, `process_iq_blocks` takes a **Dask array**, not a
+    VoxelData array. It returns processed data without managing coordinates or metadata.
+    The built-in power Doppler, velocity, and B-mode functions handle those details for
+    you.
 
-Beamformed IQ datasets are typically very large (tens to hundreds of GB). ConfUSIus
-relies on the Dask backend for Xarray to enable out-of-core processing, allowing you to
-work with datasets larger than available RAM. Dask uses **lazy evaluation**, meaning data
-stays on disk until you explicitly compute results. This allows you to build complex
-processing pipelines that only execute when needed.
+```mermaid
+---
+config:
+  layout: elk
+---
 
-For optimal performance, **always start a Dask distributed `Client`** before running
-computations. Even for local processing (single machine), the distributed scheduler
-provides significantly better performance than the default scheduler, along with task
-monitoring and a web-based dashboard to track progress:
+flowchart LR
+    IQ -->|Window 1| F1{{"User Function"}}
+    IQ --> ellipsis{{"..."}}
+    IQ -->|Window <em>n</em>| F2{{"User Function"}}
+
+    F1 -->|"Output Volume(s)"| output
+    F2 -->|"Output Volume(s)"| output
+
+    IQ@{ shape: processes, label: "Input IQ Volumes" }
+    output@{ shape: processes, label: "Stacked Output Volumes" }
+    ellipsis@{ shape: text}
+```
+
+
+## Working with Large Recordings
+
+Beamformed IQ recordings can be tens or hundreds of gigabytes. ConfUSIus uses
+[Dask](https://docs.dask.org/en/stable/) to process data in chunks, so the entire
+recording does not need to fit in RAM. Most operations are **lazy**: the computation
+runs when you call `.compute()` or save the result.
+
+### Recommended: threaded scheduler
+
+Dask's **threaded scheduler** is a good default for local IQ processing and is often
+faster than a distributed cluster, which adds scheduling and data-transfer overhead.
+
+Numerical operations such as SVD may already use multiple CPU threads through BLAS
+libraries. Running several Dask tasks in parallel can therefore create too many
+competing threads and slow down processing. We recommend limiting BLAS to one thread per
+task using [`threadpoolctl`](https://github.com/joblib/threadpoolctl).
+
+```python
+import dask
+import confusius as cf
+from threadpoolctl import threadpool_limits
+
+iq = cf.load("large_iq_data.zarr")
+
+# Limit BLAS threads and configure Dask parallelism.
+with threadpool_limits(limits=1, user_api="blas"):
+    with dask.config.set(scheduler="threads", num_workers=8):
+        pwd = iq.fusi.iq.process_to_power_doppler(low_cutoff=40)
+        cf.save(pwd, "power_doppler.zarr")
+```
+
+Adjust `num_workers` based on your CPU and available memory. More workers are not always
+faster, especially for memory-intensive operations such as SVD.
+
+### Optional: distributed scheduler
+
+For more control over worker resources or to monitor processing through a web dashboard,
+you can start a local Dask `Client`:
 
 ```python
 from dask.distributed import Client
-import xarray as xr
-import confusius
 
-# Start a local Dask cluster.
-client = Client()
+client = Client(
+    n_workers=4,
+    threads_per_worker=2,
+    memory_limit="8GB",  # Per worker.
+)
 
-# The client prints a dashboard link for monitoring progress.
-# Example: http://127.0.0.1:8787/status
-
-# Load IQ data (metadata only, no data in memory yet).
-iq = cf.load("large_iq_data.zarr")
-
-# Build computation graph (still no execution).
+# Process and save the recording.
 pwd = iq.fusi.iq.process_to_power_doppler(low_cutoff=40)
-
-# Execute and save results (data processed in chunks, written to disk).
-pwd.to_zarr("power_doppler.zarr")
+cf.save(pwd, "power_doppler.zarr")
 ```
 
-!!! tip "Customizing the cluster"
-    You can customize cluster resources based on your system:
+The dashboard is usually available at
+**[http://localhost:8787/status](http://localhost:8787/status)**. If the port is already
+in use, Dask may choose another. Check `client.dashboard_link` for the actual address.
 
-    ```python
-    # Limit workers and memory.
-    client = Client(
-        n_workers=4,  # Number of worker processes.
-        threads_per_worker=2,  # Threads per worker.
-        memory_limit="8GB",  # Memory limit per worker.
-    )
-    ```
+The distributed scheduler is not necessarily faster, even for large recordings. Start
+with the threaded scheduler and switch if you need its monitoring or resource-management
+features.
 
-    See the [Dask documentation](https://docs.dask.org/en/stable/) for more configuration
-    options.
+!!! note "BLAS threads with distributed workers"
+    When using separate worker processes, BLAS thread limits must also be applied within
+    those processes. Dask Distributed generally sets thread-related environment
+    variables for its workers, but you can configure them explicitly if needed.
 
-!!! tip "Computing multiple measures in a single pass"
-    Since `process_to_power_doppler`, `process_to_axial_velocity`, and `process_to_bmode`
-    all return lazy Dask-backed arrays, you can compute them **simultaneously** using
-    [`dask.compute`](https://docs.dask.org/en/stable/base.html#dask.compute):
+### Processing remote recordings
 
-    ```python
-    import dask
-    import confusius
+IQ processing functions read and process the **first window while building the Dask task
+graph**, before [`.compute()`][xarray.DataArray.compute] or
+[`confusius.save`][confusius.save] runs. For remote Zarr recordings, this can cause
+repeated downloads when creating multiple processing results.
 
-    pwd = iq.fusi.iq.process_to_power_doppler(...)
-    velocity = iq.fusi.iq.process_to_axial_velocity(...)
-    bmode = iq.fusi.iq.process_to_bmode(...)
+For small subsets, load the data into memory once with
+[`.compute()`][xarray.DataArray.compute]. For larger recordings, consider using a local
+Zarr copy. After loading an array into memory, specify window widths explicitly because
+the original Dask chunking is no longer available.
 
-    # Compute all three with a single pass over the IQ data.
-    pwd, velocity, bmode = dask.compute(pwd, velocity, bmode)
-    ```
+### Computing multiple measures together
 
-    Calling `.compute()` on each separately would scan through the IQ file multiple
-    times. `dask.compute` merges the task graphs and reads the data only once, which can
-    significantly cut processing time for large datasets.
-
-## Clutter Filtering
-
-Clutter filtering is an essential step in fUSI processing to separate weak blood signals
-from strong tissue signals. Indeed, blood signals from red blood cells are typically
-40-60 dB (100-1000×) weaker than tissue signals, making effective clutter rejection
-essential for detecting hemodynamic changes.
-
-### How Clutter Filtering Works
-
-Clutter filters exploit the different spatiotemporal characteristics of tissue and blood
-signals:
-
-- **Tissue signals**: Spatially coherent across large regions, with low temporal
-  frequencies from slow tissue motion.
-- **Blood signals**: Spatially localized to vascular structures, with higher temporal
-  frequencies from faster blood flow.
-
-The challenge is that tissue motion (especially in awake subjects) can create Doppler
-frequencies that overlap with blood flow signals, making simple frequency-based
-separation insufficient.
-
-### Available Filter Methods
-
-ConfUSIus provides several clutter filtering methods, each with different trade-offs:
-
-=== "SVD-based filters"
-
-    Singular Value Decomposition (SVD) filters exploit both spatial and temporal
-    information to separate tissue from blood[^demene2015]. The SVD decomposes IQ
-    signals into orthogonal components (modes) sorted by energy. Tissue motion, being
-    spatially coherent and energetic, concentrates in the highest-energy modes. Blood
-    flow, being spatially incoherent and weak, distributes across lower-energy modes.
-    By removing the top singular vectors, tissue clutter is suppressed while
-    preserving blood signals.
-
-    **Static filter:**
-
-    - **`svd_indices`**: Removes a fixed number of singular vectors across all windows.
-      Simple and widely used, but assumes constant motion levels throughout the
-      acquisition.
-
-    **Adaptive filters:**[^baranger2018]
-
-    - **`svd_energy`**: Adaptively determines the threshold based on individual singular
-      vector energies. Adjusts to varying motion levels, but its interpretation can be
-      less intuitive.
-    - **`svd_cumulative_energy`**: Adaptively determines the threshold based on
-      cumulative energy distribution. More robust to motion variations, but removes
-      global energy variations across windows (similar to global signal regression).
-
-    !!! info "Static vs. adaptive SVD filters"
-
-        **Static SVD filters** (`svd_indices`) are the standard method used in the vast
-        majority of fUSI studies[^ferrier2020] [^rabut2020] [^brunner2021]
-        [^nunez-elizalde2022]. They are well-tested and effective for typical imaging
-        conditions.
-
-        However, static filters assume constant tissue energy levels throughout the
-        acquisition. This assumption breaks down in paradigms with strong, variable tissue
-        motion, such as awake preclinical imaging. In these cases, **adaptive clutter
-        filters** have shown promise by adjusting thresholds to each window's
-        characteristics[^lemeurdiebolt2025] [^bertolo2023].
-
-        **Important caveats for adaptive filters:**
-
-        - Much less tested than static filters in the fUSI literature.
-        - Their impact on filtered signals can complicate interpretation.
-        - `svd_energy` may over-filter signals leading to drops in power Doppler
-          intensity during motion periods.
-        - `svd_cumulative_energy` removes global energy variations (like global signal
-          regression), which is a strong denoising step only appropriate when studying
-          local effects.
-
-        **Recommendation:**
-
-        - Use **`svd_indices`** (static) as the default choice for most fUSI
-          applications.
-        - Consider **adaptive filters** only when imaging conditions involve high,
-          variable motion levels (e.g., awake subjects) and you are studying local
-          hemodynamic effects rather than global changes.
-
-=== "Butterworth filter"
-
-    Temporal high-pass Butterworth filter that removes low-frequency components.
-    Uses only temporal frequency information, not spatial characteristics.
-
-    !!! warning "Limited use for fUSI"
-
-        Butterworth filters alone are **inadequate for fUSI** because they cannot
-        separate tissue and blood when Doppler frequencies overlap (common during
-        motion), and they remove slow blood flows in capillaries and small vessels.
-
-        May be used as a pre-processing step before SVD filtering[^brunner2020]
-        [^nunez-elizalde2022] [^lemeurdiebolt2025] or for specialized applications like
-        tissue motion tracking.
-
-### Filter Parameters
-
-The interpretation of cutoff parameters depends on the filter method:
-
-| Filter Method | `low_cutoff` | `high_cutoff` |
-|---------------|--------------|---------------|
-| `svd_indices` | Remove components with index < `low_cutoff` (high-energy tissue, typically 40-100). | Remove components with index ≥ `high_cutoff` (low-energy noise). |
-| `svd_energy` | Remove components with energy < `low_cutoff` (low-energy noise). | Remove components with energy > `high_cutoff` (high-energy tissue). |
-| `svd_cumulative_energy` | Remove components with cumulative energy < `low_cutoff` (low-energy noise). | Remove components with cumulative energy > `high_cutoff` (high-energy tissue). |
-| `butterworth` | Remove frequencies below this value (Hz). | Remove frequencies above this value (Hz). |
-
-### Computing the Cumulative Energy Threshold
-
-Setting `high_cutoff` for `svd_cumulative_energy` is non-trivial because cumulative
-energy values depend on the amount of tissue motion and change from window to window.
-[`compute_svd_cumulative_energy_threshold`][confusius.iq.compute_svd_cumulative_energy_threshold]
-automates this: it iterates over sliding temporal windows, computes the cumulative
-eigenvalue spectrum for each window (accumulating from low-energy to high-energy
-components), and returns the minimum cumulative energy at a given singular-value index
-across all windows. Using the minimum ensures that the chosen cutoff does not
-over-filter any window.
+When processing several measures from the same recording, use
+[`dask.compute`][dask.compute] to share common input reads:
 
 ```python
-import confusius as cf
+import dask
 
-iq = cf.load("recording.zarr")["iq"]
-brain_mask = cf.load("brain_mask.zarr")["mask"]
+pwd = iq.fusi.iq.process_to_power_doppler(...)
+velocity = iq.fusi.iq.process_to_axial_velocity(...)
+bmode = iq.fusi.iq.process_to_bmode(...)
 
-# Compute the minimum cumulative energy at singular value index 40 across all windows.
-threshold = cf.iq.compute_svd_cumulative_energy_threshold(
-    iq,
-    singular_value_index=40,
-    clutter_mask=brain_mask,
-    window_width=200,
-).compute()
-
-# Apply the cumulative energy filter using the computed threshold.
-pwd = iq.fusi.iq.process_to_power_doppler(
-    filter_method="svd_cumulative_energy",
-    clutter_mask=brain_mask,
-    high_cutoff=threshold,
-    clutter_window_width=200,
-)
+pwd, velocity, bmode = dask.compute(pwd, velocity, bmode)
 ```
 
-### Clutter Masks for SVD Filters
-
-For SVD-based filters, you can provide a spatial mask identifying tissue regions. This
-improves filter performance by computing tissue subspaces only from masked
-voxels[^lemeurdiebolt2025]:
-
-```python
-import xarray as xr
-
-# Load a brain mask (e.g., from an anatomical atlas or segmentation).
-brain_mask = cf.load("brain_mask.zarr")
-
-# Use the mask for clutter filtering.
-pwd = iq.fusi.iq.process_to_power_doppler(
-    filter_method="svd_indices",
-    clutter_mask=brain_mask,
-    low_cutoff=50,
-)
-```
-
-## Computing Derived Measures
-
-ConfUSIus can compute several derived measures from beamformed IQ data. In fUSI, the
-primary measures are **B-mode** (tissue anatomy), **power Doppler** (cerebral blood
-volume changes), and **axial velocity** (blood flow speed and direction).
-
-!!! info "When clutter filtering is not needed"
-
-    While clutter filtering is essential for isolating blood signals in fUSI, it can be
-    skipped for applications focused on tissue motion rather than blood flow.
-
-    - **Tissue velocity estimation**: Computing axial velocity without clutter filtering
-      captures tissue motion, useful for extracting physiological signals like cardiac
-      pulsatility and respiration[^zucker2025].
-    - **Motion tracking**: Brain tissue motion can also be used to estimate animal
-      movement during awake imaging[^lemeurdiebolt2025].
-
-    To disable clutter filtering, omit both the `low_cutoff` and `high_cutoff`
-    parameters.
-
-### Power Doppler
-
-Power Doppler allows estimation of cerebral blood volume by integrating the Doppler
-power spectrum over time. It is the most common fUSI readout and is ideally suited for
-mapping functional brain activity.
-
-#### Computing Power Doppler
-
-To compute power Doppler signals from beamformed IQ data, you may use either the
-[`confusius.iq.process_iq_to_power_doppler`][confusius.iq.process_iq_to_power_doppler]
-function or the corresponding Xarray accessor method.
-
-=== "Function API"
-
-    ```python
-    from dask.distributed import Client
-    import xarray as xr
-    import confusius as cf
-
-    # Start a local Dask cluster for optimal performance.
-    client = Client()
-
-    # Load IQ data.
-    iq = cf.load("sub-01_task-rest_iq.zarr")
-
-    # Process to power Doppler using SVD filtering.
-    pwd = cf.iq.process_iq_to_power_doppler(
-        iq,
-        clutter_window_width=200,  # Use 200 volumes per clutter filter window.
-        doppler_window_width=100,  # Integrate power in nested windows of 100 volumes.
-        filter_method="svd_indices",  # Use the static SVD filter.
-        low_cutoff=50,  # Remove 50 strongest singular vectors.
-    )
-    ```
-
-=== "Xarray accessor"
-
-    ```python
-    from dask.distributed import Client
-    import xarray as xr
-    import confusius
-
-    # Start a local Dask cluster for optimal performance.
-    client = Client()
-
-    # Load IQ data.
-    iq = cf.load("sub-01_task-rest_iq.zarr")
-
-    # Process to power Doppler using SVD filtering.
-    pwd = iq.fusi.iq.process_to_power_doppler(
-        clutter_window_width=200,  # Use 200 volumes per clutter filter window.
-        doppler_window_width=100,  # Integrate power over 100 volumes.
-        filter_method="svd_indices",  # Use static SVD filter.
-        low_cutoff=50,  # Remove 50 strongest singular vectors.
-    )
-    ```
-
-The resulting power Doppler DataArray will be backed by a Dask array (even if the input
-wasn't Dask-backed) and rely on lazy evaluation.
-
-```pycon
->>> pwd
-<xarray.DataArray 'power_doppler' (time: 20, k: 1, j: 32, i: 24)> Size: 123kB
-dask.array<compute_power_doppler_volume, shape=(20, 1, 32, 24), dtype=float64, chunksize=(2, 1, 32, 24), chunktype=numpy.ndarray>
-Coordinates:
-  * time     (time) float64 160B 0.0 0.2 0.4 0.6 0.8 1.0 ... 3.0 3.2 3.4 3.6 3.8
-  * k        (k) int64 8B 0
-  * j        (j) int64 256B 0 1 2 3 4 5 6 7 8 9 ... 23 24 25 26 27 28 29 30 31
-  * i        (i) int64 192B 0 1 2 3 4 5 6 7 8 9 ... 15 16 17 18 19 20 21 22 23
-  * z        (k, j, i) float64 6kB 0.0 0.0 0.0 0.0 0.0 ... 0.0 0.0 0.0 0.0 0.0
-  * y        (k, j, i) float64 6kB 4.656 4.656 4.656 4.656 ... 7.756 7.756 7.756
-  * x        (k, j, i) float64 6kB -2.671 -2.571 -2.471 ... -0.571 -0.471 -0.371
-Indexes:
-  ┌ z        VoxelToWorldIndex
-  │ y
-  └ x
-Attributes:
-    compound_sampling_frequency:         500.0
-    pulse_repetition_frequency:          15000.0
-    transmit_frequency:                  15625000.0
-    beamforming_sound_velocity:          1540.0
-    units:                               a.u.
-    long_name:                           Power Doppler intensity
-    cmap:                                 gray
-    clutter_filters:                      Index-based SVD [50, +inf[
-    clutter_filter_window_duration:       0.4
-    clutter_filter_window_stride:         0.3999999999999999
-    power_doppler_integration_duration:   0.19999999999999996
-```
-
-To actually compute the power Doppler values and load them into memory, you must call
-`.compute()`:
-
-```pycon
->>> pwd = pwd.compute()
->>> pwd
-<xarray.DataArray 'power_doppler' (time: 20, k: 1, j: 32, i: 24)> Size: 123kB
-array([[[[1.07897822, 1.233959  , 1.26681306, ..., 1.10582708,
-          1.15312583, 1.01522477],
-         [1.03980397, 1.1777878 , 1.34812695, ..., 1.14753257,
-          1.18028614, 0.99100816],
-         ...
-...
-```
-
-!!! info "Processing parameters"
-    For detailed documentation of all parameters (window widths, strides, filter methods,
-    cutoffs, etc.), see the API reference for
-    [`process_iq_to_power_doppler`][confusius.iq.process_iq_to_power_doppler].
-
-### Axial Velocity
-
-Axial velocity estimation quantifies the speed and direction of blood flow along the
-ultrasound beam axis using autocorrelation-based methods.
-
-#### Computing Axial Velocity
-
-To compute axial velocity from beamformed IQ data, you may use either the
-[`confusius.iq.process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity]
-function or the corresponding Xarray accessor method.
-
-=== "Function API"
-
-    ```python
-    from dask.distributed import Client
-    import xarray as xr
-    import confusius as cf
-
-    # Start a local Dask cluster for optimal performance.
-    client = Client()
-
-    # Load IQ data.
-    iq = cf.load("sub-01_task-rest_iq.zarr")
-
-    # Process to axial velocity using SVD filtering.
-    velocity = cf.iq.process_iq_to_axial_velocity(
-        iq,
-        clutter_window_width=50,
-        velocity_window_width=50,
-        filter_method="svd_indices",
-        low_cutoff=50,
-        lag=1,  # Autocorrelation lag (volumes).
-    )
-    ```
-
-=== "Xarray accessor"
-
-    ```python
-    from dask.distributed import Client
-    import xarray as xr
-    import confusius
-
-    # Start a local Dask cluster for optimal performance.
-    client = Client()
-
-    # Load IQ data.
-    iq = cf.load("sub-01_task-rest_iq.zarr")
-
-    # Process to axial velocity using SVD filtering.
-    velocity = iq.fusi.iq.process_to_axial_velocity(
-        clutter_window_width=50,
-        velocity_window_width=50,
-        filter_method="svd_indices",
-        low_cutoff=50,
-        lag=1,  # Autocorrelation lag (volumes).
-    )
-    ```
-
-The resulting axial velocity DataArray will be backed by a Dask array (even if the input
-wasn't Dask-backed) and rely on lazy evaluation.
-
-```pycon
->>> velocity
-<xarray.DataArray 'axial_velocity' (time: 20, k: 1, j: 32, i: 24)> Size: 123kB
-dask.array<compute_axial_velocity_volume, shape=(20, 1, 32, 24), dtype=float64, chunksize=(2, 1, 32, 24), chunktype=numpy.ndarray>
-Coordinates:
-  * time     (time) float64 160B 0.0 0.2 0.4 0.6 0.8 1.0 ... 3.0 3.2 3.4 3.6 3.8
-  * k        (k) int64 8B 0
-  * j        (j) int64 256B 0 1 2 3 4 5 6 7 8 9 ... 23 24 25 26 27 28 29 30 31
-  * i        (i) int64 192B 0 1 2 3 4 5 6 7 8 9 ... 15 16 17 18 19 20 21 22 23
-  * z        (k, j, i) float64 6kB 0.0 0.0 0.0 0.0 0.0 ... 0.0 0.0 0.0 0.0 0.0
-  * y        (k, j, i) float64 6kB 4.656 4.656 4.656 4.656 ... 7.756 7.756 7.756
-  * x        (k, j, i) float64 6kB -2.671 -2.571 -2.471 ... -0.571 -0.471 -0.371
-Indexes:
-  ┌ z        VoxelToWorldIndex
-  │ y
-  └ x
-Attributes:
-    compound_sampling_frequency:          500.0
-    pulse_repetition_frequency:           15000.0
-    transmit_frequency:                   15625000.0
-    beamforming_sound_velocity:           1540.0
-    units:                                m/s
-    long_name:                            Axial velocity
-    cmap:                                 berlin
-    clutter_filters:                      Index-based SVD [50, +inf[
-    clutter_filter_window_duration:       0.4
-    clutter_filter_window_stride:         0.3999999999999999
-    axial_velocity_lag:                   1
-    axial_velocity_spatial_kernel:        3
-    axial_velocity_integration_duration:  0.19999999999999996
-```
-
-!!! info "Processing parameters"
-    For detailed documentation of all parameters (lag, estimation method, spatial kernel,
-    etc.), see the API reference for
-    [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity].
-
-#### Interpreting Velocity
-
-Velocity values are returned in **meters per second** and correspond to the speed of
-scatterers along the ultrasound beam. However, the **sign convention is scanner-
-dependent**: it depends on choices such as the analytic-signal convention, the IQ
-demodulation, and other parameters. Before interpreting the sign, verify it on your
-scanner with a known flow direction (e.g., large arteries flowing from the circle of
-Willis toward the probe) or a phantom, or another acquisition where the motion direction
-is unambiguous.
-
-!!! warning "Velocity aliasing"
-    Very high velocities may exceed the Nyquist limit and cause aliasing (wrapping). If
-    you observe sudden sign reversals in high-motion regions, reduce the `lag` parameter
-    or increase the pulse repetition frequency during acquisition.
-
-### B-mode
-
-B-mode imaging visualizes tissue anatomy by averaging the IQ signal magnitude over time.
-Unlike power Doppler, no clutter filtering is applied and the mean magnitude (not squared
-magnitude) is computed within each temporal window.
-
-#### Computing B-mode
-
-To compute B-mode volumes from beamformed IQ data, you may use either the
-[`confusius.iq.process_iq_to_bmode`][confusius.iq.process_iq_to_bmode] function or the
-corresponding Xarray accessor method.
-
-=== "Function API"
-
-    ```python
-    from dask.distributed import Client
-    import xarray as xr
-    import confusius as cf
-
-    # Start a local Dask cluster for optimal performance.
-    client = Client()
-
-    # Load IQ data.
-    iq = cf.load("sub-01_task-rest_iq.zarr")
-
-    # Process to B-mode using a sliding window of 200 volumes.
-    bmode = cf.iq.process_iq_to_bmode(iq, bmode_window_width=200)
-    ```
-
-=== "Xarray accessor"
-
-    ```python
-    from dask.distributed import Client
-    import xarray as xr
-    import confusius
-
-    # Start a local Dask cluster for optimal performance.
-    client = Client()
-
-    # Load IQ data.
-    iq = cf.load("sub-01_task-rest_iq.zarr")
-
-    # Process to B-mode using a sliding window of 200 volumes.
-    bmode = iq.fusi.iq.process_to_bmode(bmode_window_width=200)
-    ```
-
-!!! info "Processing parameters"
-    For detailed documentation of all parameters, see the API reference for
-    [`process_iq_to_bmode`][confusius.iq.process_iq_to_bmode].
+This avoids reading the same IQ data separately for each computation where tasks can be
+shared.
+
+For a complete example, see [Processing beamformed IQ
+recordings](../examples/_built/iq/process_beamformed_iq.md).
 
 ## Next Steps
 
-Now that you've processed your beamformed IQ data into power Doppler or velocity
-volumes, you're ready to:
-
-1. **[Visualization](visualization.md)**: explore your data interactively with napari
-   and generate static figures with Matplotlib.
-2. **[Quality Control](quality-control.md)**: assess data quality and identify artifacts *(coming
-   soon)*
-3. **[Registration](registration.md)**: correct for motion and align to anatomical
-   templates *(coming soon)*
-4. **[Signal Processing](signal.md)**: extract regional signals and apply denoising
-   *(coming soon)*
+- **[Visualization](visualization.md):** Explore recordings with napari or create
+  figures with Matplotlib.
+- **[Quality control](quality-control.md):** Assess quality and identify artifacts.
+- **[Registration](registration.md):** Correct motion and align data to anatomical
+  templates.
+- **[Signal processing](signal.md):** Extract regional signals and denoise recordings.
 
 [^montaldo2009]:
     Montaldo, G., et al. "Coherent Plane-Wave Compounding for Very High Frame Rate
@@ -836,3 +522,9 @@ volumes, you're ready to:
     Nunez-Elizalde, Anwar O., et al. “Neural Correlates of Blood Flow Measured by
     Ultrasound.” Neuron, vol. 110, no. 10, May 2022, pp. 1631-1640.e4. DOI.org
     (Crossref), <https://doi.org/10.1016/j.neuron.2022.02.012>.
+
+[^kasai1985]:
+    Kasai, C., Namekawa, K., Koyano, A., & Omoto, R. (1985). Real-time two-dimensional
+    blood flow imaging using an autocorrelation technique. IEEE Transactions on Sonics
+    and Ultrasonics, 32(3), 458–464. https://doi.org/10.1109/T-SU.1985.31615
+

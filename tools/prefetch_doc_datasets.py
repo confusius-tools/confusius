@@ -76,8 +76,8 @@ def _prefetch_nunez_elizalde() -> None:
         acqs="slice03",
     )
 
-    # docs/examples/04_connectivity/01_atlas_correlation_matrix.py,
-    # docs/examples/04_connectivity/02_atlas_seed_map.py,
+    # docs/examples/06_connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/06_connectivity/02_atlas_seed_map.py,
     # docs/examples/05_atlases_and_templates/01_saving_resampled_atlas.py
     fetch_nunez_elizalde_2022(
         print_citation=False,
@@ -100,12 +100,12 @@ def _prefetch_landemard() -> None:
 
 
 def _prefetch_pepe_mariani_template() -> None:
-    # docs/examples/04_connectivity/01_atlas_correlation_matrix.py,
-    # docs/examples/04_connectivity/02_atlas_seed_map.py,
+    # docs/examples/06_connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/06_connectivity/02_atlas_seed_map.py,
     # docs/examples/05_atlases_and_templates/01_saving_resampled_atlas.py
     fetch_template_pepe_mariani_2026(print_citation=False)
 
-    # docs/examples/02_multipose/01_load_multipose_recordings.py
+    # docs/examples/03_multipose/01_load_multipose_recordings.py
     fetch_pepe_mariani_2026(
         print_citation=False,
         datasets="rawdata",
@@ -117,8 +117,8 @@ def _prefetch_pepe_mariani_template() -> None:
 
 
 def _prefetch_allen_atlas() -> None:
-    # docs/examples/04_connectivity/01_atlas_correlation_matrix.py,
-    # docs/examples/04_connectivity/02_atlas_seed_map.py,
+    # docs/examples/06_connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/06_connectivity/02_atlas_seed_map.py,
     # docs/examples/05_atlases_and_templates/01_saving_resampled_atlas.py
     fetch_brainglobe_atlas("allen_mouse_100um")
 
@@ -142,7 +142,7 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice32",
     )
 
-    # docs/examples/02_registration/01_register_volume_same_subject.py,
+    # docs/examples/04_registration/01_register_volume_same_subject.py,
     # docs/examples/01_io/04_dataset_collection.py.
     fetch_cybis_pereira_2026(
         print_citation=False,
@@ -153,7 +153,7 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice32",
     )
 
-    # docs/examples/02_registration/02_volumewise_motion_correction.py
+    # docs/examples/04_registration/02_volumewise_motion_correction.py
     fetch_cybis_pereira_2026(
         print_citation=False,
         datasets="rawdata",
@@ -163,8 +163,8 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice32",
     )
 
-    # docs/examples/06_decoding/01_searchlight_speed.py
-    # docs/examples/05_glm/02_first_level_continuous.py
+    # docs/examples/08_decoding/01_searchlight_speed.py
+    # docs/examples/07_glm/02_first_level_continuous.py
     fetch_cybis_pereira_2026(
         print_citation=False,
         datasets="rawdata",
@@ -175,7 +175,7 @@ def _prefetch_cybis_pereira() -> None:
 
 
 def _prefetch_khallaf() -> None:
-    # docs/examples/05_glm/01_first_level.py
+    # docs/examples/07_glm/01_first_level.py
     fetch_khallaf_2026(
         print_citation=False,
         datasets="rawdata",

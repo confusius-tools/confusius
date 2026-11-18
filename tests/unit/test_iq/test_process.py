@@ -23,6 +23,140 @@ from confusius.validation import ensure_voxeldata
 from confusius.xarray import create_voxeldata
 
 
+@pytest.mark.parametrize("velocity", [False, True])
+@pytest.mark.parametrize("stride", [20, 5, 1])
+def test_butterworth_window_sampling(
+    sample_voxeldata_iq_dataarray, sample_voxeldata_iq_block_4d_long, velocity, stride
+):
+    """Window-local filtering matches independent calls, including batched overlap."""
+    data = sample_voxeldata_iq_block_4d_long[:, :1, :1, :1]
+    times = np.arange(100) * 0.1
+    if stride == 20:
+        times += np.repeat(np.arange(5), 20)
+    iq = create_voxeldata(
+        data,
+        dims=("time", "k", "j", "i"),
+        time=xr.DataArray(
+            times,
+            dims="time",
+            attrs={
+                "units": "s",
+                "volume_acquisition_reference": "start",
+                "volume_acquisition_duration": 0.04,
+            },
+        ),
+        attrs=sample_voxeldata_iq_dataarray.attrs,
+        spacing=(1.0, 1.0, 1.0),
+    ).chunk({"time": 13})
+    process = process_iq_to_axial_velocity if velocity else process_iq_to_power_doppler
+    compute = (
+        compute_axial_velocity_volume if velocity else compute_power_doppler_volume
+    )
+    kwargs: dict[str, Any] = {
+        "filter_method": "butterworth",
+        "low_cutoff": 1.0,
+        "butterworth_order": 2,
+    }
+    velocity_kwargs = (
+        {
+            "transmit_frequency": iq.attrs["transmit_frequency"],
+            "beamforming_sound_velocity": iq.attrs["beamforming_sound_velocity"],
+        }
+        if velocity
+        else {}
+    )
+
+    result = process(
+        iq, clutter_window_width=20, clutter_window_stride=stride, **kwargs
+    ).compute()
+    expected = np.concatenate(
+        [
+            compute(
+                data[start : start + 20],
+                fs=10.0,
+                **kwargs,
+                **velocity_kwargs,
+            )
+            for start in range(0, 81, stride)
+        ]
+    )
+    assert_allclose(result.values, expected)
+
+
+@pytest.mark.parametrize("velocity", [False, True])
+@pytest.mark.parametrize("timing_error", ["gap", "rate_change"])
+def test_butterworth_rejects_invalid_window_timing(
+    sample_voxeldata_iq_dataarray,
+    sample_voxeldata_iq_block_4d_long,
+    velocity,
+    timing_error,
+):
+    """Reject gaps inside a window and sampling-rate changes between windows."""
+    times = np.arange(100) * 0.1
+    if timing_error == "gap":
+        times[30:] += 1.0
+    else:
+        times[20:] = times[20] + np.arange(80) * 0.05
+    iq = create_voxeldata(
+        sample_voxeldata_iq_block_4d_long[:, :1, :1, :1],
+        dims=("time", "k", "j", "i"),
+        time=xr.DataArray(
+            times,
+            dims="time",
+            attrs={
+                "units": "s",
+                "volume_acquisition_reference": "start",
+                "volume_acquisition_duration": 0.1,
+            },
+        ),
+        attrs=sample_voxeldata_iq_dataarray.attrs,
+        spacing=(1.0, 1.0, 1.0),
+    )
+    process = process_iq_to_axial_velocity if velocity else process_iq_to_power_doppler
+    with pytest.raises(ValueError, match="invalid window starts at volume 20"):
+        process(
+            iq, clutter_window_width=20, filter_method="butterworth", low_cutoff=1.0
+        )
+
+
+def test_butterworth_ignores_irregular_dropped_tail(
+    sample_voxeldata_iq_dataarray, sample_voxeldata_iq_block_4d_long
+):
+    """Irregular timestamps outside complete clutter windows do not prevent filtering."""
+    times = np.arange(100) * 0.1
+    times[95:] += 1.0
+    iq = create_voxeldata(
+        sample_voxeldata_iq_block_4d_long[:, :1, :1, :1],
+        dims=("time", "k", "j", "i"),
+        spacing=(1.0, 1.0, 1.0),
+        time=xr.DataArray(
+            times,
+            dims="time",
+            attrs={
+                "units": "s",
+                "volume_acquisition_reference": "start",
+                "volume_acquisition_duration": 0.1,
+            },
+        ),
+    )
+    with pytest.warns(UserWarning, match="10 input volumes will be dropped"):
+        result = process_iq_to_power_doppler(
+            iq, clutter_window_width=30, filter_method="butterworth", low_cutoff=1.0
+        ).compute()
+    expected = np.concatenate(
+        [
+            compute_power_doppler_volume(
+                iq.values[start : start + 30],
+                fs=10.0,
+                filter_method="butterworth",
+                low_cutoff=1.0,
+            )
+            for start in (0, 30, 60)
+        ]
+    )
+    assert_allclose(result.values, expected)
+
+
 class _ProcessedTimingKwargs(TypedDict):
     clutter_window_width: int
     clutter_window_stride: int
@@ -358,7 +492,6 @@ class TestComputeAxialVelocityVolume:
             transmit_frequency=transmit_frequency,
             beamforming_sound_velocity=beamforming_sound_velocity,
             lag=lag,
-            spatial_kernel=1,
         )
 
         assert_allclose(result[0], expected, rtol=1e-5)
@@ -1076,7 +1209,7 @@ class TestProcessIqToAxialVelocity:
         result = process_iq_to_axial_velocity(sample_voxeldata_iq_dataarray, lag=2)
 
         assert result.attrs["axial_velocity_lag"] == 2
-        assert result.attrs["axial_velocity_spatial_kernel"] == 3
+        assert result.attrs["axial_velocity_spatial_kernel"] == 1
         assert "axial_velocity_estimation_method" not in result.attrs
         assert "lag" not in result.attrs
         assert "absolute_velocity" not in result.attrs
@@ -1111,6 +1244,21 @@ class TestProcessIqToAxialVelocity:
 
 class TestDataArrayClutterMask:
     """Tests for DataArray clutter mask support in wrapper functions."""
+
+    @pytest.mark.parametrize(
+        "process", [process_iq_to_power_doppler, process_iq_to_axial_velocity]
+    )
+    @pytest.mark.parametrize(
+        "filter_method", ["svd_indices", "svd_energy", "svd_cumulative_energy"]
+    )
+    def test_empty_mask_raises(
+        self, sample_voxeldata_iq_dataarray, process, filter_method
+    ):
+        """Wrappers reject empty SVD masks rather than producing unfiltered output."""
+        iq = sample_voxeldata_iq_dataarray
+        mask = iq.isel(time=0, drop=True).copy(data=np.zeros(iq.shape[1:], dtype=bool))
+        with pytest.raises(ValueError, match="select at least one voxel"):
+            process(iq, clutter_mask=mask, filter_method=filter_method)
 
     def test_dataarray_mask_matches_reference_power_doppler(
         self, sample_voxeldata_iq_dataarray, spatial_mask
