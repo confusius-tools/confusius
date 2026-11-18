@@ -1226,10 +1226,29 @@ def convert_from_nifti(
     img : nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
         In-memory NiBabel NIfTI image.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
-        How to chunk the array. See `load_nifti` for the accepted forms.
+        How to chunk the array. Must be one of the following forms.
+
+        - A blocksize like `1000`.
+        - A blockshape like `(1000, 1000)`.
+        - Explicit sizes of all blocks along all dimensions like `((1000, 1000,
+          500), (400, 400))`.
+        - A size in bytes, like `"100 MiB"` which will choose a uniform block-like
+          shape.
+        - The word `"auto"` to let Dask choose chunk sizes based on heuristics. See
+          `dask.array.normalize_chunks` for more details on how chunk sizes are
+          determined.
+        - `-1` or `None` as a blocksize indicate the size of the corresponding
+          dimension.
     coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
-        Header affine to use as the primary coordinate-defining geometry. See
-        `load_nifti` for the selection rules.
+        Header affine to use as the primary coordinate-defining geometry.
+
+        - `"auto"` prefers sform when both sform and qform are valid, and falls
+          back to qform when only qform is valid.
+        - `"sform"` forces the sform to define the in-memory coordinate geometry.
+        - `"qform"` forces the qform to define the in-memory coordinate geometry.
+
+        The non-selected valid header affine is still preserved in
+        `data_array.attrs["affines"]` as a world-to-world transform.
     sidecar : dict[str, Any], optional
         Metadata using fUSI-BIDS field names and units, as returned by
         `convert_to_nifti` or read from a BIDS JSON sidecar. Entries override
@@ -1247,8 +1266,9 @@ def convert_from_nifti(
     TypeError
         If `img` is not a `nibabel.Nifti1Image` or `nibabel.Nifti2Image`.
     ValueError
-        If the chunk specification, requested coordinate affine, or reconstructed
-        VoxelData geometry is invalid.
+        If the chunk specification or reconstructed VoxelData geometry is invalid,
+        or if `coordinate_affine` is `"sform"` or `"qform"` and that form's code is
+        zero in the header.
 
     Examples
     --------
@@ -2575,15 +2595,28 @@ def convert_to_nifti(
         NIfTI format version to use. Version 2 is a simple extension to support
         larger files and arrays with dimension sizes greater than 32,767.
     qform : str, optional
-        Key in `data_array.attrs["affines"]` to write into the NIfTI qform. See
-        `save_nifti` for the fallback and shear-handling rules.
+        Key in `data_array.attrs["affines"]` to write into the NIfTI qform. When not
+        provided, `"world_to_qform"` is used if present; otherwise qform falls back
+        to the coordinate-defining voxel geometry (`voxel_to_world`) directly.
+
+        If the coordinate-defining affine contains shear, qform writing is disabled
+        because the NIfTI qform cannot represent shear. In that case, the geometry is
+        written to sform instead.
     sform : str, optional
-        Key in `data_array.attrs["affines"]` to write into the NIfTI sform. See
-        `save_nifti` for the fallback rules.
+        Key in `data_array.attrs["affines"]` to write into the NIfTI sform. When not
+        provided, `"world_to_sform"` is used if present; otherwise sform also falls
+        back to `voxel_to_world` directly (like qform), unless disabled via
+        `sform_code=0` or `attrs["sform_code"] = 0`.
     qform_code : int, optional
-        NIfTI qform code to write. See `save_nifti` for the default rules.
+        NIfTI qform code to write. When provided, takes precedence over
+        `data_array.attrs["qform_code"]`. When not provided, the value from
+        `attrs["qform_code"]` is used if present; otherwise defaults to `2`
+        (`NIFTI_XFORM_ALIGNED_ANAT`).
     sform_code : int, optional
-        NIfTI sform code to write. See `save_nifti` for the default rules.
+        NIfTI sform code to write. When provided, takes precedence over
+        `data_array.attrs["sform_code"]`. When not provided, the value from
+        `attrs["sform_code"]` is used if present; otherwise defaults to `2`
+        (`NIFTI_XFORM_ALIGNED_ANAT`).
     copy : bool, default: False
         Whether to copy the data into the returned image. If not copied, the image's
         data shares memory with a NumPy-backed `data_array`, so editing it in place
