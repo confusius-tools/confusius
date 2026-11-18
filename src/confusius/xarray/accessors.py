@@ -619,6 +619,7 @@ class FUSIAccessor:
         sform: str | None = None,
         qform_code: int | None = None,
         sform_code: int | None = None,
+        copy: bool = False,
     ) -> tuple[nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image, dict[str, Any]]:
         """Convert the VoxelData array to a NIfTI image and fUSI-BIDS metadata.
 
@@ -654,6 +655,11 @@ class FUSIAccessor:
             NIfTI sform code to write. Takes precedence over `attrs["sform_code"]`. If
             not provided, the value from `attrs["sform_code"]` is used if present;
             otherwise defaults to `2` (`NIFTI_XFORM_ALIGNED_ANAT`).
+        copy : bool, default: False
+            Whether to copy the data into the returned image. If not copied, the
+            image's data shares memory with a NumPy-backed array, so editing it in
+            place (e.g. through `img.dataobj` or `img.get_fdata()`) also modifies the
+            array.
 
         Returns
         -------
@@ -683,4 +689,5 @@ class FUSIAccessor:
             sform=sform,
             qform_code=qform_code,
             sform_code=sform_code,
+            copy=copy,
         )

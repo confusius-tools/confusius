@@ -88,7 +88,12 @@ class TestFUSIAccessor:
         )
 
         img, metadata = data.fusi.to_nifti(
-            2, qform="world_to_a", sform="world_to_b", qform_code=3, sform_code=4
+            2,
+            qform="world_to_a",
+            sform="world_to_b",
+            qform_code=3,
+            sform_code=4,
+            copy=True,
         )
 
         expected, expected_metadata = convert_to_nifti(
@@ -103,6 +108,7 @@ class TestFUSIAccessor:
         np.testing.assert_array_equal(
             np.asarray(img.dataobj), np.asarray(expected.dataobj)
         )
+        assert not np.shares_memory(np.asarray(img.dataobj), data.values)
 
     def test_db_scale_factor_20(self, sample_data):
         """db_scale with factor=20 (amplitude)."""

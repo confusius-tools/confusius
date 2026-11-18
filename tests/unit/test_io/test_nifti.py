@@ -3323,6 +3323,18 @@ class TestConvertToNifti:
             np.asarray(in_memory_img.dataobj), np.asarray(on_disk_img.dataobj)
         )
 
+    @pytest.mark.parametrize("copy", [False, True])
+    def test_to_nifti_copy_decouples_image_from_input(self, sample_voxeldata_3d, copy):
+        """Editing the image in place reaches the input only when `copy` is False."""
+        da = sample_voxeldata_3d.drop_vars("time")
+        original = da.values.copy()
+
+        img, _ = convert_to_nifti(da, copy=copy)
+        np.testing.assert_array_equal(np.asarray(img.dataobj), original.T)
+        np.asarray(img.dataobj)[0, 0, 0] = -1.0
+
+        assert (da.values[0, 0, 0] == -1.0) == (not copy)
+
     def test_to_nifti_writes_no_files(self, tmp_path, sample_voxeldata_3d, monkeypatch):
         """Conversion writes neither an image nor a sidecar."""
         monkeypatch.chdir(tmp_path)

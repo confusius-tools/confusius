@@ -2555,6 +2555,7 @@ def convert_to_nifti(
     sform: str | None = None,
     qform_code: int | None = None,
     sform_code: int | None = None,
+    copy: bool = False,
 ) -> tuple["nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image", dict[str, Any]]:
     """Convert a VoxelData array to a NiBabel NIfTI image and fUSI-BIDS metadata.
 
@@ -2583,6 +2584,10 @@ def convert_to_nifti(
         NIfTI qform code to write. See `save_nifti` for the default rules.
     sform_code : int, optional
         NIfTI sform code to write. See `save_nifti` for the default rules.
+    copy : bool, default: False
+        Whether to copy the data into the returned image. If not copied, the image's
+        data shares memory with a NumPy-backed `data_array`, so editing it in place
+        (e.g. through `img.dataobj` or `img.get_fdata()`) also modifies `data_array`.
 
     Returns
     -------
@@ -2612,6 +2617,10 @@ def convert_to_nifti(
     """
     data_array = ensure_voxeldata(data_array, allow_pose=False)
     data, has_time_axis, extra_dims = _prepare_data_for_nifti(data_array)
+    if copy:
+        # order="K" keeps the transposed view's Fortran layout, which is also NIfTI's
+        # on-disk order, instead of reordering memory into C order.
+        data = data.copy(order="K")
     spacings = _get_spatial_spacings(data_array)
     timing_metadata, tr_pixdim = _build_nifti_timing_metadata(data_array)
     if has_time_axis:
