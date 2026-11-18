@@ -44,11 +44,5 @@ class Figures(Matplotlib):
     background = ("#f8f9fb", "#090c10")
     axes_background = ("#fefefe", "#111720")
     foreground = ("black", "#e6edf3")
-    palette = (
-        None,
-        tuple(
-            mpl.style.library["dark_background"]["axes.prop_cycle"].by_key()["color"]
-        ),
-    )
     cmaps: Mapping[str, str] = {"coolwarm": "berlin", "inferno_r": "inferno"}
     colors: Mapping[str, str] = {RED_DARK: RED, TURQUOISE_DARK: TURQUOISE}
