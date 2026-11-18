@@ -87,7 +87,7 @@ initialization = np.linalg.inv(napari_affine)
 
 # Crop the template to a thin band around the recording's expected location to improve
 # registration speed and visualization.
-target_z = napari_affine[0, 3] + moving.fusi.origin["z"]
+target_z = napari_affine[0, 3] + moving.vd.origin["z"]
 fixed = template.sel(z=slice(target_z - 1.0, target_z + 1.0))
 
 registered, affine, diagnostics = cf.registration.register_volume(
@@ -102,7 +102,7 @@ registered, affine, diagnostics = cf.registration.register_volume(
     show_progress=False,
 )
 
-world_to_sform = template.attrs["affines"]["world_to_sform"]
+world_to_sform = template.vd.affines["world_to_sform"]
 subject_to_atlas = world_to_sform @ np.linalg.inv(affine)
 
 atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)

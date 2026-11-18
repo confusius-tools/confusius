@@ -32,7 +32,7 @@ from confusius.glm._utils import (
     select_contrast_map,
 )
 from confusius.spatial import smooth_volume
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.validation.coordinates import validate_matching_coordinates
 from confusius.validation.mask import validate_mask
 
@@ -285,11 +285,11 @@ class FirstLevelModel(BaseEstimator):
         if isinstance(run_data, xr.DataArray):
             run_data = [run_data]
         run_data = [
-            ensure_voxeldata(run, require_time=True, require_unchunked_time=True)
+            canonicalize_voxeldata(run, require_time=True, require_unchunked_time=True)
             for run in run_data
         ]
         if self.mask is not None:
-            self.mask = ensure_voxeldata(self.mask, allow_extra_dims=False)
+            self.mask = canonicalize_voxeldata(self.mask, allow_extra_dims=False)
         n_runs = len(run_data)
 
         for run in run_data:
@@ -362,7 +362,7 @@ class FirstLevelModel(BaseEstimator):
             self._effective_mask_: xr.DataArray = self.mask
         else:
             mask_template = run_data[0].isel(time=0, drop=True)
-            self._effective_mask_ = ensure_voxeldata(
+            self._effective_mask_ = canonicalize_voxeldata(
                 mask_template.copy(data=np.ones(mask_template.shape, dtype=bool)),
                 allow_extra_dims=False,
             )

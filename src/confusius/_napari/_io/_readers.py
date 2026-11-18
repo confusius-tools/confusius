@@ -23,18 +23,32 @@ if TYPE_CHECKING:
     from napari.types import FullLayerData, PathOrPaths
 
 
-def _make_reader(path: str | Path) -> Callable[[PathOrPaths], list[FullLayerData]]:
+def _make_reader(
+    path: str | Path, *, variable: str | None = None
+) -> Callable[[PathOrPaths], list[FullLayerData]]:
     """Return a `ReaderFunction` for `path`.
 
     The returned function loads the file via [`confusius.load`][confusius.load] (which
     dispatches on extension) and converts the result to a `FullLayerData` tuple. This
     function may raise; napari will surface any exception to the user.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Validated file path.
+    variable : str, optional
+        Zarr data variable selected by the reader gate.
+
+    Returns
+    -------
+    Callable
+        Reader that loads the selected array and converts it to napari layers.
     """
 
     def _read(_path: PathOrPaths) -> list[FullLayerData]:
         # Use the pre-validated `path` captured from the outer scope rather than
         # `_path`, which may be a list when napari replays the reader.
-        da = load(path)
+        da = load(path, variable=variable)
         name = Path(path).name
         return convert_dataarray_to_layer_data(da, name)
 
@@ -144,10 +158,10 @@ def read_zarr(path: PathOrPaths) -> Callable[[PathOrPaths], list[FullLayerData]]
     if not any((p / indicator).exists() for indicator in zarr_indicators):
         return None
     try:
-        ds = xr.open_zarr(p)
-        first_variable = ds[next(iter(ds.data_vars))]
+        with xr.open_zarr(p) as ds:
+            variable = str(next(iter(ds.data_vars)))
+            if "voxel_to_world" not in ds[variable].attrs:
+                return None
     except (OSError, ValueError, StopIteration):
         return None
-    if "voxel_to_world" not in first_variable.attrs:
-        return None
-    return _make_reader(path)
+    return _make_reader(path, variable=variable)

@@ -166,8 +166,8 @@ class TestPlotVolume:
 
         Regression: `_prepare_slice_inputs` used to materialize the whole
         pose-stacked array up front whenever it happened to report
-        axis-aligned (each pose individually diagonal, even with a different
-        origin per pose) -- materializing collapses every non-spatial dim,
+        axis-aligned (each grid individually diagonal, even with a different
+        origin per grid) -- materializing collapses every non-spatial dim,
         including `pose`, to its first index when building the new `z`/`y`/`x`
         dim-coordinates, silently mislabeling every pose with pose 0's world
         position.
@@ -813,8 +813,8 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         # dimension coordinate, so read the fallback origin/spacing off the index via
         # `.fusi` instead of diffing `.coords["z"].values` directly.
         assert result.sizes["k"] == 2
-        assert result.fusi.origin["z"] == pytest.approx(0.0)
-        assert result.fusi.spacing["k"] == pytest.approx(1.0)
+        assert result.vd.origin["z"] == pytest.approx(0.0)
+        assert result.vd.spacing["k"] == pytest.approx(1.0)
 
     def test_resample_derives_spacing_from_affine_not_materialized_array_axis(self):
         """Resampled spacing matches the voxel-to-world affine, not a naive diff
@@ -825,7 +825,7 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         materialized (k, j, i)-shaped world-coordinate array along its last axis
         (the default `numpy.diff` behaviour) would see zero variation and divide
         by zero downstream. Assert the exact spacing values (matching
-        `.fusi.spacing`), not just that resampling doesn't crash.
+        `.vd.spacing`), not just that resampling doesn't crash.
         """
         from confusius._utils.plotting import resample_to_axis_aligned_world_grid
 
@@ -850,9 +850,9 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         # spacing calculation over the materialized `z` array's last axis would see
         # zero spacing. The affine's scale factors are hand-computable here because
         # its linear block is already upper triangular.
-        assert result.fusi.spacing["k"] == pytest.approx(0.4)
-        assert result.fusi.spacing["j"] == pytest.approx(0.3)
-        assert result.fusi.spacing["i"] == pytest.approx(0.25)
+        assert result.vd.spacing["k"] == pytest.approx(0.4)
+        assert result.vd.spacing["j"] == pytest.approx(0.3)
+        assert result.vd.spacing["i"] == pytest.approx(0.25)
 
     def test_resample_raises_when_dominant_voxel_dim_is_irregular(self):
         """Resampling onto an axis-aligned world grid raises `ValueError` when the
@@ -1319,7 +1319,7 @@ class TestVolumePlotterAddVolume:
         dimension; the rejection now happens at `rename` time (geometry layer)
         rather than in `add_volume`'s own dims-equality check.
         """
-        with pytest.raises(ValueError, match="must exactly cover"):
+        with pytest.raises(ValueError, match="coordinate names are fixed"):
             alpha = sample_voxeldata_3d.rename(i="w")
             VolumePlotter(slice_mode="z").add_volume(
                 sample_voxeldata_3d, match_coordinates=False, alpha=alpha
@@ -1658,7 +1658,7 @@ class TestVolumePlotterAddContours:
     ):
         """add_contours restores a mask whose k dim was fixed away by scalar isel.
 
-        `ensure_voxeldata` canonicalizes `mask` the same way it does the plotter's
+        `canonicalize_voxeldata` canonicalizes `mask` the same way it does the plotter's
         own `data`, so a mask coming from e.g. `full_mask.isel(k=0)` still draws on
         the single z-slice it came from instead of raising.
         """

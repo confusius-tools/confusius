@@ -458,7 +458,7 @@ applies to template fetchers.
     atlas = fetch_brainglobe_atlas("allen_mouse_100um")
     resampled_atlas = atlas.atlas.resample_like(
         template,
-        template.attrs["affines"]["world_to_sform"],
+        template.vd.affines["world_to_sform"],
     )
     ```
 

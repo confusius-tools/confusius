@@ -235,7 +235,7 @@ def run_lagged_glm(
 lags = range(9)
 z_scores = run_lagged_glm(data, glm, design_matrix, lags=lags)
 z_score = xr.concat(z_scores, dim="lag").assign_coords(
-    lag=data.fusi.spacing["time"] * np.asarray(lags)
+    lag=data.vd.dt * np.asarray(lags)
 )
 z_score.lag.attrs["units"] = data.time.units
 

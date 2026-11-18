@@ -123,7 +123,7 @@ class FUSIPlotAccessor:
 
         For unitary voxel dimensions (e.g., a single-slice elevation axis in 2D+t
         data), the spacing cannot be inferred from consecutive coordinate
-        differences. In that case, `.fusi.spacing` derives it from the
+        differences. In that case, `.vd.spacing` derives it from the
         voxel-to-world affine column norm instead. For unitary non-voxel dimensions
         with no affine to fall back on, unit spacing is assumed and a warning is
         emitted.

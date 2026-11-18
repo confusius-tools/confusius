@@ -1,11 +1,14 @@
 """Unit tests for confusius.io.loadsave module."""
 
 import warnings
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
+import dask.array as dask_array
 import numpy as np
 import numpy.testing as npt
 import pytest
+import voxeldata as vd
 import xarray as xr
 
 from confusius._dims import WORLD_DIMS
@@ -14,6 +17,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_units,
 )
 from confusius.io.loadsave import load, save
+from confusius.validation import canonicalize_voxeldata
 from confusius.xarray import create_voxeldata
 
 
@@ -133,9 +137,10 @@ class TestLoadDispatch:
             load(path, meta_path="ScanParameters.mat")
         mock.assert_called_once_with(path.resolve(), meta_path="ScanParameters.mat")
 
-    def test_unsupported_extension_raises(self, tmp_path):
-        """Unsupported extension raises ValueError."""
-        path = tmp_path / "data.hdf5"
+    @pytest.mark.parametrize("suffix", [".hdf5", ".nc", ".netcdf"])
+    def test_unsupported_extension_raises(self, tmp_path, suffix):
+        """Unsupported extensions, including NetCDF, remain outside the dispatcher."""
+        path = tmp_path / f"data{suffix}"
         with pytest.raises(ValueError, match="Unsupported file extension"):
             load(path)
 
@@ -166,6 +171,17 @@ class TestSaveDispatch:
         with patch("confusius.io.nifti.save_nifti") as mock:
             save(da, path)
         mock.assert_called_once_with(da, path.resolve())
+
+    def test_zarr_delegates_to_voxeldata(self, tmp_path, saveable_volume):
+        """Zarr serialization is owned by VoxelData, including writer options."""
+        path = tmp_path / "data.zarr"
+        with patch("voxeldata.save") as mock:
+            save(saveable_volume, path, mode="w", zarr_format=2)
+        mock.assert_called_once()
+        args, kwargs = mock.call_args
+        xr.testing.assert_identical(args[0], canonicalize_voxeldata(saveable_volume))
+        assert args[1] == path.resolve()
+        assert kwargs == {"mode": "w", "zarr_format": 2}
 
     def test_zarr_writes_readable_store(self, tmp_path, saveable_volume):
         """.zarr extension writes a store that reloads to the same data."""
@@ -226,10 +242,12 @@ class TestSaveDispatch:
                 UserWarning,
             )
 
-        with patch.object(xr.DataArray, "to_zarr", side_effect=fake_to_zarr):
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                save(da, path)
+        with (
+            patch.object(xr.DataArray, "to_zarr", side_effect=fake_to_zarr),
+            warnings.catch_warnings(record=True) as caught,
+        ):
+            warnings.simplefilter("always")
+            save(da, path)
 
         assert not caught
 
@@ -241,28 +259,38 @@ class TestSaveDispatch:
             save(da, path, nifti_version=2)
         mock.assert_called_once_with(da, path.resolve(), nifti_version=2)
 
-    def test_unsupported_extension_raises(self, tmp_path):
+    @pytest.mark.parametrize("suffix", [".scan", ".nc", ".netcdf"])
+    def test_unsupported_extension_raises(self, tmp_path, suffix):
         """Unsupported extension is reported before fUSI data validation."""
         with pytest.raises(ValueError, match="Unsupported file extension"):
-            save(xr.DataArray(np.zeros((2, 2))), tmp_path / "data.scan")
+            save(xr.DataArray(np.zeros((2, 2))), tmp_path / f"data{suffix}")
 
 
 class TestSaveZarrSanitizesAttrs:
     """Non-JSON-serializable attrs are handled when saving to Zarr."""
 
     def test_nested_numpy_affines_round_trip(self, tmp_path, saveable_volume):
-        """`attrs["affines"]` numpy arrays survive a round-trip and reload as arrays."""
+        """`.vd.affines` numpy arrays survive a round-trip and reload as arrays."""
         affines = {
             "world_to_custom": np.eye(4),
-            "stack": np.arange(32.0).reshape(2, 4, 4),
+            "translated": np.array(
+                [
+                    [1.0, 0.0, 0.0, 2.0],
+                    [0.0, 1.0, 0.0, 3.0],
+                    [0.0, 0.0, 1.0, 4.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
         }
-        da = saveable_volume.assign_attrs(affines=affines)
+        da = saveable_volume.vd.set_voxel_to_world(
+            saveable_volume.vd.voxel_to_world, named_affines=affines
+        )
         path = tmp_path / "affines.zarr"
         save(da, path)
 
         loaded = load(path)
         for key, expected in affines.items():
-            restored = loaded.attrs["affines"][key]
+            restored = loaded.vd.affines[key]
             assert isinstance(restored, np.ndarray)
             npt.assert_array_equal(restored, expected)
 
@@ -293,9 +321,11 @@ class TestSaveZarrSanitizesAttrs:
 
     def test_save_does_not_mutate_input_attrs(self, tmp_path, saveable_volume):
         """The caller's DataArray keeps its original numpy attrs after saving."""
-        da = saveable_volume.assign_attrs(affines={"m": np.eye(4)})
+        da = saveable_volume.vd.set_voxel_to_world(
+            saveable_volume.vd.voxel_to_world, named_affines={"m": np.eye(4)}
+        )
         save(da, tmp_path / "nomutate.zarr")
-        assert isinstance(da.attrs["affines"]["m"], np.ndarray)
+        assert isinstance(da.vd.affines["m"], np.ndarray)
 
 
 class TestLoadZarr:
@@ -346,11 +376,37 @@ class TestLoadZarr:
         xr.Dataset(variables).to_zarr(path)
         return path
 
-    def test_zarr_default_returns_first_variable(self, single_var_zarr):
+    @pytest.mark.parametrize("chunks", ["auto", None])
+    def test_zarr_delegates_to_voxeldata(self, tmp_path, saveable_volume, chunks):
+        """The adapter forwards variable selection and explicit chunk options."""
+        path = tmp_path / "data.zarr"
+        with patch("voxeldata.load_array", return_value=saveable_volume) as mock:
+            result = load(path, variable="power", chunks=chunks)
+        mock.assert_called_once_with(path.resolve(), variable="power", chunks=chunks)
+        assert result is saveable_volume
+
+    def test_zarr_default_remains_dask_backed(self, single_var_zarr):
+        """ConfUSIus preserves its Dask-backed default over VoxelData's default."""
+        with load(single_var_zarr) as result:
+            assert isinstance(result.data, dask_array.Array)
+            npt.assert_array_equal(result.compute(), np.zeros((4, 3, 2)))
+
+    def test_zarr_backend_indexing_can_be_requested(self, single_var_zarr):
+        """Explicit chunks=None opts into backend indexing instead of Dask."""
+        with load(single_var_zarr, chunks=None) as result:
+            assert not isinstance(result.data, dask_array.Array)
+            npt.assert_array_equal(result, np.zeros((4, 3, 2)))
+
+    def test_zarr_selects_only_variable(self, single_var_zarr):
         """variable=None returns the only variable as a DataArray."""
         result = load(single_var_zarr)
         assert isinstance(result, xr.DataArray)
         assert result.name == "iq"
+
+    def test_zarr_multiple_variables_require_selection(self, multi_var_zarr):
+        """Ambiguous datasets use VoxelData's explicit-variable requirement."""
+        with pytest.raises(ValueError, match="Specify variable"):
+            load(multi_var_zarr)
 
     def test_zarr_named_variable(self, multi_var_zarr):
         """variable='iq' returns the iq DataArray."""
@@ -363,14 +419,31 @@ class TestLoadZarr:
         path = tmp_path / "foreign.zarr"
         xr.Dataset({"data": xr.DataArray(np.zeros((4, 3)))}).to_zarr(path)
 
-        with pytest.raises(ValueError, match="was not written by confusius.io.save"):
+        with pytest.raises(ValueError, match="Missing attrs.*voxel_to_world"):
             load(path)
+
+
+def test_voxeldata_store_restores_confusius_atlas_colors(tmp_path):
+    """VoxelData-authored stores receive ConfUSIus-specific color restoration."""
+    data = create_voxeldata(
+        np.array([[[0, 1], [2, 1]]], dtype=np.int32),
+        dims=("k", "j", "i"),
+        spacing=(1.0, 1.0, 1.0),
+        attrs={"rgb_lookup": {1: [255, 0, 0], 2: [0, 255, 0]}},
+    )
+    path = tmp_path / "annotation.zarr"
+    vd.save(data, path)
+    with load(path) as actual:
+        npt.assert_array_equal(actual, data)
+        cmap, norm = actual.attrs["cmap"], actual.attrs["norm"]
+        npt.assert_allclose(cmap(norm(1)), [1, 0, 0, 1])
+        npt.assert_allclose(cmap(norm(2)), [0, 1, 0, 1])
 
 
 class TestLoadRestoresAtlasCmapAndNorm:
     """cmap/norm are rebuilt from rgb_lookup when missing after a round-trip."""
 
-    RGB_LOOKUP = {1: [255, 0, 0], 2: [0, 255, 0]}
+    RGB_LOOKUP: ClassVar[dict[int, list[int]]] = {1: [255, 0, 0], 2: [0, 255, 0]}
 
     @pytest.fixture
     def atlas_like_zarr(self, tmp_path):

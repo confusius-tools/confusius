@@ -57,17 +57,21 @@ def test_coerces_binary_numeric_mask_to_boolean(
 
 
 @pytest.mark.parametrize(
-    ("dtype", "values"),
-    [(np.int32, (1, 2)), (np.float64, (1.0, 2.5)), (np.float32, (float("nan"), 1.0))],
+    ("dtype", "values", "message"),
+    [
+        (np.int32, (1, 2), "distinct non-zero"),
+        (np.float64, (1.0, 2.5), "distinct non-zero"),
+        (np.float32, (float("nan"), 1.0), "finite binary"),
+    ],
 )
 def test_rejects_mask_with_multiple_distinct_non_zero_values(
-    sample_voxeldata_3dt, make_sample_voxeldata_mask, dtype, values
+    sample_voxeldata_3dt, make_sample_voxeldata_mask, dtype, values, message
 ):
     """A mask with more than one distinct non-zero value is rejected, any dtype."""
     mask = make_sample_voxeldata_mask(dtype)
     mask.values.flat[: len(values)] = values
 
-    with pytest.raises(TypeError, match="distinct non-zero"):
+    with pytest.raises(TypeError, match=message):
         ensure_mask(mask, sample_voxeldata_3dt)
 
 

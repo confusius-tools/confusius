@@ -89,16 +89,17 @@ multipose
 # offset start times.
 
 # %%
-origins = [multipose.isel(pose=p).fusi.origin for p in range(multipose.sizes["pose"])]
-for dim in ("z", "y", "x", "time"):
+origins = [multipose.isel(pose=p).vd.origin for p in range(multipose.sizes["pose"])]
+for dim in ("z", "y", "x"):
     print(f"{dim} origins:", tuple(round(origin[dim], 2) for origin in origins))
+print("time origins:", tuple(multipose.time.isel(time=0).values.round(2)))
 
 # %% [markdown]
 # ## Pose-transparent vs. pose-specific geometry
 #
 # Some geometry queries are well-defined without picking a pose. For example, voxel
-# spacing must be identical across poses so
-# [`.fusi.spacing`][confusius.xarray.FUSIAccessor.spacing] works directly on the
+# when voxel spacing is identical across poses,
+# [`.vd.spacing`][voxeldata.accessors.VoxelDataAccessor.spacing] works directly on the
 # multi-pose array.
 #
 # Origin and direction, however, are inherently single-grid concepts, so they require
@@ -111,11 +112,13 @@ for dim in ("z", "y", "x", "time"):
 #     ConfUSIus never resamples poses onto a shared grid implicitly.
 
 # %%
-pose0_origin = multipose.isel(pose=0).fusi.origin
-pose3_origin = multipose.isel(pose=3).fusi.origin
-print("spacing (pose-transparent):", multipose.fusi.spacing)
+pose0_origin = multipose.isel(pose=0).vd.origin
+pose3_origin = multipose.isel(pose=3).vd.origin
+print("spacing (pose-transparent):", multipose.vd.spacing)
 print("z origins (pose 0, 3):", (pose0_origin["z"], pose3_origin["z"]))
-print("time origins (pose 0, 3):", (pose0_origin["time"], pose3_origin["time"]))
+print(
+    "time origins (pose 0, 3):", tuple(multipose.time.isel(time=0, pose=[0, 3]).values)
+)
 
 # %% [markdown]
 # ## Visualize each pose

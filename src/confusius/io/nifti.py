@@ -24,8 +24,8 @@ from confusius._utils.coordinates import (
     get_representative_step,
 )
 from confusius._utils.geometry import (
+    get_array_spacing,
     get_voxel_to_world_affine,
-    get_voxel_to_world_index_spacing,
     get_voxel_to_world_units,
 )
 from confusius._utils.stack import find_stack_level
@@ -46,7 +46,7 @@ from confusius.timing import (
     convert_time_reference,
     convert_time_units,
 )
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.xarray.affine import reindex_voxels
 from confusius.xarray.create import create_voxeldata
 
@@ -1210,7 +1210,7 @@ def load_nifti(
         - `"qform"` forces the qform to define the in-memory coordinate geometry.
 
         The non-selected valid header affine is still preserved in
-        `data_array.attrs["affines"]` as a world-to-world transform.
+        `data_array.vd.affines` as a world-to-world transform.
 
     Returns
     -------
@@ -1241,10 +1241,10 @@ def load_nifti(
     that should stay chunked and parallel. For larger repeated random-access workloads,
     prefer Zarr or uncompressed `.nii`.
 
-    World-to-world affines are stored in `da.attrs["affines"]`, a dict keyed by
+    World-to-world affines are stored in `da.vd.affines`, a dict keyed by
     affine name. Each value is a 4×4 affine in ConfUSIus `(z, y, x)` convention that
     maps **world coordinates** (as stored in `da.coords`) to world-space
-    coordinates. Apply as `da.attrs["affines"]["world_to_sform"] @ np.array([pz, py,
+    coordinates. Apply as `da.vd.affines["world_to_sform"] @ np.array([pz, py,
     px, 1.0])` to get `[wz, wy, wx, 1]`, where `pz`, `py`, `px` come from
     `da.coords["z"]`, `da.coords["y"]`, `da.coords["x"]` respectively.
 
@@ -1261,7 +1261,7 @@ def load_nifti(
       identity `"world_to_qform"` entry is written.
 
     The primary form's identity entry is what keeps that form recoverable after
-    [`apply`][confusius.xarray.FUSIAffineAccessor.apply] re-anchors the world
+    [`apply`][voxeldata.accessors.VoxelDataAccessor.apply] re-anchors the world
     frame elsewhere: it is re-expressed along with the other entries, so
     [`save_nifti`][confusius.io.save_nifti] can still write the original header form.
     - If both codes are zero: a warning is emitted, coordinates are built from
@@ -1422,6 +1422,7 @@ def load_nifti(
         extra_coords=extra_coords,
         voxel_to_world=voxel_to_world,
         units=units,
+        affines=attrs.pop("affines", None),
         attrs=attrs,
         name=nifti_name,
     )
@@ -1841,7 +1842,7 @@ def _prepare_data_for_nifti(
 
     data = np.transpose(data, target_order)
 
-    # save_nifti always canonicalizes data_array via ensure_voxeldata first, which
+    # save_nifti always canonicalizes data_array via canonicalize_voxeldata first, which
     # restores any voxel dim fixed away by a prior scalar isel, so k/j/i are always
     # present here.
     has_time_axis = "time" in current_dims or bool(extras)
@@ -1859,7 +1860,7 @@ def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
 
     `data_array` is always a VoxelData array here: `save_nifti`
     (the only caller)
-    calls `ensure_voxeldata` before reaching this point, so spacing always comes from the
+    calls `canonicalize_voxeldata` before reaching this point, so spacing always comes from the
     `VoxelToWorldIndex` -- there is no plain-coordinate fallback to consider.
 
     Parameters
@@ -1872,7 +1873,7 @@ def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
     list[float]
         Signed spatial spacings for the NIfTI `x`, `y`, and `z` axes.
     """
-    voxel_spacings = get_voxel_to_world_index_spacing(data_array)
+    voxel_spacings = get_array_spacing(data_array)
     spacings = [voxel_spacings.get(dim) for dim in reversed(VOXEL_DIMS)]
     return [1.0 if spacing is None else float(spacing) for spacing in spacings]
 
@@ -1993,7 +1994,7 @@ def _resolve_nifti_affine_key(
     Parameters
     ----------
     stored_affines : dict[str, Any]
-        Affines stored in `data_array.attrs["affines"]`.
+        Affines stored in `data_array.vd.affines`.
     form_name : {"qform", "sform"}
         Name of the NIfTI xform field being resolved.
     selected_key : str, optional
@@ -2019,7 +2020,7 @@ def _resolve_nifti_affine_key(
 
     if selected_key is not None:
         raise ValueError(
-            f"{form_name}={selected_key!r} not found in data_array.attrs['affines']."
+            f"{form_name}={selected_key!r} not found in data_array.vd.affines."
         )
 
     return None
@@ -2071,7 +2072,7 @@ def _build_nifti_voxel_to_world_affine(
     validation raises for irregular coordinates, but with a generic message, so
     that case is checked explicitly first for a clear NIfTI-specific error. An
     empty voxel coordinate needs no such check here: `save_nifti` validates `data_array`
-    via `ensure_voxeldata` before calling this, which already rejects zero-length
+    via `canonicalize_voxeldata` before calling this, which already rejects zero-length
     dimensions.
     """
     voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data_array.dims)
@@ -2145,7 +2146,7 @@ def _prepare_nifti_xforms(
     Returns
     -------
     stored_affines : dict[str, Any]
-        Affines stored in `data_array.attrs["affines"]`.
+        Affines stored in `data_array.vd.affines`.
     qform_affine : (4, 4) numpy.ndarray
         Final qform affine to write to the NIfTI header.
     sform_affine : (4, 4) numpy.ndarray or None
@@ -2159,7 +2160,7 @@ def _prepare_nifti_xforms(
         Keys from `stored_affines` that were actually written into the NIfTI header and
         should therefore be omitted from `ConfUSIusAffines` in the sidecar.
     """
-    stored_affines: dict[str, Any] = data_array.attrs.get("affines", {})
+    stored_affines = data_array.vd.affines
     selected_keys = {"qform": qform, "sform": sform}
     explicit_codes = {"qform": qform_code, "sform": sform_code}
     default_affine_keys = {
@@ -2272,7 +2273,7 @@ def _validate_affine_matrix(
     affine_array = np.asarray(affine, dtype=float)
     if affine_array.shape != (4, 4):
         raise ValueError(
-            f"data_array.attrs['affines'][{name!r}] must have shape (4, 4), got "
+            f"data_array.vd.affines[{name!r}] must have shape (4, 4), got "
             f"{affine_array.shape}."
         )
 
@@ -2294,9 +2295,9 @@ def _build_nifti_sidecar_metadata(
     timing_metadata : dict[str, Any]
         Timing-related metadata returned by `_build_nifti_timing_metadata`.
     stored_affines : dict[str, Any]
-        Affines stored in `data_array.attrs["affines"]`.
+        Affines stored in `data_array.vd.affines`.
     written_header_affine_keys : set of str
-        Keys from `data_array.attrs["affines"]` that were actually written into the
+        Keys from `data_array.vd.affines` that were actually written into the
         NIfTI qform and/or sform header fields.
 
     Returns
@@ -2476,7 +2477,7 @@ def save_nifti(
         NIfTI format version to use. Version 2 is a simple extension to support
         larger files and arrays with dimension sizes greater than 32,767.
     qform : str, optional
-        Key in `data_array.attrs["affines"]` to write into the NIfTI qform. When not
+        Key in `data_array.vd.affines` to write into the NIfTI qform. When not
         provided, `"world_to_qform"` is used if present; otherwise qform falls back
         to the coordinate-defining voxel geometry (`voxel_to_world`) directly.
 
@@ -2484,7 +2485,7 @@ def save_nifti(
         because the NIfTI qform cannot represent shear. In that case, the geometry is
         written to sform instead.
     sform : str, optional
-        Key in `data_array.attrs["affines"]` to write into the NIfTI sform. When not
+        Key in `data_array.vd.affines` to write into the NIfTI sform. When not
         provided, `"world_to_sform"` is used if present; otherwise sform also falls
         back to `voxel_to_world` directly (like qform), unless disabled via
         `sform_code=0` or `attrs["sform_code"] = 0`.
@@ -2530,7 +2531,7 @@ def save_nifti(
     ...     spacing=(0.4, 0.1, 0.1),
     ... )
     >>> cf.io.save_nifti(da, "output.nii.gz")
-    >>> da.attrs["affines"] = {"world_to_template": np.eye(4)}
+    >>> da = da.vd.set_affine("world_to_template", np.eye(4))
     >>> cf.io.save_nifti(da, "output.nii.gz", sform="world_to_template")
     """
     path = Path(path)
@@ -2539,7 +2540,7 @@ def save_nifti(
         str(path).count("{chunk}") != 1 or "{chunk}" not in path.name
     ):
         raise ValueError("Use exactly one {chunk} placeholder, in the filename.")
-    data_array = ensure_voxeldata(data_array, allow_pose=chunk_template)
+    data_array = canonicalize_voxeldata(data_array, allow_pose=chunk_template)
     if not path.name.endswith(".nii") and not path.name.endswith(".nii.gz"):
         raise ValueError("Output file must have .nii or .nii.gz extension.")
 

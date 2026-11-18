@@ -13,7 +13,7 @@ from confusius.registration._utils import validate_intensity_scaling
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 from confusius.validation.mask import check_spatial_alignment
 
 if TYPE_CHECKING:
@@ -236,7 +236,7 @@ def register_volumewise(
             "for serial processing."
         )
 
-    data_moved = ensure_voxeldata(
+    data_moved = canonicalize_voxeldata(
         data,
         require_time=True,
         allow_pose=False,
@@ -253,7 +253,7 @@ def register_volumewise(
                 "'fixed' must be a spatial-only VoxelData array without a time "
                 f"dimension; got dims {fixed.dims}."
             )
-        ref_da = ensure_voxeldata(
+        ref_da = canonicalize_voxeldata(
             fixed, require_time=False, allow_pose=False, allow_extra_dims=False
         )
         # Output reuses `data`'s shape and coordinates, so the target must live on

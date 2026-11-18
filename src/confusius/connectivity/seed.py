@@ -9,11 +9,10 @@ import xarray as xr
 from matplotlib.colors import Normalize
 from sklearn.base import BaseEstimator
 
-from confusius.extract import extract_with_mask, unmask
-from confusius.extract.labels import extract_with_labels
+from confusius.extract import extract_with_labels, extract_with_mask, unmask
 from confusius.signal import clean
 from confusius.validation import (
-    ensure_voxeldata,
+    canonicalize_voxeldata,
     validate_labels,
     validate_mask,
     validate_time_series,
@@ -275,10 +274,10 @@ class SeedBasedMaps(BaseEstimator):
                 "but both were given."
             )
 
-        X = ensure_voxeldata(X, require_time=True)
+        X = canonicalize_voxeldata(X, require_time=True)
 
         if self.seed_masks is not None:
-            self.seed_masks = ensure_voxeldata(self.seed_masks, allow_pose=False)
+            self.seed_masks = canonicalize_voxeldata(self.seed_masks, allow_pose=False)
             validate_labels(self.seed_masks, X, "seed_masks")
         else:
             # self.seed_signals is not None, guaranteed by the mutual-exclusivity check
@@ -287,7 +286,7 @@ class SeedBasedMaps(BaseEstimator):
             _validate_seed_signals(self.seed_signals, X)
 
         if self.mask is not None:
-            self.mask = ensure_voxeldata(
+            self.mask = canonicalize_voxeldata(
                 self.mask, allow_pose=False, allow_extra_dims=False
             )
             validate_mask(self.mask, X, "mask")

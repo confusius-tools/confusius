@@ -52,7 +52,8 @@ def _make_consolidated_da(
         time=time_coord,
         spacing=(0.2, 0.3, 0.4),
         origin=(0.0, 0.0, 0.0),
-        attrs={"affines": {"world_to_lab": np.eye(4)}},
+        affines={"world_to_lab": np.eye(4)},
+        attrs={},
         name="scan_data",
     )
     return result.assign_coords(
@@ -192,7 +193,8 @@ class TestCorrectSliceTiming:
             ),
             spacing=(0.2, 0.1, 0.1),
             origin=(0.0, 0.0, 0.0),
-            attrs={"affines": {"world_to_lab": np.eye(4)}},
+            affines={"world_to_lab": np.eye(4)},
+            attrs={},
         ).assign_coords(
             slice_time=xr.DataArray(
                 slice_time_vals,
@@ -313,9 +315,7 @@ class TestCorrectSliceTiming:
             base_time_coord, pose_time_vals, timing_attrs
         )
 
-        affines = np.broadcast_to(
-            np.diag([0.1, 0.3, 0.4, 1.0]), (npose, 4, 4)
-        ).copy()
+        affines = np.broadcast_to(np.diag([0.1, 0.3, 0.4, 1.0]), (npose, 4, 4)).copy()
         affines[:, 0, 3] = np.arange(npose)
         da_unconsolidated = create_voxeldata(
             data[:, :, None],

@@ -95,11 +95,8 @@ def _make_bspline_transform() -> xr.DataArray:
         extra_coords={"component": np.array(["k", "j", "i"], dtype=np.str_)},
         spacing=(1.0, 0.2, 0.1),
         origin=(0.0, 0.0, 0.0),
-        attrs={
-            "transform_type": "bspline_transform",
-            "order": 3,
-            "affines": {"bspline_initialization": np.eye(4).tolist()},
-        },
+        affines={"bspline_initialization": np.eye(4).tolist()},
+        attrs={"transform_type": "bspline_transform", "order": 3},
     )
 
 
@@ -605,7 +602,7 @@ class TestRunRegistration:
 
         Regression test: with an oblique (non-axis-aligned) voxel-to-world index,
         per-dimension coordinate differences give the wrong spacing/origin -- only
-        the affine itself (via `.fusi.spacing`/`.fusi.origin`) is correct.
+        the affine itself (via `.vd.spacing`/`.vd.origin`) is correct.
         """
         # Swap k/j in the direction matrix: still a valid affine, but off-diagonal,
         # so `_is_axis_aligned_affine` treats it as oblique.
@@ -623,8 +620,8 @@ class TestRunRegistration:
         registration_panel._new_moving_mask_btn.click()
 
         moving_mask = viewer.layers["Moving mask"]
-        expected_spacing = moving.fusi.spacing
-        expected_origin = moving.fusi.origin
+        expected_spacing = moving.vd.spacing
+        expected_origin = moving.vd.origin
         world_dim = {"k": "z", "j": "y", "i": "x"}
         np.testing.assert_allclose(
             moving_mask.scale, [expected_spacing[d] for d in ("k", "j", "i")]

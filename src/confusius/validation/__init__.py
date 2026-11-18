@@ -19,7 +19,6 @@ from confusius.validation.time_series import (
 from confusius.validation.units import validate_matching_spatial_units
 from confusius.validation.voxeldata import (
     canonicalize_voxeldata,
-    ensure_voxeldata,
     validate_voxeldata,
 )
 
@@ -28,7 +27,6 @@ __all__ = [
     "ensure_labels",
     "ensure_mask",
     "ensure_time_aligned",
-    "ensure_voxeldata",
     "validate_atlas",
     "validate_bspline",
     "validate_displacement_field",

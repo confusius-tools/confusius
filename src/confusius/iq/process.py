@@ -26,7 +26,7 @@ from confusius.timing import (
     convert_time_reference,
     get_representative_time_step,
 )
-from confusius.validation import ensure_voxeldata, validate_mask
+from confusius.validation import canonicalize_voxeldata, validate_mask
 from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
@@ -1211,7 +1211,7 @@ def process_iq_to_power_doppler(
 
     clutter_mask_array = None
     if clutter_mask is not None:
-        clutter_mask = ensure_voxeldata(
+        clutter_mask = canonicalize_voxeldata(
             clutter_mask, allow_pose=False, allow_extra_dims=False
         )
         validate_mask(clutter_mask, iq, "clutter_mask")
@@ -1519,7 +1519,7 @@ def process_iq_to_axial_velocity(
 
     clutter_mask_array = None
     if clutter_mask is not None:
-        clutter_mask = ensure_voxeldata(
+        clutter_mask = canonicalize_voxeldata(
             clutter_mask, allow_pose=False, allow_extra_dims=False
         )
         validate_mask(clutter_mask, iq, "clutter_mask")

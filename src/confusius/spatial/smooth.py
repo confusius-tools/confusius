@@ -6,7 +6,8 @@ import numpy as np
 import scipy.ndimage
 import xarray as xr
 
-from confusius.validation import ensure_voxeldata
+from confusius._utils.coordinates import get_coordinate_spacing_info
+from confusius.validation import canonicalize_voxeldata
 
 _FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 """FWM to Gaussian sigma conversion factor."""
@@ -123,7 +124,7 @@ def smooth_volume(
 
     >>> smoothed = smooth_volume(data, fwhm=0.3, ensure_finite=True)
     """
-    data = ensure_voxeldata(data)
+    data = canonicalize_voxeldata(data)
 
     all_dims = [str(d) for d in data.dims]
 
@@ -143,11 +144,16 @@ def smooth_volume(
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
-        spacing = data.fusi.spacing
+        spacing = data.vd.spacing
 
     smooth_spacing: dict[str, float] = {}
     for dim in smooth_dims:
-        s = spacing.get(dim)
+        if dim in spacing:
+            s = spacing[dim]
+        elif dim == "time":
+            s = data.vd.dt
+        else:
+            s = get_coordinate_spacing_info(dim, data, 1e-2).value
         if s is None:
             raise ValueError(
                 f"Dimension '{dim}' has non-uniform or undefined coordinate spacing. "

@@ -24,45 +24,6 @@ region meshes are required only when validating for mesh operations
 """
 
 
-def _validate_variable_affines(ds: xr.Dataset) -> None:
-    """Check that same-named affines agree across the Dataset's data variables.
-
-    Each data variable may carry an `attrs["affines"]` dict mapping a name (e.g.
-    `world_to_sform`) to a matrix. Two variables that both define an affine of a given
-    name describe the same grid, so those matrices must be equal; a mismatch means the
-    variables are not on a common world frame and the atlas is invalid.
-
-    Parameters
-    ----------
-    ds : xarray.Dataset
-        Atlas Dataset whose data variables' `affines` attrs are cross-checked.
-
-    Raises
-    ------
-    ValueError
-        If two data variables hold different matrices for the same affine name.
-    """
-    seen: dict[str, tuple[str, np.ndarray]] = {}
-    for var_name in ds.data_vars:
-        affines = ds[var_name].attrs.get("affines")
-        if not isinstance(affines, dict):
-            continue
-        for affine_name, matrix in affines.items():
-            matrix = np.asarray(matrix, dtype=np.float64)
-            if affine_name not in seen:
-                seen[affine_name] = (str(var_name), matrix)
-                continue
-            first_var, first_matrix = seen[affine_name]
-            if first_matrix.shape != matrix.shape or not np.allclose(
-                first_matrix, matrix
-            ):
-                raise ValueError(
-                    f"Atlas variables disagree on affine '{affine_name}': "
-                    f"'{first_var}' and '{var_name}' hold different matrices, so they are "
-                    "not on a common world frame."
-                )
-
-
 def _validate_meshes_available(structures: "StructuresDict") -> None:
     """Raise ValueError unless some structure references a mesh source.
 
@@ -111,7 +72,7 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
        `StructuresDict`. The descriptive metadata the builder adds (`name`, `citation`,
        `species`, `orientation`) is not required.
     6. **Affines**: where two data variables both define an affine of the same name (in
-       `attrs["affines"]`), the matrices must be equal — a mismatch means the variables
+       `.vd.affines`), the matrices must be equal — a mismatch means the variables
        are not on a common world frame.
     7. **Mesh use** (only when `require_mesh_use` is set): `attrs["world_to_base"]` — the
        pull mesh transform get_meshes needs — is present, and at least one structure
@@ -189,8 +150,6 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
             "xarray drops attrs on many operations by default; run atlas pipelines "
             "under xarray.set_options(keep_attrs=True)."
         )
-
-    _validate_variable_affines(ds)
 
     # In memory the structures ride as a BrainGlobe StructuresDict (serialized to JSON
     # only inside the Zarr store); fetch_brainglobe_atlas and load_atlas both produce

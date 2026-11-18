@@ -1,7 +1,5 @@
-"""Signal extraction from fUSI data."""
+"""Generic extraction and reconstruction re-exported from VoxelData."""
 
-from confusius.extract.labels import extract_with_labels
-from confusius.extract.mask import extract_with_mask
-from confusius.extract.reconstruction import unmask
+from voxeldata.extract import extract_with_labels, extract_with_mask, unmask
 
 __all__ = ["extract_with_labels", "extract_with_mask", "unmask"]
