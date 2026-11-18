@@ -78,16 +78,19 @@ dev = [
     "zensical>=0.0.67",
     "mkdocstrings[python]>=1.0.4",
     "pytest-qt>=4.5.0",
-    "zallery>=0.0.4",
+    "zallery>=0.0.5",
 ]
 
 [tool.zallery]
-# Examples gallery, built by the zallery package with `uv run zallery`.
-examples = "docs/examples"
-cache = ".gallery-cache"
+# Examples gallery in `docs/examples`, built by the zallery package with
+# `uv run zallery`.
 binder_repo = "confusius-tools/confusius"
 # The look of the figures on each page of the site (see `tools/gallery.py`).
 integrations = ["tools.gallery:Figures"]
+# Each example page lists the ConfUSIus objects it uses, linked to the API reference.
+# The template that lists those examples back under each object is written to
+# `.zallery-cache/mkdocstrings`, which `zensical.toml` names as `custom_templates`.
+api_references = true
 
 [tool.numpydoc_validation]
 exclude = [

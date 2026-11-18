@@ -13,12 +13,12 @@ gallery:
 # Remove generated gallery artifacts and the gallery cache.
 [unix]
 clean-gallery:
-    rm -rf docs/examples/_built docs/examples/index.md .gallery-cache
+    rm -rf docs/examples/_built docs/examples/index.md .zallery-cache
 
 # Remove generated gallery artifacts and the gallery cache.
 [windows]
 clean-gallery:
-    foreach ($p in 'docs/examples/_built', 'docs/examples/index.md', '.gallery-cache') { if (Test-Path $p) { Remove-Item -Recurse -Force $p } }
+    foreach ($p in 'docs/examples/_built', 'docs/examples/index.md', '.zallery-cache') { if (Test-Path $p) { Remove-Item -Recurse -Force $p } }
 
 # Build documentation.
 docs: gallery

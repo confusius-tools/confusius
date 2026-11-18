@@ -125,6 +125,11 @@ and the dark figures. What is specific to ConfUSIus:
   `tools/gallery.py`, a zallery
   [integration class](https://github.com/confusius-tools/zallery/blob/main/docs/user-guide/integrations.md);
   editing it invalidates the gallery cache.
+- Nothing to write for the API links: each example page ends with the ConfUSIus
+  functions and classes its cells use, linked to the API reference, and each of those
+  API entries lists the example back under "Used in the examples". Only objects held
+  by a name in a cell are found, so a method called on the result of another call
+  (`cf.load(path).mean()`) is not listed.
 
 ### Reporting Issues
 

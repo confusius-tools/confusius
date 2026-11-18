@@ -739,7 +739,7 @@ dev = [
     { name = "pytest-qt", specifier = ">=4.5.0" },
     { name = "ruff", specifier = ">=0.17.4" },
     { name = "ty", specifier = ">=0.0.100,<0.1.0" },
-    { name = "zallery", specifier = ">=0.0.4" },
+    { name = "zallery", specifier = ">=0.0.5" },
     { name = "zensical", specifier = ">=0.0.67" },
 ]
 
@@ -4957,7 +4957,7 @@ wheels = [
 
 [[package]]
 name = "zallery"
-version = "0.0.4"
+version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ipykernel" },
@@ -4973,9 +4973,9 @@ dependencies = [
     { name = "pyzmq" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a2/55/f2e7743fe3b5429e6a53ab90319bd26ee74b226847c4d82ae4495023f400/zallery-0.0.4.tar.gz", hash = "sha256:d487ce0669f37cb48b3834e5e19992f98618d7cd460d74cffc5d6d3a52aa5a1c", size = 56426, upload-time = "2026-11-17T18:01:15.638Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/04/29/39ee5582dab1645c93a2ad59fb41099e8f4f03e4555638aadf8f59f65e4a/zallery-0.0.5.tar.gz", hash = "sha256:d0e62838bcc912c729fb8607aa308ae09ab73df5777184ce3c52bf06ecee2456", size = 59711, upload-time = "2026-11-18T18:18:27.009Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/72/e5/cf9b9f077907db9633d0384d8f7854f9a8ae9691f68d0291a40b1db8f177/zallery-0.0.4-py3-none-any.whl", hash = "sha256:f9190d7be2f78234edf0f8d4c67686fb22ba02879b9a9af9b201852f00ae46e4", size = 65443, upload-time = "2026-11-17T18:01:14.212Z" },
+    { url = "https://files.pythonhosted.org/packages/98/58/335be69fdda0a450a21fb7081da22d42696b8bf8bde0614b20a5dcc9ffb5/zallery-0.0.5-py3-none-any.whl", hash = "sha256:cd856bc937a1bcc74ca1f620e6f0656a80683c863f1c8d8fd43615101f706155", size = 69236, upload-time = "2026-11-18T18:18:25.884Z" },
 ]
 
 [[package]]

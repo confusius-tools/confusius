@@ -174,6 +174,12 @@ accent = "custom"
 toggle.icon = "lucide/sun"
 toggle.name = "Switch to dark mode"
 
+# With `backlinks` (below), each API object lists the pages that reference it. This
+# template, which zallery writes on every gallery build, keeps only the examples that
+# use the object (see `api_references` in `[tool.zallery]` of `pyproject.toml`).
+[project.plugins.mkdocstrings]
+custom_templates = ".zallery-cache/mkdocstrings"
+
 [project.plugins.mkdocstrings.handlers.python]
 inventories = [
     "https://docs.python.org/3/objects.inv",
@@ -222,6 +228,7 @@ inherited_members = true
 parameter_headings = true
 heading_level = 2
 summary = true
+backlinks = "tree"
 
 [project.markdown_extensions.zensical.extensions.glightbox]
 auto = true

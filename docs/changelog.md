@@ -80,6 +80,9 @@ Current development version for the next ConfUSIus release.
 - Add the [Transforms 101](examples/_built/io/transforms_101.md) example,
   which shows how to translate, rotate and zoom a VoxelData array and what the `center`
   argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Each example page lists the ConfUSIus functions and classes it uses, linked to the
+  API reference, and each API entry lists the examples that use it
+  ([#519](https://github.com/confusius-tools/confusius/pull/519)).
 
 ### :wrench: Maintenance
 

@@ -152,12 +152,12 @@ jobs:
           xvfb-run -a uv run docs/images/home/generate.py
 
       - name: Ensure gallery cache directory exists
-        run: mkdir -p .gallery-cache
+        run: mkdir -p .zallery-cache
 
       - name: Cache gallery artifacts
         uses: actions/cache@v6
         with:
-          path: .gallery-cache
+          path: .zallery-cache
           key: ${{ runner.os }}-gallery-${{ hashFiles('.dataset-versions.conf', 'src/confusius/datasets/*.py', 'uv.lock', 'docs/examples/**/*.py', 'tools/gallery.py') }}
 
       - name: Build example gallery
@@ -190,6 +190,18 @@ jobs:
           path: |
             docs/examples/_built/
             docs/examples/index.md
+          retention-days: 14
+
+      - name: Upload gallery templates artifact
+        # The mkdocstrings template zallery writes on each gallery build, which
+        # `zensical.toml` names as `custom_templates`: the deploy job builds the
+        # site again and needs it too.
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: gallery-templates-${{ github.sha }}
+          path: .zallery-cache/mkdocstrings/
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 14
 
       - name: Upload generated images artifact
@@ -229,6 +241,12 @@ jobs:
           name: gallery-built-${{ github.sha }}
           path: docs/examples/
 
+      - name: Download gallery templates artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: gallery-templates-${{ github.sha }}
+          path: .zallery-cache/mkdocstrings/
+
       - name: Download generated images artifact
         uses: actions/download-artifact@v8
         with:
@@ -244,6 +262,10 @@ jobs:
           fi
           if [ ! -f "docs/examples/index.md" ]; then
             echo "Gallery index missing after artifact download"
+            exit 1
+          fi
+          if [ ! -f ".zallery-cache/mkdocstrings/python/material/backlinks.html.jinja" ]; then
+            echo "Gallery mkdocstrings template missing after artifact download"
             exit 1
           fi
 
