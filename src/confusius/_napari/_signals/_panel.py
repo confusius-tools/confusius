@@ -67,6 +67,12 @@ class SignalPanel(QWidget):
         )
         self._cached_xaxis_dim_index: int | None = None
         self._setup_ui()
+        # Construct (but don't dock) the plotter immediately: live-signal
+        # extraction/registration happens as part of its rendering, so e.g.
+        # painting a Labels layer must register/update live signals in the shared
+        # store even if "Show Signal Plot" was never clicked.
+        self._ensure_plotter_instance()
+        self._sync_source_to_plotter()
         viewer.events.theme.connect(self._on_theme_changed)
 
     def _setup_ui(self) -> None:
@@ -277,12 +283,12 @@ class SignalPanel(QWidget):
         self._ymax_spin.setEnabled(not checked)
         self._apply_settings()
 
-    def _ensure_plotter(self) -> SignalPlotter:
-        """Return the bottom-dock SignalPlotter.
+    def _ensure_plotter_instance(self) -> SignalPlotter:
+        """Return the SignalPlotter, constructing it (undocked) on first call.
 
-        Creates and docks the widget on first call. If the dock was closed (the
-        plotter's parent becomes None after napari removes it), re-docks it. When the
-        plotter is already in a live dock this is a no-op.
+        Separate from `_ensure_plotter` so live-signal extraction/registration
+        (which happens as part of rendering) works even before the plot dock has
+        ever been shown.
         """
         if self._plotter is None:
             self._plotter = SignalPlotter(
@@ -291,11 +297,21 @@ class SignalPanel(QWidget):
                 event_store=self._event_store,
             )
             self._plotter.frame_clicked.connect(self._on_frame_clicked)
+        return self._plotter
 
-        if self._plotter.parent() is None:
+    def _ensure_plotter(self) -> SignalPlotter:
+        """Return the bottom-dock SignalPlotter.
+
+        Creates and docks the widget on first call. If the dock was closed (the
+        plotter's parent becomes None after napari removes it), re-docks it. When the
+        plotter is already in a live dock this is a no-op.
+        """
+        plotter = self._ensure_plotter_instance()
+
+        if plotter.parent() is None:
             # Widget is not docked, create (or re-create) the dock.
             dock = self._viewer.window.add_dock_widget(
-                self._plotter, name="Signal Plot", area="bottom"
+                plotter, name="Signal Plot", area="bottom"
             )
 
             # Disable the button while the dock is visible; re-enable on hide/close.
@@ -346,9 +362,9 @@ class SignalPanel(QWidget):
         self._apply_settings()
         self._sync_source_to_plotter()
         if self._cursor_check.isChecked():
-            self._plotter.set_xaxis_cursor(self._current_xaxis_world())
+            plotter.set_xaxis_cursor(self._current_xaxis_world())
 
-        return self._plotter
+        return plotter
 
     def show_plot(self) -> None:
         """Show or re-dock the signal plot widget."""
