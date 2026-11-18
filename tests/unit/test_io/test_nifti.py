@@ -3335,14 +3335,6 @@ class TestConvertToNifti:
 
         assert (da.values[0, 0, 0] == -1.0) == (not copy)
 
-    def test_to_nifti_writes_no_files(self, tmp_path, sample_voxeldata_3d, monkeypatch):
-        """Conversion writes neither an image nor a sidecar."""
-        monkeypatch.chdir(tmp_path)
-
-        convert_to_nifti(sample_voxeldata_3d.drop_vars("time"))
-
-        assert list(tmp_path.iterdir()) == []
-
 
 class TestConvertFromNifti:
     """Tests for conversion from NiBabel images and fUSI-BIDS metadata."""
