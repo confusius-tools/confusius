@@ -1,5 +1,6 @@
 """Plotting helpers shared across the plotting/napari modules and registration views."""
 
+import itertools
 import warnings
 from collections.abc import Hashable, Sequence
 from typing import Literal
@@ -141,6 +142,64 @@ def qr_axis_spacing(
     return row_to_axis, axis_spacing
 
 
+def compute_axis_aligned_grid_geometry(
+    voxel_to_world: NDArray[np.float64],
+    voxel_bounds: Sequence[tuple[float, float]],
+) -> tuple[list[int], list[float], list[float]]:
+    """Compute the axis-aligned world grid enclosing a voxel-coordinate box.
+
+    World coordinates are affine in voxel coordinates, so their extremes over the box
+    are attained at its corners, and no world coordinate needs materializing. See
+    `compute_oblique_axis_aligned_grid_geometry` for the spacing rule.
+
+    Parameters
+    ----------
+    voxel_to_world : (4, 4) numpy.ndarray
+        Homogeneous voxel-to-world affine.
+    voxel_bounds : sequence of tuple of float
+        Lowest and highest voxel coordinate along `k`, `j` and `i`.
+
+    Returns
+    -------
+    shape : list of int
+        Number of voxels along world `z`, `y` and `x`.
+    spacing : list of float
+        World distance between consecutive voxels along world `z`, `y` and `x`.
+    origin : list of float
+        World location of output voxel position 0 along world `z`, `y` and `x`.
+
+    Raises
+    ------
+    ValueError
+        If the affine is singular along a world axis.
+    """
+    corners = np.array(list(itertools.product(*voxel_bounds)), dtype=np.float64)
+    world = (voxel_to_world[:3, :3] @ corners.T).T + voxel_to_world[:3, 3]
+    row_to_axis, axis_spacing = qr_axis_spacing(voxel_to_world[:3, :3])
+
+    shape: list[int] = []
+    spacing: list[float] = []
+    origin: list[float] = []
+    for row, dim in enumerate(WORLD_DIMS):
+        lower = np.float64(world[:, row].min()).item()
+        upper = np.float64(world[:, row].max()).item()
+        dim_spacing = float(axis_spacing[row_to_axis[row]])
+        if dim_spacing == 0.0:
+            raise ValueError(
+                f"Cannot resample {dim!r} onto an axis-aligned world grid: the "
+                "voxel-to-world affine is singular along this axis."
+            )
+        origin.append(lower)
+        spacing.append(dim_spacing)
+        # A relative tolerance absorbs floating-point noise in `upper`/`lower`
+        # (e.g. from composing several affines) that would otherwise push an
+        # exact multiple of `dim_spacing` just over an integer boundary and
+        # `ceil` an extra, out-of-bounds slice onto the grid.
+        n_steps = (upper - lower) / dim_spacing
+        shape.append(np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1)
+    return shape, spacing, origin
+
+
 def compute_oblique_axis_aligned_grid_geometry(
     data: xr.DataArray, world_dims: Sequence[str]
 ) -> tuple[list[int], list[float], list[float]]:
@@ -212,31 +271,17 @@ def compute_oblique_axis_aligned_grid_geometry(
                 "(irregularly spaced coordinates)."
             )
     affine = require_scalar_pose_affine(data, "Computing axis-aligned grid geometry")
-    linear = affine[:3, :3]
-    row_to_axis, axis_spacing = qr_axis_spacing(linear)
-
-    spacing: list[float] = []
-    origin: list[float] = []
-    shape: list[int] = []
-    for row, dim in enumerate(world_dims):
-        values = np.asarray(data.coords[dim].values, dtype=np.float64)
-        lower = np.float64(np.min(values)).item()
-        upper = np.float64(np.max(values)).item()
-        dim_spacing = float(axis_spacing[row_to_axis[row]])
-        if dim_spacing == 0.0:
-            raise ValueError(
-                f"Cannot resample {dim!r} onto an axis-aligned world grid: the "
-                "voxel-to-world affine is singular along this axis."
-            )
-        origin.append(lower)
-        spacing.append(dim_spacing)
-        # A relative tolerance absorbs floating-point noise in `upper`/`lower`
-        # (e.g. from composing several affines) that would otherwise push an
-        # exact multiple of `dim_spacing` just over an integer boundary and
-        # `ceil` an extra, out-of-bounds slice onto the grid.
-        n_steps = (upper - lower) / dim_spacing
-        shape.append(np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1)
-    return shape, spacing, origin
+    voxel_bounds = [
+        (float(data.coords[dim].values.min()), float(data.coords[dim].values.max()))
+        for dim in VOXEL_DIMS
+    ]
+    shape, spacing, origin = compute_axis_aligned_grid_geometry(affine, voxel_bounds)
+    rows = [WORLD_DIMS.index(dim) for dim in world_dims]
+    return (
+        [shape[row] for row in rows],
+        [spacing[row] for row in rows],
+        [origin[row] for row in rows],
+    )
 
 
 def resample_to_axis_aligned_world_grid(

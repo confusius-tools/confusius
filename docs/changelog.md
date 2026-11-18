@@ -101,6 +101,12 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- [`plot_napari`][confusius.plotting.plot_napari] displays oblique 3D volumes several
+  times faster ([#567](https://github.com/confusius-tools/confusius/pull/567)).
+- Add a Transform panel to translate, rotate, zoom and flip a layer in world space, with
+  a live preview and rotation dials. Apply writes the result to the layer's affine, and
+  Resample creates a new layer with resampled voxels
+  ([#567](https://github.com/confusius-tools/confusius/pull/567)).
 - Videos open in a separate, time-synchronized viewer with their own layer list. Load
   recordings and videos from **Data I/O**
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
