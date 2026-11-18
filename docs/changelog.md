@@ -46,6 +46,13 @@ Current development version for the next ConfUSIus release.
 - Load multi-pose arrays split into several NIfTI files using `{chunk}` in the filename,
   stacking them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
+- Add [`convert_from_nifti`][confusius.io.convert_from_nifti] and
+  [`convert_to_nifti`][confusius.io.convert_to_nifti] to convert directly between
+  VoxelData and in-memory NiBabel NIfTI images, with no file I/O. Conversion returns
+  fUSI-BIDS metadata alongside the image to preserve timing and named extra dimensions.
+  Conversion to NIfTI is also available on the `.fusi` accessor,
+  as [`data.fusi.to_nifti`][confusius.xarray.FUSIAccessor.to_nifti]
+  ([#421](https://github.com/confusius-tools/confusius/pull/421)).
 - Add [`apply_translation`][confusius.xarray.apply_translation],
   [`apply_rotation`][confusius.xarray.apply_rotation],
   [`apply_zoom`][confusius.xarray.apply_zoom] and
@@ -77,9 +84,15 @@ Current development version for the next ConfUSIus release.
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
   archive, and simplify dataset and template citations
   ([#565](https://github.com/confusius-tools/confusius/pull/565)).
-- Add the [Transforms 101](examples/_built/io/transforms_101.md) example,
-  which shows how to translate, rotate and zoom a VoxelData array and what the `center`
-  argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Add the [Transforms 101](examples/_built/io/transforms_101.md) example, which shows
+  how to translate, rotate and zoom a VoxelData array and what the `center` argument
+  does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Added the [Use nilearn on a VoxelData
+  array](examples/_built/interoperability/nilearn.md) example, which shows how to use
+  [`convert_from_nifti`][confusius.io.convert_from_nifti] and
+  [`convert_to_nifti`][confusius.io.convert_to_nifti] for easier interoperability
+  with [nilearn](https://nilearn.github.io)
+  ([#421](https://github.com/confusius-tools/confusius/pull/421)).
 
 ### :wrench: Maintenance
 

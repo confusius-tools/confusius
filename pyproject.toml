@@ -81,6 +81,7 @@ dev = [
     "zensical>=0.0.67",
     "mkdocstrings[python]>=1.0.4",
     "pytest-qt>=4.5.0",
+    "nilearn>=0.14.1",
 ]
 
 [tool.numpydoc_validation]
