@@ -2,6 +2,7 @@
 
 import warnings
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, Any, Concatenate, Literal, cast
 
 import numpy as np
@@ -14,7 +15,12 @@ from confusius._utils.geometry import (
     get_voxel_to_world_units,
 )
 from confusius._utils.stack import find_stack_level
-from confusius.iq._utils import ensure_iq_voxeldata
+from confusius.iq._utils import (
+    ensure_iq_voxeldata,
+    get_clutter_filtered_dtype,
+    get_iq_window_count,
+    validate_filter_frequency,
+)
 from confusius.iq.clutter_filters import (
     clutter_filter_butterworth,
     clutter_filter_svd_from_cumulative_energy,
@@ -186,8 +192,10 @@ def _get_filter_sampling_frequency(
     ],
     window_width: int,
     window_stride: int,
+    low_cutoff: float | None,
+    high_cutoff: float | None,
 ) -> float | None:
-    """Return a sampling frequency, validating Butterworth windows at a shared rate.
+    """Return a sampling frequency, validating Butterworth windows and cutoffs.
 
     Parameters
     ----------
@@ -199,6 +207,8 @@ def _get_filter_sampling_frequency(
         Clutter window width in volumes.
     window_stride : int
         Clutter window stride in volumes.
+    low_cutoff, high_cutoff : float, optional
+        Filter cutoff frequencies, when using Butterworth filtering.
 
     Returns
     -------
@@ -209,7 +219,7 @@ def _get_filter_sampling_frequency(
     ------
     ValueError
         If Butterworth windows are not regularly sampled at one shared rate within
-        a 1% relative tolerance.
+        a 1% relative tolerance, or their cutoff frequencies are invalid.
     """
     if filter_method == "butterworth":
         times = iq.coords["time"].values * get_time_coord_to_seconds_factor(iq)
@@ -228,7 +238,21 @@ def _get_filter_sampling_frequency(
                 )
     else:
         time_step, _ = get_representative_time_step(iq, unit="s")
-    return None if time_step is None else 1.0 / time_step
+    fs = None if time_step is None else 1.0 / time_step
+    if filter_method == "butterworth" and fs is not None:
+        if (
+            low_cutoff is not None
+            and high_cutoff is not None
+            and high_cutoff <= low_cutoff
+        ):
+            raise ValueError(
+                f"High cutoff frequency ({high_cutoff}) must be greater than "
+                f"low cutoff frequency ({low_cutoff})"
+            )
+        for cutoff in (low_cutoff, high_cutoff):
+            if cutoff is not None:
+                validate_filter_frequency(cutoff, fs / 2)
+    return fs
 
 
 def _summarize_window_duration(
@@ -457,13 +481,12 @@ def compute_processed_volume_timings(
         to_reference="start",
     )
 
-    n_outer_windows = (
-        len(iq_volume_timings) - clutter_window_width
-    ) // clutter_window_stride + 1
-
-    n_inner_windows = (
-        clutter_window_width - inner_window_width
-    ) // inner_window_stride + 1
+    n_outer_windows = get_iq_window_count(
+        len(iq_volume_timings), clutter_window_width, clutter_window_stride
+    )
+    n_inner_windows = get_iq_window_count(
+        clutter_window_width, inner_window_width, inner_window_stride
+    )
 
     outer_starts = np.arange(n_outer_windows) * clutter_window_stride
     inner_offsets = np.arange(n_inner_windows) * inner_window_stride
@@ -596,6 +619,7 @@ def process_iq_block_with_clutter_filter(
         window_width = block.shape[0]
     if window_stride is None:
         window_stride = window_width
+    get_iq_window_count(block.shape[0], window_width, window_stride)
 
     if filter_method == "butterworth":
         if fs is None:
@@ -778,6 +802,31 @@ def compute_bmode_volume(
     return np.mean(np.abs(block), axis=0)[np.newaxis]
 
 
+def _validate_velocity_lag(lag: int, window_width: int) -> None:
+    """Validate an autocorrelation lag against its integration window.
+
+    Parameters
+    ----------
+    lag : int
+        Temporal lag in volumes.
+    window_width : int
+        Integration window width in volumes.
+
+    Raises
+    ------
+    ValueError
+        If the lag is not a positive integer smaller than the window width.
+    """
+    if (
+        not isinstance(lag, (int, np.integer))
+        or isinstance(lag, (bool, np.bool_))
+        or not 0 < lag < window_width
+    ):
+        raise ValueError(
+            "`lag` must be a positive integer smaller than the velocity window."
+        )
+
+
 def compute_axial_velocity_volume(
     block: npt.NDArray,
     fs: float,
@@ -863,6 +912,10 @@ def compute_axial_velocity_volume(
     function between IQ volumes separated by `lag` volumes.
     """
 
+    _validate_velocity_lag(
+        lag, block.shape[0] if velocity_window_width is None else velocity_window_width
+    )
+
     def process_block_func(
         block: npt.NDArray,
         spatial_kernel: int | tuple[int, int, int] | list[int],
@@ -936,12 +989,13 @@ def compute_axial_velocity_volume(
 
 def process_iq_blocks(
     iq: "da.Array",
-    process_func: Callable[Concatenate[npt.NDArray, ...], npt.NDArray],
+    process_func: Callable[[npt.NDArray], npt.NDArray],
+    *,
+    output_shape: tuple[int, ...],
+    output_dtype: npt.DTypeLike,
     window_width: int | None = None,
     window_stride: int | None = None,
-    drop_axis: int | tuple[int, ...] | None = None,
-    new_axis: int | tuple[int, ...] | None = None,
-    **kwargs: Any,
+    windows_per_task: int | None = None,
 ) -> "da.Array":
     """Process blocks of IQ data using sliding windows.
 
@@ -949,6 +1003,8 @@ def process_iq_blocks(
     `dask.array.map_blocks` for non-overlapping windows. When temporal overlap is
     required, it batches multiple sliding windows into each task, applies explicit
     overlap between batches, and runs `process_func` on each window within the batch.
+    Graph construction does not read IQ samples or invoke `process_func`. Output
+    metadata describes one window, independently of execution batching.
 
     !!! warning
         Depending on the window width and stride, some input volumes may be dropped if
@@ -959,20 +1015,28 @@ def process_iq_blocks(
     iq : (time, k, j, i) dask.array.Array
         Dask array of complex IQ data.
     process_func : callable
-        Function to apply to each temporal window. It must accept a `(window_volumes,
-        z, y, x)` array as first argument and return a `(output_volumes, ...)` array.
+        Function accepting one `(window_volumes, k, j, i)` NumPy array and
+        returning a NumPy array with `output_shape` and `output_dtype`. Configure
+        additional callback arguments with `functools.partial`.
+    output_shape : tuple[int, ...]
+        Fixed shape returned by one callback on one temporal window. The leading
+        axis is output time: `(2, k, j, i)` produces two time points per window;
+        `(1, 2, k, j, i)` produces one time point with two component maps. All
+        sizes must be positive integers. Non-temporal axis mapping is automatic.
+    output_dtype : numpy.typing.DTypeLike
+        Dtype returned by every callback invocation. This declares the dtype;
+        it does not cast callback outputs.
     window_width : int, optional
         Width of the sliding temporal window, in volumes. If not provided, uses the
         chunk size along the first dimension.
     window_stride : int, optional
         Stride of the sliding temporal window, in volumes. Must be less than or equal
         to `window_width`. If not provided, equals `window_width`.
-    drop_axis : int or tuple[int, ...], optional
-        Axes dropped by `process_func`.
-    new_axis : int or tuple[int, ...], optional
-        New axes added by `process_func`.
-    **kwargs
-        Additional keyword arguments passed to `process_func`.
+    windows_per_task : int, optional
+        Requested number of outer windows per Dask task. If not provided, uses
+        the minimum needed for temporal overlap. Smaller requests are increased
+        to that minimum. Larger batches do not change scientific windows, but
+        increase task memory and can reduce parallelism.
 
     Returns
     -------
@@ -982,24 +1046,50 @@ def process_iq_blocks(
     Raises
     ------
     ValueError
-        If `window_stride` is greater than `window_width`.
+        If window sizes are invalid, no complete window fits, input sizes are
+        unknown, output sizes are invalid, or a callback returns the wrong shape.
+    TypeError
+        If `iq` is not a Dask array, or a callback returns a non-NumPy array or
+        a dtype different from `output_dtype`. Callback errors occur at execution.
     """
     import dask.array as da
+
+    if not isinstance(iq, da.Array):
+        raise TypeError("`iq` must be a Dask array.")
+    if not iq.ndim or any(not isinstance(size, (int, np.integer)) for size in iq.shape):
+        raise ValueError("`iq` must have at least one axis and known dimension sizes.")
+    if (
+        not isinstance(output_shape, tuple)
+        or not output_shape
+        or any(
+            not isinstance(size, (int, np.integer))
+            or isinstance(size, (bool, np.bool_))
+            or size < 1
+            for size in output_shape
+        )
+    ):
+        raise ValueError(
+            "`output_shape` must be a nonempty tuple of positive integers."
+        )
+    dtype = np.dtype(output_dtype)
+    # Only time is chunk-mapped; full spatial windows make output rank sufficient.
+    rank_change = len(output_shape) - iq.ndim
+    drop_axes = tuple(range(1, 1 - rank_change)) if rank_change < 0 else ()
+    new_axes = tuple(range(1, 1 + rank_change)) if rank_change > 0 else ()
 
     if window_width is None:
         window_width = cast(int, iq.chunksize[0])  # type: ignore
     if window_stride is None:
         window_stride = window_width
 
+    n_volumes = iq.shape[0]
+    n_windows = get_iq_window_count(n_volumes, window_width, window_stride)
     if window_stride > window_width:
         raise ValueError(
             "`window_stride` must be less than or equal to `window_width`."
         )
 
-    n_volumes = iq.shape[0]
     overlap_width = window_width - window_stride
-
-    n_windows = (n_volumes - window_width) // window_stride + 1
     total_volumes_in_windows = window_width + (n_windows - 1) * window_stride
     remaining_volumes = n_volumes - total_volumes_in_windows
 
@@ -1012,21 +1102,63 @@ def process_iq_blocks(
         )
         iq = iq[:total_volumes_in_windows]
 
-    if overlap_width == 0:
+    def process_window(block: npt.NDArray) -> npt.NDArray:
+        """Apply the callback and enforce its declared output contract.
+
+        Parameters
+        ----------
+        block : numpy.ndarray
+            One input temporal window.
+
+        Returns
+        -------
+        numpy.ndarray
+            Callback output with the declared shape and dtype.
+
+        Raises
+        ------
+        TypeError
+            If the callback returns a non-NumPy array or the wrong dtype.
+        ValueError
+            If the callback returns the wrong shape.
+        """
+        result = process_func(block)
+        if not isinstance(result, np.ndarray):
+            raise TypeError("`process_func` must return a NumPy array.")
+        if result.shape != output_shape:
+            raise ValueError(
+                f"`process_func` returned shape {result.shape}; expected {output_shape}."
+            )
+        if result.dtype != dtype:
+            raise TypeError(
+                f"`process_func` returned dtype {result.dtype}; expected {dtype}."
+            )
+        return result
+
+    if windows_per_task is not None and (
+        not isinstance(windows_per_task, (int, np.integer))
+        or isinstance(windows_per_task, (bool, np.bool_))
+        or windows_per_task < 1
+    ):
+        raise ValueError("`windows_per_task` must be a positive integer.")
+    batch_size = max(
+        1,
+        (overlap_width + window_stride - 1) // window_stride,
+        windows_per_task if windows_per_task is not None else 1,
+    )
+    meta = np.empty((0,) * len(output_shape), dtype=dtype)
+    if overlap_width == 0 and batch_size == 1:
         chunks_volumes = (window_width,) + (window_stride,) * (n_windows - 1)
         iq = iq.rechunk((chunks_volumes,) + iq.shape[1:])
 
-        dummy_result = process_func(iq.blocks[0].compute(), **kwargs)
-        meta = np.array((), dtype=dummy_result.dtype)
-
         return da.map_blocks(
-            process_func,
+            process_window,
             iq,
-            chunks=dummy_result.shape,
-            drop_axis=drop_axis,
-            new_axis=new_axis,
+            chunks=output_shape,
+            drop_axis=drop_axes,
+            new_axis=new_axes,
+            dtype=dtype,
             meta=meta,
-            **kwargs,
         )
 
     overlap_window_width = window_width
@@ -1036,16 +1168,9 @@ def process_iq_blocks(
     # least as large as the requested overlap. Otherwise Dask auto-rechunks the tiny
     # stride-sized chunks and breaks the expected one-output-block-per-input-block
     # mapping.
-    min_windows_per_block = max(
-        1,
-        (overlap_width + overlap_window_stride - 1) // overlap_window_stride,
-    )
-    first_block_windows = n_windows % min_windows_per_block
-    if first_block_windows == 0:
-        first_block_windows = min_windows_per_block
-
-    windows_per_block = (first_block_windows,) + (min_windows_per_block,) * (
-        (n_windows - first_block_windows) // min_windows_per_block
+    first_block_windows = n_windows % batch_size or batch_size
+    windows_per_block = (first_block_windows,) + (batch_size,) * (
+        (n_windows - first_block_windows) // batch_size
     )
     chunks_volumes = (
         overlap_window_width + (first_block_windows - 1) * overlap_window_stride,
@@ -1054,24 +1179,21 @@ def process_iq_blocks(
         for n_block_windows in windows_per_block[1:]
     )
     iq = iq.rechunk((chunks_volumes,) + iq.shape[1:])
-    iq = da.overlap.overlap(
-        iq,
-        depth={0: (overlap_width, 0)},
-        boundary="none",
-        allow_rechunk=False,
-    )
+    if overlap_width:
+        iq = da.overlap.overlap(
+            iq,
+            depth={0: (overlap_width, 0)},
+            boundary="none",
+            allow_rechunk=False,
+        )
 
-    def process_overlapping_batch(
-        block: npt.NDArray, **batch_kwargs: Any
-    ) -> npt.NDArray:
-        """Apply `process_func` to every overlapping outer window in a batch.
+    def process_batch(block: npt.NDArray) -> npt.NDArray:
+        """Apply `process_func` to every outer window in a batch.
 
         Parameters
         ----------
         block : numpy.ndarray
             Batched input block containing one or more overlapping windows.
-        **batch_kwargs
-            Additional keyword arguments passed to `process_func`.
 
         Returns
         -------
@@ -1079,7 +1201,7 @@ def process_iq_blocks(
             Concatenated outputs from all sliding windows in `block`.
         """
         outputs = [
-            process_func(block[start : start + overlap_window_width], **batch_kwargs)
+            process_window(block[start : start + overlap_window_width])
             for start in range(
                 0,
                 block.shape[0] - overlap_window_width + 1,
@@ -1088,33 +1210,17 @@ def process_iq_blocks(
         ]
         return np.concatenate(outputs, axis=0)
 
-    first_block_index = (0,) * iq.ndim
-    dummy_result = process_overlapping_batch(
-        iq.blocks[first_block_index].compute(), **kwargs
-    )
-    meta = np.array((), dtype=dummy_result.dtype)
-
-    output_time_chunks = [dummy_result.shape[0]]
-    if len(windows_per_block) > 1:
-        next_block_index = (1,) + (0,) * (iq.ndim - 1)
-        repeated_dummy_result = process_overlapping_batch(
-            iq.blocks[next_block_index].compute(), **kwargs
-        )
-        output_time_chunks.extend(
-            [repeated_dummy_result.shape[0]] * (len(windows_per_block) - 1)
-        )
-
-    output_chunks = (tuple(output_time_chunks),) + tuple(
-        (axis_size,) for axis_size in dummy_result.shape[1:]
-    )
+    output_chunks = (
+        tuple(count * output_shape[0] for count in windows_per_block),
+    ) + tuple((axis_size,) for axis_size in output_shape[1:])
     return da.map_blocks(
-        process_overlapping_batch,
+        process_batch,
         iq,
         chunks=output_chunks,
-        drop_axis=drop_axis,
-        new_axis=new_axis,
+        drop_axis=drop_axes,
+        new_axis=new_axes,
+        dtype=dtype,
         meta=meta,
-        **kwargs,
     )
 
 
@@ -1256,27 +1362,47 @@ def process_iq_to_power_doppler(
         doppler_window_width = clutter_window_width
     if doppler_window_stride is None:
         doppler_window_stride = doppler_window_width
+    get_iq_window_count(dask_iq.shape[0], clutter_window_width, clutter_window_stride)
+    n_outputs = get_iq_window_count(
+        clutter_window_width, doppler_window_width, doppler_window_stride
+    )
+    filtered_dtype = get_clutter_filtered_dtype(
+        dask_iq.dtype,
+        filter_method,
+        low_cutoff,
+        high_cutoff,
+        clutter_window_width,
+        int(clutter_mask_array.sum())
+        if clutter_mask_array is not None
+        else int(np.prod(dask_iq.shape[1:])),
+    )
 
     fs = _get_filter_sampling_frequency(
         iq,
         filter_method=filter_method,
         window_width=clutter_window_width,
         window_stride=clutter_window_stride,
+        low_cutoff=low_cutoff,
+        high_cutoff=high_cutoff,
     )
 
     result = process_iq_blocks(
         dask_iq,
-        process_func=compute_power_doppler_volume,
+        partial(
+            compute_power_doppler_volume,
+            filter_method=filter_method,
+            clutter_mask=clutter_mask_array,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,
+            fs=fs,
+            butterworth_order=butterworth_order,
+            doppler_window_width=doppler_window_width,
+            doppler_window_stride=doppler_window_stride,
+        ),
+        output_shape=(n_outputs,) + dask_iq.shape[1:],
+        output_dtype=np.empty((), dtype=filtered_dtype).real.dtype,
         window_width=clutter_window_width,
         window_stride=clutter_window_stride,
-        filter_method=filter_method,
-        clutter_mask=clutter_mask_array,
-        low_cutoff=low_cutoff,
-        high_cutoff=high_cutoff,
-        fs=fs,
-        butterworth_order=butterworth_order,
-        doppler_window_width=doppler_window_width,
-        doppler_window_stride=doppler_window_stride,
     )
 
     output_times_values, doppler_window_durations = compute_processed_volume_timings(
@@ -1377,6 +1503,8 @@ def process_iq_to_bmode(
         process_func=compute_bmode_volume,
         window_width=bmode_window_width,
         window_stride=bmode_window_stride,
+        output_shape=(1,) + dask_iq.shape[1:],
+        output_dtype=np.empty((), dtype=dask_iq.dtype).real.dtype,
     )
 
     output_times_values, bmode_window_durations = compute_processed_volume_timings(
@@ -1570,12 +1698,29 @@ def process_iq_to_axial_velocity(
         velocity_window_width = clutter_window_width
     if velocity_window_stride is None:
         velocity_window_stride = velocity_window_width
+    get_iq_window_count(dask_iq.shape[0], clutter_window_width, clutter_window_stride)
+    n_outputs = get_iq_window_count(
+        clutter_window_width, velocity_window_width, velocity_window_stride
+    )
+    filtered_dtype = get_clutter_filtered_dtype(
+        dask_iq.dtype,
+        filter_method,
+        low_cutoff,
+        high_cutoff,
+        clutter_window_width,
+        int(clutter_mask_array.sum())
+        if clutter_mask_array is not None
+        else int(np.prod(dask_iq.shape[1:])),
+    )
+    _validate_velocity_lag(lag, velocity_window_width)
 
     fs = _get_filter_sampling_frequency(
         iq,
         filter_method=filter_method,
         window_width=clutter_window_width,
         window_stride=clutter_window_stride,
+        low_cutoff=low_cutoff,
+        high_cutoff=high_cutoff,
     )
 
     # Validation ensures these attributes exist, so we can safely access them here.
@@ -1584,21 +1729,31 @@ def process_iq_to_axial_velocity(
 
     result = process_iq_blocks(
         dask_iq,
-        process_func=compute_axial_velocity_volume,
+        partial(
+            compute_axial_velocity_volume,
+            fs=cast(float, fs),
+            filter_method=filter_method,
+            clutter_mask=clutter_mask_array,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,
+            butterworth_order=butterworth_order,
+            velocity_window_width=velocity_window_width,
+            velocity_window_stride=velocity_window_stride,
+            lag=lag,
+            spatial_kernel=spatial_kernel,
+            transmit_frequency=transmit_frequency,
+            beamforming_sound_velocity=beamforming_sound_velocity,
+        ),
+        output_shape=(n_outputs,) + dask_iq.shape[1:],
+        output_dtype=np.result_type(
+            np.empty((), dtype=filtered_dtype).real.dtype,
+            fs,
+            transmit_frequency,
+            beamforming_sound_velocity,
+            lag,
+        ),
         window_width=clutter_window_width,
         window_stride=clutter_window_stride,
-        fs=fs,
-        filter_method=filter_method,
-        clutter_mask=clutter_mask_array,
-        low_cutoff=low_cutoff,
-        high_cutoff=high_cutoff,
-        butterworth_order=butterworth_order,
-        velocity_window_width=velocity_window_width,
-        velocity_window_stride=velocity_window_stride,
-        lag=lag,
-        spatial_kernel=spatial_kernel,
-        transmit_frequency=transmit_frequency,
-        beamforming_sound_velocity=beamforming_sound_velocity,
     )
 
     output_times_values, velocity_window_durations = compute_processed_volume_timings(

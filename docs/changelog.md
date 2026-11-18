@@ -12,6 +12,14 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Custom [`process_iq_blocks`][confusius.iq.process_iq_blocks] calls now require
+  `output_shape` and `output_dtype` for one processing window. Callbacks must return
+  NumPy arrays matching both declarations and retain the leading output-time axis.
+  Execution options are keyword-only, non-temporal axes are inferred automatically,
+  and callback settings must be bound with `functools.partial` instead of forwarded
+  keywords. The Dask-specific `drop_axis` and `new_axis` options are removed;
+  built-in wrapper signatures are unchanged
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 - [`compute_axial_velocity_volume`][confusius.iq.compute_axial_velocity_volume],
   [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity], and
   the corresponding xarray accessor now default `spatial_kernel` to `1`, disabling
@@ -44,6 +52,10 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Tune execution batching in
+  [`process_iq_blocks`][confusius.iq.process_iq_blocks] with `windows_per_task`,
+  independently of scientific window sizes. Existing overlap-safe defaults remain
+  unchanged ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 - Stream the Landemard beamformed IQ sample lazily and open HTTP(S) Zarr stores with
   `cf.load` ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
@@ -68,8 +80,18 @@ Current development version for the next ConfUSIus release.
   `{chunk}` filename template, preserving each pose's geometry and timing
   ([#579](https://github.com/confusius-tools/confusius/pull/579)).
 
+### :zap: Performance
+
+- IQ processing and cumulative-energy threshold calibration construct their Dask
+  graphs without reading or filtering initial IQ windows, avoiding startup I/O and
+  repeated processing ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+
 ### :bug: Fixes
 
+- Adaptive SVD filtering retains consistent output precision even when a window
+  selects no clutter components, preventing other windows from being silently
+  downcast during Dask assembly
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 - SVD clutter filters and cumulative-energy threshold calibration now raise `ValueError`
   when a supplied mask selects no voxels, preventing silently unfiltered outputs or
   invalid thresholds. Omitting the mask still uses all voxels
