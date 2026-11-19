@@ -1195,8 +1195,8 @@ def _build_dask_array_from_nifti_dataobj(
         chunks=_reverse_chunk_spec(chunks, dataobj.ndim),
         asarray=False,
         name=False,
-        # nibabel types `dataobj` as its `ArrayLike` protocol, which omits `dtype`;
-        # both concrete types it can be (`ArrayProxy`, `numpy.ndarray`) define it.
+        # `dataobj` is typed as `ArrayLike` protocol, which omits `dtype`,
+        # but both concrete types it can be (`ArrayProxy`, `numpy.ndarray`) define it.
         meta=np.empty((), dtype=dataobj.dtype),  # ty: ignore[missing-attribute]
     ).T
 
