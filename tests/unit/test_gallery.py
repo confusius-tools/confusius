@@ -63,8 +63,8 @@ def test_dark_page_rebuilds_thresholded_colormaps_on_their_source(matplotlib_pyp
     assert all(images[name].get_cmap() is cmap for name, cmap in banded.items())
 
 
-def test_dark_page_swaps_page_brand_and_cycle_colors(matplotlib_pyplot):
-    """Backgrounds, brand colors and default-cycle lines take their dark values."""
+def test_dark_page_swaps_page_and_brand_colors(matplotlib_pyplot):
+    """Backgrounds and brand colors take their dark values; cycle colors stay."""
     with matplotlib.rc_context():
         Figures().setup()
         fig, ax = matplotlib_pyplot.subplots()
@@ -78,17 +78,12 @@ def test_dark_page_swaps_page_brand_and_cycle_colors(matplotlib_pyplot):
             assert mcolors.to_hex(fig.get_facecolor()) == Figures.background[1]
             assert mcolors.to_hex(ax.get_facecolor()) == Figures.axes_background[1]
             assert mcolors.to_hex(ax.title.get_color()) == Figures.foreground[1]
-            assert [mcolors.to_hex(line.get_color()) for line in lines] == (
-                matplotlib_pyplot.style.library["dark_background"][
-                    "axes.prop_cycle"
-                ].by_key()["color"]
-            )
+            assert [line.get_color() for line in lines] == light_cycle
             assert mcolors.to_hex(red.get_color()) == RED
             assert mcolors.to_hex(label.get_color()) == TURQUOISE
             assert kept.get_color() == "white"
 
         assert mcolors.to_hex(fig.get_facecolor()) == Figures.background[0]
-        assert [line.get_color() for line in lines] == light_cycle
         assert red.get_color() == RED_DARK
         assert label.get_color() == TURQUOISE_DARK
 

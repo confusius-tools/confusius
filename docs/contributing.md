@@ -118,10 +118,9 @@ and the dark figures. What is specific to ConfUSIus:
 - Leave `cmap` unset on `plot_stat_map` and `plot_matrix` so the library's
   background-aware default applies.
 - For brand-colored lines, draw with the light-page variants `#d93a54` (red) and
-  `#27906d` (turquoise); the dark rendering switches them to `#e94b5f` and `#3ad9a4`.
-  Default-cycle colors switch to Matplotlib's `dark_background` cycle, also in
-  scatter plots and filled areas and when named explicitly (`"tab:blue"`), and
-  `inferno_r` becomes `inferno`. These pairs are the data of the `Figures` class in
+  `#27906d` (turquoise); the dark rendering switches them to `#e94b5f` and `#3ad9a4`,
+  and `inferno_r` becomes `inferno`. Default-cycle colors are the same on both pages.
+  These pairs are the data of the `Figures` class in
   `tools/gallery.py`, a zallery
   [integration class](https://github.com/confusius-tools/zallery/blob/main/docs/user-guide/integrations.md);
   editing it invalidates the gallery cache.

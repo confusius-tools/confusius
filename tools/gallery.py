@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-import matplotlib as mpl
-import matplotlib.style
 from zallery.integration.matplotlib import Matplotlib
 
 from confusius._utils.colors import RED, RED_DARK, TURQUOISE, TURQUOISE_DARK
@@ -31,9 +29,6 @@ class Figures(Matplotlib):
         Axes background.
     foreground : tuple[str, str]
         Text, ticks, spines and default lines.
-    palette : tuple[None, tuple[str, ...]]
-        Matplotlib's default color cycle on the light page, its `dark_background`
-        cycle on the dark one.
     cmaps : Mapping[str, str]
         The default diverging colormap of the library on each background, and the
         sequential colormap that reads well on each.
