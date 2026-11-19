@@ -106,8 +106,9 @@ for the human contributor workflow. The example gallery is built by the
 [zallery](https://github.com/confusius-tools/zallery) package (a dev dependency),
 invoked as `uv run zallery`; the `[tool.zallery]` table in `pyproject.toml` and
 `tools/gallery.py` are the ConfUSIus-side configuration and integration class (the
-look of the figures on the light and the dark page), and `docs/examples/_index.md`
-is the header of the gallery index page. Each example page links the ConfUSIus
+brand colors and one colormap pair added to zallery's matplotlib look), and
+`docs/examples/_index.md` is the header of the gallery index page. Prefer zallery's
+defaults: set a key, an attribute or a style here only when zallery has none for it. Each example page links the ConfUSIus
 objects it uses, and the API reference shows the examples back as cards through
 mkdocstrings templates that zallery writes to `.zallery-cache/mkdocstrings` on every
 gallery build; `zensical.toml` names that folder as `custom_templates`, so the site

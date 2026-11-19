@@ -16,28 +16,18 @@ from confusius._utils.colors import RED, RED_DARK, TURQUOISE, TURQUOISE_DARK
 
 
 class Figures(Matplotlib):
-    """The matplotlib look of the ConfUSIus site.
+    """What ConfUSIus adds to zallery's matplotlib look.
 
-    A pair is `(light, dark)`; a mapping is `{light: dark}`.
+    Everything else is zallery's default. A mapping is `{light: dark}`.
 
     Attributes
     ----------
-    background : tuple[str, str]
-        Figure background: the page colors `docs/stylesheets/extra.css` sets, so that
-        figures blend into the page.
-    axes_background : tuple[str, str]
-        Axes background.
-    foreground : tuple[str, str]
-        Text, ticks, spines and default lines.
     cmaps : Mapping[str, str]
-        The default diverging colormap of the library on each background, and the
-        sequential colormap that reads well on each.
+        zallery's colormap pairs, and the sequential colormap that reads well on each
+        background.
     colors : Mapping[str, str]
         The brand colors, brighter on the dark page.
     """
 
-    background = ("#f8f9fb", "#090c10")
-    axes_background = ("#fefefe", "#111720")
-    foreground = ("black", "#e6edf3")
-    cmaps: Mapping[str, str] = {"coolwarm": "berlin", "inferno_r": "inferno"}
+    cmaps: Mapping[str, str] = {**Matplotlib.cmaps, "inferno_r": "inferno"}
     colors: Mapping[str, str] = {RED_DARK: RED, TURQUOISE_DARK: TURQUOISE}
