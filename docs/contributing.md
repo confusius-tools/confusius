@@ -102,7 +102,39 @@ just sd
 **Adding examples.** Example scripts live in `docs/examples/` and are discovered
 automatically by the gallery builder — no cache update needed (the cache key already
 covers `docs/examples/**/*.py`). After adding a script, add its built output path to
-the `nav` in `zensical.toml`.
+the `nav` in `zensical.toml`. A new section also lists its own page first,
+`examples/_built/<section>/index.md`, which makes the section name a link in the
+navigation.
+
+The gallery is built by [zallery](https://github.com/confusius-tools/zallery)
+(`just gallery`). Its
+[user guide](https://github.com/confusius-tools/zallery/tree/main/docs/user-guide)
+covers the example format, the cell tags, and how a single run yields both the light
+and the dark figures. What is specific to ConfUSIus:
+
+- Pass the background to the plotting functions rather than relying on their
+  `"black"` default: `bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])`.
+  A figure left on pure black (the registration progress plot, a plotting call that
+  makes its own figure without `bg_color`) is themed as a whole for both pages,
+  pure-white data colors included.
+- Leave `cmap` unset on `plot_stat_map` and `plot_matrix` so the library's
+  background-aware default applies.
+- For brand-colored lines, draw with the light-page variants `#d93a54` (red) and
+  `#27906d` (turquoise); the dark rendering switches them to `#e94b5f` and `#3ad9a4`,
+  and `inferno_r` becomes `inferno`. Default-cycle colors are the same on both pages.
+  These pairs are the data of the `Figures` class in
+  `tools/gallery.py`, a zallery
+  [integration class](https://github.com/confusius-tools/zallery/blob/main/docs/user-guide/integrations.md);
+  editing it invalidates the gallery cache.
+- Nothing to write for the API links: each example page ends with the ConfUSIus
+  functions and classes its cells use, linked to the API reference, and each of those
+  API entries shows the example back as a card under "Examples using:". Only objects held
+  by a name in a cell are found, so a method called on the result of another call
+  (`cf.load(path).mean()`) is not listed.
+- The gallery styles (cards, cell outputs, pandas tables, light and dark images) come
+  from `zallery.css`, which zallery writes next to the built pages and `zensical.toml`
+  lists before `docs/stylesheets/extra.css`. To change one, write a rule for the same
+  class in `extra.css`, which wins; do not copy zallery's rules there.
 
 ### Reporting Issues
 

@@ -102,7 +102,20 @@ Run a single test: `uv run pytest path/to/test_file.py::TestClass::test_method`.
 Docs are built on CI and deployed to a separate `confusius-docs` repo; see
 `.github/workflows/docs.yml` and `tools/prefetch_doc_datasets.py` for the pipeline
 (gallery build, image generation, dataset prefetch/cache) and `docs/contributing.md`
-for the human contributor workflow.
+for the human contributor workflow. The example gallery is built by the
+[zallery](https://github.com/confusius-tools/zallery) package (a dev dependency),
+invoked as `uv run zallery`; the `[tool.zallery]` table in `pyproject.toml` and
+`tools/gallery.py` are the ConfUSIus-side configuration and integration class (the
+brand colors and one colormap pair added to zallery's matplotlib look), and
+`docs/examples/_index.md` is the header of the gallery index page. Prefer zallery's
+defaults: set a key, an attribute or a style here only when zallery has none for it. Each example page links the ConfUSIus
+objects it uses, and the API reference shows the examples back as cards through
+mkdocstrings templates that zallery writes to `.zallery-cache/mkdocstrings` on every
+gallery build; `zensical.toml` names that folder as `custom_templates`, so the site
+does not build before the gallery has been built once (`just docs` does both).
+zallery also writes the gallery styles to `docs/examples/_built/zallery.css`, listed
+before `docs/stylesheets/extra.css` in `extra_css`: keep only the site's own rules in
+`extra.css`.
 
 Use the `/release NEW_VERSION` skill (`.claude/skills/release/SKILL.md`) for the full
 release process (version bumps, changelog, tag, push, announcements).

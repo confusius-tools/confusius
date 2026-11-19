@@ -75,7 +75,7 @@ data = cf.load(pwd_path).compute()
 data
 
 # %% [markdown]
-## Correct for brain motion
+# ## Correct for brain motion
 #
 # This recording contains some brain motion, which we can mitigate by performing a rigid
 # transform correction with
