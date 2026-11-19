@@ -108,10 +108,13 @@ invoked as `uv run zallery`; the `[tool.zallery]` table in `pyproject.toml` and
 `tools/gallery.py` are the ConfUSIus-side configuration and integration class (the
 look of the figures on the light and the dark page), and `docs/examples/_index.md`
 is the header of the gallery index page. Each example page links the ConfUSIus
-objects it uses, and the API reference lists the examples back through a
-mkdocstrings template that zallery writes to `.zallery-cache/mkdocstrings` on every
+objects it uses, and the API reference shows the examples back as cards through
+mkdocstrings templates that zallery writes to `.zallery-cache/mkdocstrings` on every
 gallery build; `zensical.toml` names that folder as `custom_templates`, so the site
 does not build before the gallery has been built once (`just docs` does both).
+zallery also writes the gallery styles to `docs/examples/_built/zallery.css`, listed
+before `docs/stylesheets/extra.css` in `extra_css`: keep only the site's own rules in
+`extra.css`.
 
 Use the `/release NEW_VERSION` skill (`.claude/skills/release/SKILL.md`) for the full
 release process (version bumps, changelog, tag, push, announcements).

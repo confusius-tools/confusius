@@ -81,7 +81,7 @@ Current development version for the next ConfUSIus release.
   which shows how to translate, rotate and zoom a VoxelData array and what the `center`
   argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
 - Each example page lists the ConfUSIus functions and classes it uses, linked to the
-  API reference, and each API entry lists the examples that use it
+  API reference, and each API entry shows the examples that use it as cards
   ([#519](https://github.com/confusius-tools/confusius/pull/519)).
 
 ### :wrench: Maintenance

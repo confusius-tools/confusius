@@ -102,7 +102,9 @@ just sd
 **Adding examples.** Example scripts live in `docs/examples/` and are discovered
 automatically by the gallery builder — no cache update needed (the cache key already
 covers `docs/examples/**/*.py`). After adding a script, add its built output path to
-the `nav` in `zensical.toml`.
+the `nav` in `zensical.toml`. A new section also lists its own page first,
+`examples/_built/<section>/index.md`, which makes the section name a link in the
+navigation.
 
 The gallery is built by [zallery](https://github.com/confusius-tools/zallery)
 (`just gallery`). Its
@@ -126,9 +128,13 @@ and the dark figures. What is specific to ConfUSIus:
   editing it invalidates the gallery cache.
 - Nothing to write for the API links: each example page ends with the ConfUSIus
   functions and classes its cells use, linked to the API reference, and each of those
-  API entries lists the example back under "Used in the examples". Only objects held
+  API entries shows the example back as a card under "Examples using:". Only objects held
   by a name in a cell are found, so a method called on the result of another call
   (`cf.load(path).mean()`) is not listed.
+- The gallery styles (cards, cell outputs, pandas tables, light and dark images) come
+  from `zallery.css`, which zallery writes next to the built pages and `zensical.toml`
+  lists before `docs/stylesheets/extra.css`. To change one, write a rule for the same
+  class in `extra.css`, which wins; do not copy zallery's rules there.
 
 ### Reporting Issues
 

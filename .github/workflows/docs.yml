@@ -193,9 +193,9 @@ jobs:
           retention-days: 14
 
       - name: Upload gallery templates artifact
-        # The mkdocstrings template zallery writes on each gallery build, which
+        # The mkdocstrings templates zallery writes on each gallery build, which
         # `zensical.toml` names as `custom_templates`: the deploy job builds the
-        # site again and needs it too.
+        # site again and needs them too.
         uses: actions/upload-artifact@v7.0.2
         with:
           name: gallery-templates-${{ github.sha }}

@@ -9,7 +9,12 @@ site_dir = "site"
 repo_url = "https://github.com/confusius-tools/confusius"
 repo_name = "confusius-tools/confusius"
 edit_uri = "edit/main/docs/"
-extra_css = ["stylesheets/extra.css"]
+# The stylesheet zallery writes on every gallery build, then the styles of this site,
+# which win where both have a rule.
+extra_css = ["examples/_built/zallery.css", "stylesheets/extra.css"]
+# The mkdocstrings templates zallery writes (see `custom_templates` below): when a
+# gallery build changes them, the API pages are rendered again.
+watch = [".zallery-cache/mkdocstrings"]
 extra_javascript = [
     "javascripts/theme.js",
     "javascripts/mathjax.js",
@@ -71,33 +76,40 @@ nav = [
     { "Examples" = [
         { "Overview" = "examples/index.md" },
         { "Getting Started" = [
+            "examples/_built/io/index.md",
             { "ConfUSIus and Xarray 101" = "examples/_built/io/confusius_xarray_101.md" },
             { "Create a VoxelData array from a MAT file" = "examples/_built/io/create_voxeldata_from_mat.md" },
             { "The ConfUSIus Dataset Collection" = "examples/_built/io/dataset_collection.md" },
             { "Transforms 101" = "examples/_built/io/transforms_101.md" },
         ]},
         { "Multi-Pose" = [
+            "examples/_built/multipose/index.md",
             { "Load and save multi-pose recordings" = "examples/_built/multipose/load_multipose_recordings.md" },
         ]},
         { "Registration" = [
+            "examples/_built/registration/index.md",
             { "Registration of two sessions from the same subject" = "examples/_built/registration/register_volume_same_subject.md" },
             { "Motion correction of a single recording" = "examples/_built/registration/volumewise_motion_correction.md" },
             { "Register a recording to an Allen fUSI template" = "examples/_built/registration/register_to_allen_fusi_template.md" },
         ]},
         { "Decomposition" = [
+            "examples/_built/decomposition/index.md",
             { "PCA on a single fUSI recording" = "examples/_built/decomposition/pca_single_recording.md" },
             { "FastICA on a single fUSI recording" = "examples/_built/decomposition/fastica_single_recording.md" },
             { "NMF on a single fUSI recording" = "examples/_built/decomposition/nmf_single_recording.md" },
         ]},
         { "Connectivity" = [
+            "examples/_built/connectivity/index.md",
             { "Atlas-based region correlation matrix" = "examples/_built/connectivity/atlas_correlation_matrix.md" },
             { "Atlas-based seed connectivity maps" = "examples/_built/connectivity/atlas_seed_map.md" },
         ]},
         { "GLM" = [
+            "examples/_built/glm/index.md",
             { "First-level GLM analysis of fUSI data" = "examples/_built/glm/first_level.md" },
             { "Lagged first-level GLM analysis of fUSI data with a continuous regressor" = "examples/_built/glm/first_level_continuous.md" },
         ]},
         { "Decoding" = [
+            "examples/_built/decoding/index.md",
             { "Searchlight decoding of a continuous variable" = "examples/_built/decoding/searchlight_speed.md" },
         ]},
     ]},
@@ -174,9 +186,10 @@ accent = "custom"
 toggle.icon = "lucide/sun"
 toggle.name = "Switch to dark mode"
 
-# With `backlinks` (below), each API object lists the pages that reference it. This
-# template, which zallery writes on every gallery build, keeps only the examples that
-# use the object (see `api_references` in `[tool.zallery]` of `pyproject.toml`).
+# With `backlinks` (below), each API object lists the pages that reference it. These
+# templates, which zallery writes on every gallery build, keep only the examples that
+# use the object and show each as a card (see `api_references` in `[tool.zallery]` of
+# `pyproject.toml`).
 [project.plugins.mkdocstrings]
 custom_templates = ".zallery-cache/mkdocstrings"
 
