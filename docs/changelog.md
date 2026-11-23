@@ -112,7 +112,7 @@ Current development version for the next ConfUSIus release.
   xarray accessors, and the CLI, with pose values in layer names
   ([#562](https://github.com/confusius-tools/confusius/pull/562)).
 - Align the layer selectors in **Data I/O** with the output path on macOS
-  ([#591](https://github.com/confusius-tools/confusius/issues/591)).
+  ([#592](https://github.com/confusius-tools/confusius/pull/592)).
 
 ## 0.9.0
 
