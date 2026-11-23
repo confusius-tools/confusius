@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from qtpy.QtWidgets import QComboBox, QFormLayout, QLineEdit
 
 import confusius._napari._data._save_panel as save_module
 from confusius.plotting.napari import plot_napari
@@ -31,6 +32,25 @@ def labels_layer(viewer, sample_voxeldata_3dt):
     plot_napari(sample_voxeldata_3dt, viewer=viewer)
     SignalPanel(viewer)._create_labels_layer()
     return viewer.layers["Labels (3D)"]
+
+
+def test_layer_fields_align_with_output_row(save_panel, qtbot):
+    qtbot.addWidget(save_panel)
+    save_panel.resize(420, 300)
+    save_panel.show()
+
+    form = save_panel.findChild(QFormLayout)
+    path = save_panel.findChild(QLineEdit)
+    layer, template = save_panel.findChildren(QComboBox)
+
+    for field in (layer, template):
+        assert form.labelForField(field).geometry().left() == path.geometry().left()
+    assert layer.geometry().left() == template.geometry().left()
+    assert layer.width() == template.width()
+
+    initial_width = layer.width()
+    save_panel.resize(520, 300)
+    assert layer.width() == template.width() == initial_width + 100
 
 
 def test_save_button_requires_layer_and_output_path(

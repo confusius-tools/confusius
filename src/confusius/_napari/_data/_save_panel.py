@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import xarray as xr
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
+from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QApplication,
     QComboBox,
@@ -90,6 +91,15 @@ class SavePanel(QWidget):
 
         layer_form = QFormLayout()
         layer_form.setSpacing(6)
+        # Override the native macOS style's centered form and compact fields.
+        layer_form.setFormAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        layer_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        layer_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        layer_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self._layer_combo = QComboBox()
         self._layer_combo.setToolTip("Layer to save.")
