@@ -469,6 +469,19 @@ timing. Chunk indices come from the `pose` labels, which must be unique
 non-negative integers. Without `{chunk}`, select a single pose before saving to
 NIfTI, since one file cannot represent distinct per-pose affines.
 
+!!! note "Headers without orientation"
+    When both `sform_code` and `qform_code` are 0, a NIfTI header stores no
+    orientation. When loading such a file, or converting such a NiBabel image with
+    [`convert_from_nifti`][confusius.io.convert_from_nifti], ConfUSIus follows the
+    [NIfTI-1 standard](https://github.com/NIFTI-Imaging/nifti_clib/blob/master/niftilib/nifti1.h)
+    and builds the voxel-to-world affine from the voxel sizes alone: the first voxel
+    sits at the origin and no axis is rotated or flipped. A warning is emitted.
+    NiBabel's `img.affine`, used by nilearn and other NiBabel-based tools, follows SPM
+    instead: it puts the central voxel at the origin and negates the x axis (see
+    [NiBabel's fall-back affine](https://nipy.org/nibabel/nifti_images.html#the-fall-back-header-affine)).
+    World coordinates from ConfUSIus and from those tools therefore differ for such
+    files.
+
 ### Loading Other Formats
 
 For unsupported formats, such as lab-specific MAT-files, load the array with the

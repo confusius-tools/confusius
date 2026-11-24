@@ -1278,6 +1278,19 @@ def convert_from_nifti(
         or if `coordinate_affine` is `"sform"` or `"qform"` and that form's code is
         zero in the header.
 
+    Notes
+    -----
+    When both `sform_code` and `qform_code` are 0, the header stores no orientation.
+    Following the
+    [NIfTI-1 standard](https://github.com/NIFTI-Imaging/nifti_clib/blob/master/niftilib/nifti1.h)
+    ("method 1"), the voxel-to-world affine is then built from the voxel sizes alone:
+    the first voxel sits at the origin and no axis is rotated or flipped. A warning is
+    emitted. NiBabel's `img.affine`, used by nilearn and other NiBabel-based tools,
+    follows SPM instead: it puts the central voxel at the origin and negates the x axis
+    ([NiBabel's fall-back affine](https://nipy.org/nibabel/nifti_images.html#the-fall-back-header-affine)).
+    World coordinates from ConfUSIus and from those tools therefore differ for such
+    images.
+
     Examples
     --------
     >>> import nibabel as nib
