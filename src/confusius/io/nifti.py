@@ -1196,7 +1196,9 @@ def load_nifti(
           500), (400, 400))`.
         - A size in bytes, like `"100 MiB"` which will choose a uniform block-like
           shape.
-        - The word `"auto"` to let Dask choose chunk sizes based on heuristics. See
+        - The word `"auto"` to let Dask choose chunk sizes. For 4D files, each
+          chunk holds one or more complete spatial volumes, with the number of
+          frames chosen from Dask's configured chunk-size target. See
           `dask.array.normalize_chunks` for more details on how chunk sizes are
           determined.
         - `-1` or `None` as a blocksize indicate the size of the corresponding
@@ -1330,9 +1332,15 @@ def load_nifti(
 
     proxy = img.dataobj
     assert isinstance(proxy, ArrayProxy)
+    # Whole spatial volumes occupy contiguous byte ranges in NIfTI storage.
+    native_chunks = (
+        (-1, -1, -1, "auto")
+        if chunks == "auto" and proxy.ndim == 4
+        else _reverse_chunk_spec(chunks, proxy.ndim)
+    )
     dask_arr = da.from_array(
         proxy,
-        chunks=_reverse_chunk_spec(chunks, proxy.ndim),
+        chunks=native_chunks,
         asarray=False,
         name=False,
         meta=np.empty((), dtype=proxy.dtype),

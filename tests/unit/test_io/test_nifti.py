@@ -5,6 +5,7 @@ import warnings
 from pathlib import Path
 from unittest.mock import patch
 
+import dask
 import nibabel as nib
 import numpy as np
 import pytest
@@ -1263,6 +1264,23 @@ class TestLoadNifti:
             result = load_nifti(nifti_path)
 
         np.testing.assert_allclose(result.data.compute(), data.T)
+
+    @pytest.mark.parametrize(
+        ("target", "time_chunks"), [(500, (2, 2, 1)), (100, (1,) * 5)]
+    )
+    def test_auto_chunks_keep_volumes_intact(
+        self, tmp_path: Path, target: int, time_chunks: tuple[int, ...]
+    ) -> None:
+        """Automatic chunks group whole frames up to the configured byte target."""
+        data = np.arange(4 * 5 * 6 * 5, dtype=np.int16).reshape(4, 5, 6, 5)
+        path = tmp_path / "recording.nii"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(path)
+
+        with dask.config.set({"array.chunk-size": target}):
+            result = load_nifti(path)
+
+        assert result.chunks == (time_chunks, (6,), (5,), (4,))
+        np.testing.assert_array_equal(result.values, data.T)
 
     def test_load_nifti_explicit_tuple_chunks(self, tmp_path: Path) -> None:
         """Loading with an explicit tuple `chunks` produces the requested chunk shape.
