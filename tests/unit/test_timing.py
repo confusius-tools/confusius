@@ -256,30 +256,20 @@ def test_resample_time_rejects_missing_time_coordinate() -> None:
         resample_time(data, [0.5, 1.5])
 
 
-def test_resample_time_rejects_pose_dependent_time_coordinate() -> None:
+def test_resample_time_rejects_pose_dependent_time_coordinate(
+    sample_voxeldata_3dt_pose,
+) -> None:
     """Resample raises for a pose-dependent (time, pose)-shaped time coordinate."""
-    time = xr.DataArray(
-        [[0.0, 0.1], [1.0, 1.2], [2.0, 2.3]], dims=("time", "pose")
-    )
-    data = xr.DataArray(
-        np.zeros((3, 2)), dims=("time", "pose"), coords={"time": time}
-    )
-
     with pytest.raises(ValueError, match="1D 'time' coordinate"):
-        resample_time(data, [0.5, 1.5])
+        resample_time(sample_voxeldata_3dt_pose, [10.5, 11.5])
 
 
-def test_resample_to_uniform_time_rejects_pose_dependent_time_coordinate() -> None:
+def test_resample_to_uniform_time_rejects_pose_dependent_time_coordinate(
+    sample_voxeldata_3dt_pose,
+) -> None:
     """Resample to uniform time raises for a pose-dependent time coordinate."""
-    time = xr.DataArray(
-        [[0.0, 0.1], [1.0, 1.2], [2.0, 2.3]], dims=("time", "pose")
-    )
-    data = xr.DataArray(
-        np.zeros((3, 2)), dims=("time", "pose"), coords={"time": time}
-    )
-
     with pytest.raises(ValueError, match="1D 'time' coordinate"):
-        resample_to_uniform_time(data)
+        resample_to_uniform_time(sample_voxeldata_3dt_pose)
 
 
 def test_resample_to_uniform_time_uses_provided_step() -> None:

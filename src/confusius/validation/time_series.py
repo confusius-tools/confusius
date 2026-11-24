@@ -82,9 +82,6 @@ def validate_unchunked_time(data: xr.DataArray, operation_name: str) -> None:
 def validate_sorted_time(data: xr.DataArray, operation_name: str) -> None:
     """Validate that `time` coordinates are strictly increasing.
 
-    For a pose-dependent `(time, pose)`-shaped `time` coordinate, checks each pose's
-    own timestamps along the `time` axis, not across poses.
-
     Parameters
     ----------
     data : xarray.DataArray
@@ -97,9 +94,7 @@ def validate_sorted_time(data: xr.DataArray, operation_name: str) -> None:
     ValueError
         If `time` coordinates are not strictly increasing.
     """
-    time_coord = data.coords[TIME_DIM]
-    time_axis = time_coord.dims.index(TIME_DIM)
-    if np.any(np.diff(time_coord.values, axis=time_axis) <= 0):
+    if np.any(np.diff(data.coords[TIME_DIM].values) <= 0):
         raise ValueError(
             f"time coordinates must be strictly increasing for {operation_name}."
         )
@@ -206,8 +201,8 @@ def validate_time_series(
 
     1. Time series have a `time` dimension.
     2. Time dimension has more than 1 timepoint.
-    3. Time dimension is not chunked for Dask arrays (optional).
-    4. Time coordinate is 1D, not pose-dependent (optional).
+    3. Time coordinate is 1D, not pose-dependent (optional).
+    4. Time dimension is not chunked for Dask arrays (optional).
     5. Time coordinate is strictly increasing (optional).
     6. Time coordinate is uniformly sampled (optional).
 
@@ -244,11 +239,11 @@ def validate_time_series(
     ------
     ValueError
         If `time_series` has no `time` dimension, if the `time` dimension has only 1
-        timepoint, if the `time` dimension is chunked in a Dask array (when
-        `require_unchunked_time=True`), if `require_1d_time=True` and the `time`
-        coordinate is not 1D, if `require_sorted_time=True` and the `time` coordinate is
-        not strictly increasing, or if `require_uniform_time=True` and the `time`
-        coordinate is not uniformly sampled.
+        timepoint, if `require_1d_time=True` and the `time` coordinate is not 1D, if
+        the `time` dimension is chunked in a Dask array (when
+        `require_unchunked_time=True`), if `require_sorted_time=True` and the `time`
+        coordinate is not strictly increasing, or if `require_uniform_time=True` and
+        the `time` coordinate is not uniformly sampled.
     """
     validate_required_time_dimension(time_series)
     validate_timepoint_count(time_series, operation_name)
