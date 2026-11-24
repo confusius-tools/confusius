@@ -1189,16 +1189,24 @@ def _build_dask_array_from_nifti_dataobj(
     dask.array.Array
         Data transposed to ConfUSIus voxel order `(..., time, k, j, i)`.
     """
+    from nibabel.arrayproxy import get_obj_dtype
+
     dataobj = img.dataobj
-    return da.from_array(
+    # An `ArrayProxy`'s `.dtype` is the on-disk dtype, but reading applies any
+    # scl_slope/scl_inter scaling, which can turn integers into floats. Dask sizes
+    # "auto" chunks with, and declares, `.dtype`, so read one scaled voxel
+    # (`get_obj_dtype`) to get the dtype actually returned and use it for both.
+    dtype = get_obj_dtype(dataobj)
+    dask_arr = da.from_array(
         dataobj,
-        chunks=_reverse_chunk_spec(chunks, dataobj.ndim),
+        chunks=da.core.normalize_chunks(
+            _reverse_chunk_spec(chunks, dataobj.ndim), dataobj.shape, dtype=dtype
+        ),
         asarray=False,
         name=False,
-        # `dataobj` is typed as `ArrayLike` protocol, which omits `dtype`,
-        # but both concrete types it can be (`ArrayProxy`, `numpy.ndarray`) define it.
-        meta=np.empty((), dtype=dataobj.dtype),  # ty: ignore[missing-attribute]
-    ).T
+        meta=np.empty((), dtype=dtype),
+    )
+    return dask_arr.astype(dtype, copy=False).T
 
 
 def convert_from_nifti(

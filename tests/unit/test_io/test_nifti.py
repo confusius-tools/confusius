@@ -5,6 +5,7 @@ import warnings
 from pathlib import Path
 from unittest.mock import patch
 
+import dask
 import dask.array as da
 import nibabel as nib
 import numpy as np
@@ -257,6 +258,42 @@ class TestLoadNifti:
             da.coords["time"].values, np.arange(6, dtype=float)
         )
         np.testing.assert_array_equal(da.values, expected_data.transpose(3, 2, 1, 0))
+
+    @pytest.mark.parametrize(
+        ("slope", "expected_values", "expected_dtype"),
+        [(1.0, [1, 2, 3], np.int16), (0.5, [0.5, 1.0, 1.5], np.float64)],
+    )
+    def test_load_nifti_declares_dtype_after_scaling(
+        self, tmp_path: Path, slope, expected_values, expected_dtype
+    ) -> None:
+        """The lazy array declares the dtype its values have after slope scaling."""
+        img = nib.Nifti1Image(
+            np.array([[[1, 2, 3]]], dtype=np.int16), np.eye(4), dtype=np.int16
+        )
+        img.header.set_slope_inter(slope, 0.0)
+        nifti_path = tmp_path / "scaled.nii"
+        img.to_filename(nifti_path)
+
+        da = load_nifti(nifti_path)
+
+        assert da.dtype == expected_dtype
+        computed = da.values
+        assert computed.dtype == expected_dtype
+        np.testing.assert_array_equal(computed.ravel(), expected_values)
+
+    def test_load_nifti_sizes_auto_chunks_for_scaled_values(self, tmp_path: Path) -> None:
+        """Auto chunks stay within the chunk-size limit once int16 is scaled to float64."""
+        img = nib.Nifti1Image(
+            np.zeros((32, 32, 32), dtype=np.int16), np.eye(4), dtype=np.int16
+        )
+        img.header.set_slope_inter(0.5, 0.0)
+        nifti_path = tmp_path / "scaled.nii"
+        img.to_filename(nifti_path)
+
+        with dask.config.set({"array.chunk-size": "1KiB"}):
+            data = load_nifti(nifti_path, chunks="auto")
+
+        assert data.data.blocks[0, 0, 0].compute().nbytes <= 1024
 
     def test_load_5d_nifti_uses_dim4_for_extra_dimension(self, tmp_path: Path) -> None:
         """Loading 5D NIfTI preserves an extra dimension as `dim4`."""

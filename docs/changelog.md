@@ -78,6 +78,10 @@ Current development version for the next ConfUSIus release.
   arrays and restore the indexed voxel dimension in their result. `inplace=True` raises a
   `ValueError` on such arrays
   ([#558](https://github.com/confusius-tools/confusius/pull/558)).
+- [`load_nifti`][confusius.io.load_nifti] and
+  [`convert_from_nifti`][confusius.io.convert_from_nifti] declare the dtype of scaled
+  values (`scl_slope`/`scl_inter`) and size `"auto"` chunks for it
+  ([#421](https://github.com/confusius-tools/confusius/pull/421)).
 
 ### :books: Documentation
 
