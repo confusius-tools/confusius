@@ -74,3 +74,24 @@ class TestCreateLayers:
         assert new_layer.translate.tolist() == image_layer.translate[1:].tolist()
         # Consistent units keep napari from dropping units for rendering.
         assert viewer.layers.extent.units is not None
+
+
+@pytest.mark.parametrize("axis", ["time", "component"])
+def test_layer_selection_refreshes_mouse_trace_once(
+    viewer, panel, sample_voxeldata_3dt, monkeypatch, qapp, axis
+):
+    data = sample_voxeldata_3dt.rename({"time": axis})
+    target = viewer.add_image(data.values, metadata={"xarray": data})
+    viewer.add_image(sample_voxeldata_3dt.values, metadata={"xarray": sample_voxeldata_3dt})
+    plotter = panel._ensure_plotter()
+    qapp.processEvents()
+    plotter._cursor_pos = np.zeros(4)
+    redraws = []
+
+    def record_redraw():
+        redraws.append((plotter._current_layer, plotter._xaxis_dim))
+
+    monkeypatch.setattr(plotter, "_update_plot", record_redraw)
+    viewer.layers.selection.active = target
+    qapp.processEvents()
+    assert redraws == [(target, axis)]
