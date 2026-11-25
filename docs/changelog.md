@@ -101,6 +101,10 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- Switching image layers in Signals mouse mode now redraws the voxel trace once,
+  avoiding repeated reads from lazily loaded images
+  ([#596](https://github.com/confusius-tools/confusius/pull/596)).
+
 - Videos open in a separate, time-synchronized viewer with their own layer list. Load
   recordings and videos from **Data I/O**
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).

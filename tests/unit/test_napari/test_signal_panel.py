@@ -83,7 +83,12 @@ def test_layer_selection_refreshes_mouse_trace_once(
     data = sample_voxeldata_3dt.rename({"time": axis})
     target = viewer.add_image(data.values, metadata={"xarray": data})
     viewer.add_image(sample_voxeldata_3dt.values, metadata={"xarray": sample_voxeldata_3dt})
-    plotter = panel._ensure_plotter()
+    from confusius._napari._signals._plotter import SignalPlotter
+
+    qapp.processEvents()
+    plotter = SignalPlotter(viewer)
+    monkeypatch.setattr(panel, "_plotter", plotter)
+    plotter.set_xaxis_dim(panel._xaxis_combo.currentText())
     qapp.processEvents()
     plotter._cursor_pos = np.zeros(4)
     redraws = []
