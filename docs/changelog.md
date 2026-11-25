@@ -80,6 +80,9 @@ Current development version for the next ConfUSIus release.
 - Add the [Transforms 101](examples/_built/io/transforms_101.md) example,
   which shows how to translate, rotate and zoom a VoxelData array and what the `center`
   argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Each example page lists the ConfUSIus functions and classes it uses, linked to the
+  API reference, and each API entry shows the examples that use it as cards
+  ([#519](https://github.com/confusius-tools/confusius/pull/519)).
 
 ### :wrench: Maintenance
 
@@ -90,6 +93,9 @@ Current development version for the next ConfUSIus release.
 - The examples gallery runs each example once and renders its light and dark
   figures from that single run
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
+- The examples gallery is built with the
+  [zallery](https://github.com/confusius-tools/zallery) package, extracted from
+  ConfUSIus ([#519](https://github.com/confusius-tools/confusius/pull/519)).
 - [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] now uses
   BrainGlobe's public lazy-loading API instead of reimplementing its Zarr internals,
   so atlas arrays stay lazy without depending on private upstream code

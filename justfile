@@ -8,17 +8,17 @@ set windows-shell := ["pwsh.exe", "-c"]
 # Build the examples gallery from docs/examples/*.py.
 gallery:
     uv run python tools/prefetch_doc_datasets.py
-    uv run python tools/build_gallery.py
+    uv run zallery
 
 # Remove generated gallery artifacts and the gallery cache.
 [unix]
 clean-gallery:
-    rm -rf docs/examples/_built docs/examples/index.md .gallery-cache
+    rm -rf docs/examples/_built docs/examples/index.md .zallery-cache
 
 # Remove generated gallery artifacts and the gallery cache.
 [windows]
 clean-gallery:
-    foreach ($p in 'docs/examples/_built', 'docs/examples/index.md', '.gallery-cache') { if (Test-Path $p) { Remove-Item -Recurse -Force $p } }
+    foreach ($p in 'docs/examples/_built', 'docs/examples/index.md', '.zallery-cache') { if (Test-Path $p) { Remove-Item -Recurse -Force $p } }
 
 # Build documentation.
 docs: gallery

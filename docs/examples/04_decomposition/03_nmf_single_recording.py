@@ -62,7 +62,7 @@ data = cf.load(pwd_path).compute()
 data
 
 # %% [markdown]
-## Correct for brain motion
+# ## Correct for brain motion
 #
 # As in the [PCA](pca_single_recording.md#correct-for-brain-motion) and
 # [FastICA](fastica_single_recording.md#correct-for-brain-motion) examples, we first
