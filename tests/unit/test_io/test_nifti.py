@@ -1282,6 +1282,34 @@ class TestLoadNifti:
         assert result.chunks == (time_chunks, (6,), (5,), (4,))
         np.testing.assert_array_equal(result.values, data.T)
 
+    @pytest.mark.parametrize(
+        ("outer_shape", "volume_budget", "outer_chunks"),
+        [
+            ((1, 5), 2, ((2, 2, 1),)),
+            ((5, 3), 2, ((1, 1, 1), (2, 2, 1))),
+            ((3, 5, 2), 7, ((1, 1), (2, 2, 1), (3,))),
+            ((3, 2, 2, 5), 24, ((2, 2, 1), (2,), (2,), (3,))),
+        ],
+    )
+    def test_auto_chunks_follow_disk_order(
+        self,
+        tmp_path: Path,
+        outer_shape: tuple[int, ...],
+        volume_budget: int,
+        outer_chunks: tuple[tuple[int, ...], ...],
+    ) -> None:
+        """Chunks span slower axes only after all faster axes fit."""
+        shape = (2, 3, 4, *outer_shape)
+        data = np.arange(np.prod(shape), dtype=np.int16).reshape(shape)
+        path = tmp_path / "multidimensional.nii"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(path)
+
+        with dask.config.set({"array.chunk-size": volume_budget * 48}):
+            result = load_nifti(path)
+
+        assert result.chunks == (*outer_chunks, (4,), (3,), (2,))
+        np.testing.assert_array_equal(result.values, data.T.squeeze())
+
     def test_load_nifti_explicit_tuple_chunks(self, tmp_path: Path) -> None:
         """Loading with an explicit tuple `chunks` produces the requested chunk shape.
 

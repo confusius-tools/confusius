@@ -63,7 +63,7 @@ Current development version for the next ConfUSIus release.
 
 ### :zap: Performance
 
-- Loading 4D NIfTI files now groups complete spatial volumes into each automatic
+- Loading 4D through 7D NIfTI files now groups complete spatial volumes into each automatic
   chunk, reducing fragmented reads on network drives
   ([#597](https://github.com/confusius-tools/confusius/pull/597)).
 

@@ -9,13 +9,16 @@ processing. Following the VoxelData model, data is stored with native voxel dime
 import json
 import re
 import warnings
+from math import prod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import dask
 import dask.array as da
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from dask.utils import parse_bytes
 from pydantic import ValidationError
 
 from confusius._dims import VOXEL_DIMS, WORLD_DIMS
@@ -1196,9 +1199,9 @@ def load_nifti(
           500), (400, 400))`.
         - A size in bytes, like `"100 MiB"` which will choose a uniform block-like
           shape.
-        - The word `"auto"` to let Dask choose chunk sizes. For 4D files, each
-          chunk holds one or more complete spatial volumes, with the number of
-          frames chosen from Dask's configured chunk-size target. See
+        - The word `"auto"` to let Dask choose chunk sizes. For 4D through 7D files, each
+          chunk holds one or more complete spatial volumes, grouped in disk order
+          up to Dask's configured chunk-size target. See
           `dask.array.normalize_chunks` for more details on how chunk sizes are
           determined.
         - `-1` or `None` as a blocksize indicate the size of the corresponding
@@ -1332,12 +1335,18 @@ def load_nifti(
 
     proxy = img.dataobj
     assert isinstance(proxy, ArrayProxy)
-    # Whole spatial volumes occupy contiguous byte ranges in NIfTI storage.
-    native_chunks = (
-        (-1, -1, -1, "auto")
-        if chunks == "auto" and proxy.ndim == 4
-        else _reverse_chunk_spec(chunks, proxy.ndim)
-    )
+    native_chunks = _reverse_chunk_spec(chunks, proxy.ndim)
+    if chunks == "auto" and proxy.ndim >= 4:
+        # Fill faster axes first so each chunk is a contiguous run of volumes.
+        target = parse_bytes(dask.config.get("array.chunk-size"))
+        volume_bytes = prod(proxy.shape[:3]) * proxy.dtype.itemsize
+        remaining = max(1, target // volume_bytes)
+        chunk_shape = list(proxy.shape[:3])
+        for size in proxy.shape[3:]:
+            extent = min(size, remaining)
+            chunk_shape.append(extent)
+            remaining //= extent
+        native_chunks = tuple(chunk_shape)
     dask_arr = da.from_array(
         proxy,
         chunks=native_chunks,
