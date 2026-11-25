@@ -16,13 +16,21 @@ Current development version for the next ConfUSIus release.
   Incremental Zarr writes are rejected to avoid inconsistent geometry metadata;
   save the complete array instead
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
+- Existing single-array Zarr recordings written by `cf.save` can be upgraded in
+  place with the [metadata migration script](downloads/migrate_voxeldata_zarr.py).
+  Run `python migrate_voxeldata_zarr.py recording.zarr` with the store closed
+  to other writers. It records the affine dependencies, moves named frames
+  and B-spline initialization to their new metadata fields, and refreshes
+  consolidated metadata when present. Signal chunks are untouched. This script
+  applies to the ordinary array format in Zarr v2 and v3
+  ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 - Geometry and Zarr persistence now come from the external `voxeldata[io]>=0.0.5`
   package. Use the flat `.vd` accessor instead of `.fusi.affine`, `.fusi.spacing`, `.fusi.origin`, or
   `.fusi.direction`. Named world frames live on the VoxelData index and are
   managed with `.vd.set_affine` and read with `.vd.affines[name]`, not DataArray attributes.
 - Probe positions use `pose` with `geometry_dims=("pose",)`. Leading dimensions
-  may appear in any order; optional canonicalization uses
-  `(...extra, pose, time, k, j, i)`
+  may appear in any order. Canonicalization places extra dimensions first and
+  preserves the relative order of `time` and `pose`, including on Zarr save
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
 - World transforms now use VoxelData's flat `.vd.translate`, `.vd.rotate`,
   `.vd.zoom`, and `.vd.flip` methods, not `.fusi` transform wrappers. Module-level

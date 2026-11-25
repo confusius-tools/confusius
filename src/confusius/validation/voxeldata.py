@@ -11,7 +11,7 @@ from voxeldata import require_positive_finite
 from voxeldata import validate_voxeldata as validate_generic_voxeldata
 from voxeldata.validation import RegularSpacingDims
 
-from confusius._dims import CORE_DIMS, TIME_DIM
+from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM, VOXEL_DIMS
 from confusius.timing import (
     TIMING_REFERENCE_FACTORS,
     convert_time_reference,
@@ -177,7 +177,8 @@ def canonicalize_voxeldata(data: xr.DataArray, **validate_kwargs: Any) -> xr.Dat
     Scalar indexing such as `data.isel(j=0)` removes `j` from the array dimensions
     but retains it as a scalar coordinate. This function restores every missing
     native voxel dimension (`k`, `j`, `i`) as a length-one dimension, then orders all
-    dimensions as `(...extra_dims, pose, time, k, j, i)`. It preserves coordinate
+    extra dimensions first, followed by the input order of `time` and `pose`,
+    then `(k, j, i)`. It preserves coordinate
     values and their order. When scalar indexing fixed a dimension in a
     `VoxelToWorldIndex`, its geometry is rebuilt from the unchanged voxel-to-world
     affine, preserving the world-space units. Missing time acquisition metadata
@@ -211,11 +212,18 @@ def canonicalize_voxeldata(data: xr.DataArray, **validate_kwargs: Any) -> xr.Dat
     UserWarning
         If missing `time` or `slice_time` acquisition metadata is defaulted.
     """
-    result = canonicalize_generic_voxeldata(data)
+    result = canonicalize_generic_voxeldata(data, preserve_dim_order=True)
     result = result.transpose(
         *(d for d in result.dims if d not in CORE_DIMS),
-        *(d for d in CORE_DIMS if d in result.dims),
+        *(d for d in result.dims if d in (TIME_DIM, POSE_DIM)),
+        *VOXEL_DIMS,
     )
+    # Slice timestamps have their own required (time, sweep) order even when
+    # the signal is pose-first and pose is the sweep dimension.
+    if "slice_time" in result.coords and result.slice_time.dims == (POSE_DIM, TIME_DIM):
+        result = result.assign_coords(
+            slice_time=result.slice_time.transpose(TIME_DIM, ...)
+        )
     result = ensure_time_acquisition_attrs(result)
     result = ensure_slice_time_acquisition_attrs(result)
     validate_voxeldata(result, **validate_kwargs)
@@ -289,6 +297,9 @@ def validate_voxeldata(
         If VoxelData geometry, dimensions, coordinates, timing, spacing, or metadata
         validation fails.
     """
+    # VoxelData treats pose as an ordinary nonspatial dimension.
+    if regular_spacing_dims == "core" and isinstance(data, xr.DataArray):
+        regular_spacing_dims = tuple(dim for dim in CORE_DIMS if dim in data.dims)
     validate_generic_voxeldata(
         data,
         allow_extra_dims=True,
@@ -301,8 +312,16 @@ def validate_voxeldata(
         extra_dims = sorted(str(d) for d in data.dims if d not in CORE_DIMS)
         if extra_dims:
             raise ValueError(f"Unexpected dimensions {extra_dims!r}.")
-    if not allow_pose and "pose" in data.dims:
-        raise ValueError("DataArray must not have a 'pose' dimension.")
+    if "pose" in data.dims:
+        if not allow_pose:
+            raise ValueError("DataArray must not have a 'pose' dimension.")
+        if "pose" not in data.coords:
+            raise ValueError("Missing required coordinate for dimension 'pose'.")
+        labels = data.coords["pose"].values
+        if labels.dtype.kind not in "iuf" or not np.all(np.isfinite(labels)):
+            raise ValueError("Coordinate 'pose' must contain finite numeric labels.")
+        if not np.all(labels[1:] > labels[:-1]):
+            raise ValueError("Coordinate 'pose' must be strictly monotonic-increasing.")
     if require_time or require_unchunked_time or require_uniform_time:
         validate_required_time_dimension(data)
         validate_timepoint_count(data, "VoxelData validation")

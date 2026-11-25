@@ -2,8 +2,7 @@
 
 ## Spatial coordinates
 
-`VoxelData` is an `xarray.DataArray` with canonical dimensions `(...extra, time, pose,
-k, j, i)` and a `VoxelToWorldIndex` defining world coordinates `z/y/x`. `time` and
+`VoxelData` is an `xarray.DataArray` with dimensions `(*nonspatial_dims, k, j, i)` and a `VoxelToWorldIndex` defining world coordinates `z/y/x`. `time` and
 `pose` are optional; all three spatial dimensions are required, including for slices and
 lines.
 
@@ -117,7 +116,7 @@ not components or repetitions. It requires `voxel_to_world.shape == (npose, 4, 4
 even for a single probe pose. Spatial scale magnitudes must agree across grids;
 origins and orientations may differ, and identical affines are valid. Do not
 silently resample mismatched grids. Leading dimensions may have any order;
-optional canonicalization uses `(...extra_dims, pose, time, k, j, i)`.
+optional canonicalization places extra axes first and keeps `time` and `pose` in their input order.
 
 Sequential probe poses need their own timestamps, represented by a `time`
 coordinate with dimensions `(time, pose)` or `(pose, time)`. Simultaneous poses

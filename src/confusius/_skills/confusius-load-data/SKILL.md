@@ -118,8 +118,9 @@ validate_voxeldata(power)
 validate_voxeldata(seed_map)
 ```
 
-The constructor reorders dimensions to `(...extra, pose, time, k, j, i)`,
-omitting unused `time`/`pose` axes and adding missing singleton spatial axes.
+The constructor preserves leading dimension order and adds missing singleton spatial
+axes. ConfUSIus canonicalization groups extra dimensions first and preserves the
+relative order of `time` and `pose`.
 World coordinates `z/y/x` are derived from the affine, not used as dimension names.
 
 Verify array values, dimensions, timing (if present), and physical positions

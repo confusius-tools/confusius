@@ -46,7 +46,8 @@ else gridded in space. A VoxelData array is **always**:
 
 - Dims `(*nonspatial_dims, k, j, i)` — `time`/`pose` are optional and all leading
   dimensions may appear in any order. Creation preserves leading order. Optional
-  ConfUSIus canonicalization/ensure uses `(...extra, pose, time, k, j, i)`; generic
+  ConfUSIus canonicalization places extra axes first, then `time` and `pose` in
+  their input order, then `(k, j, i)`. New pose stacks default to time-first. Generic
   `.vd.canonicalize()` normalizes and validates, using `(...extra, time, k, j, i)`, preserving
   extra dimensions' relative order. Native voxel indices `k`/`j`/`i` are mandatory and last.
 - Backed by a `VoxelToWorldIndex` attached to `z`/`y`/`x`

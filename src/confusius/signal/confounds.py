@@ -650,7 +650,7 @@ def compute_compcor_confounds(
         signals_flat = signals.stack(space=spatial_dims)
 
         time_coord = signals.coords.get("time")
-        if time_coord is not None and time_coord.dims == ("time", "pose"):
+        if time_coord is not None and set(time_coord.dims) == {"time", "pose"}:
             # Folding `pose` into `space` above breaks the per-pose (time, pose)
             # `time` coordinate: stacking broadcasts it to (time, space), one
             # timestamp per voxel instead of one per timepoint. CompCor pools

@@ -181,7 +181,7 @@ class TestSaveDispatch:
         args, kwargs = mock.call_args
         xr.testing.assert_identical(args[0], canonicalize_voxeldata(saveable_volume))
         assert args[1] == path.resolve()
-        assert kwargs == {"mode": "w", "zarr_format": 2}
+        assert kwargs == {"mode": "w", "zarr_format": 2, "preserve_dim_order": True}
 
     def test_zarr_writes_readable_store(self, tmp_path, saveable_volume):
         """.zarr extension writes a store that reloads to the same data."""
@@ -382,7 +382,9 @@ class TestLoadZarr:
         path = tmp_path / "data.zarr"
         with patch("voxeldata.load_array", return_value=saveable_volume) as mock:
             result = load(path, variable="power", chunks=chunks)
-        mock.assert_called_once_with(path.resolve(), variable="power", chunks=chunks)
+        mock.assert_called_once_with(
+            path.resolve(), variable="power", chunks=chunks, preserve_dim_order=True
+        )
         assert result is saveable_volume
 
     def test_zarr_default_remains_dask_backed(self, single_var_zarr):
@@ -493,3 +495,49 @@ class TestLoadRestoresAtlasCmapAndNorm:
             result = load(path)
 
         assert result.attrs == {"task_name": "test"}
+
+
+@pytest.mark.parametrize("order", [("time", "pose"), ("pose", "time")])
+def test_multipose_zarr_preserves_acquisition_order(tmp_path, order):
+    values = np.arange(6).reshape(2, 3, 1, 1, 1)
+    data = create_voxeldata(
+        values,
+        dims=("pose", "time", "k", "j", "i"),
+        dt=1,
+        t0=[0, 0.2],
+        voxel_to_world=np.stack([np.eye(4)] * 2),
+        name="signal",
+    )
+    data = data.transpose(*order, ...)
+    path = tmp_path / "multipose.zarr"
+    save(data, path)
+    with xr.open_zarr(path) as store, load(path) as result:
+        assert store.signal.dims == result.dims == data.dims
+        npt.assert_array_equal(result, data.values)
+        npt.assert_allclose(
+            result.time.transpose("time", "pose"), [[0, 0.2], [1, 1.2], [2, 2.2]]
+        )
+
+
+def test_pose_first_zarr_preserves_time_first_slice_timestamps(tmp_path):
+    data = create_voxeldata(
+        np.arange(6).reshape(2, 3),
+        dims=("pose", "time"),
+        dt=1,
+        voxel_to_world=np.stack([np.eye(4)] * 2),
+    ).assign_coords(
+        slice_time=xr.DataArray(
+            [[0.0, 0.2], [1.0, 1.2], [2.0, 2.2]],
+            dims=("time", "pose"),
+            attrs={
+                "units": "s",
+                "volume_acquisition_reference": "start",
+                "volume_acquisition_duration": 0.2,
+            },
+        )
+    )
+    path = tmp_path / "timed.zarr"
+    save(data, path)
+    with load(path) as loaded:
+        assert loaded.dims == data.dims
+        xr.testing.assert_identical(loaded.slice_time, data.slice_time)

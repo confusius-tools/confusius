@@ -17,8 +17,9 @@ time coordinate and spatial geometry.
 ## The Multi-Pose Data Model
 
 Multi-pose arrays end in `(k, j, i)`, with leading dimensions in any order.
-Creation preserves that order; ConfUSIus canonicalization uses
-`(...extra, pose, time, k, j, i)`. Probe geometry uses
+Creation preserves that order. Canonicalization groups extra dimensions first, then
+keeps `time` and `pose` in their input order. Stacking separate poses in a time series
+creates `(...extra, time, pose, k, j, i)`. Probe geometry uses
 `geometry_dims=("pose",)` and the flat `.vd` accessor. Unlike an ordinary
 dimension, pose affects both spatial coordinates and acquisition times:
 

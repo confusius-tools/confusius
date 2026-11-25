@@ -196,8 +196,7 @@ def test_create_voxeldata_sets_name_and_attrs():
 def test_create_voxeldata_accepts_dims_in_any_order(
     identity_pose_affines: Callable[[int], npt.NDArray[np.float64]],
 ):
-    """`dims` may list core *and* extra dims in any order; the result is
-    canonicalized to `(extra_dims, time, pose, k, j, i)` regardless."""
+    """Creation preserves leading dimension order and moves native voxel axes last."""
     npose = 2
     n_time = 3
     n_component = 2

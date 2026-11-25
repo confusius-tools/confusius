@@ -52,9 +52,18 @@ def test_leading_order_preserved_and_canonicalization_optional(dims):
     validate_voxeldata(data.assign_coords(time=data.time.transpose("pose", "time")))
 
     canonical = canonicalize_voxeldata(data)
-    assert canonical.dims == ("component", "pose", "time", "k", "j", "i")
+    acquisition_order = tuple(dim for dim in dims if dim in ("time", "pose"))
+    assert canonical.dims == ("component", *acquisition_order, "k", "j", "i")
+    np.testing.assert_allclose(
+        canonical.time.transpose("time", "pose"), [[0, 0.2], [1, 1.2], [2, 2.2]]
+    )
     np.testing.assert_array_equal(canonical.transpose(*dims).values, values)
     assert canonical.time.attrs["volume_acquisition_duration"] == pytest.approx(0.2)
+    stripped = data.assign_coords(time=data.time.copy())
+    del stripped.time.attrs["volume_acquisition_duration"]
+    with pytest.warns(UserWarning, match="volume_acquisition_duration"):
+        inferred = canonicalize_voxeldata(stripped)
+    assert inferred.time.attrs["volume_acquisition_duration"] == pytest.approx(0.2)
 
 
 def test_generic_validation_does_not_require_fusi_acquisition_metadata():
@@ -195,3 +204,20 @@ def test_internal_geometry_exports_are_voxeldata_functions():
 
     for name in geometry.__all__:
         assert getattr(geometry, name) is getattr(generic, name)
+
+
+@pytest.mark.parametrize("labels", [[0, 0], [1, 0], [1, np.inf], ["a", "b"]])
+def test_pose_labels_require_finite_increasing_numbers(labels):
+    with pytest.raises(ValueError, match="pose"):
+        create_voxeldata(np.zeros(2), dims=("pose",), pose=labels, spacing=(1, 1, 1))
+
+
+def test_core_spacing_includes_pose():
+    data = create_voxeldata(
+        np.arange(3), dims=("pose",), pose=[0, 1, 4], spacing=(1, 1, 1)
+    )
+    validate_voxeldata(data)
+    with pytest.raises(ValueError, match="pose.*regular spacing"):
+        validate_voxeldata(
+            data, require_regular_spacing=True, regular_spacing_dims="core"
+        )

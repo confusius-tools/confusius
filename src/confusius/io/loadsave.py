@@ -96,7 +96,9 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         data_array = _iconeus_raw.load_iconeus_raw(path, **kwargs)
     elif name.endswith(".zarr"):
         kwargs.setdefault("chunks", "auto")
-        data_array = vd.load_array(path, variable=variable, **kwargs)
+        data_array = vd.load_array(
+            path, variable=variable, preserve_dim_order=True, **kwargs
+        )
     else:
         raise ValueError(
             f"Unsupported file extension in {name!r}. Supported"
@@ -142,7 +144,9 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         _nifti.save_nifti(data_array, path, **kwargs)
         return
     if name.endswith(".zarr"):
-        vd.save(canonicalize_voxeldata(data_array), path, **kwargs)
+        vd.save(
+            canonicalize_voxeldata(data_array), path, preserve_dim_order=True, **kwargs
+        )
         return
 
     raise ValueError(

@@ -11,7 +11,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_units,
 )
-from confusius.validation import canonicalize_voxeldata
+from confusius.validation import canonicalize_voxeldata, validate_voxeldata
 
 
 def stack_poses(
@@ -36,7 +36,7 @@ def stack_poses(
         non-core dimensions must otherwise agree across poses, exactly as required to
         merge non-concatenated variables in any `xr.concat` call.
     pose : sequence[hashable], optional
-        Pose coordinate labels, one per entry of `poses`. If not provided, defaults to
+        Strictly increasing finite numeric labels, one per entry of `poses`. If not provided, defaults to
         `0, 1, ..., len(poses) - 1`.
 
     Returns
@@ -122,7 +122,7 @@ def stack_poses(
         named_affines=named_affines,
     )
     # expand_dims prepends "pose" at axis 0; restore canonical core dim order
-    # (...extra, pose, time, k, j, i).
+    # (...extra, time, pose, k, j, i).
     extra_dims = [d for d in stacked.dims if d not in CORE_DIMS]
     ordered_core = [d for d in CORE_DIMS if d in stacked.dims]
     stacked = stacked.transpose(*extra_dims, *ordered_core)
@@ -130,4 +130,5 @@ def stack_poses(
         stacked = stacked.assign_coords(
             {TIME_DIM: ((TIME_DIM, POSE_DIM), per_pose_time, time_attrs)}
         )
+    validate_voxeldata(stacked)
     return stacked

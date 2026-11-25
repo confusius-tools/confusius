@@ -101,6 +101,7 @@ class TestStackPoses:
 
         result = stack_poses(poses)
 
+        assert result.dims == ("time", "pose", "k", "j", "i")
         assert result.coords["time"].dims == ("time", "pose")
         assert "time" not in result.xindexes
         np.testing.assert_allclose(result.coords["time"].isel(pose=0).values, time0)

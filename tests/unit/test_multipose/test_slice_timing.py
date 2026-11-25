@@ -284,8 +284,9 @@ class TestCorrectSliceTiming:
                 )
 
     @pytest.mark.parametrize("reference", ["start", "center", "end"])
+    @pytest.mark.parametrize("order", [("time", "pose"), ("pose", "time")])
     def test_pose_dependent_time_and_slice_time_equivalent(
-        self, reference: str
+        self, reference: str, order: tuple[str, str]
     ) -> None:
         """Pose-dependent time and slice_time paths give identical corrections.
 
@@ -339,11 +340,14 @@ class TestCorrectSliceTiming:
             )
         )
 
-        result_unconsolidated = correct_slice_timings(da_unconsolidated)
+        result_unconsolidated = correct_slice_timings(
+            da_unconsolidated.transpose(*order, ...)
+        )
+        assert result_unconsolidated.dims[:2] == order
         result_consolidated = correct_slice_timings(da_consolidated)
 
         np.testing.assert_allclose(
-            result_unconsolidated.squeeze("k").values,
+            result_unconsolidated.transpose("time", "pose", ...).squeeze("k").values,
             result_consolidated.values,
             atol=1e-12,
         )

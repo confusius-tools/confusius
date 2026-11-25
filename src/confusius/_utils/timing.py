@@ -8,6 +8,38 @@ import numpy.typing as npt
 from scipy.interpolate import interp1d
 
 
+def infer_per_pose_duration(
+    per_pose_time: npt.NDArray[np.float64], dt_fallback: float | None
+) -> float | None:
+    """Infer one pose's own acquisition duration from a `(time, pose)` array.
+
+    `dt` (the shared spacing between successive samples of the *same* pose, i.e. the
+    repetition period) is not a safe default: it describes a completely different
+    quantity. Instead, default from the smallest nonzero gap between poses' own
+    timestamps, per time point -- poses sharing the same timestamp (e.g. a
+    stacked-linear-probe pose acquired simultaneously with another) don't count
+    toward the gap.
+
+    Parameters
+    ----------
+    per_pose_time : (n_time, n_pose) numpy.ndarray
+        Each pose's own acquisition timestamp, per time point.
+    dt_fallback : float, optional
+        Value to fall back to when every pose shares the same timestamp at every time
+        point, leaving no gap to infer from.
+
+    Returns
+    -------
+    float or None
+        Inferred duration, `dt_fallback`, or `None` when neither is available.
+    """
+    diffs = np.diff(np.sort(per_pose_time, axis=-1), axis=-1)
+    nonzero_diffs = diffs[diffs > 0]
+    if nonzero_diffs.size:
+        return float(nonzero_diffs.min())
+    return dt_fallback
+
+
 def interpolate_timeseries(
     ts: npt.NDArray[np.floating],
     acq_times: npt.NDArray[np.floating],
