@@ -382,7 +382,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("echo", "channel", "time", "k", "j", "i")
+        assert da.dims == ("channel", "echo", "time", "k", "j", "i")
         np.testing.assert_array_equal(da.coords["channel"].values, np.array([0.0, 1.0]))
         np.testing.assert_array_equal(
             da.coords["echo"].values, np.array([10.0, 20.0, 30.0])
@@ -1286,7 +1286,10 @@ class TestLoadNifti:
 
         assert isinstance(result.data, dask_array.Array)
 
-    def test_load_nifti_does_not_materialize_array_proxy(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(("slope", "inter"), [(1.0, 0.0), (0.5, 2.0), (1.0, -3.0)])
+    def test_load_nifti_does_not_materialize_array_proxy(
+        self, tmp_path: Path, slope: float, inter: float
+    ) -> None:
         """Loading never eagerly reads nibabel's ArrayProxy into memory (issue #329).
 
         Regression test for the bug where `np.asanyarray(img.dataobj)` converted the
@@ -1299,14 +1302,27 @@ class TestLoadNifti:
 
         data = np.random.default_rng(0).random((8, 6, 4)).astype(np.float32)
         nifti_path = tmp_path / "test_no_materialize.nii.gz"
-        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_slope_inter(slope, inter)
+        img.to_filename(nifti_path)
+        expected = np.asarray(nib.Nifti1Image.from_filename(nifti_path).dataobj).T
 
-        with patch.object(
-            ArrayProxy, "__array__", side_effect=AssertionError("proxy materialized")
+        with (
+            patch.object(
+                ArrayProxy,
+                "__array__",
+                side_effect=AssertionError("proxy materialized"),
+            ),
+            patch.object(
+                ArrayProxy,
+                "__getitem__",
+                side_effect=AssertionError("eager voxel read"),
+            ),
         ):
             result = load_nifti(nifti_path)
 
-        np.testing.assert_allclose(result.data.compute(), data.T)
+        assert result.dtype == expected.dtype
+        np.testing.assert_array_equal(result.data.compute(), expected)
 
     def test_load_nifti_explicit_tuple_chunks(self, tmp_path: Path) -> None:
         """Loading with an explicit tuple `chunks` produces the requested chunk shape.
@@ -1544,7 +1560,7 @@ class TestLoadNifti:
         with pytest.warns(UserWarning, match="reserved canonical spatial dim name"):
             da = load_nifti(nifti_path)
 
-        assert da.dims == ("dim5", "dim4", "k", "j", "i")
+        assert da.dims == ("dim4", "dim5", "k", "j", "i")
         assert da.sizes["dim4"] == 3
         assert da.sizes["dim5"] == 2
         assert da.sizes["k"] == 1
@@ -1646,6 +1662,25 @@ class TestSaveNifti:
         with pytest.raises(ValueError, match="exactly one"):
             save_nifti(sample_voxeldata_3dt_pose, tmp_path / template)
         assert not list(tmp_path.iterdir())
+
+    @pytest.mark.parametrize("template", [False, True])
+    def test_zero_delay_in_chunk_sidecar(
+        self, tmp_path, sample_voxeldata_3dt_pose, template
+    ):
+        """A zero trigger delay is explicit in both literal and templated chunk files."""
+        data = sample_voxeldata_3dt_pose
+        time = data.time.copy(data=data.time.values - data.time.values[0, 0])
+        time.attrs["volume_acquisition_reference"] = "start"
+        data = data.assign_coords(time=time)
+        if template:
+            save_nifti(data, tmp_path / "sub-01_chunk-{chunk}_pwd.nii")
+            later = json.loads((tmp_path / "sub-01_chunk-1_pwd.json").read_text())
+            assert later["DelayAfterTrigger"] == pytest.approx(0.25)
+        else:
+            save_nifti(data.isel(pose=0), tmp_path / "sub-01_chunk-0_pwd.nii")
+        first = json.loads((tmp_path / "sub-01_chunk-0_pwd.json").read_text())
+        assert first["RepetitionTime"] == pytest.approx(0.5)
+        assert first["DelayAfterTrigger"] == 0.0
 
     def test_save_chunk_template_requires_pose(self, tmp_path, sample_voxeldata_3dt):
         """A template requires an actual pose dimension."""
@@ -2444,9 +2479,7 @@ class TestSaveNifti:
             warnings.simplefilter("always")
             save_nifti(da, output_path)
 
-        assert not any(
-            "validation warning when saving" in str(w.message) for w in caught
-        )
+        assert not any("fUSI-BIDS validation warning" in str(w.message) for w in caught)
 
         sidecar_path = tmp_path / "invalid_metadata.json"
         with open(sidecar_path) as f:
@@ -2948,7 +2981,7 @@ class TestSaveNifti:
             patch(
                 "confusius.io.nifti.validate_metadata", side_effect=RuntimeError("boom")
             ),
-            pytest.warns(UserWarning, match="validation warning when saving: boom"),
+            pytest.warns(UserWarning, match="fUSI-BIDS validation warning: boom"),
         ):
             save_nifti(sample_voxeldata_3dt, output_path)
 
@@ -3300,6 +3333,29 @@ class TestSaveNifti:
 class TestConvertToNifti:
     """Tests for conversion to in-memory NIfTI images and metadata."""
 
+    @pytest.mark.parametrize("nifti_version", [1, 2])
+    def test_explicit_zero_transform_codes_survive_writing(
+        self, tmp_path, sample_voxeldata_3d, nifti_version
+    ):
+        """NiBabel keeps both forms disabled when serializing the converted image."""
+        img, _ = convert_to_nifti(
+            sample_voxeldata_3d.drop_vars("time"),
+            nifti_version,
+            qform_code=0,
+            sform_code=0,
+        )
+        path = tmp_path / "uncoded.nii"
+        img.to_filename(path)
+        for image in (img, type(img).from_filename(path)):
+            assert (image.header["qform_code"], image.header["sform_code"]) == (0, 0)
+            np.testing.assert_allclose(image.affine, image.header.get_best_affine())
+
+    def test_invalid_metadata_warns(self, sample_voxeldata_3dt):
+        """Object conversion reports the offending BIDS field on export."""
+        sample_voxeldata_3dt.attrs["transmit_frequency"] = -42
+        with pytest.warns(UserWarning, match="TransmitFrequency"):
+            convert_to_nifti(sample_voxeldata_3dt)
+
     def test_to_nifti_returns_nifti1_image_by_default(self, sample_voxeldata_3d):
         """Conversion defaults to a Nifti1Image, matching save_nifti's default."""
         img, _ = convert_to_nifti(sample_voxeldata_3d.drop_vars("time"))
@@ -3375,6 +3431,62 @@ class TestConvertToNifti:
 
 class TestConvertFromNifti:
     """Tests for conversion from NiBabel images and fUSI-BIDS metadata."""
+
+    @pytest.mark.parametrize(
+        ("storage", "slope", "inter"),
+        [
+            ("int16", np.float32(0.5), np.float32(0)),
+            ("int16", np.float32(1e38), np.float32(0)),
+            ("uint32", np.float32(0.5), np.float32(0)),
+            ("float32", np.float64(1), np.float32(0.25)),
+            ("complex64", np.float32(2), np.float64(0)),
+            (">i2", 1, 0),
+        ],
+    )
+    def test_scaled_proxy_dtype_matches_nibabel(self, tmp_path, storage, slope, inter):
+        """Chunk metadata matches NiBabel's native precision and overflow promotion."""
+        from nibabel.arrayproxy import ArrayProxy
+
+        raw = np.arange(4, dtype=storage).reshape(1, 1, 4)
+        path = tmp_path / "voxels.bin"
+        raw.tofile(path)
+        proxy = ArrayProxy(path, (raw.shape, raw.dtype, 0, slope, inter))
+        img = nib.Nifti1Image(proxy, np.eye(4))
+        expected = np.asarray(proxy).T
+
+        data = convert_from_nifti(img)
+        assert data.dtype == expected.dtype
+        np.testing.assert_array_equal(data.values, expected)
+
+    def test_invalid_metadata_warns(self):
+        """Object conversion reports conflicting timing fields on import."""
+        img = nib.Nifti1Image(np.zeros((2, 2, 2, 3)), np.eye(4))
+        with pytest.warns(UserWarning, match="mutually exclusive"):
+            convert_from_nifti(
+                img, sidecar={"VolumeTiming": [0, 1, 2], "RepetitionTime": 1}
+            )
+
+    @pytest.mark.filterwarnings("ignore:'slice_time' coordinate is missing")
+    @pytest.mark.parametrize("direction", [None, "i-"])
+    def test_header_and_sidecar_slice_axis(self, direction):
+        """A missing direction uses the header and an explicit direction takes priority."""
+        img = nib.Nifti1Image(np.zeros((2, 3, 2, 3)), np.eye(4))
+        img.header.set_dim_info(slice=2)
+        sidecar = {"RepetitionTime": 1.0, "SliceTiming": [0.1, 0.2]}
+        if direction is None:
+            data = convert_from_nifti(img, sidecar=sidecar)
+            expected_dim, offsets, axis = "k", [0.1, 0.2], 2
+        else:
+            sidecar["SliceEncodingDirection"] = direction
+            with pytest.warns(UserWarning, match="disagrees with the NIfTI slice axis"):
+                data = convert_from_nifti(img, sidecar=sidecar)
+            expected_dim, offsets, axis = "i", [0.2, 0.1], 0
+        assert data.slice_time.dims == ("time", expected_dim)
+        np.testing.assert_allclose(data.slice_time, np.arange(3)[:, None] + offsets)
+        exported, metadata = convert_to_nifti(data)
+        assert exported.header.get_dim_info()[2] == axis
+        assert metadata["SliceEncodingDirection"] == expected_dim
+        np.testing.assert_allclose(metadata["SliceTiming"], offsets)
 
     def test_from_nifti_rejects_non_nifti_image(self):
         """Conversion rejects objects that are not NiBabel NIfTI images."""
@@ -3507,6 +3619,44 @@ class TestRoundtrip:
             np.asarray(nib.Nifti1Image.from_filename(path).dataobj),
             sample_voxeldata_3d.values.T,
         )
+
+    @pytest.mark.parametrize("snapshot", [False, True])
+    def test_slice_timing_in_milliseconds(self, sample_voxeldata_3dt, snapshot):
+        """Center-referenced millisecond timestamps export as onset offsets in seconds."""
+        data = sample_voxeldata_3dt
+        offsets_ms = np.arange(data.sizes["k"]) * 100
+        data = data.assign_coords(
+            slice_time=xr.DataArray(
+                data.time.values[:, None] * 1000 + offsets_ms + 10,
+                dims=("time", "k"),
+                attrs={
+                    "units": "ms",
+                    "volume_acquisition_reference": "center",
+                    "volume_acquisition_duration": 20,
+                },
+            )
+        )
+        if snapshot:
+            data = data.isel(time=0)
+        _, metadata = convert_to_nifti(data)
+        np.testing.assert_allclose(
+            metadata["SliceTiming"], offsets_ms / 1000, atol=1e-12
+        )
+
+    def test_two_extra_dimensions_roundtrip(self, sample_voxeldata_3dt):
+        """Distinct extra axes preserve labels, chunk order and voxel values."""
+        data = sample_voxeldata_3dt.expand_dims(channel=["a", "b"], lag=[-1, 0, 1])
+        data = data.copy(
+            data=np.arange(data.size, dtype=np.float32).reshape(data.shape)
+        )
+        img, sidecar = convert_to_nifti(data)
+        chunks = (1, 3, 2, 1, 2, 4)
+        actual = convert_from_nifti(img, chunks=chunks, sidecar=sidecar)
+        assert actual.dims == data.dims
+        assert actual.data.chunksize == chunks
+        np.testing.assert_array_equal(actual.channel, data.channel)
+        np.testing.assert_array_equal(actual.lag, data.lag)
+        np.testing.assert_array_equal(actual.values, data.values)
 
     def test_object_roundtrip_preserves_sidecar_metadata(self, sample_voxeldata_3dt):
         """BIDS metadata preserves slice timing, extra coordinates, and processing units."""
@@ -3780,9 +3930,7 @@ class TestRoundtrip:
             warnings.simplefilter("always")
             save_nifti(da, output_path)
 
-        assert not any(
-            "validation warning when saving" in str(w.message) for w in caught
-        )
+        assert not any("fUSI-BIDS validation warning" in str(w.message) for w in caught)
 
         with open(tmp_path / "end_referenced_scan_timing.json") as f:
             sidecar = json.load(f)
@@ -3965,9 +4113,7 @@ class TestRoundtrip:
             warnings.simplefilter("always")
             save_nifti(original, nifti_path)
 
-        assert not any(
-            "validation warning when saving" in str(w.message) for w in caught
-        )
+        assert not any("fUSI-BIDS validation warning" in str(w.message) for w in caught)
 
         sidecar_path = tmp_path / "inferred_frame_duration.json"
         with open(sidecar_path) as f:

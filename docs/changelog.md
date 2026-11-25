@@ -48,7 +48,7 @@ Current development version for the next ConfUSIus release.
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
 - Add [`convert_from_nifti`][confusius.io.convert_from_nifti] and
   [`convert_to_nifti`][confusius.io.convert_to_nifti] to convert directly between
-  VoxelData and in-memory NiBabel NIfTI images, with no file I/O. Conversion returns
+  VoxelData and NiBabel NIfTI images without a temporary file. Conversion returns
   fUSI-BIDS metadata alongside the image to preserve timing and named extra dimensions.
   Conversion to NIfTI is also available on the `.fusi` accessor,
   as [`data.fusi.to_nifti`][confusius.xarray.FUSIAccessor.to_nifti]
@@ -81,6 +81,11 @@ Current development version for the next ConfUSIus release.
 - [`load_nifti`][confusius.io.load_nifti] and
   [`convert_from_nifti`][confusius.io.convert_from_nifti] declare the dtype of scaled
   values (`scl_slope`/`scl_inter`) and size `"auto"` chunks for it
+  ([#421](https://github.com/confusius-tools/confusius/pull/421)).
+- NIfTI round trips preserve the order of extra dimensions. Saving with both transform
+  codes explicitly set to zero preserves those codes on disk. Slice timing respects the
+  NIfTI slice axis and the acquisition duration's units, and zero-delay BIDS chunks
+  include `DelayAfterTrigger`
   ([#421](https://github.com/confusius-tools/confusius/pull/421)).
 
 ### :books: Documentation
