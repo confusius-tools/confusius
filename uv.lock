@@ -723,7 +723,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.5.0" },
     { name = "scipy", specifier = ">=1.16.3" },
     { name = "simpleitk", specifier = ">=2.5.3" },
-    { name = "voxeldata", extras = ["io"], git = "https://github.com/confusius-tools/voxeldata?rev=f8508fd1e93d3e2f9d63868f19da9ce2f5b681a0" },
+    { name = "voxeldata", extras = ["io"], specifier = ">=0.0.7" },
     { name = "xarray", marker = "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'", specifier = ">=2026.9.0" },
     { name = "xarray", extras = ["accel"], marker = "python_full_version < '3.14' or platform_machine != 'x86_64' or sys_platform != 'darwin'", specifier = ">=2026.9.0" },
     { name = "zarr", specifier = ">=3.1.3" },
@@ -4749,13 +4749,17 @@ wheels = [
 
 [[package]]
 name = "voxeldata"
-version = "0.0.6"
-source = { git = "https://github.com/confusius-tools/voxeldata?rev=f8508fd1e93d3e2f9d63868f19da9ce2f5b681a0#f8508fd1e93d3e2f9d63868f19da9ce2f5b681a0" }
+version = "0.0.7"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'" },
     { name = "pandas" },
     { name = "xarray" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4a/3e/a33081c64ac3bca71f6794cecf5d32ef01f74ee727934491955abc2f7461/voxeldata-0.0.7.tar.gz", hash = "sha256:063c9c211c47356a154d820b79099225d0c84cebca37563ba5371f9411444017", size = 63319, upload-time = "2026-11-25T20:22:31.663Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/14/ca685faf9afb9eea36b23e6adb1e0948ae56447b3382a0feceeb6553201b/voxeldata-0.0.7-py3-none-any.whl", hash = "sha256:993c9bf5ded92ea7ca1f78bd03d20778b3ba05191045c4748bc5ac3da7571897", size = 71053, upload-time = "2026-11-25T20:22:30.768Z" },
 ]
 
 [package.optional-dependencies]

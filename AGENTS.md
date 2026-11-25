@@ -32,12 +32,9 @@ methods, not `.fusi.extract`, and do not default/validate acquisition metadata; 
 loaders, and explicit validation own that policy. Primary timestamps may depend
 on `time` plus arbitrary nonspatial axes. Auxiliary `slice_time` semantics and
 correction remain in ConfUSIus. Extraction works without optional flox/Dask in VoxelData; ConfUSIus
-retains its existing analysis dependencies and requires published `voxeldata[io]>=0.0.5`.
-During this draft, `tool.uv.sources` and `uv.lock` temporarily pin the tested
-VoxelData Git revision so CI and ordinary `uv run` use the unreleased APIs.
+retains its existing analysis dependencies and requires published `voxeldata[io]>=0.0.7`.
 Use `uv run --with-editable ../voxeldata pytest ...` when testing further changes
-in the sibling checkout. Once checks pass, release VoxelData, remove the temporary
-source override, and update the published dependency and lockfile before merging.
+in the sibling checkout.
 The ordinary Zarr dispatcher delegates to `voxeldata.load_array`/`save`.
 Do not replace the published dependency with a permanent local or Git source.
 

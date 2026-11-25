@@ -24,7 +24,7 @@ Current development version for the next ConfUSIus release.
   consolidated metadata when present. Signal chunks are untouched. This script
   applies to the ordinary array format in Zarr v2 and v3
   ([#569](https://github.com/confusius-tools/confusius/pull/569)).
-- Geometry and Zarr persistence now come from the external `voxeldata[io]>=0.0.5`
+- Geometry and Zarr persistence now come from the external `voxeldata[io]>=0.0.7`
   package. Use the flat `.vd` accessor instead of `.fusi.affine`, `.fusi.spacing`, `.fusi.origin`, or
   `.fusi.direction`. Named world frames live on the VoxelData index and are
   managed with `.vd.set_affine` and read with `.vd.affines[name]`, not DataArray attributes.
