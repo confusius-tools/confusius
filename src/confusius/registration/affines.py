@@ -57,7 +57,7 @@ def _striu2mat(
 
     Notes
     -----
-    Adapted from `transforms3d.affines.striu2mat` by Matthew Brett et al.
+    Adapted from `transforms3d.vd.affines.striu2mat` by Matthew Brett et al.
     (BSD-2-Clause License). See the `NOTICE` and `LICENSE-BSD-2-Clause`
     files for details.
     Source: https://github.com/matthew-brett/transforms3d
@@ -101,7 +101,7 @@ def compose_affine(
 
     Notes
     -----
-    Adapted from `transforms3d.affines.compose` by Matthew Brett _et al_.
+    Adapted from `transforms3d.vd.affines.compose` by Matthew Brett _et al_.
     (BSD-2-Clause License). See the `NOTICE` and `LICENSE-BSD-2-Clause`
     files for details.
     Source: https://github.com/matthew-brett/transforms3d
@@ -161,7 +161,7 @@ def decompose_affine(
 
     Notes
     -----
-    Adapted from `transforms3d.affines.decompose44` by Matthew Brett et al.
+    Adapted from `transforms3d.vd.affines.decompose44` by Matthew Brett et al.
     (BSD-2-Clause License). See the `NOTICE` and `LICENSE-BSD-2-Clause`
     files for details.
     Source: https://github.com/matthew-brett/transforms3d

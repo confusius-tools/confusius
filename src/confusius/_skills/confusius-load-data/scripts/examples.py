@@ -85,10 +85,8 @@ with TemporaryDirectory(prefix="confusius-load-data-") as tmp:
     assert_array_equal(restored.data, power.data)
     assert_allclose(restored.time, power.time)
     assert restored.time.attrs == power.time.attrs
-    assert restored.fusi.affine.units == "mm"
-    assert_allclose(
-        restored.fusi.affine.voxel_to_world, power.fusi.affine.voxel_to_world
-    )
+    assert restored.vd.world_units == "mm"
+    assert_allclose(restored.vd.voxel_to_world, power.vd.voxel_to_world)
 
 # General external affine maps [i, j, k] -> [x, y, z].
 external = np.array([[0, -0.2, 0, 4], [0.1, 0, 0, 5], [0, 0, 0.3, 6], [0, 0, 0, 1]])

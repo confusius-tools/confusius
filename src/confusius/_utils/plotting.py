@@ -10,13 +10,13 @@ from numpy.typing import NDArray
 
 from confusius._dims import VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.geometry import (
-    get_voxel_to_world_index_spacing,
+    get_array_spacing,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
-    require_scalar_pose_affine,
+    require_single_geometry_affine,
 )
 from confusius._utils.stack import find_stack_level
-from confusius.validation import ensure_voxeldata
+from confusius.validation import canonicalize_voxeldata
 
 
 def scale_min_max(arr: NDArray[np.floating]) -> NDArray[np.floating]:
@@ -156,7 +156,7 @@ def compute_oblique_axis_aligned_grid_geometry(
     data : xarray.DataArray
         Oblique (non-axis-aligned) VoxelData array. May have a spatial dim already
         squeezed to a scalar coordinate (e.g. a single-slice panel with `k` isel'd
-        away) -- `ensure_voxeldata` restores it, affine and all, before computing
+        away) -- `canonicalize_voxeldata` restores it, affine and all, before computing
         geometry, so the result doesn't depend on whether the caller's dim was
         literal or scalar (see Notes).
     world_dims : collections.abc.Sequence of str
@@ -192,26 +192,28 @@ def compute_oblique_axis_aligned_grid_geometry(
     from the linear block, per `get_voxel_to_world_affine`'s docstring, rather than
     the whole 3-column matrix always being used regardless of array shape), so a
     single-slice panel's predicted resample shape depended on whether the caller
-    happened to squeeze it before or after handing it here. `ensure_voxeldata`
+    happened to squeeze it before or after handing it here. `canonicalize_voxeldata`
     below removes that dependency by always restoring the full, un-folded affine
     first, then QR decomposes it as a whole -- so the result is the same either
     way.
     """
-    data = ensure_voxeldata(data)
+    data = canonicalize_voxeldata(data)
     # QR only needs the affine, not the data's own per-voxel-dim coordinate
     # spacing -- but `resample_volume` (the eventual consumer of this geometry)
     # builds a regular-grid SimpleITK image from *all 3* native voxel dims
     # regardless of which one QR picks as dominant for a given world axis, so an
     # irregularly spaced dim anywhere still breaks it downstream with an opaque
     # error. Check all 3 up front for a clear message instead.
-    for voxel_dim, voxel_spacing in get_voxel_to_world_index_spacing(data).items():
+    for voxel_dim, voxel_spacing in get_array_spacing(data).items():
         if voxel_spacing is None:
             raise ValueError(
                 f"Cannot resample onto an axis-aligned world grid: voxel "
                 f"dimension {voxel_dim!r} has no well-defined spacing "
                 "(irregularly spaced coordinates)."
             )
-    affine = require_scalar_pose_affine(data, "Computing axis-aligned grid geometry")
+    affine = require_single_geometry_affine(
+        data, "Computing axis-aligned grid geometry"
+    )
     linear = affine[:3, :3]
     row_to_axis, axis_spacing = qr_axis_spacing(linear)
 
@@ -327,10 +329,10 @@ def resample_to_axis_aligned_world_grid(
         # representative per-axis spacing therefore can't come from
         # `np.diff(values)` (which would default to differencing along the last
         # voxel axis, regardless of which world axis `dim` actually corresponds
-        # to). require_scalar_pose_affine is still called for its validation side
+        # to). require_single_geometry_affine is still called for its validation side
         # effect: rejecting pose-stacked data before attempting to resample it onto
         # one axis-aligned grid.
-        require_scalar_pose_affine(
+        require_single_geometry_affine(
             data, "Resampling to an axis-aligned world grid for display"
         )
 

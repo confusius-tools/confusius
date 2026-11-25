@@ -211,13 +211,13 @@ def _write_scan_v2(
 
     translations = np.zeros((npose, 3), dtype="<f8")
     rotations = np.zeros((npose, 3), dtype="<f8")
-    for pose in range(npose):
+    for grid in range(npose):
         # The fixture's pose uses the raw coronal lab rotation; only the acquisition
         # block adds a translation.
-        rotations[pose] = _POSE[3:]
+        rotations[grid] = _POSE[3:]
         if acquisition:
-            translations[pose] = _POSE[:3]
-            translations[pose, 1] += pose * 0.001
+            translations[grid] = _POSE[:3]
+            translations[grid, 1] += grid * 0.001
     if corrupt_acquisition == "pose":
         translations[0, 0] = 5.0
     header += translations.tobytes()
@@ -532,12 +532,10 @@ class TestLoadScanV2:
 
     def test_affines_for_untranslated_pose(self, scan_v2: xr.DataArray) -> None:
         """A typical coronal pose with no translation gives identity world_to_lab/probe."""
-        assert set(scan_v2.attrs["affines"]) == {"world_to_lab", "world_to_probe"}
-        np.testing.assert_array_equal(
-            scan_v2.attrs["affines"]["world_to_lab"], np.eye(4)
-        )
+        assert set(scan_v2.vd.affines) == {"world_to_lab", "world_to_probe"}
+        np.testing.assert_array_equal(scan_v2.vd.affines["world_to_lab"], np.eye(4))
         np.testing.assert_allclose(
-            scan_v2.attrs["affines"]["world_to_probe"], np.eye(4), atol=1e-12
+            scan_v2.vd.affines["world_to_probe"], np.eye(4), atol=1e-12
         )
 
     def test_scan_format_attr(self, scan_v2: xr.DataArray) -> None:
@@ -771,7 +769,7 @@ class TestLoadScanV2Acquisition:
             atol=1e-9,
         )
         np.testing.assert_allclose(
-            scan_v2_acq.attrs["affines"]["world_to_probe"],
+            scan_v2_acq.vd.affines["world_to_probe"],
             np.linalg.inv(probe_to_lab),
             atol=1e-9,
         )
@@ -808,7 +806,7 @@ class TestLoadScanV2WithBPS:
         da = load_scan(scan_v2_acq_path, bps_path=bps_path)
         expected = np.linalg.inv(load_bps(bps_path))
         np.testing.assert_allclose(
-            da.attrs["affines"]["world_to_brain"], expected, atol=1e-12
+            da.vd.affines["world_to_brain"], expected, atol=1e-12
         )
 
     def test_implausible_pose_rejected_before_bps(

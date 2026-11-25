@@ -538,14 +538,14 @@ class TestIO:
             [[1.0, 0, 0, 0.5], [0, 1, 0, -0.2], [0, 0, 1, 0.3], [0, 0, 0, 1.0]]
         )
         reference = atlas_ds.atlas.template.copy()
-        reference.attrs = {**reference.attrs, "affines": {"world_to_sform": aff}}
+        reference = reference.vd.set_affine("world_to_sform", aff)
         resampled = atlas_ds.atlas.resample_like(reference, np.eye(4))
-        assert "affines" in resampled["template"].attrs  # guards the scenario.
+        assert bool(resampled["template"].vd.affines)  # guards the scenario.
 
         path = tmp_path / "atlas.zarr"
         save_atlas(resampled, path)
         loaded = load_atlas(path)
-        got = loaded["template"].attrs["affines"]["world_to_sform"]
+        got = loaded["template"].vd.affines["world_to_sform"]
         assert isinstance(got, np.ndarray)
         np.testing.assert_allclose(got, aff)
 
@@ -774,7 +774,7 @@ class TestNonlinearMesh:
             dims=["time", "k", "j", "i"],
             time=[0.0],
             dt=1.0,
-            voxel_to_world=reference.fusi.affine.voxel_to_world,
+            voxel_to_world=reference.vd.voxel_to_world,
         )
         resampled = atlas_ds.atlas.resample_like(with_time, np.eye(4))
         expected = atlas_ds.atlas.resample_like(reference, np.eye(4))
@@ -812,9 +812,9 @@ class TestNonlinearMesh:
         by_grid = atlas_ds.atlas.resample(
             np.eye(4),
             output_sizes=reference.sizes,
-            output_spacing=reference.fusi.spacing,
-            output_origin=reference.fusi.origin,
-            output_direction=reference.fusi.direction,
+            output_spacing=reference.vd.spacing,
+            output_origin=reference.vd.origin,
+            output_direction=reference.vd.direction,
         )
         for var in ["template", "annotation", "hemispheres"]:
             np.testing.assert_array_equal(by_like[var].values, by_grid[var].values)
@@ -825,13 +825,13 @@ class TestNonlinearMesh:
         result = atlas_ds.atlas.resample(
             np.eye(4),
             output_sizes=atlas_ds.atlas.template.sizes,
-            output_spacing=atlas_ds.atlas.template.fusi.spacing,
-            output_origin=atlas_ds.atlas.template.fusi.origin,
+            output_spacing=atlas_ds.atlas.template.vd.spacing,
+            output_origin=atlas_ds.atlas.template.vd.origin,
             output_direction=direction,
         )
 
         for name in ["template", "annotation", "hemispheres"]:
-            np.testing.assert_allclose(result[name].fusi.direction, direction)
+            np.testing.assert_allclose(result[name].vd.direction, direction)
 
 
 class TestTransformComposition:
@@ -909,7 +909,7 @@ class TestTransformComposition:
         field = _field_on_grid(reference, data)
         init = np.eye(4)
         init[2, 3] = 0.01  # its inverse seeds the iteration near the true pre-image
-        field.attrs["affines"] = {"bspline_initialization": init}
+        field.attrs["bspline_initialization"] = init
         ds = _with_world_to_base_transform(atlas_ds, field)
 
         warped, _ = ds.atlas.get_meshes(997)["root"]
@@ -975,7 +975,7 @@ class TestTransformComposition:
         `_interpolate_displacement_field` requires a real index to derive its
         world-space sampling grid; a plain, non-indexed field DataArray (e.g. from
         a foreign/corrupted store) must raise clearly instead of failing deep in
-        `.fusi.spacing`/`.fusi.origin`.
+        `.vd.spacing`/`.vd.origin`.
         """
         reference = atlas_ds.atlas.template
         bad_field = xr.DataArray(

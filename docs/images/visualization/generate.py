@@ -374,7 +374,7 @@ if atlas_mask_path is not None:
                     _isel_axis(mean_vol, "z", 0), vol_3d
                 )
                 atlas_mask = atlas_mask.sel(z=[target_z], method="nearest")
-                source_z = atlas_mask.fusi.origin["z"]
+                source_z = atlas_mask.vd.origin["z"]
                 atlas_mask = mean_vol.copy(data=np.asarray(atlas_mask.data))
                 console.print(
                     "  Matched atlas slice by image similarity: "

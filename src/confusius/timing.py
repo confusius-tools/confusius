@@ -10,7 +10,7 @@ import xarray as xr
 from confusius._dims import TIME_DIM
 from confusius._utils.coordinates import get_representative_step
 from confusius._utils.stack import find_stack_level
-from confusius._utils.timing import interpolate_timeseries
+from confusius._utils.timing import infer_per_pose_duration, interpolate_timeseries
 from confusius.validation.time_series import validate_time_series
 
 VolumeAcquisitionReference = Literal["start", "center", "end"]
@@ -237,7 +237,8 @@ def ensure_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
     [create_voxeldata][confusius.xarray.create_voxeldata] or an I/O loader
     (e.g. a `time` coordinate assembled by hand) may still be missing them; this fills
     in `"start"` and `"s"`, respectively. `volume_acquisition_duration` is inferred from
-    the representative `time` step.
+    the representative step for shared time or the smallest positive offset between
+    series at the same time point for dependent timestamps.
 
     Parameters
     ----------
@@ -278,7 +279,15 @@ def ensure_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
         new_attrs["units"] = "s"
         defaulted.append("units")
     if "volume_acquisition_duration" not in new_attrs:
-        duration, _ = get_representative_time_step(data)
+        coord = data.coords[TIME_DIM]
+        if coord.ndim == 1:
+            duration, _ = get_representative_time_step(data)
+        else:
+            # Acquisition offsets run across series at each named time point.
+            times = coord.transpose(TIME_DIM, ...).values.reshape(
+                data.sizes[TIME_DIM], -1
+            )
+            duration = infer_per_pose_duration(times, None)
         if duration is not None and duration > 0:
             new_attrs["volume_acquisition_duration"] = duration
             defaulted.append("volume_acquisition_duration")

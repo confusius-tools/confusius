@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 
 from confusius.iq._utils import ensure_iq_voxeldata
-from confusius.validation import ensure_voxeldata, validate_mask
+from confusius.validation import canonicalize_voxeldata, validate_mask
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -770,7 +770,7 @@ def compute_svd_cumulative_energy_threshold(
 
     mask_array: npt.NDArray[np.bool_] | None = None
     if clutter_mask is not None:
-        clutter_mask = ensure_voxeldata(
+        clutter_mask = canonicalize_voxeldata(
             clutter_mask, allow_pose=False, allow_extra_dims=False
         )
         validate_mask(clutter_mask, iq, "clutter_mask")

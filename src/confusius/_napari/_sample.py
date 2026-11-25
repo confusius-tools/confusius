@@ -250,7 +250,7 @@ def _load_sample_dataarray(path: Path, affine_key: str | None) -> xr.DataArray:
     path : pathlib.Path
         Path to the sample file.
     affine_key : str, optional
-        Key in `da.attrs["affines"]` to apply after loading. If not provided,
+        Key in `da.vd.affines` to apply after loading. If not provided,
         the DataArray is returned in its default loaded coordinate frame.
 
     Returns
@@ -260,7 +260,7 @@ def _load_sample_dataarray(path: Path, affine_key: str | None) -> xr.DataArray:
     """
     da = load(path).compute()
     if affine_key is not None:
-        da = da.fusi.affine.apply(affine_key)
+        da = da.vd.apply(affine_key)
     return da
 
 

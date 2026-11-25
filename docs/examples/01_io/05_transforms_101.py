@@ -64,17 +64,17 @@ _ = template.fusi.plot.composite(plane, **panel_kwargs)
 # %% [markdown]
 # ## Rotate
 #
-# [`.fusi.rotate()`][confusius.xarray.FUSIAccessor.rotate] takes an angle in degrees
+# [`.vd.rotate()`][voxeldata.accessors.VoxelDataAccessor.rotate] takes an angle in degrees
 # and a world-axis name. By default, it rotates about the **geometry center**: the
 # midpoint of the array's bounding box, available as
-# [`.fusi.affine.geometry_center`][confusius.xarray.FUSIAffineAccessor.geometry_center].
+# [`.vd.geometry_center`][voxeldata.accessors.VoxelDataAccessor.geometry_center].
 # Here, a 30° rotation about `z` turns the plane in place. The yellow dot marks the
 # fixed point.
 
 # %% tags=["thumbnail"]
-rotated_about_center = plane.fusi.rotate(30, "z")
+rotated_about_center = plane.vd.rotate(30, "z")
 
-center = plane.fusi.affine.geometry_center
+center = plane.vd.geometry_center
 plotter = template.fusi.plot.composite(rotated_about_center, **panel_kwargs)
 _ = plotter.axes.ravel()[3].plot(
     center["x"],
@@ -100,7 +100,7 @@ _ = plotter.axes.ravel()[3].plot(
 # %% tags=["collapse: Code for `plot_plane_in_3d` helper"]
 def plot_plane_in_3d(before, after, center=None, axis=None, thickness=5):
     """Show a plane before (red) and after (cyan) a transform."""
-    box = template.fusi.affine.bounding_box
+    box = template.vd.bounding_box
     template_min = np.array([box[dim][0] for dim in "zyx"])
     template_max = np.array([box[dim][1] for dim in "zyx"])
 
@@ -133,7 +133,7 @@ def plot_plane_in_3d(before, after, center=None, axis=None, thickness=5):
     world_corners = []
     for array, color in ((before, "red"), (after, "cyan")):
         # Apply the affine, then reorder world (z, y, x) for display as (z, x, y).
-        world = (array.fusi.affine.voxel_to_world @ corners.T)[:3].T[:, [0, 2, 1]]
+        world = (array.vd.voxel_to_world @ corners.T)[:3].T[:, [0, 2, 1]]
         world_corners.append(world)
         ax.add_collection3d(
             Poly3DCollection(
@@ -228,13 +228,13 @@ _ = plot_plane_in_3d(plane, rotated_about_center, center=center, axis="z")
 # dot), so the plane swings around that point instead of turning in place.
 #
 # The first sampled voxel's world position is available as
-# [`.fusi.origin`][confusius.xarray.FUSIAccessor.origin]; passing `center="origin"` uses
+# [`.vd.origin`][voxeldata.accessors.VoxelDataAccessor.origin]; passing `center="origin"` uses
 # it directly.
 
 # %%
-first_voxel = plane.fusi.origin
+first_voxel = plane.vd.origin
 pivot = {dim: first_voxel[dim] + offset for dim, offset in zip("zyx", (0.0, 2.5, 2.5))}
-rotated_about_pivot = plane.fusi.rotate(30, "z", center=pivot)
+rotated_about_pivot = plane.vd.rotate(30, "z", center=pivot)
 
 plotter = template.fusi.plot.composite(rotated_about_pivot, **panel_kwargs)
 _ = plotter.axes.ravel()[3].plot(
@@ -256,7 +256,7 @@ _ = plot_plane_in_3d(plane, rotated_about_pivot, center=pivot, axis="z")
 # intersects several `z` panels, each showing a narrow band that shifts along `x`.
 
 # %%
-tilted = plane.fusi.rotate(15, "y")
+tilted = plane.vd.rotate(15, "y")
 
 _ = template.fusi.plot.composite(tilted, **panel_kwargs)
 
@@ -265,7 +265,7 @@ _ = plot_plane_in_3d(plane, tilted, center=center, axis="y")
 
 # %% [markdown]
 # A view sliced along `y` shows the full tilt. The yellow rectangle marks the
-# [`.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] of the
+# [`.vd.bounding_box`][voxeldata.accessors.VoxelDataAccessor.bounding_box] of the
 # six `z` panels above: they cover only a small part of the tilted plane.
 
 # %%
@@ -273,7 +273,7 @@ plotter = template.fusi.plot.composite(
     tilted, slice_mode="y", slice_coords=[3], bg_color=bg_color
 )
 
-bounding_box = template.sel(z=slice_coords).fusi.affine.bounding_box
+bounding_box = template.sel(z=slice_coords).vd.bounding_box
 z_min, z_max = bounding_box["z"]
 x_min, x_max = bounding_box["x"]
 _ = plotter.axes.ravel()[0].add_patch(
@@ -292,7 +292,7 @@ _ = plotter.axes.ravel()[0].add_patch(
 # transformed plane.
 
 # %%
-rotated_about_point = plane.fusi.rotate((-10, 20, 30), "zyx", center=pivot)
+rotated_about_point = plane.vd.rotate((-10, 20, 30), "zyx", center=pivot)
 
 plotter = template.fusi.plot.composite(rotated_about_point, **panel_kwargs)
 _ = plotter.axes.ravel()[3].plot(
@@ -313,12 +313,12 @@ _ = plot_plane_in_3d(plane, rotated_about_point, center=pivot, axis="zyx")
 # %% [markdown]
 # ## Translate
 #
-# [`translate`][confusius.xarray.FUSIAccessor.translate] shifts the grid by a
+# [`translate`][voxeldata.accessors.VoxelDataAccessor.translate] shifts the grid by a
 # `(z, y, x)` vector in world units (millimetres here). The vector `(-0.2, 1, 3)` moves
 # the plane -0.2 mm along `z` (two panels), 1 mm along `y`, and 3 mm along `x`.
 
 # %%
-translated = plane.fusi.translate((-0.2, 1, 3))
+translated = plane.vd.translate((-0.2, 1, 3))
 
 _ = template.fusi.plot.composite(translated, **panel_kwargs)
 
@@ -332,13 +332,13 @@ _ = plot_plane_in_3d(plane, translated)
 # %% [markdown]
 # ## Zoom
 #
-# [`zoom`][confusius.xarray.FUSIAccessor.zoom] scales the grid about its geometry
+# [`zoom`][voxeldata.accessors.VoxelDataAccessor.zoom] scales the grid about its geometry
 # center by default. A factor of 2 doubles its size along every axis, **including
 # its thickness along `z`**, so the plane appears in several `z` panels. Its center
 # stays fixed, while the brain appears twice as large.
 
 # %%
-zoomed_about_center = plane.fusi.zoom(2)
+zoomed_about_center = plane.vd.zoom(2)
 
 plotter = template.fusi.plot.composite(zoomed_about_center, **panel_kwargs)
 _ = plotter.axes.ravel()[3].plot(
@@ -364,7 +364,7 @@ _ = plot_plane_in_3d(plane, zoomed_about_center, center=center)
 # The plane expands away from it, leaving only the pivot fixed.
 
 # %%
-zoomed_about_pivot = plane.fusi.zoom(2, center=pivot)
+zoomed_about_pivot = plane.vd.zoom(2, center=pivot)
 
 plotter = template.fusi.plot.composite(zoomed_about_pivot, **panel_kwargs)
 _ = plotter.axes.ravel()[3].plot(
@@ -382,7 +382,7 @@ _ = plot_plane_in_3d(plane, zoomed_about_pivot, center=pivot)
 # %% [markdown]
 # ## Flip
 #
-# [`flip`][confusius.xarray.FUSIAccessor.flip] reflects the array across a plane
+# [`flip`][voxeldata.accessors.VoxelDataAccessor.flip] reflects the array across a plane
 # perpendicular to a world axis. Like rotation and zoom, it uses the geometry
 # center by default. To make the reflection clearer, we'll keep only one half
 # of the brain and reflect it along world `x` about the **original plane's** center.
@@ -401,7 +401,7 @@ hemisphere = plane.isel(i=slice(0, plane.sizes["i"] // 2))
 _ = template.fusi.plot.composite(hemisphere, **panel_kwargs)
 
 # %%
-flipped = hemisphere.fusi.flip("x", center=center)
+flipped = hemisphere.vd.flip("x", center=center)
 _ = template.fusi.plot.composite(flipped, **panel_kwargs)
 
 # %% [markdown]
@@ -442,7 +442,7 @@ _ = plot_plane_in_3d(hemisphere, flipped, center=center)
 np.array_equal(zoomed_about_center.values, plane.values)
 
 # %%
-plane.fusi.affine.voxel_to_world
+plane.vd.voxel_to_world
 
 # %%
-zoomed_about_center.fusi.affine.voxel_to_world
+zoomed_about_center.vd.voxel_to_world

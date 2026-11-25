@@ -14,10 +14,10 @@ import xarray as xr
 from confusius._dims import POSE_DIM, VOXEL_DIMS, WORLD_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
-    get_voxel_to_world_index_spacing,
+    get_array_spacing,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
-    require_scalar_pose_affine,
+    require_single_geometry_affine,
 )
 from confusius._utils.mask import select_masked_features
 from confusius._utils.plotting import (
@@ -45,7 +45,7 @@ from confusius.plotting._utils import (
 from confusius.plotting.colormap import ThresholdedColormap
 from confusius.signal import clean
 from confusius.validation import (
-    ensure_voxeldata,
+    canonicalize_voxeldata,
     validate_matching_coordinates,
     validate_time_series,
 )
@@ -232,7 +232,7 @@ def compute_shared_slice_axis_grid_geometry(
         If `data` does not carry voxel-to-world geometry, or if its geometry is
         pose-dependent.
     """
-    affine = require_scalar_pose_affine(
+    affine = require_single_geometry_affine(
         data, "Slice-axis-aligned resampling for display"
     )
     world_dims = WORLD_DIMS
@@ -595,14 +595,14 @@ def _build_axis_label(da: xr.DataArray, dim: str) -> str:
     """
     # `isel`ing away a dim the custom VoxelToWorldIndex is attached to can drop the
     # index outright (an xarray custom-index limitation, most visible for
-    # pose-stacked oblique geometry) even though the geometry is fully recoverable
+    # grid-stacked oblique geometry) even though the geometry is fully recoverable
     # -- restore it first so plottability reflects the panel's true geometry, not
     # an isel artifact. Not always possible: an already-materialized world-space
     # panel (z/y/x dims, k/j/i intentionally dropped by
     # `_materialize_axis_aligned_world_grid_for_display`) genuinely has no voxel
     # dim left to restore, so fall back to `da` as-is in that case.
     try:
-        da = ensure_voxeldata(da)
+        da = canonicalize_voxeldata(da)
     except (TypeError, ValueError):
         pass
     if dim != POSE_DIM and has_voxel_to_world_index(da):
@@ -884,7 +884,7 @@ class VolumePlotter:
         extra dim (e.g. `"region"`) -- already has the whole array resampled and
         materialized upfront in `_prepare_slice_inputs`, since neither case can
         vary the voxel-to-world affine per panel (only `pose` can, see
-        `require_scalar_pose_affine`). A per-pose affine stack can't be resampled
+        `require_single_geometry_affine`). A per-pose affine stack can't be resampled
         as a whole (`resample_volume` requires a scalar affine), so `pose` is
         deferred here, per-panel, after `.isel` has collapsed each panel to its own
         single affine. `match_coordinates` matches these panels by the facet's own
@@ -1226,7 +1226,7 @@ class VolumePlotter:
 
         Resamples/materializes the whole array up front for every `slice_mode`
         except `pose`; only `pose` can vary the voxel-to-world affine per panel
-        (`require_scalar_pose_affine`), so it's the only case that must wait for
+        (`require_single_geometry_affine`), so it's the only case that must wait for
         `_resample_pose_slices_to_world_grid`'s per-panel resample after `.isel` has
         collapsed each panel to its own scalar affine.
 
@@ -1257,9 +1257,9 @@ class VolumePlotter:
             the result is not 3D after squeezing, or if `data`'s spatial geometry cannot
             be resampled for display (e.g. pose-dependent geometry for a spatial
             `self.slice_mode`, or geometry that would not collapse to a 2D plane for a
-            non-pose extra `self.slice_mode`).
+            non-grid extra `self.slice_mode`).
         """
-        data = ensure_voxeldata(data)
+        data = canonicalize_voxeldata(data)
         data = coerce_complex_to_magnitude(data, caller="VolumePlotter")
         # Data is computed here to avoid repeated computations of the same Dask graph
         # downstream (per-panel .isel, etc.).
@@ -1272,7 +1272,7 @@ class VolumePlotter:
         if self.slice_mode != POSE_DIM:
             if POSE_DIM in data.dims and data.sizes[POSE_DIM] == 1:
                 data = data.squeeze(dim=POSE_DIM)
-            require_scalar_pose_affine(data, f"slice_mode={self.slice_mode!r}")
+            require_single_geometry_affine(data, f"slice_mode={self.slice_mode!r}")
 
         resolved_interpolation = (
             self._resample_interpolation if interpolation is None else interpolation
@@ -1301,7 +1301,7 @@ class VolumePlotter:
             # so the two can differ. Captured here, before materialize strips the
             # index.
             voxel_dim = VOXEL_DIMS[WORLD_DIMS.index(self.slice_mode)]
-            slice_spacing = get_voxel_to_world_index_spacing(data)[voxel_dim]
+            slice_spacing = get_array_spacing(data)[voxel_dim]
         elif self.slice_mode != POSE_DIM:
             # Non-pose extra dim (e.g. "region"): slicing along it never touches
             # the voxel-to-world affine (only `pose` can vary geometry), so unlike

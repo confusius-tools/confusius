@@ -52,7 +52,8 @@ def _make_consolidated_da(
         time=time_coord,
         spacing=(0.2, 0.3, 0.4),
         origin=(0.0, 0.0, 0.0),
-        attrs={"affines": {"world_to_lab": np.eye(4)}},
+        affines={"world_to_lab": np.eye(4)},
+        attrs={},
         name="scan_data",
     )
     return result.assign_coords(
@@ -192,7 +193,8 @@ class TestCorrectSliceTiming:
             ),
             spacing=(0.2, 0.1, 0.1),
             origin=(0.0, 0.0, 0.0),
-            attrs={"affines": {"world_to_lab": np.eye(4)}},
+            affines={"world_to_lab": np.eye(4)},
+            attrs={},
         ).assign_coords(
             slice_time=xr.DataArray(
                 slice_time_vals,
@@ -282,8 +284,9 @@ class TestCorrectSliceTiming:
                 )
 
     @pytest.mark.parametrize("reference", ["start", "center", "end"])
+    @pytest.mark.parametrize("order", [("time", "pose"), ("pose", "time")])
     def test_pose_dependent_time_and_slice_time_equivalent(
-        self, reference: str
+        self, reference: str, order: tuple[str, str]
     ) -> None:
         """Pose-dependent time and slice_time paths give identical corrections.
 
@@ -313,9 +316,7 @@ class TestCorrectSliceTiming:
             base_time_coord, pose_time_vals, timing_attrs
         )
 
-        affines = np.broadcast_to(
-            np.diag([0.1, 0.3, 0.4, 1.0]), (npose, 4, 4)
-        ).copy()
+        affines = np.broadcast_to(np.diag([0.1, 0.3, 0.4, 1.0]), (npose, 4, 4)).copy()
         affines[:, 0, 3] = np.arange(npose)
         da_unconsolidated = create_voxeldata(
             data[:, :, None],
@@ -339,11 +340,14 @@ class TestCorrectSliceTiming:
             )
         )
 
-        result_unconsolidated = correct_slice_timings(da_unconsolidated)
+        result_unconsolidated = correct_slice_timings(
+            da_unconsolidated.transpose(*order, ...)
+        )
+        assert result_unconsolidated.dims[:2] == order
         result_consolidated = correct_slice_timings(da_consolidated)
 
         np.testing.assert_allclose(
-            result_unconsolidated.squeeze("k").values,
+            result_unconsolidated.transpose("time", "pose", ...).squeeze("k").values,
             result_consolidated.values,
             atol=1e-12,
         )

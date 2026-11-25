@@ -15,7 +15,10 @@ from napari.utils.notifications import show_warning
 
 from confusius._dims import POSE_DIM, TIME_DIM
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.coordinates import get_coordinate_spacings_best_effort
+from confusius._utils.coordinates import (
+    get_coordinate_origins,
+    get_coordinate_spacings_best_effort,
+)
 from confusius._utils.stack import find_stack_level
 
 
@@ -89,9 +92,9 @@ def get_napari_layer_geometry(
     """Return napari layer geometry metadata for `data`.
 
     `data` must carry a voxel-to-world index: `build_napari_layer_data` validates
-    this before reaching this point. Spacing is read from `.fusi.spacing`, falling back to
+    this before reaching this point. Spacing is read from `.vd.spacing`, falling back to
     the plain-coordinate best-effort median only for irregularly spaced coordinates
-    (`.fusi.spacing` returns `None` there).
+    (`.vd.spacing` returns `None` there).
 
     Parameters
     ----------
@@ -118,12 +121,12 @@ def get_napari_layer_geometry(
     all_dims = [str(dim) for dim in data.dims]
 
     coordinate_spacing, non_uniform = get_coordinate_spacings_best_effort(data)
-    fusi_spacing = data.fusi.spacing
+    fusi_spacing = data.vd.spacing
     spacing = {
         dim: fusi_spacing[dim] if fusi_spacing.get(dim) is not None else fallback
         for dim, fallback in coordinate_spacing.items()
     }
-    origin = data.fusi.origin
+    origin = {**get_coordinate_origins(data), **data.vd.origin}
     world_dim = {"k": "z", "j": "y", "i": "x"}
     scale: list[float] = []
     translate: list[float] = []
@@ -132,10 +135,7 @@ def get_napari_layer_geometry(
     for dim in all_dims:
         coord_name = world_dim.get(dim, dim)
         coord = data.coords.get(coord_name)
-        # `origin` (`.fusi.origin`) always has an entry for every dim -- spatial
-        # dims via the voxel-to-world index, others defaulting to 0.0 -- so it's a
-        # safe fallback translate whenever `coord` isn't itself 1-D numeric world
-        # geometry for `dim`.
+        # Spatial origins come from geometry; other axes use their own labels.
         is_world_coord = (
             coord is not None
             and coord.dims == (dim,)
@@ -224,9 +224,9 @@ def build_napari_layer_data(
         resample_to_axis_aligned_world_grid,
         sort_coords_for_plot,
     )
-    from confusius.validation import ensure_voxeldata
+    from confusius.validation import canonicalize_voxeldata
 
-    data = ensure_voxeldata(data)
+    data = canonicalize_voxeldata(data)
     resolved_layer_type = layer_type
     if resolved_layer_type == "auto":
         resolved_layer_type = infer_layer_type(data.dtype)

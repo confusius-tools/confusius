@@ -311,16 +311,17 @@ def test_regress_confounds_multipose_regresses_every_pose_with_same_confounds(
     assert any("regressed from every pose" in message for message in messages)
     assert any("cannot be verified" in message for message in messages)
 
-    for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
+    for grid in sample_voxeldata_3dt_pose.coords["pose"].values:
         with pytest.warns(UserWarning, match="cannot be verified"):
             expected = regress_confounds(
-                sample_voxeldata_3dt_pose.sel(pose=pose), confounds
+                sample_voxeldata_3dt_pose.sel(pose=grid), confounds
             )
-        xr.testing.assert_allclose(result.sel(pose=pose), expected)
+        xr.testing.assert_allclose(result.sel(pose=grid), expected)
 
 
+@pytest.mark.parametrize("order", [("time", "pose"), ("pose", "time")])
 def test_regress_confounds_multipose_aligns_with_whole_volume_time(
-    sample_voxeldata_3dt_pose,
+    sample_voxeldata_3dt_pose, order,
 ):
     """Test per-volume confounds carry the whole-volume time: CompCor output is
     accepted without an alignment warning, first-pose timestamps are rejected."""
@@ -329,6 +330,7 @@ def test_regress_confounds_multipose_aligns_with_whole_volume_time(
     signals = sample_voxeldata_3dt_pose.assign_coords(
         time=time_coord.assign_attrs(volume_acquisition_reference="center")
     )
+    signals = signals.transpose(*order, ...)
     first_pose_time = signals.coords["time"].isel(pose=0, drop=True).values
 
     confounds = compute_compcor_confounds(

@@ -10,7 +10,7 @@ dispatch logic so each consumer doesn't reimplement the branch on
 import xarray as xr
 
 from confusius._utils.geometry import has_voxel_to_world_index
-from confusius.extract.mask import extract_with_mask
+from confusius.extract import extract_with_mask
 from confusius.validation.coordinates import validate_matching_coordinates
 from confusius.validation.mask import check_mask_dtype, ensure_mask
 
