@@ -587,7 +587,7 @@ def process_iq_block_with_clutter_filter(
     Raises
     ------
     ValueError
-        If `filter_method` is `"butterworth"` and `fs` is not provided, if
+        If a Butterworth cutoff is specified without `fs`, if
         `filter_method` is `"svd_indices"` and `low_cutoff`/`high_cutoff` are not both
         integers or `None`, or if `filter_method` is not one of `"svd_indices"`,
         `"svd_energy"`, `"svd_cumulative_energy"`, or `"butterworth"`.
@@ -598,12 +598,6 @@ def process_iq_block_with_clutter_filter(
         window_stride = window_width
 
     if filter_method == "butterworth":
-        if fs is None:
-            raise ValueError(
-                "When using the Butterworth clutter filter, the sampling frequency "
-                "must be provided."
-            )
-
         filtered_block = clutter_filter_butterworth(
             block,
             fs=fs,
@@ -1139,7 +1133,8 @@ def process_iq_to_power_doppler(
     each clutter-filtered window, power Doppler volumes are computed using a second
     sliding window. See the notes section for an illustration of the nested sliding
     window approach. Butterworth filtering requires regular sampling at the same rate in
-    every clutter window (1% tolerance); gaps between windows are allowed.
+    every clutter window (1% tolerance); gaps between windows are allowed. With no
+    cutoffs, power Doppler uses the unfiltered samples and needs no sampling rate.
 
     Parameters
     ----------
@@ -1257,12 +1252,16 @@ def process_iq_to_power_doppler(
     if doppler_window_stride is None:
         doppler_window_stride = doppler_window_width
 
-    fs = _get_filter_sampling_frequency(
-        iq,
-        filter_method=filter_method,
-        window_width=clutter_window_width,
-        window_stride=clutter_window_stride,
-    )
+    fs = None
+    if filter_method == "butterworth" and (
+        low_cutoff is not None or high_cutoff is not None
+    ):
+        fs = _get_filter_sampling_frequency(
+            iq,
+            filter_method=filter_method,
+            window_width=clutter_window_width,
+            window_stride=clutter_window_stride,
+        )
 
     result = process_iq_blocks(
         dask_iq,

@@ -902,6 +902,17 @@ class TestProcessIqToPowerDoppler:
         ] == pytest.approx(3.0)
         assert result.attrs["bmode_integration_duration"] == pytest.approx(3.0)
 
+    def test_single_frame_butterworth_without_cutoffs(
+        self, sample_voxeldata_iq_dataarray
+    ):
+        """Each unfiltered frame yields its squared magnitude at its own timestamp."""
+        iq = sample_voxeldata_iq_dataarray
+        result = process_iq_to_power_doppler(
+            iq, clutter_window_width=1, filter_method="butterworth"
+        )
+        assert_allclose(result.compute().values, np.abs(iq.values) ** 2)
+        assert_array_equal(result.time.values, iq.time.values)
+
     def test_butterworth_non_uniform_time_raises(self, sample_voxeldata_iq_dataarray):
         """Butterworth filtering rejects non-uniform time coordinates."""
         iq = sample_voxeldata_iq_dataarray.assign_coords(
@@ -922,6 +933,7 @@ class TestProcessIqToPowerDoppler:
                 clutter_window_width=4,
                 clutter_window_stride=2,
                 filter_method="butterworth",
+                low_cutoff=1.0,
                 doppler_window_width=2,
                 doppler_window_stride=1,
             )
