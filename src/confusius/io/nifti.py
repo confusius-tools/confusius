@@ -1199,11 +1199,10 @@ def load_nifti(
           500), (400, 400))`.
         - A size in bytes, like `"100 MiB"` which will choose a uniform block-like
           shape.
-        - The word `"auto"` to let Dask choose chunk sizes. For 4D through 7D files, each
-          chunk holds one or more complete spatial volumes, grouped in disk order
-          up to Dask's configured chunk-size target. See
-          `dask.array.normalize_chunks` for more details on how chunk sizes are
-          determined.
+        - The word `"auto"` to group voxels in disk order up to Dask's configured
+          chunk-size target. For 2D and 3D images, chunks contain complete rows
+          or planes when they fit. For 4D through 7D files, each chunk holds at
+          least one complete spatial volume, even when it exceeds the target.
         - `-1` or `None` as a blocksize indicate the size of the corresponding
           dimension.
     coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
@@ -1336,13 +1335,14 @@ def load_nifti(
     proxy = img.dataobj
     assert isinstance(proxy, ArrayProxy)
     native_chunks = _reverse_chunk_spec(chunks, proxy.ndim)
-    if chunks == "auto" and proxy.ndim >= 4:
-        # Fill faster axes first so each chunk is a contiguous run of volumes.
+    if chunks == "auto" and proxy.ndim >= 2 and all(proxy.shape):
         target = parse_bytes(dask.config.get("array.chunk-size"))
-        volume_bytes = prod(proxy.shape[:3]) * proxy.dtype.itemsize
-        remaining = max(1, target // volume_bytes)
-        chunk_shape = list(proxy.shape[:3])
-        for size in proxy.shape[3:]:
+        remaining = max(1, target // proxy.dtype.itemsize)
+        if proxy.ndim >= 4:
+            remaining = max(remaining, prod(proxy.shape[:3]))
+        # Filling faster axes first keeps every chunk contiguous on disk.
+        chunk_shape = []
+        for size in proxy.shape:
             extent = min(size, remaining)
             chunk_shape.append(extent)
             remaining //= extent

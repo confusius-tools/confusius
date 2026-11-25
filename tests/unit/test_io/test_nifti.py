@@ -1266,6 +1266,35 @@ class TestLoadNifti:
         np.testing.assert_allclose(result.data.compute(), data.T)
 
     @pytest.mark.parametrize(
+        ("shape", "target", "expected_chunks"),
+        [
+            ((5, 4), 40, ((1,), (4,), (5,))),
+            ((5, 4), 21, ((1,), (2, 2), (5,))),
+            ((5, 4), 4, ((1,), (1,) * 4, (2, 2, 1))),
+            ((5, 4, 3), 80, ((2, 1), (4,), (5,))),
+            ((5, 4, 3), 21, ((1,) * 3, (2, 2), (5,))),
+        ],
+    )
+    def test_auto_chunks_for_spatial_images(
+        self,
+        tmp_path: Path,
+        shape: tuple[int, ...],
+        target: int,
+        expected_chunks: tuple[tuple[int, ...], ...],
+    ) -> None:
+        """Spatial images split in disk order when they exceed the byte target."""
+        data = np.arange(np.prod(shape), dtype=np.int16).reshape(shape)
+        path = tmp_path / "image.nii"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(path)
+
+        with dask.config.set({"array.chunk-size": target}):
+            result = load_nifti(path)
+
+        assert result.chunks == expected_chunks
+        expected = data.T[np.newaxis] if data.ndim == 2 else data.T
+        np.testing.assert_array_equal(result.values, expected)
+
+    @pytest.mark.parametrize(
         ("target", "time_chunks"), [(500, (2, 2, 1)), (100, (1,) * 5)]
     )
     def test_auto_chunks_keep_volumes_intact(
