@@ -2671,6 +2671,34 @@ class TestSaveNifti:
         with pytest.raises(ValueError, match="must have dims"):
             save_nifti(da, output_path)
 
+    def test_per_slice_frame_selection_omits_slice_timing(
+        self, sample_voxeldata_3dt
+    ) -> None:
+        """Selecting a different frame per slice leaves no shared volume onset."""
+        series = sample_voxeldata_3dt
+        offsets = np.arange(series.sizes["k"]) * 0.05
+        series = series.assign_coords(
+            slice_time=xr.DataArray(
+                series.time.values[:, None] + offsets,
+                dims=("time", "k"),
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": 0.05,
+                },
+            )
+        )
+        snapshot = series.isel(
+            time=xr.DataArray(np.arange(series.sizes["k"]), dims="k")
+        )
+
+        with pytest.warns(UserWarning, match="requires a scalar `time`"):
+            image, sidecar = convert_to_nifti(snapshot)
+
+        np.testing.assert_array_equal(image.dataobj, snapshot.values.T)
+        assert "SliceTiming" not in sidecar
+        assert "SliceEncodingDirection" not in sidecar
+
     def test_save_1d_slice_time_without_time_coordinate_warns(self, tmp_path) -> None:
         """A 1D `slice_time` without `time` cannot be exported to BIDS."""
         da = _add_identity_voxel_to_world(
