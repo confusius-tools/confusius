@@ -675,6 +675,7 @@ dependencies = [
     { name = "simpleitk" },
     { name = "xarray" },
     { name = "xarray", extra = ["accel"], marker = "python_full_version < '3.14' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
+    { name = "yarl" },
     { name = "zarr" },
 ]
 
@@ -727,6 +728,7 @@ requires-dist = [
     { name = "simpleitk", specifier = ">=2.5.3" },
     { name = "xarray", marker = "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'", specifier = ">=2026.9.0" },
     { name = "xarray", extras = ["accel"], marker = "python_full_version < '3.14' or platform_machine != 'x86_64' or sys_platform != 'darwin'", specifier = ">=2026.9.0" },
+    { name = "yarl", specifier = ">=1.18.0" },
     { name = "zarr", specifier = ">=3.1.3" },
 ]
 

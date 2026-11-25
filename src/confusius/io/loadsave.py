@@ -63,8 +63,8 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     Parameters
     ----------
     path : str or pathlib.Path
-        Local file path, or HTTP(S) URL to a Zarr store. Remote loading of other
-        formats is not currently supported. For NIfTI files, a `{chunk}` placeholder in the
+        Local file path, or HTTP(S) URL to a Zarr store. URL query parameters apply
+        to every metadata and chunk request. For local NIfTI files, a `{chunk}` placeholder in the
         filename loads matching integer chunks in numeric order along `pose`;
         see [load_nifti][confusius.io.load_nifti].
     variable : str, optional
@@ -93,9 +93,21 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     repeated random-access workloads, prefer Zarr or uncompressed `.nii`.
     """
     if isinstance(path, str) and path.startswith(("https://", "http://")):
-        name = path.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+        from yarl import URL
+
+        url = URL(path, encoded=True)
+        name = url.raw_path.rstrip("/").rsplit("/", 1)[-1]
         if not name.endswith(".zarr"):
             raise ValueError("Remote loading is only supported for Zarr stores.")
+        path = str(url.with_query(None).with_fragment(None))
+        if url.raw_query_string:
+            # Zarr appends object keys to the store path. Send query parameters
+            # through fsspec so they follow the key on every HTTP request.
+            options = dict(kwargs.get("storage_options") or {})
+            options["params"] = list(
+                url.extend_query(options.get("params")).query.items()
+            )
+            kwargs["storage_options"] = options
     else:
         path = check_path(path)
         name = path.name
