@@ -522,6 +522,49 @@ def test_numpy_input_is_rejected_by_low_level_api(iq):
         )
 
 
+def test_numpy_window_sizes_on_long_recording():
+    """Narrow window and batch scalars support frame and window counts above their range."""
+    values = np.arange(100_000, dtype=np.float32).astype(np.complex64)
+    iq = da.from_array(values.reshape(-1, 1, 1, 1), chunks=(5000, 1, 1, 1))
+    result = process_iq_blocks(
+        iq,
+        compute_bmode_volume,
+        window_width=np.int16(250),
+        window_stride=np.uint8(250),
+        windows_per_task=np.uint8(4),
+        output_shape=(1, 1, 1, 1),
+        output_dtype=np.float32,
+    )
+    assert_allclose(
+        result.compute().ravel(), np.abs(values).reshape(-1, 250).mean(axis=1)
+    )
+
+
+@pytest.mark.parametrize(
+    "frequency,expected_dtype", [(15.625e6, np.float32), (np.int16(15000), np.float64)]
+)
+def test_numpy_integer_lag_matches_python_lag(
+    sample_voxeldata_iq_dataarray, frequency, expected_dtype
+):
+    """Integer lag types give the same velocity and retain metadata-driven precision."""
+    iq = sample_voxeldata_iq_dataarray.astype(np.complex64)
+    iq.attrs["transmit_frequency"] = frequency
+    result = process_iq_to_axial_velocity(iq, lag=np.int16(2))
+    kwargs: dict[str, Any] = {
+        "fs": 10.0,
+        "transmit_frequency": frequency,
+        "beamforming_sound_velocity": iq.attrs["beamforming_sound_velocity"],
+    }
+    expected = compute_axial_velocity_volume(iq.values, lag=2, **kwargs)
+    actual = result.compute()
+    direct = compute_axial_velocity_volume(iq.values, lag=np.int16(2), **kwargs)
+    assert (
+        result.dtype == actual.dtype == direct.dtype == expected.dtype == expected_dtype
+    )
+    assert_allclose(actual.values, expected)
+    assert_allclose(direct, expected)
+
+
 def test_numpy_scalar_velocity_parameters_match_declared_dtype(
     sample_voxeldata_iq_dataarray,
 ):

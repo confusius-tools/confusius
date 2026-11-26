@@ -18,7 +18,7 @@ from confusius._utils.stack import find_stack_level
 from confusius.iq._utils import (
     ensure_iq_voxeldata,
     get_clutter_filtered_dtype,
-    get_iq_window_count,
+    resolve_iq_window,
     validate_filter_frequency,
 )
 from confusius.iq.clutter_filters import (
@@ -369,10 +369,10 @@ def _compute_clutter_filter_window_metadata(
 
 def compute_processed_volume_timings(
     iq: xr.DataArray,
-    clutter_window_width: int,
-    clutter_window_stride: int,
-    inner_window_width: int,
-    inner_window_stride: int,
+    clutter_window_width: int | np.integer,
+    clutter_window_stride: int | np.integer,
+    inner_window_width: int | np.integer,
+    inner_window_stride: int | np.integer,
     processed_time_reference: VolumeAcquisitionReference | None = None,
 ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
     """Compute timings from processing input IQ volumes with nested sliding windows.
@@ -481,10 +481,10 @@ def compute_processed_volume_timings(
         to_reference="start",
     )
 
-    n_outer_windows = get_iq_window_count(
+    clutter_window_width, clutter_window_stride, n_outer_windows = resolve_iq_window(
         len(iq_volume_timings), clutter_window_width, clutter_window_stride
     )
-    n_inner_windows = get_iq_window_count(
+    inner_window_width, inner_window_stride, n_inner_windows = resolve_iq_window(
         clutter_window_width, inner_window_width, inner_window_stride
     )
 
@@ -532,8 +532,8 @@ def process_iq_block_with_clutter_filter(
     clutter_mask: npt.NDArray | None = None,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
-    window_width: int | None = None,
-    window_stride: int | None = None,
+    window_width: int | np.integer | None = None,
+    window_stride: int | np.integer | None = None,
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
@@ -618,11 +618,9 @@ def process_iq_block_with_clutter_filter(
     if block.ndim != 4:
         raise ValueError(f"'block' must be 4D, got {block.ndim}D")
 
-    if window_width is None:
-        window_width = block.shape[0]
-    if window_stride is None:
-        window_stride = window_width
-    get_iq_window_count(block.shape[0], window_width, window_stride)
+    window_width, window_stride, _ = resolve_iq_window(
+        block.shape[0], window_width, window_stride
+    )
 
     if filter_method == "butterworth":
         if low_cutoff is None and high_cutoff is None:
@@ -698,8 +696,8 @@ def compute_power_doppler_volume(
     high_cutoff: float | None = None,
     fs: float | None = None,
     butterworth_order: int = 4,
-    doppler_window_width: int | None = None,
-    doppler_window_stride: int | None = None,
+    doppler_window_width: int | np.integer | None = None,
+    doppler_window_stride: int | np.integer | None = None,
 ) -> npt.NDArray:
     """Compute power Doppler volumes from beamformed IQ data.
 
@@ -807,7 +805,9 @@ def compute_bmode_volume(
     return np.mean(np.abs(block), axis=0)[np.newaxis]
 
 
-def _validate_velocity_lag(lag: int, window_width: int) -> None:
+def _validate_velocity_lag(
+    lag: int | np.integer, window_width: int | np.integer
+) -> int:
     """Validate an autocorrelation lag against its integration window.
 
     Parameters
@@ -816,6 +816,11 @@ def _validate_velocity_lag(lag: int, window_width: int) -> None:
         Temporal lag in volumes.
     window_width : int
         Integration window width in volumes.
+
+    Returns
+    -------
+    int
+        Lag as a Python integer for indexing and velocity scaling.
 
     Raises
     ------
@@ -830,6 +835,7 @@ def _validate_velocity_lag(lag: int, window_width: int) -> None:
         raise ValueError(
             "`lag` must be a positive integer smaller than the velocity window."
         )
+    return int(lag)
 
 
 def compute_axial_velocity_volume(
@@ -842,9 +848,9 @@ def compute_axial_velocity_volume(
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     butterworth_order: int = 4,
-    velocity_window_width: int | None = None,
-    velocity_window_stride: int | None = None,
-    lag: int = 1,
+    velocity_window_width: int | np.integer | None = None,
+    velocity_window_stride: int | np.integer | None = None,
+    lag: int | np.integer = 1,
     spatial_kernel: int | tuple[int, int, int] | list[int] = 1,
     transmit_frequency: float = 15.625e6,
     beamforming_sound_velocity: float = 1540,
@@ -917,7 +923,7 @@ def compute_axial_velocity_volume(
     function between IQ volumes separated by `lag` volumes.
     """
 
-    _validate_velocity_lag(
+    lag = _validate_velocity_lag(
         lag, block.shape[0] if velocity_window_width is None else velocity_window_width
     )
 
@@ -998,9 +1004,9 @@ def process_iq_blocks(
     *,
     output_shape: tuple[int, ...],
     output_dtype: npt.DTypeLike,
-    window_width: int | None = None,
-    window_stride: int | None = None,
-    windows_per_task: int | None = None,
+    window_width: int | np.integer | None = None,
+    window_stride: int | np.integer | None = None,
+    windows_per_task: int | np.integer | None = None,
 ) -> "da.Array":
     """Process blocks of IQ data using sliding windows.
 
@@ -1082,13 +1088,10 @@ def process_iq_blocks(
     drop_axes = tuple(range(1, 1 - rank_change)) if rank_change < 0 else ()
     new_axes = tuple(range(1, 1 + rank_change)) if rank_change > 0 else ()
 
-    if window_width is None:
-        window_width = cast(int, iq.chunksize[0])  # type: ignore
-    if window_stride is None:
-        window_stride = window_width
-
     n_volumes = iq.shape[0]
-    n_windows = get_iq_window_count(n_volumes, window_width, window_stride)
+    window_width, window_stride, n_windows = resolve_iq_window(
+        n_volumes, window_width, window_stride, default_width=max(iq.chunks[0])
+    )
     if window_stride > window_width:
         raise ValueError(
             "`window_stride` must be less than or equal to `window_width`."
@@ -1149,7 +1152,7 @@ def process_iq_blocks(
     batch_size = max(
         1,
         (overlap_width + window_stride - 1) // window_stride,
-        windows_per_task if windows_per_task is not None else 1,
+        int(windows_per_task) if windows_per_task is not None else 1,
     )
     meta = np.empty((0,) * len(output_shape), dtype=dtype)
     if overlap_width == 0 and batch_size == 1:
@@ -1231,8 +1234,8 @@ def process_iq_blocks(
 
 def process_iq_to_power_doppler(
     iq: xr.DataArray,
-    clutter_window_width: int | None = None,
-    clutter_window_stride: int | None = None,
+    clutter_window_width: int | np.integer | None = None,
+    clutter_window_stride: int | np.integer | None = None,
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
@@ -1240,8 +1243,8 @@ def process_iq_to_power_doppler(
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     butterworth_order: int = 4,
-    doppler_window_width: int | None = None,
-    doppler_window_stride: int | None = None,
+    doppler_window_width: int | np.integer | None = None,
+    doppler_window_stride: int | np.integer | None = None,
 ) -> xr.DataArray:
     """Process blocks of beamformed IQ into power Doppler volumes using sliding windows.
 
@@ -1360,16 +1363,13 @@ def process_iq_to_power_doppler(
     if not isinstance(dask_iq, Array):
         dask_iq = da.from_array(dask_iq)
 
-    if clutter_window_width is None:
-        clutter_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
-    if clutter_window_stride is None:
-        clutter_window_stride = clutter_window_width
-    if doppler_window_width is None:
-        doppler_window_width = clutter_window_width
-    if doppler_window_stride is None:
-        doppler_window_stride = doppler_window_width
-    get_iq_window_count(dask_iq.shape[0], clutter_window_width, clutter_window_stride)
-    n_outputs = get_iq_window_count(
+    clutter_window_width, clutter_window_stride, _ = resolve_iq_window(
+        dask_iq.shape[0],
+        clutter_window_width,
+        clutter_window_stride,
+        default_width=max(dask_iq.chunks[0]),
+    )
+    doppler_window_width, doppler_window_stride, n_outputs = resolve_iq_window(
         clutter_window_width, doppler_window_width, doppler_window_stride
     )
     filtered_dtype = get_clutter_filtered_dtype(
@@ -1410,7 +1410,7 @@ def process_iq_to_power_doppler(
             doppler_window_stride=doppler_window_stride,
         ),
         output_shape=(n_outputs,) + dask_iq.shape[1:],
-        output_dtype=np.empty((), dtype=filtered_dtype).real.dtype,
+        output_dtype=np.finfo(filtered_dtype).dtype,
         window_width=clutter_window_width,
         window_stride=clutter_window_stride,
     )
@@ -1465,8 +1465,8 @@ def process_iq_to_power_doppler(
 
 def process_iq_to_bmode(
     iq: xr.DataArray,
-    bmode_window_width: int | None = None,
-    bmode_window_stride: int | None = None,
+    bmode_window_width: int | np.integer | None = None,
+    bmode_window_stride: int | np.integer | None = None,
 ) -> xr.DataArray:
     """Process blocks of beamformed IQ into B-mode volumes using sliding windows.
 
@@ -1503,10 +1503,12 @@ def process_iq_to_bmode(
     if not isinstance(dask_iq, Array):
         dask_iq = da.from_array(dask_iq)
 
-    if bmode_window_width is None:
-        bmode_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
-    if bmode_window_stride is None:
-        bmode_window_stride = bmode_window_width
+    bmode_window_width, bmode_window_stride, _ = resolve_iq_window(
+        dask_iq.shape[0],
+        bmode_window_width,
+        bmode_window_stride,
+        default_width=max(dask_iq.chunks[0]),
+    )
 
     result = process_iq_blocks(
         dask_iq,
@@ -1514,7 +1516,7 @@ def process_iq_to_bmode(
         window_width=bmode_window_width,
         window_stride=bmode_window_stride,
         output_shape=(1,) + dask_iq.shape[1:],
-        output_dtype=np.empty((), dtype=dask_iq.dtype).real.dtype,
+        output_dtype=np.finfo(dask_iq.dtype).dtype,
     )
 
     output_times_values, bmode_window_durations = compute_processed_volume_timings(
@@ -1556,8 +1558,8 @@ def process_iq_to_bmode(
 
 def process_iq_to_axial_velocity(
     iq: xr.DataArray,
-    clutter_window_width: int | None = None,
-    clutter_window_stride: int | None = None,
+    clutter_window_width: int | np.integer | None = None,
+    clutter_window_stride: int | np.integer | None = None,
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
@@ -1565,9 +1567,9 @@ def process_iq_to_axial_velocity(
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     butterworth_order: int = 4,
-    velocity_window_width: int | None = None,
-    velocity_window_stride: int | None = None,
-    lag: int = 1,
+    velocity_window_width: int | np.integer | None = None,
+    velocity_window_stride: int | np.integer | None = None,
+    lag: int | np.integer = 1,
     spatial_kernel: int | tuple[int, int, int] | list[int] = 1,
 ) -> xr.DataArray:
     """Process blocks of beamformed IQ into axial velocity volumes using sliding windows.
@@ -1700,16 +1702,13 @@ def process_iq_to_axial_velocity(
     if not isinstance(dask_iq, Array):
         dask_iq = da.from_array(dask_iq)
 
-    if clutter_window_width is None:
-        clutter_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
-    if clutter_window_stride is None:
-        clutter_window_stride = clutter_window_width
-    if velocity_window_width is None:
-        velocity_window_width = clutter_window_width
-    if velocity_window_stride is None:
-        velocity_window_stride = velocity_window_width
-    get_iq_window_count(dask_iq.shape[0], clutter_window_width, clutter_window_stride)
-    n_outputs = get_iq_window_count(
+    clutter_window_width, clutter_window_stride, _ = resolve_iq_window(
+        dask_iq.shape[0],
+        clutter_window_width,
+        clutter_window_stride,
+        default_width=max(dask_iq.chunks[0]),
+    )
+    velocity_window_width, velocity_window_stride, n_outputs = resolve_iq_window(
         clutter_window_width, velocity_window_width, velocity_window_stride
     )
     filtered_dtype = get_clutter_filtered_dtype(
@@ -1722,7 +1721,7 @@ def process_iq_to_axial_velocity(
         if clutter_mask_array is not None
         else int(np.prod(dask_iq.shape[1:])),
     )
-    _validate_velocity_lag(lag, velocity_window_width)
+    lag = _validate_velocity_lag(lag, velocity_window_width)
 
     fs = _get_filter_sampling_frequency(
         iq,
@@ -1756,11 +1755,10 @@ def process_iq_to_axial_velocity(
         ),
         output_shape=(n_outputs,) + dask_iq.shape[1:],
         output_dtype=np.result_type(
-            np.empty((), dtype=filtered_dtype).real.dtype,
+            np.finfo(filtered_dtype).dtype,
             fs,
-            transmit_frequency,
             beamforming_sound_velocity,
-            lag,
+            4 * np.pi * transmit_frequency * lag,
         ),
         window_width=clutter_window_width,
         window_stride=clutter_window_stride,

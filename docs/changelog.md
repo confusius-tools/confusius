@@ -100,6 +100,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- IQ processing accepts NumPy integer window sizes and strides on long recordings.
+  NumPy integer lags give the same velocity values and precision as Python integer lags
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+
 - Adaptive SVD filtering retains consistent output precision even when a window
   selects no clutter components, preventing other windows from being silently
   downcast during Dask assembly

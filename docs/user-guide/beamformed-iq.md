@@ -390,8 +390,9 @@ B-mode and statically identifiable no-op clutter filters preserve the input's re
 precision (`complex64` gives `float32`; `complex128` gives `float64`). Potentially
 active clutter filters promote to at least double precision, even when an adaptive
 window selects no components to remove. This keeps dtype independent of the first
-window's contents. Velocity parameters represented by NumPy scalars can additionally
-promote output precision under NumPy's normal arithmetic rules.
+window's contents. NumPy scalar acquisition metadata (transmit frequency and sound
+velocity) can additionally promote velocity precision under NumPy's arithmetic rules.
+Python and NumPy integer lags give the same precision.
 
 ```mermaid
 ---

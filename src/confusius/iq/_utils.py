@@ -34,21 +34,33 @@ def validate_filter_frequency(freq: float, nyquist: float) -> float:
     return freq
 
 
-def get_iq_window_count(n_volumes: int, width: int, stride: int) -> int:
-    """Count complete temporal windows after validating their sizes.
+def resolve_iq_window(
+    n_volumes: int,
+    width: int | np.integer | None,
+    stride: int | np.integer | None,
+    *,
+    default_width: int | None = None,
+) -> tuple[int, int, int]:
+    """Resolve a temporal window and count its complete occurrences.
 
     Parameters
     ----------
     n_volumes : int
         Available input volumes.
-    width : int
-        Positive integral window width, not exceeding `n_volumes`.
-    stride : int
-        Positive integral window stride.
+    width : int, optional
+        Positive integral window width, at most `n_volumes`.
+    stride : int, optional
+        Positive integral window stride. Defaults to the resolved width.
+    default_width : int, optional
+        Width used when `width` is omitted. Defaults to `n_volumes`.
 
     Returns
     -------
-    int
+    width : int
+        Window width as a Python integer.
+    stride : int
+        Window stride as a Python integer.
+    count : int
         Number of complete windows.
 
     Raises
@@ -56,6 +68,10 @@ def get_iq_window_count(n_volumes: int, width: int, stride: int) -> int:
     ValueError
         If window sizes are not positive integers or no complete window fits.
     """
+    if width is None:
+        width = n_volumes if default_width is None else default_width
+    if stride is None:
+        stride = width
     for name, value in (("window_width", width), ("window_stride", stride)):
         if (
             not isinstance(value, (int, np.integer))
@@ -63,12 +79,14 @@ def get_iq_window_count(n_volumes: int, width: int, stride: int) -> int:
             or value < 1
         ):
             raise ValueError(f"`{name}` must be a positive integer.")
+    # Fixed-width NumPy scalars can overflow on recording-length arithmetic.
+    width, stride = int(width), int(stride)
     if width > n_volumes:
         raise ValueError(
             f"`window_width` ({width}) must not exceed the available volumes "
             f"({n_volumes}); at least one complete window is required."
         )
-    return int((n_volumes - width) // stride + 1)
+    return width, stride, (n_volumes - width) // stride + 1
 
 
 def get_clutter_filtered_dtype(

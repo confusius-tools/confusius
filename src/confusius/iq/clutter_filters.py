@@ -5,7 +5,11 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import numpy.typing as npt
 
-from confusius.iq._utils import ensure_iq_voxeldata, validate_filter_frequency
+from confusius.iq._utils import (
+    ensure_iq_voxeldata,
+    resolve_iq_window,
+    validate_filter_frequency,
+)
 from confusius.validation import ensure_voxeldata, validate_mask
 
 if TYPE_CHECKING:
@@ -658,8 +662,8 @@ def compute_svd_cumulative_energy_threshold(
     iq: "xr.DataArray",
     singular_value_index: int,
     clutter_mask: "xr.DataArray | None" = None,
-    window_width: int | None = None,
-    window_stride: int | None = None,
+    window_width: int | np.integer | None = None,
+    window_stride: int | np.integer | None = None,
 ) -> "da.Array":
     """Compute the high cutoff threshold for the cumulative-energy SVD clutter filter.
 
@@ -758,14 +762,17 @@ def compute_svd_cumulative_energy_threshold(
     if not isinstance(dask_iq, da.Array):
         dask_iq = da.from_array(dask_iq)
 
-    effective_window_width = (
-        window_width if window_width is not None else cast(int, dask_iq.chunksize[0])
+    window_width, window_stride, _ = resolve_iq_window(
+        dask_iq.shape[0],
+        window_width,
+        window_stride,
+        default_width=max(dask_iq.chunks[0]),
     )
 
-    if not 1 <= singular_value_index <= effective_window_width - 1:
+    if not 1 <= singular_value_index <= window_width - 1:
         raise ValueError(
             f"singular_value_index ({singular_value_index}) must be between 1 and "
-            f"window_width - 1 ({effective_window_width - 1})."
+            f"window_width - 1 ({window_width - 1})."
         )
 
     def _window_energy(block: npt.NDArray) -> npt.NDArray:
