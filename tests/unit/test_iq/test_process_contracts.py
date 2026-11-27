@@ -9,10 +9,12 @@ from typing import Any
 import dask.array as da
 import numpy as np
 import pytest
+import zarr
 from dask import delayed
 from dask.callbacks import Callback
 from numpy.testing import assert_allclose
 
+from confusius.io import load, save
 from confusius.iq import (
     clutter_filter_svd_from_cumulative_energy,
     clutter_filter_svd_from_energy,
@@ -88,6 +90,40 @@ def test_block_graph_is_lazy_and_executes_each_window_once(
     assert len(loads) == 1
     assert actual.dtype == result.dtype == np.float32
     assert_allclose(actual, expected, rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "process,kwargs",
+    [
+        (process_iq_to_bmode, {}),
+        (process_iq_to_power_doppler, {}),
+        (process_iq_to_axial_velocity, {}),
+        (compute_svd_cumulative_energy_threshold, {"singular_value_index": 1}),
+    ],
+)
+def test_unchunked_zarr_defers_iq_reads(
+    tmp_path, monkeypatch, sample_voxeldata_iq_dataarray, process, kwargs
+):
+    """Building a graph on an unchunked Zarr uses its storage chunks without I/O."""
+    source = sample_voxeldata_iq_dataarray.rename("iq").chunk({"time": 5})
+    expected = process(source, **kwargs).compute()
+    path = tmp_path / "iq.zarr"
+    save(source, path)
+    iq = load(path, chunks=None)
+    assert iq.chunks is None
+    reads = []
+    original = zarr.Array.__getitem__
+
+    def record_read(array, key):
+        if array.path == "iq":
+            reads.append(key)
+        return original(array, key)
+
+    monkeypatch.setattr(zarr.Array, "__getitem__", record_read)
+    result = process(iq, **kwargs)
+    assert not reads
+    assert_allclose(result.compute(scheduler="synchronous"), expected)
+    assert reads
 
 
 @pytest.mark.parametrize("helper", ["bmode", "power", "velocity", "threshold"])
@@ -514,9 +550,9 @@ def test_butterworth_cutoff_order_raises_before_iq_execution(
             {
                 "filter_method": "butterworth",
                 "low_cutoff": 1.0,
-                "butterworth_order": -1,
+                "butterworth_order": 0,
             },
-            "nonnegative integer",
+            "order.*must be positive",
         ),
         (
             {"filter_method": "svd_energy", "low_cutoff": -1.0},

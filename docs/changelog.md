@@ -104,15 +104,17 @@ Current development version for the next ConfUSIus release.
   4D through 7D files group complete spatial volumes
   ([#597](https://github.com/confusius-tools/confusius/pull/597)).
 - IQ processing and cumulative-energy threshold calibration construct their Dask
-  graphs without reading or filtering initial IQ windows, avoiding startup I/O and
-  repeated processing ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+  graphs without reading IQ samples, including for Zarr recordings opened with
+  `chunks=None`. Processing reuses existing Dask chunks or the storage chunk sizes
+  when available ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 
 ### :bug: Fixes
 
 - Signal Butterworth filtering checks the actual padding requirement, accepting
   short signals with custom or disabled padding and accounting correctly for
   odd-order and band-pass filters. Dask-backed results report the filtered dtype
-  before computation
+  before computation. Both signal and IQ Butterworth filters require a positive
+  filter order when filtering is requested
   ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 - IQ window counting avoids integer overflow on long recordings, and axial
   velocity calculations use consistent precision across integer lag types

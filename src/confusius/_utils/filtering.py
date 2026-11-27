@@ -38,6 +38,8 @@ def design_butterworth_filter(
     """
     import scipy.signal as sp_signal
 
+    if order <= 0:
+        raise ValueError(f"'order' must be positive, got {order}.")
     if low_cutoff is None and high_cutoff is None:
         raise ValueError("At least one Butterworth cutoff must be provided.")
     if low_cutoff is not None and high_cutoff is not None and high_cutoff <= low_cutoff:

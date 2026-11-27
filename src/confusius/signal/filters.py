@@ -1,7 +1,8 @@
 """Filtering functions for signal preprocessing."""
 
+from functools import partial
+
 import numpy as np
-import numpy.typing as npt
 import scipy.signal
 import xarray as xr
 
@@ -12,60 +13,6 @@ from confusius._utils.filtering import (
 )
 from confusius.signal.confounds import regress_confounds
 from confusius.validation import validate_time_series
-
-
-def _butterworth_filter_wrapper(
-    data: npt.NDArray,
-    axis: int,
-    sos: npt.NDArray,
-    padtype: str | None,
-    padlen: int | None,
-) -> npt.NDArray:
-    """Apply a predesigned filter through `xarray.apply_ufunc`.
-
-    Parameters
-    ----------
-    data : numpy.ndarray
-        Samples to filter.
-    axis : int
-        Time axis.
-    sos : numpy.ndarray
-        Second-order-section filter coefficients.
-    padtype : {"odd", "even", "constant", None}
-        Padding extension type.
-    padlen : int, optional
-        Padding length. If not provided, uses SciPy's default.
-
-    Returns
-    -------
-    numpy.ndarray
-        Filtered samples with the original shape and axis order.
-
-    Raises
-    ------
-    ValueError
-        If the padding settings are invalid or the input is too short.
-    """
-    if axis != 0:
-        data = np.moveaxis(data, axis, 0)
-
-    if data.ndim > 2:
-        original_shape = data.shape
-        n_timepoints = data.shape[0]
-        data_2d = data.reshape(n_timepoints, -1)
-        filtered_2d = scipy.signal.sosfiltfilt(
-            sos, data_2d, axis=0, padtype=padtype, padlen=padlen
-        )
-        result = filtered_2d.reshape(original_shape)
-    else:
-        result = scipy.signal.sosfiltfilt(
-            sos, data, axis=0, padtype=padtype, padlen=padlen
-        )
-
-    if axis != 0:
-        result = np.moveaxis(result, 0, axis)
-
-    return result
 
 
 def filter_butterworth(
@@ -175,17 +122,14 @@ def filter_butterworth(
     )
 
     sampling_rate = 1.0 / time_spacing
-    if order <= 0:
-        raise ValueError(f"'order' must be positive, got {order}.")
     sos = design_butterworth_filter(sampling_rate, low_cutoff, high_cutoff, order)
     validate_sos_filter_length(signals.sizes["time"], sos, padtype, padlen)
 
     result = xr.apply_ufunc(
-        _butterworth_filter_wrapper,
+        partial(scipy.signal.sosfiltfilt, sos),
         signals,
         kwargs={
             "axis": time_axis,
-            "sos": sos,
             "padtype": padtype,
             "padlen": padlen,
         },

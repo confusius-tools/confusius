@@ -8,11 +8,12 @@ import numpy.typing as npt
 from confusius._utils.filtering import design_butterworth_filter
 from confusius.iq._utils import (
     ensure_iq_voxeldata,
+    get_chunked_iq_data,
+    get_clutter_mask,
     resolve_iq_window,
     validate_energy_cutoffs,
     validate_svd_index_cutoffs,
 )
-from confusius.validation import ensure_voxeldata, validate_mask
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -625,8 +626,8 @@ def compute_svd_cumulative_energy_threshold(
         Boolean spatial mask. Eigendecomposition is computed only from masked voxels.
         If not provided, all voxels are used.
     window_width : int, optional
-        Width of the sliding temporal window, in volumes. If not provided, defaults
-        to the total number of volumes.
+        Width of the sliding temporal window, in volumes. If not provided, uses
+        the largest time chunk of the IQ data.
     window_stride : int, optional
         Stride of the sliding temporal window, in volumes. If not provided, defaults
         to `window_width`.
@@ -679,7 +680,6 @@ def compute_svd_cumulative_energy_threshold(
         Awake and Behaving Brain: A Systematic Framework for Motion Artifact Removal."
         17 June 2025. Neuroscience, <https://doi.org/10.1101/2025.06.16.659882>.
     """
-    import dask.array as da
     from scipy import linalg as sp_linalg
 
     # Deferred to avoid circular import: clutter_filters <- process <- clutter_filters.
@@ -687,18 +687,11 @@ def compute_svd_cumulative_energy_threshold(
 
     iq = ensure_iq_voxeldata(iq)
 
-    mask_array: npt.NDArray[np.bool_] | None = None
-    if clutter_mask is not None:
-        clutter_mask = ensure_voxeldata(
-            clutter_mask, allow_pose=False, allow_extra_dims=False
-        )
-        validate_mask(clutter_mask, iq, "clutter_mask")
-        mask_array = clutter_mask.values.astype(bool)
+    mask_array = get_clutter_mask(clutter_mask, iq)
+    if mask_array is not None and not mask_array.any():
+        raise ValueError("clutter_mask must select at least one voxel.")
 
-    dask_iq = iq.data
-    if not isinstance(dask_iq, da.Array):
-        dask_iq = da.from_array(dask_iq)
-
+    dask_iq = get_chunked_iq_data(iq)
     window_width, window_stride, _ = resolve_iq_window(
         dask_iq.shape[0],
         window_width,

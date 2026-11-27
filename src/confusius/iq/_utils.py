@@ -1,12 +1,65 @@
 """Shared helpers for confusius.iq.process and confusius.iq.clutter_filters."""
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius.validation import ensure_voxeldata
+from confusius.validation import ensure_mask, ensure_voxeldata
+
+if TYPE_CHECKING:
+    from dask.array import Array
+
+
+def get_chunked_iq_data(iq: xr.DataArray) -> "Array":
+    """Return IQ samples as a Dask array without reading the recording.
+
+    Parameters
+    ----------
+    iq : xarray.DataArray
+        Validated IQ VoxelData array.
+
+    Returns
+    -------
+    dask.array.Array
+        Samples with existing Dask chunks, storage-preferred chunks, or automatic
+        chunks when the input has neither.
+    """
+    samples = iq.variable
+    if samples.chunks is None:
+        # Accessing .data before chunking would read the entire backend array.
+        samples = samples.chunk(iq.encoding.get("preferred_chunks") or "auto")
+    return cast("Array", samples.data)
+
+
+def get_clutter_mask(
+    clutter_mask: xr.DataArray | None, iq: xr.DataArray
+) -> npt.NDArray[np.bool_] | None:
+    """Prepare a boolean spatial mask for IQ block processing.
+
+    Parameters
+    ----------
+    clutter_mask : xarray.DataArray, optional
+        Mask selecting voxels for clutter estimation.
+    iq : xarray.DataArray
+        IQ VoxelData array defining the expected spatial grid.
+
+    Returns
+    -------
+    numpy.ndarray or None
+        Boolean mask on the IQ grid, or `None` when all voxels should be used.
+
+    Raises
+    ------
+    TypeError
+        If the mask has an unsupported dtype.
+    ValueError
+        If the mask is invalid or its dimensions or geometry differ from the IQ grid.
+    """
+    if clutter_mask is None:
+        return None
+    return ensure_mask(clutter_mask, iq, "clutter_mask", require_exact_dims=True).values
 
 
 def validate_svd_index_cutoffs(

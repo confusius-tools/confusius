@@ -21,7 +21,9 @@ from confusius._utils.geometry import (
 from confusius._utils.stack import find_stack_level
 from confusius.iq._utils import (
     ensure_iq_voxeldata,
+    get_chunked_iq_data,
     get_clutter_filtered_dtype,
+    get_clutter_mask,
     resolve_iq_window,
 )
 from confusius.iq.clutter_filters import (
@@ -37,7 +39,6 @@ from confusius.timing import (
     get_representative_time_step,
     get_time_coord_to_seconds_factor,
 )
-from confusius.validation import ensure_voxeldata, validate_mask
 from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
@@ -1399,22 +1400,11 @@ def process_iq_to_power_doppler(
                                                │
                                                 └─ (...)
     """
-    import dask.array as da
-    from dask.array import Array
-
     iq = ensure_iq_voxeldata(iq)
 
-    clutter_mask_array = None
-    if clutter_mask is not None:
-        clutter_mask = ensure_voxeldata(
-            clutter_mask, allow_pose=False, allow_extra_dims=False
-        )
-        validate_mask(clutter_mask, iq, "clutter_mask")
-        clutter_mask_array = clutter_mask.values.astype(bool)
+    clutter_mask_array = get_clutter_mask(clutter_mask, iq)
 
-    dask_iq: Array = iq.data
-    if not isinstance(dask_iq, Array):
-        dask_iq = da.from_array(dask_iq)
+    dask_iq = get_chunked_iq_data(iq)
 
     clutter_window_width, clutter_window_stride, _ = resolve_iq_window(
         dask_iq.shape[0],
@@ -1558,14 +1548,9 @@ def process_iq_to_bmode(
         coordinates and `iq`'s voxel-to-world geometry carried over, where `windows`
         is the number of sliding windows.
     """
-    import dask.array as da
-    from dask.array import Array
-
     iq = ensure_iq_voxeldata(iq)
 
-    dask_iq: Array = iq.data
-    if not isinstance(dask_iq, Array):
-        dask_iq = da.from_array(dask_iq)
+    dask_iq = get_chunked_iq_data(iq)
 
     bmode_window_width, bmode_window_stride, _ = resolve_iq_window(
         dask_iq.shape[0],
@@ -1758,22 +1743,11 @@ def process_iq_to_axial_velocity(
                                                │
                                                └─ (...)
     """
-    import dask.array as da
-    from dask.array import Array
-
     iq = ensure_iq_voxeldata(iq, require_velocity_attrs=True)
 
-    clutter_mask_array = None
-    if clutter_mask is not None:
-        clutter_mask = ensure_voxeldata(
-            clutter_mask, allow_pose=False, allow_extra_dims=False
-        )
-        validate_mask(clutter_mask, iq, "clutter_mask")
-        clutter_mask_array = clutter_mask.values.astype(bool)
+    clutter_mask_array = get_clutter_mask(clutter_mask, iq)
 
-    dask_iq: Array = iq.data
-    if not isinstance(dask_iq, Array):
-        dask_iq = da.from_array(dask_iq)
+    dask_iq = get_chunked_iq_data(iq)
 
     clutter_window_width, clutter_window_stride, _ = resolve_iq_window(
         dask_iq.shape[0],
