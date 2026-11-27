@@ -260,7 +260,7 @@ def test_resample_time_rejects_pose_dependent_time_coordinate(
     sample_voxeldata_3dt_pose,
 ) -> None:
     """Resample raises for a pose-dependent (time, pose)-shaped time coordinate."""
-    with pytest.raises(ValueError, match="1D 'time' coordinate"):
+    with pytest.raises(ValueError, match="1D 'time' coordinate.*correct_slice_timings"):
         resample_time(sample_voxeldata_3dt_pose, [10.5, 11.5])
 
 
@@ -268,7 +268,7 @@ def test_resample_to_uniform_time_rejects_pose_dependent_time_coordinate(
     sample_voxeldata_3dt_pose,
 ) -> None:
     """Resample to uniform time raises for a pose-dependent time coordinate."""
-    with pytest.raises(ValueError, match="1D 'time' coordinate"):
+    with pytest.raises(ValueError, match="1D 'time' coordinate.*correct_slice_timings"):
         resample_to_uniform_time(sample_voxeldata_3dt_pose)
 
 

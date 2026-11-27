@@ -462,7 +462,9 @@ def resample_time(
     ValueError
         If `data` does not have a `time` dimension, has only 1 timepoint, its `time`
         coordinate is not strictly increasing, or its `time` coordinate is not 1D
-        (e.g. pose-dependent multi-pose data).
+        (e.g. pose-dependent multi-pose data, which
+        [`correct_slice_timings`][confusius.multipose.correct_slice_timings]
+        resamples onto a shared 1D `time`).
     """
     validate_time_series(
         data, "time resampling", require_sorted_time=True, require_1d_time=True
@@ -572,7 +574,9 @@ def resample_to_uniform_time(
     ------
     ValueError
         If `data` does not have a `time` dimension, has only 1 timepoint, or its `time`
-        coordinate is not 1D (e.g. pose-dependent multi-pose data).
+        coordinate is not 1D (e.g. pose-dependent multi-pose data, which
+        [`correct_slice_timings`][confusius.multipose.correct_slice_timings]
+        resamples onto a shared 1D `time`).
     ValueError
         If `start` is greater than or equal to `stop`, if `step` is not positive,
         or if no valid representative step can be derived.

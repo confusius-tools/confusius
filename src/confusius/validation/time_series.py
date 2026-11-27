@@ -119,8 +119,9 @@ def validate_one_dimensional_time(data: xr.DataArray, operation_name: str) -> No
     if data.coords[TIME_DIM].ndim > 1:
         raise ValueError(
             f"{operation_name.capitalize()} requires a 1D 'time' coordinate, got a "
-            f"{data.coords[TIME_DIM].dims}-shaped 'time' coordinate. Consolidate "
-            "multi-pose data first with confusius.multipose.consolidate_poses."
+            f"{data.coords[TIME_DIM].dims}-shaped 'time' coordinate. Resample "
+            "multi-pose data onto a shared 1D 'time' first with "
+            "confusius.multipose.correct_slice_timings."
         )
 
 

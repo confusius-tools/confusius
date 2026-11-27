@@ -49,7 +49,7 @@ def test_validate_time_series_raises_for_pose_dependent_time_when_1d_required(
     sample_voxeldata_3dt_pose,
 ):
     """1D-time validation should reject a (time, pose)-shaped time coordinate."""
-    with pytest.raises(ValueError, match="1D 'time' coordinate"):
+    with pytest.raises(ValueError, match="1D 'time' coordinate.*correct_slice_timings"):
         validate_time_series(
             sample_voxeldata_3dt_pose, "resampling", require_1d_time=True
         )

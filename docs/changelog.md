@@ -13,9 +13,9 @@ Current development version for the next ConfUSIus release.
 ### :bug: Fixes
 
 - `resample_time`/`resample_to_uniform_time` now raise a clear error on
-  unconsolidated multi-pose data's `(time, pose)`-shaped `time` coordinate
-  instead of crashing with SciPy's generic error; consolidate poses first with
-  [`consolidate_poses`][confusius.multipose.consolidate_poses]
+  unconsolidated multi-pose data's `(time, pose)`-shaped `time` coordinate; resample
+  poses onto a shared `time` first with
+  [`correct_slice_timings`][confusius.multipose.correct_slice_timings]
   ([#424](https://github.com/confusius-tools/confusius/pull/424)).
 
 ### :books: Documentation
