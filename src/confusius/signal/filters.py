@@ -103,8 +103,8 @@ def filter_butterworth(
     padtype : {"odd", "even", "constant", None}, default: "odd"
         Type of padding to use. See `scipy.signal.sosfiltfilt` for details.
         `"odd"` pads with odd-extension (reduces edge effects), `"even"` pads
-        with even-extension, `"constant"` extends the endpoint values. If not provided, no
-        padding is applied.
+        with even-extension, and `"constant"` extends the endpoint values.
+        Pass `None` to disable padding.
     padlen : int, optional
         Number of elements to pad at each end. If not provided, uses scipy's default:
         `3 * (2 * n_sections + 1 - compensation)`, based on the designed coefficients.
@@ -190,7 +190,8 @@ def filter_butterworth(
             "padlen": padlen,
         },
         dask="parallelized",
-        output_dtypes=[signals.dtype],
+        # SciPy promotes samples against the designed SOS coefficients.
+        output_dtypes=[np.result_type(signals.dtype, sos.dtype)],
     )
 
     return result

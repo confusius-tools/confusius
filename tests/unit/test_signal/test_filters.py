@@ -236,7 +236,7 @@ class TestFilterButterworth:
         np.random.seed(42)
         sampling_rate = 100
         data = da.from_array(
-            np.random.randn(500, 50),
+            np.random.randn(500, 50).astype(np.float32),
             chunks=(500, 25),  # Chunk spatial, not time.
         )
         signals = xr.DataArray(
@@ -254,6 +254,7 @@ class TestFilterButterworth:
         signals_eager = signals.compute()
         filtered_eager = filter_butterworth(signals_eager, high_cutoff=0.1, order=5)
 
+        assert filtered.dtype == filtered_eager.dtype == np.float64
         np.testing.assert_allclose(filtered.compute().values, filtered_eager.values)
 
     def test_raises_when_no_time_dimension(self):

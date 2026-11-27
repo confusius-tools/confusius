@@ -17,8 +17,7 @@ Current development version for the next ConfUSIus release.
   NumPy arrays matching both declarations and retain the leading output-time axis.
   Execution options are keyword-only, non-temporal axes are inferred automatically,
   and callback settings must be bound with `functools.partial` instead of forwarded
-  keywords. The Dask-specific `drop_axis` and `new_axis` options are removed;
-  built-in wrapper signatures are unchanged
+  keywords. The Dask-specific `drop_axis` and `new_axis` options are removed
   ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 - [`compute_axial_velocity_volume`][confusius.iq.compute_axial_velocity_volume],
   [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity], and
@@ -106,7 +105,8 @@ Current development version for the next ConfUSIus release.
 
 - Signal Butterworth filtering checks the actual padding requirement, accepting
   short signals with custom or disabled padding and accounting correctly for
-  odd-order and band-pass filters
+  odd-order and band-pass filters. Dask-backed results report the filtered dtype
+  before computation
   ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 - IQ processing accepts NumPy integer window sizes and strides on long recordings.
   NumPy integer lags give the same velocity values and precision as Python integer lags

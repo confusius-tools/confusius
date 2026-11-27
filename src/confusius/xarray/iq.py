@@ -97,7 +97,7 @@ class FUSIIQAccessor:
             Stride of the sliding temporal window for power Doppler integration, in
             volumes. If not provided, equals `doppler_window_width`.
         butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
-            Butterworth padding extension type. If not provided, disables padding.
+            Butterworth padding extension type. Pass `None` to disable padding.
         butterworth_padlen : int, optional
             Butterworth padding length in samples. If not provided, uses SciPy's
             default. Ignored when padding is disabled.
@@ -208,7 +208,7 @@ class FUSIIQAccessor:
             sizes are rounded up to the next odd size. If all sizes are `1`, no
             spatial filtering is applied.
         butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
-            Butterworth padding extension type. If not provided, disables padding.
+            Butterworth padding extension type. Pass `None` to disable padding.
         butterworth_padlen : int, optional
             Butterworth padding length in samples. If not provided, uses SciPy's
             default. Ignored when padding is disabled.

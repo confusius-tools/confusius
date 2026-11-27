@@ -78,7 +78,7 @@ def validate_sos_filter_length(
     sos : numpy.ndarray
         Second-order-section filter coefficients.
     padtype : {"odd", "even", "constant", None}, default: "odd"
-        Padding extension type. If not provided, padding is disabled.
+        Padding extension type. Pass `None` to disable padding.
     padlen : int, optional
         Padding length. If not provided, uses SciPy's coefficient-based default.
         Ignored when padding is disabled.

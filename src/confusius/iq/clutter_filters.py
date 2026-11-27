@@ -504,7 +504,7 @@ def clutter_filter_sosfiltfilt(
         Second-order sections filter coefficients, typically obtained from SciPy
         functions like `scipy.signal.butter`, `scipy.signal.cheby1`, etc.
     padtype : {"odd", "even", "constant", None}, default: "odd"
-        Padding extension type. If not provided, disables padding.
+        Padding extension type. Pass `None` to disable padding.
     padlen : int, optional
         Padding length in samples. If not provided, uses SciPy's default.
         Ignored when padding is disabled.
@@ -566,7 +566,7 @@ def clutter_filter_butterworth(
         Filter order. Due to forward-backward filtering, the effective order is
         doubled.
     padtype : {"odd", "even", "constant", None}, default: "odd"
-        Padding extension type. If not provided, disables padding.
+        Padding extension type. Pass `None` to disable padding.
     padlen : int, optional
         Padding length in samples. If not provided, uses SciPy's default.
         Ignored when padding is disabled.

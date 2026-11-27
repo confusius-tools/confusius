@@ -218,7 +218,7 @@ def _get_filter_sampling_frequency(
     butterworth_order : int
         Filter order, when using Butterworth filtering.
     butterworth_padtype : {"odd", "even", "constant", None}
-        Butterworth padding extension type. If not provided, disables padding.
+        Butterworth padding extension type. Pass `None` to disable padding.
     butterworth_padlen : int, optional
         Butterworth padding length. If not provided, uses SciPy's default.
 
@@ -619,7 +619,7 @@ def process_iq_block_with_clutter_filter(
     butterworth_order : int, default: 4
         When using the Butterworth clutter filter, the order of the filter.
     butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
-        Butterworth padding extension type. If not provided, disables padding.
+        Butterworth padding extension type. Pass `None` to disable padding.
     butterworth_padlen : int, optional
         Butterworth padding length in samples. If not provided, uses SciPy's default.
         Ignored when padding is disabled.
@@ -770,7 +770,7 @@ def compute_power_doppler_volume(
         Stride of the sliding temporal window, in volumes. If not provided, equals
         `doppler_window_width`.
     butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
-        Butterworth padding extension type. If not provided, disables padding.
+        Butterworth padding extension type. Pass `None` to disable padding.
     butterworth_padlen : int, optional
         Butterworth padding length in samples. If not provided, uses SciPy's default.
         Ignored when padding is disabled.
@@ -949,7 +949,7 @@ def compute_axial_velocity_volume(
     beamforming_sound_velocity : float, default: 1540
         Speed of sound assumed during beamforming, in meters per second.
     butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
-        Butterworth padding extension type. If not provided, disables padding.
+        Butterworth padding extension type. Pass `None` to disable padding.
     butterworth_padlen : int, optional
         Butterworth padding length in samples. If not provided, uses SciPy's default.
         Ignored when padding is disabled.
@@ -1346,7 +1346,7 @@ def process_iq_to_power_doppler(
         Stride of the sliding temporal window for power Doppler integration, in volumes.
         If not provided, equals `doppler_window_width`.
     butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
-        Butterworth padding extension type. If not provided, disables padding.
+        Butterworth padding extension type. Pass `None` to disable padding.
     butterworth_padlen : int, optional
         Butterworth padding length in samples. If not provided, uses SciPy's default.
         Ignored when padding is disabled.
@@ -1703,7 +1703,7 @@ def process_iq_to_axial_velocity(
         rounded up to the next odd size. If all sizes are `1`, no spatial filtering is
         applied.
     butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
-        Butterworth padding extension type. If not provided, disables padding.
+        Butterworth padding extension type. Pass `None` to disable padding.
     butterworth_padlen : int, optional
         Butterworth padding length in samples. If not provided, uses SciPy's default.
         Ignored when padding is disabled.
