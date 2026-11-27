@@ -37,6 +37,7 @@ class FUSIIQAccessor:
 
     def process_to_power_doppler(
         self,
+        *,
         clutter_window_width: int | np.integer | None = None,
         clutter_window_stride: int | np.integer | None = None,
         filter_method: Literal[
@@ -48,7 +49,6 @@ class FUSIIQAccessor:
         butterworth_order: int = 4,
         doppler_window_width: int | np.integer | None = None,
         doppler_window_stride: int | np.integer | None = None,
-        *,
         butterworth_padtype: str | None = "odd",
         butterworth_padlen: int | None = None,
     ) -> xr.DataArray:
@@ -138,6 +138,7 @@ class FUSIIQAccessor:
 
     def process_to_axial_velocity(
         self,
+        *,
         clutter_window_width: int | np.integer | None = None,
         clutter_window_stride: int | np.integer | None = None,
         filter_method: Literal[
@@ -151,7 +152,6 @@ class FUSIIQAccessor:
         velocity_window_stride: int | np.integer | None = None,
         lag: int | np.integer = 1,
         spatial_kernel: int | tuple[int, int, int] | list[int] = 1,
-        *,
         butterworth_padtype: str | None = "odd",
         butterworth_padlen: int | None = None,
     ) -> xr.DataArray:

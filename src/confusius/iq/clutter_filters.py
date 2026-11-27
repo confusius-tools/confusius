@@ -535,10 +535,10 @@ def clutter_filter_sosfiltfilt(
 def clutter_filter_butterworth(
     block: npt.NDArray,
     fs: float,
+    *,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     order: int = 4,
-    *,
     padtype: str | None = "odd",
     padlen: int | None = None,
 ) -> npt.NDArray:

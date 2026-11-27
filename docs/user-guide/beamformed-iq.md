@@ -351,7 +351,7 @@ For example, `output_shape=(2, *iq.shape[1:])` means **two output time points**
 per window. In contrast, `output_shape=(1, 2, *iq.shape[1:])` means **one time
 point with two component maps**. Non-temporal axis mapping is automatic, including
 spatially reduced outputs such as `(1,)` for a scalar measurement. Built-in wrappers
-supply declarations internally; their calling signatures are unchanged.
+supply these declarations internally.
 
 Only IQ and the callback are positional arguments; execution settings are keyword-only.
 The callback receives just the NumPy IQ window. Bind its settings with

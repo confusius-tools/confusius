@@ -12,6 +12,12 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- Pass optional settings by keyword when calling the IQ power Doppler and axial
+  velocity functions and accessors, `process_iq_block_with_clutter_filter`, and
+  `clutter_filter_butterworth`. For example, use
+  `process_iq_to_power_doppler(iq, clutter_window_width=300, low_cutoff=40)`
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+
 - Custom [`process_iq_blocks`][confusius.iq.process_iq_blocks] calls now require
   `output_shape` and `output_dtype` for one processing window. Callbacks must return
   NumPy arrays matching both declarations and retain the leading output-time axis.

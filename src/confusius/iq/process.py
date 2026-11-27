@@ -545,6 +545,7 @@ def compute_processed_volume_timings(
 def process_iq_block_with_clutter_filter(
     block: npt.NDArray,
     process_block_func: Callable[Concatenate[npt.NDArray, ...], npt.NDArray],
+    *,
     clutter_mask: npt.NDArray | None = None,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
@@ -555,7 +556,6 @@ def process_iq_block_with_clutter_filter(
     ] = "svd_indices",
     fs: float | None = None,
     butterworth_order: int = 4,
-    *,
     butterworth_padtype: str | None = "odd",
     butterworth_padlen: int | None = None,
     **kwargs: Any,
@@ -714,6 +714,7 @@ def process_iq_block_with_clutter_filter(
 
 def compute_power_doppler_volume(
     block: npt.NDArray,
+    *,
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
@@ -724,7 +725,6 @@ def compute_power_doppler_volume(
     butterworth_order: int = 4,
     doppler_window_width: int | np.integer | None = None,
     doppler_window_stride: int | np.integer | None = None,
-    *,
     butterworth_padtype: str | None = "odd",
     butterworth_padlen: int | None = None,
 ) -> npt.NDArray:
@@ -877,6 +877,7 @@ def _validate_velocity_lag(
 def compute_axial_velocity_volume(
     block: npt.NDArray,
     fs: float,
+    *,
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
@@ -890,7 +891,6 @@ def compute_axial_velocity_volume(
     spatial_kernel: int | tuple[int, int, int] | list[int] = 1,
     transmit_frequency: float = 15.625e6,
     beamforming_sound_velocity: float = 1540,
-    *,
     butterworth_padtype: str | None = "odd",
     butterworth_padlen: int | None = None,
 ) -> npt.NDArray:
@@ -1280,6 +1280,7 @@ def process_iq_blocks(
 
 def process_iq_to_power_doppler(
     iq: xr.DataArray,
+    *,
     clutter_window_width: int | np.integer | None = None,
     clutter_window_stride: int | np.integer | None = None,
     filter_method: Literal[
@@ -1291,7 +1292,6 @@ def process_iq_to_power_doppler(
     butterworth_order: int = 4,
     doppler_window_width: int | np.integer | None = None,
     doppler_window_stride: int | np.integer | None = None,
-    *,
     butterworth_padtype: str | None = "odd",
     butterworth_padlen: int | None = None,
 ) -> xr.DataArray:
@@ -1623,6 +1623,7 @@ def process_iq_to_bmode(
 
 def process_iq_to_axial_velocity(
     iq: xr.DataArray,
+    *,
     clutter_window_width: int | np.integer | None = None,
     clutter_window_stride: int | np.integer | None = None,
     filter_method: Literal[
@@ -1636,7 +1637,6 @@ def process_iq_to_axial_velocity(
     velocity_window_stride: int | np.integer | None = None,
     lag: int | np.integer = 1,
     spatial_kernel: int | tuple[int, int, int] | list[int] = 1,
-    *,
     butterworth_padtype: str | None = "odd",
     butterworth_padlen: int | None = None,
 ) -> xr.DataArray:
