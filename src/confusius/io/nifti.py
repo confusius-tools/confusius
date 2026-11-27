@@ -389,7 +389,7 @@ def _find_bids_sidecars(path: Path) -> list[Path]:
 
 
 def _load_nifti_sidecar(path: Path) -> dict[str, Any]:
-    """Load and validate inherited BIDS JSON sidecars for a NIfTI file.
+    """Load inherited BIDS JSON sidecars for a NIfTI file.
 
     Parameters
     ----------
@@ -399,37 +399,42 @@ def _load_nifti_sidecar(path: Path) -> dict[str, Any]:
     Returns
     -------
     dict[str, Any]
-        Sidecar attributes converted to ConfUSIus (snake_case) naming via `from_bids`.
-        Empty dict when no matching sidecar is found.
+        Metadata using fUSI-BIDS field names and units. Empty dict when no
+        matching sidecar is found.
     """
     sidecar_data: dict[str, Any] = {}
     for sidecar_path in _find_bids_sidecars(path):
         with open(sidecar_path) as f:
             sidecar_data.update(json.load(f))
 
-    if sidecar_data:
-        try:
-            validate_metadata(sidecar_data)
-        except ValidationError as e:
-            warnings.warn(
-                f"fUSI-BIDS validation warning:\n{format_validation_error(e)}",
-                stacklevel=find_stack_level(),
-            )
-        except Exception as e:  # noqa: BLE001
-            warnings.warn(
-                f"fUSI-BIDS validation warning: {e}", stacklevel=find_stack_level()
-            )
+    return sidecar_data
 
-    return from_bids(sidecar_data)
+
+def _warn_on_invalid_sidecar(metadata: dict[str, Any]) -> None:
+    """Report invalid fUSI-BIDS metadata while allowing conversion to continue.
+
+    Parameters
+    ----------
+    metadata : dict[str, Any]
+        Sidecar fields using fUSI-BIDS names and units.
+    """
+    try:
+        validate_metadata(metadata)
+    except ValidationError as exc:
+        detail = format_validation_error(exc)
+    except Exception as exc:  # noqa: BLE001
+        detail = str(exc)
+    else:
+        return
+    warnings.warn(
+        f"fUSI-BIDS validation warning: {detail}", stacklevel=find_stack_level()
+    )
 
 
 def _load_nifti_with_nibabel(
     path: Path,
-) -> tuple[
-    "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
-    "_NiftiHeaderExtractor",
-]:
-    """Load a NIfTI file and return the image object with its header extractor.
+) -> "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image":
+    """Load a NIfTI file as a NiBabel image object.
 
     Parameters
     ----------
@@ -438,10 +443,8 @@ def _load_nifti_with_nibabel(
 
     Returns
     -------
-    img : nib.nifti1.Nifti1Image or nib.nifti2.Nifti2Image
+    nib.nifti1.Nifti1Image or nib.nifti2.Nifti2Image
         NiBabel NIfTI image object with proxy data array.
-    extractor : _NiftiHeaderExtractor
-        Header extractor for the loaded image.
     """
     import nibabel as nib
 
@@ -452,7 +455,7 @@ def _load_nifti_with_nibabel(
             " .nii or .nii.gz suffixes."
         )
 
-    return img, _NiftiHeaderExtractor(img.header)
+    return img
 
 
 def _resolve_spatial_geometry_from_nifti(
@@ -1131,35 +1134,338 @@ def _pop_extra_dim_attrs(attrs: dict[str, Any]) -> None:
         attrs.pop(key, None)
 
 
-def _reverse_chunk_spec(
-    chunks: int | tuple[int, ...] | str | None, ndim: int
-) -> int | tuple[int, ...] | str | None:
-    """Reverse a per-axis Dask chunk specification to match NIfTI's native axis order.
-
-    `load_nifti`'s `chunks` parameter is documented in ConfUSIus (post-transpose) axis
-    order, but the Dask array is now built directly from the NIfTI `ArrayProxy` in its
-    native (pre-transpose) axis order and transposed afterward. A tuple `chunks`
-    specification must therefore be reversed before being passed to `da.from_array` so
-    that, once transposed, it lines up with the axes the caller intended.
+def _get_scaled_proxy_dtype(proxy: "nib.arrayproxy.ArrayProxy") -> np.dtype:
+    """Infer the dtype returned by a NiBabel proxy from its scaling metadata.
 
     Parameters
     ----------
-    chunks : int or tuple[int, ...] or str or None
-        Chunk specification as documented for `load_nifti`, in ConfUSIus axis order.
-    ndim : int
-        Number of dimensions of the array being chunked.
+    proxy : nibabel.arrayproxy.ArrayProxy
+        NIfTI array proxy with the storage dtype, slope and intercept.
 
     Returns
     -------
-    int or tuple[int, ...] or str or None
-        `chunks` unchanged if order-independent (`int`, `str`, or `None`), or with its
-        top-level axis order reversed if given as a tuple.
+    numpy.dtype
+        Dtype of the voxel values after read scaling.
+
+    Raises
+    ------
+    ValueError
+        If the scaled integer range exceeds all available floating-point types.
     """
-    if not isinstance(chunks, tuple):
-        return chunks
-    if len(chunks) != ndim:
-        return chunks
-    return chunks[::-1]
+    from nibabel.volumeutils import int_scinter_ftype
+
+    dtype = proxy.dtype
+    slope, inter = np.asarray(proxy.slope), np.asarray(proxy.inter)
+    if slope == 1 and inter == 0:
+        return dtype
+
+    # ArrayProxy uses the slope's precision for a safely castable intercept.
+    if np.can_cast(inter.dtype, slope.dtype):
+        inter = inter.astype(slope.dtype, copy=False)
+    if dtype.kind in "iu":
+        # NiBabel selects a float type that can scale the full storage range.
+        default = slope.dtype.type if slope.dtype.kind == "f" else np.float64
+        ftype = int_scinter_ftype(dtype, slope, inter, default)
+        slope, inter = slope.astype(ftype), inter.astype(ftype)
+
+    # Read scaling skips identity operations, so only active factors promote.
+    if slope != 1:
+        dtype = np.promote_types(dtype, slope.dtype)
+    if inter != 0:
+        dtype = np.promote_types(dtype, inter.dtype)
+    return dtype
+
+
+def _build_dask_array_from_nifti_dataobj(
+    img: "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
+    axis_order: tuple[int, ...],
+    chunks: int | tuple[int, ...] | str | None,
+) -> da.Array:
+    """Build a Dask array in ConfUSIus voxel order from a NiBabel image's dataobj.
+
+    `img.dataobj` is either a nibabel `ArrayProxy` (image loaded from disk) or a plain
+    `numpy.ndarray` (in-memory image, e.g. `nib.Nifti1Image(data, affine)`). Both
+    expose `.shape`, `.dtype`, and numpy-style `__getitem__` slicing (the proxy
+    applying any slope/intercept scaling lazily per chunk), so both are passed to
+    `da.from_array` as-is. Converting a proxy through `np.asanyarray` first would force
+    it into a concrete `numpy.memmap`, which `da.from_array` then copies while building
+    the graph. `name=False` gives the graph a random key instead of one derived by
+    hashing every voxel of an in-memory array.
+
+    NIfTI stores data with shape (x, y, z, time) in column-major order. `ArrayProxy`
+    has no `.T`, so the Dask array is built in that native order and transposed
+    afterward (a metadata-only Dask op) to reach ConfUSIus order (time, k, j, i).
+
+    Parameters
+    ----------
+    img : nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
+        NiBabel NIfTI image.
+    axis_order : tuple[int, ...]
+        NIfTI axis indices in output order.
+    chunks : int or tuple[int, ...] or str or None
+        Chunk specification in ConfUSIus (post-transpose) axis order, as documented
+        for `load_nifti`.
+
+    Returns
+    -------
+    dask.array.Array
+        Data transposed to ConfUSIus voxel order `(..., time, k, j, i)`.
+    """
+    from nibabel.arrayproxy import ArrayProxy, get_obj_dtype
+
+    dataobj = img.dataobj
+    dtype = (
+        _get_scaled_proxy_dtype(dataobj)
+        if isinstance(dataobj, ArrayProxy)
+        else get_obj_dtype(dataobj)
+    )
+    if isinstance(chunks, tuple) and len(chunks) == len(axis_order):
+        chunks = tuple(chunks[axis_order.index(i)] for i in range(len(axis_order)))
+    dask_arr = da.from_array(
+        dataobj,
+        chunks=da.core.normalize_chunks(chunks, dataobj.shape, dtype=dtype),
+        asarray=False,
+        name=False,
+        meta=np.empty((), dtype=dtype),
+    )
+    return dask_arr.astype(dtype, copy=False).transpose(axis_order)
+
+
+def convert_from_nifti(
+    img: "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
+    chunks: int | tuple[int, ...] | str | None = "auto",
+    *,
+    coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
+    sidecar: dict[str, Any] | None = None,
+) -> xr.DataArray:
+    """Convert an in-memory NiBabel NIfTI image to a VoxelData array.
+
+    This is the image-based counterpart to `load_nifti`, which opens the file, reads its
+    BIDS JSON sidecars, and delegates to this function. It reads directly from an
+    already-constructed `nibabel.Nifti1Image`/`nibabel.Nifti2Image` instance instead of
+    a path, and never looks for a sidecar on disk: sidecar metadata is used only when
+    passed through `sidecar`. Useful for interoperating with libraries such as `nilearn`
+    that hand back NIfTI images rather than file paths.
+
+    An image backed by a file on disk (e.g. from `nibabel.load`, whose `img.dataobj` is
+    a NiBabel `ArrayProxy`) stays lazy, including images with slope/intercept scaling.
+    Voxel data is read when the returned array is computed, so the file must remain
+    available until then.
+
+    Parameters
+    ----------
+    img : nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
+        In-memory NiBabel NIfTI image.
+    chunks : int or tuple[int, ...] or str or None, default: "auto"
+        How to chunk the array. Must be one of the following forms.
+
+        - A blocksize like `1000`.
+        - A blockshape like `(1000, 1000)`.
+        - Explicit sizes of all blocks along all dimensions like `((1000, 1000,
+          500), (400, 400))`.
+        - A size in bytes, like `"100 MiB"` which will choose a uniform block-like
+          shape.
+        - The word `"auto"` to let Dask choose chunk sizes based on heuristics. See
+          `dask.array.normalize_chunks` for more details on how chunk sizes are
+          determined.
+        - `-1` or `None` as a blocksize indicate the size of the corresponding
+          dimension.
+    coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
+        Header affine to use as the primary coordinate-defining geometry.
+
+        - `"auto"` prefers sform when both sform and qform are valid, and falls
+          back to qform when only qform is valid.
+        - `"sform"` forces the sform to define the in-memory coordinate geometry.
+        - `"qform"` forces the qform to define the in-memory coordinate geometry.
+
+        The non-selected valid header affine is still preserved in
+        `data_array.attrs["affines"]` as a world-to-world transform.
+    sidecar : dict[str, Any], optional
+        Metadata using fUSI-BIDS field names and units, as returned by
+        `convert_to_nifti` or read from a BIDS JSON sidecar. Entries override
+        header-derived attributes and feed timing and extra-dimension reconstruction.
+        When `SliceTiming` is supplied without `SliceEncodingDirection`, the
+        header's slice axis gives the order of increasing slice index. If no sidecar
+        is provided, only the NIfTI header is used.
+
+    Returns
+    -------
+    xarray.DataArray
+        VoxelData array with voxel-space dimensions in ConfUSIus order (`k`, `j`, `i`
+        plus optional `time`) and world coordinates `z`, `y`, `x`. Extra NIfTI
+        axes precede these dimensions in their original file order.
+
+    Raises
+    ------
+    TypeError
+        If `img` is not a `nibabel.Nifti1Image` or `nibabel.Nifti2Image`.
+    ValueError
+        If the chunk specification or reconstructed VoxelData geometry is invalid,
+        or if `coordinate_affine` is `"sform"` or `"qform"` and that form's code is
+        zero in the header.
+
+    Notes
+    -----
+    When both `sform_code` and `qform_code` are 0, the header stores no orientation.
+    Following the
+    [NIfTI-1 standard](https://github.com/NIFTI-Imaging/nifti_clib/blob/master/niftilib/nifti1.h)
+    ("method 1"), the voxel-to-world affine is then built from the voxel sizes alone:
+    the first voxel sits at the origin and no axis is rotated or flipped. A warning is
+    emitted. NiBabel's `img.affine`, used by nilearn and other NiBabel-based tools,
+    follows SPM instead: it puts the central voxel at the origin and negates the x axis
+    ([NiBabel's fall-back affine](https://nipy.org/nibabel/nifti_images.html#the-fall-back-header-affine)).
+    World coordinates from ConfUSIus and from those tools therefore differ for such
+    images.
+
+    Examples
+    --------
+    >>> import nibabel as nib
+    >>> import numpy as np
+    >>> import confusius as cf
+    >>> img = nib.Nifti1Image(np.random.rand(64, 64, 32).astype(np.float32), np.eye(4))
+    >>> da = cf.io.convert_from_nifti(img)
+    >>> print(da.dims)
+    ("k", "j", "i")
+    """
+    import nibabel as nib
+
+    if not isinstance(img, nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image):
+        raise TypeError(
+            "img must be a nibabel.Nifti1Image or nibabel.Nifti2Image, got "
+            f"{type(img).__name__}."
+        )
+
+    extractor = _NiftiHeaderExtractor(img.header)
+    attrs = extractor.to_attrs()
+    if sidecar:
+        slice_axis = img.header.get_dim_info()[2]
+        if slice_axis is not None and "SliceTiming" in sidecar:
+            header_direction = _NIFTI_DIM_ORDER[slice_axis]
+            if "SliceEncodingDirection" not in sidecar:
+                sidecar = {**sidecar, "SliceEncodingDirection": header_direction}
+            elif (
+                str(sidecar["SliceEncodingDirection"]).removesuffix("-")
+                != header_direction
+            ):
+                warnings.warn(
+                    f"Sidecar SliceEncodingDirection ({sidecar['SliceEncodingDirection']}) "
+                    f"disagrees with the NIfTI slice axis ({header_direction}). "
+                    "Using the sidecar direction.",
+                    stacklevel=find_stack_level(),
+                )
+        _warn_on_invalid_sidecar(sidecar)
+        attrs.update(from_bids(sidecar))
+
+    nifti_dims = _NIFTI_DIM_ORDER[: img.ndim]
+    # Keep extra axes in file order, ahead of the reversed time and spatial axes.
+    axes = tuple(range(img.ndim))
+    axis_order = axes[4:] + axes[:4][::-1]
+    dask_arr = _build_dask_array_from_nifti_dataobj(img, axis_order, chunks)
+
+    # Apply sidecar names to the anonymous extra NIfTI axes (`dim4`, `dim5`, `dim6`) so
+    # downstream code sees semantic dim names instead of placeholders. Names colliding
+    # with a reserved canonical spatial name (k/j/i/z/y/x) are rejected with a warning.
+    # A no-op when `attrs` carries no sidecar-derived `dim{N}_name` entries.
+    nifti_dims, extra_coord_values, extra_coord_attrs = _resolve_nifti_extra_dims(
+        nifti_dims, attrs
+    )
+    _pop_extra_dim_attrs(attrs)
+
+    voxel_to_world, units, affine_attrs = _resolve_spatial_geometry_from_nifti(
+        img=img,
+        extractor=extractor,
+        dims=nifti_dims,
+        coordinate_affine=coordinate_affine,
+    )
+    # Merge NIfTI-header-derived affines with any pre-existing affines (e.g. loaded
+    # from the sidecar) so sidecar entries like `bspline_initialization` are not
+    # clobbered by the qform/sform keys coming from the file header.
+    if "affines" in attrs and "affines" in affine_attrs:
+        affine_attrs["affines"] = {**attrs["affines"], **affine_attrs["affines"]}
+    attrs.update(affine_attrs)
+
+    extra_coords = _build_extra_dim_coords(
+        nifti_dims,
+        extra_coord_values,
+        extra_coord_attrs,
+        np.asarray(img.header.structarr["pixdim"], dtype=float),
+        tuple(int(s) for s in img.shape),
+    )
+
+    has_extra_dims = any(dim not in VOXEL_DIMS and dim != "time" for dim in nifti_dims)
+    has_explicit_time_metadata = any(key in attrs for key in _TEMPORAL_METADATA_KEYS)
+
+    # `time_coord` feeds `create_voxeldata`'s `time=` parameter and is only
+    # meaningful when `time` is a real dimension; `scalar_time_coord` and
+    # `slice_time_coord` are non-dimension coordinates attached after the fact
+    # (a scalar `time` has no dimension of its own, and `slice_time` is not one
+    # of `create_voxeldata`'s recognized coordinates).
+    time_coord: xr.DataArray | None = None
+    scalar_time_coord: xr.DataArray | None = None
+    slice_time_coord: xr.DataArray | None = None
+    if "time" in nifti_dims:
+        temporal_coords, attrs = _create_temporal_coords_from_nifti(
+            img=img, extractor=extractor, attrs=attrs
+        )
+        time_coord = temporal_coords["time"]
+        slice_time_coord = temporal_coords.get("slice_time")
+    else:
+        scalar_temporal_coords, attrs = _create_scalar_temporal_coords_from_nifti(
+            extractor=extractor, attrs=attrs
+        )
+        scalar_time_coord = scalar_temporal_coords.get("time")
+        slice_time_coord = scalar_temporal_coords.get("slice_time")
+
+    # Build the canonical array in one `create_voxeldata` call, regardless of
+    # how many spatial dims are actually present -- it pads any missing k/j/i to a
+    # singleton itself, so every loaded array ends up indexed, never a bare
+    # DataArray. The singleton-squeeze must happen first, directly on the Dask array
+    # and dims bookkeeping, since `create_voxeldata` validates immediately on
+    # construction and cannot accept a synthetic singleton `time` axis.
+    create_dims = [nifti_dims[i] for i in axis_order]
+    create_data = dask_arr
+    if (
+        "time" in create_dims
+        and dask_arr.shape[create_dims.index("time")] == 1
+        and has_extra_dims
+        and not has_explicit_time_metadata
+    ):
+        time_axis = create_dims.index("time")
+        create_data = da.squeeze(create_data, axis=time_axis)
+        create_dims.pop(time_axis)
+        time_coord = None
+
+    data_array = create_voxeldata(
+        create_data,
+        dims=create_dims,
+        time=time_coord,
+        extra_coords=extra_coords,
+        voxel_to_world=voxel_to_world,
+        units=units,
+        attrs=attrs,
+    )
+    # With no explicit name, xarray keeps the Dask array's graph key as the name.
+    data_array.name = None
+    if (nifti_filename := img.get_filename()) is not None:
+        nifti_filename = Path(nifti_filename)
+        data_array.name = (
+            nifti_filename.with_suffix("").stem
+            if nifti_filename.suffix == ".gz"
+            else nifti_filename.stem
+        )
+
+    if scalar_time_coord is not None:
+        data_array = data_array.assign_coords(time=scalar_time_coord)
+    if slice_time_coord is not None:
+        data_array = data_array.assign_coords(slice_time=slice_time_coord)
+    time_unit = (
+        data_array.time.attrs.get("units") if "time" in data_array.coords else None
+    )
+    for key in _PROCESSING_TIME_FIELDS:
+        value = data_array.attrs.get(key)
+        if isinstance(value, int | float | np.integer | np.floating):
+            data_array.attrs[key] = float(convert_time_units(value, "ms", time_unit))
+    return data_array
 
 
 def load_nifti(
@@ -1313,130 +1619,12 @@ def load_nifti(
         )
     path = check_path(path, type="file")
 
-    img, extractor = _load_nifti_with_nibabel(path)
-
-    attrs = extractor.to_attrs()
-    attrs.update(_load_nifti_sidecar(path))
-
-    # img.dataobj is a nibabel ArrayProxy, which already exposes .shape, .dtype, and
-    # numpy-style __getitem__ slicing (applying any slope/intercept scaling lazily per
-    # chunk). Passing it to da.from_array directly keeps the array lazy; converting it
-    # through np.asanyarray first would force it into a concrete numpy.memmap, which
-    # da.from_array then copies while building the graph.
-    # NIfTI stores data with shape (x, y, z, time) in column-major order. ArrayProxy has
-    # no .T, so we build the Dask array in that native order and transpose afterward
-    # (a metadata-only Dask op) to reach ConfUSIus order (time, k, j, i).
-    from nibabel.arrayproxy import ArrayProxy
-
-    proxy = img.dataobj
-    assert isinstance(proxy, ArrayProxy)
-    dask_arr = da.from_array(
-        proxy,
-        chunks=_reverse_chunk_spec(chunks, proxy.ndim),
-        asarray=False,
-        name=False,
-        meta=np.empty((), dtype=proxy.dtype),
-    ).T
-
-    # NIfTI dim order is (i, j, k, time, ...); ConfUSIus order is the reverse.
-    nifti_dims = _NIFTI_DIM_ORDER[: dask_arr.ndim]
-
-    # Apply sidecar names to the anonymous extra NIfTI axes (`dim4`, `dim5`, `dim6`) so
-    # downstream code sees semantic dim names instead of placeholders. Names colliding
-    # with a reserved canonical spatial name (k/j/i/z/y/x) are rejected with a warning.
-    nifti_dims, extra_coord_values, extra_coord_attrs = _resolve_nifti_extra_dims(
-        nifti_dims, attrs
-    )
-    _pop_extra_dim_attrs(attrs)
-
-    voxel_to_world, units, affine_attrs = _resolve_spatial_geometry_from_nifti(
-        img=img,
-        extractor=extractor,
-        dims=nifti_dims,
+    return convert_from_nifti(
+        _load_nifti_with_nibabel(path),
+        chunks,
         coordinate_affine=coordinate_affine,
+        sidecar=_load_nifti_sidecar(path),
     )
-    # Merge NIfTI-header-derived affines with any pre-existing affines (e.g. loaded
-    # from the sidecar) so sidecar entries like `bspline_initialization` are not
-    # clobbered by the qform/sform keys coming from the file header.
-    if "affines" in attrs and "affines" in affine_attrs:
-        affine_attrs["affines"] = {**attrs["affines"], **affine_attrs["affines"]}
-    attrs.update(affine_attrs)
-
-    extra_coords = _build_extra_dim_coords(
-        nifti_dims,
-        extra_coord_values,
-        extra_coord_attrs,
-        np.asarray(img.header.structarr["pixdim"], dtype=float),
-        tuple(int(s) for s in img.shape),
-    )
-
-    has_extra_dims = any(dim not in VOXEL_DIMS and dim != "time" for dim in nifti_dims)
-    has_explicit_time_metadata = any(key in attrs for key in _TEMPORAL_METADATA_KEYS)
-
-    # `time_coord` feeds `create_voxeldata`'s `time=` parameter and is only
-    # meaningful when `time` is a real dimension; `scalar_time_coord` and
-    # `slice_time_coord` are non-dimension coordinates attached after the fact
-    # (a scalar `time` has no dimension of its own, and `slice_time` is not one
-    # of `create_voxeldata`'s recognized coordinates).
-    time_coord: xr.DataArray | None = None
-    scalar_time_coord: xr.DataArray | None = None
-    slice_time_coord: xr.DataArray | None = None
-    if "time" in nifti_dims:
-        temporal_coords, attrs = _create_temporal_coords_from_nifti(
-            img=img, extractor=extractor, attrs=attrs
-        )
-        time_coord = temporal_coords["time"]
-        slice_time_coord = temporal_coords.get("slice_time")
-    else:
-        scalar_temporal_coords, attrs = _create_scalar_temporal_coords_from_nifti(
-            extractor=extractor, attrs=attrs
-        )
-        scalar_time_coord = scalar_temporal_coords.get("time")
-        slice_time_coord = scalar_temporal_coords.get("slice_time")
-
-    nifti_name = path.with_suffix("").stem if path.suffix == ".gz" else path.stem
-
-    # Build the canonical array in one `create_voxeldata` call, regardless of
-    # how many spatial dims are actually present -- it pads any missing k/j/i to a
-    # singleton itself, so every loaded array ends up indexed, never a bare
-    # DataArray. The singleton-squeeze must happen first, directly on the Dask array
-    # and dims bookkeeping, since `create_voxeldata` validates immediately on
-    # construction and cannot accept a synthetic singleton `time` axis.
-    create_dims = list(nifti_dims[::-1])
-    create_data = dask_arr
-    if (
-        "time" in create_dims
-        and dask_arr.shape[create_dims.index("time")] == 1
-        and has_extra_dims
-        and not has_explicit_time_metadata
-    ):
-        time_axis = create_dims.index("time")
-        create_data = create_data.squeeze(axis=time_axis)
-        create_dims.pop(time_axis)
-        time_coord = None
-
-    data_array = create_voxeldata(
-        create_data,
-        dims=create_dims,
-        time=time_coord,
-        extra_coords=extra_coords,
-        voxel_to_world=voxel_to_world,
-        units=units,
-        attrs=attrs,
-        name=nifti_name,
-    )
-    if scalar_time_coord is not None:
-        data_array = data_array.assign_coords(time=scalar_time_coord)
-    if slice_time_coord is not None:
-        data_array = data_array.assign_coords(slice_time=slice_time_coord)
-    time_unit = (
-        data_array.time.attrs.get("units") if "time" in data_array.coords else None
-    )
-    for key in _PROCESSING_TIME_FIELDS:
-        value = data_array.attrs.get(key)
-        if isinstance(value, int | float | np.integer | np.floating):
-            data_array.attrs[key] = float(convert_time_units(value, "ms", time_unit))
-    return data_array
 
 
 def _infer_repetition_time(
@@ -1510,7 +1698,9 @@ def _infer_frame_acquisition_duration(
     return None
 
 
-def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, Any]:
+def _extract_nifti_slice_timing_metadata(
+    data_array: xr.DataArray, volume_onsets_seconds: npt.NDArray[np.floating] | None
+) -> dict[str, Any]:
     """Extract BIDS slice timing metadata from a `slice_time` coordinate.
 
     `SliceTiming` is exported from either:
@@ -1526,6 +1716,8 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
     ----------
     data_array : xarray.DataArray
         DataArray containing a `slice_time` coordinate with absolute timestamps.
+    volume_onsets_seconds : numpy.ndarray, optional
+        Volume onsets computed from the time coordinate and acquisition duration.
 
     Returns
     -------
@@ -1538,154 +1730,53 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
         return {}
 
     slice_time_coord = data_array.coords["slice_time"]
-    if len(slice_time_coord.dims) == 1:
-        spatial_dim = slice_time_coord.dims[0]
-        if spatial_dim not in VOXEL_DIMS:
-            return {}
-
-        if "time" not in data_array.coords:
-            warnings.warn(
-                "Cannot infer onset-relative SliceTiming from a 1D `slice_time` "
-                "coordinate without a `time` coordinate. Omitting BIDS SliceTiming "
-                "export.",
-                stacklevel=find_stack_level(),
-            )
-            return {}
-
-        time_values_seconds = np.atleast_1d(
-            convert_time_units(
-                data_array.coords["time"].values,
-                data_array.coords["time"].attrs.get("units"),
-                "s",
-                raise_on_unknown=True,
-            )
-        )
-        if time_values_seconds.size != 1:
-            warnings.warn(
-                "A 1D `slice_time` coordinate can only be exported when `time` is "
-                "scalar. Use a 2D `(time, spatial_dim)` coordinate for time series "
-                "data. Omitting BIDS SliceTiming export.",
-                stacklevel=find_stack_level(),
-            )
-            return {}
-
-        frame_acquisition_duration = _infer_frame_acquisition_duration(
-            data_array.coords["time"].attrs,
-            time_values_seconds,
-        )
-        time_reference = _get_volume_acquisition_reference(
-            data_array.coords["time"].attrs,
-            coord_name="time",
-        )
-        if frame_acquisition_duration is None:
-            warnings.warn(
-                "Cannot infer frame acquisition duration for a 1D `slice_time` "
-                "coordinate. Omitting BIDS SliceTiming export.",
-                stacklevel=find_stack_level(),
-            )
-            return {}
-
-        volume_onset_seconds = float(
-            convert_time_reference(
-                time_values_seconds,
-                frame_acquisition_duration,
-                from_reference=time_reference,
-                to_reference="start",
-            )[0]
-        )
-        slice_time_seconds = convert_time_units(
-            slice_time_coord.values,
-            slice_time_coord.attrs.get("units"),
-            "s",
-            raise_on_unknown=True,
-        )
-        slice_duration = slice_time_coord.attrs.get("volume_acquisition_duration")
-        slice_reference = slice_time_coord.attrs.get(
-            "volume_acquisition_reference", "start"
-        )
-        if isinstance(slice_duration, int | float) and slice_duration > 0:
-            slice_time_seconds = convert_time_reference(
-                slice_time_seconds,
-                float(slice_duration),
-                from_reference=slice_reference,
-                to_reference="start",
-            )
-
-        return {
-            "SliceTiming": (slice_time_seconds - volume_onset_seconds).tolist(),
-            "SliceEncodingDirection": spatial_dim,
-        }
-
-    if len(slice_time_coord.dims) != 2 or "time" not in slice_time_coord.dims:
-        warnings.warn(
-            "`slice_time` must be either a 2D coordinate with dims `(time, "
-            "spatial_dim)` or a 1D spatial coordinate paired with scalar `time` to "
-            "be exported as BIDS SliceTiming. Omitting SliceTiming export.",
-            stacklevel=find_stack_level(),
-        )
-        return {}
-
+    ndim = slice_time_coord.ndim
     spatial_dims = [dim for dim in slice_time_coord.dims if dim != "time"]
     if len(spatial_dims) != 1 or spatial_dims[0] not in VOXEL_DIMS:
         return {}
-
     if "time" not in data_array.coords:
         warnings.warn(
-            "Cannot infer onset-relative SliceTiming from a 2D `slice_time` "
-            "coordinate without a `time` coordinate. Omitting BIDS SliceTiming export.",
+            "Cannot infer onset-relative SliceTiming without a `time` coordinate.",
             stacklevel=find_stack_level(),
         )
         return {}
-
-    time_values_seconds = convert_time_units(
-        data_array.coords["time"].values,
-        data_array.coords["time"].attrs.get("units"),
-        "s",
-        raise_on_unknown=True,
-    )
-    frame_acquisition_duration = _infer_frame_acquisition_duration(
-        data_array.coords["time"].attrs,
-        time_values_seconds,
-    )
-    time_reference = _get_volume_acquisition_reference(
-        data_array.coords["time"].attrs,
-        coord_name="time",
-    )
-    if frame_acquisition_duration is None:
+    if volume_onsets_seconds is None:
         warnings.warn(
-            "Cannot infer frame acquisition duration for a 2D `slice_time` "
+            f"Cannot infer frame acquisition duration for a {ndim}D `slice_time` "
             "coordinate. Omitting BIDS SliceTiming export.",
             stacklevel=find_stack_level(),
         )
         return {}
+    if ndim == 1:
+        if volume_onsets_seconds.size != 1:
+            warnings.warn(
+                "A 1D `slice_time` coordinate requires a scalar `time` for export.",
+                stacklevel=find_stack_level(),
+            )
+            return {}
+        # Treat a snapshot as a one-volume series for the onset conversion.
+        slice_time_coord = slice_time_coord.expand_dims("time")
 
-    volume_onsets_seconds = convert_time_reference(
-        time_values_seconds,
-        frame_acquisition_duration,
-        from_reference=time_reference,
-        to_reference="start",
-    )
-    slice_time_seconds = convert_time_units(
-        slice_time_coord.transpose("time", spatial_dims[0]).values,
-        slice_time_coord.attrs.get("units"),
-        "s",
-        raise_on_unknown=True,
-    )
+    slice_values = slice_time_coord.values
     slice_duration = slice_time_coord.attrs.get("volume_acquisition_duration")
-    slice_reference = slice_time_coord.attrs.get(
-        "volume_acquisition_reference", "start"
-    )
     if isinstance(slice_duration, int | float) and slice_duration > 0:
-        slice_time_seconds = convert_time_reference(
-            slice_time_seconds,
-            float(slice_duration),
-            from_reference=slice_reference,
+        # Apply the reference offset while timestamps and duration share native units.
+        slice_values = convert_time_reference(
+            slice_values,
+            slice_duration,
+            from_reference=slice_time_coord.attrs.get(
+                "volume_acquisition_reference", "start"
+            ),
             to_reference="start",
         )
     slice_time_seconds_coord = xr.DataArray(
-        slice_time_seconds,
-        dims=("time", spatial_dims[0]),
-        attrs={"units": "s"},
+        convert_time_units(
+            slice_values,
+            slice_time_coord.attrs.get("units"),
+            "s",
+            raise_on_unknown=True,
+        ),
+        dims=slice_time_coord.dims,
     )
     try:
         slice_timing, slice_encoding_direction = (
@@ -1841,7 +1932,7 @@ def _prepare_data_for_nifti(
 
     data = np.transpose(data, target_order)
 
-    # save_nifti always canonicalizes data_array via ensure_voxeldata first, which
+    # convert_to_nifti canonicalizes data_array via ensure_voxeldata first, which
     # restores any voxel dim fixed away by a prior scalar isel, so k/j/i are always
     # present here.
     has_time_axis = "time" in current_dims or bool(extras)
@@ -1857,10 +1948,8 @@ def _prepare_data_for_nifti(
 def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
     """Return signed spatial spacings for NIfTI header serialization.
 
-    `data_array` is always a VoxelData array here: `save_nifti`
-    (the only caller)
-    calls `ensure_voxeldata` before reaching this point, so spacing always comes from the
-    `VoxelToWorldIndex` -- there is no plain-coordinate fallback to consider.
+    `convert_to_nifti` calls `ensure_voxeldata` before reaching this point, so
+    spacing always comes from the `VoxelToWorldIndex`.
 
     Parameters
     ----------
@@ -1899,6 +1988,7 @@ def _build_nifti_timing_metadata(
     """
     timing_metadata: dict[str, Any] = {}
     tr_pixdim: float | None = None
+    volume_onsets_seconds = None
 
     if "time" in data_array.coords:
         time_values_raw = data_array.coords["time"].values
@@ -1932,6 +2022,9 @@ def _build_nifti_timing_metadata(
                 to_reference="start",
             )
 
+        if frame_acquisition_duration is not None:
+            volume_onsets_seconds = time_values_seconds
+
         tr_spacing, delay = _infer_repetition_time(time_values_seconds)
         delay_time = (
             tr_spacing - frame_acquisition_duration
@@ -1954,7 +2047,7 @@ def _build_nifti_timing_metadata(
         elif tr_spacing is not None:
             tr_pixdim = tr_spacing
             timing_metadata["RepetitionTime"] = tr_spacing
-            if not np.isclose(delay, 0.0):
+            if delay != 0.0:
                 timing_metadata["DelayAfterTrigger"] = delay
             if (
                 delay_time is not None
@@ -1976,7 +2069,9 @@ def _build_nifti_timing_metadata(
             if frame_acquisition_duration is not None:
                 timing_metadata["FrameAcquisitionDuration"] = frame_acquisition_duration
 
-    timing_metadata.update(_extract_nifti_slice_timing_metadata(data_array))
+    timing_metadata.update(
+        _extract_nifti_slice_timing_metadata(data_array, volume_onsets_seconds)
+    )
 
     return timing_metadata, tr_pixdim
 
@@ -2070,9 +2165,8 @@ def _build_nifti_voxel_to_world_affine(
     replacing each voxel dim's coordinate with `0, 1, ..., dim - 1`. Its own
     validation raises for irregular coordinates, but with a generic message, so
     that case is checked explicitly first for a clear NIfTI-specific error. An
-    empty voxel coordinate needs no such check here: `save_nifti` validates `data_array`
-    via `ensure_voxeldata` before calling this, which already rejects zero-length
-    dimensions.
+    empty voxel coordinate needs no such check here: `convert_to_nifti` calls
+    `ensure_voxeldata` first, which already rejects zero-length dimensions.
     """
     voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data_array.dims)
     for dim in voxel_dims:
@@ -2423,11 +2517,6 @@ def _create_nifti_image(
     else:
         nifti_img.header.set_qform(None, code=0)
 
-    if sform_affine is not None:
-        nifti_img.header.set_sform(sform_affine, code=resolved_sform_code)
-    else:
-        nifti_img.header.set_sform(None, code=0)
-
     # When qform is disabled (for example because the coordinate-defining affine
     # contains shear and was promoted to sform), keep the header voxel sizes tied to
     # the coordinate spacing we chose for serialization. Do not do this when qform is
@@ -2437,6 +2526,10 @@ def _create_nifti_image(
             np.abs(spacings[:3]), dtype=np.float32
         )
 
+    # Sync img.affine with the final header, including its fallback when both
+    # codes are zero. Otherwise NiBabel may recreate an sform during serialization.
+    nifti_img.set_sform(sform_affine, code=resolved_sform_code)
+
     space_unit_nib = _CONFUSIUS_TO_NIFTI_SPACE_UNITS.get(
         get_voxel_to_world_units(data_array)
     )
@@ -2444,6 +2537,140 @@ def _create_nifti_image(
         nifti_img.header.set_xyzt_units(xyz=space_unit_nib, t="sec")
 
     return nifti_img
+
+
+def convert_to_nifti(
+    data_array: xr.DataArray,
+    nifti_version: NiftiVersion = 1,
+    *,
+    qform: str | None = None,
+    sform: str | None = None,
+    qform_code: int | None = None,
+    sform_code: int | None = None,
+    copy: bool = False,
+) -> tuple["nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image", dict[str, Any]]:
+    """Convert a VoxelData array to a NiBabel NIfTI image and fUSI-BIDS metadata.
+
+    This is the no-file-I/O counterpart to `save_nifti`: it builds the same NIfTI
+    header geometry, dtype, and pixdim as `save_nifti`, but returns the
+    `nibabel.Nifti1Image`/`nibabel.Nifti2Image` object directly instead of writing a
+    file and a BIDS JSON sidecar. Useful for interoperating with libraries such as
+    `nilearn` that expect NIfTI image objects rather than file paths. The returned
+    metadata carries sidecar-only information such as `SliceTiming` and extra-dimension
+    names. Pass it as `sidecar` to `convert_from_nifti` to preserve that information.
+
+    Parameters
+    ----------
+    data_array : xarray.DataArray
+        VoxelData array to convert.
+    nifti_version : {1, 2}, default: 1
+        NIfTI format version to use. Version 2 is a simple extension to support
+        larger files and arrays with dimension sizes greater than 32,767.
+    qform : str, optional
+        Key in `data_array.attrs["affines"]` to write into the NIfTI qform. When not
+        provided, `"world_to_qform"` is used if present; otherwise qform falls back
+        to the coordinate-defining voxel geometry (`voxel_to_world`) directly.
+
+        If the coordinate-defining affine contains shear, qform writing is disabled
+        because the NIfTI qform cannot represent shear. In that case, the geometry is
+        written to sform instead.
+    sform : str, optional
+        Key in `data_array.attrs["affines"]` to write into the NIfTI sform. When not
+        provided, `"world_to_sform"` is used if present; otherwise sform also falls
+        back to `voxel_to_world` directly (like qform), unless disabled via
+        `sform_code=0` or `attrs["sform_code"] = 0`.
+    qform_code : int, optional
+        NIfTI qform code to write. When provided, takes precedence over
+        `data_array.attrs["qform_code"]`. When not provided, the value from
+        `attrs["qform_code"]` is used if present; otherwise defaults to `2`
+        (`NIFTI_XFORM_ALIGNED_ANAT`).
+    sform_code : int, optional
+        NIfTI sform code to write. When provided, takes precedence over
+        `data_array.attrs["sform_code"]`. When not provided, the value from
+        `attrs["sform_code"]` is used if present; otherwise defaults to `2`
+        (`NIFTI_XFORM_ALIGNED_ANAT`).
+    copy : bool, default: False
+        Whether to copy the data into the returned image. If not copied, the image's
+        data shares memory with a NumPy-backed `data_array`, so editing it in place
+        (e.g. through `img.dataobj` or `img.get_fdata()`) also modifies `data_array`.
+
+    Returns
+    -------
+    img : nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
+        In-memory NIfTI image with spacings, qform/sform, and units written to the
+        header.
+    metadata : dict[str, Any]
+        JSON-serializable sidecar metadata using fUSI-BIDS field names and units.
+
+    Raises
+    ------
+    ValueError
+        If the input is not valid VoxelData, has a `pose` dimension, exceeds NIfTI's
+        dimension limit, or requests an invalid affine or transform code.
+
+    Examples
+    --------
+    >>> import confusius as cf
+    >>> import numpy as np
+    >>> da = cf.xarray.create_voxeldata(
+    ...     np.random.rand(10, 1, 32, 64),
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.5,
+    ...     spacing=(0.4, 0.1, 0.1),
+    ... )
+    >>> img, metadata = cf.io.convert_to_nifti(da)
+    """
+    data_array = ensure_voxeldata(data_array, allow_pose=False)
+    data, has_time_axis, extra_dims = _prepare_data_for_nifti(data_array)
+    if copy:
+        # order="K" keeps the transposed view's Fortran layout, which is also NIfTI's
+        # on-disk order, instead of reordering memory into C order.
+        data = data.copy(order="K")
+    spacings = _get_spatial_spacings(data_array)
+    timing_metadata, tr_pixdim = _build_nifti_timing_metadata(data_array)
+    if has_time_axis:
+        spacings.append(tr_pixdim if tr_pixdim is not None else 0.0)
+    for dim_name in extra_dims:
+        spacing = get_coordinate_spacing_info(
+            dim_name, data_array, uniformity_tolerance=1e-2
+        )
+        spacings.append(float(spacing.value) if spacing.value is not None else 1.0)
+
+    (
+        stored_affines,
+        qform_affine,
+        sform_affine,
+        resolved_qform_code,
+        resolved_sform_code,
+        written_header_affine_keys,
+    ) = _prepare_nifti_xforms(
+        data_array,
+        qform=qform,
+        sform=sform,
+        qform_code=qform_code,
+        sform_code=sform_code,
+    )
+    nifti_img = _create_nifti_image(
+        data_array,
+        data,
+        nifti_version=nifti_version,
+        spacings=spacings,
+        qform_affine=qform_affine,
+        sform_affine=sform_affine,
+        resolved_qform_code=resolved_qform_code,
+        resolved_sform_code=resolved_sform_code,
+    )
+    sidecar_attrs = _build_nifti_sidecar_metadata(
+        data_array, timing_metadata, stored_affines, written_header_affine_keys
+    )
+    metadata = to_bids(sidecar_attrs)
+    direction = metadata.get("SliceEncodingDirection")
+    if isinstance(direction, str) and direction.removesuffix("-") in VOXEL_DIMS:
+        nifti_img.header.set_dim_info(
+            slice=_NIFTI_DIM_ORDER.index(direction.removesuffix("-"))
+        )
+    _warn_on_invalid_sidecar(metadata)
+    return nifti_img, metadata
 
 
 def save_nifti(
@@ -2539,11 +2766,11 @@ def save_nifti(
         str(path).count("{chunk}") != 1 or "{chunk}" not in path.name
     ):
         raise ValueError("Use exactly one {chunk} placeholder, in the filename.")
-    data_array = ensure_voxeldata(data_array, allow_pose=chunk_template)
     if not path.name.endswith(".nii") and not path.name.endswith(".nii.gz"):
         raise ValueError("Output file must have .nii or .nii.gz extension.")
 
     if chunk_template:
+        data_array = ensure_voxeldata(data_array)
         if "pose" not in data_array.dims:
             raise ValueError("A {chunk} filename template requires a 'pose' dimension.")
         pose_labels = data_array.coords["pose"].values
@@ -2566,75 +2793,25 @@ def save_nifti(
             )
         return
 
-    data, has_time_axis, extra_dims = _prepare_data_for_nifti(data_array)
-    spatial_spacings = _get_spatial_spacings(data_array)
-    timing_metadata, tr_pixdim = _build_nifti_timing_metadata(data_array)
-
-    spacings = spatial_spacings.copy()
-    if has_time_axis:
-        temporal_spacing = tr_pixdim if tr_pixdim is not None else 0.0
-        spacings.append(temporal_spacing)
-    for dim_name in extra_dims:
-        spacing = get_coordinate_spacing_info(
-            dim_name, data_array, uniformity_tolerance=1e-2
-        )
-        if spacing.value is not None:
-            spacings.append(float(spacing.value))
-        else:
-            spacings.append(1.0)
-
-    (
-        stored_affines,
-        qform_affine,
-        sform_affine,
-        resolved_qform_code,
-        resolved_sform_code,
-        written_header_affine_keys,
-    ) = _prepare_nifti_xforms(
+    nifti_img, bids_attrs = convert_to_nifti(
         data_array,
+        nifti_version,
         qform=qform,
         sform=sform,
         qform_code=qform_code,
         sform_code=sform_code,
     )
 
-    nifti_img = _create_nifti_image(
-        data_array,
-        data,
-        nifti_version=nifti_version,
-        spacings=spacings,
-        qform_affine=qform_affine,
-        sform_affine=sform_affine,
-        resolved_qform_code=resolved_qform_code,
-        resolved_sform_code=resolved_sform_code,
-    )
-
     nifti_img.to_filename(path)
-
-    sidecar_attrs = _build_nifti_sidecar_metadata(
-        data_array, timing_metadata, stored_affines, written_header_affine_keys
-    )
 
     if path.suffix == ".gz":
         sidecar_path = path.with_suffix("").with_suffix(".json")
     else:
         sidecar_path = path.with_suffix(".json")
 
-    bids_attrs = to_bids(sidecar_attrs)
-
-    if bids_attrs:
-        try:
-            validate_metadata(bids_attrs)
-        except ValidationError as e:
-            warnings.warn(
-                f"fUSI-BIDS validation warning when saving:\n{format_validation_error(e)}",
-                stacklevel=find_stack_level(),
-            )
-        except Exception as e:  # noqa: BLE001
-            warnings.warn(
-                f"fUSI-BIDS validation warning when saving: {e}",
-                stacklevel=find_stack_level(),
-            )
+    parsed = _parse_bids_entities(path)
+    if parsed is not None and "chunk" in parsed[0] and "RepetitionTime" in bids_attrs:
+        bids_attrs.setdefault("DelayAfterTrigger", 0.0)
 
     with open(sidecar_path, "w") as f:
         json.dump(bids_attrs, f, indent=2)
