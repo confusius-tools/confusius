@@ -1074,7 +1074,7 @@ def process_iq_blocks(
     process_func : callable
         Function accepting one `(window_volumes, k, j, i)` NumPy array and
         returning a NumPy array with `output_shape` and `output_dtype`. Configure
-        additional callback arguments with `functools.partial`.
+        additional callback arguments with [`functools.partial`][functools.partial].
     output_shape : tuple[int, ...]
         Fixed shape returned by one callback on one temporal window. The leading
         axis is output time: `(2, k, j, i)` produces two time points per window;
