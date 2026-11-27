@@ -88,26 +88,6 @@ Attributes: (12/24)
     transmit_voltage:                    25.0
 ```
 
-
-## Sample beamformed IQ
-
-[`fetch_sample_beamformed_iq`][confusius.datasets.fetch_sample_beamformed_iq] opens a
-Landemard et al. (2026) recording lazily from the collection:
-
-```python
-from confusius.datasets import fetch_sample_beamformed_iq
-
-iq = fetch_sample_beamformed_iq()
-segment = iq.isel(time=slice(0, 300)).compute()
-```
-
-Release metadata is cached like other datasets; use `refresh=True` to check for a
-newer release. Opening the store still requires network access, and IQ chunks are
-not cached locally. Only the chunks needed by a computation are transferred.
-Repeated reads may download
-the same chunks again; computing the entire array transfers the full recording.
-The recording is licensed under CC BY-NC 4.0.
-
 ## Datasets Storage
 
 ConfUSIus resolves the cache directory using the following priority chain:
@@ -448,6 +428,26 @@ release does not reread or download files whose recorded SHA-256 matches the rem
 manifest. If an upstream hash changes or the cached hash is unknown, the file is
 revalidated and downloaded when necessary. The same release-selection behavior
 applies to template fetchers.
+
+## Available Samples
+
+=== "Beamformed IQ (Landemard 2026)"
+
+    [`fetch_sample_beamformed_iq`][confusius.datasets.fetch_sample_beamformed_iq]
+    opens a Landemard et al. (2026) recording lazily from the collection:
+
+    ```python
+    from confusius.datasets import fetch_sample_beamformed_iq
+
+    iq = fetch_sample_beamformed_iq()
+    segment = iq.isel(time=slice(0, 300)).compute()
+    ```
+
+    Release metadata is cached like other datasets; use `refresh=True` to check for
+    a newer release. Opening the store still requires network access, and IQ chunks
+    are not cached locally. Only the chunks needed by a computation are transferred.
+    Repeated reads may download the same chunks again; computing the entire array
+    transfers the full recording. The recording is licensed under CC BY-NC 4.0.
 
 ## Available Templates
 
