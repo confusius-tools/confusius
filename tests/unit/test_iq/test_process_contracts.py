@@ -490,6 +490,61 @@ def test_butterworth_cutoff_order_raises_before_iq_execution(
         )
 
 
+@pytest.mark.parametrize(
+    "process", [process_iq_to_power_doppler, process_iq_to_axial_velocity]
+)
+@pytest.mark.parametrize(
+    "kwargs,message",
+    [
+        ({"low_cutoff": 1, "high_cutoff": 99}, "Cutoffs must satisfy"),
+        ({"low_cutoff": 1.5}, "Cutoffs must be integers"),
+        (
+            {"filter_method": "svd_energy", "low_cutoff": -1.0},
+            "Low cutoff must be non-negative",
+        ),
+        (
+            {"filter_method": "svd_cumulative_energy", "high_cutoff": -1.0},
+            "High cutoff must be non-negative",
+        ),
+        (
+            {"filter_method": "svd_energy", "low_cutoff": 2.0, "high_cutoff": 1.0},
+            "must be lower than high cutoff",
+        ),
+        (
+            {
+                "filter_method": "butterworth",
+                "low_cutoff": 1.0,
+                "clutter_window_width": 5,
+            },
+            "padlen",
+        ),
+    ],
+)
+def test_invalid_filter_settings_raise_before_iq_execution(
+    sample_voxeldata_iq_dataarray, process, kwargs, message
+):
+    """Settings a clutter filter rejects fail at the call, not at compute."""
+    iq = sample_voxeldata_iq_dataarray.chunk({"time": 10})
+    with (
+        Callback(pretask=lambda *args: pytest.fail("IQ executed for invalid settings")),
+        pytest.raises(ValueError, match=message),
+    ):
+        process(iq, **kwargs)
+
+
+@pytest.mark.parametrize("spatial_kernel", [0, (3, 3), (3, 0, 3)])
+def test_invalid_spatial_kernel_raises_before_iq_execution(
+    sample_voxeldata_iq_dataarray, spatial_kernel
+):
+    """Velocity smoothing kernels are validated without executing IQ tasks."""
+    iq = sample_voxeldata_iq_dataarray.chunk({"time": 10})
+    with (
+        Callback(pretask=lambda *args: pytest.fail("IQ executed for invalid kernel")),
+        pytest.raises(ValueError, match="spatial_kernel"),
+    ):
+        process_iq_to_axial_velocity(iq, spatial_kernel=spatial_kernel)
+
+
 @pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
 @pytest.mark.parametrize(
     "method", ["svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"]

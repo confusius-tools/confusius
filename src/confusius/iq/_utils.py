@@ -34,6 +34,93 @@ def validate_filter_frequency(freq: float, nyquist: float) -> float:
     return freq
 
 
+def validate_svd_index_cutoffs(
+    low_cutoff: float | None, high_cutoff: float | None, max_components: int
+) -> tuple[int, int]:
+    """Validate static SVD cutoffs against the number of available components.
+
+    Parameters
+    ----------
+    low_cutoff : int, optional
+        Index of the first retained singular vector. If not provided, `0`.
+    high_cutoff : int, optional
+        Index after the last retained singular vector. If not provided,
+        `max_components`.
+    max_components : int
+        Number of singular vectors, the smaller of the window width and the number
+        of voxels used to estimate them.
+
+    Returns
+    -------
+    low_cutoff : int
+        Validated low cutoff.
+    high_cutoff : int
+        Validated high cutoff.
+
+    Raises
+    ------
+    ValueError
+        If a cutoff is not an integer, or the cutoffs do not satisfy
+        `0 <= low_cutoff < high_cutoff <= max_components`.
+    """
+    if low_cutoff is None:
+        low_cutoff = 0
+    if high_cutoff is None:
+        high_cutoff = max_components
+
+    if not isinstance(low_cutoff, int) or not isinstance(high_cutoff, int):
+        raise ValueError("Cutoffs must be integers")  # noqa: TRY004
+    if not (0 <= low_cutoff < high_cutoff <= max_components):
+        raise ValueError(
+            f"Cutoffs must satisfy 0 <= low_cutoff ({low_cutoff}) < "
+            f"high_cutoff ({high_cutoff}) <= {max_components}"
+        )
+    return low_cutoff, high_cutoff
+
+
+def validate_energy_cutoffs(
+    low_cutoff: float | None, high_cutoff: float | None
+) -> tuple[float, float]:
+    """Validate energy-based SVD cutoffs and fill in their defaults.
+
+    Parameters
+    ----------
+    low_cutoff : int or float, optional
+        Lower energy threshold. Components with energy below this value are treated as
+        clutter. If not provided, `0.0`.
+    high_cutoff : int or float, optional
+        Upper energy threshold. Components with energy above this value are treated as
+        clutter. If not provided, `numpy.inf`.
+
+    Returns
+    -------
+    low_cutoff : float
+        Validated lower cutoff value (non-negative).
+    high_cutoff : float
+        Validated upper cutoff value (greater than `low_cutoff`).
+
+    Raises
+    ------
+    ValueError
+        If a cutoff is negative, or `low_cutoff` is greater than or equal to
+        `high_cutoff`.
+    """
+    if low_cutoff is not None and low_cutoff < 0:
+        raise ValueError("Low cutoff must be non-negative.")
+    if high_cutoff is not None and high_cutoff < 0:
+        raise ValueError("High cutoff must be non-negative.")
+
+    low_cutoff = low_cutoff if low_cutoff is not None else 0.0
+    high_cutoff = high_cutoff if high_cutoff is not None else np.inf
+
+    if low_cutoff >= high_cutoff:
+        raise ValueError(
+            f"Low cutoff ({low_cutoff}) must be lower than high cutoff ({high_cutoff})."
+        )
+
+    return low_cutoff, high_cutoff
+
+
 def resolve_iq_window(
     n_volumes: int,
     width: int | np.integer | None,
@@ -132,15 +219,20 @@ def get_clutter_filtered_dtype(
     Raises
     ------
     ValueError
-        If `filter_method` is unknown or an SVD mask selects no voxels.
+        If `filter_method` is unknown, an SVD mask selects no voxels, or the SVD
+        cutoffs are ones the filter would reject.
     """
     if filter_method != "butterworth" and n_voxels < 1:
         raise ValueError("clutter_mask must select at least one voxel.")
     if filter_method == "svd_indices":
         max_components = min(window_width, n_voxels)
-        no_op = low_cutoff in (None, 0) and high_cutoff in (None, max_components)
+        low_cutoff, high_cutoff = validate_svd_index_cutoffs(
+            low_cutoff, high_cutoff, max_components
+        )
+        no_op = low_cutoff == 0 and high_cutoff == max_components
     elif filter_method in ("svd_energy", "svd_cumulative_energy"):
-        no_op = low_cutoff in (None, 0) and high_cutoff in (None, np.inf)
+        low_cutoff, high_cutoff = validate_energy_cutoffs(low_cutoff, high_cutoff)
+        no_op = low_cutoff == 0 and high_cutoff == np.inf
     elif filter_method == "butterworth":
         no_op = low_cutoff is None and high_cutoff is None
     else:

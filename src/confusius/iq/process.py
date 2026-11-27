@@ -19,7 +19,6 @@ from confusius.iq._utils import (
     ensure_iq_voxeldata,
     get_clutter_filtered_dtype,
     resolve_iq_window,
-    validate_filter_frequency,
 )
 from confusius.iq.clutter_filters import (
     clutter_filter_butterworth,
@@ -194,8 +193,9 @@ def _get_filter_sampling_frequency(
     window_stride: int,
     low_cutoff: float | None,
     high_cutoff: float | None,
+    butterworth_order: int,
 ) -> float | None:
-    """Return a sampling frequency, validating Butterworth windows and cutoffs.
+    """Return a sampling frequency, validating Butterworth windows and settings.
 
     Parameters
     ----------
@@ -209,6 +209,8 @@ def _get_filter_sampling_frequency(
         Clutter window stride in volumes.
     low_cutoff, high_cutoff : float, optional
         Filter cutoff frequencies, when using Butterworth filtering.
+    butterworth_order : int
+        Filter order, when using Butterworth filtering.
 
     Returns
     -------
@@ -219,7 +221,8 @@ def _get_filter_sampling_frequency(
     ------
     ValueError
         If Butterworth windows are not regularly sampled at one shared rate within
-        a 1% relative tolerance, or their cutoff frequencies are invalid.
+        a 1% relative tolerance, their cutoff frequencies or order are invalid, or
+        they are too short for the filter's edge padding.
     """
     if filter_method == "butterworth":
         times = iq.coords["time"].values * get_time_coord_to_seconds_factor(iq)
@@ -240,18 +243,16 @@ def _get_filter_sampling_frequency(
         time_step, _ = get_representative_time_step(iq, unit="s")
     fs = None if time_step is None else 1.0 / time_step
     if filter_method == "butterworth" and fs is not None:
-        if (
-            low_cutoff is not None
-            and high_cutoff is not None
-            and high_cutoff <= low_cutoff
-        ):
-            raise ValueError(
-                f"High cutoff frequency ({high_cutoff}) must be greater than "
-                f"low cutoff frequency ({low_cutoff})"
-            )
-        for cutoff in (low_cutoff, high_cutoff):
-            if cutoff is not None:
-                validate_filter_frequency(cutoff, fs / 2)
+        # Filtering one empty window makes the filter itself reject invalid cutoffs,
+        # an invalid order, or a window too short for its edge padding, without
+        # reading IQ samples.
+        clutter_filter_butterworth(
+            np.zeros((window_width, 1, 1, 1), dtype=np.complex64),
+            fs=fs,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,
+            order=butterworth_order,
+        )
     return fs
 
 
@@ -1406,6 +1407,7 @@ def process_iq_to_power_doppler(
             window_stride=clutter_window_stride,
             low_cutoff=low_cutoff,
             high_cutoff=high_cutoff,
+            butterworth_order=butterworth_order,
         )
 
     result = process_iq_blocks(
@@ -1740,6 +1742,9 @@ def process_iq_to_axial_velocity(
         else int(np.prod(dask_iq.shape[1:])),
     )
     lag = _validate_velocity_lag(lag, velocity_window_width)
+    # `compute_axial_velocity_volume` normalizes the kernel per block; this call only
+    # rejects invalid sizes before any IQ is read.
+    _normalize_spatial_kernel(spatial_kernel)
 
     fs = _get_filter_sampling_frequency(
         iq,
@@ -1748,6 +1753,7 @@ def process_iq_to_axial_velocity(
         window_stride=clutter_window_stride,
         low_cutoff=low_cutoff,
         high_cutoff=high_cutoff,
+        butterworth_order=butterworth_order,
     )
 
     # Validation ensures these attributes exist, so we can safely access them here.

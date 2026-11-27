@@ -8,7 +8,9 @@ import numpy.typing as npt
 from confusius.iq._utils import (
     ensure_iq_voxeldata,
     resolve_iq_window,
+    validate_energy_cutoffs,
     validate_filter_frequency,
+    validate_svd_index_cutoffs,
 )
 from confusius.validation import ensure_voxeldata, validate_mask
 
@@ -246,18 +248,9 @@ def clutter_filter_svd_from_indices(
         return block
 
     max_components = cast(int, min(masked_signals.shape))
-    if low_cutoff is None:
-        low_cutoff = 0
-    if high_cutoff is None:
-        high_cutoff = max_components
-
-    if not isinstance(low_cutoff, int) or not isinstance(high_cutoff, int):
-        raise ValueError("Cutoffs must be integers")  # noqa: TRY004
-    if not (0 <= low_cutoff < high_cutoff <= max_components):
-        raise ValueError(
-            f"Cutoffs must satisfy 0 <= low_cutoff ({low_cutoff}) < "
-            f"high_cutoff ({high_cutoff}) <= {max_components}"
-        )
+    low_cutoff, high_cutoff = validate_svd_index_cutoffs(
+        low_cutoff, high_cutoff, max_components
+    )
 
     if low_cutoff == 0 and high_cutoff == max_components:
         return block
@@ -279,52 +272,6 @@ def clutter_filter_svd_from_indices(
     filtered_signals = _apply_clutter_filter(signals, clutter_components)
 
     return filtered_signals.reshape(block.shape)
-
-
-def _validate_energy_cutoffs(
-    low_cutoff: float | None, high_cutoff: float | None
-) -> tuple[float, float]:
-    """Validate and normalize energy-based cutoff parameters.
-
-    Checks that cutoff values are valid (non-negative) and provides sensible
-    defaults. Used by energy-based clutter filtering functions.
-
-    Parameters
-    ----------
-    low_cutoff : int or float or None
-        Lower energy threshold. Components with energy below this value are treated as
-        clutter. If `None`, defaults to `0.0`.
-    high_cutoff : int or float or None
-        Upper energy threshold. Components with energy above this value are treated as
-        clutter. If `None`, defaults to `numpy.inf`.
-
-    Returns
-    -------
-    low_cutoff : float
-        Validated lower cutoff value (positive).
-    high_cutoff : float
-        Validated upper cutoff value (greater than `low_cutoff`).
-
-    Raises
-    ------
-    ValueError
-        If cutoff values are negative, or if low_cutoff is greater than or equal to
-        high_cutoff.
-    """
-    if low_cutoff is not None and low_cutoff < 0:
-        raise ValueError("Low cutoff must be non-negative.")
-    if high_cutoff is not None and high_cutoff < 0:
-        raise ValueError("High cutoff must be non-negative.")
-
-    low_cutoff = low_cutoff if low_cutoff is not None else 0.0
-    high_cutoff = high_cutoff if high_cutoff is not None else np.inf
-
-    if low_cutoff >= high_cutoff:
-        raise ValueError(
-            f"Low cutoff ({low_cutoff}) must be lower than high cutoff ({high_cutoff})."
-        )
-
-    return low_cutoff, high_cutoff
 
 
 def clutter_filter_svd_from_energy(
@@ -401,7 +348,7 @@ def clutter_filter_svd_from_energy(
     if masked_signals.size == 0:
         return block
 
-    low_cutoff, high_cutoff = _validate_energy_cutoffs(low_cutoff, high_cutoff)
+    low_cutoff, high_cutoff = validate_energy_cutoffs(low_cutoff, high_cutoff)
 
     if low_cutoff == 0.0 and high_cutoff == np.inf:
         return block
@@ -505,7 +452,7 @@ def clutter_filter_svd_from_cumulative_energy(
     if masked_signals.size == 0:
         return block
 
-    low_cutoff, high_cutoff = _validate_energy_cutoffs(low_cutoff, high_cutoff)
+    low_cutoff, high_cutoff = validate_energy_cutoffs(low_cutoff, high_cutoff)
 
     if low_cutoff == 0.0 and high_cutoff == np.inf:
         return block
