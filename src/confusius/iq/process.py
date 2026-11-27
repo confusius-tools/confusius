@@ -2,6 +2,7 @@
 
 import warnings
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, Any, Concatenate, Literal, cast
 
 import numpy as np
@@ -9,12 +10,22 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.coordinates import get_representative_step
+from confusius._utils.filtering import (
+    design_butterworth_filter,
+    validate_sos_filter_length,
+)
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_units,
 )
 from confusius._utils.stack import find_stack_level
-from confusius.iq._utils import ensure_iq_voxeldata
+from confusius.iq._utils import (
+    ensure_iq_voxeldata,
+    get_chunked_iq_data,
+    get_clutter_filtered_dtype,
+    get_clutter_mask,
+    resolve_iq_window,
+)
 from confusius.iq.clutter_filters import (
     clutter_filter_butterworth,
     clutter_filter_svd_from_cumulative_energy,
@@ -28,7 +39,6 @@ from confusius.timing import (
     get_representative_time_step,
     get_time_coord_to_seconds_factor,
 )
-from confusius.validation import ensure_voxeldata, validate_mask
 from confusius.xarray import create_voxeldata
 
 if TYPE_CHECKING:
@@ -186,8 +196,13 @@ def _get_filter_sampling_frequency(
     ],
     window_width: int,
     window_stride: int,
+    low_cutoff: float | None,
+    high_cutoff: float | None,
+    butterworth_order: int,
+    butterworth_padtype: str | None,
+    butterworth_padlen: int | None,
 ) -> float | None:
-    """Return a sampling frequency, validating Butterworth windows at a shared rate.
+    """Return a sampling frequency, validating Butterworth windows and settings.
 
     Parameters
     ----------
@@ -199,6 +214,14 @@ def _get_filter_sampling_frequency(
         Clutter window width in volumes.
     window_stride : int
         Clutter window stride in volumes.
+    low_cutoff, high_cutoff : float, optional
+        Filter cutoff frequencies, when using Butterworth filtering.
+    butterworth_order : int
+        Filter order, when using Butterworth filtering.
+    butterworth_padtype : {"odd", "even", "constant", None}
+        Butterworth padding extension type. Pass `None` to disable padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length. If not provided, uses SciPy's default.
 
     Returns
     -------
@@ -209,7 +232,8 @@ def _get_filter_sampling_frequency(
     ------
     ValueError
         If Butterworth windows are not regularly sampled at one shared rate within
-        a 1% relative tolerance.
+        a 1% relative tolerance, their cutoff frequencies or order are invalid, or
+        they are too short for the filter's edge padding.
     """
     if filter_method == "butterworth":
         times = iq.coords["time"].values * get_time_coord_to_seconds_factor(iq)
@@ -228,7 +252,17 @@ def _get_filter_sampling_frequency(
                 )
     else:
         time_step, _ = get_representative_time_step(iq, unit="s")
-    return None if time_step is None else 1.0 / time_step
+    fs = None if time_step is None else 1.0 / time_step
+    if (
+        filter_method == "butterworth"
+        and fs is not None
+        and (low_cutoff is not None or high_cutoff is not None)
+    ):
+        sos = design_butterworth_filter(fs, low_cutoff, high_cutoff, butterworth_order)
+        validate_sos_filter_length(
+            window_width, sos, butterworth_padtype, butterworth_padlen
+        )
+    return fs
 
 
 def _summarize_window_duration(
@@ -345,6 +379,7 @@ def _compute_clutter_filter_window_metadata(
 
 def compute_processed_volume_timings(
     iq: xr.DataArray,
+    *,
     clutter_window_width: int,
     clutter_window_stride: int,
     inner_window_width: int,
@@ -457,13 +492,19 @@ def compute_processed_volume_timings(
         to_reference="start",
     )
 
-    n_outer_windows = (
-        len(iq_volume_timings) - clutter_window_width
-    ) // clutter_window_stride + 1
-
-    n_inner_windows = (
-        clutter_window_width - inner_window_width
-    ) // inner_window_stride + 1
+    clutter_window_width, clutter_window_stride, n_outer_windows = resolve_iq_window(
+        len(iq_volume_timings),
+        clutter_window_width,
+        clutter_window_stride,
+        name_prefix="clutter_",
+    )
+    inner_window_width, inner_window_stride, n_inner_windows = resolve_iq_window(
+        clutter_window_width,
+        inner_window_width,
+        inner_window_stride,
+        name_prefix="inner_",
+        limit_name="`clutter_window_width`",
+    )
 
     outer_starts = np.arange(n_outer_windows) * clutter_window_stride
     inner_offsets = np.arange(n_inner_windows) * inner_window_stride
@@ -506,6 +547,7 @@ def compute_processed_volume_timings(
 def process_iq_block_with_clutter_filter(
     block: npt.NDArray,
     process_block_func: Callable[Concatenate[npt.NDArray, ...], npt.NDArray],
+    *,
     clutter_mask: npt.NDArray | None = None,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
@@ -516,6 +558,8 @@ def process_iq_block_with_clutter_filter(
     ] = "svd_indices",
     fs: float | None = None,
     butterworth_order: int = 4,
+    butterworth_padtype: str | None = "odd",
+    butterworth_padlen: int | None = None,
     **kwargs: Any,
 ) -> npt.NDArray:
     """Process a block of IQ data into new volumes using clutter filtering.
@@ -576,6 +620,11 @@ def process_iq_block_with_clutter_filter(
         When using the Butterworth clutter filter, the sampling frequency, in hertz.
     butterworth_order : int, default: 4
         When using the Butterworth clutter filter, the order of the filter.
+    butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+        Butterworth padding extension type. Pass `None` to disable padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
     **kwargs
         Additional keyword arguments passed to `process_block_func`.
 
@@ -595,10 +644,9 @@ def process_iq_block_with_clutter_filter(
     if block.ndim != 4:
         raise ValueError(f"'block' must be 4D, got {block.ndim}D")
 
-    if window_width is None:
-        window_width = block.shape[0]
-    if window_stride is None:
-        window_stride = window_width
+    window_width, window_stride, _ = resolve_iq_window(
+        block.shape[0], window_width, window_stride
+    )
 
     if filter_method == "butterworth":
         if low_cutoff is None and high_cutoff is None:
@@ -615,6 +663,8 @@ def process_iq_block_with_clutter_filter(
                 low_cutoff=low_cutoff,
                 high_cutoff=high_cutoff,
                 order=butterworth_order,
+                padtype=butterworth_padtype,
+                padlen=butterworth_padlen,
             )
     elif filter_method == "svd_indices":
         if not (
@@ -666,6 +716,7 @@ def process_iq_block_with_clutter_filter(
 
 def compute_power_doppler_volume(
     block: npt.NDArray,
+    *,
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
@@ -674,6 +725,8 @@ def compute_power_doppler_volume(
     high_cutoff: float | None = None,
     fs: float | None = None,
     butterworth_order: int = 4,
+    butterworth_padtype: str | None = "odd",
+    butterworth_padlen: int | None = None,
     doppler_window_width: int | None = None,
     doppler_window_stride: int | None = None,
 ) -> npt.NDArray:
@@ -712,6 +765,11 @@ def compute_power_doppler_volume(
     butterworth_order : int, default: 4
         Order of Butterworth filter. Effective order is doubled due to forward-backward
         filtering.
+    butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+        Butterworth padding extension type. Pass `None` to disable padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
     doppler_window_width : int, optional
         Width of the sliding temporal window for power Doppler integration, in volumes.
         If not provided, uses all available volumes.
@@ -754,6 +812,8 @@ def compute_power_doppler_volume(
         filter_method=filter_method,
         fs=fs,
         butterworth_order=butterworth_order,
+        butterworth_padtype=butterworth_padtype,
+        butterworth_padlen=butterworth_padlen,
     )
 
 
@@ -783,9 +843,41 @@ def compute_bmode_volume(
     return np.mean(np.abs(block), axis=0)[np.newaxis]
 
 
+def _validate_velocity_lag(lag: int, window_width: int) -> int:
+    """Validate an autocorrelation lag against its integration window.
+
+    Parameters
+    ----------
+    lag : int
+        Temporal lag in volumes.
+    window_width : int
+        Integration window width in volumes.
+
+    Returns
+    -------
+    int
+        Lag as a Python integer for indexing and velocity scaling.
+
+    Raises
+    ------
+    ValueError
+        If the lag is not a positive integer smaller than the window width.
+    """
+    if (
+        not isinstance(lag, (int, np.integer))
+        or isinstance(lag, (bool, np.bool_))
+        or not 0 < lag < window_width
+    ):
+        raise ValueError(
+            "`lag` must be a positive integer smaller than the velocity window."
+        )
+    return int(lag)
+
+
 def compute_axial_velocity_volume(
     block: npt.NDArray,
     fs: float,
+    *,
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
@@ -793,6 +885,8 @@ def compute_axial_velocity_volume(
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     butterworth_order: int = 4,
+    butterworth_padtype: str | None = "odd",
+    butterworth_padlen: int | None = None,
     velocity_window_width: int | None = None,
     velocity_window_stride: int | None = None,
     lag: int = 1,
@@ -836,6 +930,11 @@ def compute_axial_velocity_volume(
     butterworth_order : int, default: 4
         Order of Butterworth filter. Effective order is doubled due to forward-backward
         filtering.
+    butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+        Butterworth padding extension type. Pass `None` to disable padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
     velocity_window_width : int, optional
         Width of the sliding temporal window for velocity estimation, in volumes.
         If not provided, uses all available volumes.
@@ -867,6 +966,10 @@ def compute_axial_velocity_volume(
     The Kasai estimator computes velocity from the phase shift of the autocorrelation
     function between IQ volumes separated by `lag` volumes.
     """
+
+    lag = _validate_velocity_lag(
+        lag, block.shape[0] if velocity_window_width is None else velocity_window_width
+    )
 
     def process_block_func(
         block: npt.NDArray,
@@ -931,6 +1034,8 @@ def compute_axial_velocity_volume(
         window_stride=velocity_window_stride,
         filter_method=filter_method,
         butterworth_order=butterworth_order,
+        butterworth_padtype=butterworth_padtype,
+        butterworth_padlen=butterworth_padlen,
         fs=fs,
         transmit_frequency=transmit_frequency,
         spatial_kernel=spatial_kernel,
@@ -941,12 +1046,13 @@ def compute_axial_velocity_volume(
 
 def process_iq_blocks(
     iq: "da.Array",
-    process_func: Callable[Concatenate[npt.NDArray, ...], npt.NDArray],
+    process_func: Callable[[npt.NDArray], npt.NDArray],
+    *,
+    output_shape: tuple[int, ...],
+    output_dtype: npt.DTypeLike,
     window_width: int | None = None,
     window_stride: int | None = None,
-    drop_axis: int | tuple[int, ...] | None = None,
-    new_axis: int | tuple[int, ...] | None = None,
-    **kwargs: Any,
+    windows_per_task: int | None = None,
 ) -> "da.Array":
     """Process blocks of IQ data using sliding windows.
 
@@ -954,6 +1060,8 @@ def process_iq_blocks(
     `dask.array.map_blocks` for non-overlapping windows. When temporal overlap is
     required, it batches multiple sliding windows into each task, applies explicit
     overlap between batches, and runs `process_func` on each window within the batch.
+    Graph construction does not read IQ samples or invoke `process_func`. Output
+    metadata describes one window, independently of execution batching.
 
     !!! warning
         Depending on the window width and stride, some input volumes may be dropped if
@@ -964,20 +1072,28 @@ def process_iq_blocks(
     iq : (time, k, j, i) dask.array.Array
         Dask array of complex IQ data.
     process_func : callable
-        Function to apply to each temporal window. It must accept a `(window_volumes,
-        z, y, x)` array as first argument and return a `(output_volumes, ...)` array.
+        Function accepting one `(window_volumes, k, j, i)` NumPy array and
+        returning a NumPy array with `output_shape` and `output_dtype`. Configure
+        additional callback arguments with [`functools.partial`][functools.partial].
+    output_shape : tuple[int, ...]
+        Fixed shape returned by one callback on one temporal window. The leading
+        axis is output time: `(2, k, j, i)` produces two time points per window;
+        `(1, 2, k, j, i)` produces one time point with two component maps. All
+        sizes must be positive integers. Non-temporal axis mapping is automatic.
+    output_dtype : numpy.typing.DTypeLike
+        Dtype returned by every callback invocation. This declares the dtype;
+        it does not cast callback outputs.
     window_width : int, optional
         Width of the sliding temporal window, in volumes. If not provided, uses the
         chunk size along the first dimension.
     window_stride : int, optional
         Stride of the sliding temporal window, in volumes. Must be less than or equal
         to `window_width`. If not provided, equals `window_width`.
-    drop_axis : int or tuple[int, ...], optional
-        Axes dropped by `process_func`.
-    new_axis : int or tuple[int, ...], optional
-        New axes added by `process_func`.
-    **kwargs
-        Additional keyword arguments passed to `process_func`.
+    windows_per_task : int, optional
+        Requested number of outer windows per Dask task. If not provided, uses
+        the minimum needed for temporal overlap. Smaller requests are increased
+        to that minimum. Larger batches do not change scientific windows, but
+        increase task memory and can reduce parallelism.
 
     Returns
     -------
@@ -987,24 +1103,47 @@ def process_iq_blocks(
     Raises
     ------
     ValueError
-        If `window_stride` is greater than `window_width`.
+        If window sizes are invalid, no complete window fits, input sizes are
+        unknown, output sizes are invalid, or a callback returns the wrong shape.
+    TypeError
+        If `iq` is not a Dask array, or a callback returns a non-NumPy array or
+        a dtype different from `output_dtype`. Callback errors occur at execution.
     """
     import dask.array as da
 
-    if window_width is None:
-        window_width = cast(int, iq.chunksize[0])  # type: ignore
-    if window_stride is None:
-        window_stride = window_width
+    if not isinstance(iq, da.Array):
+        raise TypeError("`iq` must be a Dask array.")
+    if not iq.ndim or any(not isinstance(size, (int, np.integer)) for size in iq.shape):
+        raise ValueError("`iq` must have at least one axis and known dimension sizes.")
+    if (
+        not isinstance(output_shape, tuple)
+        or not output_shape
+        or any(
+            not isinstance(size, (int, np.integer))
+            or isinstance(size, (bool, np.bool_))
+            or size < 1
+            for size in output_shape
+        )
+    ):
+        raise ValueError(
+            "`output_shape` must be a nonempty tuple of positive integers."
+        )
+    dtype = np.dtype(output_dtype)
+    # Only time is chunk-mapped; full spatial windows make output rank sufficient.
+    rank_change = len(output_shape) - iq.ndim
+    drop_axes = tuple(range(1, 1 - rank_change)) if rank_change < 0 else ()
+    new_axes = tuple(range(1, 1 + rank_change)) if rank_change > 0 else ()
 
+    n_volumes = iq.shape[0]
+    window_width, window_stride, n_windows = resolve_iq_window(
+        n_volumes, window_width, window_stride, default_width=max(iq.chunks[0])
+    )
     if window_stride > window_width:
         raise ValueError(
             "`window_stride` must be less than or equal to `window_width`."
         )
 
-    n_volumes = iq.shape[0]
     overlap_width = window_width - window_stride
-
-    n_windows = (n_volumes - window_width) // window_stride + 1
     total_volumes_in_windows = window_width + (n_windows - 1) * window_stride
     remaining_volumes = n_volumes - total_volumes_in_windows
 
@@ -1017,21 +1156,63 @@ def process_iq_blocks(
         )
         iq = iq[:total_volumes_in_windows]
 
-    if overlap_width == 0:
+    def process_window(block: npt.NDArray) -> npt.NDArray:
+        """Apply the callback and enforce its declared output contract.
+
+        Parameters
+        ----------
+        block : numpy.ndarray
+            One input temporal window.
+
+        Returns
+        -------
+        numpy.ndarray
+            Callback output with the declared shape and dtype.
+
+        Raises
+        ------
+        TypeError
+            If the callback returns a non-NumPy array or the wrong dtype.
+        ValueError
+            If the callback returns the wrong shape.
+        """
+        result = process_func(block)
+        if not isinstance(result, np.ndarray):
+            raise TypeError("`process_func` must return a NumPy array.")
+        if result.shape != output_shape:
+            raise ValueError(
+                f"`process_func` returned shape {result.shape}; expected {output_shape}."
+            )
+        if result.dtype != dtype:
+            raise TypeError(
+                f"`process_func` returned dtype {result.dtype}; expected {dtype}."
+            )
+        return result
+
+    if windows_per_task is not None and (
+        not isinstance(windows_per_task, (int, np.integer))
+        or isinstance(windows_per_task, (bool, np.bool_))
+        or windows_per_task < 1
+    ):
+        raise ValueError("`windows_per_task` must be a positive integer.")
+    batch_size = max(
+        1,
+        (overlap_width + window_stride - 1) // window_stride,
+        int(windows_per_task) if windows_per_task is not None else 1,
+    )
+    meta = np.empty((0,) * len(output_shape), dtype=dtype)
+    if overlap_width == 0 and batch_size == 1:
         chunks_volumes = (window_width,) + (window_stride,) * (n_windows - 1)
         iq = iq.rechunk((chunks_volumes,) + iq.shape[1:])
 
-        dummy_result = process_func(iq.blocks[0].compute(), **kwargs)
-        meta = np.array((), dtype=dummy_result.dtype)
-
         return da.map_blocks(
-            process_func,
+            process_window,
             iq,
-            chunks=dummy_result.shape,
-            drop_axis=drop_axis,
-            new_axis=new_axis,
+            chunks=output_shape,
+            drop_axis=drop_axes,
+            new_axis=new_axes,
+            dtype=dtype,
             meta=meta,
-            **kwargs,
         )
 
     overlap_window_width = window_width
@@ -1041,16 +1222,9 @@ def process_iq_blocks(
     # least as large as the requested overlap. Otherwise Dask auto-rechunks the tiny
     # stride-sized chunks and breaks the expected one-output-block-per-input-block
     # mapping.
-    min_windows_per_block = max(
-        1,
-        (overlap_width + overlap_window_stride - 1) // overlap_window_stride,
-    )
-    first_block_windows = n_windows % min_windows_per_block
-    if first_block_windows == 0:
-        first_block_windows = min_windows_per_block
-
-    windows_per_block = (first_block_windows,) + (min_windows_per_block,) * (
-        (n_windows - first_block_windows) // min_windows_per_block
+    first_block_windows = n_windows % batch_size or batch_size
+    windows_per_block = (first_block_windows,) + (batch_size,) * (
+        (n_windows - first_block_windows) // batch_size
     )
     chunks_volumes = (
         overlap_window_width + (first_block_windows - 1) * overlap_window_stride,
@@ -1059,24 +1233,21 @@ def process_iq_blocks(
         for n_block_windows in windows_per_block[1:]
     )
     iq = iq.rechunk((chunks_volumes,) + iq.shape[1:])
-    iq = da.overlap.overlap(
-        iq,
-        depth={0: (overlap_width, 0)},
-        boundary="none",
-        allow_rechunk=False,
-    )
+    if overlap_width:
+        iq = da.overlap.overlap(
+            iq,
+            depth={0: (overlap_width, 0)},
+            boundary="none",
+            allow_rechunk=False,
+        )
 
-    def process_overlapping_batch(
-        block: npt.NDArray, **batch_kwargs: Any
-    ) -> npt.NDArray:
-        """Apply `process_func` to every overlapping outer window in a batch.
+    def process_batch(block: npt.NDArray) -> npt.NDArray:
+        """Apply `process_func` to every outer window in a batch.
 
         Parameters
         ----------
         block : numpy.ndarray
             Batched input block containing one or more overlapping windows.
-        **batch_kwargs
-            Additional keyword arguments passed to `process_func`.
 
         Returns
         -------
@@ -1084,7 +1255,7 @@ def process_iq_blocks(
             Concatenated outputs from all sliding windows in `block`.
         """
         outputs = [
-            process_func(block[start : start + overlap_window_width], **batch_kwargs)
+            process_window(block[start : start + overlap_window_width])
             for start in range(
                 0,
                 block.shape[0] - overlap_window_width + 1,
@@ -1093,38 +1264,23 @@ def process_iq_blocks(
         ]
         return np.concatenate(outputs, axis=0)
 
-    first_block_index = (0,) * iq.ndim
-    dummy_result = process_overlapping_batch(
-        iq.blocks[first_block_index].compute(), **kwargs
-    )
-    meta = np.array((), dtype=dummy_result.dtype)
-
-    output_time_chunks = [dummy_result.shape[0]]
-    if len(windows_per_block) > 1:
-        next_block_index = (1,) + (0,) * (iq.ndim - 1)
-        repeated_dummy_result = process_overlapping_batch(
-            iq.blocks[next_block_index].compute(), **kwargs
-        )
-        output_time_chunks.extend(
-            [repeated_dummy_result.shape[0]] * (len(windows_per_block) - 1)
-        )
-
-    output_chunks = (tuple(output_time_chunks),) + tuple(
-        (axis_size,) for axis_size in dummy_result.shape[1:]
-    )
+    output_chunks = (
+        tuple(count * output_shape[0] for count in windows_per_block),
+    ) + tuple((axis_size,) for axis_size in output_shape[1:])
     return da.map_blocks(
-        process_overlapping_batch,
+        process_batch,
         iq,
         chunks=output_chunks,
-        drop_axis=drop_axis,
-        new_axis=new_axis,
+        drop_axis=drop_axes,
+        new_axis=new_axes,
+        dtype=dtype,
         meta=meta,
-        **kwargs,
     )
 
 
 def process_iq_to_power_doppler(
     iq: xr.DataArray,
+    *,
     clutter_window_width: int | None = None,
     clutter_window_stride: int | None = None,
     filter_method: Literal[
@@ -1134,6 +1290,8 @@ def process_iq_to_power_doppler(
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     butterworth_order: int = 4,
+    butterworth_padtype: str | None = "odd",
+    butterworth_padlen: int | None = None,
     doppler_window_width: int | None = None,
     doppler_window_stride: int | None = None,
 ) -> xr.DataArray:
@@ -1181,6 +1339,11 @@ def process_iq_to_power_doppler(
     butterworth_order : int, default: 4
         Order of Butterworth filter. Effective order is doubled due to forward-backward
         filtering.
+    butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+        Butterworth padding extension type. Pass `None` to disable padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
     doppler_window_width : int, optional
         Width of the sliding temporal window for power Doppler integration, in volumes.
         If not provided, equals `clutter_window_width`.
@@ -1237,31 +1400,36 @@ def process_iq_to_power_doppler(
                                                │
                                                 └─ (...)
     """
-    import dask.array as da
-    from dask.array import Array
-
     iq = ensure_iq_voxeldata(iq)
 
-    clutter_mask_array = None
-    if clutter_mask is not None:
-        clutter_mask = ensure_voxeldata(
-            clutter_mask, allow_pose=False, allow_extra_dims=False
-        )
-        validate_mask(clutter_mask, iq, "clutter_mask")
-        clutter_mask_array = clutter_mask.values.astype(bool)
+    clutter_mask_array = get_clutter_mask(clutter_mask, iq)
 
-    dask_iq: Array = iq.data
-    if not isinstance(dask_iq, Array):
-        dask_iq = da.from_array(dask_iq)
+    dask_iq = get_chunked_iq_data(iq)
 
-    if clutter_window_width is None:
-        clutter_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
-    if clutter_window_stride is None:
-        clutter_window_stride = clutter_window_width
-    if doppler_window_width is None:
-        doppler_window_width = clutter_window_width
-    if doppler_window_stride is None:
-        doppler_window_stride = doppler_window_width
+    clutter_window_width, clutter_window_stride, _ = resolve_iq_window(
+        dask_iq.shape[0],
+        clutter_window_width,
+        clutter_window_stride,
+        default_width=max(dask_iq.chunks[0]),
+        name_prefix="clutter_",
+    )
+    doppler_window_width, doppler_window_stride, n_outputs = resolve_iq_window(
+        clutter_window_width,
+        doppler_window_width,
+        doppler_window_stride,
+        name_prefix="doppler_",
+        limit_name="`clutter_window_width`",
+    )
+    filtered_dtype = get_clutter_filtered_dtype(
+        dask_iq.dtype,
+        filter_method,
+        low_cutoff,
+        high_cutoff,
+        clutter_window_width,
+        int(clutter_mask_array.sum())
+        if clutter_mask_array is not None
+        else int(np.prod(dask_iq.shape[1:])),
+    )
 
     fs = None
     if filter_method == "butterworth" and (
@@ -1272,21 +1440,32 @@ def process_iq_to_power_doppler(
             filter_method=filter_method,
             window_width=clutter_window_width,
             window_stride=clutter_window_stride,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,
+            butterworth_order=butterworth_order,
+            butterworth_padtype=butterworth_padtype,
+            butterworth_padlen=butterworth_padlen,
         )
 
     result = process_iq_blocks(
         dask_iq,
-        process_func=compute_power_doppler_volume,
+        partial(
+            compute_power_doppler_volume,
+            filter_method=filter_method,
+            clutter_mask=clutter_mask_array,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,
+            fs=fs,
+            butterworth_order=butterworth_order,
+            butterworth_padtype=butterworth_padtype,
+            butterworth_padlen=butterworth_padlen,
+            doppler_window_width=doppler_window_width,
+            doppler_window_stride=doppler_window_stride,
+        ),
+        output_shape=(n_outputs,) + dask_iq.shape[1:],
+        output_dtype=np.finfo(filtered_dtype).dtype,
         window_width=clutter_window_width,
         window_stride=clutter_window_stride,
-        filter_method=filter_method,
-        clutter_mask=clutter_mask_array,
-        low_cutoff=low_cutoff,
-        high_cutoff=high_cutoff,
-        fs=fs,
-        butterworth_order=butterworth_order,
-        doppler_window_width=doppler_window_width,
-        doppler_window_stride=doppler_window_stride,
     )
 
     output_times_values, doppler_window_durations = compute_processed_volume_timings(
@@ -1339,6 +1518,7 @@ def process_iq_to_power_doppler(
 
 def process_iq_to_bmode(
     iq: xr.DataArray,
+    *,
     bmode_window_width: int | None = None,
     bmode_window_stride: int | None = None,
 ) -> xr.DataArray:
@@ -1368,25 +1548,25 @@ def process_iq_to_bmode(
         coordinates and `iq`'s voxel-to-world geometry carried over, where `windows`
         is the number of sliding windows.
     """
-    import dask.array as da
-    from dask.array import Array
-
     iq = ensure_iq_voxeldata(iq)
 
-    dask_iq: Array = iq.data
-    if not isinstance(dask_iq, Array):
-        dask_iq = da.from_array(dask_iq)
+    dask_iq = get_chunked_iq_data(iq)
 
-    if bmode_window_width is None:
-        bmode_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
-    if bmode_window_stride is None:
-        bmode_window_stride = bmode_window_width
+    bmode_window_width, bmode_window_stride, _ = resolve_iq_window(
+        dask_iq.shape[0],
+        bmode_window_width,
+        bmode_window_stride,
+        default_width=max(dask_iq.chunks[0]),
+        name_prefix="bmode_",
+    )
 
     result = process_iq_blocks(
         dask_iq,
         process_func=compute_bmode_volume,
         window_width=bmode_window_width,
         window_stride=bmode_window_stride,
+        output_shape=(1,) + dask_iq.shape[1:],
+        output_dtype=np.finfo(dask_iq.dtype).dtype,
     )
 
     output_times_values, bmode_window_durations = compute_processed_volume_timings(
@@ -1428,6 +1608,7 @@ def process_iq_to_bmode(
 
 def process_iq_to_axial_velocity(
     iq: xr.DataArray,
+    *,
     clutter_window_width: int | None = None,
     clutter_window_stride: int | None = None,
     filter_method: Literal[
@@ -1437,6 +1618,8 @@ def process_iq_to_axial_velocity(
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     butterworth_order: int = 4,
+    butterworth_padtype: str | None = "odd",
+    butterworth_padlen: int | None = None,
     velocity_window_width: int | None = None,
     velocity_window_stride: int | None = None,
     lag: int = 1,
@@ -1490,6 +1673,11 @@ def process_iq_to_axial_velocity(
     butterworth_order : int, default: 4
         Order of Butterworth filter. Effective order is doubled due to forward-backward
         filtering.
+    butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+        Butterworth padding extension type. Pass `None` to disable padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
     velocity_window_width : int, optional
         Width of the sliding temporal window for velocity estimation, in volumes.
         If not provided, equals `clutter_window_width`.
@@ -1555,37 +1743,51 @@ def process_iq_to_axial_velocity(
                                                │
                                                └─ (...)
     """
-    import dask.array as da
-    from dask.array import Array
-
     iq = ensure_iq_voxeldata(iq, require_velocity_attrs=True)
 
-    clutter_mask_array = None
-    if clutter_mask is not None:
-        clutter_mask = ensure_voxeldata(
-            clutter_mask, allow_pose=False, allow_extra_dims=False
-        )
-        validate_mask(clutter_mask, iq, "clutter_mask")
-        clutter_mask_array = clutter_mask.values.astype(bool)
+    clutter_mask_array = get_clutter_mask(clutter_mask, iq)
 
-    dask_iq: Array = iq.data
-    if not isinstance(dask_iq, Array):
-        dask_iq = da.from_array(dask_iq)
+    dask_iq = get_chunked_iq_data(iq)
 
-    if clutter_window_width is None:
-        clutter_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
-    if clutter_window_stride is None:
-        clutter_window_stride = clutter_window_width
-    if velocity_window_width is None:
-        velocity_window_width = clutter_window_width
-    if velocity_window_stride is None:
-        velocity_window_stride = velocity_window_width
+    clutter_window_width, clutter_window_stride, _ = resolve_iq_window(
+        dask_iq.shape[0],
+        clutter_window_width,
+        clutter_window_stride,
+        default_width=max(dask_iq.chunks[0]),
+        name_prefix="clutter_",
+    )
+    velocity_window_width, velocity_window_stride, n_outputs = resolve_iq_window(
+        clutter_window_width,
+        velocity_window_width,
+        velocity_window_stride,
+        name_prefix="velocity_",
+        limit_name="`clutter_window_width`",
+    )
+    filtered_dtype = get_clutter_filtered_dtype(
+        dask_iq.dtype,
+        filter_method,
+        low_cutoff,
+        high_cutoff,
+        clutter_window_width,
+        int(clutter_mask_array.sum())
+        if clutter_mask_array is not None
+        else int(np.prod(dask_iq.shape[1:])),
+    )
+    lag = _validate_velocity_lag(lag, velocity_window_width)
+    # `compute_axial_velocity_volume` normalizes the kernel per block; this call only
+    # rejects invalid sizes before any IQ is read.
+    _normalize_spatial_kernel(spatial_kernel)
 
     fs = _get_filter_sampling_frequency(
         iq,
         filter_method=filter_method,
         window_width=clutter_window_width,
         window_stride=clutter_window_stride,
+        low_cutoff=low_cutoff,
+        high_cutoff=high_cutoff,
+        butterworth_order=butterworth_order,
+        butterworth_padtype=butterworth_padtype,
+        butterworth_padlen=butterworth_padlen,
     )
 
     # Validation ensures these attributes exist, so we can safely access them here.
@@ -1594,21 +1796,32 @@ def process_iq_to_axial_velocity(
 
     result = process_iq_blocks(
         dask_iq,
-        process_func=compute_axial_velocity_volume,
+        partial(
+            compute_axial_velocity_volume,
+            fs=cast(float, fs),
+            filter_method=filter_method,
+            clutter_mask=clutter_mask_array,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,
+            butterworth_order=butterworth_order,
+            butterworth_padtype=butterworth_padtype,
+            butterworth_padlen=butterworth_padlen,
+            velocity_window_width=velocity_window_width,
+            velocity_window_stride=velocity_window_stride,
+            lag=lag,
+            spatial_kernel=spatial_kernel,
+            transmit_frequency=transmit_frequency,
+            beamforming_sound_velocity=beamforming_sound_velocity,
+        ),
+        output_shape=(n_outputs,) + dask_iq.shape[1:],
+        output_dtype=np.result_type(
+            np.finfo(filtered_dtype).dtype,
+            fs,
+            beamforming_sound_velocity,
+            4 * np.pi * transmit_frequency * lag,
+        ),
         window_width=clutter_window_width,
         window_stride=clutter_window_stride,
-        fs=fs,
-        filter_method=filter_method,
-        clutter_mask=clutter_mask_array,
-        low_cutoff=low_cutoff,
-        high_cutoff=high_cutoff,
-        butterworth_order=butterworth_order,
-        velocity_window_width=velocity_window_width,
-        velocity_window_stride=velocity_window_stride,
-        lag=lag,
-        spatial_kernel=spatial_kernel,
-        transmit_frequency=transmit_frequency,
-        beamforming_sound_velocity=beamforming_sound_velocity,
     )
 
     output_times_values, velocity_window_durations = compute_processed_volume_timings(

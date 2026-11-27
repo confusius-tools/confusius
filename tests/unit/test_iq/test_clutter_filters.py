@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 import scipy.signal as sp_signal
+from dask.callbacks import Callback
 from numpy.testing import assert_allclose, assert_array_equal
 
 from confusius.iq.clutter_filters import (
@@ -435,12 +436,15 @@ class TestComputeSvdCumulativeEnergyThreshold:
 
     def test_empty_mask_raises(self, sample_voxeldata_iq_dataarray):
         """An all-False mask cannot calibrate a cumulative-energy threshold."""
-        iq = sample_voxeldata_iq_dataarray
+        iq = sample_voxeldata_iq_dataarray.chunk({"time": 5})
         mask = iq.isel(time=0, drop=True).copy(data=np.zeros(iq.shape[1:], dtype=bool))
-        with pytest.raises(ValueError, match="select at least one voxel"):
+        with (
+            Callback(pretask=lambda *args: pytest.fail("Read IQ for an empty mask")),
+            pytest.raises(ValueError, match="select at least one voxel"),
+        ):
             compute_svd_cumulative_energy_threshold(
                 iq, singular_value_index=2, clutter_mask=mask, window_width=10
-            ).compute()
+            )
 
     def test_multiple_windows_returns_minimum(
         self, sample_voxeldata_iq_dataarray, sample_spatial_mask_xarray

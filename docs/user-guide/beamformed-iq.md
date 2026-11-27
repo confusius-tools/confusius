@@ -327,7 +327,8 @@ methods use it internally, but you can call it directly to implement your own me
 or filters.
 
 !!! note "Low-level interface"
-    Unlike most ConfUSIus functions, `process_iq_blocks` takes a **Dask array**, not a
+    Unlike most ConfUSIus functions,
+    [`process_iq_blocks`][confusius.iq.process_iq_blocks] takes a **Dask array**, not a
     VoxelData array. It returns processed data without managing coordinates or metadata.
     The built-in power Doppler, velocity, and B-mode functions handle those details for
     you.
@@ -351,13 +352,65 @@ flowchart LR
     ellipsis@{ shape: text}
 ```
 
+Custom callbacks must declare `output_shape` and `output_dtype`. The shape describes
+**one outer window**, including its leading output-time axis, not a whole recording
+or a batch of windows. Every callback must return a NumPy array with exactly that
+shape and dtype; mismatches raise when the graph executes. The dtype declaration
+does not cast callback outputs.
+
+For example, `output_shape=(2, *iq.shape[1:])` means **two output time points**
+per window. In contrast, `output_shape=(1, 2, *iq.shape[1:])` means **one time
+point with two component maps**. Non-temporal axis mapping is automatic, including
+spatially reduced outputs such as `(1,)` for a scalar measurement. Built-in wrappers
+supply these declarations internally.
+
+The callback receives just the NumPy IQ window. Bind its settings with
+[`functools.partial`][functools.partial] rather than forwarding them through
+[`process_iq_blocks`][confusius.iq.process_iq_blocks]. For complex64 or complex128 IQ,
+this example emits two 50-volume power measurements from each 100-volume SVD window:
+
+```python
+from functools import partial
+
+import numpy as np
+
+processor = partial(
+    cf.iq.compute_power_doppler_volume,
+    low_cutoff=2,
+    doppler_window_width=50,
+    doppler_window_stride=50,
+)
+result = cf.iq.process_iq_blocks(
+    iq.data,
+    processor,
+    output_shape=(2, *iq.shape[1:]),
+    output_dtype=np.float64,
+    window_width=100,
+    window_stride=100,
+)
+```
+
+Results are concatenated in outer-window order, then within-window output-time order.
+
+Constructing an IQ-processing graph does not read IQ samples or invoke the callback. A
+supplied clutter mask is still loaded for validation. Callbacks should remain
+side-effect-free because Dask can retry or recompute tasks.
+
+The low-level function also accepts `windows_per_task` to batch several outer windows
+into one Dask task. This changes execution granularity, not window width, stride,
+filtering, or output times. Requests smaller than the minimum needed for an overlap halo
+are increased to that minimum. Larger batches can reduce scheduler overhead but increase
+memory and reduce parallelism. Built-in wrappers retain their existing minimum-batch
+default.
 
 ## Working with Large Recordings
 
 Beamformed IQ recordings can be tens or hundreds of gigabytes. ConfUSIus uses
 [Dask](https://docs.dask.org/en/stable/) to process data in chunks, so the entire
 recording does not need to fit in RAM. Most operations are **lazy**: the computation
-runs when you call `.compute()` or save the result.
+runs when you call `.compute()` or save the result. With NumPy-backed IQ, the
+pending computation shares the input buffer. Keep the samples unchanged until the
+computation finishes.
 
 ### Recommended: threaded scheduler
 
@@ -414,21 +467,24 @@ with the threaded scheduler and switch if you need its monitoring or resource-ma
 features.
 
 !!! note "BLAS threads with distributed workers"
-    When using separate worker processes, BLAS thread limits must also be applied within
-    those processes. Dask Distributed generally sets thread-related environment
-    variables for its workers, but you can configure them explicitly if needed.
+    Dask's nanny-managed process workers normally set `OMP_NUM_THREADS`,
+    `MKL_NUM_THREADS`, and `OPENBLAS_NUM_THREADS` to `1` before startup. The default
+    process-based `Client()` setup therefore usually needs no additional BLAS limits.
+    Existing environment variables can override these defaults; check worker settings
+    if you override them or use a custom deployment.
 
 ### Processing remote recordings
 
-IQ processing functions read and process the **first window while building the Dask task
-graph**, before [`.compute()`][xarray.DataArray.compute] or
-[`confusius.save`][confusius.save] runs. For remote Zarr recordings, this can cause
-repeated downloads when creating multiple processing results.
+IQ processing graphs are built without reading or filtering IQ samples. For remote
+Zarr recordings, IQ data are downloaded when [`.compute()`][xarray.DataArray.compute]
+or [`confusius.save`][confusius.save] executes the graph. Separate computations can
+still download the same chunks again; compute multiple measures together as shown below.
 
-For small subsets, load the data into memory once with
-[`.compute()`][xarray.DataArray.compute]. For larger recordings, consider using a local
-Zarr copy. After loading an array into memory, specify window widths explicitly because
-the original Dask chunking is no longer available.
+For repeated analyses, consider a local Zarr copy. You can also load a small subset
+into memory with [`.compute()`][xarray.DataArray.compute], but this is not required to
+build processing graphs. In memory, the default window width follows the stored
+time chunk size when available. If you rechunked the recording in Dask and want
+that time window after loading, pass its width explicitly.
 
 ### Computing multiple measures together
 
