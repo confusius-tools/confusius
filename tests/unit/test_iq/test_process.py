@@ -1065,6 +1065,8 @@ class TestProcessIqToPowerDoppler:
                 butterworth_order=4,
                 doppler_window_width=10,
                 doppler_window_stride=5,
+                butterworth_padtype="even",
+                butterworth_padlen=3,
             )
 
         mock_fn.assert_called_once_with(
@@ -1078,6 +1080,8 @@ class TestProcessIqToPowerDoppler:
             butterworth_order=4,
             doppler_window_width=10,
             doppler_window_stride=5,
+            butterworth_padtype="even",
+            butterworth_padlen=3,
         )
 
     def test_output_preserves_voxel_to_world_geometry(
@@ -1247,6 +1251,8 @@ class TestProcessIqToAxialVelocity:
                 velocity_window_stride=5,
                 lag=2,
                 spatial_kernel=3,
+                butterworth_padtype=None,
+                butterworth_padlen=0,
             )
 
         mock_fn.assert_called_once_with(
@@ -1262,6 +1268,8 @@ class TestProcessIqToAxialVelocity:
             velocity_window_stride=5,
             lag=2,
             spatial_kernel=3,
+            butterworth_padtype=None,
+            butterworth_padlen=0,
         )
 
     def test_axial_velocity_output_uses_prefixed_metadata_names(

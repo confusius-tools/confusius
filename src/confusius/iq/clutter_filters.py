@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import numpy.typing as npt
 
+from confusius._utils.filtering import design_butterworth_filter
 from confusius.iq._utils import (
-    design_butterworth_filter,
     ensure_iq_voxeldata,
     resolve_iq_window,
     validate_energy_cutoffs,
@@ -485,6 +485,9 @@ def clutter_filter_svd_from_cumulative_energy(
 def clutter_filter_sosfiltfilt(
     block: npt.NDArray,
     sos: npt.NDArray,
+    *,
+    padtype: str | None = "odd",
+    padlen: int | None = None,
 ) -> npt.NDArray:
     """Filter IQ data using second-order sections (SOS) digital filter.
 
@@ -500,6 +503,11 @@ def clutter_filter_sosfiltfilt(
     sos : (sections, 6) numpy.ndarray
         Second-order sections filter coefficients, typically obtained from SciPy
         functions like `scipy.signal.butter`, `scipy.signal.cheby1`, etc.
+    padtype : {"odd", "even", "constant", None}, default: "odd"
+        Padding extension type. If not provided, disables padding.
+    padlen : int, optional
+        Padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
 
     Returns
     -------
@@ -521,7 +529,7 @@ def clutter_filter_sosfiltfilt(
     if block.ndim != 4:
         raise ValueError(f"'block' must be 4D, got {block.ndim}D")
 
-    return sp_signal.sosfiltfilt(sos, block, axis=0)
+    return sp_signal.sosfiltfilt(sos, block, axis=0, padtype=padtype, padlen=padlen)
 
 
 def clutter_filter_butterworth(
@@ -530,6 +538,9 @@ def clutter_filter_butterworth(
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     order: int = 4,
+    *,
+    padtype: str | None = "odd",
+    padlen: int | None = None,
 ) -> npt.NDArray:
     """Filter IQ data using a Butterworth digital filter.
 
@@ -554,6 +565,11 @@ def clutter_filter_butterworth(
     order : int, default: 4
         Filter order. Due to forward-backward filtering, the effective order is
         doubled.
+    padtype : {"odd", "even", "constant", None}, default: "odd"
+        Padding extension type. If not provided, disables padding.
+    padlen : int, optional
+        Padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
 
     Returns
     -------
@@ -572,7 +588,7 @@ def clutter_filter_butterworth(
         return block
 
     sos = design_butterworth_filter(fs, low_cutoff, high_cutoff, order)
-    return clutter_filter_sosfiltfilt(block, sos=sos)
+    return clutter_filter_sosfiltfilt(block, sos=sos, padtype=padtype, padlen=padlen)
 
 
 def compute_svd_cumulative_energy_threshold(

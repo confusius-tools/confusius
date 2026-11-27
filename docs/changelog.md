@@ -52,6 +52,10 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Control Butterworth clutter-filter padding with `padtype`/`padlen`, also exposed
+  as `butterworth_padtype`/`butterworth_padlen` in IQ processing functions and
+  accessors. Existing defaults remain unchanged
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 - Tune execution batching in
   [`process_iq_blocks`][confusius.iq.process_iq_blocks] with `windows_per_task`,
   independently of scientific window sizes. Existing overlap-safe defaults remain
@@ -100,6 +104,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Signal Butterworth filtering checks the actual padding requirement, accepting
+  short signals with custom or disabled padding and accounting correctly for
+  odd-order and band-pass filters
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 - IQ processing accepts NumPy integer window sizes and strides on long recordings.
   NumPy integer lags give the same velocity values and precision as Python integer lags
   ([#586](https://github.com/confusius-tools/confusius/pull/586)).

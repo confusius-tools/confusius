@@ -10,13 +10,16 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.coordinates import get_representative_step
+from confusius._utils.filtering import (
+    design_butterworth_filter,
+    validate_sos_filter_length,
+)
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_units,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.iq._utils import (
-    design_butterworth_filter,
     ensure_iq_voxeldata,
     get_clutter_filtered_dtype,
     resolve_iq_window,
@@ -195,6 +198,8 @@ def _get_filter_sampling_frequency(
     low_cutoff: float | None,
     high_cutoff: float | None,
     butterworth_order: int,
+    butterworth_padtype: str | None,
+    butterworth_padlen: int | None,
 ) -> float | None:
     """Return a sampling frequency, validating Butterworth windows and settings.
 
@@ -212,6 +217,10 @@ def _get_filter_sampling_frequency(
         Filter cutoff frequencies, when using Butterworth filtering.
     butterworth_order : int
         Filter order, when using Butterworth filtering.
+    butterworth_padtype : {"odd", "even", "constant", None}
+        Butterworth padding extension type. If not provided, disables padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length. If not provided, uses SciPy's default.
 
     Returns
     -------
@@ -249,16 +258,9 @@ def _get_filter_sampling_frequency(
         and (low_cutoff is not None or high_cutoff is not None)
     ):
         sos = design_butterworth_filter(fs, low_cutoff, high_cutoff, butterworth_order)
-        # Match SciPy's default padding, including the odd-order correction.
-        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.sosfiltfilt.html
-        padlen = 3 * (
-            2 * len(sos) + 1 - min((sos[:, 2] == 0).sum(), (sos[:, 5] == 0).sum())
+        validate_sos_filter_length(
+            window_width, sos, butterworth_padtype, butterworth_padlen
         )
-        if window_width <= padlen:
-            raise ValueError(
-                f"The length of the input vector x must be greater than padlen, "
-                f"which is {padlen}."
-            )
     return fs
 
 
@@ -553,6 +555,9 @@ def process_iq_block_with_clutter_filter(
     ] = "svd_indices",
     fs: float | None = None,
     butterworth_order: int = 4,
+    *,
+    butterworth_padtype: str | None = "odd",
+    butterworth_padlen: int | None = None,
     **kwargs: Any,
 ) -> npt.NDArray:
     """Process a block of IQ data into new volumes using clutter filtering.
@@ -613,6 +618,11 @@ def process_iq_block_with_clutter_filter(
         When using the Butterworth clutter filter, the sampling frequency, in hertz.
     butterworth_order : int, default: 4
         When using the Butterworth clutter filter, the order of the filter.
+    butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+        Butterworth padding extension type. If not provided, disables padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
     **kwargs
         Additional keyword arguments passed to `process_block_func`.
 
@@ -651,6 +661,8 @@ def process_iq_block_with_clutter_filter(
                 low_cutoff=low_cutoff,
                 high_cutoff=high_cutoff,
                 order=butterworth_order,
+                padtype=butterworth_padtype,
+                padlen=butterworth_padlen,
             )
     elif filter_method == "svd_indices":
         if not (
@@ -712,6 +724,9 @@ def compute_power_doppler_volume(
     butterworth_order: int = 4,
     doppler_window_width: int | np.integer | None = None,
     doppler_window_stride: int | np.integer | None = None,
+    *,
+    butterworth_padtype: str | None = "odd",
+    butterworth_padlen: int | None = None,
 ) -> npt.NDArray:
     """Compute power Doppler volumes from beamformed IQ data.
 
@@ -754,6 +769,11 @@ def compute_power_doppler_volume(
     doppler_window_stride : int, optional
         Stride of the sliding temporal window, in volumes. If not provided, equals
         `doppler_window_width`.
+    butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+        Butterworth padding extension type. If not provided, disables padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
 
     Returns
     -------
@@ -790,6 +810,8 @@ def compute_power_doppler_volume(
         filter_method=filter_method,
         fs=fs,
         butterworth_order=butterworth_order,
+        butterworth_padtype=butterworth_padtype,
+        butterworth_padlen=butterworth_padlen,
     )
 
 
@@ -868,6 +890,9 @@ def compute_axial_velocity_volume(
     spatial_kernel: int | tuple[int, int, int] | list[int] = 1,
     transmit_frequency: float = 15.625e6,
     beamforming_sound_velocity: float = 1540,
+    *,
+    butterworth_padtype: str | None = "odd",
+    butterworth_padlen: int | None = None,
 ) -> npt.NDArray:
     """Compute axial velocity volumes from beamformed IQ data.
 
@@ -923,6 +948,11 @@ def compute_axial_velocity_volume(
         Ultrasound transmit frequency in hertz.
     beamforming_sound_velocity : float, default: 1540
         Speed of sound assumed during beamforming, in meters per second.
+    butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+        Butterworth padding extension type. If not provided, disables padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
 
     Returns
     -------
@@ -1004,6 +1034,8 @@ def compute_axial_velocity_volume(
         window_stride=velocity_window_stride,
         filter_method=filter_method,
         butterworth_order=butterworth_order,
+        butterworth_padtype=butterworth_padtype,
+        butterworth_padlen=butterworth_padlen,
         fs=fs,
         transmit_frequency=transmit_frequency,
         spatial_kernel=spatial_kernel,
@@ -1259,6 +1291,9 @@ def process_iq_to_power_doppler(
     butterworth_order: int = 4,
     doppler_window_width: int | np.integer | None = None,
     doppler_window_stride: int | np.integer | None = None,
+    *,
+    butterworth_padtype: str | None = "odd",
+    butterworth_padlen: int | None = None,
 ) -> xr.DataArray:
     """Process blocks of beamformed IQ into power Doppler volumes using sliding windows.
 
@@ -1310,6 +1345,11 @@ def process_iq_to_power_doppler(
     doppler_window_stride : int, optional
         Stride of the sliding temporal window for power Doppler integration, in volumes.
         If not provided, equals `doppler_window_width`.
+    butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+        Butterworth padding extension type. If not provided, disables padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
 
     Returns
     -------
@@ -1414,6 +1454,8 @@ def process_iq_to_power_doppler(
             low_cutoff=low_cutoff,
             high_cutoff=high_cutoff,
             butterworth_order=butterworth_order,
+            butterworth_padtype=butterworth_padtype,
+            butterworth_padlen=butterworth_padlen,
         )
 
     result = process_iq_blocks(
@@ -1426,6 +1468,8 @@ def process_iq_to_power_doppler(
             high_cutoff=high_cutoff,
             fs=fs,
             butterworth_order=butterworth_order,
+            butterworth_padtype=butterworth_padtype,
+            butterworth_padlen=butterworth_padlen,
             doppler_window_width=doppler_window_width,
             doppler_window_stride=doppler_window_stride,
         ),
@@ -1592,6 +1636,9 @@ def process_iq_to_axial_velocity(
     velocity_window_stride: int | np.integer | None = None,
     lag: int | np.integer = 1,
     spatial_kernel: int | tuple[int, int, int] | list[int] = 1,
+    *,
+    butterworth_padtype: str | None = "odd",
+    butterworth_padlen: int | None = None,
 ) -> xr.DataArray:
     """Process blocks of beamformed IQ into axial velocity volumes using sliding windows.
 
@@ -1655,6 +1702,11 @@ def process_iq_to_axial_velocity(
         `(k, j, i)` sizes directly. Values must be positive. Any even sizes are
         rounded up to the next odd size. If all sizes are `1`, no spatial filtering is
         applied.
+    butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+        Butterworth padding extension type. If not provided, disables padding.
+    butterworth_padlen : int, optional
+        Butterworth padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
 
     Returns
     -------
@@ -1760,6 +1812,8 @@ def process_iq_to_axial_velocity(
         low_cutoff=low_cutoff,
         high_cutoff=high_cutoff,
         butterworth_order=butterworth_order,
+        butterworth_padtype=butterworth_padtype,
+        butterworth_padlen=butterworth_padlen,
     )
 
     # Validation ensures these attributes exist, so we can safely access them here.
@@ -1776,6 +1830,8 @@ def process_iq_to_axial_velocity(
             low_cutoff=low_cutoff,
             high_cutoff=high_cutoff,
             butterworth_order=butterworth_order,
+            butterworth_padtype=butterworth_padtype,
+            butterworth_padlen=butterworth_padlen,
             velocity_window_width=velocity_window_width,
             velocity_window_stride=velocity_window_stride,
             lag=lag,

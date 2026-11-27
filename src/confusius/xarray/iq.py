@@ -48,6 +48,9 @@ class FUSIIQAccessor:
         butterworth_order: int = 4,
         doppler_window_width: int | np.integer | None = None,
         doppler_window_stride: int | np.integer | None = None,
+        *,
+        butterworth_padtype: str | None = "odd",
+        butterworth_padlen: int | None = None,
     ) -> xr.DataArray:
         """Process beamformed IQ into power Doppler volumes.
 
@@ -93,6 +96,11 @@ class FUSIIQAccessor:
         doppler_window_stride : int, optional
             Stride of the sliding temporal window for power Doppler integration, in
             volumes. If not provided, equals `doppler_window_width`.
+        butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+            Butterworth padding extension type. If not provided, disables padding.
+        butterworth_padlen : int, optional
+            Butterworth padding length in samples. If not provided, uses SciPy's
+            default. Ignored when padding is disabled.
 
         Returns
         -------
@@ -124,6 +132,8 @@ class FUSIIQAccessor:
             butterworth_order=butterworth_order,
             doppler_window_width=doppler_window_width,
             doppler_window_stride=doppler_window_stride,
+            butterworth_padtype=butterworth_padtype,
+            butterworth_padlen=butterworth_padlen,
         )
 
     def process_to_axial_velocity(
@@ -141,6 +151,9 @@ class FUSIIQAccessor:
         velocity_window_stride: int | np.integer | None = None,
         lag: int | np.integer = 1,
         spatial_kernel: int | tuple[int, int, int] | list[int] = 1,
+        *,
+        butterworth_padtype: str | None = "odd",
+        butterworth_padlen: int | None = None,
     ) -> xr.DataArray:
         """Process beamformed IQ into axial velocity volumes.
 
@@ -194,6 +207,11 @@ class FUSIIQAccessor:
             specifies `(k, j, i)` sizes directly. Values must be positive. Any even
             sizes are rounded up to the next odd size. If all sizes are `1`, no
             spatial filtering is applied.
+        butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+            Butterworth padding extension type. If not provided, disables padding.
+        butterworth_padlen : int, optional
+            Butterworth padding length in samples. If not provided, uses SciPy's
+            default. Ignored when padding is disabled.
 
         Returns
         -------
@@ -226,6 +244,8 @@ class FUSIIQAccessor:
             velocity_window_stride=velocity_window_stride,
             lag=lag,
             spatial_kernel=spatial_kernel,
+            butterworth_padtype=butterworth_padtype,
+            butterworth_padlen=butterworth_padlen,
         )
 
     def process_to_bmode(

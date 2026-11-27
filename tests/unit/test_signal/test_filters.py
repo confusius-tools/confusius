@@ -227,7 +227,9 @@ class TestFilterButterworth:
         assert filtered.shape == signals.shape
         assert filtered.dims == signals.dims
         np.testing.assert_array_equal(filtered.coords["time"], signals.coords["time"])
-        np.testing.assert_allclose(filtered.values, expected.transpose(*signals.dims).values)
+        np.testing.assert_allclose(
+            filtered.values, expected.transpose(*signals.dims).values
+        )
 
     def test_dask_array_support(self):
         """Filter should work with Dask-backed arrays."""
@@ -267,7 +269,7 @@ class TestFilterButterworth:
         )
         with pytest.raises(
             ValueError,
-            match="At least one of 'low_cutoff' or 'high_cutoff' must be specified",
+            match="At least one Butterworth cutoff must be provided",
         ):
             filter_butterworth(signals)
 
@@ -284,7 +286,7 @@ class TestFilterButterworth:
         signals = create_signals_with_time(
             (100, 50), sampling_rate=100, dims=["time", "space"]
         )
-        with pytest.raises(ValueError, match="'high_cutoff' must be positive"):
+        with pytest.raises(ValueError, match="Frequency .* must be in range"):
             filter_butterworth(signals, high_cutoff=-0.1)
 
     def test_raises_when_highpass_negative(self):
@@ -292,7 +294,7 @@ class TestFilterButterworth:
         signals = create_signals_with_time(
             (100, 50), sampling_rate=100, dims=["time", "space"]
         )
-        with pytest.raises(ValueError, match="'low_cutoff' must be positive"):
+        with pytest.raises(ValueError, match="Frequency .* must be in range"):
             filter_butterworth(signals, low_cutoff=-0.1)
 
     def test_raises_when_lowpass_exceeds_nyquist(self):
@@ -303,7 +305,7 @@ class TestFilterButterworth:
         )
         nyquist = sampling_rate / 2.0
 
-        with pytest.raises(ValueError, match="must be less than Nyquist frequency"):
+        with pytest.raises(ValueError, match="Frequency .* must be in range"):
             filter_butterworth(signals, high_cutoff=nyquist + 1)
 
     def test_raises_when_highpass_exceeds_nyquist(self):
@@ -314,7 +316,7 @@ class TestFilterButterworth:
         )
         nyquist = sampling_rate / 2.0
 
-        with pytest.raises(ValueError, match="must be less than Nyquist frequency"):
+        with pytest.raises(ValueError, match="Frequency .* must be in range"):
             filter_butterworth(signals, low_cutoff=nyquist + 1)
 
     def test_raises_when_high_cutoff_not_greater_than_low_cutoff(self):
@@ -323,17 +325,17 @@ class TestFilterButterworth:
             (100, 50), sampling_rate=100, dims=["time", "space"]
         )
         with pytest.raises(
-            ValueError, match="'high_cutoff' .* must be greater than 'low_cutoff'"
+            ValueError, match="High cutoff frequency .* must be greater than"
         ):
             filter_butterworth(signals, low_cutoff=0.1, high_cutoff=0.01)
 
     def test_raises_with_too_few_timepoints(self):
         """Should raise ValueError if too few timepoints for the filter order."""
-        # With order=5, n_sections=3, min_samples = 3*(2*3+1)+1 = 22.
+        # Odd-order compensation gives padlen=18 for a fifth-order low-pass filter.
         signals = create_signals_with_time(
-            (20, 50), sampling_rate=100, dims=["time", "space"]
+            (18, 50), sampling_rate=100, dims=["time", "space"]
         )
-        with pytest.raises(ValueError, match="requires at least .* timepoints"):
+        with pytest.raises(ValueError, match="greater than padlen"):
             filter_butterworth(signals, high_cutoff=0.1, order=5)
 
     def test_raises_when_nonuniform_time(self):
@@ -408,9 +410,7 @@ class TestFilterButterworth:
         """
         # order=1 to stay within the fixture's 10 timepoints (sosfiltfilt requires
         # more samples than its padlen, which grows with order).
-        result = filter_butterworth(
-            sample_voxeldata_3dt_pose, high_cutoff=0.3, order=1
-        )
+        result = filter_butterworth(sample_voxeldata_3dt_pose, high_cutoff=0.3, order=1)
 
         for pose in sample_voxeldata_3dt_pose.coords["pose"].values:
             expected = filter_butterworth(

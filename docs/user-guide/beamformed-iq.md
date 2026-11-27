@@ -215,6 +215,15 @@ frequency filtering alone is often insufficient.
     filtering[^brunner2020][^nunez-elizalde2022][^lemeurdiebolt2025] or in specialized
     applications such as tissue-motion tracking.
 
+    IQ processing functions and accessors accept `butterworth_padtype` (`"odd"`,
+    `"even"`, `"constant"`, or `None`) and `butterworth_padlen` (samples) to control
+    padding at each clutter window's boundaries. Defaults match SciPy: odd extension
+    and an automatic length based on the filter coefficients. Set
+    `butterworth_padtype=None` to disable padding; this also ignores the padding length.
+    Shorter padding permits shorter windows but can increase boundary artifacts.
+    The low-level `clutter_filter_butterworth` and `clutter_filter_sosfiltfilt`
+    functions expose the same settings as `padtype` and `padlen`.
+
 ### Filter cutoffs
 
 The meaning of `low_cutoff` and `high_cutoff` depends on the chosen method:
