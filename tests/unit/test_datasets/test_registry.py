@@ -60,6 +60,10 @@ def test_list_datasets_marks_cached_datasets(tmp_path, capsys):
     (tmp_path / cached_root).mkdir()
     (tmp_path / cached_root / "s3_index.json").write_text("{}")
 
+    sample_cache = tmp_path / "sample-beamformed-iq"
+    sample_cache.mkdir()
+    (sample_cache / "s3_index.json").write_text("{}")
+
     list_datasets(data_dir=tmp_path)
     captured = capsys.readouterr().out
 

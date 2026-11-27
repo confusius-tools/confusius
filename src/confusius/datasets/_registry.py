@@ -132,7 +132,11 @@ def list_datasets(data_dir: str | Path | None = None) -> None:
 
     for fetcher_name, size_bytes, root_dirname in _REGISTRY:
         path = datasets_dir / root_dirname
-        is_cached = (path / _INDEX_FILENAME).is_file()
+        # The streamed IQ sample caches only its release inventory.
+        is_cached = (
+            root_dirname != _sample_beamformed_iq_root
+            and (path / _INDEX_FILENAME).is_file()
+        )
         table.add_row(
             fetcher_name,
             _format_bytes(size_bytes),
