@@ -172,6 +172,7 @@ def _apply_clutter_filter(
 
 def clutter_filter_svd_from_indices(
     block: npt.NDArray,
+    *,
     mask: npt.NDArray | None = None,
     low_cutoff: int | None = None,
     high_cutoff: int | None = None,
@@ -276,6 +277,7 @@ def clutter_filter_svd_from_indices(
 
 def clutter_filter_svd_from_energy(
     block: npt.NDArray,
+    *,
     mask: npt.NDArray | None = None,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
@@ -374,6 +376,7 @@ def clutter_filter_svd_from_energy(
 
 def clutter_filter_svd_from_cumulative_energy(
     block: npt.NDArray,
+    *,
     mask: npt.NDArray | None = None,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
@@ -594,6 +597,7 @@ def clutter_filter_butterworth(
 def compute_svd_cumulative_energy_threshold(
     iq: "xr.DataArray",
     singular_value_index: int,
+    *,
     clutter_mask: "xr.DataArray | None" = None,
     window_width: int | np.integer | None = None,
     window_stride: int | np.integer | None = None,

@@ -250,6 +250,7 @@ class FUSIIQAccessor:
 
     def process_to_bmode(
         self,
+        *,
         bmode_window_width: int | np.integer | None = None,
         bmode_window_stride: int | np.integer | None = None,
     ) -> xr.DataArray:

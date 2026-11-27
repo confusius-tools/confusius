@@ -378,6 +378,7 @@ def _compute_clutter_filter_window_metadata(
 
 def compute_processed_volume_timings(
     iq: xr.DataArray,
+    *,
     clutter_window_width: int | np.integer,
     clutter_window_stride: int | np.integer,
     inner_window_width: int | np.integer,
@@ -1529,6 +1530,7 @@ def process_iq_to_power_doppler(
 
 def process_iq_to_bmode(
     iq: xr.DataArray,
+    *,
     bmode_window_width: int | np.integer | None = None,
     bmode_window_stride: int | np.integer | None = None,
 ) -> xr.DataArray:
