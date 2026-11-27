@@ -46,6 +46,13 @@ Current development version for the next ConfUSIus release.
 - Load multi-pose arrays split into several NIfTI files using `{chunk}` in the filename,
   stacking them along `pose` in numeric chunk order while preserving geometry and timing
   ([#564](https://github.com/confusius-tools/confusius/pull/564)).
+- Add [`convert_from_nifti`][confusius.io.convert_from_nifti] and
+  [`convert_to_nifti`][confusius.io.convert_to_nifti] to convert directly between
+  VoxelData and NiBabel NIfTI images without a temporary file. Conversion returns
+  fUSI-BIDS metadata alongside the image to preserve timing and named extra dimensions.
+  Conversion to NIfTI is also available on the `.fusi` accessor,
+  as [`data.fusi.to_nifti`][confusius.xarray.FUSIAccessor.to_nifti]
+  ([#421](https://github.com/confusius-tools/confusius/pull/421)).
 - Add [`apply_translation`][confusius.xarray.apply_translation],
   [`apply_rotation`][confusius.xarray.apply_rotation],
   [`apply_zoom`][confusius.xarray.apply_zoom] and
@@ -78,15 +85,34 @@ Current development version for the next ConfUSIus release.
   arrays and restore the indexed voxel dimension in their result. `inplace=True` raises a
   `ValueError` on such arrays
   ([#558](https://github.com/confusius-tools/confusius/pull/558)).
+- [`load_nifti`][confusius.io.load_nifti] and
+  [`convert_from_nifti`][confusius.io.convert_from_nifti] declare the dtype of scaled
+  values (`scl_slope`/`scl_inter`) and size `"auto"` chunks for it
+  ([#421](https://github.com/confusius-tools/confusius/pull/421)).
+- NIfTI round trips preserve the order of extra dimensions. Saving with both transform
+  codes explicitly set to zero preserves those codes on disk. Slice timing respects the
+  NIfTI slice axis and the acquisition duration's units, and zero-delay BIDS chunks
+  include `DelayAfterTrigger`
+  ([#421](https://github.com/confusius-tools/confusius/pull/421)).
 
 ### :books: Documentation
 
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
   archive, and simplify dataset and template citations
   ([#565](https://github.com/confusius-tools/confusius/pull/565)).
-- Add the [Transforms 101](examples/_built/io/transforms_101.md) example,
-  which shows how to translate, rotate and zoom a VoxelData array and what the `center`
-  argument does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Add the [Transforms 101](examples/_built/io/transforms_101.md) example, which shows
+  how to translate, rotate and zoom a VoxelData array and what the `center` argument
+  does ([#556](https://github.com/confusius-tools/confusius/pull/556)).
+- Added the [Use nilearn on a VoxelData
+  array](examples/_built/interoperability/nilearn.md) example, which shows how to use
+  [`convert_from_nifti`][confusius.io.convert_from_nifti] and
+  [`convert_to_nifti`][confusius.io.convert_to_nifti] for easier interoperability
+  with [nilearn](https://nilearn.github.io)
+  ([#421](https://github.com/confusius-tools/confusius/pull/421)).
+- Link the [online explorer](https://confusius-datasets.s3.amazonaws.com/index.html)
+  of the dataset collection from the [datasets guide](user-guide/datasets.md) and the
+  dataset collection example
+  ([#598](https://github.com/confusius-tools/confusius/pull/598)).
 
 ### :wrench: Maintenance
 
@@ -108,6 +134,9 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- Switching image layers in Signals mouse mode now redraws the voxel trace once,
+  avoiding repeated reads from lazily loaded images
+  ([#596](https://github.com/confusius-tools/confusius/pull/596)).
 - Videos open in a separate, time-synchronized viewer with their own layer list. Load
   recordings and videos from **Data I/O**
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).
