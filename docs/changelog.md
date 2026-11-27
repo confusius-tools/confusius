@@ -70,9 +70,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
-- `resample_time`/`resample_to_uniform_time` now raise a clear error on
-  unconsolidated multi-pose data's `(time, pose)`-shaped `time` coordinate; resample
-  poses onto a shared `time` first with
+- `resample_time` and `resample_to_uniform_time` now require one timestamp per
+  timepoint along the `time` dimension. For multi-pose recordings with a
+  `(time, pose)`-shaped `time` coordinate, resample the poses onto a shared grid with
   [`correct_slice_timings`][confusius.multipose.correct_slice_timings]
   ([#424](https://github.com/confusius-tools/confusius/pull/424)).
 - [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] draws the

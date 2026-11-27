@@ -430,7 +430,7 @@ def resample_time(
     Parameters
     ----------
     data : xarray.DataArray
-        DataArray with a `time` coordinate.
+        DataArray with a `time` coordinate of dimensions `(time,)`.
     new_time : array_like
         New time coordinates to resample to.
     method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}, default: "linear"
@@ -461,8 +461,8 @@ def resample_time(
     ------
     ValueError
         If `data` does not have a `time` dimension, has only 1 timepoint, its `time`
-        coordinate is not strictly increasing, or its `time` coordinate is not 1D
-        (e.g. pose-dependent multi-pose data, which
+        coordinate is not strictly increasing, or its `time` coordinate has dimensions
+        other than `(time,)` (e.g. pose-dependent multi-pose data, which
         [`correct_slice_timings`][confusius.multipose.correct_slice_timings]
         resamples onto a shared 1D `time`).
     """
@@ -535,7 +535,7 @@ def resample_to_uniform_time(
     Parameters
     ----------
     data : xarray.DataArray
-        DataArray with a `time` coordinate.
+        DataArray with a `time` coordinate of dimensions `(time,)`.
     start : float, optional
         Start of the new time grid. If not provided, use the first time point.
     stop : float, optional
@@ -574,7 +574,8 @@ def resample_to_uniform_time(
     ------
     ValueError
         If `data` does not have a `time` dimension, has only 1 timepoint, or its `time`
-        coordinate is not 1D (e.g. pose-dependent multi-pose data, which
+        coordinate has dimensions other than `(time,)` (e.g. pose-dependent multi-pose
+        data, which
         [`correct_slice_timings`][confusius.multipose.correct_slice_timings]
         resamples onto a shared 1D `time`).
     ValueError

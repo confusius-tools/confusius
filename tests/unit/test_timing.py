@@ -256,6 +256,26 @@ def test_resample_time_rejects_missing_time_coordinate() -> None:
         resample_time(data, [0.5, 1.5])
 
 
+@pytest.mark.parametrize(
+    "time_coord", [0.0, ("channel", [10.0, 20.0])], ids=["scalar", "per-channel"]
+)
+def test_resamplers_require_time_coordinate_along_time(time_coord) -> None:
+    """Both resamplers require one timestamp per timepoint."""
+    # Equal axis lengths let a misplaced coordinate pass interpolation's size check.
+    data = xr.DataArray(
+        [[0, 100], [20, 120]], dims=("time", "channel"), coords={"time": time_coord}
+    )
+
+    with pytest.raises(
+        ValueError, match="1D 'time' coordinate along the 'time' dimension"
+    ):
+        resample_time(data, [15.0])
+    with pytest.raises(
+        ValueError, match="1D 'time' coordinate along the 'time' dimension"
+    ):
+        resample_to_uniform_time(data)
+
+
 def test_resample_time_rejects_pose_dependent_time_coordinate(
     sample_voxeldata_3dt_pose,
 ) -> None:
