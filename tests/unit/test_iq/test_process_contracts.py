@@ -19,6 +19,7 @@ from confusius.iq import (
     compute_axial_velocity_volume,
     compute_bmode_volume,
     compute_power_doppler_volume,
+    compute_processed_volume_timings,
     compute_svd_cumulative_energy_threshold,
     process_iq_blocks,
     process_iq_to_axial_velocity,
@@ -236,6 +237,93 @@ def test_invalid_windows_fail_without_running_callback(
             output_shape=(1, 4, 6, 8),
             output_dtype=np.float64,
         )
+
+
+_NESTED_TIMING_WINDOWS = {
+    "clutter_window_width": 10,
+    "clutter_window_stride": 10,
+    "inner_window_width": 10,
+    "inner_window_stride": 10,
+}
+
+
+@pytest.mark.parametrize(
+    "process,kwargs,message",
+    [
+        (
+            process_iq_to_power_doppler,
+            {"clutter_window_width": 0},
+            "`clutter_window_width` must be a positive integer",
+        ),
+        (
+            process_iq_to_power_doppler,
+            {"clutter_window_width": 30},
+            r"`clutter_window_width` \(30\) must not exceed the available volumes "
+            r"\(20\)",
+        ),
+        (
+            process_iq_to_power_doppler,
+            {"clutter_window_width": 10, "doppler_window_width": 20},
+            r"`doppler_window_width` \(20\) must not exceed `clutter_window_width` "
+            r"\(10\)",
+        ),
+        (
+            process_iq_to_power_doppler,
+            {"doppler_window_stride": 0},
+            "`doppler_window_stride` must be a positive integer",
+        ),
+        (
+            process_iq_to_axial_velocity,
+            {"clutter_window_stride": 0},
+            "`clutter_window_stride` must be a positive integer",
+        ),
+        (
+            process_iq_to_axial_velocity,
+            {"clutter_window_width": 10, "velocity_window_width": 20},
+            r"`velocity_window_width` \(20\) must not exceed `clutter_window_width` "
+            r"\(10\)",
+        ),
+        (
+            process_iq_to_axial_velocity,
+            {"velocity_window_stride": 0},
+            "`velocity_window_stride` must be a positive integer",
+        ),
+        (
+            process_iq_to_bmode,
+            {"bmode_window_width": 30},
+            r"`bmode_window_width` \(30\) must not exceed the available volumes "
+            r"\(20\)",
+        ),
+        (
+            process_iq_to_bmode,
+            {"bmode_window_stride": 0},
+            "`bmode_window_stride` must be a positive integer",
+        ),
+        (
+            compute_processed_volume_timings,
+            {**_NESTED_TIMING_WINDOWS, "clutter_window_width": 30},
+            r"`clutter_window_width` \(30\) must not exceed the available volumes "
+            r"\(20\)",
+        ),
+        (
+            compute_processed_volume_timings,
+            {**_NESTED_TIMING_WINDOWS, "inner_window_width": 20},
+            r"`inner_window_width` \(20\) must not exceed `clutter_window_width` "
+            r"\(10\)",
+        ),
+        (
+            compute_processed_volume_timings,
+            {**_NESTED_TIMING_WINDOWS, "inner_window_stride": 0},
+            "`inner_window_stride` must be a positive integer",
+        ),
+    ],
+)
+def test_window_errors_name_the_caller_parameter(
+    sample_voxeldata_iq_dataarray, process, kwargs, message
+):
+    """Window errors name the parameter the caller passed and the bound it exceeds."""
+    with pytest.raises(ValueError, match=message):
+        process(sample_voxeldata_iq_dataarray, **kwargs)
 
 
 @pytest.mark.parametrize("batch_size", [0, -1, 1.5, True])

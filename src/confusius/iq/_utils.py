@@ -40,6 +40,8 @@ def resolve_iq_window(
     stride: int | np.integer | None,
     *,
     default_width: int | None = None,
+    name_prefix: str = "",
+    limit_name: str = "the available volumes",
 ) -> tuple[int, int, int]:
     """Resolve a temporal window and count its complete occurrences.
 
@@ -53,6 +55,12 @@ def resolve_iq_window(
         Positive integral window stride. Defaults to the resolved width.
     default_width : int, optional
         Width used when `width` is omitted. Defaults to `n_volumes`.
+    name_prefix : str, default: ""
+        Prefix of the caller's `<prefix>window_width` and `<prefix>window_stride`
+        parameters, so error messages name the arguments the caller received.
+    limit_name : str, default: "the available volumes"
+        What `n_volumes` counts, as worded in the error raised when `width` exceeds
+        it.
 
     Returns
     -------
@@ -72,7 +80,8 @@ def resolve_iq_window(
         width = n_volumes if default_width is None else default_width
     if stride is None:
         stride = width
-    for name, value in (("window_width", width), ("window_stride", stride)):
+    width_name = f"{name_prefix}window_width"
+    for name, value in ((width_name, width), (f"{name_prefix}window_stride", stride)):
         if (
             not isinstance(value, (int, np.integer))
             or isinstance(value, (bool, np.bool_))
@@ -83,7 +92,7 @@ def resolve_iq_window(
     width, stride = int(width), int(stride)
     if width > n_volumes:
         raise ValueError(
-            f"`window_width` ({width}) must not exceed the available volumes "
+            f"`{width_name}` ({width}) must not exceed {limit_name} "
             f"({n_volumes}); at least one complete window is required."
         )
     return width, stride, (n_volumes - width) // stride + 1

@@ -482,10 +482,17 @@ def compute_processed_volume_timings(
     )
 
     clutter_window_width, clutter_window_stride, n_outer_windows = resolve_iq_window(
-        len(iq_volume_timings), clutter_window_width, clutter_window_stride
+        len(iq_volume_timings),
+        clutter_window_width,
+        clutter_window_stride,
+        name_prefix="clutter_",
     )
     inner_window_width, inner_window_stride, n_inner_windows = resolve_iq_window(
-        clutter_window_width, inner_window_width, inner_window_stride
+        clutter_window_width,
+        inner_window_width,
+        inner_window_stride,
+        name_prefix="inner_",
+        limit_name="`clutter_window_width`",
     )
 
     outer_starts = np.arange(n_outer_windows) * clutter_window_stride
@@ -1368,9 +1375,14 @@ def process_iq_to_power_doppler(
         clutter_window_width,
         clutter_window_stride,
         default_width=max(dask_iq.chunks[0]),
+        name_prefix="clutter_",
     )
     doppler_window_width, doppler_window_stride, n_outputs = resolve_iq_window(
-        clutter_window_width, doppler_window_width, doppler_window_stride
+        clutter_window_width,
+        doppler_window_width,
+        doppler_window_stride,
+        name_prefix="doppler_",
+        limit_name="`clutter_window_width`",
     )
     filtered_dtype = get_clutter_filtered_dtype(
         dask_iq.dtype,
@@ -1508,6 +1520,7 @@ def process_iq_to_bmode(
         bmode_window_width,
         bmode_window_stride,
         default_width=max(dask_iq.chunks[0]),
+        name_prefix="bmode_",
     )
 
     result = process_iq_blocks(
@@ -1707,9 +1720,14 @@ def process_iq_to_axial_velocity(
         clutter_window_width,
         clutter_window_stride,
         default_width=max(dask_iq.chunks[0]),
+        name_prefix="clutter_",
     )
     velocity_window_width, velocity_window_stride, n_outputs = resolve_iq_window(
-        clutter_window_width, velocity_window_width, velocity_window_stride
+        clutter_window_width,
+        velocity_window_width,
+        velocity_window_stride,
+        name_prefix="velocity_",
+        limit_name="`clutter_window_width`",
     )
     filtered_dtype = get_clutter_filtered_dtype(
         dask_iq.dtype,
