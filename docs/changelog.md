@@ -68,6 +68,13 @@ Current development version for the next ConfUSIus release.
   `{chunk}` filename template, preserving each pose's geometry and timing
   ([#579](https://github.com/confusius-tools/confusius/pull/579)).
 
+### :zap: Performance
+
+- Automatic NIfTI chunks follow disk order, reducing fragmented reads on network
+  drives. Large 2D and 3D images split along their slowest axes first, and
+  4D through 7D files group complete spatial volumes
+  ([#597](https://github.com/confusius-tools/confusius/pull/597)).
+
 ### :bug: Fixes
 
 - [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] draws the

@@ -9,13 +9,16 @@ processing. Following the VoxelData model, data is stored with native voxel dime
 import json
 import re
 import warnings
+from math import prod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import dask
 import dask.array as da
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from dask.utils import parse_bytes
 from pydantic import ValidationError
 
 from confusius._dims import VOXEL_DIMS, WORLD_DIMS
@@ -1221,6 +1224,23 @@ def _build_dask_array_from_nifti_dataobj(
     )
     if isinstance(chunks, tuple) and len(chunks) == len(axis_order):
         chunks = tuple(chunks[axis_order.index(i)] for i in range(len(axis_order)))
+    elif (
+        chunks == "auto"
+        and isinstance(dataobj, ArrayProxy)
+        and dataobj.ndim >= 2
+        and all(dataobj.shape)
+    ):
+        target = parse_bytes(dask.config.get("array.chunk-size"))
+        remaining = max(1, target // dtype.itemsize)
+        if dataobj.ndim >= 4:
+            remaining = max(remaining, prod(dataobj.shape[:3]))
+        # Filling faster axes first keeps every chunk contiguous on disk.
+        chunk_shape = []
+        for size in dataobj.shape:
+            extent = min(size, remaining)
+            chunk_shape.append(extent)
+            remaining //= extent
+        chunks = tuple(chunk_shape)
     dask_arr = da.from_array(
         dataobj,
         chunks=da.core.normalize_chunks(chunks, dataobj.shape, dtype=dtype),
@@ -1265,9 +1285,9 @@ def convert_from_nifti(
           500), (400, 400))`.
         - A size in bytes, like `"100 MiB"` which will choose a uniform block-like
           shape.
-        - The word `"auto"` to let Dask choose chunk sizes based on heuristics. See
-          `dask.array.normalize_chunks` for more details on how chunk sizes are
-          determined.
+        - The word `"auto"` to use the disk-order chunking described in
+          `load_nifti` for file-backed images. Dask chooses chunk sizes for
+          in-memory arrays.
         - `-1` or `None` as a blocksize indicate the size of the corresponding
           dimension.
     coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
@@ -1502,9 +1522,10 @@ def load_nifti(
           500), (400, 400))`.
         - A size in bytes, like `"100 MiB"` which will choose a uniform block-like
           shape.
-        - The word `"auto"` to let Dask choose chunk sizes based on heuristics. See
-          `dask.array.normalize_chunks` for more details on how chunk sizes are
-          determined.
+        - The word `"auto"` to group voxels in disk order up to Dask's configured
+          chunk-size target. For 2D and 3D images, chunks contain complete rows
+          or planes when they fit. For 4D through 7D files, each chunk holds at
+          least one complete spatial volume, even when it exceeds the target.
         - `-1` or `None` as a blocksize indicate the size of the corresponding
           dimension.
     coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
