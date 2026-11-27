@@ -532,6 +532,7 @@ class ConfUSIusWidget(QWidget):
         from confusius._napari._qc._panel import QCPanel
         from confusius._napari._registration._panel import RegistrationPanel
         from confusius._napari._signals._panel import SignalPanel
+        from confusius._napari._transform._panel import TransformPanel
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -555,6 +556,7 @@ class ConfUSIusWidget(QWidget):
             ("Data I/O", "file-input"),
             ("Signals", "chart-line"),
             ("Registration", "images"),
+            ("Transform", "move-3d"),
             ("Events", "calendar-clock"),
             ("Quality Control", "clipboard-check"),
         ]
@@ -567,6 +569,7 @@ class ConfUSIusWidget(QWidget):
             data_panel,
             signal_panel,
             RegistrationPanel(self.viewer),
+            TransformPanel(self.viewer),
             EventPanel(self.viewer, self._event_store),
             QCPanel(
                 self.viewer,

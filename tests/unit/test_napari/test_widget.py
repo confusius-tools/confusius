@@ -7,8 +7,20 @@ from qtpy.QtWidgets import QWIDGETSIZE_MAX, QApplication, QGroupBox
 
 from confusius._napari._data._load_panel import DataPanel
 from confusius._napari._tour import build_default_tour
+from confusius._napari._transform._panel import TransformPanel
 from confusius._napari._video._video_panel import VideoPanel
 from confusius._napari._widget import ConfUSIusWidget
+
+
+def test_accordion_has_a_transform_section(make_napari_viewer):
+    """The transform panel sits in the accordion, right after registration."""
+    viewer = make_napari_viewer()
+    widget = ConfUSIusWidget(viewer)
+
+    titles = list(widget._accordion_panels)
+
+    assert titles.index("Transform") == titles.index("Registration") + 1
+    assert isinstance(widget._accordion_panels["Transform"], TransformPanel)
 
 
 def test_video_loading_is_part_of_data_io(make_napari_viewer):
@@ -20,6 +32,7 @@ def test_video_loading_is_part_of_data_io(make_napari_viewer):
         "Data I/O",
         "Signals",
         "Registration",
+        "Transform",
         "Events",
         "Quality Control",
     ]
