@@ -344,7 +344,6 @@ point with two component maps**. Non-temporal axis mapping is automatic, includi
 spatially reduced outputs such as `(1,)` for a scalar measurement. Built-in wrappers
 supply these declarations internally.
 
-Only IQ and the callback are positional arguments; execution settings are keyword-only.
 The callback receives just the NumPy IQ window. Bind its settings with
 `functools.partial` rather than forwarding them through `process_iq_blocks`.
 For complex64 or complex128 IQ, this example emits two 50-volume power measurements
