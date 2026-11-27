@@ -270,6 +270,50 @@ def _apply_cluster_threshold(
     arr[small] = 0.0
 
 
+def _adjust_pvalues_1d(
+    pvalues: npt.NDArray[np.floating],
+    method: CorrectionMethod,
+) -> npt.NDArray[np.float64]:
+    """Adjust a 1D array of tested p-values for multiple comparisons.
+
+    Parameters
+    ----------
+    pvalues : (n,) numpy.ndarray
+        Raw p-values of the tested voxels. Must be finite and lie in `[0, 1]`.
+    method : CorrectionMethod
+        Multiple-comparison correction method.
+
+    Returns
+    -------
+    (n,) numpy.ndarray
+        Adjusted p-values in `[0, 1]`, in the order of `pvalues`.
+
+    Raises
+    ------
+    ValueError
+        If any p-value is non-finite or outside `[0, 1]`.
+    """
+    if np.any((pvalues < 0) | (pvalues > 1) | ~np.isfinite(pvalues)):
+        raise ValueError("Tested voxels must contain finite p-values in [0, 1].")
+
+    adjusted_values = pvalues.astype(np.float64, copy=False)
+    n = adjusted_values.size
+    if method == "uncorrected":
+        return adjusted_values
+    if method == "bonferroni":
+        return np.minimum(adjusted_values * n, 1.0)
+    if method == "sidak":
+        return -np.expm1(n * np.log1p(-adjusted_values))
+    if method == "hommel":
+        return _hommel_adjust(adjusted_values)
+    if method in ("holm", "holm-sidak", "simes-hochberg"):
+        return _step_adjust(adjusted_values, method)
+    # "fdr_bh" / "fdr_by".
+    return sps.false_discovery_control(
+        adjusted_values, method=method.removeprefix("fdr_")
+    )
+
+
 def adjust_pvalues(
     pvalue_map: xr.DataArray,
     mask: xr.DataArray | None = None,
@@ -331,25 +375,8 @@ def adjust_pvalues(
     pvalues = pvalue_map.values[selected]
     if pvalues.size == 0:
         raise ValueError("No voxels are tested; check the mask, skipzero, and skipna.")
-    if np.any((pvalues < 0) | (pvalues > 1) | ~np.isfinite(pvalues)):
-        raise ValueError("Tested voxels must contain finite p-values in [0, 1].")
 
-    adjusted_values = pvalues.astype(np.float64, copy=False)
-    n = adjusted_values.size
-    if method == "uncorrected":
-        corrected = adjusted_values
-    elif method == "bonferroni":
-        corrected = np.minimum(adjusted_values * n, 1.0)
-    elif method == "sidak":
-        corrected = -np.expm1(n * np.log1p(-adjusted_values))
-    elif method == "hommel":
-        corrected = _hommel_adjust(adjusted_values)
-    elif method in ("holm", "holm-sidak", "simes-hochberg"):
-        corrected = _step_adjust(adjusted_values, method)
-    else:  # "fdr_bh" / "fdr_by".
-        corrected = sps.false_discovery_control(
-            adjusted_values, method=method.removeprefix("fdr_")
-        )
+    corrected = _adjust_pvalues_1d(pvalues, method)
 
     adjusted = pvalue_map.copy(deep=True)
     adjusted.values[...] = 1.0
@@ -471,17 +498,11 @@ def apply_statistical_threshold(
         else:
             rejected = stats <= z_threshold
     else:
-        pvalue_map = stat_map.copy(deep=True)
-        pvalue_map.values[...] = 1.0
-        pvalue_map.values[selected] = _stat_to_pvalue(stats, two_sided)
-        adjusted_pvalues = adjust_pvalues(
-            pvalue_map,
-            mask=mask,
-            method=method,
-            skipzero=skipzero,
-            skipna=skipna,
-        )
-        rejected = adjusted_pvalues.values[selected] <= alpha
+        # Adjust only the already-selected voxels so skipzero/skipna are not
+        # re-evaluated on the filled p-value map.
+        pvalues = _stat_to_pvalue(stats, two_sided)
+        adjusted_pvalues = _adjust_pvalues_1d(pvalues, method)
+        rejected = adjusted_pvalues <= alpha
         z_threshold = _report_threshold(stats, rejected, method, alpha, two_sided)
 
     keep = np.zeros(stat_map.shape, dtype=bool)
