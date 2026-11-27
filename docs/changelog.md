@@ -85,9 +85,6 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
-- Power Doppler with no Butterworth cutoffs supports single-frame windows and returns
-  the squared magnitude of each frame ([#576](https://github.com/confusius-tools/confusius/pull/576)).
-
 - SVD clutter filters and cumulative-energy threshold calibration now raise `ValueError`
   when a supplied mask selects no voxels, preventing silently unfiltered outputs or
   invalid thresholds. Omitting the mask still uses all voxels
