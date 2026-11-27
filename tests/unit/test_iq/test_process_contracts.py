@@ -92,6 +92,26 @@ def test_block_graph_is_lazy_and_executes_each_window_once(
     assert_allclose(actual, expected, rtol=1e-6)
 
 
+@pytest.mark.parametrize("preferred_width", [None, 5])
+def test_bmode_borrows_numpy_samples(sample_voxeldata_iq_dataarray, preferred_width):
+    """Deferred windows read the original NumPy buffer and respect storage chunks."""
+    iq = sample_voxeldata_iq_dataarray.isel(i=slice(None, None, 2))
+    if preferred_width:
+        iq.encoding["preferred_chunks"] = {"time": preferred_width, "j": 2}
+    result = process_iq_to_bmode(iq)
+
+    values = iq.data
+    values *= 2
+    width = preferred_width or len(values)
+    expected = np.stack(
+        [
+            np.abs(values[start : start + width]).mean(axis=0)
+            for start in range(0, len(values) - width + 1, width)
+        ]
+    )
+    assert_allclose(result.compute(scheduler="synchronous"), expected)
+
+
 @pytest.mark.parametrize(
     "process,kwargs",
     [

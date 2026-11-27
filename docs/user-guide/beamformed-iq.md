@@ -428,7 +428,9 @@ flowchart LR
 Beamformed IQ recordings can be tens or hundreds of gigabytes. ConfUSIus uses
 [Dask](https://docs.dask.org/en/stable/) to process data in chunks, so the entire
 recording does not need to fit in RAM. Most operations are **lazy**: the computation
-runs when you call `.compute()` or save the result.
+runs when you call `.compute()` or save the result. With NumPy-backed IQ, the
+pending computation shares the input buffer. Keep the samples unchanged until the
+computation finishes.
 
 ### Recommended: threaded scheduler
 
@@ -500,8 +502,9 @@ still download the same chunks again; compute multiple measures together as show
 
 For repeated analyses, consider a local Zarr copy. You can also load a small subset
 into memory with [`.compute()`][xarray.DataArray.compute], but this is not required to
-build processing graphs. After doing so, specify window widths explicitly because the
-original Dask chunking is no longer available.
+build processing graphs. In memory, the default window width follows the stored
+time chunk size when available. If you rechunked the recording in Dask and want
+that time window after loading, pass its width explicitly.
 
 ### Computing multiple measures together
 

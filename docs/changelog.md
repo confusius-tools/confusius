@@ -106,7 +106,9 @@ Current development version for the next ConfUSIus release.
 - IQ processing and cumulative-energy threshold calibration construct their Dask
   graphs without reading IQ samples, including for Zarr recordings opened with
   `chunks=None`. Processing reuses existing Dask chunks or the storage chunk sizes
-  when available ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+  when available. NumPy-backed inputs share their sample buffer with the pending
+  computation, avoiding a full recording copy. Keep the samples unchanged until
+  computation finishes ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 
 ### :bug: Fixes
 
@@ -119,7 +121,6 @@ Current development version for the next ConfUSIus release.
 - IQ window counting avoids integer overflow on long recordings, and axial
   velocity calculations use consistent precision across integer lag types
   ([#586](https://github.com/confusius-tools/confusius/pull/586)).
-
 - Adaptive SVD filtering retains consistent output precision even when a window
   selects no clutter components, preventing other windows from being silently
   downcast during Dask assembly

@@ -1,6 +1,7 @@
 """Shared helpers for confusius.iq.process and confusius.iq.clutter_filters."""
 
 from typing import TYPE_CHECKING, Literal, cast
+from uuid import uuid4
 
 import numpy as np
 import numpy.typing as npt
@@ -26,11 +27,31 @@ def get_chunked_iq_data(iq: xr.DataArray) -> "Array":
         Samples with existing Dask chunks, storage-preferred chunks, or automatic
         chunks when the input has neither.
     """
+    import dask.array as da
+
     samples = iq.variable
-    if samples.chunks is None:
-        # Accessing .data before chunking would read the entire backend array.
-        samples = samples.chunk(iq.encoding.get("preferred_chunks") or "auto")
-    return cast("Array", samples.data)
+    if samples.chunks is not None:
+        return cast("Array", samples.data)
+
+    preferred = samples.encoding.get("preferred_chunks")
+    # Checking residency before accessing .data keeps file-backed IQ lazy.
+    if not samples._in_memory:
+        return cast("Array", samples.chunk(preferred or "auto").data)
+
+    # Dask's from_array copies a NumPy input. Basic slices hold views of its buffer.
+    data = samples.data
+    chunks = da.core.normalize_chunks(
+        tuple(preferred.get(dim) for dim in samples.dims) if preferred else "auto",
+        shape=data.shape,
+        dtype=data.dtype,
+    )
+    name = f"iq-{uuid4().hex}"
+    indices = np.ndindex(tuple(len(axis) for axis in chunks))
+    blocks = {
+        (name, *index): data[key]
+        for index, key in zip(indices, da.core.slices_from_chunks(chunks), strict=True)
+    }
+    return da.core.Array(blocks, name, chunks, dtype=data.dtype)
 
 
 def get_clutter_mask(
