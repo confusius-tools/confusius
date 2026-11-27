@@ -403,6 +403,13 @@ class TestComputeProcessedVolumeTimes:
 class TestComputePowerDopplerVolume:
     """Tests for compute_power_doppler_volume function."""
 
+    def test_butterworth_no_cutoffs_requires_4d(self, sample_voxeldata_iq_block_4d):
+        """Bypassing filtering still requires a temporal axis and three spatial axes."""
+        with pytest.raises(ValueError, match="must be 4D"):
+            compute_power_doppler_volume(
+                sample_voxeldata_iq_block_4d[..., 0], filter_method="butterworth"
+            )
+
     def test_matches_reference_implementation(self, sample_voxeldata_iq_block_4d):
         """Result matches reference: mean(|filtered_block|^2)."""
         # No filtering (no cutoffs) so filtered_block = block.

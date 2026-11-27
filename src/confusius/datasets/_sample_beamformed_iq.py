@@ -4,6 +4,7 @@ from pathlib import Path
 
 import xarray as xr
 
+from confusius.datasets._landemard_2026 import LANDEMARD_2026_CITATION
 from confusius.datasets._s3 import get_index, update_cached_index
 from confusius.datasets._utils import (
     get_datasets_dir,
@@ -17,13 +18,6 @@ _DATASET_ROOT = "sample-beamformed-iq"
 
 _TOTAL_SIZE_BYTES = 84_611_022_444
 """Size of the published release. Chunks are streamed, never stored locally."""
-
-_CITATION = (
-    "Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. (2026). "
-    "[citation.title]Brainwide blood volume reflects opposing neural populations."
-    "[/citation.title] [italic]Nature[/italic]. "
-    "[citation.doi]https://doi.org/10.1038/s41586-026-10350-9[/citation.doi]"
-)
 
 
 def fetch_sample_beamformed_iq(
@@ -67,7 +61,7 @@ def fetch_sample_beamformed_iq(
     url = index[f"{store}/zarr.json"]["url"].removesuffix("/zarr.json")
     data = load(url, variable="iq", chunks={})
     update_cached_index(cache_dir, index)
-    data.attrs["citation"] = plain_citation(_CITATION)
+    data.attrs["citation"] = plain_citation(LANDEMARD_2026_CITATION)
     if print_citation:
-        print_citation_message(_CITATION, "dataset")
+        print_citation_message(LANDEMARD_2026_CITATION, "dataset")
     return data

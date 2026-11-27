@@ -587,11 +587,14 @@ def process_iq_block_with_clutter_filter(
     Raises
     ------
     ValueError
-        If a Butterworth cutoff is specified without `fs`, if
+        If `block` is not 4D, if a Butterworth cutoff is specified without `fs`, if
         `filter_method` is `"svd_indices"` and `low_cutoff`/`high_cutoff` are not both
         integers or `None`, or if `filter_method` is not one of `"svd_indices"`,
         `"svd_energy"`, `"svd_cumulative_energy"`, or `"butterworth"`.
     """
+    if block.ndim != 4:
+        raise ValueError(f"'block' must be 4D, got {block.ndim}D")
+
     if window_width is None:
         window_width = block.shape[0]
     if window_stride is None:
