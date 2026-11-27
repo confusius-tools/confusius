@@ -29,6 +29,17 @@ def test_registry_entries_are_importable():
         assert hasattr(ds, name), f"{name} not found in confusius.datasets"
 
 
+def test_registry_lists_every_exported_fetcher():
+    """Every public fetcher appears in the registry, BrainGlobe atlases excepted."""
+    import confusius.datasets as ds
+
+    # BrainGlobe atlases live in BrainGlobe's own cache, outside the registry.
+    exported = {name for name in ds.__all__ if name.startswith("fetch_")} - {
+        "fetch_brainglobe_atlas"
+    }
+    assert {name for name, _, _ in _REGISTRY} == exported
+
+
 # ---------------------------------------------------------------------------
 # list_datasets()
 # ---------------------------------------------------------------------------
@@ -48,6 +59,10 @@ def test_list_datasets_marks_cached_datasets(tmp_path, capsys):
     cached_name, _, cached_root = _REGISTRY[0]
     (tmp_path / cached_root).mkdir()
     (tmp_path / cached_root / "s3_index.json").write_text("{}")
+
+    sample_cache = tmp_path / "sample-beamformed-iq"
+    sample_cache.mkdir()
+    (sample_cache / "s3_index.json").write_text("{}")
 
     list_datasets(data_dir=tmp_path)
     captured = capsys.readouterr().out

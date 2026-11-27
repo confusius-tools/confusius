@@ -21,6 +21,8 @@ from ._pepe_mariani_2026_bids import _TOTAL_SIZE_BYTES as _pepe_mariani_2026_bid
 from ._pereira_2025 import _BIDS_ROOT as _pereira_2025_bids_root
 from ._pereira_2025 import _TOTAL_SIZE_BYTES as _pereira_2025_size
 from ._s3 import _INDEX_FILENAME
+from ._sample_beamformed_iq import _DATASET_ROOT as _sample_beamformed_iq_root
+from ._sample_beamformed_iq import _TOTAL_SIZE_BYTES as _sample_beamformed_iq_size
 from ._utils import get_datasets_dir
 
 _SIZE_UNITS = ("B", "KB", "MB", "GB", "TB")
@@ -57,6 +59,11 @@ _REGISTRY: tuple[RegistryEntry, ...] = (
         "fetch_khallaf_2026",
         _khallaf_2026_size,
         _khallaf_2026_bids_root,
+    ),
+    (
+        "fetch_sample_beamformed_iq",
+        _sample_beamformed_iq_size,
+        _sample_beamformed_iq_root,
     ),
     (
         "fetch_template_brunner_grillet_2021",
@@ -125,7 +132,11 @@ def list_datasets(data_dir: str | Path | None = None) -> None:
 
     for fetcher_name, size_bytes, root_dirname in _REGISTRY:
         path = datasets_dir / root_dirname
-        is_cached = (path / _INDEX_FILENAME).is_file()
+        # The streamed IQ sample caches only its release inventory.
+        is_cached = (
+            root_dirname != _sample_beamformed_iq_root
+            and (path / _INDEX_FILENAME).is_file()
+        )
         table.add_row(
             fetcher_name,
             _format_bytes(size_bytes),

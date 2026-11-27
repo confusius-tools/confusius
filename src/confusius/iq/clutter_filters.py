@@ -70,7 +70,7 @@ def _validate_block_and_clutter_mask(
     ------
     ValueError
         If `block` is not 4D, or if `clutter_mask` shape doesn't match spatial
-        dimensions `(k, j, i)` of `block`.
+        dimensions `(k, j, i)` of `block`, or selects no voxels.
     """
     if block.ndim != 4:
         raise ValueError(f"'block' must be 4D, got {block.ndim}D")
@@ -84,6 +84,9 @@ def _validate_block_and_clutter_mask(
                 f"Mask shape {clutter_mask.shape} doesn't match spatial dimensions "
                 f"({z}, {y}, {x})"
             )
+        # An empty mask must not silently bypass requested clutter suppression.
+        if not np.any(clutter_mask):
+            raise ValueError("clutter_mask must select at least one voxel.")
         masked_signals = signals[:, clutter_mask.ravel()]
     else:
         masked_signals = signals
@@ -208,9 +211,9 @@ def clutter_filter_svd_from_indices(
     block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
         `(k, j, i)` are spatial dimensions.
-    mask : (z, y x) numpy.ndarray, optional
-        Boolean mask. SVD is computed only from masked voxels. If not provided, all
-        voxels are used.
+    mask : (k, j, i) numpy.ndarray, optional
+        Boolean mask selecting at least one voxel. SVD is computed only from masked
+        voxels. If not provided, all voxels are used.
     low_cutoff : int, optional
         Lower bound for singular vector indices to retain (inclusive), counted from the
         highest-energy component (index 0). Vectors with indices less than `low_cutoff`
@@ -368,8 +371,8 @@ def clutter_filter_svd_from_energy(
         Complex beamformed IQ data, where `time` is the temporal dimension and
         `(k, j, i)` are spatial dimensions.
     mask : (k, j, i) numpy.ndarray, optional
-        Boolean mask. SVD is computed only from masked voxels. If not provided, all
-        voxels are used.
+        Boolean mask selecting at least one voxel. SVD is computed only from masked
+        voxels. If not provided, all voxels are used.
     low_cutoff : int or float, optional
         Lower bound for singular vector energy to retain (inclusive). Vectors with
         energy less than `low_cutoff` are treated as clutter and removed. `low_cutoff`
@@ -467,8 +470,8 @@ def clutter_filter_svd_from_cumulative_energy(
         Complex beamformed IQ data, where `time` is the temporal dimension and
         `(k, j, i)` are spatial dimensions.
     mask : (k, j, i) numpy.ndarray, optional
-        Boolean mask. SVD is computed only from masked voxels. If not provided, all
-        voxels are used.
+        Boolean mask selecting at least one voxel. SVD is computed only from masked
+        voxels. If not provided, all voxels are used.
     low_cutoff : int or float, optional
         Lower bound for cumulative energy to retain (inclusive). Components with
         cumulative energy lower than `low_cutoff` are treated as clutter and removed.
@@ -634,8 +637,7 @@ def clutter_filter_butterworth(
     Raises
     ------
     ValueError
-        If `block` is not 4D, if cutoff frequencies are invalid, or if both `low_cutoff`
-        and `high_cutoff` are `None`.
+        If `block` is not 4D or if cutoff frequencies are invalid.
     """
     import scipy.signal as sp_signal
 
@@ -725,7 +727,8 @@ def compute_svd_cumulative_energy_threshold(
     Raises
     ------
     ValueError
-        If `singular_value_index` is less than 1 or greater than `window_width - 1`.
+        If `singular_value_index` is less than 1 or greater than `window_width - 1`,
+        or if `clutter_mask` selects no voxels.
 
     Notes
     -----
@@ -792,10 +795,8 @@ def compute_svd_cumulative_energy_threshold(
 
     def _window_energy(block: npt.NDArray) -> npt.NDArray:
         """Return shape-(1,) array with cumulative energy for one window."""
-        window_width_local = block.shape[0]
-        signals = block.reshape(window_width_local, -1).astype(np.cdouble, copy=False)
-        if mask_array is not None:
-            signals = signals[:, mask_array.ravel()]
+        _, signals = _validate_block_and_clutter_mask(block, mask_array)
+        signals = signals.astype(np.cdouble, copy=False)
 
         # Eigenvalues are in ascending order; cumsum accumulates from lowest to highest
         # energy. Indexing at -(singular_value_index + 1) gives the cumulative energy

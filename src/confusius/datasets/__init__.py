@@ -12,6 +12,7 @@ from ._pepe_mariani_2026 import fetch_template_pepe_mariani_2026
 from ._pepe_mariani_2026_bids import fetch_pepe_mariani_2026
 from ._pereira_2025 import fetch_pereira_2025
 from ._registry import list_datasets
+from ._sample_beamformed_iq import fetch_sample_beamformed_iq
 from ._utils import get_datasets_dir
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "fetch_nunez_elizalde_2022",
     "fetch_pepe_mariani_2026",
     "fetch_pereira_2025",
+    "fetch_sample_beamformed_iq",
     "fetch_template_brunner_grillet_2021",
     "fetch_template_pepe_mariani_2026",
     "get_datasets_dir",

@@ -12,6 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`compute_axial_velocity_volume`][confusius.iq.compute_axial_velocity_volume],
+  [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity], and
+  the corresponding xarray accessor now default `spatial_kernel` to `1`, disabling
+  spatial median filtering unless requested
+  ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - [`get_bounding_box`][confusius.xarray.get_bounding_box] and
   [`.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] now
   return a dictionary mapping world coordinate names to `(min, max)` bounds instead
@@ -39,6 +44,9 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Stream the Landemard beamformed IQ sample lazily and open HTTP(S) Zarr stores with
+  `cf.load`, including stores that require query parameters on each request
+  ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
   colormap stat maps are drawn with, which remembers its source colormap and
   threshold and can be rebuilt on another colormap with `with_source`
@@ -77,6 +85,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- SVD clutter filters and cumulative-energy threshold calibration now raise `ValueError`
+  when a supplied mask selects no voxels, preventing silently unfiltered outputs or
+  invalid thresholds. Omitting the mask still uses all voxels
+  ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] draws the
   iteration count in a darker turquoise, readable on light backgrounds
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
@@ -97,6 +109,8 @@ Current development version for the next ConfUSIus release.
 
 ### :books: Documentation
 
+- Add a beamformed IQ processing example covering B-mode, power Doppler, and axial
+  velocity ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
   archive, and simplify dataset and template citations
   ([#565](https://github.com/confusius-tools/confusius/pull/565)).
