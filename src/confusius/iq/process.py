@@ -16,6 +16,7 @@ from confusius._utils.geometry import (
 )
 from confusius._utils.stack import find_stack_level
 from confusius.iq._utils import (
+    design_butterworth_filter,
     ensure_iq_voxeldata,
     get_clutter_filtered_dtype,
     resolve_iq_window,
@@ -242,17 +243,22 @@ def _get_filter_sampling_frequency(
     else:
         time_step, _ = get_representative_time_step(iq, unit="s")
     fs = None if time_step is None else 1.0 / time_step
-    if filter_method == "butterworth" and fs is not None:
-        # Filtering one empty window makes the filter itself reject invalid cutoffs,
-        # an invalid order, or a window too short for its edge padding, without
-        # reading IQ samples.
-        clutter_filter_butterworth(
-            np.zeros((window_width, 1, 1, 1), dtype=np.complex64),
-            fs=fs,
-            low_cutoff=low_cutoff,
-            high_cutoff=high_cutoff,
-            order=butterworth_order,
+    if (
+        filter_method == "butterworth"
+        and fs is not None
+        and (low_cutoff is not None or high_cutoff is not None)
+    ):
+        sos = design_butterworth_filter(fs, low_cutoff, high_cutoff, butterworth_order)
+        # Match SciPy's default padding, including the odd-order correction.
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.sosfiltfilt.html
+        padlen = 3 * (
+            2 * len(sos) + 1 - min((sos[:, 2] == 0).sum(), (sos[:, 5] == 0).sum())
         )
+        if window_width <= padlen:
+            raise ValueError(
+                f"The length of the input vector x must be greater than padlen, "
+                f"which is {padlen}."
+            )
     return fs
 
 

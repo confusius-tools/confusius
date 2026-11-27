@@ -258,14 +258,18 @@ _NESTED_TIMING_WINDOWS = {
         (
             process_iq_to_power_doppler,
             {"clutter_window_width": 30},
-            r"`clutter_window_width` \(30\) must not exceed the available volumes "
-            r"\(20\)",
+            (
+                r"`clutter_window_width` \(30\) must not exceed the available volumes "
+                r"\(20\)"
+            ),
         ),
         (
             process_iq_to_power_doppler,
             {"clutter_window_width": 10, "doppler_window_width": 20},
-            r"`doppler_window_width` \(20\) must not exceed `clutter_window_width` "
-            r"\(10\)",
+            (
+                r"`doppler_window_width` \(20\) must not exceed `clutter_window_width` "
+                r"\(10\)"
+            ),
         ),
         (
             process_iq_to_power_doppler,
@@ -280,8 +284,10 @@ _NESTED_TIMING_WINDOWS = {
         (
             process_iq_to_axial_velocity,
             {"clutter_window_width": 10, "velocity_window_width": 20},
-            r"`velocity_window_width` \(20\) must not exceed `clutter_window_width` "
-            r"\(10\)",
+            (
+                r"`velocity_window_width` \(20\) must not exceed `clutter_window_width` "
+                r"\(10\)"
+            ),
         ),
         (
             process_iq_to_axial_velocity,
@@ -291,8 +297,10 @@ _NESTED_TIMING_WINDOWS = {
         (
             process_iq_to_bmode,
             {"bmode_window_width": 30},
-            r"`bmode_window_width` \(30\) must not exceed the available volumes "
-            r"\(20\)",
+            (
+                r"`bmode_window_width` \(30\) must not exceed the available volumes "
+                r"\(20\)"
+            ),
         ),
         (
             process_iq_to_bmode,
@@ -302,14 +310,18 @@ _NESTED_TIMING_WINDOWS = {
         (
             compute_processed_volume_timings,
             {**_NESTED_TIMING_WINDOWS, "clutter_window_width": 30},
-            r"`clutter_window_width` \(30\) must not exceed the available volumes "
-            r"\(20\)",
+            (
+                r"`clutter_window_width` \(30\) must not exceed the available volumes "
+                r"\(20\)"
+            ),
         ),
         (
             compute_processed_volume_timings,
             {**_NESTED_TIMING_WINDOWS, "inner_window_width": 20},
-            r"`inner_window_width` \(20\) must not exceed `clutter_window_width` "
-            r"\(10\)",
+            (
+                r"`inner_window_width` \(20\) must not exceed `clutter_window_width` "
+                r"\(10\)"
+            ),
         ),
         (
             compute_processed_volume_timings,
@@ -499,6 +511,14 @@ def test_butterworth_cutoff_order_raises_before_iq_execution(
         ({"low_cutoff": 1, "high_cutoff": 99}, "Cutoffs must satisfy"),
         ({"low_cutoff": 1.5}, "Cutoffs must be integers"),
         (
+            {
+                "filter_method": "butterworth",
+                "low_cutoff": 1.0,
+                "butterworth_order": -1,
+            },
+            "nonnegative integer",
+        ),
+        (
             {"filter_method": "svd_energy", "low_cutoff": -1.0},
             "Low cutoff must be non-negative",
         ),
@@ -530,6 +550,73 @@ def test_invalid_filter_settings_raise_before_iq_execution(
         pytest.raises(ValueError, match=message),
     ):
         process(iq, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "process", [process_iq_to_power_doppler, process_iq_to_axial_velocity]
+)
+def test_butterworth_graph_does_not_filter_dummy_samples(
+    sample_voxeldata_iq_dataarray, monkeypatch, process
+):
+    """Graph validation designs a filter without applying it to any samples."""
+    import scipy.signal as sp_signal
+
+    def reject_filtering(*args, **kwargs):
+        pytest.fail("Filtering ran during graph construction")
+
+    monkeypatch.setattr(sp_signal, "sosfiltfilt", reject_filtering)
+    result = process(
+        sample_voxeldata_iq_dataarray.chunk({"time": 20}),
+        filter_method="butterworth",
+        low_cutoff=1.0,
+    )
+    assert isinstance(result.data, da.Array)
+
+
+@pytest.mark.parametrize("order", [1, 2, 3, 4])
+@pytest.mark.parametrize("low,high", [(1.0, None), (None, 3.0), (1.0, 3.0)])
+def test_butterworth_padding_boundary_matches_scipy(
+    sample_voxeldata_iq_dataarray, order, low, high
+):
+    """Odd/even, single-cutoff and band-pass padding agree with SciPy at the boundary."""
+    import scipy.signal as sp_signal
+
+    iq = sample_voxeldata_iq_dataarray.isel(time=np.arange(40) % 20).assign_coords(
+        time=("time", np.arange(40) / 10.0, sample_voxeldata_iq_dataarray.time.attrs)
+    )
+    btype = (
+        "bandpass"
+        if low is not None and high is not None
+        else ("highpass" if low is not None else "lowpass")
+    )
+    cutoff = [low, high] if btype == "bandpass" else (low if low is not None else high)
+    sos = sp_signal.butter(order, cutoff, btype=btype, fs=10.0, output="sos")
+    padlen = 3 * (2 * order + 1) if btype == "bandpass" else 3 * (order + 1)
+    with pytest.raises(ValueError, match="padlen"):
+        sp_signal.sosfiltfilt(sos, iq.values[:padlen], axis=0)
+    with pytest.raises(ValueError, match="padlen"):
+        process_iq_to_power_doppler(
+            iq.isel(time=slice(0, padlen)),
+            filter_method="butterworth",
+            low_cutoff=low,
+            high_cutoff=high,
+            butterworth_order=order,
+        )
+
+    iq = iq.isel(time=slice(0, padlen + 1))
+    expected = np.mean(
+        np.abs(sp_signal.sosfiltfilt(sos, iq.values, axis=0)) ** 2,
+        axis=0,
+        keepdims=True,
+    )
+    result = process_iq_to_power_doppler(
+        iq,
+        filter_method="butterworth",
+        low_cutoff=low,
+        high_cutoff=high,
+        butterworth_order=order,
+    )
+    assert_allclose(result.compute().values, expected)
 
 
 @pytest.mark.parametrize("spatial_kernel", [0, (3, 3), (3, 0, 3)])

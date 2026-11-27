@@ -6,10 +6,10 @@ import numpy as np
 import numpy.typing as npt
 
 from confusius.iq._utils import (
+    design_butterworth_filter,
     ensure_iq_voxeldata,
     resolve_iq_window,
     validate_energy_cutoffs,
-    validate_filter_frequency,
     validate_svd_index_cutoffs,
 )
 from confusius.validation import ensure_voxeldata, validate_mask
@@ -565,43 +565,13 @@ def clutter_filter_butterworth(
     ValueError
         If `block` is not 4D or if cutoff frequencies are invalid.
     """
-    import scipy.signal as sp_signal
-
     if block.ndim != 4:
         raise ValueError(f"'block' must be 4D, got {block.ndim}D")
 
     if low_cutoff is None and high_cutoff is None:
         return block
 
-    nyquist = fs / 2
-
-    if low_cutoff is not None and high_cutoff is not None and high_cutoff <= low_cutoff:
-        raise ValueError(
-            f"High cutoff frequency ({high_cutoff}) must be greater than "
-            f"low cutoff frequency ({low_cutoff})"
-        )
-
-    critical_freq = []
-    btype = None
-
-    if low_cutoff is not None:
-        btype = "high"
-        critical_freq.append(validate_filter_frequency(low_cutoff, nyquist))
-
-    if high_cutoff is not None:
-        if btype is None:
-            btype = "low"
-        else:
-            btype = "band"
-        critical_freq.append(validate_filter_frequency(high_cutoff, nyquist))
-
-    # For single cutoff filters, butter expects a scalar, for band filters it expects a
-    # length-2 sequence.
-    critical_freq_param: float | list[float] = (
-        critical_freq[0] if len(critical_freq) == 1 else critical_freq
-    )
-
-    sos = sp_signal.butter(order, critical_freq_param, btype=btype, fs=fs, output="sos")
+    sos = design_butterworth_filter(fs, low_cutoff, high_cutoff, order)
     return clutter_filter_sosfiltfilt(block, sos=sos)
 
 
