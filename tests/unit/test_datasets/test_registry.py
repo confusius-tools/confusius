@@ -29,6 +29,17 @@ def test_registry_entries_are_importable():
         assert hasattr(ds, name), f"{name} not found in confusius.datasets"
 
 
+def test_registry_lists_every_exported_fetcher():
+    """Every public fetcher appears in the registry, BrainGlobe atlases excepted."""
+    import confusius.datasets as ds
+
+    # BrainGlobe atlases live in BrainGlobe's own cache, outside the registry.
+    exported = {name for name in ds.__all__ if name.startswith("fetch_")} - {
+        "fetch_brainglobe_atlas"
+    }
+    assert {name for name, _, _ in _REGISTRY} == exported
+
+
 # ---------------------------------------------------------------------------
 # list_datasets()
 # ---------------------------------------------------------------------------

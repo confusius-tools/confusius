@@ -12,6 +12,12 @@ from confusius.datasets._utils import (
 )
 from confusius.io.loadsave import load
 
+_DATASET_ROOT = "sample-beamformed-iq"
+"""Cache directory and release catalog name of the sample recording."""
+
+_TOTAL_SIZE_BYTES = 84_611_022_444
+"""Size of the published release. Chunks are streamed, never stored locally."""
+
 _CITATION = (
     "Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. (2026). "
     "[citation.title]Brainwide blood volume reflects opposing neural populations."
@@ -54,11 +60,10 @@ def fetch_sample_beamformed_iq(
         Landemard, A. et al. (2026). Brainwide blood volume reflects opposing neural
         populations. Nature. [https://doi.org/10.1038/s41586-026-10350-9](https://doi.org/10.1038/s41586-026-10350-9)
     """
-    name = "sample-beamformed-iq"
     store = "sub-ALD019_task-awake_acq-ref25_iq.zarr"
-    cache_dir = get_datasets_dir(data_dir) / name
+    cache_dir = get_datasets_dir(data_dir) / _DATASET_ROOT
     cache_dir.mkdir(parents=True, exist_ok=True)
-    index = get_index(cache_dir, "datasets", name, refresh=refresh)
+    index = get_index(cache_dir, "datasets", _DATASET_ROOT, refresh=refresh)
     url = index[f"{store}/zarr.json"]["url"].removesuffix("/zarr.json")
     data = load(url, variable="iq", chunks={})
     update_cached_index(cache_dir, index)

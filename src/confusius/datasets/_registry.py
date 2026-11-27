@@ -21,6 +21,8 @@ from ._pepe_mariani_2026_bids import _TOTAL_SIZE_BYTES as _pepe_mariani_2026_bid
 from ._pereira_2025 import _BIDS_ROOT as _pereira_2025_bids_root
 from ._pereira_2025 import _TOTAL_SIZE_BYTES as _pereira_2025_size
 from ._s3 import _INDEX_FILENAME
+from ._sample_beamformed_iq import _DATASET_ROOT as _sample_beamformed_iq_root
+from ._sample_beamformed_iq import _TOTAL_SIZE_BYTES as _sample_beamformed_iq_size
 from ._utils import get_datasets_dir
 
 _SIZE_UNITS = ("B", "KB", "MB", "GB", "TB")
@@ -57,6 +59,11 @@ _REGISTRY: tuple[RegistryEntry, ...] = (
         "fetch_khallaf_2026",
         _khallaf_2026_size,
         _khallaf_2026_bids_root,
+    ),
+    (
+        "fetch_sample_beamformed_iq",
+        _sample_beamformed_iq_size,
+        _sample_beamformed_iq_root,
     ),
     (
         "fetch_template_brunner_grillet_2021",

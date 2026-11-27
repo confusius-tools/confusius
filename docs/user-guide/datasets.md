@@ -150,13 +150,15 @@ fetchers and their full download sizes:
 │ fetch_pepe_mariani_2026             │ 37.56 GB │    ✗    │
 │ fetch_landemard_2026                │ 42.04 GB │    ✗    │
 │ fetch_khallaf_2026                  │ 24.02 GB │    ✗    │
+│ fetch_sample_beamformed_iq          │ 84.61 GB │    ✗    │
 │ fetch_template_brunner_grillet_2021 │ 16.34 MB │    ✗    │
 │ fetch_template_pepe_mariani_2026    │ 5.508 MB │    ✗    │
 └─────────────────────────────────────┴──────────┴─────────┘
 ```
 
 The sizes shown are for the **full** dataset. Filtered fetches are typically a small
-fraction of this (see the examples below).
+fraction of this (see the examples below). `fetch_sample_beamformed_iq` streams its
+recording, so only its release metadata is ever stored on disk.
 
 The same table is available from the command line:
 
