@@ -114,8 +114,8 @@ Current development version for the next ConfUSIus release.
   odd-order and band-pass filters. Dask-backed results report the filtered dtype
   before computation
   ([#586](https://github.com/confusius-tools/confusius/pull/586)).
-- IQ processing accepts NumPy integer window sizes and strides on long recordings.
-  NumPy integer lags give the same velocity values and precision as Python integer lags
+- IQ window counting avoids integer overflow on long recordings, and axial
+  velocity calculations use consistent precision across integer lag types
   ([#586](https://github.com/confusius-tools/confusius/pull/586)).
 
 - Adaptive SVD filtering retains consistent output precision even when a window

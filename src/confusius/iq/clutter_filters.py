@@ -599,8 +599,8 @@ def compute_svd_cumulative_energy_threshold(
     singular_value_index: int,
     *,
     clutter_mask: "xr.DataArray | None" = None,
-    window_width: int | np.integer | None = None,
-    window_stride: int | np.integer | None = None,
+    window_width: int | None = None,
+    window_stride: int | None = None,
 ) -> "da.Array":
     """Compute the high cutoff threshold for the cumulative-energy SVD clutter filter.
 

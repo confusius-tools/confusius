@@ -379,10 +379,10 @@ def _compute_clutter_filter_window_metadata(
 def compute_processed_volume_timings(
     iq: xr.DataArray,
     *,
-    clutter_window_width: int | np.integer,
-    clutter_window_stride: int | np.integer,
-    inner_window_width: int | np.integer,
-    inner_window_stride: int | np.integer,
+    clutter_window_width: int,
+    clutter_window_stride: int,
+    inner_window_width: int,
+    inner_window_stride: int,
     processed_time_reference: VolumeAcquisitionReference | None = None,
 ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
     """Compute timings from processing input IQ volumes with nested sliding windows.
@@ -550,8 +550,8 @@ def process_iq_block_with_clutter_filter(
     clutter_mask: npt.NDArray | None = None,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
-    window_width: int | np.integer | None = None,
-    window_stride: int | np.integer | None = None,
+    window_width: int | None = None,
+    window_stride: int | None = None,
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
@@ -724,8 +724,8 @@ def compute_power_doppler_volume(
     high_cutoff: float | None = None,
     fs: float | None = None,
     butterworth_order: int = 4,
-    doppler_window_width: int | np.integer | None = None,
-    doppler_window_stride: int | np.integer | None = None,
+    doppler_window_width: int | None = None,
+    doppler_window_stride: int | None = None,
     butterworth_padtype: str | None = "odd",
     butterworth_padlen: int | None = None,
 ) -> npt.NDArray:
@@ -842,9 +842,7 @@ def compute_bmode_volume(
     return np.mean(np.abs(block), axis=0)[np.newaxis]
 
 
-def _validate_velocity_lag(
-    lag: int | np.integer, window_width: int | np.integer
-) -> int:
+def _validate_velocity_lag(lag: int, window_width: int) -> int:
     """Validate an autocorrelation lag against its integration window.
 
     Parameters
@@ -886,9 +884,9 @@ def compute_axial_velocity_volume(
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     butterworth_order: int = 4,
-    velocity_window_width: int | np.integer | None = None,
-    velocity_window_stride: int | np.integer | None = None,
-    lag: int | np.integer = 1,
+    velocity_window_width: int | None = None,
+    velocity_window_stride: int | None = None,
+    lag: int = 1,
     spatial_kernel: int | tuple[int, int, int] | list[int] = 1,
     transmit_frequency: float = 15.625e6,
     beamforming_sound_velocity: float = 1540,
@@ -1051,9 +1049,9 @@ def process_iq_blocks(
     *,
     output_shape: tuple[int, ...],
     output_dtype: npt.DTypeLike,
-    window_width: int | np.integer | None = None,
-    window_stride: int | np.integer | None = None,
-    windows_per_task: int | np.integer | None = None,
+    window_width: int | None = None,
+    window_stride: int | None = None,
+    windows_per_task: int | None = None,
 ) -> "da.Array":
     """Process blocks of IQ data using sliding windows.
 
@@ -1282,8 +1280,8 @@ def process_iq_blocks(
 def process_iq_to_power_doppler(
     iq: xr.DataArray,
     *,
-    clutter_window_width: int | np.integer | None = None,
-    clutter_window_stride: int | np.integer | None = None,
+    clutter_window_width: int | None = None,
+    clutter_window_stride: int | None = None,
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
@@ -1291,8 +1289,8 @@ def process_iq_to_power_doppler(
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     butterworth_order: int = 4,
-    doppler_window_width: int | np.integer | None = None,
-    doppler_window_stride: int | np.integer | None = None,
+    doppler_window_width: int | None = None,
+    doppler_window_stride: int | None = None,
     butterworth_padtype: str | None = "odd",
     butterworth_padlen: int | None = None,
 ) -> xr.DataArray:
@@ -1531,8 +1529,8 @@ def process_iq_to_power_doppler(
 def process_iq_to_bmode(
     iq: xr.DataArray,
     *,
-    bmode_window_width: int | np.integer | None = None,
-    bmode_window_stride: int | np.integer | None = None,
+    bmode_window_width: int | None = None,
+    bmode_window_stride: int | None = None,
 ) -> xr.DataArray:
     """Process blocks of beamformed IQ into B-mode volumes using sliding windows.
 
@@ -1626,8 +1624,8 @@ def process_iq_to_bmode(
 def process_iq_to_axial_velocity(
     iq: xr.DataArray,
     *,
-    clutter_window_width: int | np.integer | None = None,
-    clutter_window_stride: int | np.integer | None = None,
+    clutter_window_width: int | None = None,
+    clutter_window_stride: int | None = None,
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
@@ -1635,9 +1633,9 @@ def process_iq_to_axial_velocity(
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     butterworth_order: int = 4,
-    velocity_window_width: int | np.integer | None = None,
-    velocity_window_stride: int | np.integer | None = None,
-    lag: int | np.integer = 1,
+    velocity_window_width: int | None = None,
+    velocity_window_stride: int | None = None,
+    lag: int = 1,
     spatial_kernel: int | tuple[int, int, int] | list[int] = 1,
     butterworth_padtype: str | None = "odd",
     butterworth_padlen: int | None = None,

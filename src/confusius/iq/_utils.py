@@ -98,8 +98,8 @@ def validate_energy_cutoffs(
 
 def resolve_iq_window(
     n_volumes: int,
-    width: int | np.integer | None,
-    stride: int | np.integer | None,
+    width: int | None,
+    stride: int | None,
     *,
     default_width: int | None = None,
     name_prefix: str = "",

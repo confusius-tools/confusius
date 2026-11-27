@@ -756,12 +756,16 @@ def test_numpy_window_sizes_on_long_recording():
     """Narrow window and batch scalars support frame and window counts above their range."""
     values = np.arange(100_000, dtype=np.float32).astype(np.complex64)
     iq = da.from_array(values.reshape(-1, 1, 1, 1), chunks=(5000, 1, 1, 1))
+    # Exercise runtime normalization beyond the public int annotations.
+    settings: dict[str, Any] = {
+        "window_width": np.int16(250),
+        "window_stride": np.uint8(250),
+        "windows_per_task": np.uint8(4),
+    }
     result = process_iq_blocks(
         iq,
         compute_bmode_volume,
-        window_width=np.int16(250),
-        window_stride=np.uint8(250),
-        windows_per_task=np.uint8(4),
+        **settings,
         output_shape=(1, 1, 1, 1),
         output_dtype=np.float32,
     )
@@ -779,7 +783,8 @@ def test_numpy_integer_lag_matches_python_lag(
     """Integer lag types give the same velocity and retain metadata-driven precision."""
     iq = sample_voxeldata_iq_dataarray.astype(np.complex64)
     iq.attrs["transmit_frequency"] = frequency
-    result = process_iq_to_axial_velocity(iq, lag=np.int16(2))
+    lag: Any = np.int16(2)
+    result = process_iq_to_axial_velocity(iq, lag=lag)
     kwargs: dict[str, Any] = {
         "fs": 10.0,
         "transmit_frequency": frequency,
@@ -787,7 +792,7 @@ def test_numpy_integer_lag_matches_python_lag(
     }
     expected = compute_axial_velocity_volume(iq.values, lag=2, **kwargs)
     actual = result.compute()
-    direct = compute_axial_velocity_volume(iq.values, lag=np.int16(2), **kwargs)
+    direct = compute_axial_velocity_volume(iq.values, lag=lag, **kwargs)
     assert (
         result.dtype == actual.dtype == direct.dtype == expected.dtype == expected_dtype
     )
