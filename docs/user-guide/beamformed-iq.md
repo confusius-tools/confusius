@@ -4,7 +4,7 @@ icon: lucide/audio-waveform
 
 # Processing Beamformed IQ Data
 
-Beamformed IQ signals contains very rich information about tissue and blood. ConfUSIus
+Beamformed IQ signals contain very rich information about tissue and blood. ConfUSIus
 lets you process these recordings to produce the following measures:
 
 - **B-mode**, to visualize tissue anatomy.
@@ -116,7 +116,7 @@ squared IQ magnitude over each Doppler window.
 [`process_iq_to_power_doppler`][confusius.iq.process_iq_to_power_doppler] uses
 `clutter_window_width` to determine the clutter filter window size and
 `doppler_window_width` for power Doppler averaging. Its output is **signal power in
-arbitrary units**, not an absolute measure blood volume.
+arbitrary units**, not an absolute measure of blood volume.
 
 ```python
 pwd = cf.iq.process_iq_to_power_doppler(
@@ -199,7 +199,7 @@ frequency filtering alone is often insufficient.
 
     !!! tip "Which SVD filter should I use?"
         Start with **`svd_indices`** for most recordings. For awake subjects with
-        strong, variable motion, adaptive methods may
+        strong, variable motion, adaptive methods[^baranger2018] may
         help[^lemeurdiebolt2025][^bertolo2023]. However, they are less established and
         can impact the signals you want to measure. In particular, avoid
         `svd_cumulative_energy` when global hemodynamic changes are of interest.
@@ -273,7 +273,7 @@ pwd = iq.fusi.iq.process_to_power_doppler(
 
 ### Nested Sliding Windows
 
-For power Doppler and axial velocity, ConfUSIus uses **two nested slilding windows**:
+For power Doppler and axial velocity, ConfUSIus uses **two nested sliding windows**:
 
 1. **Clutter window:** Filter a block of IQ volumes to suppress tissue echoes.
 2. **Measurement windows:** Compute one or more power Doppler or velocity volumes from

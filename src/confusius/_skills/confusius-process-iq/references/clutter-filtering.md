@@ -17,7 +17,7 @@ frequencies can overlap, especially during motion ([Demené et al.,
 
 For `svd_indices`, `low_cutoff=40` discards the first 40 components (typically tissue);
 `high_cutoff=40` retains only those components (potentially useful for computing axial
-tissue velcity). Both bounds retain their interval; neither means no filtering. Integer
+tissue velocity). Both bounds retain their interval; neither means no filtering. Integer
 bounds must satisfy `0 <= low_cutoff < high_cutoff <= min(window_frames,
 selected_voxels)`; omitted bounds use the interval ends. The basis is recomputed per
 block; only the component count is fixed. Energy-based methods can instead reject
