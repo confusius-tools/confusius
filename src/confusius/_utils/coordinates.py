@@ -413,7 +413,7 @@ def get_probe_surface_origin(
     sizes : mapping[str, int]
         Spatial voxel sizes keyed by native `k`/`j`/`i` dimension name.
     spacing : tuple[float, float, float]
-        World spacing in `z`/`y`/`x` order.
+        World spacing in `k`/`j`/`i` order.
 
     Returns
     -------

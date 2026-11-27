@@ -23,7 +23,7 @@ body:
     attributes:
       label: Python version
       description: Version of the Python interpreter
-      placeholder: 3.11, 3.12, 3.13 etc.
+      placeholder: 3.12, 3.13, 3.14 etc.
     validations:
       required: true
   - type: input
@@ -63,7 +63,7 @@ body:
       value: |
         ```python
         # /// script
-        # requires-python = ">=3.11"
+        # requires-python = ">=3.12"
         # dependencies = [
         #   "confusius@git+https://github.com/confusius-tools/confusius.git@main",
         # ]

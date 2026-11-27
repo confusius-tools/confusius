@@ -310,7 +310,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             self._reconstruction_mask_,
             new_dims=["component"],
             new_dims_coords={"component": component_coord},
-            attrs={"long_name": long_name, "cmap": "coolwarm"},
+            attrs={"long_name": long_name, "cmap": "berlin"},
             fill_value=0.0,
         )
         return reshaped

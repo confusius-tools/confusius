@@ -399,7 +399,7 @@ class FUSIBIDSMetadata(BaseModel):
         if self.SliceTiming is not None and self.SliceEncodingDirection is None:
             warnings.warn(
                 "SliceTiming is provided but SliceEncodingDirection is missing. "
-                "SliceEncodingDirection is required to interpret SliceTiming.",
+                "Use the slice axis from the NIfTI header in increasing index order.",
                 stacklevel=find_stack_level(),
             )
         return self

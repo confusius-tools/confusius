@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import xarray as xr
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
+from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QApplication,
     QComboBox,
@@ -81,8 +82,8 @@ class SavePanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        # --- Layer saving ---------------------------------------------
-        save_group = QGroupBox("Layer Saving")
+        # --- Layer export ---------------------------------------------
+        save_group = QGroupBox("Layer Export")
         self._save_group = save_group
         self._layer_group = save_group
         save_layout = QVBoxLayout(save_group)
@@ -90,6 +91,15 @@ class SavePanel(QWidget):
 
         layer_form = QFormLayout()
         layer_form.setSpacing(6)
+        # Override the native macOS style's centered form and compact fields.
+        layer_form.setFormAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        layer_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        layer_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        layer_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self._layer_combo = QComboBox()
         self._layer_combo.setToolTip("Layer to save.")
@@ -136,7 +146,10 @@ class SavePanel(QWidget):
 
         self._save_btn = QPushButton("Save")
         self._save_btn.setObjectName("primary_btn")
+        self._save_btn.setEnabled(False)
         self._save_btn.clicked.connect(self._save)
+        self._path_edit.textChanged.connect(self._update_save_button)
+        self._layer_combo.currentIndexChanged.connect(self._update_save_button)
         layout.addWidget(self._save_btn)
 
         layout.addStretch()
@@ -177,6 +190,7 @@ class SavePanel(QWidget):
 
         self._layer_combo.blockSignals(False)
         self._template_combo.blockSignals(False)
+        self._update_save_button()
 
     # ------------------------------------------------------------------
     # Browse
@@ -265,6 +279,14 @@ class SavePanel(QWidget):
     # Work management
     # ------------------------------------------------------------------
 
+    def _update_save_button(self) -> None:
+        """Enable saving only with a layer and output path, while not busy."""
+        self._save_btn.setEnabled(
+            self._path_edit.isEnabled()
+            and bool(self._path_edit.text().strip())
+            and self._layer_combo.currentData() is not None
+        )
+
     def _begin_work(self) -> None:
         self._save_btn.setEnabled(False)
         self._browse_btn.setEnabled(False)
@@ -273,9 +295,9 @@ class SavePanel(QWidget):
         QApplication.processEvents()
 
     def _end_work(self) -> None:
-        self._save_btn.setEnabled(True)
         self._browse_btn.setEnabled(True)
         self._path_edit.setEnabled(True)
+        self._update_save_button()
         self._progress.hide()
 
     # ------------------------------------------------------------------

@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 import matplotlib.pyplot as plt
 import numpy as np
 
+from confusius._utils.colors import RED_DARK, TURQUOISE_DARK
+
 if TYPE_CHECKING:
     import pandas as pd
     from matplotlib.figure import Figure
@@ -111,8 +113,8 @@ def plot_motion_diagnostics(
         panel_index += 1
 
     if has_metric or has_iterations:
-        metric_color = "#d93a54"
-        iteration_color = "#3ad9a4"
+        metric_color = RED_DARK
+        iteration_color = TURQUOISE_DARK
         ax = axes[panel_index]
         ax.set_title("Optimizer summary")
         if has_metric:

@@ -396,7 +396,7 @@ files (`3Dscan`, `4Dscan`), since lab space is shared by every pose.
 
 ### Loading NIfTI Files
 
-When loading NIfTI files, ConfUSIus automatically loads a
+When loading NIfTI files, ConfUSIus automatically loads
 [fUSI-BIDS](https://bids-specification.readthedocs.io/en/stable/) metadata. For files 
 inside a BIDS folder tree, matching sidecars are inherited from the dataset root (the 
 folder containing `dataset_description.json`) down to the recording folder, with more 
@@ -444,6 +444,43 @@ Attributes: (12/24)
     plane_wave_angles:                   [-10.0, -7.9, -5.8, -3.6999999999999...
     transmit_voltage:                    25.0
 ```
+
+To load multiple probe poses that were split into multiple NIfTI files using the
+fUSI-BIDS `chunk` entity, put `{chunk}` in the filename:
+
+```python
+import confusius as cf
+
+da = cf.load("sub-01_ses-01_chunk-{chunk}_pwd.nii")
+```
+
+Matching integer chunk indices are sorted numerically then combined lazily with
+[`stack_poses`][confusius.multipose.stack_poses]. The chunks must meet `stack_poses`'
+requirements, including equal time lengths and compatible voxel grids.
+
+Use the same pattern to save a multi-pose VoxelData array back to separate files:
+
+```python
+da.fusi.save("sub-01_ses-01_chunk-{chunk}_pwd.nii")
+```
+
+Each pose gets its own NIfTI file and JSON sidecar, preserving its geometry and
+timing. Chunk indices come from the `pose` labels, which must be unique
+non-negative integers. Without `{chunk}`, select a single pose before saving to
+NIfTI, since one file cannot represent distinct per-pose affines.
+
+!!! note "Headers without orientation"
+    When both `sform_code` and `qform_code` are 0, a NIfTI header stores no
+    orientation. When loading such a file, or converting such a NiBabel image with
+    [`convert_from_nifti`][confusius.io.convert_from_nifti], ConfUSIus follows the
+    [NIfTI-1 standard](https://github.com/NIFTI-Imaging/nifti_clib/blob/master/niftilib/nifti1.h)
+    and builds the voxel-to-world affine from the voxel sizes alone: the first voxel
+    sits at the origin and no axis is rotated or flipped. A warning is emitted.
+    NiBabel's `img.affine`, used by nilearn and other NiBabel-based tools, follows SPM
+    instead: it puts the central voxel at the origin and negates the x axis (see
+    [NiBabel's fall-back affine](https://nipy.org/nibabel/nifti_images.html#the-fall-back-header-affine)).
+    World coordinates from ConfUSIus and from those tools therefore differ for such
+    files.
 
 ### Loading Other Formats
 

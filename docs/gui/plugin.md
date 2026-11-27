@@ -4,12 +4,12 @@ icon: lucide/app-window
 
 # Using the Plugin
 
-The ConfUSIus sidebar contains six collapsible panels. Each panel operates
+The ConfUSIus sidebar contains five collapsible panels. Each panel operates
 independently and can be expanded or collapsed by clicking its header. For an in-app
 introduction, click **Take a Tour** in the sidebar header.
 
-- [**Data I/O**](#data-io-panel) — load and save fUSI files (NIfTI, Zarr, Iconeus SCAN and RAW).
-- [**Video**](#video-panel) — load videos side-by-side, temporally synced with the fUSI acquisition.
+- [**Data I/O**](#data-io-panel) — load and save fUSI files (NIfTI, Zarr, Iconeus SCAN,
+  Iconeus RAW) and load behavioral videos.
 - [**Signals**](#signals-panel) — plot voxel, point, or label-region signals in a bottom dock.
 - [**Events**](#events-panel) — annotate periods of time (BIDS events) and shade them on
   the signal plot.
@@ -19,17 +19,16 @@ introduction, click **Take a Tour** in the sidebar header.
 
 ## Data I/O Panel
 
-The Data I/O Panel handles both loading and saving fUSI files without leaving the
-viewer.
+The Data I/O Panel handles loading and saving fUSI files and loading behavioral videos
+without leaving the viewer.
 
 ![ConfUSIus Data I/O panel](../images/gui/plugin-data-io.png)
 
 ### Loading data
 
-Click **Browse** to pick a file—it loads immediately on selection. Or paste a path
-directly in the text field and press ++enter++. Enable **Load lazily** beforehand to
-keep the array Dask-backed for large files. A progress bar animates during loading, and
-any error is reported in the napari notification bar.
+Use **Load Data** for both fUSI files and behavioral videos. When loading fUSI files,
+enable **Load lazily** beforehand to keep large fUSI arrays Dask-backed. This option is
+disabled for video paths, since videos already decode frames on demand.
 
 !!! info "Time overlay"
     When a loaded scan contains a time dimension, the current time coordinate is
@@ -37,11 +36,59 @@ any error is reported in the napari notification bar.
     units are read from the scan's coordinate metadata and update automatically as you
     scrub the time slider.
 
-    When multiple scans are open, the overlay reflects the currently selected layer.
-    If zero or more than one layer is selected, it keeps following the previously
-    selected one.
+    When multiple scans are open, the overlay reflects the currently selected layer. If
+    zero or more than one layer is selected, it keeps following the previously selected
+    one.
 
-### Saving data
+### Loading a video
+
+Videos are opened (`.mp4`, `.mov`, `.avi`) in a second napari viewer shown between the
+main canvas and the ConfUSIus sidebar. Drag the handle between the two canvases to
+resize the video viewer; the sidebar keeps its width. The video viewer has its own
+layers, axes and camera, so a video never changes how your fUSI layers are displayed.
+The two viewers share only time: moving the time slider of one moves the other to the
+same time. They also share time playback: while one viewer plays, pressing the time
+slider's play button in the other stops it.
+
+!!! tip "Launch with a video from the CLI"
+    Pass `--video` to open a video at launch, with or without data files:
+    ```bash
+    confusius path/to/scan.nii.gz --video path/to/camera.mp4
+    confusius --video path/to/camera.mp4
+    ```
+
+When multiple videos are loaded, the video viewer shows them side by side in its grid.
+Frame `n` of a video is shown at `n / fps` seconds, so a video lines up with a recording
+whose time coordinate starts at the first video frame.
+
+!!! warning "Irregular recording or video times"
+    Synchronization assumes regularly sampled fUSI data and videos. Napari approximates
+    irregular fUSI timestamps using the median sample interval; videos are timed from
+    frame indices and the reported frame rate, not individual frame timestamps.
+    Irregular fUSI or video sampling can therefore misalign the displayed frames. Do not
+    rely on frame-accurate synchronization in these cases.
+
+![ConfUSIus playing a video in sync with a fUSI recording](../images/gui/plugin-video.gif)
+
+The video layers are listed in a **video layer list** dock under napari's own layer
+list, so they behave like any other napari layers. Available controls are:
+
+| Control | Description |
+|---------|-------------|
+| **Frame step** | Show every *N*-th frame of the videos. Higher values skip frames for lighter playback of long or high-frame-rate recordings. The effective frame rate becomes `fps / N`, and the time slider still reports time in seconds. |
+| **Transpose** | Swap the two displayed axes of the video viewer. |
+| **Grid** | Toggle the grid of the video viewer. Without it, the videos are drawn on top of each other. Right-click the button to set the grid stride, width, height and spacing. |
+| **Delete** | Remove the selected videos. |
+
+napari's **Home** button and ++ctrl+r++ reset the view of both viewers. Removing the
+last video hides the video viewer.
+
+!!! tip "Napari playback performance"
+    Napari handles animations quite smoothly up to around 30 to 50 FPS (even higher
+    depending on user hardware and operating system). Use **Frame step** to reduce the
+    effective frame rate if playback is choppy or buffering.
+
+### Exporting data
 
 1. Select the layer to save from the **Save layer** dropdown.
 2. Optionally select a layer in the **Coordinates from** dropdown to borrow its physical
@@ -65,59 +112,6 @@ Three save modes are applied automatically depending on what is available:
 | **Direct** | The layer was loaded via ConfUSIus (DataArray in metadata). Saved verbatim, all coordinates and attributes preserved. |
 | **Template** | A template layer is selected. Coordinates are borrowed from the template DataArray. |
 | **Reconstruct** | No template and no DataArray in metadata (e.g. a freshly drawn labels layer). Coordinates are reconstructed from the napari layer state (`scale`, `translate`, `axis_labels`). |
-
-## Video Panel
-
-The Video Panel loads one or more videos (`.mp4`, `.mov`, `.avi`) and
-overlays them beside a fUSI scan in a synchronized grid. Each video becomes its own
-napari Image layer whose time axis is locked to the reference scan, so scrubbing the
-time slider plays every video in lockstep with the fUSI recording.
-
-### Loading a video
-
-1. Pick the fUSI image layer to synchronize against in the **Reference layer**
-   dropdown. The reference must have ConfUSIus coordinate metadata, so load it
-   through the [Data I/O Panel](#data-io-panel) or the [`confusius`
-   CLI](overview.md#recommended-data-panel-and-cli) command.
-2. Insert a path or click **Browse** to pick a video file.
-3. Click **Add video**. The video appears as a new Image layer, grid mode is
-   enabled with a single-row layout, and the viewer shows the reference scan and
-   the video side by side.
-
-Repeat to add more videos (each will get its own cell). All videos share the
-reference layer's axis labels, time index, and dimensionality; their spatial scale
-is chosen so the video height matches the fUSI height, with isotropic pixels and
-the frame centered on the scan.
-
-!!! tip "Launch with a video from the CLI"
-    Pass both a data file and `--video` to open them together:
-    ```bash
-    confusius path/to/scan.nii.gz --video path/to/camera.mp4
-    ```
-
-![ConfUSIus Video panel — playback](../images/gui/plugin-video.gif)
-
-### Playback
-
-
-| Option | Description |
-|--------|-------------|
-| **Frame step** | Show every *N*-th frame of the video. Higher values skip frames for lighter playback of long or high-frame-rate recordings. The effective frame rate becomes `fps / N`. Changes apply to every loaded video. |
-
-
-!!! tip "Napari playback performance"
-    Napari handles animations quite smoothly up to around 30 to 50 FPS (even higher
-    depending on user hardware and operating system). Use **Frame step** to reduce the
-    effective frame rate if playback is choppy or buffering.
-
-The time scale of each video layer is `frame_step / fps` seconds, so the napari time
-slider and the time overlay continue to report time in seconds regardless of the chosen
-step.
-
-!!! note "Time axis is kept out of the displayed dims"
-    The panel installs a guard that prevents napari from ever placing the time
-    axis in the 2D display. If you reorder dimensions such that time would become
-    a display dimension, the order is silently corrected.
 
 ## Signals Panel
 

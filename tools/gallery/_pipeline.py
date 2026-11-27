@@ -158,6 +158,7 @@ def _build_one(
     interactive: bool,
     binder_url: str | None = None,
     run: bool = True,
+    use_cache: bool = True,
 ) -> RenderedExample:
     """Build one example and return its rendered metadata.
 
@@ -181,6 +182,11 @@ def _build_one(
         Whether to execute the example. When `False`, a cached result is still
         restored if present; otherwise the page is rendered from the source with no
         outputs (code and markdown only) and is not cached.
+    use_cache : bool, default: True
+        Whether to restore a cached result instead of executing when `run` is
+        `True`. When `False`, the example is executed even if a cached result
+        exists, and the fresh result replaces it. Examples that are not run are
+        always restored from cache if present.
 
     Returns
     -------
@@ -204,7 +210,7 @@ def _build_one(
     # total has to match that — counting markdown cells would leave it stuck.
     n_cells = sum(1 for c in source_notebook.cells if c.cell_type == "code")
 
-    if cache_entry.is_dir():
+    if cache_entry.is_dir() and (use_cache or not run):
         progress.add_task(f"{spec.section}/{base_name} [cached]", total=1, completed=1)
         # The live bar already conveys this interactively; in CI/non-TTY the bar is
         # disabled, so emit a plain flushed line instead.
@@ -231,7 +237,6 @@ def _build_one(
         render.render_notebook(
             source_notebook,
             source_notebook,
-            source_notebook,
             out_dir=out_dir,
             base_name=base_name,
             runtime_seconds=0.0,
@@ -249,25 +254,15 @@ def _build_one(
         )
 
     if not interactive:
-        print(
-            f"-> {spec.section}/{base_name} ({n_cells} cells, light+dark)", flush=True
-        )
+        print(f"-> {spec.section}/{base_name} ({n_cells} cells)", flush=True)
 
-    light_task = progress.add_task(f"{spec.section}/{base_name} (light)", total=n_cells)
-    light_notebook, light_seconds = execute.execute_example(
-        spec.source,
-        theme="light",
-        on_cell_executed=_advance_on_cell(progress, light_task),
-    )
-    dark_task = progress.add_task(f"{spec.section}/{base_name} (dark)", total=n_cells)
-    dark_notebook, _ = execute.execute_example(
-        spec.source,
-        theme="dark",
-        on_cell_executed=_advance_on_cell(progress, dark_task),
+    task = progress.add_task(f"{spec.section}/{base_name}", total=n_cells)
+    executed_notebook, seconds = execute.execute_example(
+        spec.source, on_cell_executed=_advance_on_cell(progress, task)
     )
 
     if not interactive:
-        print(f"   done in {light_seconds:.1f}s", flush=True)
+        print(f"   done in {seconds:.1f}s", flush=True)
 
     scratch = cache_root / "_scratch" / spec.section / base_name
     if scratch.exists():
@@ -276,11 +271,10 @@ def _build_one(
 
     render.render_notebook(
         source_notebook,
-        light_notebook,
-        dark_notebook,
+        executed_notebook,
         out_dir=scratch,
         base_name=base_name,
-        runtime_seconds=light_seconds,
+        runtime_seconds=seconds,
         binder_url=binder_url,
     )
 
@@ -323,6 +317,7 @@ def build_gallery(
     binder_repo: str | None = None,
     binder_ref: str = "main",
     only: Sequence[Path] | None = None,
+    use_cache: bool = True,
 ) -> None:
     """Run the full pipeline and write the gallery to disk.
 
@@ -348,7 +343,12 @@ def build_gallery(
         Example scripts to execute. Every discovered example is still rendered
         into the gallery (so `index.md` lists them all), but only these are run;
         the rest are restored from cache if present, or rendered without outputs
-        (code and markdown only). If not provided, every example is executed.
+        (code and markdown only). If not provided, every example is executed;
+        an empty sequence executes none.
+    use_cache : bool, default: True
+        Whether examples selected for execution may be restored from cache
+        instead. When `False`, they are executed even if cached and the cache
+        entry is replaced; examples not selected still come from cache.
 
     Raises
     ------
@@ -382,6 +382,7 @@ def build_gallery(
                 _build_one(
                     spec,
                     run=run_paths is None or spec.source.resolve() in run_paths,
+                    use_cache=use_cache,
                     built_dir=built_dir,
                     cache_root=cache_root,
                     deps_fingerprint=deps_fingerprint,

@@ -17,7 +17,9 @@
 # The public S3 bucket contains two prefixes, `datasets/` and `templates/`, with
 # immutable releases under `<identifier>/<version>/`. The `last_versions.conf`
 # catalog lists the latest published versions; each release's `manifest.json`
-# records its file paths, sizes, and SHA-256 checksums.
+# records its file paths, sizes, and SHA-256 checksums. The
+# [online explorer](https://confusius-datasets.s3.amazonaws.com/index.html) shows
+# this layout in your browser.
 #
 # Fetchers resolve the latest published release on the first download, then reuse
 # the cached version. Pass `refresh=True` to check for a newer release without

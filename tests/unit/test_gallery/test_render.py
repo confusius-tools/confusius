@@ -36,7 +36,7 @@ def _make_nb(*, thumbnail: bool = False) -> nbformat.NotebookNode:
         nbformat.v4.new_output(
             output_type="display_data",
             data={"image/png": png_b64},
-            metadata={},
+            metadata={"image/png": {"dark": png_b64}},
         ),
     ]
     nb.cells.append(plot_cell)
@@ -46,7 +46,6 @@ def _make_nb(*, thumbnail: bool = False) -> nbformat.NotebookNode:
 def test_render_writes_markdown_with_code_and_output(tmp_path: Path) -> None:
     nb = _make_nb()
     md_path, _ = render_notebook(
-        nb,
         nb,
         nb,
         out_dir=tmp_path,
@@ -87,7 +86,7 @@ def test_rich_tables_are_marked_without_affecting_citations(
         )
     ]
     md_path, _ = render_notebook(
-        nb, nb, nb, out_dir=tmp_path, base_name="rich", runtime_seconds=0.0
+        nb, nb, out_dir=tmp_path, base_name="rich", runtime_seconds=0.0
     )
     markdown = md_path.read_text(encoding="utf-8")
     assert ('class="gallery-rich-table"' in markdown) is is_table
@@ -97,7 +96,6 @@ def test_rich_tables_are_marked_without_affecting_citations(
 def test_render_writes_image_files_into_output_folder(tmp_path: Path) -> None:
     nb = _make_nb()
     render_notebook(
-        nb,
         nb,
         nb,
         out_dir=tmp_path,
@@ -116,7 +114,6 @@ def test_render_writes_image_files_into_output_folder(tmp_path: Path) -> None:
 def test_render_returns_thumbnail_paths_for_tagged_output(tmp_path: Path) -> None:
     nb = _make_nb(thumbnail=True)
     _, thumbnail = render_notebook(
-        nb,
         nb,
         nb,
         out_dir=tmp_path,
@@ -143,7 +140,7 @@ def test_render_collapses_code_cell_with_tag(tmp_path: Path) -> None:
     nb.cells.append(code)
 
     md_path, _ = render_notebook(
-        nb, nb, nb, out_dir=tmp_path, base_name="ex", runtime_seconds=1.0
+        nb, nb, out_dir=tmp_path, base_name="ex", runtime_seconds=1.0
     )
     md = md_path.read_text()
     # The code is wrapped in a collapsed admonition with the given title, indented as its
@@ -160,7 +157,7 @@ def test_render_collapse_tag_without_title_uses_default(tmp_path: Path) -> None:
     nb.cells.append(code)
 
     md_path, _ = render_notebook(
-        nb, nb, nb, out_dir=tmp_path, base_name="ex", runtime_seconds=1.0
+        nb, nb, out_dir=tmp_path, base_name="ex", runtime_seconds=1.0
     )
     md = md_path.read_text()
     assert '??? example "Show code"' in md
@@ -178,7 +175,7 @@ def test_render_collapse_tag_with_admonition_type(tmp_path: Path) -> None:
     nb.cells.append(untitled)
 
     md_path, _ = render_notebook(
-        nb, nb, nb, out_dir=tmp_path, base_name="ex", runtime_seconds=1.0
+        nb, nb, out_dir=tmp_path, base_name="ex", runtime_seconds=1.0
     )
     md = md_path.read_text()
     assert '??? warning "Advanced setup"' in md
@@ -192,7 +189,6 @@ def test_render_handles_notebook_without_images(tmp_path: Path) -> None:
     _, thumbnail = render_notebook(
         nb,
         nb,
-        nb,
         out_dir=tmp_path,
         base_name="ex",
         runtime_seconds=0.1,
@@ -204,7 +200,6 @@ def test_render_adds_binder_button_when_url_given(tmp_path: Path) -> None:
     nb = _make_nb()
     url = "https://mybinder.org/v2/gh/owner/repo/main?urlpath=lab/tree/foo/ex.py"
     md_path, _ = render_notebook(
-        nb,
         nb,
         nb,
         out_dir=tmp_path,
@@ -223,7 +218,6 @@ def test_render_omits_binder_button_when_url_missing(tmp_path: Path) -> None:
     md_path, _ = render_notebook(
         nb,
         nb,
-        nb,
         out_dir=tmp_path,
         base_name="ex",
         runtime_seconds=1.0,
@@ -234,92 +228,68 @@ def test_render_omits_binder_button_when_url_missing(tmp_path: Path) -> None:
     assert ".md-button--primary" not in md
 
 
-def test_render_uses_outputs_from_light_and_dark_notebooks(tmp_path: Path) -> None:
-    """Image bytes come from light_notebook / dark_notebook, not the un-executed source."""
+def _executed_nb_with_png(
+    light_b64: str, dark_b64: str | None
+) -> nbformat.NotebookNode:
+    nb = nbformat.v4.new_notebook()
+    cell = nbformat.v4.new_code_cell("plt.plot([1])")
+    metadata = {"image/png": {"dark": dark_b64}} if dark_b64 is not None else {}
+    cell.outputs = [
+        nbformat.v4.new_output(
+            output_type="display_data",
+            data={"image/png": light_b64},
+            metadata=metadata,
+        )
+    ]
+    nb.cells.append(cell)
+    return nb
+
+
+def test_render_writes_light_png_from_data_and_dark_png_from_metadata(
+    tmp_path: Path,
+) -> None:
     import base64
 
     light_b64 = base64.b64encode(b"light_pixel").decode()
     dark_b64 = base64.b64encode(b"dark_pixel").decode()
-
     source_nb = nbformat.v4.new_notebook()
     source_nb.cells.append(nbformat.v4.new_code_cell("plt.plot([1])"))
 
-    def _nb_with_png(b64: str) -> nbformat.NotebookNode:
-        nb = nbformat.v4.new_notebook()
-        cell = nbformat.v4.new_code_cell("plt.plot([1])")
-        cell.outputs = [
-            nbformat.v4.new_output(
-                output_type="display_data",
-                data={"image/png": b64},
-                metadata={},
-            )
-        ]
-        nb.cells.append(cell)
-        return nb
-
     render_notebook(
         source_nb,
-        _nb_with_png(light_b64),
-        _nb_with_png(dark_b64),
+        _executed_nb_with_png(light_b64, dark_b64),
         out_dir=tmp_path,
         base_name="ex",
         runtime_seconds=1.0,
     )
 
-    light_bytes = (tmp_path / "ex_output_light" / "cell_01_0_light.png").read_bytes()
-    dark_bytes = (tmp_path / "ex_output_dark" / "cell_01_0_dark.png").read_bytes()
-    assert light_bytes == b"light_pixel"
-    assert dark_bytes == b"dark_pixel"
-    assert light_bytes != dark_bytes
+    assert (
+        tmp_path / "ex_output_light" / "cell_01_0_light.png"
+    ).read_bytes() == b"light_pixel"
+    assert (
+        tmp_path / "ex_output_dark" / "cell_01_0_dark.png"
+    ).read_bytes() == b"dark_pixel"
 
 
-def test_render_raises_when_light_and_dark_output_counts_differ(
-    tmp_path: Path,
-) -> None:
-    """Light/dark output mismatch is a hard error.
+def test_render_falls_back_to_light_png_when_no_dark_rendering(tmp_path: Path) -> None:
+    """Images not produced by matplotlib (PIL, screenshots) show as-is in both themes."""
+    import base64
 
-    Independent kernels would occasionally emit a one-time stream output
-    (download progress, first-import warning) in only one of the two builds.
-    Silently dropping the extras hid real divergence between the two rendered
-    notebooks, so the renderer now refuses to pair mismatched cells. The fix
-    is to remove the non-determinism (pre-warming caches, etc.) before the
-    gallery runs, not to relax the renderer.
-    """
+    light_b64 = base64.b64encode(b"only_pixel").decode()
     source_nb = nbformat.v4.new_notebook()
-    source_nb.cells.append(nbformat.v4.new_code_cell("print('a')\nx = 1\nx"))
+    source_nb.cells.append(nbformat.v4.new_code_cell("img"))
 
-    light_nb = nbformat.v4.new_notebook()
-    light_cell = nbformat.v4.new_code_cell("print('a')\nx = 1\nx")
-    light_cell.outputs = [
-        nbformat.v4.new_output(output_type="stream", name="stdout", text="a\n"),
-        nbformat.v4.new_output(
-            output_type="execute_result",
-            data={"text/plain": "1"},
-            execution_count=1,
-            metadata={},
-        ),
-    ]
-    light_nb.cells.append(light_cell)
+    render_notebook(
+        source_nb,
+        _executed_nb_with_png(light_b64, None),
+        out_dir=tmp_path,
+        base_name="ex",
+        runtime_seconds=1.0,
+    )
 
-    dark_nb = nbformat.v4.new_notebook()
-    dark_cell = nbformat.v4.new_code_cell("print('a')\nx = 1\nx")
-    # Dark missed the stream output entirely.
-    dark_cell.outputs = [
-        nbformat.v4.new_output(
-            output_type="execute_result",
-            data={"text/plain": "1"},
-            execution_count=1,
-            metadata={},
-        ),
-    ]
-    dark_nb.cells.append(dark_cell)
-
-    with pytest.raises(ValueError, match="light outputs and"):
-        render_notebook(
-            source_nb,
-            light_nb,
-            dark_nb,
-            out_dir=tmp_path,
-            base_name="ex",
-            runtime_seconds=1.0,
-        )
+    assert (
+        tmp_path / "ex_output_light" / "cell_01_0_light.png"
+    ).read_bytes() == b"only_pixel"
+    assert (
+        tmp_path / "ex_output_dark" / "cell_01_0_dark.png"
+    ).read_bytes() == b"only_pixel"

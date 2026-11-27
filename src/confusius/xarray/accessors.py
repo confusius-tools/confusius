@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING, Any
 import xarray as xr
 
 if TYPE_CHECKING:
-    from confusius.xarray.affine import FUSIAffineAccessor
+    import nibabel as nib
+    import numpy.typing as npt
+
+    from confusius.io.nifti import NiftiVersion
+    from confusius.xarray.affine import FUSIAffineAccessor, TransformCenter
     from confusius.xarray.connectivity import FUSIConnectivityAccessor
     from confusius.xarray.extract import FUSIExtractAccessor
     from confusius.xarray.iq import FUSIIQAccessor
@@ -97,7 +101,7 @@ class FUSIAccessor:
         --------
         >>> import xarray as xr
         >>> data = xr.open_zarr("output.zarr")["iq"]
-        >>> viewer, layer = data.fusi.plot.napari()
+        >>> viewer, layers = data.fusi.plot.napari()
         """
         from confusius.xarray.plotting import FUSIPlotAccessor
 
@@ -342,6 +346,238 @@ class FUSIAccessor:
 
         return FUSIAffineAccessor(self._obj)
 
+    def translate(
+        self, translation: npt.ArrayLike, *, inplace: bool = False
+    ) -> xr.DataArray:
+        """Translate a VoxelData array in world space.
+
+        `translation` is given in world `(z, y, x)` order. Only the voxel-to-world
+        geometry changes. See
+        [apply_translation][confusius.xarray.apply_translation] for details.
+
+        Parameters
+        ----------
+        translation : (3,) array-like
+            Translation in world `(z, y, x)` order, in the DataArray's world units
+            (`.fusi.affine.units`).
+        inplace : bool, default: False
+            Whether to modify the DataArray in place instead of returning a copy.
+
+        Returns
+        -------
+        xarray.DataArray
+            The translated VoxelData array. This is the wrapped array itself if
+            `inplace` is `True`.
+
+        Raises
+        ------
+        ValueError
+            If `translation` is not a finite `(3,)` vector, or if the DataArray is not a
+            VoxelData array.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
+        >>> moved = data.fusi.translate((1.0, 0.0, 0.0)).fusi.rotate(
+        ...     5.0, "x"
+        ... )
+        >>> box = moved.fusi.affine.bounding_box
+        >>> round(box["x"][1], 6)
+        2.0
+        """
+        from confusius.xarray.affine import apply_translation
+
+        return apply_translation(self._obj, translation, inplace=inplace)
+
+    def rotate(
+        self,
+        angle: npt.ArrayLike,
+        axis: str | npt.ArrayLike,
+        *,
+        center: TransformCenter = "geometry",
+        degrees: bool = True,
+        inplace: bool = False,
+    ) -> xr.DataArray:
+        """Rotate a VoxelData array in world space.
+
+        Rotations follow the right-hand rule in ordered world `(z, y, x)` coordinates,
+        so a rotation of +90 degrees about `x` maps `+z` onto `+y`. Only the
+        voxel-to-world geometry changes. See
+        [apply_rotation][confusius.xarray.apply_rotation] for details.
+
+        Parameters
+        ----------
+        angle : float or (N,) array-like
+            Rotation angle, or one angle per name when `axis` names several axes.
+        axis : str or (3,) array-like
+            Rotation axis. Either one or more world dimension names among `"z"`, `"y"`
+            and `"x"`, or a vector in world `(z, y, x)` order, which is normalized.
+            Several names rotate in sequence from left to right about the fixed world
+            axes, so `"zyx"` rotates about `z` first. Names may repeat, as in `"zyz"`,
+            and their order changes the result.
+        center : {"origin", "geometry"} or (3,) array-like or mapping, default: "geometry"
+            Fixed point of the rotation. `"origin"` is the first sampled voxel's world
+            position and requires selecting a scalar pose for pose-dependent data.
+            `"geometry"` is
+            [geometry_center][confusius.xarray.FUSIAffineAccessor.geometry_center], the
+            center of the bounding box. Otherwise a world point in `(z, y, x)` order, in
+            the DataArray's world units (`.fusi.affine.units`), such as `(0, 0, 0)` for
+            the world origin. A mapping must contain `z`, `y`, and `x` keys; other
+            keys are ignored, so `.fusi.origin` can be passed directly.
+        degrees : bool, default: True
+            Whether to read `angle` in degrees rather than radians.
+        inplace : bool, default: False
+            Whether to modify the DataArray in place instead of returning a copy.
+
+        Returns
+        -------
+        xarray.DataArray
+            The rotated VoxelData array. This is the wrapped array itself if
+            `inplace` is `True`.
+
+        Raises
+        ------
+        ValueError
+            If `angle` is not finite, if it does not hold one value per axis name, if
+            `axis` is neither world dimension names nor a non-zero finite `(3,)`
+            vector, if `center` is neither `"origin"`, `"geometry"` nor a finite
+            `(3,)` vector, if `center` is `"geometry"` and a voxel dim has irregular
+            coordinates, or if the DataArray is not a VoxelData array.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
+        >>> rotated = data.fusi.rotate(90.0, "z", center=(0.0, 0.0, 0.0))
+        >>> box = rotated.fusi.affine.bounding_box
+        >>> round(box["x"][1], 6)
+        3.0
+        >>> tilted = data.fusi.rotate((30.0, 20.0, 10.0), "zyx")
+        """
+        from confusius.xarray.affine import apply_rotation
+
+        return apply_rotation(
+            self._obj,
+            angle,
+            axis,
+            center=center,
+            degrees=degrees,
+            inplace=inplace,
+        )
+
+    def zoom(
+        self,
+        zoom: npt.ArrayLike,
+        *,
+        center: TransformCenter = "geometry",
+        inplace: bool = False,
+    ) -> xr.DataArray:
+        """Rescale a VoxelData array in world space.
+
+        Only the voxel-to-world geometry changes. See
+        [apply_zoom][confusius.xarray.apply_zoom] for details.
+
+        Parameters
+        ----------
+        zoom : float or (3,) array-like
+            Scale factor, either a scalar applied to all axes or per-axis factors in
+            world `(z, y, x)` order. Negative factors reflect the volume along that
+            axis. Unequal factors shear the voxel grid when it is oblique to the world
+            axes, so rotating then zooming differs from zooming then rotating.
+        center : {"origin", "geometry"} or (3,) array-like or mapping, default: "geometry"
+            Fixed point of the rescaling. `"origin"` is the first sampled voxel's world
+            position and requires selecting a scalar pose for pose-dependent data.
+            `"geometry"` is
+            [geometry_center][confusius.xarray.FUSIAffineAccessor.geometry_center], the
+            center of the bounding box. Otherwise a world point in `(z, y, x)` order, in
+            the DataArray's world units (`.fusi.affine.units`), such as `(0, 0, 0)` for
+            the world origin. A mapping must contain `z`, `y`, and `x` keys; other
+            keys are ignored, so `.fusi.origin` can be passed directly.
+        inplace : bool, default: False
+            Whether to modify the DataArray in place instead of returning a copy.
+
+        Returns
+        -------
+        xarray.DataArray
+            The rescaled VoxelData array. This is the wrapped array itself if
+            `inplace` is `True`.
+
+        Raises
+        ------
+        ValueError
+            If `zoom` is not a finite scalar or `(3,)` vector, if any factor is zero
+            (singular affine), if `center` is neither `"origin"`, `"geometry"` nor a
+            finite `(3,)` vector, if `center` is `"geometry"` and a voxel dim has
+            irregular coordinates, if the DataArray is not a VoxelData array, or if the
+            transformed pose affines no longer share equal spatial scale magnitudes.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> from confusius.xarray import create_voxeldata
+        >>> data = create_voxeldata(
+        ...     np.zeros((2, 3, 4)), dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+        ... )
+        >>> zoomed = data.fusi.zoom(2.0, center="geometry")
+        >>> zoomed.fusi.affine.bounding_box["x"][1]
+        4.0
+        """
+        from confusius.xarray.affine import apply_zoom
+
+        return apply_zoom(self._obj, zoom, center=center, inplace=inplace)
+
+    def flip(
+        self,
+        axis: str,
+        *,
+        center: TransformCenter = "geometry",
+        inplace: bool = False,
+    ) -> xr.DataArray:
+        """Reflect a VoxelData array along world axes without resampling.
+
+        Only the voxel-to-world geometry changes. See
+        [apply_flip][confusius.xarray.apply_flip] for details.
+
+        Parameters
+        ----------
+        axis : str
+            One or more distinct world dimension names among `"z"`, `"y"` and `"x"`,
+            such as `"x"` or `"yx"`. Order does not matter.
+        center : {"origin", "geometry"} or (3,) array-like or mapping, default: "geometry"
+            Fixed point of the reflection. `"geometry"` is the center of the bounding
+            box; `"origin"` is the first sampled voxel's world position and requires a
+            scalar pose. Otherwise a world point in `(z, y, x)` order, in `.fusi.affine.units`, or a mapping
+            containing `z`, `y`, and `x` keys; other keys are ignored.
+        inplace : bool, default: False
+            Whether to modify the DataArray in place instead of returning a copy.
+
+        Returns
+        -------
+        xarray.DataArray
+            The reflected VoxelData array. This is the wrapped array itself if
+            `inplace` is `True`.
+
+        Raises
+        ------
+        ValueError
+            If `axis` is not a non-empty string of distinct world dimension names,
+            if `center` is invalid, if `center` is `"geometry"` and a voxel dim has
+            irregular coordinates, or if the DataArray is not a VoxelData array.
+        """
+        from confusius.xarray.affine import apply_flip
+
+        return apply_flip(self._obj, axis, center=center, inplace=inplace)
+
     def save(self, path: str | Path, **kwargs: Any) -> None:
         """Save the DataArray to file, dispatching by extension.
 
@@ -355,7 +591,9 @@ class FUSIAccessor:
         Parameters
         ----------
         path : str or pathlib.Path
-            Output path. The extension determines the format.
+            Output path. The extension determines the format. For NIfTI, use
+            `{chunk}` in the filename to save one file and JSON sidecar per pose,
+            using non-negative integer `pose` labels as chunk indices.
         **kwargs
             Additional keyword arguments forwarded to the underlying saver.
 
@@ -372,3 +610,84 @@ class FUSIAccessor:
         from confusius.io.loadsave import save
 
         save(self._obj, path, **kwargs)
+
+    def to_nifti(
+        self,
+        nifti_version: NiftiVersion = 1,
+        *,
+        qform: str | None = None,
+        sform: str | None = None,
+        qform_code: int | None = None,
+        sform_code: int | None = None,
+        copy: bool = False,
+    ) -> tuple[nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image, dict[str, Any]]:
+        """Convert the VoxelData array to a NIfTI image and fUSI-BIDS metadata.
+
+        Builds the same image and metadata as [`save_nifti`][confusius.io.save_nifti]
+        without writing files. Pass the metadata as `sidecar` to
+        [`convert_from_nifti`][confusius.io.convert_from_nifti] to preserve timing and
+        named extra dimensions. This is a convenience wrapper around
+        [`convert_to_nifti`][confusius.io.convert_to_nifti].
+
+        Parameters
+        ----------
+        nifti_version : {1, 2}, default: 1
+            NIfTI format version to use. Version 2 is a simple extension to support
+            larger files and arrays with dimension sizes greater than 32,767.
+        qform : str, optional
+            Key in `attrs["affines"]` to write into the NIfTI qform. If not provided,
+            `"world_to_qform"` is used if present; otherwise qform falls back to the
+            coordinate-defining voxel geometry (`voxel_to_world`) directly.
+
+            If the coordinate-defining affine contains shear, qform writing is disabled
+            because the NIfTI qform cannot represent shear. In that case, the geometry
+            is written to sform instead.
+        sform : str, optional
+            Key in `attrs["affines"]` to write into the NIfTI sform. If not provided,
+            `"world_to_sform"` is used if present; otherwise sform also falls back to
+            `voxel_to_world` directly (like qform), unless disabled via `sform_code=0`
+            or `attrs["sform_code"] = 0`.
+        qform_code : int, optional
+            NIfTI qform code to write. Takes precedence over `attrs["qform_code"]`. If
+            not provided, the value from `attrs["qform_code"]` is used if present;
+            otherwise defaults to `2` (`NIFTI_XFORM_ALIGNED_ANAT`).
+        sform_code : int, optional
+            NIfTI sform code to write. Takes precedence over `attrs["sform_code"]`. If
+            not provided, the value from `attrs["sform_code"]` is used if present;
+            otherwise defaults to `2` (`NIFTI_XFORM_ALIGNED_ANAT`).
+        copy : bool, default: False
+            Whether to copy the data into the returned image. If not copied, the
+            image's data shares memory with a NumPy-backed array, so editing it in
+            place (e.g. through `img.dataobj` or `img.get_fdata()`) also modifies the
+            array.
+
+        Returns
+        -------
+        img : nibabel.nifti1.Nifti1Image or nibabel.nifti2.Nifti2Image
+            In-memory NIfTI image with spacings, qform/sform, and units in the header.
+        metadata : dict[str, Any]
+            JSON-serializable sidecar metadata using fUSI-BIDS field names and units.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import confusius as cf
+        >>> data = cf.xarray.create_voxeldata(
+        ...     np.random.rand(10, 1, 32, 64),
+        ...     dims=("time", "k", "j", "i"),
+        ...     dt=0.5,
+        ...     spacing=(0.4, 0.1, 0.1),
+        ... )
+        >>> img, metadata = data.fusi.to_nifti()
+        """
+        from confusius.io.nifti import convert_to_nifti
+
+        return convert_to_nifti(
+            self._obj,
+            nifti_version,
+            qform=qform,
+            sform=sform,
+            qform_code=qform_code,
+            sform_code=sform_code,
+            copy=copy,
+        )

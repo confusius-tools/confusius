@@ -140,7 +140,7 @@ def finalize_registration_layer(
             layer.contrast_limits = contrast_limits
         teardown_volumewise_progress(panel, remove_layer=False)
     else:
-        _, layer = plot_napari(
+        _, [layer] = plot_napari(
             registered,
             viewer=panel.viewer,
             name=layer_name,

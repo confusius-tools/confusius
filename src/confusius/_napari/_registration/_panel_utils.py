@@ -199,7 +199,7 @@ def _is_registration_source_layer(layer: Layer) -> bool:
 
     ConfUSIus-managed layers carry the original `xarray.DataArray` in metadata. For
     plain napari image layers we can reconstruct one from eager NumPy data. Lazy
-    non-NumPy layers (for example the video panel's frame-on-demand array) are
+    non-NumPy layers (for example the video viewer's frame-on-demand array) are
     intentionally excluded: forcing `np.asarray` on them can trigger expensive decoding
     or backend errors while the registration panel is merely refreshing.
 

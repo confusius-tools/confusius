@@ -99,6 +99,18 @@ def _png_data(output: dict[str, object]) -> str | None:
     return None
 
 
+def _dark_png_data(output: dict[str, object]) -> str | None:
+    """Return the dark-theme PNG payload stored by `tools.gallery.theme`, if any."""
+    metadata = output.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    png_metadata = metadata.get("image/png")
+    if not isinstance(png_metadata, dict):
+        return None
+    dark = png_metadata.get("dark")
+    return dark if isinstance(dark, str) else None
+
+
 def _write_png(path: Path, payload: str) -> None:
     """Decode and write one base64 PNG payload."""
     path.write_bytes(base64.b64decode(payload))
@@ -230,18 +242,13 @@ def _is_blank_widget_output(output: dict[str, object]) -> bool:
     """Return whether `output` is a content-free rich/Jupyter display artifact.
 
     Some dependency prints via `rich`'s Jupyter console protocol, which renders a
-    `display_data` output carrying both `text/html` and `text/plain` regardless of
-    whether there's anything meaningful to show (confirmed in CI: an empty
-    `<pre style="...">` tag with a blank `text/plain`). Because *when* this fires
-    isn't tied to a specific cell in a deterministic way, it can show up in only
-    one of the light/dark passes.
-
-    `text/plain` is the one part of Jupyter's mimetype-bundle convention every
-    real result populates (it's the accessibility/fallback representation, and
-    matplotlib figures instead carry `image/png`), so a blank one reliably means
-    "nothing a reader would want to see" regardless of what the accompanying
-    `text/html` contains. Safe to drop: real cell output (a matplotlib figure, a
-    DataArray repr, printed text) never has a blank `text/plain`.
+    `display_data` output carrying both `text/html` and `text/plain` even when
+    there is nothing to show (confirmed in CI: an empty `<pre style="...">` tag
+    with a blank `text/plain`). `text/plain` is the one part of Jupyter's
+    mimetype-bundle convention every real result populates (matplotlib figures
+    carry `image/png` instead), so a blank one reliably means "nothing a reader
+    would want to see". Real cell output (a figure, a DataArray repr, printed
+    text) never has a blank `text/plain`.
     """
     if output.get("output_type") != "display_data":
         return False
@@ -260,81 +267,41 @@ def _is_blank_widget_output(output: dict[str, object]) -> bool:
     return not text.strip()
 
 
-def _summarize_output(output: dict[str, object]) -> str:
-    """Return a one-line human-readable summary of one notebook output.
-
-    Used to build a useful error message when the light and dark runs disagree on
-    the number of outputs for a cell: showing what each side actually produced makes
-    the offending extra (a stray warning, a one-shot download log, etc.) obvious.
-
-    Parameters
-    ----------
-    output : dict[str, object]
-        One nbformat output node (a dict with an `output_type` key).
-
-    Returns
-    -------
-    str
-        A short, single-line description of the output's type and content.
-    """
-    output_type = output.get("output_type")
-    if output_type == "stream":
-        name = output.get("name", "stdout")
-        text = str(output.get("text", "")).replace("\n", "\\n")
-        return f"stream[{name}]: {text[:200]}"
-    if output_type in {"execute_result", "display_data"}:
-        data = output.get("data", {})
-        keys = sorted(data) if isinstance(data, dict) else []
-        summary = f"{output_type}: {{{', '.join(keys)}}}"
-        if isinstance(data, dict):
-            for key in keys:
-                value = data[key]
-                text = _join_str_list(value)
-                if text is None:
-                    text = str(value)
-                text = text.replace("\n", "\\n")
-                summary += f"\n    {key}: {text[:500]}"
-        metadata = output.get("metadata")
-        if isinstance(metadata, dict) and metadata:
-            summary += f"\n    metadata: {metadata}"
-        return summary
-    if output_type == "error":
-        return f"error: {output.get('ename')}: {output.get('evalue')}"
-    return str(output_type)
-
-
-def _summarize_outputs(outputs: list[dict[str, object]]) -> str:
-    """Return a numbered, indented summary of a cell's outputs.
-
-    Parameters
-    ----------
-    outputs : list[dict[str, object]]
-        The outputs of one notebook cell.
-
-    Returns
-    -------
-    str
-        One `_summarize_output` line per output, numbered and indented, or `(none)`
-        when the cell produced no outputs.
-    """
-    if not outputs:
-        return "  (none)"
-    return "\n".join(
-        f"  {i}. {_summarize_output(output)}" for i, output in enumerate(outputs, 1)
-    )
-
-
 def render_notebook(
     source_notebook: nbformat.NotebookNode,
-    light_notebook: nbformat.NotebookNode,
-    dark_notebook: nbformat.NotebookNode,
+    executed_notebook: nbformat.NotebookNode,
     *,
     out_dir: Path,
     base_name: str,
     runtime_seconds: float,
     binder_url: str | None = None,
 ) -> tuple[Path, tuple[Path, Path] | None]:
-    """Render an executed notebook pair to Markdown."""
+    """Render an executed notebook to Markdown plus light and dark image folders.
+
+    Parameters
+    ----------
+    source_notebook : nbformat.NotebookNode
+        The example as read from disk; provides code, Markdown and cell tags.
+    executed_notebook : nbformat.NotebookNode
+        The same cells after execution. Figure outputs carry their dark rendering
+        under `metadata["image/png"]["dark"]` (see `tools.gallery.theme`); other
+        PNGs are shown unchanged in both themes.
+    out_dir : pathlib.Path
+        Directory to write the page and image folders into.
+    base_name : str
+        Output stem for the page and its asset folders.
+    runtime_seconds : float
+        Execution time printed at the bottom of the page.
+    binder_url : str, optional
+        Binder launch URL for the page's button. If not provided, no button.
+
+    Returns
+    -------
+    markdown_path : pathlib.Path
+        The rendered page.
+    thumbnail : tuple[pathlib.Path, pathlib.Path] or None
+        Light and dark thumbnail paths, if a `thumbnail`-tagged cell produced an image.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     light_image_dir = out_dir / f"{base_name}_output_light"
     dark_image_dir = out_dir / f"{base_name}_output_dark"
@@ -343,20 +310,9 @@ def render_notebook(
 
     parts: list[str] = []
     thumbnail: tuple[Path, Path] | None = None
-    light_cells = [
-        cell
-        for cell in light_notebook.cells
-        if "_gallery_internal" not in _cell_tags(cell)
-    ]
-    dark_cells = [
-        cell
-        for cell in dark_notebook.cells
-        if "_gallery_internal" not in _cell_tags(cell)
-    ]
 
-    for cell_index, (cell, light_cell, dark_cell) in enumerate(
-        zip(source_notebook.cells, light_cells, dark_cells, strict=True),
-        start=1,
+    for cell_index, (cell, executed_cell) in enumerate(
+        zip(source_notebook.cells, executed_notebook.cells, strict=True), start=1
     ):
         if cell.cell_type == "markdown":
             parts.append(cell.source.rstrip() + "\n")
@@ -371,48 +327,25 @@ def render_notebook(
         else:
             parts.append(code_block)
 
-        # Light and dark outputs are paired by index. They must have the
-        # same length: a mismatch means non-deterministic output snuck in
-        # (typically a one-shot download or a warning that fired only once),
-        # and silently dropping the extras would hide a real difference
-        # between the two rendered notebooks. Pre-warm caches outside the
-        # gallery so both runs start from the same state. Blank rich/Jupyter
-        # display artifacts are the one known exception: they carry no
-        # content, so dropping them can't hide a real difference (see
-        # `_is_blank_widget_output`).
-        light_outputs = [
-            o for o in light_cell.get("outputs", []) if not _is_blank_widget_output(o)
+        outputs = [
+            o
+            for o in executed_cell.get("outputs", [])
+            if not _is_blank_widget_output(o)
         ]
-        dark_outputs = [
-            o for o in dark_cell.get("outputs", []) if not _is_blank_widget_output(o)
-        ]
-        if len(light_outputs) != len(dark_outputs):
-            raise ValueError(
-                f"{base_name}: cell {cell_index} produced "
-                f"{len(light_outputs)} light outputs and {len(dark_outputs)} "
-                "dark outputs. Light/dark executions must be deterministic; "
-                "make sure any one-shot side effects (dataset downloads, "
-                "first-import warnings, etc.) happen before the gallery "
-                "build.\n"
-                f"Light outputs ({len(light_outputs)}):\n"
-                f"{_summarize_outputs(light_outputs)}\n"
-                f"Dark outputs ({len(dark_outputs)}):\n"
-                f"{_summarize_outputs(dark_outputs)}"
-            )
-        for output_index, (light_output, dark_output) in enumerate(
-            zip(light_outputs, dark_outputs)
-        ):
-            output_type = light_output.get("output_type")
+        for output_index, output in enumerate(outputs):
+            output_type = output.get("output_type")
             if output_type == "stream":
-                stream_text = _clean_stream_text(str(light_output.get("text", "")))
+                stream_text = _clean_stream_text(str(output.get("text", "")))
                 if stream_text:
                     parts.append(_output_code_block(stream_text))
                 continue
 
             if output_type in {"execute_result", "display_data"}:
-                light_png = _png_data(light_output)
-                dark_png = _png_data(dark_output)
-                if light_png is not None and dark_png is not None:
+                light_png = _png_data(output)
+                if light_png is not None:
+                    # Images that did not come through the matplotlib hook have no
+                    # dark rendering: show the same picture in both themes.
+                    dark_png = _dark_png_data(output) or light_png
                     light_name = f"cell_{cell_index:02d}_{output_index}_light.png"
                     dark_name = f"cell_{cell_index:02d}_{output_index}_dark.png"
                     light_path = light_image_dir / light_name
@@ -441,19 +374,19 @@ def render_notebook(
                         thumbnail = (thumb_light, thumb_dark)
                     continue
 
-                light_data = light_output.get("data", {})
-                if isinstance(light_data, dict) and "text/html" in light_data:
-                    html = light_data["text/html"]
+                data = output.get("data", {})
+                if isinstance(data, dict) and "text/html" in data:
+                    html = data["text/html"]
                     if isinstance(html, list):
                         html = "".join(html)
                     parts.append(_html_block(_normalize_html_output(str(html))))
                     continue
-                if isinstance(light_data, dict) and "text/plain" in light_data:
-                    parts.append(_output_code_block(str(light_data["text/plain"])))
+                if isinstance(data, dict) and "text/plain" in data:
+                    parts.append(_output_code_block(str(data["text/plain"])))
                 continue
 
             if output_type == "error":
-                traceback = "\n".join(light_output.get("traceback", []))
+                traceback = "\n".join(output.get("traceback", []))
                 parts.append(_output_code_block(traceback))
 
     parts.append("\n---\n")
