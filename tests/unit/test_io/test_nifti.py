@@ -3648,19 +3648,20 @@ class TestRoundtrip:
             sample_voxeldata_3d.values.T,
         )
 
+    @pytest.mark.parametrize("units, scale", [("s", 1), ("ms", 1e3), ("us", 1e6)])
     @pytest.mark.parametrize("snapshot", [False, True])
-    def test_slice_timing_in_milliseconds(self, sample_voxeldata_3dt, snapshot):
-        """Center-referenced millisecond timestamps export as onset offsets in seconds."""
+    def test_slice_timing_units(self, sample_voxeldata_3dt, snapshot, units, scale):
+        """Center-referenced timestamps export as onset offsets in seconds."""
         data = sample_voxeldata_3dt
-        offsets_ms = np.arange(data.sizes["k"]) * 100
+        offsets = np.arange(data.sizes["k"]) * 0.1
         data = data.assign_coords(
             slice_time=xr.DataArray(
-                data.time.values[:, None] * 1000 + offsets_ms + 10,
+                (data.time.values[:, None] + offsets + 0.01) * scale,
                 dims=("time", "k"),
                 attrs={
-                    "units": "ms",
+                    "units": units,
                     "volume_acquisition_reference": "center",
-                    "volume_acquisition_duration": 20,
+                    "volume_acquisition_duration": 0.02 * scale,
                 },
             )
         )
@@ -3668,7 +3669,7 @@ class TestRoundtrip:
             data = data.isel(time=0)
         _, metadata = convert_to_nifti(data)
         np.testing.assert_allclose(
-            metadata["SliceTiming"], offsets_ms / 1000, atol=1e-12
+            metadata["SliceTiming"], offsets, atol=1e-12
         )
 
     def test_two_extra_dimensions_roundtrip(self, sample_voxeldata_3dt):
