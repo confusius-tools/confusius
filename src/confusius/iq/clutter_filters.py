@@ -600,7 +600,7 @@ def clutter_filter_sosfiltfilt(
 
 def clutter_filter_butterworth(
     block: npt.NDArray,
-    fs: float | None,
+    fs: float,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     order: int = 4,
@@ -617,8 +617,8 @@ def clutter_filter_butterworth(
     block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
         `(k, j, i)` are spatial dimensions.
-    fs : float or None
-        Sampling frequency in hertz. Required when either cutoff is specified.
+    fs : float
+        Sampling frequency in hertz.
     low_cutoff : float, optional
         Low cutoff frequency in hertz, in range `(0, fs/2)`. If provided, applies
         high-pass filtering above this frequency.
@@ -637,8 +637,7 @@ def clutter_filter_butterworth(
     Raises
     ------
     ValueError
-        If `block` is not 4D, if cutoff frequencies are invalid, or if a cutoff is
-        specified without a sampling frequency.
+        If `block` is not 4D or if cutoff frequencies are invalid.
     """
     import scipy.signal as sp_signal
 
@@ -647,11 +646,6 @@ def clutter_filter_butterworth(
 
     if low_cutoff is None and high_cutoff is None:
         return block
-
-    if fs is None:
-        raise ValueError(
-            "When using the Butterworth clutter filter, the sampling frequency must be provided."
-        )
 
     nyquist = fs / 2
 

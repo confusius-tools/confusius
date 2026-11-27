@@ -598,13 +598,21 @@ def process_iq_block_with_clutter_filter(
         window_stride = window_width
 
     if filter_method == "butterworth":
-        filtered_block = clutter_filter_butterworth(
-            block,
-            fs=fs,
-            low_cutoff=low_cutoff,
-            high_cutoff=high_cutoff,
-            order=butterworth_order,
-        )
+        if low_cutoff is None and high_cutoff is None:
+            filtered_block = block
+        else:
+            if fs is None:
+                raise ValueError(
+                    "When using the Butterworth clutter filter, the sampling frequency "
+                    "must be provided."
+                )
+            filtered_block = clutter_filter_butterworth(
+                block,
+                fs=fs,
+                low_cutoff=low_cutoff,
+                high_cutoff=high_cutoff,
+                order=butterworth_order,
+            )
     elif filter_method == "svd_indices":
         if not (
             (isinstance(low_cutoff, int) or low_cutoff is None)
