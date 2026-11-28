@@ -155,6 +155,10 @@ Released 2026-11-27.
   NIfTI slice axis and the acquisition duration's units, and zero-delay BIDS chunks
   include `DelayAfterTrigger`
   ([#421](https://github.com/confusius-tools/confusius/pull/421)).
+- [`apply_statistical_threshold`][confusius.stats.apply_statistical_threshold] leaves
+  voxels excluded by `skipzero` or `skipna` out of the multiple-comparison correction,
+  and zeroes sub-threshold voxels of Dask-backed maps
+  ([#601](https://github.com/confusius-tools/confusius/pull/601)).
 
 ### :books: Documentation
 

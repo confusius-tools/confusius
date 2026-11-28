@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Literal, get_args
 
 import numpy as np
 import scipy.stats as sps
+import xarray as xr
 from scipy.ndimage import generate_binary_structure, label
 
 from confusius._utils.mask import validate_spatial_or_feature_mask
@@ -32,7 +33,6 @@ from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
     import numpy.typing as npt
-    import xarray as xr
 
 CorrectionMethod = Literal[
     "uncorrected",
@@ -471,26 +471,17 @@ def apply_statistical_threshold(
         else:
             rejected = stats <= z_threshold
     else:
-        pvalue_map = stat_map.copy(deep=True)
-        pvalue_map.values[...] = 1.0
-        pvalue_map.values[selected] = _stat_to_pvalue(stats, two_sided)
-        adjusted_pvalues = adjust_pvalues(
-            pvalue_map,
-            mask=mask,
-            method=method,
-            skipzero=skipzero,
-            skipna=skipna,
-        )
-        rejected = adjusted_pvalues.values[selected] <= alpha
+        pvalues = xr.DataArray(_stat_to_pvalue(stats, two_sided))
+        adjusted_pvalues = adjust_pvalues(pvalues, method=method)
+        rejected = adjusted_pvalues.values <= alpha
         z_threshold = _report_threshold(stats, rejected, method, alpha, two_sided)
 
     keep = np.zeros(stat_map.shape, dtype=bool)
     keep[selected] = rejected
-    thresholded = stat_map.copy(deep=True)
-    data = thresholded.values
+    data = stat_map.values.copy()
     data[~keep] = 0.0
 
     if cluster_threshold > 0:
         _apply_cluster_threshold(data, cluster_threshold)
 
-    return thresholded, z_threshold
+    return stat_map.copy(data=data), z_threshold

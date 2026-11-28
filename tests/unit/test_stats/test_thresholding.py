@@ -319,6 +319,44 @@ class TestMask:
         _, threshold = apply_statistical_threshold(z, method="fdr_bh", skipna=True)
         assert np.isfinite(threshold)
 
+    @pytest.mark.parametrize("method", ["bonferroni", "fdr_bh"])
+    def test_skipzero_excludes_zeros_from_rejection(self, method):
+        """skipzero drops zero voxels from multiple-comparison adjustment, not only threshold reporting."""
+        z = xr.DataArray([0.0] * 100 + [2.5], dims=["x"])
+        out, threshold = apply_statistical_threshold(
+            z, alpha=0.05, method=method, skipzero=True
+        )
+        expected_out, expected_threshold = apply_statistical_threshold(
+            xr.DataArray([2.5], dims=["x"]), alpha=0.05, method=method
+        )
+        assert out.values[-1] == 2.5
+        assert_array_equal(out.values[:-1], np.zeros(100))
+        assert_allclose(threshold, expected_threshold)
+        assert expected_out.values[0] == 2.5
+
+    @pytest.mark.parametrize("method", ["bonferroni", "fdr_bh"])
+    def test_skipna_excludes_nans_from_rejection(self, method):
+        """skipna drops NaN voxels from multiple-comparison adjustment."""
+        z = xr.DataArray([np.nan] * 100 + [2.5], dims=["x"])
+        out, threshold = apply_statistical_threshold(
+            z, alpha=0.05, method=method, skipna=True
+        )
+        _, expected_threshold = apply_statistical_threshold(
+            xr.DataArray([2.5], dims=["x"]), alpha=0.05, method=method
+        )
+        assert out.values[-1] == 2.5
+        assert_array_equal(out.values[:-1], np.zeros(100))
+        assert_allclose(threshold, expected_threshold)
+
+    def test_skipzero_keeps_extreme_zscore_with_zero_pvalue(self):
+        """skipzero checks z-scores, so extreme z-scores whose p-value underflows to 0 survive."""
+        z = xr.DataArray([0.0, 40.0], dims=["x"])
+        out, threshold = apply_statistical_threshold(
+            z, alpha=0.05, method="fdr_bh", skipzero=True
+        )
+        assert_array_equal(out.values, [0.0, 40.0])
+        assert threshold == 40.0
+
     def test_no_tested_voxels_raises(self):
         """An all-zero map with skipzero leaves nothing to test."""
         z = xr.DataArray(np.zeros(4), dims=["x"])
@@ -351,6 +389,17 @@ class TestClusterThreshold:
             z, alpha=0.5, method="uncorrected", cluster_threshold=2
         )
         assert_array_equal(out.values, np.zeros((3, 3)))
+
+
+class TestDaskInput:
+    """Tests for Dask-backed statistical maps."""
+
+    def test_chunked_map_is_thresholded(self):
+        """Sub-threshold voxels of a chunked map are zeroed in the output."""
+        z = xr.DataArray([0.5, 3.5], dims=["x"]).chunk({"x": 1})
+        out, threshold = apply_statistical_threshold(z, method="bonferroni")
+        assert_allclose(threshold, sps.norm.isf(0.025 / 2))
+        assert_array_equal(out.values, [0.0, 3.5])
 
 
 class TestValidation:
