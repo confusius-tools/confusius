@@ -391,6 +391,17 @@ class TestClusterThreshold:
         assert_array_equal(out.values, np.zeros((3, 3)))
 
 
+class TestDaskInput:
+    """Tests for Dask-backed statistical maps."""
+
+    def test_chunked_map_is_thresholded(self):
+        """Sub-threshold voxels of a chunked map are zeroed in the output."""
+        z = xr.DataArray([0.5, 3.5], dims=["x"]).chunk({"x": 1})
+        out, threshold = apply_statistical_threshold(z, method="bonferroni")
+        assert_allclose(threshold, sps.norm.isf(0.025 / 2))
+        assert_array_equal(out.values, [0.0, 3.5])
+
+
 class TestValidation:
     """Tests for input validation."""
 
