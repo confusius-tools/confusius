@@ -100,6 +100,37 @@ def validate_sorted_time(data: xr.DataArray, operation_name: str) -> None:
         )
 
 
+def validate_one_dimensional_time(data: xr.DataArray, operation_name: str) -> None:
+    """Validate that `time` is a plain 1D dimension coordinate.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray with a `time` dimension.
+    operation_name : str
+        Name of the operation used in error messages.
+
+    Raises
+    ------
+    ValueError
+        If the `time` coordinate has dimensions other than `(time,)`.
+    """
+    dims = data.coords[TIME_DIM].dims
+    if dims == (TIME_DIM,):
+        return
+
+    message = (
+        f"{operation_name.capitalize()} requires a 1D 'time' coordinate along the "
+        f"'time' dimension, got dimensions {dims!r}."
+    )
+    if dims == (TIME_DIM, POSE_DIM):
+        message += (
+            " Resample multi-pose data onto a shared 1D 'time' first with "
+            "confusius.multipose.correct_slice_timings."
+        )
+    raise ValueError(message)
+
+
 def validate_uniform_time(
     data: xr.DataArray,
     operation_name: str,
@@ -146,6 +177,7 @@ def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
     require_sorted_time: bool = False,
     require_uniform_time: Literal[False] = False,
     uniformity_tolerance: float = 1e-2,
+    require_1d_time: bool = False,
 ) -> tuple[int, None]: ...
 
 
@@ -157,6 +189,7 @@ def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
     require_sorted_time: bool = False,
     require_uniform_time: Literal[True] = True,
     uniformity_tolerance: float = 1e-2,
+    require_1d_time: bool = False,
 ) -> tuple[int, float]: ...
 
 
@@ -167,6 +200,7 @@ def validate_time_series(
     require_sorted_time: bool = False,
     require_uniform_time: bool = False,
     uniformity_tolerance: float = 1e-2,
+    require_1d_time: bool = False,
 ) -> tuple[int, float | None]:
     """Validate time series for time series processing operations.
 
@@ -174,9 +208,10 @@ def validate_time_series(
 
     1. Time series have a `time` dimension.
     2. Time dimension has more than 1 timepoint.
-    3. Time dimension is not chunked for Dask arrays (optional).
-    4. Time coordinate is strictly increasing (optional).
-    5. Time coordinate is uniformly sampled (optional).
+    3. Time coordinate has dimensions `(time,)` (optional).
+    4. Time dimension is not chunked for Dask arrays (optional).
+    5. Time coordinate is strictly increasing (optional).
+    6. Time coordinate is uniformly sampled (optional).
 
     Parameters
     ----------
@@ -196,6 +231,8 @@ def validate_time_series(
         Maximum allowed relative range of consecutive time intervals, defined as
         `(max_interval - min_interval) / median_interval`. Raise a `ValueError` if the
         time coordinate exceeds this threshold.
+    require_1d_time : bool, default: False
+        Whether to require the `time` coordinate to have dimensions `(time,)`.
 
     Returns
     -------
@@ -208,13 +245,18 @@ def validate_time_series(
     ------
     ValueError
         If `time_series` has no `time` dimension, if the `time` dimension has only 1
-        timepoint, if the `time` dimension is chunked in a Dask array (when
+        timepoint, if `require_1d_time=True` and the `time` coordinate has dimensions
+        other than `(time,)`, if
+        the `time` dimension is chunked in a Dask array (when
         `require_unchunked_time=True`), if `require_sorted_time=True` and the `time`
-        coordinate is not strictly increasing, or if `require_uniform_time=True` and the
-        `time` coordinate is not uniformly sampled.
+        coordinate is not strictly increasing, or if `require_uniform_time=True` and
+        the `time` coordinate is not uniformly sampled.
     """
     validate_required_time_dimension(time_series)
     validate_timepoint_count(time_series, operation_name)
+
+    if require_1d_time:
+        validate_one_dimensional_time(time_series, operation_name)
 
     time_axis = time_series.get_axis_num(TIME_DIM)
 

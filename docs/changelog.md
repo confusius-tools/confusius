@@ -112,6 +112,11 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- `resample_time` and `resample_to_uniform_time` now require one timestamp per
+  timepoint along the `time` dimension. For multi-pose recordings with a
+  `(time, pose)`-shaped `time` coordinate, resample the poses onto a shared grid with
+  [`correct_slice_timings`][confusius.multipose.correct_slice_timings]
+  ([#424](https://github.com/confusius-tools/confusius/pull/424)).
 - Signal Butterworth filtering checks the actual padding requirement, accepting
   short signals with custom or disabled padding and accounting correctly for
   odd-order and band-pass filters. Dask-backed results report the filtered dtype
