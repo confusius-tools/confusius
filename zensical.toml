@@ -79,6 +79,9 @@ nav = [
         { "Interoperability" = [
             { "Use nilearn on a VoxelData array" = "examples/_built/interoperability/nilearn.md" },
         ]},
+        { "Beamformed IQ" = [
+            { "Processing beamformed IQ recordings" = "examples/_built/iq/process_beamformed_iq.md" },
+        ]},
         { "Multi-Pose" = [
             { "Load and save multi-pose recordings" = "examples/_built/multipose/load_multipose_recordings.md" },
         ]},

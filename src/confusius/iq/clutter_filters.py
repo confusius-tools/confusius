@@ -5,40 +5,19 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import numpy.typing as npt
 
-from confusius.iq._utils import ensure_iq_voxeldata
-from confusius.validation import ensure_voxeldata, validate_mask
+from confusius._utils.filtering import design_butterworth_filter
+from confusius.iq._utils import (
+    ensure_iq_voxeldata,
+    get_chunked_iq_data,
+    get_clutter_mask,
+    resolve_iq_window,
+    validate_energy_cutoffs,
+    validate_svd_index_cutoffs,
+)
 
 if TYPE_CHECKING:
     import dask.array as da
     import xarray as xr
-
-
-def _check_frequency(freq: float, nyquist: float) -> float:
-    """Validate frequency parameter for digital filters.
-
-    Checks that the given frequency is within the valid range for digital signal
-    processing (0, Nyquist frequency) and returns it unchanged if valid.
-
-    Parameters
-    ----------
-    freq : float
-        Frequency value to validate, in hertz.
-    nyquist : float
-        Nyquist frequency (half of sampling frequency), in hertz.
-
-    Returns
-    -------
-    float
-        The input frequency unchanged (if valid).
-
-    Raises
-    ------
-    ValueError
-        If `freq` is not in the range `(0, nyquist)`.
-    """
-    if not 0 < freq < nyquist:
-        raise ValueError(f"Frequency {freq} must be in range (0, {nyquist})")
-    return freq
 
 
 def _validate_block_and_clutter_mask(
@@ -70,7 +49,7 @@ def _validate_block_and_clutter_mask(
     ------
     ValueError
         If `block` is not 4D, or if `clutter_mask` shape doesn't match spatial
-        dimensions `(k, j, i)` of `block`.
+        dimensions `(k, j, i)` of `block`, or selects no voxels.
     """
     if block.ndim != 4:
         raise ValueError(f"'block' must be 4D, got {block.ndim}D")
@@ -84,6 +63,9 @@ def _validate_block_and_clutter_mask(
                 f"Mask shape {clutter_mask.shape} doesn't match spatial dimensions "
                 f"({z}, {y}, {x})"
             )
+        # An empty mask must not silently bypass requested clutter suppression.
+        if not np.any(clutter_mask):
+            raise ValueError("clutter_mask must select at least one voxel.")
         masked_signals = signals[:, clutter_mask.ravel()]
     else:
         masked_signals = signals
@@ -181,13 +163,17 @@ def _apply_clutter_filter(
             clutter_vectors.conj().T @ signals
         )
     else:
-        filtered_signals = signals
+        # Adaptive selection must not change output precision between windows.
+        filtered_signals = signals.astype(
+            np.result_type(signals.dtype, clutter_vectors.dtype), copy=False
+        )
 
     return filtered_signals
 
 
 def clutter_filter_svd_from_indices(
     block: npt.NDArray,
+    *,
     mask: npt.NDArray | None = None,
     low_cutoff: int | None = None,
     high_cutoff: int | None = None,
@@ -208,9 +194,9 @@ def clutter_filter_svd_from_indices(
     block : (time, k, j, i) numpy.ndarray
         Complex beamformed IQ data, where `time` is the temporal dimension and
         `(k, j, i)` are spatial dimensions.
-    mask : (z, y x) numpy.ndarray, optional
-        Boolean mask. SVD is computed only from masked voxels. If not provided, all
-        voxels are used.
+    mask : (k, j, i) numpy.ndarray, optional
+        Boolean mask selecting at least one voxel. SVD is computed only from masked
+        voxels. If not provided, all voxels are used.
     low_cutoff : int, optional
         Lower bound for singular vector indices to retain (inclusive), counted from the
         highest-energy component (index 0). Vectors with indices less than `low_cutoff`
@@ -264,18 +250,9 @@ def clutter_filter_svd_from_indices(
         return block
 
     max_components = cast(int, min(masked_signals.shape))
-    if low_cutoff is None:
-        low_cutoff = 0
-    if high_cutoff is None:
-        high_cutoff = max_components
-
-    if not isinstance(low_cutoff, int) or not isinstance(high_cutoff, int):
-        raise ValueError("Cutoffs must be integers")  # noqa: TRY004
-    if not (0 <= low_cutoff < high_cutoff <= max_components):
-        raise ValueError(
-            f"Cutoffs must satisfy 0 <= low_cutoff ({low_cutoff}) < "
-            f"high_cutoff ({high_cutoff}) <= {max_components}"
-        )
+    low_cutoff, high_cutoff = validate_svd_index_cutoffs(
+        low_cutoff, high_cutoff, max_components
+    )
 
     if low_cutoff == 0 and high_cutoff == max_components:
         return block
@@ -299,54 +276,9 @@ def clutter_filter_svd_from_indices(
     return filtered_signals.reshape(block.shape)
 
 
-def _validate_energy_cutoffs(
-    low_cutoff: float | None, high_cutoff: float | None
-) -> tuple[float, float]:
-    """Validate and normalize energy-based cutoff parameters.
-
-    Checks that cutoff values are valid (non-negative) and provides sensible
-    defaults. Used by energy-based clutter filtering functions.
-
-    Parameters
-    ----------
-    low_cutoff : int or float or None
-        Lower energy threshold. Components with energy below this value are treated as
-        clutter. If `None`, defaults to `0.0`.
-    high_cutoff : int or float or None
-        Upper energy threshold. Components with energy above this value are treated as
-        clutter. If `None`, defaults to `numpy.inf`.
-
-    Returns
-    -------
-    low_cutoff : float
-        Validated lower cutoff value (positive).
-    high_cutoff : float
-        Validated upper cutoff value (greater than `low_cutoff`).
-
-    Raises
-    ------
-    ValueError
-        If cutoff values are negative, or if low_cutoff is greater than or equal to
-        high_cutoff.
-    """
-    if low_cutoff is not None and low_cutoff < 0:
-        raise ValueError("Low cutoff must be non-negative.")
-    if high_cutoff is not None and high_cutoff < 0:
-        raise ValueError("High cutoff must be non-negative.")
-
-    low_cutoff = low_cutoff if low_cutoff is not None else 0.0
-    high_cutoff = high_cutoff if high_cutoff is not None else np.inf
-
-    if low_cutoff >= high_cutoff:
-        raise ValueError(
-            f"Low cutoff ({low_cutoff}) must be lower than high cutoff ({high_cutoff})."
-        )
-
-    return low_cutoff, high_cutoff
-
-
 def clutter_filter_svd_from_energy(
     block: npt.NDArray,
+    *,
     mask: npt.NDArray | None = None,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
@@ -368,8 +300,8 @@ def clutter_filter_svd_from_energy(
         Complex beamformed IQ data, where `time` is the temporal dimension and
         `(k, j, i)` are spatial dimensions.
     mask : (k, j, i) numpy.ndarray, optional
-        Boolean mask. SVD is computed only from masked voxels. If not provided, all
-        voxels are used.
+        Boolean mask selecting at least one voxel. SVD is computed only from masked
+        voxels. If not provided, all voxels are used.
     low_cutoff : int or float, optional
         Lower bound for singular vector energy to retain (inclusive). Vectors with
         energy less than `low_cutoff` are treated as clutter and removed. `low_cutoff`
@@ -419,7 +351,7 @@ def clutter_filter_svd_from_energy(
     if masked_signals.size == 0:
         return block
 
-    low_cutoff, high_cutoff = _validate_energy_cutoffs(low_cutoff, high_cutoff)
+    low_cutoff, high_cutoff = validate_energy_cutoffs(low_cutoff, high_cutoff)
 
     if low_cutoff == 0.0 and high_cutoff == np.inf:
         return block
@@ -445,6 +377,7 @@ def clutter_filter_svd_from_energy(
 
 def clutter_filter_svd_from_cumulative_energy(
     block: npt.NDArray,
+    *,
     mask: npt.NDArray | None = None,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
@@ -467,8 +400,8 @@ def clutter_filter_svd_from_cumulative_energy(
         Complex beamformed IQ data, where `time` is the temporal dimension and
         `(k, j, i)` are spatial dimensions.
     mask : (k, j, i) numpy.ndarray, optional
-        Boolean mask. SVD is computed only from masked voxels. If not provided, all
-        voxels are used.
+        Boolean mask selecting at least one voxel. SVD is computed only from masked
+        voxels. If not provided, all voxels are used.
     low_cutoff : int or float, optional
         Lower bound for cumulative energy to retain (inclusive). Components with
         cumulative energy lower than `low_cutoff` are treated as clutter and removed.
@@ -523,7 +456,7 @@ def clutter_filter_svd_from_cumulative_energy(
     if masked_signals.size == 0:
         return block
 
-    low_cutoff, high_cutoff = _validate_energy_cutoffs(low_cutoff, high_cutoff)
+    low_cutoff, high_cutoff = validate_energy_cutoffs(low_cutoff, high_cutoff)
 
     if low_cutoff == 0.0 and high_cutoff == np.inf:
         return block
@@ -556,6 +489,9 @@ def clutter_filter_svd_from_cumulative_energy(
 def clutter_filter_sosfiltfilt(
     block: npt.NDArray,
     sos: npt.NDArray,
+    *,
+    padtype: str | None = "odd",
+    padlen: int | None = None,
 ) -> npt.NDArray:
     """Filter IQ data using second-order sections (SOS) digital filter.
 
@@ -571,6 +507,11 @@ def clutter_filter_sosfiltfilt(
     sos : (sections, 6) numpy.ndarray
         Second-order sections filter coefficients, typically obtained from SciPy
         functions like `scipy.signal.butter`, `scipy.signal.cheby1`, etc.
+    padtype : {"odd", "even", "constant", None}, default: "odd"
+        Padding extension type. Pass `None` to disable padding.
+    padlen : int, optional
+        Padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
 
     Returns
     -------
@@ -592,15 +533,18 @@ def clutter_filter_sosfiltfilt(
     if block.ndim != 4:
         raise ValueError(f"'block' must be 4D, got {block.ndim}D")
 
-    return sp_signal.sosfiltfilt(sos, block, axis=0)
+    return sp_signal.sosfiltfilt(sos, block, axis=0, padtype=padtype, padlen=padlen)
 
 
 def clutter_filter_butterworth(
     block: npt.NDArray,
     fs: float,
+    *,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     order: int = 4,
+    padtype: str | None = "odd",
+    padlen: int | None = None,
 ) -> npt.NDArray:
     """Filter IQ data using a Butterworth digital filter.
 
@@ -625,6 +569,11 @@ def clutter_filter_butterworth(
     order : int, default: 4
         Filter order. Due to forward-backward filtering, the effective order is
         doubled.
+    padtype : {"odd", "even", "constant", None}, default: "odd"
+        Padding extension type. Pass `None` to disable padding.
+    padlen : int, optional
+        Padding length in samples. If not provided, uses SciPy's default.
+        Ignored when padding is disabled.
 
     Returns
     -------
@@ -634,52 +583,22 @@ def clutter_filter_butterworth(
     Raises
     ------
     ValueError
-        If `block` is not 4D, if cutoff frequencies are invalid, or if both `low_cutoff`
-        and `high_cutoff` are `None`.
+        If `block` is not 4D or if cutoff frequencies are invalid.
     """
-    import scipy.signal as sp_signal
-
     if block.ndim != 4:
         raise ValueError(f"'block' must be 4D, got {block.ndim}D")
 
     if low_cutoff is None and high_cutoff is None:
         return block
 
-    nyquist = fs / 2
-
-    if low_cutoff is not None and high_cutoff is not None and high_cutoff <= low_cutoff:
-        raise ValueError(
-            f"High cutoff frequency ({high_cutoff}) must be greater than "
-            f"low cutoff frequency ({low_cutoff})"
-        )
-
-    critical_freq = []
-    btype = None
-
-    if low_cutoff is not None:
-        btype = "high"
-        critical_freq.append(_check_frequency(low_cutoff, nyquist))
-
-    if high_cutoff is not None:
-        if btype is None:
-            btype = "low"
-        else:
-            btype = "band"
-        critical_freq.append(_check_frequency(high_cutoff, nyquist))
-
-    # For single cutoff filters, butter expects a scalar, for band filters it expects a
-    # length-2 sequence.
-    critical_freq_param: float | list[float] = (
-        critical_freq[0] if len(critical_freq) == 1 else critical_freq
-    )
-
-    sos = sp_signal.butter(order, critical_freq_param, btype=btype, fs=fs, output="sos")
-    return clutter_filter_sosfiltfilt(block, sos=sos)
+    sos = design_butterworth_filter(fs, low_cutoff, high_cutoff, order)
+    return clutter_filter_sosfiltfilt(block, sos=sos, padtype=padtype, padlen=padlen)
 
 
 def compute_svd_cumulative_energy_threshold(
     iq: "xr.DataArray",
     singular_value_index: int,
+    *,
     clutter_mask: "xr.DataArray | None" = None,
     window_width: int | None = None,
     window_stride: int | None = None,
@@ -707,8 +626,8 @@ def compute_svd_cumulative_energy_threshold(
         Boolean spatial mask. Eigendecomposition is computed only from masked voxels.
         If not provided, all voxels are used.
     window_width : int, optional
-        Width of the sliding temporal window, in volumes. If not provided, defaults
-        to the total number of volumes.
+        Width of the sliding temporal window, in volumes. If not provided, uses
+        the largest time chunk of the IQ data.
     window_stride : int, optional
         Stride of the sliding temporal window, in volumes. If not provided, defaults
         to `window_width`.
@@ -725,7 +644,8 @@ def compute_svd_cumulative_energy_threshold(
     Raises
     ------
     ValueError
-        If `singular_value_index` is less than 1 or greater than `window_width - 1`.
+        If `singular_value_index` is less than 1 or greater than `window_width - 1`,
+        or if `clutter_mask` selects no voxels.
 
     Notes
     -----
@@ -760,7 +680,6 @@ def compute_svd_cumulative_energy_threshold(
         Awake and Behaving Brain: A Systematic Framework for Motion Artifact Removal."
         17 June 2025. Neuroscience, <https://doi.org/10.1101/2025.06.16.659882>.
     """
-    import dask.array as da
     from scipy import linalg as sp_linalg
 
     # Deferred to avoid circular import: clutter_filters <- process <- clutter_filters.
@@ -768,34 +687,28 @@ def compute_svd_cumulative_energy_threshold(
 
     iq = ensure_iq_voxeldata(iq)
 
-    mask_array: npt.NDArray[np.bool_] | None = None
-    if clutter_mask is not None:
-        clutter_mask = ensure_voxeldata(
-            clutter_mask, allow_pose=False, allow_extra_dims=False
-        )
-        validate_mask(clutter_mask, iq, "clutter_mask")
-        mask_array = clutter_mask.values.astype(bool)
+    mask_array = get_clutter_mask(clutter_mask, iq)
+    if mask_array is not None and not mask_array.any():
+        raise ValueError("clutter_mask must select at least one voxel.")
 
-    dask_iq = iq.data
-    if not isinstance(dask_iq, da.Array):
-        dask_iq = da.from_array(dask_iq)
-
-    effective_window_width = (
-        window_width if window_width is not None else cast(int, dask_iq.chunksize[0])
+    dask_iq = get_chunked_iq_data(iq)
+    window_width, window_stride, _ = resolve_iq_window(
+        dask_iq.shape[0],
+        window_width,
+        window_stride,
+        default_width=max(dask_iq.chunks[0]),
     )
 
-    if not 1 <= singular_value_index <= effective_window_width - 1:
+    if not 1 <= singular_value_index <= window_width - 1:
         raise ValueError(
             f"singular_value_index ({singular_value_index}) must be between 1 and "
-            f"window_width - 1 ({effective_window_width - 1})."
+            f"window_width - 1 ({window_width - 1})."
         )
 
     def _window_energy(block: npt.NDArray) -> npt.NDArray:
         """Return shape-(1,) array with cumulative energy for one window."""
-        window_width_local = block.shape[0]
-        signals = block.reshape(window_width_local, -1).astype(np.cdouble, copy=False)
-        if mask_array is not None:
-            signals = signals[:, mask_array.ravel()]
+        _, signals = _validate_block_and_clutter_mask(block, mask_array)
+        signals = signals.astype(np.cdouble, copy=False)
 
         # Eigenvalues are in ascending order; cumsum accumulates from lowest to highest
         # energy. Indexing at -(singular_value_index + 1) gives the cumulative energy
@@ -810,7 +723,8 @@ def compute_svd_cumulative_energy_threshold(
         _window_energy,
         window_width=window_width,
         window_stride=window_stride,
-        drop_axis=(1, 2, 3),
+        output_shape=(1,),
+        output_dtype=np.float64,
     )
 
     return energies.min()

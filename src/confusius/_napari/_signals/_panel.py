@@ -677,7 +677,9 @@ class SignalPanel(QWidget):
     def _on_xaxis_changed(self) -> None:
         """Handle x-axis dimension selection change."""
         self._cached_xaxis_dim_index = None
-        self._apply_settings()
+        dim = self._xaxis_combo.currentText()
+        if self._plotter is not None and dim:
+            self._plotter.set_xaxis_dim(dim)
 
     def _spatial_info(self) -> tuple[tuple[int, ...], dict[str, Any]] | None:
         """Return the spatial shape and layer geometry of the first signal layer.

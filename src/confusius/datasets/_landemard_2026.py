@@ -16,12 +16,13 @@ from confusius.datasets._utils import get_datasets_dir, print_citation_message
 
 _BIDS_ROOT = "landemard-2026-bids"
 _TOTAL_SIZE_BYTES = 42_036_009_786
-_CITATION = (
+LANDEMARD_2026_CITATION = (
     "Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. (2026). "
     "[citation.title]Brainwide blood volume reflects opposing neural populations."
     "[/citation.title] [italic]Nature[/italic]. "
     "[citation.doi]https://doi.org/10.1038/s41586-026-10350-9[/citation.doi]"
 )
+"""Citation shared by the Landemard dataset and its beamformed IQ sample."""
 
 
 _VALID_DATASETS = frozenset({"rawdata", "atlas_mapping", "processed_data"})
@@ -239,5 +240,5 @@ def fetch_landemard_2026(
     update_cached_index(cache_dir, index)
 
     if print_citation:
-        print_citation_message(_CITATION, "dataset")
+        print_citation_message(LANDEMARD_2026_CITATION, "dataset")
     return bids_dir
