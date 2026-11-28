@@ -10,7 +10,7 @@ import pytest
 from confusius.datasets import fetch_landemard_2026
 from confusius.datasets._landemard_2026 import (
     _BIDS_ROOT,
-    _CITATION,
+    LANDEMARD_2026_CITATION,
 )
 from confusius.datasets._utils import plain_citation
 
@@ -140,7 +140,7 @@ def test_fetch_citation_message(tmp_path, mock_get_index, mock_retrieve, capsys)
         "If you use this dataset in your work, please cite the following source:" in out
     )
     # Rich word-wraps the printed citation, so compare on whitespace-normalized text.
-    assert plain_citation(_CITATION) in " ".join(out.split())
+    assert plain_citation(LANDEMARD_2026_CITATION) in " ".join(out.split())
 
     fetch_landemard_2026(data_dir=tmp_path, print_citation=False)
     assert capsys.readouterr().out == ""

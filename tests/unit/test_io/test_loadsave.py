@@ -1,7 +1,11 @@
 """Unit tests for confusius.io.loadsave module."""
 
 import warnings
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qsl, urlsplit
 
 import numpy as np
 import numpy.testing as npt
@@ -25,6 +29,52 @@ def saveable_volume(sample_voxeldata_3d: xr.DataArray) -> xr.DataArray:
 
 class TestLoadDispatch:
     """Extension-based dispatch correctness."""
+
+    def test_remote_zarr_query_reaches_metadata_and_chunks(
+        self, tmp_path, saveable_volume
+    ):
+        """Read a store that requires the same query on every object request."""
+        save(saveable_volume.rename("volume"), tmp_path / "sample.zarr")
+        requests = []
+        expected_params = [
+            ("token", "a+b/c="),
+            ("tag", ""),
+            ("tag", "b"),
+            ("extra", "c"),
+        ]
+
+        class Handler(SimpleHTTPRequestHandler):
+            def do_GET(self):
+                url = urlsplit(self.path)
+                requests.append(url.path)
+                if parse_qsl(url.query, keep_blank_values=True) != expected_params:
+                    self.send_error(403)
+                    return
+                super().do_GET()
+
+        with ThreadingHTTPServer(
+            ("127.0.0.1", 0), partial(Handler, directory=tmp_path)
+        ) as server:
+            thread = Thread(target=server.serve_forever)
+            thread.start()
+            try:
+                url = f"http://127.0.0.1:{server.server_port}/sample.zarr"
+                result = load(
+                    url + "?token=a%2Bb%2Fc%3D&tag=&tag=b",
+                    storage_options={"params": {"extra": "c"}},
+                )
+                npt.assert_array_equal(result.compute().values, saveable_volume.values)
+            finally:
+                server.shutdown()
+                thread.join()
+
+        assert "/sample.zarr/zarr.json" in requests
+        assert any(path.startswith("/sample.zarr/volume/c/") for path in requests)
+
+    def test_remote_non_zarr_rejected(self):
+        """Remote URLs are supported only for Zarr stores."""
+        with pytest.raises(ValueError, match="only supported for Zarr"):
+            load("https://example.org/data.nii")
 
     def test_nii_gz_dispatches_to_load_nifti(self, tmp_path):
         """.nii.gz extension calls load_nifti."""

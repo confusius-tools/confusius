@@ -1324,6 +1324,81 @@ class TestLoadNifti:
         assert result.dtype == expected.dtype
         np.testing.assert_array_equal(result.data.compute(), expected)
 
+    @pytest.mark.parametrize(
+        ("shape", "target", "expected_chunks"),
+        [
+            ((5, 4), 40, ((1,), (4,), (5,))),
+            ((5, 4), 21, ((1,), (2, 2), (5,))),
+            ((5, 4), 4, ((1,), (1,) * 4, (2, 2, 1))),
+            ((5, 4, 3), 80, ((2, 1), (4,), (5,))),
+            ((5, 4, 3), 21, ((1,) * 3, (2, 2), (5,))),
+        ],
+    )
+    def test_auto_chunks_for_spatial_images(
+        self,
+        tmp_path: Path,
+        shape: tuple[int, ...],
+        target: int,
+        expected_chunks: tuple[tuple[int, ...], ...],
+    ) -> None:
+        """Spatial images split in disk order when they exceed the byte target."""
+        data = np.arange(np.prod(shape), dtype=np.int16).reshape(shape)
+        path = tmp_path / "image.nii"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(path)
+
+        with dask.config.set({"array.chunk-size": target}):
+            result = load_nifti(path)
+
+        assert result.chunks == expected_chunks
+        expected = data.T[np.newaxis] if data.ndim == 2 else data.T
+        np.testing.assert_array_equal(result.values, expected)
+
+    @pytest.mark.parametrize(
+        ("target", "time_chunks"), [(500, (2, 2, 1)), (100, (1,) * 5)]
+    )
+    def test_auto_chunks_keep_volumes_intact(
+        self, tmp_path: Path, target: int, time_chunks: tuple[int, ...]
+    ) -> None:
+        """Automatic chunks group whole frames up to the configured byte target."""
+        data = np.arange(4 * 5 * 6 * 5, dtype=np.int16).reshape(4, 5, 6, 5)
+        path = tmp_path / "recording.nii"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(path)
+
+        with dask.config.set({"array.chunk-size": target}):
+            result = load_nifti(path)
+
+        assert result.chunks == (time_chunks, (6,), (5,), (4,))
+        np.testing.assert_array_equal(result.values, data.T)
+
+    @pytest.mark.parametrize(
+        ("outer_shape", "volume_budget", "outer_chunks"),
+        [
+            ((1, 5), 2, ((2, 2, 1),)),
+            ((5, 3), 2, ((1, 1, 1), (2, 2, 1))),
+            ((3, 5, 2), 7, ((2, 2, 1), (1, 1), (3,))),
+            ((3, 2, 2, 5), 24, ((2,), (2,), (2, 2, 1), (3,))),
+        ],
+    )
+    def test_auto_chunks_follow_disk_order(
+        self,
+        tmp_path: Path,
+        outer_shape: tuple[int, ...],
+        volume_budget: int,
+        outer_chunks: tuple[tuple[int, ...], ...],
+    ) -> None:
+        """Chunks span slower axes only after all faster axes fit."""
+        shape = (2, 3, 4, *outer_shape)
+        data = np.arange(np.prod(shape), dtype=np.int16).reshape(shape)
+        path = tmp_path / "multidimensional.nii"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(path)
+
+        with dask.config.set({"array.chunk-size": volume_budget * 48}):
+            result = load_nifti(path)
+
+        assert result.chunks == (*outer_chunks, (4,), (3,), (2,))
+        expected = data.transpose(*range(4, data.ndim), 3, 2, 1, 0)
+        np.testing.assert_array_equal(result.values, expected.squeeze())
+
     def test_load_nifti_explicit_tuple_chunks(self, tmp_path: Path) -> None:
         """Loading with an explicit tuple `chunks` produces the requested chunk shape.
 

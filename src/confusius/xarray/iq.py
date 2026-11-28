@@ -36,6 +36,7 @@ class FUSIIQAccessor:
 
     def process_to_power_doppler(
         self,
+        *,
         clutter_window_width: int | None = None,
         clutter_window_stride: int | None = None,
         filter_method: Literal[
@@ -45,6 +46,8 @@ class FUSIIQAccessor:
         low_cutoff: float | None = None,
         high_cutoff: float | None = None,
         butterworth_order: int = 4,
+        butterworth_padtype: str | None = "odd",
+        butterworth_padlen: int | None = None,
         doppler_window_width: int | None = None,
         doppler_window_stride: int | None = None,
     ) -> xr.DataArray:
@@ -86,6 +89,11 @@ class FUSIIQAccessor:
         butterworth_order : int, default: 4
             Order of Butterworth filter. Effective order is doubled due to
             forward-backward filtering.
+        butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+            Butterworth padding extension type. Pass `None` to disable padding.
+        butterworth_padlen : int, optional
+            Butterworth padding length in samples. If not provided, uses SciPy's
+            default. Ignored when padding is disabled.
         doppler_window_width : int, optional
             Width of the sliding temporal window for power Doppler integration, in
             volumes. If not provided, equals `clutter_window_width`.
@@ -121,12 +129,15 @@ class FUSIIQAccessor:
             low_cutoff=low_cutoff,
             high_cutoff=high_cutoff,
             butterworth_order=butterworth_order,
+            butterworth_padtype=butterworth_padtype,
+            butterworth_padlen=butterworth_padlen,
             doppler_window_width=doppler_window_width,
             doppler_window_stride=doppler_window_stride,
         )
 
     def process_to_axial_velocity(
         self,
+        *,
         clutter_window_width: int | None = None,
         clutter_window_stride: int | None = None,
         filter_method: Literal[
@@ -136,10 +147,12 @@ class FUSIIQAccessor:
         low_cutoff: float | None = None,
         high_cutoff: float | None = None,
         butterworth_order: int = 4,
+        butterworth_padtype: str | None = "odd",
+        butterworth_padlen: int | None = None,
         velocity_window_width: int | None = None,
         velocity_window_stride: int | None = None,
         lag: int = 1,
-        spatial_kernel: int | tuple[int, int, int] | list[int] = 3,
+        spatial_kernel: int | tuple[int, int, int] | list[int] = 1,
     ) -> xr.DataArray:
         """Process beamformed IQ into axial velocity volumes.
 
@@ -179,6 +192,11 @@ class FUSIIQAccessor:
         butterworth_order : int, default: 4
             Order of Butterworth filter. Effective order is doubled due to
             forward-backward filtering.
+        butterworth_padtype : {"odd", "even", "constant", None}, default: "odd"
+            Butterworth padding extension type. Pass `None` to disable padding.
+        butterworth_padlen : int, optional
+            Butterworth padding length in samples. If not provided, uses SciPy's
+            default. Ignored when padding is disabled.
         velocity_window_width : int, optional
             Width of the sliding temporal window for velocity estimation, in volumes.
             If not provided, equals `clutter_window_width`.
@@ -187,7 +205,7 @@ class FUSIIQAccessor:
             If not provided, equals `velocity_window_width`.
         lag : int, default: 1
             Temporal lag in volumes for autocorrelation computation. Must be positive.
-        spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
+        spatial_kernel : int or tuple[int, int, int] or list[int], default: 1
             Size of the median filter kernel applied spatially to denoise. A scalar
             uses the same kernel size on all spatial axes; a length-3 sequence
             specifies `(k, j, i)` sizes directly. Values must be positive. Any even
@@ -221,6 +239,8 @@ class FUSIIQAccessor:
             low_cutoff=low_cutoff,
             high_cutoff=high_cutoff,
             butterworth_order=butterworth_order,
+            butterworth_padtype=butterworth_padtype,
+            butterworth_padlen=butterworth_padlen,
             velocity_window_width=velocity_window_width,
             velocity_window_stride=velocity_window_stride,
             lag=lag,
@@ -229,6 +249,7 @@ class FUSIIQAccessor:
 
     def process_to_bmode(
         self,
+        *,
         bmode_window_width: int | None = None,
         bmode_window_stride: int | None = None,
     ) -> xr.DataArray:

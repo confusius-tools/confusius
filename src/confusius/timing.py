@@ -430,7 +430,7 @@ def resample_time(
     Parameters
     ----------
     data : xarray.DataArray
-        DataArray with a `time` coordinate.
+        DataArray with a `time` coordinate of dimensions `(time,)`.
     new_time : array_like
         New time coordinates to resample to.
     method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}, default: "linear"
@@ -460,10 +460,15 @@ def resample_time(
     Raises
     ------
     ValueError
-        If `data` does not have a `time` dimension, has only 1 timepoint, or its `time`
-        coordinate is not strictly increasing.
+        If `data` does not have a `time` dimension, has only 1 timepoint, its `time`
+        coordinate is not strictly increasing, or its `time` coordinate has dimensions
+        other than `(time,)` (e.g. pose-dependent multi-pose data, which
+        [`correct_slice_timings`][confusius.multipose.correct_slice_timings]
+        resamples onto a shared 1D `time`).
     """
-    validate_time_series(data, "time resampling", require_sorted_time=True)
+    validate_time_series(
+        data, "time resampling", require_sorted_time=True, require_1d_time=True
+    )
 
     time_coord = data.coords[TIME_DIM].values
     new_time_arr = np.asarray(new_time)
@@ -530,7 +535,7 @@ def resample_to_uniform_time(
     Parameters
     ----------
     data : xarray.DataArray
-        DataArray with a `time` coordinate.
+        DataArray with a `time` coordinate of dimensions `(time,)`.
     start : float, optional
         Start of the new time grid. If not provided, use the first time point.
     stop : float, optional
@@ -568,7 +573,11 @@ def resample_to_uniform_time(
     Raises
     ------
     ValueError
-        If `data` does not have a `time` dimension or has only 1 timepoint.
+        If `data` does not have a `time` dimension, has only 1 timepoint, or its `time`
+        coordinate has dimensions other than `(time,)` (e.g. pose-dependent multi-pose
+        data, which
+        [`correct_slice_timings`][confusius.multipose.correct_slice_timings]
+        resamples onto a shared 1D `time`).
     ValueError
         If `start` is greater than or equal to `stop`, if `step` is not positive,
         or if no valid representative step can be derived.
@@ -579,7 +588,7 @@ def resample_to_uniform_time(
         If the original time coordinate is not uniform and `step` is not provided.
         In that case the median step is used.
     """
-    validate_time_series(data, "uniform time resampling")
+    validate_time_series(data, "uniform time resampling", require_1d_time=True)
 
     time_values = data.coords[TIME_DIM].values
 

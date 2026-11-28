@@ -6,12 +6,34 @@ icon: lucide/history
 
 # Changelog
 
-## 0.10.0.dev0
+## 0.11.0.dev0
 
 Current development version for the next ConfUSIus release.
 
+## 0.10.0
+
+Released 2026-11-27.
+
 ### :boom: Breaking changes
 
+- IQ processing functions and their xarray accessors now require window widths,
+  strides, filter cutoffs, masks, and other optional settings to be passed by
+  keyword. This also applies to the required window settings in
+  [`compute_processed_volume_timings`][confusius.iq.compute_processed_volume_timings].
+  For example, use `iq.fusi.iq.process_to_bmode(bmode_window_width=300)`
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+- Custom [`process_iq_blocks`][confusius.iq.process_iq_blocks] calls now require
+  `output_shape` and `output_dtype` for one processing window. Callbacks must return
+  NumPy arrays matching both declarations and retain the leading output-time axis.
+  Execution options are keyword-only, non-temporal axes are inferred automatically,
+  and callback settings must be bound with `functools.partial` instead of forwarded
+  keywords. The Dask-specific `drop_axis` and `new_axis` options are removed
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+- [`compute_axial_velocity_volume`][confusius.iq.compute_axial_velocity_volume],
+  [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity], and
+  the corresponding xarray accessor now default `spatial_kernel` to `1`, disabling
+  spatial median filtering unless requested
+  ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - [`get_bounding_box`][confusius.xarray.get_bounding_box] and
   [`.fusi.affine.bounding_box`][confusius.xarray.FUSIAffineAccessor.bounding_box] now
   return a dictionary mapping world coordinate names to `(min, max)` bounds instead
@@ -39,6 +61,17 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Control Butterworth clutter-filter padding with `padtype`/`padlen`, also exposed
+  as `butterworth_padtype`/`butterworth_padlen` in IQ processing functions and
+  accessors. Existing defaults remain unchanged
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+- Tune execution batching in
+  [`process_iq_blocks`][confusius.iq.process_iq_blocks] with `windows_per_task`,
+  independently of scientific window sizes. Existing overlap-safe defaults remain
+  unchanged ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+- Stream the Landemard beamformed IQ sample lazily and open HTTP(S) Zarr stores with
+  `cf.load`, including stores that require query parameters on each request
+  ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - New [`ThresholdedColormap`][confusius.plotting.ThresholdedColormap], the gray-banded
   colormap stat maps are drawn with, which remembers its source colormap and
   threshold and can be rebuilt on another colormap with `with_source`
@@ -68,8 +101,43 @@ Current development version for the next ConfUSIus release.
   `{chunk}` filename template, preserving each pose's geometry and timing
   ([#579](https://github.com/confusius-tools/confusius/pull/579)).
 
+### :zap: Performance
+
+- Automatic NIfTI chunks follow disk order, reducing fragmented reads on network
+  drives. Large 2D and 3D images split along their slowest axes first, and
+  4D through 7D files group complete spatial volumes
+  ([#597](https://github.com/confusius-tools/confusius/pull/597)).
+- IQ processing and cumulative-energy threshold calibration construct their Dask
+  graphs without reading IQ samples, including for Zarr recordings opened with
+  `chunks=None`. Processing reuses existing Dask chunks or the storage chunk sizes
+  when available. NumPy-backed inputs share their sample buffer with the pending
+  computation, avoiding a full recording copy. Keep the samples unchanged until
+  computation finishes ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+
 ### :bug: Fixes
 
+- `resample_time` and `resample_to_uniform_time` now require one timestamp per
+  timepoint along the `time` dimension. For multi-pose recordings with a
+  `(time, pose)`-shaped `time` coordinate, resample the poses onto a shared grid with
+  [`correct_slice_timings`][confusius.multipose.correct_slice_timings]
+  ([#424](https://github.com/confusius-tools/confusius/pull/424)).
+- Signal Butterworth filtering checks the actual padding requirement, accepting
+  short signals with custom or disabled padding and accounting correctly for
+  odd-order and band-pass filters. Dask-backed results report the filtered dtype
+  before computation. Both signal and IQ Butterworth filters require a positive
+  filter order when filtering is requested
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+- IQ window counting avoids integer overflow on long recordings, and axial
+  velocity calculations use consistent precision across integer lag types
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+- Adaptive SVD filtering retains consistent output precision even when a window
+  selects no clutter components, preventing other windows from being silently
+  downcast during Dask assembly
+  ([#586](https://github.com/confusius-tools/confusius/pull/586)).
+- SVD clutter filters and cumulative-energy threshold calibration now raise `ValueError`
+  when a supplied mask selects no voxels, preventing silently unfiltered outputs or
+  invalid thresholds. Omitting the mask still uses all voxels
+  ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] draws the
   iteration count in a darker turquoise, readable on light backgrounds
   ([#518](https://github.com/confusius-tools/confusius/pull/518)).
@@ -94,6 +162,8 @@ Current development version for the next ConfUSIus release.
 
 ### :books: Documentation
 
+- Add a beamformed IQ processing example covering B-mode, power Doppler, and axial
+  velocity ([#576](https://github.com/confusius-tools/confusius/pull/576)).
 - Cite the ConfUSIus preprint as the preferred reference, link to the Zenodo software
   archive, and simplify dataset and template citations
   ([#565](https://github.com/confusius-tools/confusius/pull/565)).
@@ -131,6 +201,9 @@ Current development version for the next ConfUSIus release.
 
 ### :frame_photo: Napari plugin
 
+- Switching image layers in Signals mouse mode now redraws the voxel trace once,
+  avoiding repeated reads from lazily loaded images
+  ([#596](https://github.com/confusius-tools/confusius/pull/596)).
 - Videos open in a separate, time-synchronized viewer with their own layer list. Load
   recordings and videos from **Data I/O**
   ([#521](https://github.com/confusius-tools/confusius/pull/521)).

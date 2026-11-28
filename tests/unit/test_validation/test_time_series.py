@@ -45,6 +45,28 @@ def test_validate_time_series_raises_for_unsorted_time_when_required():
         validate_time_series(signals, "resampling", require_sorted_time=True)
 
 
+def test_validate_time_series_raises_for_pose_dependent_time_when_1d_required(
+    sample_voxeldata_3dt_pose,
+):
+    """1D-time validation should reject a (time, pose)-shaped time coordinate."""
+    with pytest.raises(ValueError, match="1D 'time' coordinate.*correct_slice_timings"):
+        validate_time_series(
+            sample_voxeldata_3dt_pose, "resampling", require_1d_time=True
+        )
+
+
+def test_validate_time_series_allows_pose_dependent_time_by_default(
+    sample_voxeldata_3dt_pose,
+):
+    """1D-time validation should be opt-in, not enforced by default."""
+    time_axis, time_spacing = validate_time_series(
+        sample_voxeldata_3dt_pose, "resampling"
+    )
+
+    assert time_axis == 0
+    assert time_spacing is None
+
+
 def test_validate_time_series_returns_spacing_when_uniform_time_required():
     """Uniform-time validation should return the time spacing."""
     signals = xr.DataArray(

@@ -376,6 +376,8 @@ class SignalPlotter(QWidget):
         max_val : float | None
             Maximum Y value, or None for auto.
         """
+        if (self._ylim_min, self._ylim_max) == (min_val, max_val):
+            return
         self._ylim_min = min_val
         self._ylim_max = max_val
         self._refresh_plot()
@@ -400,6 +402,8 @@ class SignalPlotter(QWidget):
         enabled : bool
             Whether to autoscale the Y-axis.
         """
+        if self._autoscale == enabled:
+            return
         self._autoscale = enabled
         self._refresh_plot()
 
@@ -411,6 +415,8 @@ class SignalPlotter(QWidget):
         enabled : bool
             Whether to show the grid.
         """
+        if self._show_grid == enabled:
+            return
         self._show_grid = enabled
         self._refresh_plot()
 
@@ -422,6 +428,8 @@ class SignalPlotter(QWidget):
         enabled : bool
             Whether to Z-score the signals.
         """
+        if self._zscore == enabled:
+            return
         self._zscore = enabled
         self._refresh_plot()
 
@@ -433,6 +441,8 @@ class SignalPlotter(QWidget):
         enabled : bool
             Whether to show the x-axis cursor.
         """
+        if self._show_cursor == enabled:
+            return
         self._show_cursor = enabled
         self._vline = None
         self._bg = None
@@ -461,7 +471,11 @@ class SignalPlotter(QWidget):
             # clear it so _flush_cursor does not restore a stale image.
             self._bg = None
             self._invalidate_mouse_cache()
-            self._refresh_plot()
+            if self._source_mode == "mouse":
+                # Layer selection can change the axis during the same event.
+                self._mouse_update_timer.start(0)
+            else:
+                self._refresh_plot()
 
     def set_xaxis_cursor(self, world_value: float) -> None:
         """Schedule a blitted x-axis cursor update.
@@ -611,7 +625,7 @@ class SignalPlotter(QWidget):
         if layer is not None:
             self._current_layer = layer
         if self._cursor_pos is not None and self._current_layer is not None:
-            self._update_plot()
+            self._mouse_update_timer.start(0)
 
     def _active_layer(self):
         """Return the active layer, or None if it is not a valid image.
@@ -1046,6 +1060,7 @@ class SignalPlotter(QWidget):
         mode : str
             One of `"mouse"`, `"points"`, or `"labels"`.
         """
+        self._mouse_update_timer.stop()
         self._source_mode = mode
         self._invalidate_mouse_cache()
         if mode == "mouse":
