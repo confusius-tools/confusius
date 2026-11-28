@@ -1,107 +1,32 @@
 name: Publish to PyPI
 
 on:
-  workflow_run:
-    workflows: ["Docs"]
-    types:
-      - completed
+  push:
+    tags: ["v*"]
 
 permissions:
-  actions: read
   contents: read
 
 concurrency:
-  group: publish-${{ github.event.workflow_run.head_sha }}
+  group: publish-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  gate:
-    if: >-
-      github.event.workflow_run.event == 'push' &&
-      startsWith(github.event.workflow_run.head_branch, 'v')
-    runs-on: ubuntu-latest
-    outputs:
-      should_publish: ${{ steps.check.outputs.should_publish }}
-      head_sha: ${{ steps.check.outputs.head_sha }}
-    steps:
-      - name: Wait for lint, tests, and docs on this tag SHA
-        id: check
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const headSha = context.payload.workflow_run.head_sha;
-            const required = ["Lint", "Tests", "Docs"];
-            const timeoutMs = 30 * 60 * 1000;
-            const pollMs = 15 * 1000;
-            const startedAt = Date.now();
+  lint:
+    uses: ./.github/workflows/lint.yml
 
-            core.setOutput("head_sha", headSha);
+  tests:
+    uses: ./.github/workflows/test.yml
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-            while (Date.now() - startedAt < timeoutMs) {
-              const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
-                owner,
-                repo,
-                event: "push",
-                head_sha: headSha,
-                per_page: 100,
-              });
-
-              const latestByName = new Map();
-              for (const run of runs) {
-                if (!required.includes(run.name)) {
-                  continue;
-                }
-
-                const current = latestByName.get(run.name);
-                if (!current || new Date(run.created_at) > new Date(current.created_at)) {
-                  latestByName.set(run.name, run);
-                }
-              }
-
-              const missing = required.filter((name) => !latestByName.has(name));
-              const pending = Array.from(latestByName.values()).filter(
-                (run) => run.status !== "completed",
-              );
-
-              if (missing.length === 0 && pending.length === 0) {
-                const failed = Array.from(latestByName.values()).filter(
-                  (run) => run.conclusion !== "success",
-                );
-
-                for (const run of latestByName.values()) {
-                  core.info(`${run.name}: ${run.conclusion} (${run.html_url})`);
-                }
-
-                if (failed.length > 0) {
-                  core.setFailed(
-                    `Required workflows did not all succeed for ${headSha}: ${failed
-                      .map((run) => `${run.name}=${run.conclusion}`)
-                      .join(", ")}`,
-                  );
-                  return;
-                }
-
-                core.setOutput("should_publish", "true");
-                return;
-              }
-
-              core.info(
-                `Waiting for workflows on ${headSha}. Missing: ${missing.join(", ") || "none"}. Pending: ${pending
-                  .map((run) => run.name)
-                  .join(", ") || "none"}.`,
-              );
-              await new Promise((resolve) => setTimeout(resolve, pollMs));
-            }
-
-            core.setFailed(
-              `Timed out waiting for Lint, Tests, and Docs to complete for ${headSha}.`,
-            );
+  docs:
+    uses: ./.github/workflows/docs.yml
+    secrets:
+      DOCS_DEPLOY_TOKEN: ${{ secrets.DOCS_DEPLOY_TOKEN }}
 
   publish:
-    needs: gate
-    if: needs.gate.outputs.should_publish == 'true'
+    needs: [lint, tests, docs]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -110,10 +35,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - name: Checkout tagged commit
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.gate.outputs.head_sha }}
+      - uses: actions/checkout@v7
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.1.0
